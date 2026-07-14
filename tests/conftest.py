@@ -77,6 +77,7 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
     monkeypatch.setenv("WFCTL_STATE_DIR", str(agent_dir))
     monkeypatch.setenv("WFCTL_BRANCH", "418-storyctl")
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(tmp_path / "specs"))
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(tmp_path))
 
     def make_spec_artifact(step: str, content: str = "x") -> Path:
         artifact: Path = _STEP_ARTIFACTS[step](tmp_path, spec_dir)  # type: ignore[operator]

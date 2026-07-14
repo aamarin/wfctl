@@ -27,8 +27,8 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
     return agent_dir, repo_root, branch, issue
 
 
-@app.command()
-def start(force: bool = typer.Option(False, "--force", help="Overwrite existing state")) -> None:
+@app.command("start")
+def start_cmd(force: bool = typer.Option(False, "--force", help="Overwrite existing state")) -> None:
     """Initialize agent session context."""
     from wfctl import _session
 
@@ -58,11 +58,12 @@ def start(force: bool = typer.Option(False, "--force", help="Overwrite existing 
     )
 
 
-@app.command()
-def status() -> None:
+@app.command("status")
+def status_cmd() -> None:
     """Show pipeline progress."""
     from wfctl._pipeline import steps_display
     from wfctl._paths import resolve_spec_dir
+    from wfctl._io import write_json_atomic
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -74,7 +75,8 @@ def status() -> None:
     if spec_dir is None:
         console.print("[dim](no spec dir found)[/dim]")
 
-    for step in steps_display(spec_dir, repo_root):
+    steps = steps_display(spec_dir, repo_root)
+    for step in steps:
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
         color = _SYMBOL_STYLE.get(step["symbol"], "")
@@ -83,18 +85,20 @@ def status() -> None:
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
 
+    current_json = agent_dir / "current.json"
+    if current_json.exists():
+        current_name = next((s["name"] for s in steps if s["is_current"]), "complete")
+        data = json.loads(current_json.read_text())
+        data["workflow_step"] = current_name
+        write_json_atomic(current_json, data)
 
-@app.command()
-def next() -> None:
+
+@app.command("next")
+def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
     from wfctl._pipeline import _infer_steps, _current_step_name, next_step_content
 
     agent_dir, repo_root, branch, _ = _resolve_context()
-
-    if not (agent_dir / "current.json").exists():
-        console.print("[red]✗ No current state. Run `wfctl start` first.[/red]")
-        raise typer.Exit(1)
-
     spec_dir = resolve_spec_dir(branch, repo_root)
     steps = _infer_steps(spec_dir, repo_root)
     step_name = _current_step_name(steps)
@@ -117,8 +121,8 @@ def next() -> None:
     next_step_md.write_text(content)
 
 
-@app.command()
-def resume() -> None:
+@app.command("resume")
+def resume_cmd() -> None:
     """Log a resume event and print current state."""
     from wfctl import _session
 
@@ -135,8 +139,8 @@ def resume() -> None:
     )
 
 
-@app.command()
-def end() -> None:
+@app.command("end")
+def end_cmd() -> None:
     """End the current session."""
     from wfctl import _session
 
@@ -150,8 +154,8 @@ def end() -> None:
     console.print(f"[green]✓[/green] Session ended. Summary written to {summary_path}")
 
 
-@app.command()
-def checkpoint() -> None:
+@app.command("checkpoint")
+def checkpoint_cmd() -> None:
     """Save a numbered checkpoint artifact."""
     from wfctl import _session
 
@@ -169,8 +173,8 @@ def checkpoint() -> None:
         raise typer.Exit(1)
 
 
-@app.command()
-def promote() -> None:
+@app.command("promote")
+def promote_cmd() -> None:
     """Interactively promote memory candidates."""
     import os
     from wfctl import _session

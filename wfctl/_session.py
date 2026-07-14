@@ -134,14 +134,12 @@ def checkpoint(agent_dir: Path, repo_root: Path) -> int:
     if diff_result.returncode != 0:
         raise RuntimeError(f"Cannot capture diff: {diff_result.stderr.strip()}")
 
-    # Find next checkpoint number
-    chk_dir = agent_dir / "checkpoints"
-    nums = []
-    if chk_dir.exists():
-        for p in chk_dir.iterdir():
-            prefix = p.name.split("-")[0]
-            if prefix.isdigit():
-                nums.append(int(prefix))
+    # Find next checkpoint number by scanning existing patch files
+    nums = [
+        int(p.stem.split("-")[1])
+        for p in agent_dir.glob("checkpoint-*.patch")
+        if p.stem.split("-")[1].isdigit()
+    ]
     n = max(nums, default=0) + 1
 
     patch_path = agent_dir / f"checkpoint-{n}.patch"
