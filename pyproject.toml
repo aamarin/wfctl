@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wfctl"
+version = "0.1.0"
+description = "Workflow state CLI for agent session and pipeline tracking"
+authors = [{ name = "Andre Marin", email = "andre@thesupe.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "typer[all]>=0.12",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+wfctl = "wfctl.cli:app"
