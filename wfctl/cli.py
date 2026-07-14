@@ -125,8 +125,10 @@ def next_cmd() -> None:
 
 @app.command("resume")
 def resume_cmd() -> None:
-    """Log a resume event and print current state (re-inferred from filesystem)."""
+    """Re-infer pipeline step, write next-step.md, and print current state."""
     from wfctl import _session
+    from wfctl._pipeline import next_step_content
+    from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
@@ -136,10 +138,23 @@ def resume_cmd() -> None:
 
     spec_dir = resolve_spec_dir(branch, repo_root)
     data = _session.resume(agent_dir, spec_dir, repo_root)
-    console.print(
-        f"[green]↺[/green] Resumed — step: {data.get('workflow_step', '?')}, "
-        f"next: {data.get('next_command', '—')}"
-    )
+    step_name = data.get("workflow_step", "?")
+
+    if spec_dir is None:
+        command, auto = "/speckit.specify", False
+    else:
+        command, auto = next_step_content(step_name)
+
+    next_step_md = agent_dir / "next-step.md"
+    if command:
+        auto_str = "true" if auto else "false"
+        next_step_md.write_text(f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n")
+        console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
+    else:
+        next_step_md.write_text("Story complete. Open PR or run /end-session.\n")
+        console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
+
+    append_event(agent_dir, "resume", step=step_name, command=command or "complete", auto=auto)
 
 
 @app.command("end")
