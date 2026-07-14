@@ -30,6 +30,18 @@ def test_resume_not_initialized_exits_one(agent_dir: Path) -> None:
     assert result.exit_code == 1
 
 
+def test_resume_re_infers_step_from_filesystem(agent_dir: Path) -> None:
+    runner.invoke(app, ["start"])
+    # Force stale step into current.json
+    current_json = agent_dir / "current.json"
+    data = json.loads(current_json.read_text())
+    data["workflow_step"] = "implement"  # stale — no artifacts to back this up
+    current_json.write_text(json.dumps(data))
+    runner.invoke(app, ["resume"])
+    fresh = json.loads(current_json.read_text())
+    assert fresh["workflow_step"] != "implement"  # re-inferred from empty spec dir → brainstorm
+
+
 def test_end_sets_status_complete(agent_dir: Path) -> None:
     runner.invoke(app, ["start"])
     runner.invoke(app, ["end"])
@@ -66,6 +78,21 @@ def test_checkpoint_creates_md(agent_dir: Path) -> None:
 def test_checkpoint_not_initialized_exits_one(agent_dir: Path) -> None:
     result = runner.invoke(app, ["checkpoint"])
     assert result.exit_code == 1
+
+
+def test_log_shows_events(agent_dir: Path) -> None:
+    runner.invoke(app, ["start"])
+    runner.invoke(app, ["next"])
+    result = runner.invoke(app, ["log"])
+    assert result.exit_code == 0
+    assert "start" in result.output
+    assert "next" in result.output
+
+
+def test_log_empty_before_start(agent_dir: Path) -> None:
+    result = runner.invoke(app, ["log"])
+    assert result.exit_code == 0
+    assert "No events" in result.output
 
 
 def test_checkpoint_increments(agent_dir: Path) -> None:

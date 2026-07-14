@@ -97,6 +97,7 @@ def status_cmd() -> None:
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
     from wfctl._pipeline import _infer_steps, _current_step_name, next_step_content
+    from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -119,11 +120,12 @@ def next_cmd() -> None:
         console.print("Story complete — open PR or run `/end-session`.")
 
     next_step_md.write_text(content)
+    append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
 
 
 @app.command("resume")
 def resume_cmd() -> None:
-    """Log a resume event and print current state."""
+    """Log a resume event and print current state (re-inferred from filesystem)."""
     from wfctl import _session
 
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -132,7 +134,8 @@ def resume_cmd() -> None:
         console.print("[red]✗ No current state. Run `wfctl start` first.[/red]")
         raise typer.Exit(1)
 
-    data = _session.resume(agent_dir)
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    data = _session.resume(agent_dir, spec_dir, repo_root)
     console.print(
         f"[green]↺[/green] Resumed — step: {data.get('workflow_step', '?')}, "
         f"next: {data.get('next_command', '—')}"
@@ -171,6 +174,46 @@ def checkpoint_cmd() -> None:
     except RuntimeError as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command("log")
+def log_cmd() -> None:
+    """Print the event log for the current session."""
+    agent_dir, _, _, _ = _resolve_context()
+    events_file = agent_dir / "events.jsonl"
+
+    if not events_file.exists():
+        console.print("[dim]No events logged yet.[/dim]")
+        return
+
+    _STYLES = {
+        "start": "green",
+        "end": "red",
+        "resume": "cyan",
+        "next": "yellow",
+        "checkpoint": "blue",
+        "promote": "magenta",
+    }
+
+    import json as _json
+    for line in events_file.read_text().splitlines():
+        try:
+            e = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        ts = e.get("ts", "")[:16].replace("T", " ")
+        event = e.get("event", "?")
+        color = _STYLES.get(event, "white")
+        extras = {k: v for k, v in e.items() if k not in ("ts", "event")}
+        detail = "  ".join(f"{k}={v}" for k, v in extras.items())
+        console.print(f"[dim]{ts}[/dim]  [{color}]{event:<10}[/{color}]  [dim]{detail}[/dim]")
+
+
+@app.command("state-dir")
+def state_dir_cmd() -> None:
+    """Print the active state directory path."""
+    agent_dir, _, _, _ = _resolve_context()
+    print(agent_dir)
 
 
 @app.command("promote")

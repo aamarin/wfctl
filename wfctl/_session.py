@@ -115,11 +115,16 @@ def end(agent_dir: Path) -> Path:
     return summary_file
 
 
-def resume(agent_dir: Path) -> dict:
-    """Log resume event; return current state dict."""
+def resume(agent_dir: Path, spec_dir: Optional[Path], repo_root: Path) -> dict:
+    """Log resume event; re-infer step from filesystem; return updated state."""
+    from wfctl._pipeline import _current_step_name, _infer_steps
+
     current_json = agent_dir / "current.json"
     data = json.loads(current_json.read_text())
-    append_event(agent_dir, "resume", branch=data.get("branch", ""), step=data.get("workflow_step", ""))
+    step_name = _current_step_name(_infer_steps(spec_dir, repo_root))
+    data["workflow_step"] = step_name
+    write_json_atomic(current_json, data)
+    append_event(agent_dir, "resume", branch=data.get("branch", ""), step=step_name)
     return data
 
 
