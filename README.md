@@ -1,11 +1,26 @@
 # wfctl
 
-Workflow state CLI for agent session and pipeline tracking.
+Workflow state CLI for AI agent session and pipeline tracking.
 
-## Install
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+
+wfctl manages session and pipeline state for AI coding agents (Claude Code, Codex, Copilot). It tracks where you are in a feature development pipeline — specify → plan → implement → verify — and tells the agent what to do next.
+
+## Requirements
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- Git
+
+## Installation
 
 ```bash
-pip install git+https://github.com/MarinVentures/wfctl.git@v0.2.0
+# Recommended: uv tool (isolated, always up-to-date)
+uv tool install git+https://github.com/MarinVentures/wfctl.git@v0.2.1
+
+# Or pip
+pip install git+https://github.com/MarinVentures/wfctl.git@v0.2.1
 ```
 
 ## Quickstart
@@ -17,7 +32,10 @@ wfctl start
 # Check pipeline progress
 wfctl status
 
-# Resume: re-infer step, write next-step.md, print state
+# Install wf-skills (agent skills + slash commands) into your project
+wfctl install-skills
+
+# Resume: re-infer pipeline step, write next-step.md
 wfctl resume
 
 # End the session
@@ -26,17 +44,18 @@ wfctl end
 
 ## Commands
 
-| Command      | Description                                                              |
-|--------------|--------------------------------------------------------------------------|
-| `start`      | Initialize agent session context (idempotent)                            |
-| `status`     | Show pipeline progress inferred from spec artifacts                      |
-| `resume`     | Re-infer step from filesystem, write `next-step.md`, print current state |
-| `next`       | Write next actionable step to `next-step.md` (automation shortcut)       |
-| `end`        | End the current session and write summary scaffold                       |
-| `checkpoint` | Save a numbered checkpoint artifact (diff + md)                          |
-| `log`        | Print color-coded event timeline for the current session                 |
-| `state-dir`  | Print the active XDG state directory path                                |
-| `promote`    | Interactively promote memory candidates to permanent                     |
+| Command          | Description                                                              |
+|------------------|--------------------------------------------------------------------------|
+| `start`          | Initialize agent session context (idempotent)                            |
+| `status`         | Show pipeline progress inferred from spec artifacts                      |
+| `resume`         | Re-infer step from filesystem, write `next-step.md`, print current state |
+| `next`           | Write next actionable step to `next-step.md` (automation shortcut)       |
+| `end`            | End the current session and write summary scaffold                       |
+| `checkpoint`     | Save a numbered checkpoint artifact (diff + md)                          |
+| `log`            | Print color-coded event timeline for the current session                 |
+| `state-dir`      | Print the active XDG state directory path                                |
+| `promote`        | Interactively promote memory candidates to permanent memory              |
+| `install-skills` | Clone wf-skills and copy skills + commands into the current project      |
 
 ### `resume` vs `next`
 
@@ -45,10 +64,10 @@ from the filesystem, updates `current.json`, writes `next-step.md`, and logs a
 resume event. Use it when returning to a session or when a skill needs to
 advance the pipeline.
 
-`next` is a lighter variant: it writes `next-step.md` without requiring a prior
-`wfctl start` (no `current.json` guard). Useful for one-shot step queries.
+`next` is a lighter variant that writes `next-step.md` without requiring a prior
+`wfctl start`. Useful for one-shot step queries.
 
-Run `wfctl <command> --help` for options.
+Run `wfctl <command> --help` for all options.
 
 ## Environment Variables
 
@@ -60,3 +79,20 @@ Run `wfctl <command> --help` for options.
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
 | `WFCTL_CANDIDATES_FILE` | Override path to `memory-candidates.md`                      |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
+
+## Development
+
+```bash
+git clone https://github.com/MarinVentures/wfctl.git
+cd wfctl
+pip install -e ".[dev]"
+pytest
+```
+
+## Contributing
+
+Issues and PRs welcome. Please open an issue first for significant changes.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
