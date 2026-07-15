@@ -57,6 +57,47 @@ wfctl end
 | `promote`        | Interactively promote memory candidates to permanent memory              |
 | `install-skills` | Clone wf-skills and copy skills + commands into the current project      |
 
+## Example Session
+
+```
+$ wfctl start
+✓ Session started — step: implement, next: /speckit.implement
+
+$ wfctl status
+#436  436-manual-transaction-entry
+────────────────────────────────────
+brainstorm   ●
+specify      ●
+plan         ●
+tasks        ●
+implement    ▶  ← current
+verify       ○
+
+$ wfctl checkpoint
+✓ Checkpoint 1 saved
+
+$ wfctl resume
+↺ Resumed — step: implement, next: /speckit.implement (auto: true)
+
+$ wfctl log
+2026-07-15 09:12  start       step=implement
+2026-07-15 09:14  checkpoint  n=1
+2026-07-15 11:03  resume      step=implement  command=/speckit.implement
+
+$ wfctl end
+✓ Session ended. Summary written to ~/.local/state/wfctl/.../session-summary.md
+```
+
+Install skills into a project:
+
+```
+$ wfctl install-skills
+✓ Installed 22 item(s) from https://github.com/aamarin/wf-skills@main
+
+$ wfctl install-skills --repo https://github.com/your-org/wf-skills --ref v2.0
+✓ Installed 18 item(s) from https://github.com/your-org/wf-skills@v2.0
+```
+
 ### `resume` vs `next`
 
 `resume` is the primary automation entry point: it re-infers the pipeline step
