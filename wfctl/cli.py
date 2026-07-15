@@ -244,5 +244,56 @@ def promote_cmd() -> None:
     _session.promote(candidates_path, agent_dir)
 
 
+@app.command("install-skills")
+def install_skills_cmd(
+    repo: str = typer.Option(
+        "https://github.com/MarinVentures/wf-skills",
+        "--repo",
+        help="wf-skills repo URL",
+    ),
+    ref: str = typer.Option("main", "--ref", help="Branch or tag to install from"),
+) -> None:
+    """Install wf-skills (skills + commands) into the current project."""
+    import shutil
+    import subprocess as sp
+    import tempfile
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        console.print("[red]✗ Not in a git repo.[/red]")
+        raise typer.Exit(1)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = sp.run(
+            ["git", "clone", "--depth=1", "--branch", ref, repo, tmp],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            console.print(f"[red]✗ Clone failed: {result.stderr.strip()}[/red]")
+            raise typer.Exit(1)
+
+        count = 0
+        for src_rel, dst_rel in [
+            (".agents/skills", ".agents/skills"),
+            (".claude/commands", ".claude/commands"),
+        ]:
+            src = Path(tmp) / src_rel
+            dst = repo_root / dst_rel
+            if not src.exists():
+                continue
+            dst.mkdir(parents=True, exist_ok=True)
+            for item in src.iterdir():
+                dest = dst / item.name
+                if item.is_dir():
+                    shutil.copytree(item, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, dest)
+                count += 1
+
+    console.print(f"[green]✓[/green] Installed {count} item(s) from {repo}@{ref}")
+
+
 if __name__ == "__main__":
     app()
