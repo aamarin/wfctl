@@ -228,7 +228,7 @@ def log_cmd() -> None:
 def state_dir_cmd() -> None:
     """Print the active state directory path."""
     agent_dir, _, _, _ = _resolve_context()
-    print(agent_dir)
+    console.print(agent_dir)
 
 
 @app.command("promote")
