@@ -17,10 +17,10 @@ wfctl manages session and pipeline state for AI coding agents (Claude Code, Code
 
 ```bash
 # Recommended: uv tool (isolated, always up-to-date)
-uv tool install git+https://github.com/MarinVentures/wfctl.git@v0.2.1
+uv tool install git+https://github.com/aamarin/wfctl.git@v0.2.1
 
 # Or pip
-pip install git+https://github.com/MarinVentures/wfctl.git@v0.2.1
+pip install git+https://github.com/aamarin/wfctl.git@v0.2.1
 ```
 
 ## Quickstart
@@ -83,7 +83,7 @@ Run `wfctl <command> --help` for all options.
 ## Development
 
 ```bash
-git clone https://github.com/MarinVentures/wfctl.git
+git clone https://github.com/aamarin/wfctl.git
 cd wfctl
 pip install -e ".[dev]"
 pytest
