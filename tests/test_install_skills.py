@@ -27,10 +27,6 @@ def _make_wf_skills_repo(base: Path) -> Path:
     cmd.mkdir(parents=True)
     (cmd / "test-cmd.md").write_text("# test-cmd\n")
 
-    bob_cmd = src / ".bob" / "commands"
-    bob_cmd.mkdir(parents=True)
-    (bob_cmd / "test-cmd.md").write_text("# test-cmd\n")
-
     subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
     return src
@@ -105,3 +101,116 @@ def test_install_skills_warns_on_missing_source_path(agent_dir: Path, tmp_path: 
     assert result.exit_code == 0
     assert "not found" in result.output
     assert ".agents/skills" in result.output
+
+
+def test_uninstall_removes_freshly_installed_items(agent_dir: Path, tmp_path: Path) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert (repo_root / ".agents" / "skills" / "test-skill").exists()
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
+    assert not (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+    assert not (repo_root / ".wf-skills-manifest.json").exists()
+
+
+def test_install_backs_up_and_uninstall_restores_pre_existing_file(agent_dir: Path, tmp_path: Path) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    # A command of the same name already exists before wf-skills touches it.
+    existing_cmd_dir = repo_root / ".claude" / "commands"
+    existing_cmd_dir.mkdir(parents=True)
+    (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert "Backed up 1" in result.output
+    # Overwritten with wf-skills' version after install.
+    assert (existing_cmd_dir / "test-cmd.md").read_text() == "# test-cmd\n"
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert "restored 1" in result.output
+    # Original content is back, not just deleted.
+    assert (existing_cmd_dir / "test-cmd.md").read_text() == "# my own pre-existing command\n"
+    assert not (repo_root / ".wf-skills-backup").exists()
+
+
+def test_uninstall_with_nothing_installed_is_a_noop(agent_dir: Path) -> None:
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert "Nothing installed" in result.output
+
+
+def test_reinstall_does_not_re_backup_already_tracked_item(agent_dir: Path, tmp_path: Path) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    existing_cmd_dir = repo_root / ".claude" / "commands"
+    existing_cmd_dir.mkdir(parents=True)
+    (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
+
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"])
+    # Second install of the same item should not report a fresh backup.
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+    )
+    assert "Backed up" not in result.output
+
+    # The original pre-existing content must still be recoverable.
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert (existing_cmd_dir / "test-cmd.md").read_text() == "# my own pre-existing command\n"
+
+
+def test_install_prompts_before_overwriting_and_declining_aborts(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    existing_cmd_dir = repo_root / ".claude" / "commands"
+    existing_cmd_dir.mkdir(parents=True)
+    (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n"
+    )
+    assert result.exit_code != 0
+    assert "test-cmd.md" in result.output
+    # Declined — nothing touched, no manifest written.
+    assert (existing_cmd_dir / "test-cmd.md").read_text() == "# my own pre-existing command\n"
+    assert not (repo_root / ".wf-skills-manifest.json").exists()
+
+
+def test_install_prompts_before_overwriting_and_confirming_proceeds(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    existing_cmd_dir = repo_root / ".claude" / "commands"
+    existing_cmd_dir.mkdir(parents=True)
+    (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="y\n"
+    )
+    assert result.exit_code == 0
+    assert (existing_cmd_dir / "test-cmd.md").read_text() == "# test-cmd\n"
+
+
+def test_install_no_prompt_when_nothing_would_be_overwritten(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    src = _make_wf_skills_repo(tmp_path)
+    # No --yes, no input supplied — would hang/fail on an unexpected prompt.
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0

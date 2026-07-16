@@ -246,7 +246,14 @@ def promote_cmd() -> None:
 
 # Where each agent reads from. Skills are agent-agnostic SKILL.md files; only the
 # destination differs. Both Claude and Bob also have their own command-wrapper
-# layer (.claude/commands, .bob/commands) that shims to the shared skills.
+# layer, but wf-skills only maintains one authored copy of the wrapper content
+# (.claude/commands) — Bob's install copies that same source to .bob/commands
+# rather than maintaining a second hand-translated set that would drift.
+#
+# Known limitation: "claude" and "none" share .agents/skills as a destination,
+# so installing both in the same repo will cross-attribute backups between
+# their manifest entries. Uninstalling one won't corrupt the other's files,
+# just its bookkeeping. Not handled — pick one agent per repo.
 _AGENT_TARGETS = {
     "claude": [
         (".agents/skills", ".agents/skills"),
@@ -254,10 +261,28 @@ _AGENT_TARGETS = {
     ],
     "bob": [
         (".agents/skills", ".bob/skills"),
-        (".bob/commands", ".bob/commands"),
+        (".claude/commands", ".bob/commands"),
     ],
     "none": [(".agents/skills", ".agents/skills")],
 }
+
+_MANIFEST_PATH = ".wf-skills-manifest.json"
+_BACKUP_DIR = ".wf-skills-backup"
+
+
+def _load_manifest(repo_root: Path) -> dict:
+    manifest_file = repo_root / _MANIFEST_PATH
+    if manifest_file.exists():
+        return json.loads(manifest_file.read_text())
+    return {}
+
+
+def _save_manifest(repo_root: Path, manifest: dict) -> None:
+    manifest_file = repo_root / _MANIFEST_PATH
+    if manifest:
+        manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
+    elif manifest_file.exists():
+        manifest_file.unlink()
 
 
 @app.command("install-skills")
@@ -273,8 +298,15 @@ def install_skills_cmd(
         "--agent",
         help=f"Target agent: {', '.join(_AGENT_TARGETS)}",
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip the confirmation prompt when files would be overwritten",
+    ),
 ) -> None:
     """Install wf-skills (skills + commands) into the current project."""
+    import datetime
     import shutil
     import subprocess as sp
     import tempfile
@@ -293,6 +325,9 @@ def install_skills_cmd(
         console.print("[red]✗ Not in a git repo.[/red]")
         raise typer.Exit(1)
 
+    manifest = _load_manifest(repo_root)
+    prior_items = {i["path"]: i for i in manifest.get(agent, {}).get("items", [])}
+
     with tempfile.TemporaryDirectory() as tmp:
         result = sp.run(
             ["git", "clone", "--depth=1", "--branch", ref, repo, tmp],
@@ -303,7 +338,11 @@ def install_skills_cmd(
             console.print(f"[red]✗ Clone failed: {result.stderr.strip()}[/red]")
             raise typer.Exit(1)
 
-        count = 0
+        # Plan first: find every item that would overwrite a file we didn't
+        # install ourselves, so the user can see the list before anything
+        # is touched, rather than finding out from the summary afterward.
+        plan: list[tuple[str, Path, Path]] = []
+        foreign_overwrites: list[str] = []
         for src_rel, dst_rel in targets:
             src = Path(tmp) / src_rel
             dst = repo_root / dst_rel
@@ -313,16 +352,128 @@ def install_skills_cmd(
                     f"{repo}@{ref} — skipping (nothing installed for this path)"
                 )
                 continue
-            dst.mkdir(parents=True, exist_ok=True)
             for item in src.iterdir():
                 dest = dst / item.name
-                if item.is_dir():
-                    shutil.copytree(item, dest, dirs_exist_ok=True)
+                rel_dest = str(dest.relative_to(repo_root))
+                plan.append((rel_dest, dest, item))
+                if dest.exists() and rel_dest not in prior_items:
+                    foreign_overwrites.append(rel_dest)
+
+        if foreign_overwrites and not yes:
+            console.print(
+                "[yellow]The following existing file(s) will be overwritten "
+                "(originals will be backed up and can be restored with "
+                f"`wfctl uninstall-skills --agent {agent}`):[/yellow]"
+            )
+            for p in foreign_overwrites:
+                console.print(f"  {p}")
+            typer.confirm("Proceed?", abort=True)
+
+        count = 0
+        new_backups = 0
+        items: list[dict] = []
+        for rel_dest, dest, item in plan:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+            # A pre-existing file we didn't put there ourselves gets backed
+            # up before being overwritten, so uninstall can restore it. If
+            # we already track this path from a prior install, carry its
+            # backup forward instead of treating our own output as foreign.
+            if rel_dest in prior_items:
+                backup_rel = prior_items[rel_dest].get("backup")
+            elif dest.exists():
+                backup_dest = repo_root / _BACKUP_DIR / rel_dest
+                backup_dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.is_dir():
+                    shutil.copytree(dest, backup_dest)
                 else:
-                    shutil.copy2(item, dest)
-                count += 1
+                    shutil.copy2(dest, backup_dest)
+                backup_rel = str(Path(_BACKUP_DIR) / rel_dest)
+                new_backups += 1
+            else:
+                backup_rel = None
+
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dest)
+            count += 1
+            items.append({"path": rel_dest, "backup": backup_rel})
+
+    manifest[agent] = {
+        "repo": repo,
+        "ref": ref,
+        "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "items": items,
+    }
+    _save_manifest(repo_root, manifest)
+
+    if new_backups:
+        console.print(
+            f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
+            f"{_BACKUP_DIR}/ — restored by `wfctl uninstall-skills --agent {agent}`"
+        )
 
     console.print(f"[green]✓[/green] Installed {count} item(s) from {repo}@{ref}")
+
+
+@app.command("uninstall-skills")
+def uninstall_skills_cmd(
+    agent: str = typer.Option(
+        "claude",
+        "--agent",
+        help=f"Target agent: {', '.join(_AGENT_TARGETS)}",
+    ),
+) -> None:
+    """Remove what install-skills installed for --agent, restoring any file it overwrote."""
+    import shutil
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        console.print("[red]✗ Not in a git repo.[/red]")
+        raise typer.Exit(1)
+
+    manifest = _load_manifest(repo_root)
+    entry = manifest.get(agent)
+    if not entry:
+        console.print(f"Nothing installed for agent '{agent}' — nothing to uninstall.")
+        return
+
+    removed = 0
+    restored = 0
+    for item in entry["items"]:
+        path = repo_root / item["path"]
+        if path.exists():
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+        backup_rel = item.get("backup")
+        backup_path = repo_root / backup_rel if backup_rel else None
+        if backup_path is not None and backup_path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(backup_path), str(path))
+            restored += 1
+        else:
+            removed += 1
+
+    del manifest[agent]
+    _save_manifest(repo_root, manifest)
+
+    backup_root = repo_root / _BACKUP_DIR
+    if backup_root.exists():
+        for d in sorted(backup_root.glob("**/*"), reverse=True):
+            if d.is_dir() and not any(d.iterdir()):
+                d.rmdir()
+        if not any(backup_root.iterdir()):
+            backup_root.rmdir()
+
+    console.print(
+        f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
+        f"pre-existing file(s) for agent '{agent}'"
+    )
 
 
 if __name__ == "__main__":

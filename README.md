@@ -62,6 +62,7 @@ wfctl end
 | `state-dir`      | Print the active XDG state directory path                                |
 | `promote`        | Interactively promote memory candidates to permanent memory              |
 | `install-skills` | Clone wf-skills and copy skills + commands into the current project      |
+| `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 
 ## Example Session
 
@@ -107,9 +108,7 @@ $ wfctl install-skills --agent bob
 ✓ Installed 32 item(s) from https://github.com/aamarin/wf-skills@main
 ```
 
-Defaults to `aamarin/wf-skills@main`. Files of the same name are overwritten —
-rerun to update, but local edits to installed skills are lost. Commit the result
-if you want the skills pinned for your team.
+Defaults to `aamarin/wf-skills@main`. Rerun to update.
 
 `--agent` selects where things land. Skills are agent-agnostic `SKILL.md` files;
 only the destination changes:
@@ -117,12 +116,29 @@ only the destination changes:
 | `--agent` | Installs |
 |-----------|----------|
 | `claude` (default) | skills → `.agents/skills/`, command wrappers → `.claude/commands/` |
-| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
+| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` (same source content as Claude's) |
 | `none` | skills → `.agents/skills/` only |
 
-Both Claude and Bob have their own slash-command layer that wraps the shared
-skills — `.claude/commands/` and `.bob/commands/` respectively, in each
-platform's own frontmatter format.
+**Overwrite safety:** if `install-skills` would overwrite a file it didn't
+install itself — e.g. hand-authored speckit commands already in the
+project — it lists them and asks for confirmation first. Pass `--yes`/`-y`
+to skip the prompt (for scripts/CI). Whatever gets overwritten is backed up,
+and:
+
+```
+$ wfctl uninstall-skills --agent claude
+✓ Removed 31 item(s), restored 1 pre-existing file(s) for agent 'claude'
+```
+
+removes everything that install added and restores anything it overwrote to
+its original content. Files installed fresh (nothing to restore) are just
+deleted. State lives in `.wf-skills-manifest.json` and `.wf-skills-backup/` at
+the repo root — both are cleaned up once nothing references them.
+
+Known limitation: `--agent claude` and `--agent none` both write skills to
+`.agents/skills/`. Installing both in the same repo works, but uninstalling
+one will remove skill files the other's bookkeeping still points to — pick
+one agent per repo.
 
 ### `resume` vs `next`
 
