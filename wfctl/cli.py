@@ -244,11 +244,10 @@ def promote_cmd() -> None:
     _session.promote(candidates_path, agent_dir)
 
 
-# Where each agent reads from. Skills are agent-agnostic SKILL.md files; only the
-# destination differs. Both Claude and Bob also have their own command-wrapper
-# layer, but wf-skills only maintains one authored copy of the wrapper content
-# (.claude/commands) — Bob's install copies that same source to .bob/commands
-# rather than maintaining a second hand-translated set that would drift.
+# Where each agent reads from. Both skills and command-wrapper shims are
+# agent-agnostic source content in wf-skills (.agents/skills, .agents/commands)
+# — only the install destination differs per agent. wf-skills maintains one
+# authored copy of each; there's no per-agent duplication to drift out of sync.
 #
 # Known limitation: "claude" and "none" share .agents/skills as a destination,
 # so installing both in the same repo will cross-attribute backups between
@@ -257,11 +256,11 @@ def promote_cmd() -> None:
 _AGENT_TARGETS = {
     "claude": [
         (".agents/skills", ".agents/skills"),
-        (".claude/commands", ".claude/commands"),
+        (".agents/commands", ".claude/commands"),
     ],
     "bob": [
         (".agents/skills", ".bob/skills"),
-        (".claude/commands", ".bob/commands"),
+        (".agents/commands", ".bob/commands"),
     ],
     "none": [(".agents/skills", ".agents/skills")],
 }

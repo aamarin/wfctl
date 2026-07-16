@@ -23,7 +23,7 @@ def _make_wf_skills_repo(base: Path) -> Path:
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# test-skill\n")
 
-    cmd = src / ".claude" / "commands"
+    cmd = src / ".agents" / "commands"
     cmd.mkdir(parents=True)
     (cmd / "test-cmd.md").write_text("# test-cmd\n")
 
@@ -88,7 +88,7 @@ def test_install_skills_warns_on_missing_source_path(agent_dir: Path, tmp_path: 
     subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(src), "config", "user.email", "t@t.com"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(src), "config", "user.name", "T"], check=True, capture_output=True)
-    cmd = src / ".claude" / "commands"
+    cmd = src / ".agents" / "commands"
     cmd.mkdir(parents=True)
     (cmd / "test-cmd.md").write_text("# test-cmd\n")
     subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
