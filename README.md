@@ -98,7 +98,7 @@ Install skills into a project:
 
 ```
 $ wfctl install-skills
-✓ Installed 22 item(s) from https://github.com/aamarin/wf-skills@main
+✓ Installed 32 item(s) from https://github.com/aamarin/wf-skills@main
 
 $ wfctl install-skills --repo https://github.com/your-org/wf-skills --ref v2.0
 ✓ Installed 18 item(s) from https://github.com/your-org/wf-skills@v2.0
