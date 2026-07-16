@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wfctl"
-version = "0.5.0"
+version = "0.5.1"
 description = "Workflow state CLI for agent session and pipeline tracking"
 authors = [{ name = "Andre Marin", email = "andre@alexamarin.com" }]
 license = { text = "MIT" }
@@ -14,7 +14,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "typer[all]>=0.12",
+    "typer>=0.12",
     "rich>=13",
 ]
 
