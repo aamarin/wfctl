@@ -247,7 +247,7 @@ def promote_cmd() -> None:
 @app.command("install-skills")
 def install_skills_cmd(
     repo: str = typer.Option(
-        "https://github.com/MarinVentures/wf-skills",
+        "https://github.com/aamarin/wf-skills",
         "--repo",
         help="wf-skills repo URL",
     ),

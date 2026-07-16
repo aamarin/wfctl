@@ -17,11 +17,17 @@ wfctl manages session and pipeline state for AI coding agents (Claude Code, Code
 
 ```bash
 # Recommended: uv tool (isolated, always up-to-date)
-uv tool install git+https://github.com/aamarin/wfctl.git@v0.2.1
+uv tool install git+https://github.com/aamarin/wfctl.git
+
+# Upgrade an existing install
+uv tool install --upgrade git+https://github.com/aamarin/wfctl.git
 
 # Or pip
-pip install git+https://github.com/aamarin/wfctl.git@v0.2.1
+pip install git+https://github.com/aamarin/wfctl.git
 ```
+
+Installs from the default branch, which always tracks the latest release. Append
+`@<tag>` to either command if you need to pin a fixed version.
 
 ## Quickstart
 
@@ -97,6 +103,12 @@ $ wfctl install-skills
 $ wfctl install-skills --repo https://github.com/your-org/wf-skills --ref v2.0
 ✓ Installed 18 item(s) from https://github.com/your-org/wf-skills@v2.0
 ```
+
+Defaults to `aamarin/wf-skills@main`. It copies that repo's
+`.agents/skills/` and `.claude/commands/` into the same paths in your repo root,
+overwriting files of the same name — rerun to update, but local edits to
+installed skills are lost. Commit the result if you want the skills pinned for
+your team.
 
 ### `resume` vs `next`
 
