@@ -79,3 +79,25 @@ def test_install_skills_unknown_agent_exits_one(agent_dir: Path, tmp_path: Path)
         app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "nope"]
     )
     assert result.exit_code == 1
+
+
+def test_install_skills_warns_on_missing_source_path(agent_dir: Path, tmp_path: Path) -> None:
+    """If wf-skills is missing a path an agent expects, warn instead of skipping silently."""
+    src = tmp_path / "wf-skills-src"
+    src.mkdir()
+    subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "config", "user.email", "t@t.com"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "config", "user.name", "T"], check=True, capture_output=True)
+    cmd = src / ".claude" / "commands"
+    cmd.mkdir(parents=True)
+    (cmd / "test-cmd.md").write_text("# test-cmd\n")
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
+
+    # Bob's target is .agents/skills, which this repo doesn't have.
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
+    )
+    assert result.exit_code == 0
+    assert "not found" in result.output
+    assert ".agents/skills" in result.output

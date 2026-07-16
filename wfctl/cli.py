@@ -305,6 +305,10 @@ def install_skills_cmd(
             src = Path(tmp) / src_rel
             dst = repo_root / dst_rel
             if not src.exists():
+                console.print(
+                    f"[yellow]⚠[/yellow] Expected '{src_rel}' not found in "
+                    f"{repo}@{ref} — skipping (nothing installed for this path)"
+                )
                 continue
             dst.mkdir(parents=True, exist_ok=True)
             for item in src.iterdir():
