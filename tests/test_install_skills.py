@@ -27,6 +27,10 @@ def _make_wf_skills_repo(base: Path) -> Path:
     cmd.mkdir(parents=True)
     (cmd / "test-cmd.md").write_text("# test-cmd\n")
 
+    bob_cmd = src / ".bob" / "commands"
+    bob_cmd.mkdir(parents=True)
+    (bob_cmd / "test-cmd.md").write_text("# test-cmd\n")
+
     subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
     return src
@@ -68,8 +72,8 @@ def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path, tmp_path: 
         app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
     )
     assert result.exit_code == 0
-    # Bob reads .bob/skills and has no command layer — skills only, no wrappers.
     assert (repo_root / ".bob" / "skills" / "test-skill" / "SKILL.md").exists()
+    assert (repo_root / ".bob" / "commands" / "test-cmd.md").exists()
     assert not (repo_root / ".claude").exists()
 
 

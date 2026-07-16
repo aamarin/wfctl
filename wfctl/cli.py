@@ -245,14 +245,17 @@ def promote_cmd() -> None:
 
 
 # Where each agent reads from. Skills are agent-agnostic SKILL.md files; only the
-# destination differs. Bob has no command layer — it activates SKILL.md directly by
-# description — so it needs the skills copied, not a command wrapper.
+# destination differs. Both Claude and Bob also have their own command-wrapper
+# layer (.claude/commands, .bob/commands) that shims to the shared skills.
 _AGENT_TARGETS = {
     "claude": [
         (".agents/skills", ".agents/skills"),
         (".claude/commands", ".claude/commands"),
     ],
-    "bob": [(".agents/skills", ".bob/skills")],
+    "bob": [
+        (".agents/skills", ".bob/skills"),
+        (".bob/commands", ".bob/commands"),
+    ],
     "none": [(".agents/skills", ".agents/skills")],
 }
 

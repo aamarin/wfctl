@@ -104,7 +104,7 @@ $ wfctl install-skills --repo https://github.com/your-org/wf-skills --ref v2.0
 ✓ Installed 18 item(s) from https://github.com/your-org/wf-skills@v2.0
 
 $ wfctl install-skills --agent bob
-✓ Installed 19 item(s) from https://github.com/aamarin/wf-skills@main
+✓ Installed 32 item(s) from https://github.com/aamarin/wf-skills@main
 ```
 
 Defaults to `aamarin/wf-skills@main`. Files of the same name are overwritten —
@@ -117,11 +117,12 @@ only the destination changes:
 | `--agent` | Installs |
 |-----------|----------|
 | `claude` (default) | skills → `.agents/skills/`, command wrappers → `.claude/commands/` |
-| `bob` | skills → `.bob/skills/` |
+| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
 | `none` | skills → `.agents/skills/` only |
 
-Bob activates a `SKILL.md` directly from its `description` and has no slash
-command layer, so it takes the skills without wrappers.
+Both Claude and Bob have their own slash-command layer that wraps the shared
+skills — `.claude/commands/` and `.bob/commands/` respectively, in each
+platform's own frontmatter format.
 
 ### `resume` vs `next`
 
