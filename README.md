@@ -102,13 +102,26 @@ $ wfctl install-skills
 
 $ wfctl install-skills --repo https://github.com/your-org/wf-skills --ref v2.0
 ✓ Installed 18 item(s) from https://github.com/your-org/wf-skills@v2.0
+
+$ wfctl install-skills --agent bob
+✓ Installed 19 item(s) from https://github.com/aamarin/wf-skills@main
 ```
 
-Defaults to `aamarin/wf-skills@main`. It copies that repo's
-`.agents/skills/` and `.claude/commands/` into the same paths in your repo root,
-overwriting files of the same name — rerun to update, but local edits to
-installed skills are lost. Commit the result if you want the skills pinned for
-your team.
+Defaults to `aamarin/wf-skills@main`. Files of the same name are overwritten —
+rerun to update, but local edits to installed skills are lost. Commit the result
+if you want the skills pinned for your team.
+
+`--agent` selects where things land. Skills are agent-agnostic `SKILL.md` files;
+only the destination changes:
+
+| `--agent` | Installs |
+|-----------|----------|
+| `claude` (default) | skills → `.agents/skills/`, command wrappers → `.claude/commands/` |
+| `bob` | skills → `.bob/skills/` |
+| `none` | skills → `.agents/skills/` only |
+
+Bob activates a `SKILL.md` directly from its `description` and has no slash
+command layer, so it takes the skills without wrappers.
 
 ### `resume` vs `next`
 

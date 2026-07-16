@@ -58,3 +58,24 @@ def test_install_skills_reports_count(agent_dir: Path, tmp_path: Path) -> None:
     src = _make_wf_skills_repo(tmp_path)
     result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
     assert "Installed 2" in result.output
+
+
+def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path, tmp_path: Path) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
+    )
+    assert result.exit_code == 0
+    # Bob reads .bob/skills and has no command layer — skills only, no wrappers.
+    assert (repo_root / ".bob" / "skills" / "test-skill" / "SKILL.md").exists()
+    assert not (repo_root / ".claude").exists()
+
+
+def test_install_skills_unknown_agent_exits_one(agent_dir: Path, tmp_path: Path) -> None:
+    src = _make_wf_skills_repo(tmp_path)
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "nope"]
+    )
+    assert result.exit_code == 1

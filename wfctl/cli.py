@@ -244,6 +244,19 @@ def promote_cmd() -> None:
     _session.promote(candidates_path, agent_dir)
 
 
+# Where each agent reads from. Skills are agent-agnostic SKILL.md files; only the
+# destination differs. Bob has no command layer — it activates SKILL.md directly by
+# description — so it needs the skills copied, not a command wrapper.
+_AGENT_TARGETS = {
+    "claude": [
+        (".agents/skills", ".agents/skills"),
+        (".claude/commands", ".claude/commands"),
+    ],
+    "bob": [(".agents/skills", ".bob/skills")],
+    "none": [(".agents/skills", ".agents/skills")],
+}
+
+
 @app.command("install-skills")
 def install_skills_cmd(
     repo: str = typer.Option(
@@ -252,11 +265,24 @@ def install_skills_cmd(
         help="wf-skills repo URL",
     ),
     ref: str = typer.Option("main", "--ref", help="Branch or tag to install from"),
+    agent: str = typer.Option(
+        "claude",
+        "--agent",
+        help=f"Target agent: {', '.join(_AGENT_TARGETS)}",
+    ),
 ) -> None:
     """Install wf-skills (skills + commands) into the current project."""
     import shutil
     import subprocess as sp
     import tempfile
+
+    targets = _AGENT_TARGETS.get(agent)
+    if targets is None:
+        console.print(
+            f"[red]✗ Unknown agent '{agent}'. Choose from: "
+            f"{', '.join(_AGENT_TARGETS)}.[/red]"
+        )
+        raise typer.Exit(1)
 
     try:
         repo_root = get_repo_root()
@@ -275,10 +301,7 @@ def install_skills_cmd(
             raise typer.Exit(1)
 
         count = 0
-        for src_rel, dst_rel in [
-            (".agents/skills", ".agents/skills"),
-            (".claude/commands", ".claude/commands"),
-        ]:
+        for src_rel, dst_rel in targets:
             src = Path(tmp) / src_rel
             dst = repo_root / dst_rel
             if not src.exists():
