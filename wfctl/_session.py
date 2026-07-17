@@ -17,13 +17,6 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _extract_issue(branch: str) -> str:
-    parts = branch.split("-")
-    if parts and parts[0].isdigit():
-        return parts[0]
-    return "unknown"
-
-
 def _render_current_md(data: dict, next_cmd: str) -> str:
     return (
         f"# Working Context: {data['branch']}\n\n"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -22,7 +23,8 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
     branch = resolve_branch(repo_root)
-    issue = branch.split("-")[0] if "-" in branch and branch.split("-")[0].isdigit() else "unknown"
+    m = re.match(r"^(\d+)[-_]", branch)
+    issue = m.group(1) if m else "unknown"
     agent_dir = resolve_agent_dir(repo_root, branch)
     return agent_dir, repo_root, branch, issue
 
@@ -228,7 +230,9 @@ def log_cmd() -> None:
 def state_dir_cmd() -> None:
     """Print the active state directory path."""
     agent_dir, _, _, _ = _resolve_context()
-    console.print(agent_dir)
+    # Plain print: output is consumed by $(wfctl state-dir); rich wraps at
+    # terminal width and would inject a newline mid-path.
+    print(agent_dir)
 
 
 @app.command("promote")

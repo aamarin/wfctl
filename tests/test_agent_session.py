@@ -40,6 +40,25 @@ def test_init_seeds_from_branch(agent_dir: Path) -> None:
     assert data["workflow_step"] != "start"
 
 
+@pytest.mark.parametrize(
+    "branch,expected",
+    [
+        ("342-state-workflow", "342"),
+        ("419_auth_lifecycle_update", "419"),
+        ("dev", "unknown"),
+        ("no-number-here", "unknown"),
+    ],
+)
+def test_init_seeds_issue_from_either_separator(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, branch: str, expected: str
+) -> None:
+    monkeypatch.setenv("WFCTL_BRANCH", branch)
+    result = runner.invoke(app, ["start", "--force"])
+    assert result.exit_code == 0
+    data = json.loads((agent_dir / "current.json").read_text())
+    assert data["issue"] == expected
+
+
 def test_init_idempotent(agent_dir: Path) -> None:
     runner.invoke(app, ["start"])
     content_json = (agent_dir / "current.json").read_text()
