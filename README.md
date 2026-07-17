@@ -7,6 +7,16 @@ Workflow state CLI for AI agent session and pipeline tracking.
 
 wfctl manages session and pipeline state for AI coding agents (Claude Code, Codex, Copilot). It tracks where you are in a feature development pipeline — specify → plan → implement → verify — and tells the agent what to do next.
 
+## Why wfctl (spec-driven development)
+
+wfctl operationalizes spec-driven development — keeping agents on the specify → plan → implement track instead of jumping straight to code:
+
+- **Persistent by design** — session state on disk; step recoverable even if lost
+- **Truth from artifacts** — step read from real spec files, so phases can't be faked or skipped
+- **Enforced order** — always points to the next required step, blocking code before spec and plan
+- **Scope-aware** — tracks your position in the pipeline
+- **Ships with skills** — installs spec-kit skills + slash commands into the project
+
 ## Requirements
 
 - Python 3.11+
