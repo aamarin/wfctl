@@ -100,3 +100,12 @@ def test_checkpoint_increments(agent_dir: Path) -> None:
     runner.invoke(app, ["checkpoint"])
     runner.invoke(app, ["checkpoint"])
     assert (agent_dir / "checkpoint-2.patch").exists()
+
+
+def test_state_dir_path_not_wrapped(agent_dir: Path, monkeypatch) -> None:
+    """Output is consumed by $(wfctl state-dir); a wrapped path breaks callers."""
+    monkeypatch.setenv("COLUMNS", "40")  # narrower than the path
+    result = runner.invoke(app, ["state-dir"])
+    assert result.exit_code == 0
+    assert result.stdout.strip() == str(agent_dir)
+    assert "\n" not in result.stdout.strip()
