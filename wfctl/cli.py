@@ -399,6 +399,10 @@ def install_skills_cmd(
             console.print(f"[red]✗ Clone failed: {result.stderr.strip()}[/red]")
             raise typer.Exit(1)
 
+        commit = sp.run(
+            ["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True
+        ).stdout.strip()
+
         # Plan first: find every item that would overwrite a file we didn't
         # install ourselves, so the user can see the list before anything
         # is touched, rather than finding out from the summary afterward.
@@ -480,6 +484,7 @@ def install_skills_cmd(
     manifest[agent] = {
         "repo": repo,
         "ref": ref,
+        "commit": commit,
         "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "items": items,
     }
