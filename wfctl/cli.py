@@ -210,6 +210,7 @@ def log_cmd() -> None:
         "next": "yellow",
         "checkpoint": "blue",
         "promote": "magenta",
+        "issue": "green",
     }
 
     import json as _json
@@ -246,6 +247,50 @@ def promote_cmd() -> None:
         os.environ.get("WFCTL_CANDIDATES_FILE", str(agent_dir / "memory-candidates.md"))
     )
     _session.promote(candidates_path, agent_dir)
+
+
+@app.command("issue")
+def issue_cmd(
+    verb: str = typer.Argument(..., help="list | view | close | comment | create | label"),
+    issue_id: str = typer.Argument(None, help="Issue ID (view / close / comment / label)"),
+    comment: str = typer.Option(None, "--comment", help="Comment text (close)"),
+    body: str = typer.Option(None, "--body", help="Body text (comment / create)"),
+    title: str = typer.Option(None, "--title", help="Title (create)"),
+    label: str = typer.Option(None, "--label", help="Label name (label)"),
+    action: str = typer.Option(None, "--action", help="add | remove (label)"),
+) -> None:
+    """Run the active issue tracker's command for a standard verb.
+
+    The backend is chosen at install time (`wfctl install-skills --tracker <name>`)
+    and defined by `.agents/trackers/<name>.json`. Each verb and its arguments:
+
+    \b
+      list                                          list open issues
+      view    <id>                                  show one issue
+      close   <id> --comment TEXT                   close with a comment
+      comment <id> --body TEXT                      add a comment
+      create       --title T --body TEXT            open a new issue
+      label   <id> --action add|remove --label NAME add/remove a label
+
+    \b
+    Examples:
+      wfctl issue list
+      wfctl issue view 71
+      wfctl issue close 71 --comment "Done in abc123"
+      wfctl issue label 71 --action add --label in-progress
+
+    Degrades gracefully (exit 0) when no tracker is configured or the active
+    backend does not implement the verb.
+    """
+    from wfctl import _tracker
+
+    agent_dir, repo_root, _, _ = _resolve_context()
+    params = {
+        "id": issue_id, "comment": comment, "body": body,
+        "title": title, "label": label, "action": action,
+    }
+    params = {k: v for k, v in params.items() if v is not None}
+    raise typer.Exit(_tracker.dispatch(agent_dir, repo_root, verb, params))
 
 
 # Where each agent reads from. Both skills and command-wrapper shims are
@@ -307,6 +352,12 @@ def install_skills_cmd(
         "-y",
         help="Skip the confirmation prompt when files would be overwritten",
     ),
+    tracker: str = typer.Option(
+        None,
+        "--tracker",
+        help="Issue-tracker backend: 'github' (ships), 'none' to clear, or a "
+        "custom name whose .agents/trackers/<name>.json you author. Omit to leave unchanged.",
+    ),
 ) -> None:
     """Install wf-skills (skills + commands) into the current project."""
     import datetime
@@ -362,6 +413,22 @@ def install_skills_cmd(
                 if dest.exists() and rel_dest not in prior_items:
                     foreign_overwrites.append(rel_dest)
 
+        # 'github' is the only tracker wf-skills ships; copy just its config.
+        if tracker == "github":
+            tsrc = Path(tmp) / ".agents" / "trackers" / "github.json"
+            if tsrc.exists():
+                tdest = repo_root / ".agents" / "trackers" / "github.json"
+                trel = str(tdest.relative_to(repo_root))
+                plan.append((trel, tdest, tsrc))
+                if tdest.exists() and trel not in prior_items:
+                    foreign_overwrites.append(trel)
+            else:
+                console.print(
+                    "[yellow]⚠[/yellow] --tracker github, but "
+                    ".agents/trackers/github.json not found in "
+                    f"{repo}@{ref} — nothing installed for it"
+                )
+
         if foreign_overwrites and not yes:
             console.print(
                 "[yellow]The following existing file(s) will be overwritten "
@@ -409,6 +476,20 @@ def install_skills_cmd(
         "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "items": items,
     }
+
+    # Tracker choice is a repo-global sibling of the per-agent entries.
+    if tracker == "none":
+        manifest.pop("tracker", None)
+    elif tracker is not None:
+        manifest["tracker"] = tracker
+        if tracker != "github":
+            cfg = repo_root / ".agents" / "trackers" / f"{tracker}.json"
+            if not cfg.exists():
+                console.print(
+                    f"[yellow]⚠[/yellow] selected tracker '{tracker}' but no "
+                    f".agents/trackers/{tracker}.json found — author it with scaffold-tracker"
+                )
+
     _save_manifest(repo_root, manifest)
 
     if new_backups:
