@@ -170,3 +170,12 @@ def test_install_custom_tracker_warns_when_config_absent(agent_dir: Path, tmp_pa
     assert "no .agents/trackers/jira.json found" in result.output
     manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
     assert manifest["tracker"] == "jira"
+
+
+def test_branch_issue_parser_handles_key_formats(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_resolve_context extracts numeric and KEY-123 issue keys from the branch name."""
+    from wfctl.cli import _resolve_context
+    for branch, want in [("251-slug", "251"), ("PROJ-123-slug", "PROJ-123"),
+                         ("ENG-42-x", "ENG-42"), ("no-issue", "unknown")]:
+        monkeypatch.setenv("WFCTL_BRANCH", branch)
+        assert _resolve_context()[3] == want

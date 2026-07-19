@@ -17,7 +17,9 @@ from rich.console import Console
 
 from wfctl._io import append_event
 
-console = Console()
+# highlight=False: don't let rich wrap quoted tokens (issue ids, verb names) in
+# ANSI — this output is parsed by agents, so keep it plain.
+console = Console(highlight=False)
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 

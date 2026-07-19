@@ -23,7 +23,9 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
     branch = resolve_branch(repo_root)
-    m = re.match(r"^(\d+)[-_]", branch)
+    # ponytail: one regex covers numeric (251-) and KEY-123- (Jira/Linear/Shortcut);
+    # make it config only if a real tracker key breaks this shape.
+    m = re.match(r"^([A-Za-z]+-\d+|\d+)[-_]", branch)
     issue = m.group(1) if m else "unknown"
     agent_dir = resolve_agent_dir(repo_root, branch)
     return agent_dir, repo_root, branch, issue
