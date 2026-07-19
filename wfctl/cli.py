@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
-from wfctl._paths import get_repo_root, resolve_agent_dir, resolve_branch, resolve_spec_dir
+from wfctl import _tracker
+from wfctl._paths import (
+    extract_issue_key,
+    get_repo_root,
+    resolve_agent_dir,
+    resolve_branch,
+    resolve_spec_dir,
+)
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -23,10 +29,9 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
     branch = resolve_branch(repo_root)
-    # ponytail: one regex covers numeric (251-) and KEY-123- (Jira/Linear/Shortcut);
-    # make it config only if a real tracker key breaks this shape.
-    m = re.match(r"^([A-Za-z]+-\d+|\d+)[-_]", branch)
-    issue = m.group(1) if m else "unknown"
+    # Default key shape is \d+ (GitHub); a tracker with non-numeric keys
+    # (Jira/Linear/Shortcut) overrides it via key_pattern in its config.
+    issue = extract_issue_key(branch, _tracker.load_key_pattern(repo_root))
     agent_dir = resolve_agent_dir(repo_root, branch)
     return agent_dir, repo_root, branch, issue
 

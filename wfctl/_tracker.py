@@ -39,6 +39,30 @@ def _load_tracker_config(repo_root: Path, name: str) -> dict | None:
         return None
 
 
+def load_key_pattern(repo_root: Path) -> str:
+    """Return the active tracker's issue-key regex, or the default.
+
+    Degrades to DEFAULT_KEY_PATTERN when no tracker is configured, its config is
+    missing/invalid, the field is absent, or the value won't compile — key
+    resolution must never fail because a tracker step couldn't run.
+    """
+    from wfctl._paths import DEFAULT_KEY_PATTERN
+    from wfctl.cli import _load_manifest
+
+    name = _load_manifest(repo_root).get("tracker")
+    if not name:
+        return DEFAULT_KEY_PATTERN
+    config = _load_tracker_config(repo_root, name)
+    pattern = (config or {}).get("key_pattern")
+    if not pattern:
+        return DEFAULT_KEY_PATTERN
+    try:
+        re.compile(pattern)
+    except re.error:
+        return DEFAULT_KEY_PATTERN
+    return pattern
+
+
 def _substitute(token: str, params: dict) -> str:
     """Replace every {name} in one argv token from params; missing -> _MissingParam."""
     def repl(m: re.Match) -> str:

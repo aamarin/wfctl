@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,24 @@ _STATE_DIR_OVERRIDE = "WFCTL_STATE_DIR"
 _BRANCH_OVERRIDE = "WFCTL_BRANCH"
 _SPEC_DIR_OVERRIDE = "WFCTL_SPEC_DIR"
 _REPO_ROOT_OVERRIDE = "WFCTL_REPO_ROOT"
+
+# Default issue-key shape: a plain leading number (GitHub / stock spec-kit).
+# Trackers with non-numeric keys override this via "key_pattern" in their config.
+DEFAULT_KEY_PATTERN = r"\d+"
+
+
+def extract_issue_key(branch: str, pattern: str) -> str:
+    """Pull the issue key off the front of a branch name; 'unknown' if none.
+
+    The key is `pattern` anchored at the start, with an *optional* slug: it may
+    stand alone (`342`) or be followed by a `-`/`_` separator (`342-foo`,
+    `PROJ-123_bar`). A bad pattern degrades to no match, never raises.
+    """
+    try:
+        m = re.match(rf"^({pattern})(?:[-_]|$)", branch)
+    except re.error:
+        return "unknown"
+    return m.group(1) if m else "unknown"
 
 
 def get_repo_root() -> Path:
@@ -61,9 +80,11 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     if exact.is_dir():
         return exact
 
-    issue = branch.split("-")[0]
-    if issue.isdigit():
-        matches = sorted(spec_root.glob(f"{issue}-*"))
+    from wfctl import _tracker  # lazy: avoids import cycle at module load
+
+    key = extract_issue_key(branch, _tracker.load_key_pattern(repo_root))
+    if key != "unknown":
+        matches = sorted(spec_root.glob(f"{key}[-_]*"))
         if matches:
             return matches[0]
 

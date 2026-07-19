@@ -172,10 +172,23 @@ def test_install_custom_tracker_warns_when_config_absent(agent_dir: Path, tmp_pa
     assert manifest["tracker"] == "jira"
 
 
-def test_branch_issue_parser_handles_key_formats(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """_resolve_context extracts numeric and KEY-123 issue keys from the branch name."""
+def test_branch_issue_parser_default_is_numeric(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no tracker, _resolve_context extracts a numeric key; slug is optional."""
     from wfctl.cli import _resolve_context
-    for branch, want in [("251-slug", "251"), ("PROJ-123-slug", "PROJ-123"),
-                         ("ENG-42-x", "ENG-42"), ("no-issue", "unknown")]:
+    for branch, want in [("251-slug", "251"), ("251", "251"), ("251_slug", "251"),
+                         ("PROJ-123-slug", "unknown"), ("no-issue", "unknown")]:
+        monkeypatch.setenv("WFCTL_BRANCH", branch)
+        assert _resolve_context()[3] == want
+
+
+def test_branch_issue_parser_uses_configured_key_pattern(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tracker's key_pattern lets _resolve_context read non-numeric keys."""
+    from wfctl.cli import _resolve_context
+    repo_root = agent_dir.parent
+    _configure_tracker(repo_root, "jira", {"key_pattern": r"[A-Z]+-\d+", "verbs": {}})
+    for branch, want in [("PROJ-123-slug", "PROJ-123"), ("ENG-42-x", "ENG-42"),
+                         ("251-slug", "unknown")]:
         monkeypatch.setenv("WFCTL_BRANCH", branch)
         assert _resolve_context()[3] == want
