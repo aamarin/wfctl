@@ -231,6 +231,7 @@ def test_install_pins_resolved_commit(agent_dir: Path, tmp_path: Path) -> None:
 
 
 def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path) -> None:
+    """A fresh install's pinned commit matches upstream's tip — nothing to flag."""
     src = _make_wf_skills_repo(tmp_path)
     runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
     result = runner.invoke(app, ["doctor"])
@@ -239,6 +240,7 @@ def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path) -> None:
 
 
 def test_doctor_reports_stale_with_diff(agent_dir: Path, tmp_path: Path) -> None:
+    """When upstream moves past the pinned commit, doctor exits 1 and shows what changed."""
     src = _make_wf_skills_repo(tmp_path)
     runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
 
@@ -254,12 +256,14 @@ def test_doctor_reports_stale_with_diff(agent_dir: Path, tmp_path: Path) -> None
 
 
 def test_doctor_with_nothing_installed(agent_dir: Path) -> None:
+    """No manifest yet — doctor reports that plainly instead of erroring."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "Nothing installed" in result.output
 
 
 def test_doctor_warns_when_no_commit_pinned(agent_dir: Path, tmp_path: Path) -> None:
+    """A manifest from before commit-pinning existed is skipped with a warning, not a crash."""
     import json
     import os
     src = _make_wf_skills_repo(tmp_path)
