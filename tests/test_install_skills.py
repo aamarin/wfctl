@@ -214,3 +214,63 @@ def test_install_no_prompt_when_nothing_would_be_overwritten(
     # No --yes, no input supplied — would hang/fail on an unexpected prompt.
     result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
     assert result.exit_code == 0
+
+
+def test_install_pins_resolved_commit(agent_dir: Path, tmp_path: Path) -> None:
+    """The manifest records the clone's resolved HEAD, not just the --ref name."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    head = subprocess.run(
+        ["git", "-C", str(src), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    assert manifest["claude"]["commit"] == head
+
+
+def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path) -> None:
+    src = _make_wf_skills_repo(tmp_path)
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "up to date" in result.output
+
+
+def test_doctor_reports_stale_with_diff(agent_dir: Path, tmp_path: Path) -> None:
+    src = _make_wf_skills_repo(tmp_path)
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    # Upstream moves on after the install.
+    (src / ".agents" / "skills" / "test-skill" / "SKILL.md").write_text("# test-skill v2\n")
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "update skill"], check=True, capture_output=True)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "stale" in result.output
+    assert "SKILL.md" in result.output
+
+
+def test_doctor_with_nothing_installed(agent_dir: Path) -> None:
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "Nothing installed" in result.output
+
+
+def test_doctor_warns_when_no_commit_pinned(agent_dir: Path, tmp_path: Path) -> None:
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["claude"]["commit"]
+    manifest_path.write_text(json.dumps(manifest))
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "no pinned commit" in result.output

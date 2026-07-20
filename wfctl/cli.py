@@ -21,6 +21,25 @@ app = typer.Typer(no_args_is_help=True)
 console = Console()
 
 
+def _version_callback(value: bool) -> None:
+    """Print wfctl's installed version and exit, if --version was passed."""
+    if value:
+        from importlib.metadata import version as pkg_version
+
+        console.print(f"wfctl {pkg_version('wfctl')}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True,
+        help="Show the wfctl version and exit.",
+    )
+) -> None:
+    """wfctl — workflow state manager for agent sessions."""
+
+
 def _resolve_context() -> tuple[Path, Path, str, str]:
     """Return (agent_dir, repo_root, branch, issue); exits on error."""
     try:
@@ -570,6 +589,63 @@ def uninstall_skills_cmd(
         f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
         f"pre-existing file(s) for agent '{agent}'"
     )
+
+
+@app.command("doctor")
+def doctor_cmd() -> None:
+    """Check installed wf-skills content against upstream for drift."""
+    import subprocess as sp
+    import tempfile
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        console.print("[red]✗ Not in a git repo.[/red]")
+        raise typer.Exit(1)
+
+    manifest = _load_manifest(repo_root)
+    agents = [a for a in manifest if a != "tracker"]
+    if not agents:
+        console.print("Nothing installed — run `wfctl install-skills` first.")
+        return
+
+    exit_code = 0
+    for agent in agents:
+        entry = manifest[agent]
+        repo, ref, commit = entry.get("repo"), entry.get("ref"), entry.get("commit")
+        if not commit:
+            console.print(
+                f"[yellow]⚠[/yellow] {agent}: no pinned commit on record (installed "
+                "before drift-checking existed) — re-run install-skills to enable this."
+            )
+            continue
+
+        remote = sp.run(["git", "ls-remote", repo, ref], capture_output=True, text=True)
+        if remote.returncode != 0 or not remote.stdout.strip():
+            console.print(f"[red]✗[/red] {agent}: couldn't reach {repo}@{ref} — {remote.stderr.strip()}")
+            exit_code = 1
+            continue
+
+        tip = remote.stdout.split()[0]
+        if tip == commit:
+            console.print(f"[green]✓[/green] {agent}: up to date ({commit[:7]})")
+            continue
+
+        exit_code = 1
+        console.print(f"[yellow]⚠[/yellow] {agent}: stale — installed {commit[:7]}, {ref} is now at {tip[:7]}")
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = sp.run(["git", "clone", "-q", repo, tmp], capture_output=True, text=True)
+            if clone.returncode != 0:
+                console.print(f"    (couldn't clone to diff: {clone.stderr.strip()})")
+                continue
+            diff = sp.run(
+                ["git", "diff", "--stat", commit, tip, "--", ".agents/skills", ".agents/commands"],
+                cwd=tmp, capture_output=True, text=True,
+            )
+            for line in (diff.stdout.strip().splitlines() or ["(no changes under .agents/skills or .agents/commands)"]):
+                console.print(f"    {line}")
+
+    raise typer.Exit(exit_code)
 
 
 if __name__ == "__main__":
