@@ -73,6 +73,9 @@ wfctl end
 | `promote`        | Interactively promote memory candidates to permanent memory              |
 | `install-skills` | Clone wf-skills and copy skills + commands into the current project      |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
+| `doctor`         | Check installed wf-skills content against upstream for drift             |
+
+`wfctl --version` prints the installed package version and exits.
 
 ## Example Session
 
@@ -149,6 +152,19 @@ Known limitation: `--agent claude` and `--agent none` both write skills to
 `.agents/skills/`. Installing both in the same repo works, but uninstalling
 one will remove skill files the other's bookkeeping still points to — pick
 one agent per repo.
+
+`install-skills` pins the resolved commit SHA (not just the `--ref` name) in
+the manifest, so staleness relative to upstream is checkable later:
+
+```
+$ wfctl doctor
+✓ claude: up to date (7f1c021)
+⚠ bob: stale — installed dc24ff7, main is now at 7f1c021
+     .agents/commands/end-session.md | 1 +
+     .agents/skills/end-session/SKILL.md | 76 ++++++++++++++++++++++++++++++++++
+```
+
+Exits non-zero if any installed agent is stale or unreachable.
 
 ### `resume` vs `next`
 
