@@ -22,8 +22,10 @@ fan-out, manifest, backup, `doctor` drift-check). It seeds once; git is the undo
 ## User Scenarios
 
 1. **Fresh repo, no config.** `wfctl install-config workmux` writes
-   `.workmux.yaml` at the repo root. `wm add 359-foo -b` then comes up with the
-   standard window layout and the issue-number branch guard.
+   `.workmux.yaml` at the repo root and ensures `wt/` is in `.gitignore` (the
+   worktree dir lives inside the repo). `wm add 359-foo -b` then creates
+   `wt/359-foo` with the standard window layout and the issue-number branch
+   guard, and git ignores it.
 2. **Config already exists.** `.workmux.yaml` is present. The command **refuses**
    with a visible red error naming the file and the `--force` hint; it exits
    non-zero and changes nothing.
@@ -47,6 +49,12 @@ fan-out, manifest, backup, `doctor` drift-check). It seeds once; git is the undo
 - **Clobber policy:** if *any* destination file already exists, refuse and print
   a red error listing the conflicting path(s) and the `--force` hint; exit 1.
   With `--force`, overwrite. Never write a backup.
+- **`.gitignore` (workmux only):** because `worktree_dir: wt` places worktrees
+  inside the repo, installing `workmux` also ensures `wt/` is ignored — an
+  **idempotent append** of a `wt/` line to `.gitignore` (create the file if
+  absent, skip if the line is already present). This is a config-specific
+  post-step, not a copied file (so it never trips the clobber rule), and not a
+  generic per-config hook framework.
 - **No persistence:** no manifest entry, no backup dir, no uninstall, no
   `doctor` integration. The command's only side effect is writing files.
 - **Repo/ref:** default to the same wf-skills repo/ref defaults as
@@ -60,10 +68,13 @@ specifics removed. **Kept** (conventions): `worktree_dir: wt`,
 `worktree_naming: full`, `mode: session`, two windows (`agent` with `<agent>`
 focused, `term` empty), `agent: claude`, the `pre_create` issue-number branch
 guard, `pre_remove: []`. **Removed** (project-specific): `main_branch`/
-`base_branch: dev` (let workmux auto-detect), `window_prefix: pfms__`, the
-`deploy` window, and the `post_create` port/env/db rewrites + `files.copy`
-(server/client `.env`) — these become **commented examples** showing where a
-user's own port/env logic goes.
+`base_branch: dev` (let workmux auto-detect), the `deploy` window, and the
+`post_create` port/env/db rewrites + `files.copy` (server/client `.env`) — these
+become **commented examples** showing where a user's own port/env logic goes.
+**Commented, not dropped:** `window_prefix` — the tmux session/window name prefix
+is per-project (`pfms__`, `wfctl__`), with no generic way to template the project
+name, so it ships as `# window_prefix: "<project>__"` for the user to set.
+Omitted, workmux uses its `wm-` default.
 
 The `pre_create` issue-number guard is retained deliberately: it enforces
 `359-my-feature` branch names, matching wfctl's own issue-number branch model.
@@ -81,6 +92,9 @@ The `pre_create` issue-number guard is retained deliberately: it enforces
 
 - `install-config workmux` into a clean temp repo writes `.workmux.yaml`; content
   matches the shipped source.
+- `install-config workmux` ensures `wt/` in `.gitignore`: creates it when absent;
+  appends when present without the line; **no duplicate** when the line already
+  exists (idempotent).
 - Existing `.workmux.yaml` → refuses, exits non-zero, file unchanged, error names
   the path.
 - `--force` overwrites an existing file.
