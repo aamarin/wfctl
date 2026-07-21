@@ -58,6 +58,65 @@ wfctl resume
 wfctl end
 ```
 
+## How it works
+
+wfctl is driven by your coding agent, not typed by hand. You install a set of
+skills and slash commands into the repo once, then the agent runs the
+spec-driven pipeline while wfctl tracks position and enforces order.
+
+**One-time setup, per repo:**
+
+```bash
+wfctl install-skills           # skills + /speckit.* commands + the .specify/ runtime
+wfctl install-config workmux   # optional: isolated worktree envs (see below)
+```
+
+**Then, inside your agent (e.g. Claude Code), drive the pipeline** with slash
+commands:
+
+```
+/speckit.specify  "add manual transaction entry"   # write the spec
+/speckit.plan                                       # design the implementation
+/speckit.tasks                                      # break into ordered tasks
+/speckit.implement                                  # build it
+```
+
+Each step reads and writes real files under `specs/<branch>/` (`spec.md`,
+`plan.md`, `tasks.md`), so `wfctl status` infers where you are from artifacts on
+disk — a step can't be faked or skipped. `wfctl resume` (or `/speckit.orchestrate`)
+re-infers the current step and tells the agent the next command to run.
+
+The pipeline, in order (not every step is required for every change — `wfctl
+status` shows which are done):
+
+| Step | Slash command | Produces |
+|------|---------------|----------|
+| specify | `/speckit.specify` | `specs/<branch>/spec.md` |
+| clarify | `/speckit.clarify` | resolved ambiguities in the spec |
+| plan | `/speckit.plan` | `plan.md` |
+| tasks | `/speckit.tasks` | `tasks.md` |
+| analyze | `/speckit.analyze` | cross-artifact consistency check |
+| decompose | `/speckit.decompose` | PR / issue breakdown |
+| implement | `/speckit.implement` | the code |
+
+A `brainstorm` step (via the brainstorming skill) can precede `specify` for
+fuzzy ideas.
+
+### What lands in your repo
+
+After `install-skills` (and optionally `install-config`):
+
+| Path | What | Committed? |
+|------|------|------------|
+| `.agents/skills/`, `.claude/commands/` | installed skills + `/speckit.*` slash commands | no (gitignored) |
+| `.specify/` | speckit runtime (scripts + templates the skills call) | no (gitignored) |
+| `.wf-skills-manifest.json` | install record: pinned commit + backups | no (gitignored) |
+| `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | **yes** |
+| `.workmux.yaml` | worktree config, from `install-config workmux` | **yes** |
+
+The gitignored paths are install artifacts — regenerate them any time with
+`install-skills`. Only your specs and `.workmux.yaml` are project source.
+
 ## Commands
 
 | Command          | Description                                                              |
@@ -70,8 +129,9 @@ wfctl end
 | `checkpoint`     | Save a numbered checkpoint artifact (diff + md)                          |
 | `log`            | Print color-coded event timeline for the current session                 |
 | `state-dir`      | Print the active XDG state directory path                                |
-| `feature-paths`  | Print the active feature's spec/plan/tasks paths (source of truth for the installed speckit runtime) |
+| `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
 | `promote`        | Interactively promote memory candidates to permanent memory              |
+| `issue`          | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`) |
 | `install-skills` | Clone wf-skills and copy skills + commands + the speckit `.specify/` runtime into the current project |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config from wf-skills into the project (v1: `workmux`) |
@@ -181,7 +241,7 @@ $ wfctl install-config workmux
 ✓ Seeded workmux config (1 file(s)) from https://github.com/aamarin/wf-skills@main
 ```
 
-v1 ships `workmux` — a repo-agnostic [`.workmux.yaml`](https://github.com/aamarin/wf-skills)
+v1 ships `workmux` — a repo-agnostic [`.workmux.yaml`](https://github.com/aamarin/wf-skills/blob/main/.agents/configs/workmux/.workmux.yaml)
 starter (worktrees under `wt/`, session mode, agent + term windows, an
 issue-number `pre_create` branch guard; project-specific port/env hooks ship
 commented). For `workmux` it also idempotently adds `wt/` to `.gitignore` and
@@ -195,6 +255,31 @@ git-tracked, so git is your undo):
 $ wfctl install-config workmux
 ✗ Would overwrite existing file(s): .workmux.yaml. Pass --force to overwrite (git is your undo).
 ```
+
+(**workmux** runs each branch as an isolated git worktree + tmux session, so
+agents work in parallel without stepping on each other. The seeded config makes
+new worktrees come up ready.)
+
+### Issue trackers
+
+`wfctl issue <verb>` runs your project's issue tracker through a small backend,
+so skills can reconcile work against real issues without knowing which tracker
+you use:
+
+```
+wfctl issue list
+wfctl issue view 71
+wfctl issue close 71 --comment "Done in abc123"
+```
+
+Verbs: `list`, `view`, `close`, `comment`, `create`, `label`. The backend is
+chosen at install time (`install-skills --tracker <name>`) and defined by
+`.agents/trackers/<name>.json` — a map of verb → command. **GitHub ships built
+in** (`--tracker github`, via the `gh` CLI). For anything else — a private
+Jira/Linear CLI — author a config with the `scaffold-tracker` skill and validate
+it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)
+are supported via the config's `key_pattern`, which also drives how wfctl maps a
+branch to its `specs/` folder.
 
 ### `resume` vs `next`
 
