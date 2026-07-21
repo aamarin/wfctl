@@ -132,6 +132,7 @@ The gitignored paths are install artifacts — regenerate them any time with
 | `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
 | `promote`        | Interactively promote memory candidates to permanent memory              |
 | `issue`          | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`) |
+| `change`         | List/view code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
 | `install-skills` | Clone wf-skills and copy skills + commands + the speckit `.specify/` runtime into the current project |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config from wf-skills into the project (v1: `workmux`) |
@@ -280,6 +281,25 @@ Jira/Linear CLI — author a config with the `scaffold-tracker` skill and valida
 it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)
 are supported via the config's `key_pattern`, which also drives how wfctl maps a
 branch to its `specs/` folder.
+
+**Code changes (`wfctl change`)** run through a parallel `changes` section of the
+same config, so PRs/patchsets go through one abstraction regardless of forge:
+
+```
+wfctl change list        # your open PRs / patchsets
+wfctl change view 128    # one change
+```
+```json
+"changes": {
+  "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],
+  "view": ["gh", "pr", "view", "{id}"]
+}
+```
+
+**Scoping lists to you (`{me}`)** — set a top-level `"identity"` (e.g. `"@me"`, a
+username, or an email) and use `{me}` in any command. wfctl substitutes it, so
+`list` returns *your* items. Each backend keys on what it needs — GitHub
+`--author @me`, Gerrit `owner:self` — configured once per adapter.
 
 ### `resume` vs `next`
 

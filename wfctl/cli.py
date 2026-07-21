@@ -352,6 +352,39 @@ def issue_cmd(
     raise typer.Exit(_tracker.dispatch(agent_dir, repo_root, verb, params))
 
 
+@app.command("change")
+def change_cmd(
+    verb: str = typer.Argument(..., help="list | view"),
+    change_id: str = typer.Argument(None, help="Change / PR ID (view)"),
+) -> None:
+    """List or view code changes — GitHub PRs, Gerrit patchsets, etc.
+
+    The changes backend is defined by the `changes` section of the active
+    tracker config (`.agents/trackers/<name>.json`), parallel to `issue`'s
+    `verbs`. A `{me}` in a command is filled from the config's `identity`, so
+    `list` can be scoped to you:
+
+    \b
+      list        list your open changes
+      view  <id>  show one change
+
+    \b
+    Examples:
+      wfctl change list
+      wfctl change view 128
+
+    Degrades gracefully (exit 0) when no backend is configured or the active
+    one does not implement the verb.
+    """
+    from wfctl import _tracker
+
+    agent_dir, repo_root, _, _ = _resolve_context()
+    params = {"id": change_id} if change_id is not None else {}
+    raise typer.Exit(
+        _tracker.dispatch(agent_dir, repo_root, verb, params, section="changes", event="change")
+    )
+
+
 # Where each agent reads from. Both skills and command-wrapper shims are
 # agent-agnostic source content in wf-skills (.agents/skills, .agents/commands)
 # — only the install destination differs per agent. wf-skills maintains one

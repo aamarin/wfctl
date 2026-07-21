@@ -25,12 +25,36 @@ _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 # The verb contract: verb -> the placeholders its argv may use. The key set here
 # IS the set of valid verbs; a config using anything else is rejected. Kept in
-# sync with the scaffold-tracker skill's table.
+# sync with the scaffold-tracker skill's table. `{me}` (from `identity`) is
+# allowed in any verb, so it isn't listed per-verb.
 ALLOWED = {
     "list": set(), "view": {"id"}, "close": {"id", "comment"},
     "comment": {"id", "body"}, "create": {"title", "body"},
     "label": {"id", "action", "label"},
 }
+# The `changes` section (PRs / patchsets) supports a smaller verb set.
+ALLOWED_CHANGES = {"list": set(), "view": {"id"}}
+
+
+def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> bool:
+    """Validate one verb map; append problems to errs. Returns whether it uses {me}."""
+    uses_me = False
+    for verb, argv in verbs.items():
+        if verb not in allowed:
+            errs.append(f"{label} '{verb}': unknown verb (allowed: {sorted(allowed)})")
+            continue
+        if not isinstance(argv, list) or not argv or not all(isinstance(t, str) for t in argv):
+            errs.append(f"{label} '{verb}': must be a non-empty list of strings")
+            continue
+        used = {m for tok in argv for m in _PLACEHOLDER.findall(tok)}
+        uses_me |= "me" in used
+        bad = used - allowed[verb] - {"me"}  # {me} is allowed everywhere
+        if bad:
+            errs.append(
+                f"{label} '{verb}': placeholder(s) {sorted(bad)} not allowed "
+                f"(allowed: {sorted(allowed[verb] | {'me'})})"
+            )
+    return uses_me
 
 
 def validate_config(config: dict) -> list[str]:
@@ -38,9 +62,11 @@ def validate_config(config: dict) -> list[str]:
 
     A malformed config doesn't crash ``wfctl issue`` — the loader treats it as
     "no config" and every verb silently no-ops. This surfaces the problems
-    instead. Checks the same things the /scaffold-tracker skill documents:
-    a non-empty ``verbs`` map, known verb names, argv as non-empty string lists,
-    only the placeholders each verb allows, and a compilable ``key_pattern``.
+    instead. Checks what the /scaffold-tracker skill documents: a non-empty
+    ``verbs`` map, an optional ``changes`` map, known verb names, argv as
+    non-empty string lists, only allowed placeholders (``{me}`` allowed
+    everywhere), a compilable ``key_pattern``, and that ``{me}`` is only used
+    when ``identity`` is set.
     """
     errs: list[str] = []
     kp = config.get("key_pattern")
@@ -53,25 +79,27 @@ def validate_config(config: dict) -> list[str]:
             except re.error as e:
                 errs.append(f"key_pattern is not a valid regex: {e}")
 
+    identity = config.get("identity")
+    if identity is not None and not isinstance(identity, str):
+        errs.append("identity must be a string")
+
+    uses_me = False
     verbs = config.get("verbs")
     if not isinstance(verbs, dict) or not verbs:
         errs.append("missing non-empty 'verbs' object")
-        return errs
+    else:
+        uses_me |= _check_section("verbs", verbs, ALLOWED, errs)
 
-    for verb, argv in verbs.items():
-        if verb not in ALLOWED:
-            errs.append(f"unknown verb '{verb}' (allowed: {sorted(ALLOWED)})")
-            continue
-        if not isinstance(argv, list) or not argv or not all(isinstance(t, str) for t in argv):
-            errs.append(f"'{verb}': must be a non-empty list of strings")
-            continue
-        used = {m for tok in argv for m in _PLACEHOLDER.findall(tok)}
-        bad = used - ALLOWED[verb]
-        if bad:
-            errs.append(
-                f"'{verb}': placeholder(s) {sorted(bad)} not allowed "
-                f"(allowed: {sorted(ALLOWED[verb]) or 'none'})"
-            )
+    changes = config.get("changes")
+    if changes is not None:
+        if not isinstance(changes, dict) or not changes:
+            errs.append("'changes' must be a non-empty object if present")
+        else:
+            uses_me |= _check_section("changes", changes, ALLOWED_CHANGES, errs)
+
+    if uses_me and identity is None:
+        errs.append("a command uses {me} but no 'identity' is set")
+
     return errs
 
 
@@ -126,10 +154,23 @@ def _substitute(token: str, params: dict) -> str:
     return _PLACEHOLDER.sub(repl, token)
 
 
-def dispatch(agent_dir: Path, repo_root: Path, verb: str, params: dict) -> int:
-    """Run the configured tracker's command for verb; return an exit code.
+def dispatch(
+    agent_dir: Path,
+    repo_root: Path,
+    verb: str,
+    params: dict,
+    section: str = "verbs",
+    event: str = "issue",
+) -> int:
+    """Run the configured backend's command for verb; return an exit code.
 
-    Degrades gracefully (returns 0) when no tracker is configured, its config
+    ``section`` selects the verb map in the config: ``"verbs"`` for issues,
+    ``"changes"`` for PRs/patchsets. ``event`` is the name logged for the run.
+    A ``{me}`` placeholder in any argv is filled from the config's top-level
+    ``identity`` field (e.g. ``@me``, a username, an email), so a backend can
+    scope a list to the current user (``--author {me}``, ``owner:{me}``).
+
+    Degrades gracefully (returns 0) when no backend is configured, its config
     is missing/invalid, or the verb is unsupported — a session must not fail
     because a tracker step could not run.
     """
@@ -153,15 +194,27 @@ def dispatch(agent_dir: Path, repo_root: Path, verb: str, params: dict) -> int:
         )
         return 0
 
-    verbs = config.get("verbs", {})
+    verbs = config.get(section, {})
     if verb not in verbs:
         console.print(f"ℹ Tracker '{name}' does not support '{verb}' — skipped")
         return 0
 
+    # {me} comes from the config's identity, not a CLI flag — inject it so a
+    # backend can filter a list to the current user.
+    identity = config.get("identity")
+    if identity is not None:
+        params = {"me": identity, **params}
+
     try:
         argv = [_substitute(tok, params) for tok in verbs[verb]]
     except _MissingParam as e:
-        console.print(f"[red]✗ '{verb}' requires --{e.key}[/red]")
+        if e.key == "me":
+            console.print(
+                f"[red]✗ '{verb}' uses {{me}} but no 'identity' is set in "
+                f".agents/trackers/{name}.json[/red]"
+            )
+        else:
+            console.print(f"[red]✗ '{verb}' requires --{e.key}[/red]")
         return 1
 
     result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
@@ -171,5 +224,5 @@ def dispatch(agent_dir: Path, repo_root: Path, verb: str, params: dict) -> int:
         console.print((result.stderr or "").rstrip(), style="red", markup=False)
         return result.returncode
 
-    append_event(agent_dir, "issue", verb=verb, tracker=name)
+    append_event(agent_dir, event, verb=verb, tracker=name)
     return 0

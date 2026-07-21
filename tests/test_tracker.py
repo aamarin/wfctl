@@ -126,6 +126,73 @@ def test_successful_dispatch_logs_event(agent_dir: Path, captured_argv: list) ->
     assert '"verb": "view"' in events
 
 
+# --- change (changes section) + {me} identity ---
+
+_CHANGES_CFG = {
+    "identity": "@me",
+    "verbs": {"list": ["gh", "issue", "list"]},
+    "changes": {
+        "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],
+        "view": ["gh", "pr", "view", "{id}"],
+    },
+}
+
+
+def test_change_list_dispatches_changes_section(agent_dir: Path, captured_argv: list) -> None:
+    _configure_tracker(agent_dir.parent, "github", _CHANGES_CFG)
+    result = runner.invoke(app, ["change", "list"])
+    assert result.exit_code == 0
+    assert captured_argv == [["gh", "pr", "list", "--state", "open", "--author", "@me"]]
+
+
+def test_change_view_substitutes_id(agent_dir: Path, captured_argv: list) -> None:
+    _configure_tracker(agent_dir.parent, "github", _CHANGES_CFG)
+    runner.invoke(app, ["change", "view", "128"])
+    assert captured_argv == [["gh", "pr", "view", "128"]]
+
+
+def test_issue_and_change_read_different_sections(agent_dir: Path, captured_argv: list) -> None:
+    _configure_tracker(agent_dir.parent, "github", _CHANGES_CFG)
+    runner.invoke(app, ["issue", "list"])
+    runner.invoke(app, ["change", "list"])
+    assert captured_argv == [
+        ["gh", "issue", "list"],
+        ["gh", "pr", "list", "--state", "open", "--author", "@me"],
+    ]
+
+
+def test_me_placeholder_filled_from_identity(agent_dir: Path, captured_argv: list) -> None:
+    cfg = {"identity": "@me", "verbs": {"list": ["gh", "issue", "list", "--assignee", "{me}"]}}
+    _configure_tracker(agent_dir.parent, "github", cfg)
+    runner.invoke(app, ["issue", "list"])
+    assert captured_argv == [["gh", "issue", "list", "--assignee", "@me"]]
+
+
+def test_me_without_identity_errors(agent_dir: Path, captured_argv: list) -> None:
+    cfg = {"verbs": {"list": ["gh", "issue", "list", "--assignee", "{me}"]}}  # no identity
+    _configure_tracker(agent_dir.parent, "github", cfg)
+    result = runner.invoke(app, ["issue", "list"])
+    assert result.exit_code == 1
+    assert "identity" in result.output
+    assert captured_argv == []
+
+
+def test_change_unsupported_verb_skips_gracefully(agent_dir: Path, captured_argv: list) -> None:
+    _configure_tracker(agent_dir.parent, "github", {"verbs": {"list": ["gh", "issue", "list"]}})
+    result = runner.invoke(app, ["change", "list"])  # no 'changes' section
+    assert result.exit_code == 0
+    assert "does not support 'list'" in result.output
+    assert captured_argv == []
+
+
+def test_change_logs_change_event(agent_dir: Path, captured_argv: list) -> None:
+    _configure_tracker(agent_dir.parent, "github", _CHANGES_CFG)
+    runner.invoke(app, ["change", "list"])
+    events = (agent_dir / "events.jsonl").read_text()
+    assert '"event": "change"' in events
+    assert '"verb": "list"' in events
+
+
 # --- tracker-check ---
 
 def test_tracker_check_ok(agent_dir: Path) -> None:
@@ -162,6 +229,30 @@ def test_tracker_check_reports_bad_key_pattern(agent_dir: Path) -> None:
     result = runner.invoke(app, ["tracker-check", "jp"])
     assert result.exit_code == 1
     assert "key_pattern" in result.output
+
+
+def test_tracker_check_accepts_identity_me_and_changes(agent_dir: Path) -> None:
+    """A config using {me} (with identity) + a changes section validates OK."""
+    _configure_tracker(agent_dir.parent, "github", _CHANGES_CFG)
+    result = runner.invoke(app, ["tracker-check", "github"])
+    assert result.exit_code == 0
+    assert "OK" in result.output
+
+
+def test_tracker_check_me_without_identity_is_invalid(agent_dir: Path) -> None:
+    cfg = {"verbs": {"list": ["gh", "issue", "list", "--assignee", "{me}"]}}  # {me}, no identity
+    _configure_tracker(agent_dir.parent, "github", cfg)
+    result = runner.invoke(app, ["tracker-check", "github"])
+    assert result.exit_code == 1
+    assert "identity" in result.output
+
+
+def test_tracker_check_rejects_bad_changes_verb(agent_dir: Path) -> None:
+    cfg = {"verbs": {"list": ["gh", "issue", "list"]}, "changes": {"merge": ["gh", "pr", "merge"]}}
+    _configure_tracker(agent_dir.parent, "github", cfg)
+    result = runner.invoke(app, ["tracker-check", "github"])
+    assert result.exit_code == 1
+    assert "changes" in result.output and "merge" in result.output
 
 
 # --- install-skills --tracker ---
