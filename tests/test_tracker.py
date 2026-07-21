@@ -181,9 +181,26 @@ def _make_wf_skills_repo_with_tracker(base: Path) -> Path:
     trackers = src / ".agents" / "trackers"
     trackers.mkdir(parents=True)
     (trackers / "github.json").write_text(json.dumps(_GITHUB_VERBS))
+    # Speckit runtime — installed as a repo-level managed mirror alongside skills.
+    scripts = src / ".specify" / "scripts" / "bash"
+    scripts.mkdir(parents=True)
+    (scripts / "setup-plan.sh").write_text("#!/usr/bin/env bash\necho plan\n")
+    templates = src / ".specify" / "templates"
+    templates.mkdir(parents=True)
+    (templates / "plan-template.md").write_text("# plan\n")
     subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
     return src
+
+
+def test_install_copies_specify_runtime(agent_dir: Path, tmp_path: Path) -> None:
+    """install-skills provisions the .specify/ runtime (scripts + templates)."""
+    repo_root = agent_dir.parent
+    src = _make_wf_skills_repo_with_tracker(tmp_path)
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    assert (repo_root / ".specify" / "scripts" / "bash" / "setup-plan.sh").exists()
+    assert (repo_root / ".specify" / "templates" / "plan-template.md").exists()
 
 
 def test_install_tracker_github_copies_config_and_sets_manifest(agent_dir: Path, tmp_path: Path) -> None:

@@ -262,6 +262,39 @@ def state_dir_cmd() -> None:
     print(agent_dir)
 
 
+@app.command("feature-paths")
+def feature_paths_cmd() -> None:
+    """Print the active feature's paths as eval-able shell assignments.
+
+    The single source of truth for branch → spec-dir resolution: `resolve_spec_dir`
+    honors the active tracker's key_pattern and an exact `specs/<branch>` match.
+    The installed speckit runtime (`.specify/scripts/bash/common.sh`) sources this
+    instead of re-deriving paths with a numeric-only regex, so non-numeric issue
+    keys (e.g. PFHB-123) resolve correctly. Consumed via `eval`, so values are
+    single-quoted.
+    """
+    _, repo_root, branch, _ = _resolve_context()
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    # No spec folder yet → the conventional path setup-plan.sh will `mkdir -p`.
+    feature_dir = spec_dir if spec_dir is not None else repo_root / "specs" / branch
+    fields = [
+        ("REPO_ROOT", repo_root),
+        ("CURRENT_BRANCH", branch),
+        ("HAS_GIT", "true"),  # _resolve_context already required a git repo
+        ("FEATURE_DIR", feature_dir),
+        ("FEATURE_SPEC", feature_dir / "spec.md"),
+        ("IMPL_PLAN", feature_dir / "plan.md"),
+        ("TASKS", feature_dir / "tasks.md"),
+        ("RESEARCH", feature_dir / "research.md"),
+        ("DATA_MODEL", feature_dir / "data-model.md"),
+        ("QUICKSTART", feature_dir / "quickstart.md"),
+        ("CONTRACTS_DIR", feature_dir / "contracts"),
+    ]
+    # Plain print: output is eval'd by shell; rich would wrap/inject ANSI.
+    for name, val in fields:
+        print(f"{name}='{val}'")
+
+
 @app.command("promote")
 def promote_cmd() -> None:
     """Interactively promote memory candidates."""
@@ -339,6 +372,15 @@ _AGENT_TARGETS = {
     ],
     "none": [(".agents/skills", ".agents/skills")],
 }
+
+# The speckit skills shell out to `.specify/scripts/*.sh` and read
+# `.specify/templates/*`. That runtime is repo-level (not per-agent) and
+# version-locked to the skills, so it installs alongside them from the same
+# wf-skills clone — a managed mirror, same (src, dst) copy machinery as above.
+_RUNTIME_TARGETS = [
+    (".specify/scripts", ".specify/scripts"),
+    (".specify/templates", ".specify/templates"),
+]
 
 _MANIFEST_PATH = ".wf-skills-manifest.json"
 _BACKUP_DIR = ".wf-skills-backup"
@@ -427,7 +469,7 @@ def install_skills_cmd(
         # is touched, rather than finding out from the summary afterward.
         plan: list[tuple[str, Path, Path]] = []
         foreign_overwrites: list[str] = []
-        for src_rel, dst_rel in targets:
+        for src_rel, dst_rel in [*targets, *_RUNTIME_TARGETS]:
             src = Path(tmp) / src_rel
             dst = repo_root / dst_rel
             if not src.exists():
