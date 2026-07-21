@@ -70,9 +70,12 @@ wfctl end
 | `checkpoint`     | Save a numbered checkpoint artifact (diff + md)                          |
 | `log`            | Print color-coded event timeline for the current session                 |
 | `state-dir`      | Print the active XDG state directory path                                |
+| `feature-paths`  | Print the active feature's spec/plan/tasks paths (source of truth for the installed speckit runtime) |
 | `promote`        | Interactively promote memory candidates to permanent memory              |
-| `install-skills` | Clone wf-skills and copy skills + commands into the current project      |
+| `install-skills` | Clone wf-skills and copy skills + commands + the speckit `.specify/` runtime into the current project |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
+| `install-config` | Seed a standardized repo config from wf-skills into the project (v1: `workmux`) |
+| `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
 | `doctor`         | Check installed wf-skills content against upstream for drift             |
 
 `wfctl --version` prints the installed package version and exits.
@@ -165,6 +168,33 @@ $ wfctl doctor
 ```
 
 Exits non-zero if any installed agent is stale or unreachable.
+
+### Seeding project config (`install-config`)
+
+`install-config` drops a standardized config file into your repo, sourced from
+the same wf-skills repo. Unlike `install-skills` — a managed mirror it keeps in
+sync — this is **seed-once**: the file becomes yours, committed and owned. No
+manifest, no drift-check, no uninstall.
+
+```
+$ wfctl install-config workmux
+✓ Seeded workmux config (1 file(s)) from https://github.com/aamarin/wf-skills@main
+```
+
+v1 ships `workmux` — a repo-agnostic [`.workmux.yaml`](https://github.com/aamarin/wf-skills)
+starter (worktrees under `wt/`, session mode, agent + term windows, an
+issue-number `pre_create` branch guard; project-specific port/env hooks ship
+commented). For `workmux` it also idempotently adds `wt/` to `.gitignore` and
+sets the config's `agent:` to the resolved agent — `--agent` if given, else the
+agent `install-skills` recorded, else `claude`.
+
+It refuses to overwrite an existing file unless you pass `--force` (the file is
+git-tracked, so git is your undo):
+
+```
+$ wfctl install-config workmux
+✗ Would overwrite existing file(s): .workmux.yaml. Pass --force to overwrite (git is your undo).
+```
 
 ### `resume` vs `next`
 
