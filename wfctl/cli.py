@@ -518,7 +518,7 @@ def install_skills_cmd(
             if not cfg.exists():
                 console.print(
                     f"[yellow]⚠[/yellow] selected tracker '{tracker}' but no "
-                    f".agents/trackers/{tracker}.json found — author it with scaffold-tracker"
+                    f".agents/trackers/{tracker}.json found — author it with /scaffold-tracker"
                 )
 
     _save_manifest(repo_root, manifest)
@@ -589,6 +589,36 @@ def uninstall_skills_cmd(
         f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
         f"pre-existing file(s) for agent '{agent}'"
     )
+
+
+@app.command("tracker-check")
+def tracker_check_cmd(
+    name: str = typer.Argument(..., help="Tracker name — validates .agents/trackers/<name>.json"),
+) -> None:
+    """Validate a tracker config; exit non-zero with the specific problems if bad.
+
+    A malformed config doesn't crash `wfctl issue` — it silently disables the
+    tracker. This catches the problem instead. Prints `OK: <verbs>` when valid;
+    re-run after each fix until it passes.
+    """
+    repo_root = get_repo_root()
+    path = repo_root / ".agents" / "trackers" / f"{name}.json"
+    if not path.exists():
+        console.print(f"[red]INVALID:[/red] {path} not found")
+        raise typer.Exit(1)
+    try:
+        config = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        console.print(f"[red]INVALID:[/red] {e}")
+        raise typer.Exit(1)
+
+    errs = _tracker.validate_config(config)
+    if errs:
+        console.print("[red]INVALID:[/red]")
+        for err in errs:
+            console.print(f"  - {err}")
+        raise typer.Exit(1)
+    console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
 @app.command("doctor")

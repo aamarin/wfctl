@@ -23,6 +23,57 @@ console = Console(highlight=False)
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
+# The verb contract: verb -> the placeholders its argv may use. The key set here
+# IS the set of valid verbs; a config using anything else is rejected. Kept in
+# sync with the scaffold-tracker skill's table.
+ALLOWED = {
+    "list": set(), "view": {"id"}, "close": {"id", "comment"},
+    "comment": {"id", "body"}, "create": {"title", "body"},
+    "label": {"id", "action", "label"},
+}
+
+
+def validate_config(config: dict) -> list[str]:
+    """Return a list of problems with a tracker config; empty list means valid.
+
+    A malformed config doesn't crash ``wfctl issue`` — the loader treats it as
+    "no config" and every verb silently no-ops. This surfaces the problems
+    instead. Checks the same things the /scaffold-tracker skill documents:
+    a non-empty ``verbs`` map, known verb names, argv as non-empty string lists,
+    only the placeholders each verb allows, and a compilable ``key_pattern``.
+    """
+    errs: list[str] = []
+    kp = config.get("key_pattern")
+    if kp is not None:
+        if not isinstance(kp, str):
+            errs.append("key_pattern must be a string")
+        else:
+            try:
+                re.compile(kp)
+            except re.error as e:
+                errs.append(f"key_pattern is not a valid regex: {e}")
+
+    verbs = config.get("verbs")
+    if not isinstance(verbs, dict) or not verbs:
+        errs.append("missing non-empty 'verbs' object")
+        return errs
+
+    for verb, argv in verbs.items():
+        if verb not in ALLOWED:
+            errs.append(f"unknown verb '{verb}' (allowed: {sorted(ALLOWED)})")
+            continue
+        if not isinstance(argv, list) or not argv or not all(isinstance(t, str) for t in argv):
+            errs.append(f"'{verb}': must be a non-empty list of strings")
+            continue
+        used = {m for tok in argv for m in _PLACEHOLDER.findall(tok)}
+        bad = used - ALLOWED[verb]
+        if bad:
+            errs.append(
+                f"'{verb}': placeholder(s) {sorted(bad)} not allowed "
+                f"(allowed: {sorted(ALLOWED[verb]) or 'none'})"
+            )
+    return errs
+
 
 class _MissingParam(Exception):
     def __init__(self, key: str) -> None:
@@ -86,14 +137,19 @@ def dispatch(agent_dir: Path, repo_root: Path, verb: str, params: dict) -> int:
 
     name = _load_manifest(repo_root).get("tracker")
     if not name:
-        console.print(f"ℹ No tracker configured — skipping '{verb}'")
+        console.print(
+            f"ℹ No tracker configured — skipping '{verb}'. "
+            "Author one with the /scaffold-tracker skill."
+        )
         return 0
 
     config = _load_tracker_config(repo_root, name)
     if config is None:
         console.print(
             f"[yellow]⚠[/yellow] Tracker '{name}' config missing or invalid "
-            f"(.agents/trackers/{name}.json) — skipping '{verb}'"
+            f"(.agents/trackers/{name}.json) — skipping '{verb}'. "
+            "Fix it with the /scaffold-tracker skill (or `wfctl tracker-check "
+            f"{name}` to see what's wrong)."
         )
         return 0
 

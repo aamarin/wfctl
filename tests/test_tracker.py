@@ -126,6 +126,44 @@ def test_successful_dispatch_logs_event(agent_dir: Path, captured_argv: list) ->
     assert '"verb": "view"' in events
 
 
+# --- tracker-check ---
+
+def test_tracker_check_ok(agent_dir: Path) -> None:
+    repo_root = agent_dir.parent
+    _configure_tracker(repo_root, "github", _GITHUB_VERBS)
+    result = runner.invoke(app, ["tracker-check", "github"])
+    assert result.exit_code == 0
+    assert "OK:" in result.output
+
+
+def test_tracker_check_missing_file(agent_dir: Path) -> None:
+    result = runner.invoke(app, ["tracker-check", "nope"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_tracker_check_reports_bad_placeholder_and_verb(agent_dir: Path) -> None:
+    repo_root = agent_dir.parent
+    _configure_tracker(repo_root, "jp", {
+        "verbs": {
+            "view": ["jp", "read", "{issue_id}"],  # {issue_id} is not a valid placeholder — it's {id}
+            "frobnicate": ["jp", "frob"],           # unknown verb
+        },
+    })
+    result = runner.invoke(app, ["tracker-check", "jp"])
+    assert result.exit_code == 1
+    assert "issue_id" in result.output
+    assert "frobnicate" in result.output
+
+
+def test_tracker_check_reports_bad_key_pattern(agent_dir: Path) -> None:
+    repo_root = agent_dir.parent
+    _configure_tracker(repo_root, "jp", {"key_pattern": "[unclosed", "verbs": {"list": ["jp", "ls"]}})
+    result = runner.invoke(app, ["tracker-check", "jp"])
+    assert result.exit_code == 1
+    assert "key_pattern" in result.output
+
+
 # --- install-skills --tracker ---
 
 def _make_wf_skills_repo_with_tracker(base: Path) -> Path:
