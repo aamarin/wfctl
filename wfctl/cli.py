@@ -382,8 +382,26 @@ _RUNTIME_TARGETS = [
     (".specify/templates", ".specify/templates"),
 ]
 
+# Repo-level config files wfctl can seed from wf-skills. Unlike skills (a
+# managed mirror), these are seed-once: the copied file becomes the repo's own,
+# committed and owned — so install-config keeps no manifest/backup/uninstall
+# bookkeeping. Positional config name → source dir in wf-skills whose contents
+# copy to the repo root.
+_CONFIG_SOURCES = {"workmux": ".agents/configs/workmux"}
+
 _MANIFEST_PATH = ".wf-skills-manifest.json"
 _BACKUP_DIR = ".wf-skills-backup"
+
+
+def _ensure_gitignored(repo_root: Path, line: str) -> None:
+    """Append `line` to .gitignore if absent (create the file if needed). Idempotent."""
+    gi = repo_root / ".gitignore"
+    text = gi.read_text() if gi.exists() else ""
+    if line in text.splitlines():
+        return
+    if text and not text.endswith("\n"):
+        text += "\n"
+    gi.write_text(text + f"{line}\n")
 
 
 def _load_manifest(repo_root: Path) -> dict:
@@ -630,6 +648,108 @@ def uninstall_skills_cmd(
     console.print(
         f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
         f"pre-existing file(s) for agent '{agent}'"
+    )
+
+
+def _resolve_config_agent(repo_root: Path, explicit: str | None) -> str:
+    """Agent for a seeded config: explicit flag → sole installed agent → 'claude'.
+
+    Mirrors what `install-skills --agent` recorded, so a repo set up for a
+    non-default agent gets a matching workmux config without re-specifying it.
+    """
+    if explicit:
+        return explicit
+    agents = [a for a in _load_manifest(repo_root) if a != "tracker"]
+    if len(agents) == 1 and agents[0] != "none":
+        return agents[0]
+    return "claude"
+
+
+@app.command("install-config")
+def install_config_cmd(
+    name: str = typer.Argument(..., help=f"Config to seed: {', '.join(_CONFIG_SOURCES)}"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing files"),
+    agent: str = typer.Option(
+        None, "--agent",
+        help="Agent the config targets (workmux `agent:`). Defaults to the "
+        "installed agent from the manifest, else 'claude'.",
+    ),
+    repo: str = typer.Option(
+        "https://github.com/aamarin/wf-skills", "--repo", help="wf-skills repo URL"
+    ),
+    ref: str = typer.Option("main", "--ref", help="Branch or tag to install from"),
+) -> None:
+    """Seed a standardized repo config from wf-skills into the current repo.
+
+    Unlike install-skills (a managed mirror), this is seed-once: the copied files
+    become the repo's own, committed and owned — no manifest/backup/uninstall.
+    Refuses to overwrite an existing file unless --force (git is your undo).
+    v1 ships 'workmux'.
+    """
+    import shutil
+    import subprocess as sp
+    import tempfile
+
+    src_rel = _CONFIG_SOURCES.get(name)
+    if src_rel is None:
+        console.print(
+            f"[red]✗ Unknown config '{name}'. Available: {', '.join(_CONFIG_SOURCES)}.[/red]"
+        )
+        raise typer.Exit(1)
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        console.print("[red]✗ Not in a git repo.[/red]")
+        raise typer.Exit(1)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # ponytail: dup'd clone from install_skills_cmd; extract a helper if a 3rd caller appears
+        result = sp.run(
+            ["git", "clone", "--depth=1", "--branch", ref, repo, tmp],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            console.print(f"[red]✗ Clone failed: {result.stderr.strip()}[/red]")
+            raise typer.Exit(1)
+
+        src = Path(tmp) / src_rel
+        if not src.exists():
+            console.print(f"[red]✗ Config '{name}' not found in {repo}@{ref} ({src_rel}).[/red]")
+            raise typer.Exit(1)
+
+        # Plan the copy (source dir contents → repo root), collecting anything
+        # we'd overwrite so we can refuse before touching the tree.
+        plan = [(item, repo_root / item.name) for item in src.iterdir()]
+        conflicts = [item.name for item, dest in plan if dest.exists() and not force]
+        if conflicts:
+            console.print(
+                f"[red]✗ Would overwrite existing file(s): {', '.join(conflicts)}. "
+                f"Pass --force to overwrite (git is your undo).[/red]"
+            )
+            raise typer.Exit(1)
+
+        for item, dest in plan:
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dest)
+
+    if name == "workmux":
+        # Worktrees live in ./wt inside the repo — keep git from tracking them.
+        _ensure_gitignored(repo_root, "wt/")
+        # Point `agent:` at the installed/〈--agent〉 agent (pane runs `<agent>`).
+        chosen = _resolve_config_agent(repo_root, agent)
+        wf = repo_root / ".workmux.yaml"
+        lines = wf.read_text().splitlines(keepends=True)
+        for i, ln in enumerate(lines):
+            if ln.startswith("agent:"):
+                lines[i] = f"agent: {chosen}\n"
+                break
+        wf.write_text("".join(lines))
+
+    console.print(
+        f"[green]✓[/green] Seeded {name} config ({len(plan)} file(s)) from {repo}@{ref}"
     )
 
 

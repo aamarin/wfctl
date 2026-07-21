@@ -39,9 +39,14 @@ fan-out, manifest, backup, `doctor` drift-check). It seeds once; git is the undo
 
 ## Functional Requirements
 
-- **Command:** `wfctl install-config <name> [--force] [--repo URL] [--ref REF]`.
+- **Command:** `wfctl install-config <name> [--force] [--agent NAME] [--repo URL] [--ref REF]`.
   `<name>` is a positional argument so future configs are additive (a new name),
   never a new subcommand. v1 recognizes only `workmux`.
+- **Agent substitution (workmux):** the shipped `.workmux.yaml` runs `<agent>` in
+  its agent pane. After seeding, wfctl rewrites the `agent:` line to the resolved
+  agent: `--agent` if given, else the sole installed agent from the manifest
+  (what `install-skills --agent` recorded), else `claude`. So a repo set up for a
+  non-default agent gets a matching config without re-specifying it.
 - **Source:** `wf-skills` ships `.agents/configs/<name>/`. Installing copies the
   **contents of that directory** into the repo root. A directory (not a single
   file) so a config that later needs sidecar files (e.g. hook scripts) works
