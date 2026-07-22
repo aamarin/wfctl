@@ -4,11 +4,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from wfctl.cli import app
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def stub_version_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate the skills-drift tests from doctor's wfctl-tool version check
+    (which does a real network ls-remote)."""
+    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
 
 
 def _make_wf_skills_repo(base: Path) -> Path:
@@ -230,7 +238,7 @@ def test_install_pins_resolved_commit(agent_dir: Path, tmp_path: Path) -> None:
     assert manifest["claude"]["commit"] == head
 
 
-def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path) -> None:
+def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path, stub_version_check: None) -> None:
     """A fresh install's pinned commit matches upstream's tip — nothing to flag."""
     src = _make_wf_skills_repo(tmp_path)
     runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
@@ -239,7 +247,7 @@ def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path) -> None:
     assert "up to date" in result.output
 
 
-def test_doctor_reports_stale_with_diff(agent_dir: Path, tmp_path: Path) -> None:
+def test_doctor_reports_behind_with_diff(agent_dir: Path, tmp_path: Path, stub_version_check: None) -> None:
     """When upstream moves past the pinned commit, doctor exits 1 and shows what changed."""
     src = _make_wf_skills_repo(tmp_path)
     runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
@@ -251,18 +259,19 @@ def test_doctor_reports_stale_with_diff(agent_dir: Path, tmp_path: Path) -> None
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 1
-    assert "stale" in result.output
+    assert "behind" in result.output
     assert "SKILL.md" in result.output
+    assert "install-skills" in result.output  # the update hint
 
 
-def test_doctor_with_nothing_installed(agent_dir: Path) -> None:
+def test_doctor_with_nothing_installed(agent_dir: Path, stub_version_check: None) -> None:
     """No manifest yet — doctor reports that plainly instead of erroring."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "Nothing installed" in result.output
 
 
-def test_doctor_warns_when_no_commit_pinned(agent_dir: Path, tmp_path: Path) -> None:
+def test_doctor_warns_when_no_commit_pinned(agent_dir: Path, tmp_path: Path, stub_version_check: None) -> None:
     """A manifest from before commit-pinning existed is skipped with a warning, not a crash."""
     import json
     import os
@@ -278,3 +287,41 @@ def test_doctor_warns_when_no_commit_pinned(agent_dir: Path, tmp_path: Path) -> 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "no pinned commit" in result.output
+
+
+# --- wfctl tool version check (doctor's first line) ---
+
+def _fake_ls_remote_tags(*tags: str):
+    """A subprocess.run stand-in that returns the given tags as `git ls-remote --tags` output."""
+    def run(argv, **kwargs):
+        if "ls-remote" in argv:
+            out = "".join(f"{'0'*40}\trefs/tags/{t}\n" for t in tags)
+            return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+    return run
+
+
+def _plain(s: str) -> str:
+    """Strip ANSI so assertions don't break on rich's number highlighting."""
+    import re
+    return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+
+def test_check_wfctl_version_upgrade_available(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    import importlib.metadata
+    from wfctl.cli import _check_wfctl_version
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.9.0")
+    monkeypatch.setattr(subprocess, "run", _fake_ls_remote_tags("v0.9.0", "v0.10.0"))
+    rc = _check_wfctl_version()
+    assert rc == 1
+    assert "0.10.0 available" in _plain(capsys.readouterr().out)
+
+
+def test_check_wfctl_version_latest(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    import importlib.metadata
+    from wfctl.cli import _check_wfctl_version
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.10.0")
+    monkeypatch.setattr(subprocess, "run", _fake_ls_remote_tags("v0.9.0", "v0.10.0"))
+    rc = _check_wfctl_version()
+    assert rc == 0
+    assert "latest" in _plain(capsys.readouterr().out)

@@ -18,7 +18,9 @@ from wfctl._paths import (
 )
 
 app = typer.Typer(no_args_is_help=True)
-console = Console()
+# highlight=False: don't let rich auto-color numbers/paths — this output is parsed
+# by agents and asserted on in tests. Explicit [green]/[cyan]/… markup still applies.
+console = Console(highlight=False)
 
 
 def _version_callback(value: bool) -> None:
@@ -816,25 +818,70 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+# wfctl is installed from this repo (uv tool install git+…); doctor compares the
+# running version against its latest release tag. Assumes the canonical origin;
+# a fork install just shows "couldn't check" / a spurious upgrade, never an error.
+_WFCTL_REPO = "https://github.com/aamarin/wfctl.git"
+
+
+def _parse_semver(v: str) -> tuple | None:
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except ValueError:
+        return None
+
+
+def _check_wfctl_version() -> int:
+    """Report the wfctl tool's freshness. Return 1 if an upgrade is available.
+
+    green ✓ = latest · cyan ⬆ = upgrade available · yellow ⚠ = couldn't check.
+    """
+    import re
+    import subprocess as sp
+    from importlib.metadata import version as pkg_version
+
+    installed = pkg_version("wfctl")
+    r = sp.run(["git", "ls-remote", "--tags", "--refs", _WFCTL_REPO], capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        console.print(f"[yellow]⚠[/yellow] wfctl {installed} — couldn't check latest (offline?)")
+        return 0
+
+    tags = [(t, _parse_semver(t)) for t in re.findall(r"refs/tags/v(\d+\.\d+\.\d+)", r.stdout)]
+    parsed = [(pv, t) for t, pv in tags if pv]
+    cur = _parse_semver(installed)
+    if parsed and cur is not None and max(parsed)[0] > cur:
+        latest = max(parsed)[1]
+        console.print(f"[cyan]⬆[/cyan] wfctl {installed} → {latest} available")
+        console.print(f"    upgrade: uv tool install --upgrade {_WFCTL_REPO}")
+        return 1
+
+    console.print(f"[green]✓[/green] wfctl {installed} — latest")
+    return 0
+
+
 @app.command("doctor")
 def doctor_cmd() -> None:
-    """Check installed wf-skills content against upstream for drift."""
+    """Check the wfctl tool and installed wf-skills content for available updates.
+
+    green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
+    """
     import subprocess as sp
     import tempfile
+
+    exit_code = _check_wfctl_version()
 
     try:
         repo_root = get_repo_root()
     except SystemExit:
-        console.print("[red]✗ Not in a git repo.[/red]")
-        raise typer.Exit(1)
+        console.print("[yellow]⚠[/yellow] not in a git repo — skipping skills check.")
+        raise typer.Exit(exit_code)
 
     manifest = _load_manifest(repo_root)
     agents = [a for a in manifest if a != "tracker"]
     if not agents:
         console.print("Nothing installed — run `wfctl install-skills` first.")
-        return
+        raise typer.Exit(exit_code)
 
-    exit_code = 0
     for agent in agents:
         entry = manifest[agent]
         repo, ref, commit = entry.get("repo"), entry.get("ref"), entry.get("commit")
@@ -853,22 +900,23 @@ def doctor_cmd() -> None:
 
         tip = remote.stdout.split()[0]
         if tip == commit:
-            console.print(f"[green]✓[/green] {agent}: up to date ({commit[:7]})")
+            console.print(f"[green]✓[/green] {agent}: skills up to date ({commit[:7]})")
             continue
 
         exit_code = 1
-        console.print(f"[yellow]⚠[/yellow] {agent}: stale — installed {commit[:7]}, {ref} is now at {tip[:7]}")
+        console.print(f"[cyan]⬆[/cyan] {agent}: skills behind — {commit[:7]} → {tip[:7]}")
         with tempfile.TemporaryDirectory() as tmp:
             clone = sp.run(["git", "clone", "-q", repo, tmp], capture_output=True, text=True)
-            if clone.returncode != 0:
+            if clone.returncode == 0:
+                diff = sp.run(
+                    ["git", "diff", "--stat", commit, tip, "--", ".agents/skills", ".agents/commands"],
+                    cwd=tmp, capture_output=True, text=True,
+                )
+                for line in (diff.stdout.strip().splitlines() or ["(no changes under .agents/skills or .agents/commands)"]):
+                    console.print(f"    {line}")
+            else:
                 console.print(f"    (couldn't clone to diff: {clone.stderr.strip()})")
-                continue
-            diff = sp.run(
-                ["git", "diff", "--stat", commit, tip, "--", ".agents/skills", ".agents/commands"],
-                cwd=tmp, capture_output=True, text=True,
-            )
-            for line in (diff.stdout.strip().splitlines() or ["(no changes under .agents/skills or .agents/commands)"]):
-                console.print(f"    {line}")
+        console.print("    update: wfctl install-skills")
 
     raise typer.Exit(exit_code)
 

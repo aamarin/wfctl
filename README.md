@@ -217,18 +217,25 @@ Known limitation: `--agent claude` and `--agent none` both write skills to
 one will remove skill files the other's bookkeeping still points to — pick
 one agent per repo.
 
-`install-skills` pins the resolved commit SHA (not just the `--ref` name) in
-the manifest, so staleness relative to upstream is checkable later:
+`wfctl doctor` is the single "am I current?" check — it reports both the wfctl
+tool (installed version vs latest release tag) and the installed skills (pinned
+commit vs upstream tip). Colour-coded: **green ✓** current, **cyan ⬆** upgrade
+available, **yellow ⚠** warning, **red ✗** error.
 
 ```
 $ wfctl doctor
-✓ claude: up to date (7f1c021)
-⚠ bob: stale — installed dc24ff7, main is now at 7f1c021
-     .agents/commands/end-session.md | 1 +
+⬆ wfctl 0.9.0 → 0.10.0 available
+    upgrade: uv tool install --upgrade git+https://github.com/aamarin/wfctl.git
+⬆ claude: skills behind — dc24ff7 → 7f1c021
      .agents/skills/end-session/SKILL.md | 76 ++++++++++++++++++++++++++++++++++
+    update: wfctl install-skills
 ```
 
-Exits non-zero if any installed agent is stale or unreachable.
+`install-skills` pins the resolved commit SHA (not just the `--ref` name) so
+skills staleness is detectable; the tool check assumes you installed wfctl from
+its canonical repo. Exits non-zero when an upgrade is available or a repo is
+unreachable — so `wfctl doctor` doubles as a freshness gate in scripts, and the
+`start-session` skill runs it so you see freshness every session.
 
 ### Seeding project config (`install-config`)
 
