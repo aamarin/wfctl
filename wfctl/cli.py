@@ -428,6 +428,43 @@ _MANIFEST_PATH = ".wf-skills-manifest.json"
 _BACKUP_DIR = ".wf-skills-backup"
 
 
+def _skill_deployment(skill_dir: Path) -> str:
+    """Read the `deployment:` frontmatter key from a skill's SKILL.md. Defaults to 'command'."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return "command"
+    lines = skill_md.read_text().splitlines()
+    if not lines or lines[0].strip() != "---":
+        return "command"
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("deployment:"):
+            return line.split(":", 1)[1].strip().strip("'\"")
+    return "command"
+
+
+def _claude_native_skill_mirror(
+    repo_root: Path, item: Path
+) -> tuple[str, Path, Path] | None:
+    """Claude extra: a skill under .agents/skills marked `deployment: skill` also
+    mirrors to .claude/skills/<name> (Claude's native discovery path), on top of
+    the .agents/skills reference copy every agent gets. None if it doesn't apply."""
+    if not item.is_dir() or _skill_deployment(item) != "skill":
+        return None
+    dest = repo_root / ".claude" / "skills" / item.name
+    return str(dest.relative_to(repo_root)), dest, item
+
+
+# Per-agent hook for extra mirrors beyond the plain (src, dst) copy in
+# _AGENT_TARGETS, keyed the same way — dispatch by agent, not by growing
+# `if agent == "..."` branches. Called once per item under .agents/skills;
+# returning None means "nothing extra for this item".
+_AGENT_SKILL_EXTRAS = {
+    "claude": _claude_native_skill_mirror,
+}
+
+
 def _ensure_gitignored(repo_root: Path, line: str) -> None:
     """Append `line` to .gitignore if absent (create the file if needed). Idempotent."""
     gi = repo_root / ".gitignore"
@@ -537,6 +574,15 @@ def install_skills_cmd(
                 plan.append((rel_dest, dest, item))
                 if dest.exists() and rel_dest not in prior_items:
                     foreign_overwrites.append(rel_dest)
+
+                if src_rel == ".agents/skills":
+                    extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
+                    extra = extra_fn(repo_root, item) if extra_fn else None
+                    if extra:
+                        extra_rel, extra_dest, extra_item = extra
+                        plan.append((extra_rel, extra_dest, extra_item))
+                        if extra_dest.exists() and extra_rel not in prior_items:
+                            foreign_overwrites.append(extra_rel)
 
         # 'github' is the only tracker wf-skills ships; copy just its config.
         if tracker == "github":

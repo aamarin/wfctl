@@ -57,6 +57,73 @@ def test_install_skills_copies_commands(agent_dir: Path, tmp_path: Path) -> None
     assert (Path(repo_root) / ".claude" / "commands" / "test-cmd.md").exists()
 
 
+def test_install_skills_skips_native_mirror_by_default(agent_dir: Path, tmp_path: Path) -> None:
+    """A skill with no `deployment` marker (or `deployment: command`) stays reference-only."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert not (repo_root / ".claude" / "skills").exists()
+
+
+def test_install_skills_mirrors_native_skill_for_claude(agent_dir: Path, tmp_path: Path) -> None:
+    """`deployment: skill` in SKILL.md frontmatter also mirrors to .claude/skills/<name>."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    native = src / ".agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text(
+        "---\nname: native-skill\ndeployment: skill\n---\nBody.\n"
+    )
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "add native skill"], check=True, capture_output=True)
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    # Still gets the reference-only mirror every agent gets...
+    assert (repo_root / ".agents" / "skills" / "native-skill" / "SKILL.md").exists()
+    # ...plus the Claude-native discovery mirror.
+    assert (repo_root / ".claude" / "skills" / "native-skill" / "SKILL.md").exists()
+    # The command-only skill from the base fixture is not mirrored.
+    assert not (repo_root / ".claude" / "skills" / "test-skill").exists()
+
+
+def test_install_skills_bob_ignores_native_deployment_marker(agent_dir: Path, tmp_path: Path) -> None:
+    """The .claude/skills mirror is Claude-specific; bob never gets it."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    native = src / ".agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text("---\ndeployment: skill\n---\nBody.\n")
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "add native skill"], check=True, capture_output=True)
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
+    )
+    assert result.exit_code == 0
+    assert not (repo_root / ".claude").exists()
+
+
+def test_uninstall_removes_native_skill_mirror(agent_dir: Path, tmp_path: Path) -> None:
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    native = src / ".agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text("---\ndeployment: skill\n---\nBody.\n")
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "add native skill"], check=True, capture_output=True)
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert (repo_root / ".claude" / "skills" / "native-skill").exists()
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert not (repo_root / ".claude" / "skills" / "native-skill").exists()
+
+
 def test_install_skills_bad_repo_exits_one(agent_dir: Path) -> None:
     result = runner.invoke(app, ["install-skills", "--repo", "https://github.com/no/such-repo-xyz"])
     assert result.exit_code == 1
