@@ -50,6 +50,86 @@ def test_resolve_spec_dir_returns_none_when_not_found(
     assert result is None
 
 
+def _init_commit(repo_root: Path) -> None:
+    """First commit on the repo_root fixture's unborn HEAD, giving it a real branch."""
+    import subprocess
+
+    (repo_root / "README.md").write_text("test\n")
+    subprocess.run(["git", "-C", str(repo_root), "add", "README.md"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", "init"], check=True, capture_output=True
+    )
+
+
+def test_resolve_spec_dir_falls_back_to_epic_planning_branch(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Child issue worktree branched off the epic's planning branch (which
+    carries specs/{feature}/) should resolve to that spec dir, even though the
+    child branch's own issue number has no matching specs/ entry."""
+    import subprocess
+
+    _init_commit(repo_root)
+    specs = repo_root / "specs" / "440-editable-table-row"
+    specs.mkdir(parents=True)
+    (specs / "tasks.md").write_text("x")
+    subprocess.run(["git", "-C", str(repo_root), "add", "specs"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", "spec"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", "-b", "440-editable-table-row"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", "-b", "464-period-nav-pill"],
+        check=True, capture_output=True,
+    )
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+
+    result = resolve_spec_dir("464-period-nav-pill", repo_root)
+    assert result == specs
+
+
+def test_resolve_spec_dir_ignores_unrelated_branches(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A same-named specs/ dir on a branch that isn't an ancestor must not match."""
+    import subprocess
+
+    _init_commit(repo_root)
+    base = subprocess.run(
+        ["git", "-C", str(repo_root), "branch", "--show-current"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+    subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", "-b", "999-unrelated"],
+        check=True, capture_output=True,
+    )
+    specs = repo_root / "specs" / "999-unrelated"
+    specs.mkdir(parents=True)
+    (specs / "tasks.md").write_text("x")
+    subprocess.run(["git", "-C", str(repo_root), "add", "specs"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", "unrelated spec"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", base],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", "-b", "464-no-relation"],
+        check=True, capture_output=True,
+    )
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+
+    result = resolve_spec_dir("464-no-relation", repo_root)
+    assert result is None
+
+
 def test_resolve_agent_dir_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     override = tmp_path / "custom-state"
     monkeypatch.setenv("WFCTL_STATE_DIR", str(override))

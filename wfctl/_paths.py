@@ -71,22 +71,83 @@ def resolve_branch(repo_root: Path) -> str:
         return "detached"
 
 
+def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
+    """Local branches other than `branch` that are git ancestors of it, nearest first.
+
+    Covers the "epic planning branch as worktree base" convention: a child issue's
+    worktree branches off its parent epic's planning branch (which carries
+    specs/{feature}/), rather than off the target branch directly.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+            capture_output=True, text=True, check=True, cwd=repo_root,
+        )
+    except subprocess.CalledProcessError:
+        return []
+
+    def commits_ahead(candidate: str) -> int | None:
+        is_ancestor = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", candidate, branch],
+            cwd=repo_root, capture_output=True,
+        )
+        if is_ancestor.returncode != 0:
+            return None
+        count = subprocess.run(
+            ["git", "rev-list", "--count", f"{candidate}..{branch}"],
+            capture_output=True, text=True, check=True, cwd=repo_root,
+        )
+        return int(count.stdout.strip())
+
+    # Every branch descends from the trunk (dev/main), so it always qualifies as an
+    # "ancestor" too — nearest-first ranking is what keeps that from being a problem.
+    # A real spec dir on a closer branch (e.g. the epic branch) is checked, and
+    # returned, before the walk ever reaches the trunk. If nothing closer matched
+    # and the walk does reach the trunk, it can't match by accident either: a base
+    # branch name (dev/main) has no leading issue number, so the key-glob check is
+    # closed to it — only literally-named `specs/dev` would match, never a stray
+    # collision. Reaching the trunk with nothing found is therefore a legitimate
+    # "no spec exists yet" signal (new branch, still pre-spec), not a false positive
+    # to guard against.
+    candidates = [b for b in result.stdout.split() if b and b != branch]
+    ranked = sorted(
+        ((b, ahead) for b in candidates if (ahead := commits_ahead(b)) is not None),
+        key=lambda pair: pair[1],
+    )
+    return [b for b, _ in ranked]
+
+
 def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
-    """Return spec dir: WFCTL_SPEC_DIR/{branch-prefix}-* → None if not found."""
+    """Return spec dir: WFCTL_SPEC_DIR/{branch-prefix}-* → None if not found.
+
+    Falls back to the same lookup against ancestor branches (nearest first) when
+    `branch` itself has no match — handles worktrees branched off a parent epic's
+    planning branch instead of the target branch.
+    """
     spec_root_override = os.environ.get(_SPEC_DIR_OVERRIDE)
     spec_root = Path(spec_root_override) if spec_root_override else repo_root / "specs"
 
-    exact = spec_root / branch
-    if exact.is_dir():
-        return exact
-
     from wfctl import _tracker  # lazy: avoids import cycle at module load
 
-    key = extract_issue_key(branch, _tracker.load_key_pattern(repo_root))
-    if key != "unknown":
-        matches = sorted(spec_root.glob(f"{key}[-_]*"))
-        if matches:
-            return matches[0]
+    def match(candidate: str) -> Path | None:
+        exact = spec_root / candidate
+        if exact.is_dir():
+            return exact
+        key = extract_issue_key(candidate, _tracker.load_key_pattern(repo_root))
+        if key != "unknown":
+            matches = sorted(spec_root.glob(f"{key}[-_]*"))
+            if matches:
+                return matches[0]
+        return None
+
+    found = match(branch)
+    if found is not None:
+        return found
+
+    for ancestor in _ancestor_branches(branch, repo_root):
+        found = match(ancestor)
+        if found is not None:
+            return found
 
     return None
 
