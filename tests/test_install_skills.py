@@ -57,6 +57,41 @@ def test_install_skills_copies_commands(agent_dir: Path, tmp_path: Path) -> None
     assert (Path(repo_root) / ".claude" / "commands" / "test-cmd.md").exists()
 
 
+def test_install_skills_gitignores_installed_paths(agent_dir: Path, tmp_path: Path) -> None:
+    """Installed skill/command paths and the manifest/backup dir land in .gitignore,
+    so a sync never dirties whatever branch happens to be checked out."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    gitignore = (repo_root / ".gitignore").read_text().splitlines()
+    assert ".agents/skills/test-skill" in gitignore
+    assert ".claude/commands/test-cmd.md" in gitignore
+    assert ".wf-skills-manifest.json" in gitignore
+    assert ".wf-skills-backup/" in gitignore
+
+
+def test_install_skills_does_not_gitignore_tracker_config(agent_dir: Path, tmp_path: Path) -> None:
+    """Tracker config is project-owned and meant to be committed, not managed
+    as install-skills output — must not end up in .gitignore."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    tracker_dir = src / ".agents" / "trackers"
+    tracker_dir.mkdir(parents=True)
+    (tracker_dir / "github.json").write_text("{}\n")
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "tracker"], check=True, capture_output=True)
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"]
+    )
+    assert result.exit_code == 0
+    gitignore = (repo_root / ".gitignore").read_text() if (repo_root / ".gitignore").exists() else ""
+    assert ".agents/trackers/github.json" not in gitignore.splitlines()
+
+
 def test_install_skills_skips_native_mirror_by_default(agent_dir: Path, tmp_path: Path) -> None:
     """A skill with no `deployment` marker (or `deployment: command`) stays reference-only."""
     import os

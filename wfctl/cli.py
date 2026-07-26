@@ -559,6 +559,11 @@ def install_skills_cmd(
         # is touched, rather than finding out from the summary afterward.
         plan: list[tuple[str, Path, Path]] = []
         foreign_overwrites: list[str] = []
+        # Paths install-skills owns going forward — gitignored below so a
+        # sync never dirties whatever branch happens to be checked out.
+        # Tracker config is deliberately excluded: it's project-owned,
+        # user-editable, and meant to be committed.
+        gitignore_targets: list[str] = []
         for src_rel, dst_rel in [*targets, *_RUNTIME_TARGETS]:
             src = Path(tmp) / src_rel
             dst = repo_root / dst_rel
@@ -572,6 +577,7 @@ def install_skills_cmd(
                 dest = dst / item.name
                 rel_dest = str(dest.relative_to(repo_root))
                 plan.append((rel_dest, dest, item))
+                gitignore_targets.append(rel_dest)
                 if dest.exists() and rel_dest not in prior_items:
                     foreign_overwrites.append(rel_dest)
 
@@ -581,6 +587,7 @@ def install_skills_cmd(
                     if extra:
                         extra_rel, extra_dest, extra_item = extra
                         plan.append((extra_rel, extra_dest, extra_item))
+                        gitignore_targets.append(extra_rel)
                         if extra_dest.exists() and extra_rel not in prior_items:
                             foreign_overwrites.append(extra_rel)
 
@@ -663,6 +670,11 @@ def install_skills_cmd(
                 )
 
     _save_manifest(repo_root, manifest)
+
+    _ensure_gitignored(repo_root, _MANIFEST_PATH)
+    _ensure_gitignored(repo_root, f"{_BACKUP_DIR}/")
+    for rel in gitignore_targets:
+        _ensure_gitignored(repo_root, rel)
 
     if new_backups:
         console.print(
