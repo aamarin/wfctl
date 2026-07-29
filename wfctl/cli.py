@@ -491,6 +491,11 @@ def _save_manifest(repo_root: Path, manifest: dict) -> None:
         manifest_file.unlink()
 
 
+def _interactive() -> bool:
+    """Is there a human to prompt? Seam so tests can exercise both paths."""
+    return sys.stdin.isatty()
+
+
 @app.command("install-skills")
 def install_skills_cmd(
     repo: str = typer.Option(
@@ -539,6 +544,28 @@ def install_skills_cmd(
 
     manifest = _load_manifest(repo_root)
     prior_items = {i["path"]: i for i in manifest.get(agent, {}).get("items", [])}
+
+    # First install in a repo that has never chosen a tracker: ask, since the
+    # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
+    # leave it unset rather than committing a config nobody asked for.
+    if tracker is None and "tracker" not in manifest and not yes and _interactive():
+        console.print(
+            "No issue tracker configured. wf-skills ships a GitHub backend "
+            "(.agents/trackers/github.json, via the `gh` CLI)."
+        )
+        if typer.confirm("Install it?", default=True):
+            tracker = "github"
+        else:
+            console.print(
+                "[dim]Skipped — `wfctl issue` / `wfctl change` no-op until a tracker "
+                "is set. Set one later with:\n"
+                "  GitHub   wfctl install-skills --tracker github\n"
+                "  Custom   /scaffold-tracker writes .agents/trackers/<name>.json\n"
+                "           wfctl tracker-check <name>\n"
+                "           wfctl install-skills --tracker <name>\n"
+                "Once set, later installs leave that choice — and your edits to its "
+                "config — alone.[/dim]"
+            )
 
     with tempfile.TemporaryDirectory() as tmp:
         result = sp.run(
