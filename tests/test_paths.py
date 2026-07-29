@@ -70,16 +70,18 @@ def test_resolve_spec_dir_falls_back_to_epic_planning_branch(
     import subprocess
 
     _init_commit(repo_root)
+    # The epic's planning branch carries specs/{feature}/ — that unmerged spec
+    # commit is what marks it as a live parent rather than finished history.
+    subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", "-b", "440-editable-table-row"],
+        check=True, capture_output=True,
+    )
     specs = repo_root / "specs" / "440-editable-table-row"
     specs.mkdir(parents=True)
     (specs / "tasks.md").write_text("x")
     subprocess.run(["git", "-C", str(repo_root), "add", "specs"], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(repo_root), "commit", "-m", "spec"],
-        check=True, capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo_root), "checkout", "-b", "440-editable-table-row"],
         check=True, capture_output=True,
     )
     subprocess.run(
@@ -128,6 +130,38 @@ def test_resolve_spec_dir_ignores_unrelated_branches(
 
     result = resolve_spec_dir("464-no-relation", repo_root)
     assert result is None
+
+
+def test_resolve_spec_dir_ignores_merged_sibling_branch(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A finished feature branch, merged into the trunk, is an ancestor of every
+    branch cut afterward — and its specs/ dir is still in the tree. Inheriting it
+    would report a completed story's pipeline on an unrelated new branch."""
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    _init_commit(repo_root)
+    trunk = git("branch", "--show-current")
+
+    git("checkout", "-b", "install-config-workmux")
+    specs = repo_root / "specs" / "install-config-workmux"
+    specs.mkdir(parents=True)
+    (specs / "tasks.md").write_text("x")
+    git("add", "specs")
+    git("commit", "-m", "spec")
+
+    git("checkout", trunk)
+    git("merge", "--no-ff", "-m", "merge", "install-config-workmux")
+    git("checkout", "-b", "005-brand-new")
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+
+    assert resolve_spec_dir("005-brand-new", repo_root) is None
 
 
 def test_resolve_agent_dir_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

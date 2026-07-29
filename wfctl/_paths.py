@@ -71,12 +71,34 @@ def resolve_branch(repo_root: Path) -> str:
         return "detached"
 
 
+def _trunk_branch(repo_root: Path) -> str | None:
+    """The repo's trunk — origin/HEAD when the remote publishes it, else the
+    first local main/master/dev that exists. None when nothing looks like one."""
+    head = subprocess.run(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if head.returncode == 0 and head.stdout.strip():
+        return head.stdout.strip()
+    for name in ("main", "master", "dev"):
+        if subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", name],
+            cwd=repo_root, capture_output=True,
+        ).returncode == 0:
+            return name
+    return None
+
+
 def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
     """Local branches other than `branch` that are git ancestors of it, nearest first.
 
     Covers the "epic planning branch as worktree base" convention: a child issue's
     worktree branches off its parent epic's planning branch (which carries
     specs/{feature}/), rather than off the target branch directly.
+
+    Once a parent epic merges, its spec dir lives on the trunk and ancestry stops
+    identifying it; the delivery.md "Issue Grouping Map" scan in speckit-orchestrate
+    is what resolves a sub-issue's spec dir from that point on.
     """
     try:
         result = subprocess.run(
@@ -99,17 +121,34 @@ def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
         )
         return int(count.stdout.strip())
 
-    # Every branch descends from the trunk (dev/main), so it always qualifies as an
-    # "ancestor" too — nearest-first ranking is what keeps that from being a problem.
-    # A real spec dir on a closer branch (e.g. the epic branch) is checked, and
-    # returned, before the walk ever reaches the trunk. If nothing closer matched
-    # and the walk does reach the trunk, it can't match by accident either: a base
-    # branch name (dev/main) has no leading issue number, so the key-glob check is
-    # closed to it — only literally-named `specs/dev` would match, never a stray
-    # collision. Reaching the trunk with nothing found is therefore a legitimate
-    # "no spec exists yet" signal (new branch, still pre-spec), not a false positive
-    # to guard against.
-    candidates = [b for b in result.stdout.split() if b and b != branch]
+    trunk = _trunk_branch(repo_root)
+
+    def carries_own_work(candidate: str) -> bool:
+        """Does `candidate` hold commits the trunk doesn't?
+
+        Every branch descends from the trunk, so plain ancestry makes every
+        *merged* branch an ancestor of every branch cut after it — and a merged
+        feature branch still has its `specs/<its-name>/` in the tree, so the
+        exact-name match in `resolve_spec_dir` hits it and hands back a finished
+        story's pipeline. Nearest-first ranking doesn't save us: the trunk has no
+        `specs/<trunk>` to match, so the walk sails past it into the merged
+        siblings behind it.
+
+        Carrying unmerged commits is what separates a live parent epic (it holds
+        its own spec commit) from a merged or empty sibling (it holds nothing the
+        trunk lacks). Robust to the trunk advancing, unlike comparing tips.
+        """
+        if trunk is None:
+            return True
+        r = subprocess.run(
+            ["git", "rev-list", "--count", f"{trunk}..{candidate}"],
+            cwd=repo_root, capture_output=True, text=True,
+        )
+        return r.returncode == 0 and r.stdout.strip() not in ("", "0")
+
+    candidates = [
+        b for b in result.stdout.split() if b and b != branch and carries_own_work(b)
+    ]
     ranked = sorted(
         ((b, ahead) for b in candidates if (ahead := commits_ahead(b)) is not None),
         key=lambda pair: pair[1],
