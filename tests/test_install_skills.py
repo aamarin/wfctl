@@ -92,6 +92,87 @@ def test_install_skills_does_not_gitignore_tracker_config(agent_dir: Path, tmp_p
     assert ".agents/trackers/github.json" not in gitignore.splitlines()
 
 
+def _add_tracker(src: Path, body: str = '{"verbs": {}}\n') -> None:
+    tracker_dir = src / ".agents" / "trackers"
+    tracker_dir.mkdir(parents=True, exist_ok=True)
+    (tracker_dir / "github.json").write_text(body)
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-m", "tracker"], check=True, capture_output=True)
+
+
+def test_install_skills_no_tracker_without_a_human(agent_dir: Path, tmp_path: Path) -> None:
+    """A non-interactive install never commits a tracker config nobody asked for."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    _add_tracker(src)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert "tracker" not in manifest
+
+
+@pytest.mark.parametrize("answer,expected", [("y\n", True), ("n\n", False)])
+def test_install_skills_prompts_for_tracker(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str, expected: bool
+) -> None:
+    """First interactive install offers the GitHub tracker; declining installs nothing."""
+    import json
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    _add_tracker(src)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input=answer
+    )
+    assert result.exit_code == 0
+    assert (repo_root / ".agents" / "trackers" / "github.json").exists() is expected
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert ("tracker" in manifest) is expected
+    if not expected:  # declining points at both ways back in
+        assert "--tracker github" in result.output
+        assert "/scaffold-tracker" in result.output
+
+
+def test_install_skills_keeps_existing_tracker_config(agent_dir: Path, tmp_path: Path) -> None:
+    """Once a tracker is chosen, a plain re-install leaves the config alone —
+    local edits to it survive."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    _add_tracker(src)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(
+        app,
+        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"],
+    )
+
+    cfg = repo_root / ".agents" / "trackers" / "github.json"
+    cfg.write_text('{"verbs": {"list": ["gh", "issue", "list", "--limit", "30"]}}\n')
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    assert "--limit" in cfg.read_text()
+
+
+def test_install_skills_tracker_none_opts_out(agent_dir: Path, tmp_path: Path) -> None:
+    """--tracker none opts out without a prompt."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    _add_tracker(src)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "none"]
+    )
+    assert result.exit_code == 0
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert "tracker" not in manifest
+    assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
+
+
 def test_install_skills_skips_native_mirror_by_default(agent_dir: Path, tmp_path: Path) -> None:
     """A skill with no `deployment` marker (or `deployment: command`) stays reference-only."""
     import os
@@ -214,17 +295,26 @@ def test_install_skills_warns_on_missing_source_path(agent_dir: Path, tmp_path: 
 
 
 def test_uninstall_removes_freshly_installed_items(agent_dir: Path, tmp_path: Path) -> None:
+    """Uninstall drops the agent's items. The tracker selection outlives them —
+    `wfctl issue` doesn't depend on skills being installed."""
+    import json
     import os
     src = _make_wf_skills_repo(tmp_path)
+    _add_tracker(src)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(
+        app,
+        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"],
+    )
     assert (repo_root / ".agents" / "skills" / "test-skill").exists()
 
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert result.exit_code == 0
     assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
     assert not (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
-    assert not (repo_root / ".wf-skills-manifest.json").exists()
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert "claude" not in manifest
+    assert manifest["tracker"] == "github"
 
 
 def test_install_backs_up_and_uninstall_restores_pre_existing_file(agent_dir: Path, tmp_path: Path) -> None:

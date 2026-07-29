@@ -283,7 +283,12 @@ wfctl issue close 71 --comment "Done in abc123"
 Verbs: `list`, `view`, `close`, `comment`, `create`, `label`. The backend is
 chosen at install time (`install-skills --tracker <name>`) and defined by
 `.agents/trackers/<name>.json` — a map of verb → command. **GitHub ships built
-in** (`--tracker github`, via the `gh` CLI). For anything else — a private
+in**: a repo's first interactive `install-skills` offers to install it, and
+declining (or any non-interactive run — piped, CI, `--yes`) leaves the repo
+without a tracker until you pass `--tracker`. Once a repo has a tracker, later
+installs leave the choice and your edits to its config alone — re-copy the
+shipped one with an explicit `--tracker github`, clear it with `--tracker none`.
+For anything else — a private
 Jira/Linear CLI — author a config with the `scaffold-tracker` skill and validate
 it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)
 are supported via the config's `key_pattern`, which also drives how wfctl maps a
