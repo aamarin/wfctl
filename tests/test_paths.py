@@ -187,3 +187,31 @@ def test_resolve_agent_dir_xdg_path(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     result = resolve_agent_dir(repo, "123-feature")
     assert result == tmp_path / "xdg" / "wfctl" / "repos" / "myrepo" / "stories" / "123-feature"
     assert result.exists()
+
+
+def test_resolve_agent_dir_keys_on_main_checkout_not_worktree(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A linked worktree's directory is named after its branch, so keying state on
+    it would fabricate a repo per branch and split one project's state across all
+    of them. The main checkout's name is the project's name from anywhere."""
+    import subprocess
+
+    def git(*args: str, cwd: Path | None = None) -> str:
+        return subprocess.run(
+            ["git", "-C", str(cwd or repo_root), *args],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    _init_commit(repo_root)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    wt = tmp_path / "wt" / "440-editable-table-row"
+    git("worktree", "add", "-b", "440-editable-table-row", str(wt))
+
+    from_main = resolve_agent_dir(repo_root, "440-editable-table-row")
+    from_worktree = resolve_agent_dir(wt, "440-editable-table-row")
+
+    assert from_main == from_worktree
+    assert from_worktree.parent.parent.name == repo_root.name
