@@ -191,6 +191,27 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     return None
 
 
+def _project_name(repo_root: Path) -> str:
+    """The project's name — the main checkout's directory, not the worktree's.
+
+    `repos/<name>/` exists to separate one project's state from another's, but
+    a linked worktree's own directory is named after the branch, so keying on it
+    fabricates a repo per branch (`repos/440-editable-table-row/stories/440-editable-table-row/`)
+    and splits a project's state across every worktree it has ever had.
+    `--git-common-dir` points at the main checkout's .git from anywhere in the
+    repo, including from a worktree.
+    """
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if common.returncode != 0 or not common.stdout.strip():
+        return repo_root.name
+    # Relative ('.git') from the main checkout, absolute from a worktree.
+    git_dir = (repo_root / common.stdout.strip()).resolve()
+    return git_dir.parent.name or repo_root.name
+
+
 def resolve_agent_dir(repo_root: Path, branch: str) -> Path:
     """Return state dir: WFCTL_STATE_DIR → XDG path; creates the dir."""
     override = os.environ.get(_STATE_DIR_OVERRIDE)
@@ -199,7 +220,7 @@ def resolve_agent_dir(repo_root: Path, branch: str) -> Path:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    repo_name = repo_root.name
+    repo_name = _project_name(repo_root)
     xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
     d = xdg_base / "wfctl" / "repos" / repo_name / "stories" / branch
     d.mkdir(parents=True, exist_ok=True)
