@@ -194,9 +194,9 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
 def _project_name(repo_root: Path) -> str:
     """The project's name — the main checkout's directory, not the worktree's.
 
-    `repos/<name>/` exists to separate one project's state from another's, but
-    a linked worktree's own directory is named after the branch, so keying on it
-    fabricates a repo per branch (`repos/440-editable-table-row/stories/440-editable-table-row/`)
+    The `<project>/` level separates one project's state from another's, but a
+    linked worktree's own directory is named after the branch, so keying on it
+    fabricates a project per branch (`440-editable-table-row/440-editable-table-row/`)
     and splits a project's state across every worktree it has ever had.
     `--git-common-dir` points at the main checkout's .git from anywhere in the
     repo, including from a worktree.
@@ -213,7 +213,12 @@ def _project_name(repo_root: Path) -> str:
 
 
 def resolve_agent_dir(repo_root: Path, branch: str) -> Path:
-    """Return state dir: WFCTL_STATE_DIR → XDG path; creates the dir."""
+    """Return state dir: WFCTL_STATE_DIR → `$XDG_STATE_HOME/wfctl/<project>/<branch>`.
+
+    Creates the dir. Project directories sit directly under wfctl's own XDG
+    namespace — no `repos/` or `stories/` level, since everything wfctl stores
+    is a project, and everything under a project is a branch.
+    """
     override = os.environ.get(_STATE_DIR_OVERRIDE)
     if override:
         d = Path(override)
@@ -222,6 +227,6 @@ def resolve_agent_dir(repo_root: Path, branch: str) -> Path:
 
     repo_name = _project_name(repo_root)
     xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    d = xdg_base / "wfctl" / "repos" / repo_name / "stories" / branch
+    d = xdg_base / "wfctl" / repo_name / branch
     d.mkdir(parents=True, exist_ok=True)
     return d
