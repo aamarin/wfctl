@@ -185,7 +185,7 @@ def test_resolve_agent_dir_xdg_path(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     repo = tmp_path / "myrepo"
     repo.mkdir()
     result = resolve_agent_dir(repo, "123-feature")
-    assert result == tmp_path / "xdg" / "wfctl" / "repos" / "myrepo" / "stories" / "123-feature"
+    assert result == tmp_path / "xdg" / "wfctl" / "myrepo" / "123-feature"
     assert result.exists()
 
 
@@ -214,4 +214,4 @@ def test_resolve_agent_dir_keys_on_main_checkout_not_worktree(
     from_worktree = resolve_agent_dir(wt, "440-editable-table-row")
 
     assert from_main == from_worktree
-    assert from_worktree.parent.parent.name == repo_root.name
+    assert from_worktree.parent.name == repo_root.name
