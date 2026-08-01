@@ -67,7 +67,8 @@ spec-driven pipeline while wfctl tracks position and enforces order.
 **One-time setup, per repo:**
 
 ```bash
-wfctl install-skills           # skills + /speckit.* commands + the .specify/ runtime
+wfctl install-skills           # .agents/ skills + commands + the .specify/ runtime
+wfctl install-skills --agent claude   # …plus Claude's native paths
 wfctl install-config workmux   # optional: isolated worktree envs (see below)
 ```
 
@@ -108,10 +109,11 @@ After `install-skills` (and optionally `install-config`):
 
 | Path | What | Committed? |
 |------|------|------------|
-| `.agents/skills/`, `.claude/commands/` | installed skills + `/speckit.*` slash commands | no (gitignored) |
+| `.agents/skills/`, `.agents/commands/` | installed skills + `/speckit.*` command wrappers, agent-agnostic | no (gitignored) |
+| `.claude/`, `.bob/`, `.github/skills/` | one assistant's native paths, only if `--agent` asked for them | no (gitignored) |
 | `.specify/` | speckit runtime (scripts + templates the skills call) | no (gitignored) |
 | `.wf-skills-manifest.json` | install record: pinned commit + backups | no (gitignored) |
-| `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | **yes** |
+| `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | your call — wfctl never ignores them; commit them to review the plan, or ignore them to ship only the implementation |
 | `.workmux.yaml` | worktree config, from `install-config workmux` | **yes** |
 
 The gitignored paths are install artifacts — regenerate them any time with
@@ -176,25 +178,44 @@ Install skills into a project:
 
 ```
 $ wfctl install-skills
-✓ Installed 32 item(s) from https://github.com/aamarin/wf-skills@main
+✓ Installed from https://github.com/aamarin/wf-skills@main
+  base  25 skills · 23 commands · 8 runtime
 
-$ wfctl install-skills --repo https://github.com/your-org/wf-skills --ref v2.0
-✓ Installed 18 item(s) from https://github.com/your-org/wf-skills@v2.0
+Installed to .agents/ — skills and commands in their canonical, agent-agnostic
+form. If your agent needs its own native paths:
+  claude   wfctl install-skills --agent claude
+  bob      wfctl install-skills --agent bob
+  copilot  wfctl install-skills --agent copilot
 
-$ wfctl install-skills --agent bob
-✓ Installed 32 item(s) from https://github.com/aamarin/wf-skills@main
+$ wfctl install-skills --agent claude
+✓ Installed from https://github.com/aamarin/wf-skills@main
+  base    25 skills · 23 commands · 8 runtime
+  claude  3 skills · 23 commands
 ```
 
 Defaults to `aamarin/wf-skills@main`. Rerun to update.
 
-`--agent` selects where things land. Skills are agent-agnostic `SKILL.md` files;
-only the destination changes:
+Installation is layered. The **base layer** always installs: skills and command
+wrappers in their canonical, agent-agnostic form under `.agents/`, plus the
+speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
+— it never replaces the base.
 
-| `--agent` | Installs |
-|-----------|----------|
-| `claude` (default) | skills → `.agents/skills/`, command wrappers → `.claude/commands/` |
-| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` (same source content as Claude's) |
-| `none` | skills → `.agents/skills/` only |
+| `--agent` | Adds on top of `.agents/` |
+|-----------|---------------------------|
+| *(omitted)* / `none` | nothing — the base layer only |
+| `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for skills marked `deployment: skill` |
+| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
+| `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
+| `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
+
+Every layer owns a unique root, so two assistants can coexist in one repo
+without their bookkeeping colliding.
+
+> **Breaking change in 0.12.0.** `--agent` used to default to `claude`, so every
+> repo got `.claude/` shims whether or not Claude was in use. Bare
+> `install-skills` now writes `.agents/` only; pass `--agent claude` for the old
+> behavior. Existing repos upgrade silently — no prompt, no backups — and
+> nothing needs to be run by hand.
 
 **Overwrite safety:** if `install-skills` would overwrite a file it didn't
 install itself — e.g. hand-authored speckit commands already in the
@@ -204,18 +225,15 @@ and:
 
 ```
 $ wfctl uninstall-skills --agent claude
-✓ Removed 31 item(s), restored 1 pre-existing file(s) for agent 'claude'
+✓ Removed 26 item(s), restored 1 pre-existing file(s) for agent 'claude'
 ```
 
-removes everything that install added and restores anything it overwrote to
-its original content. Files installed fresh (nothing to restore) are just
-deleted. State lives in `.wf-skills-manifest.json` and `.wf-skills-backup/` at
-the repo root — both are cleaned up once nothing references them.
-
-Known limitation: `--agent claude` and `--agent none` both write skills to
-`.agents/skills/`. Installing both in the same repo works, but uninstalling
-one will remove skill files the other's bookkeeping still points to — pick
-one agent per repo.
+removes that layer and restores anything it overwrote to its original content.
+Files installed fresh (nothing to restore) are just deleted. **Only the named
+layer is touched** — uninstalling `claude` leaves `.agents/` intact, because the
+base layer owns it; `--agent base` removes that. State lives in
+`.wf-skills-manifest.json` and `.wf-skills-backup/` at the repo root — both are
+cleaned up once nothing references them.
 
 `wfctl doctor` is the single "am I current?" check — it reports both the wfctl
 tool (installed version vs latest release tag) and the installed skills (pinned
