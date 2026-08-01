@@ -32,8 +32,9 @@ include = ["wfctl*"]
 
 [tool.ruff.lint]
 # Explicit rather than inherited, for the same reason the version is pinned.
-# E/F is pycodestyle errors + pyflakes: unused imports, undefined names,
-# f-string mistakes — the class of thing that is always a defect, never taste.
+# E and F are ruff's own reimplementations of pycodestyle and pyflakes — no
+# extra tool is installed, ruff runs these rules itself. They cover unused
+# imports, undefined names, f-string mistakes: always a defect, never taste.
 # Deliberately not enabled yet: I (import sorting), UP, PL, RUF. Each is
 # defensible and each is a separate, reviewable diff; see #14.
 select = ["E4", "E7", "E9", "F"]
