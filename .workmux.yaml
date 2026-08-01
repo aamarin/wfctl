@@ -73,20 +73,15 @@ post_create:
 
 pre_remove:
   # specs/ and .agent/ are gitignored, so removing the worktree destroys the
-  # spec, plan, tasks, and analysis with it. archive-story.sh copies them into
-  # wfctl's per-branch state dir — flattened, numbered in pipeline order, with
-  # a generated index — so the story stays readable after the worktree is gone.
+  # spec, plan, tasks, and analysis with it. `wfctl archive-story` copies them
+  # into wfctl's per-branch state dir — flattened, numbered in pipeline order,
+  # with a generated index — so the story stays readable after the worktree is
+  # gone. It is a forensic snapshot, not a tree you can copy back.
   #
-  # Prefer the worktree's own copy of the script: a branch that adds or changes
-  # it should archive with its own version, and the main checkout may not carry
-  # it yet.
-  - |
-    for s in "$WM_WORKTREE_PATH/scripts/archive-story.sh" \
-             "$WM_PROJECT_ROOT/scripts/archive-story.sh"; do
-      [ -x "$s" ] && exec bash "$s" "$WM_WORKTREE_PATH" "$WM_HANDLE"
-    done
-    echo "⚠ archive-story.sh not found — speckit artifacts not archived" >&2
-    exit 0  # never block worktree removal
+  # `command -v` guards a checkout without wfctl on PATH: a teardown hook must
+  # never be the thing that strands a worktree. The subcommand exits 0 on every
+  # internal failure for the same reason.
+  - command -v wfctl >/dev/null && wfctl archive-story "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
 
 #-------------------------------------------------------------------------------
 # Files
