@@ -915,3 +915,52 @@ def test_uninstall_defaults_to_the_layer_a_bare_install_writes(
     result = runner.invoke(app, ["uninstall-skills"])
     assert result.exit_code == 0
     assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
+
+
+def test_removing_base_under_an_agent_layer_asks_first(agent_dir: Path, tmp_path: Path) -> None:
+    """Agent layers are views of the base, not copies — their command wrappers
+    point into .agents/skills. Removing the base underneath one leaves it
+    installed and broken, and `uninstall-skills` with no flags now targets the
+    base, so this is the least-typed command in the tool.
+    """
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+    )
+
+    declined = runner.invoke(app, ["uninstall-skills"], input="n\n")
+    assert declined.exit_code != 0, "declining must abort"
+    assert "claude" in declined.output
+    assert (repo_root / ".agents" / "skills" / "test-skill").exists(), "aborted — nothing removed"
+
+    confirmed = runner.invoke(app, ["uninstall-skills"], input="y\n")
+    assert confirmed.exit_code == 0
+    assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
+
+
+def test_removing_base_alone_does_not_ask(agent_dir: Path, tmp_path: Path) -> None:
+    """The guard is about dependents, not about the base being special: with no
+    agent layer installed there is nothing to break, so no prompt."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    result = runner.invoke(app, ["uninstall-skills"])  # no input to give
+    assert result.exit_code == 0
+    assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
+
+
+def test_removing_an_agent_layer_never_asks(agent_dir: Path, tmp_path: Path) -> None:
+    """Nothing depends on an agent layer, so removing one is always safe."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+    )
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert (repo_root / ".agents" / "skills" / "test-skill").exists(), "base survives"
