@@ -387,25 +387,27 @@ def change_cmd(
     )
 
 
-# Where each agent reads from. Both skills and command-wrapper shims are
-# agent-agnostic source content in wf-skills (.agents/skills, .agents/commands)
-# — only the install destination differs per agent. wf-skills maintains one
-# authored copy of each; there's no per-agent duplication to drift out of sync.
-#
-# Known limitation: "claude" and "none" share .agents/skills as a destination,
-# so installing both in the same repo will cross-attribute backups between
-# their manifest entries. Uninstalling one won't corrupt the other's files,
-# just its bookkeeping. Not handled — pick one agent per repo.
+# The canonical, agent-agnostic layer. Always installed, whatever --agent says:
+# wf-skills authors one copy of each skill and command wrapper, and this is where
+# that copy lives. Agent layers below are derived views of it.
+_BASE_TARGETS = [
+    (".agents/skills", ".agents/skills"),
+    (".agents/commands", ".agents/commands"),
+]
+
+# Added on top of the base layer when --agent names one. Every entry owns a
+# unique root, and no entry may claim a destination the base layer already owns.
+# That disjointness is the whole mechanism behind backup attribution: a layer can
+# only ever encounter its own files or the user's, never another layer's. It is
+# enforced by test_layer_destinations_are_disjoint, not by this comment, because
+# a new agent added here would otherwise reintroduce the collision silently.
 _AGENT_TARGETS = {
-    "claude": [
-        (".agents/skills", ".agents/skills"),
-        (".agents/commands", ".claude/commands"),
-    ],
+    "none": [],
+    "claude": [(".agents/commands", ".claude/commands")],
     "bob": [
         (".agents/skills", ".bob/skills"),
         (".agents/commands", ".bob/commands"),
     ],
-    "none": [(".agents/skills", ".agents/skills")],
 }
 
 # The speckit skills shell out to `.specify/scripts/*.sh` and read
@@ -426,6 +428,23 @@ _CONFIG_SOURCES = {"workmux": ".agents/configs/workmux"}
 
 _MANIFEST_PATH = ".wf-skills-manifest.json"
 _BACKUP_DIR = ".wf-skills-backup"
+
+_BASE_LAYER = "base"
+# `tracker` is a bare string, not an installed layer — it holds the repo's
+# tracker choice alongside the layer entries and must be skipped by anything
+# iterating them. `base` IS a layer (it has items and a pinned commit, so
+# `doctor` checks it for drift), it is just not an *agent* — see _agent_keys.
+_NON_LAYER_KEYS = frozenset({"tracker"})
+
+
+def _layer_keys(manifest: dict) -> list[str]:
+    """Manifest keys that name an installed layer, base included."""
+    return [k for k in manifest if k not in _NON_LAYER_KEYS]
+
+
+def _agent_keys(manifest: dict) -> list[str]:
+    """Manifest keys that name an agent — layers minus the agent-agnostic base."""
+    return [k for k in _layer_keys(manifest) if k != _BASE_LAYER]
 
 
 def _skill_deployment(skill_dir: Path) -> str:
@@ -463,6 +482,41 @@ def _claude_native_skill_mirror(
 _AGENT_SKILL_EXTRAS = {
     "claude": _claude_native_skill_mirror,
 }
+
+
+def _kind_of(src_rel: str) -> str:
+    """What an item is, for the install summary — 'skill', 'command', 'runtime'.
+
+    Derived from the source directory, so a new target picks up a sensible label
+    without a second lookup table to keep in sync.
+    """
+    return {"skills": "skill", "commands": "command"}.get(
+        src_rel.rsplit("/", 1)[-1], "runtime"
+    )
+
+
+def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
+    """Render per-layer, per-kind counts — one line per layer that installed
+    something.
+
+    A single total would read as a skill count when it is mostly the same skills
+    counted once per layer plus runtime files. Layers and kinds with nothing in
+    them are omitted rather than shown as `0`.
+    """
+    # 'runtime' and 'tracker' are mass nouns here — "8 runtimes" reads as eight
+    # separate runtimes rather than eight files of one.
+    countable = {"skill", "command"}
+    width = max((len(layer) for layer in summary), default=0)
+    lines = []
+    for layer, kinds in summary.items():
+        parts = [
+            f"{n} {kind}{'s' if n != 1 and kind in countable else ''}"
+            for kind, n in kinds.items()
+            if n
+        ]
+        if parts:
+            lines.append(f"  {layer.ljust(width)}  {' · '.join(parts)}")
+    return lines
 
 
 def _ensure_gitignored(repo_root: Path, line: str) -> None:
@@ -505,9 +559,11 @@ def install_skills_cmd(
     ),
     ref: str = typer.Option("main", "--ref", help="Branch or tag to install from"),
     agent: str = typer.Option(
-        "claude",
+        "none",
         "--agent",
-        help=f"Target agent: {', '.join(_AGENT_TARGETS)}",
+        help="Also install an agent's native paths on top of the "
+        f"agent-agnostic layer: {', '.join(a for a in _AGENT_TARGETS if a != 'none')}. "
+        "Omit to install .agents/ only.",
     ),
     yes: bool = typer.Option(
         False,
@@ -543,7 +599,20 @@ def install_skills_cmd(
         raise typer.Exit(1)
 
     manifest = _load_manifest(repo_root)
-    prior_items = {i["path"]: i for i in manifest.get(agent, {}).get("items", [])}
+    # Union across every layer, not just this agent's. A path wfctl installed is
+    # wfctl's whichever layer put it there, so it must never be mistaken for a
+    # file the user wrote. Two cases need this: the base layer owns .agents/*
+    # while an agent install also plans them, and a manifest written before the
+    # layer split records those same paths under the agent key. Without the
+    # union, the first install after either would prompt to overwrite ~25
+    # directories wfctl installed itself, and back them up as if they were the
+    # user's.
+    prior_items = {
+        i["path"]: i
+        for key, entry in manifest.items()
+        if key != "tracker" and isinstance(entry, dict)
+        for i in entry.get("items", [])
+    }
 
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
@@ -584,14 +653,25 @@ def install_skills_cmd(
         # Plan first: find every item that would overwrite a file we didn't
         # install ourselves, so the user can see the list before anything
         # is touched, rather than finding out from the summary afterward.
-        plan: list[tuple[str, Path, Path]] = []
+        # Each entry carries the layer that owns it, so the manifest can record
+        # base and agent items under separate keys — which is what keeps one
+        # layer's uninstall from touching another's paths.
+        plan: list[tuple[str, str, str, Path, Path]] = []
         foreign_overwrites: list[str] = []
         # Paths install-skills owns going forward — gitignored below so a
         # sync never dirties whatever branch happens to be checked out.
         # Tracker config is deliberately excluded: it's project-owned,
         # user-editable, and meant to be committed.
         gitignore_targets: list[str] = []
-        for src_rel, dst_rel in [*targets, *_RUNTIME_TARGETS]:
+        # Base layer first, then the agent's own layer, then the repo-level
+        # runtime. An agent install is additive — it never replaces the base.
+        # The runtime is agent-independent, so it belongs to base too.
+        layered = [
+            *((_BASE_LAYER, _kind_of(s), s, d) for s, d in _BASE_TARGETS),
+            *((agent, _kind_of(s), s, d) for s, d in targets),
+            *((_BASE_LAYER, "runtime", s, d) for s, d in _RUNTIME_TARGETS),
+        ]
+        for layer, kind, src_rel, dst_rel in layered:
             src = Path(tmp) / src_rel
             dst = repo_root / dst_rel
             if not src.exists():
@@ -603,7 +683,7 @@ def install_skills_cmd(
             for item in src.iterdir():
                 dest = dst / item.name
                 rel_dest = str(dest.relative_to(repo_root))
-                plan.append((rel_dest, dest, item))
+                plan.append((layer, kind, rel_dest, dest, item))
                 gitignore_targets.append(rel_dest)
                 if dest.exists() and rel_dest not in prior_items:
                     foreign_overwrites.append(rel_dest)
@@ -612,8 +692,10 @@ def install_skills_cmd(
                     extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
                     extra = extra_fn(repo_root, item) if extra_fn else None
                     if extra:
+                        # An extra mirror is the agent's own, even though its
+                        # source is a base-layer path.
                         extra_rel, extra_dest, extra_item = extra
-                        plan.append((extra_rel, extra_dest, extra_item))
+                        plan.append((agent, "skill", extra_rel, extra_dest, extra_item))
                         gitignore_targets.append(extra_rel)
                         if extra_dest.exists() and extra_rel not in prior_items:
                             foreign_overwrites.append(extra_rel)
@@ -624,7 +706,7 @@ def install_skills_cmd(
             if tsrc.exists():
                 tdest = repo_root / ".agents" / "trackers" / "github.json"
                 trel = str(tdest.relative_to(repo_root))
-                plan.append((trel, tdest, tsrc))
+                plan.append((_BASE_LAYER, "tracker", trel, tdest, tsrc))
                 if tdest.exists() and trel not in prior_items:
                     foreign_overwrites.append(trel)
             else:
@@ -646,8 +728,9 @@ def install_skills_cmd(
 
         count = 0
         new_backups = 0
-        items: list[dict] = []
-        for rel_dest, dest, item in plan:
+        items: dict[str, list[dict]] = {}
+        summary: dict[str, dict[str, int]] = {}
+        for layer, kind, rel_dest, dest, item in plan:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
             # A pre-existing file we didn't put there ourselves gets backed
@@ -673,15 +756,22 @@ def install_skills_cmd(
             else:
                 shutil.copy2(item, dest)
             count += 1
-            items.append({"path": rel_dest, "backup": backup_rel})
+            items.setdefault(layer, []).append({"path": rel_dest, "backup": backup_rel})
+            summary.setdefault(layer, {})
+            summary[layer][kind] = summary[layer].get(kind, 0) + 1
 
-    manifest[agent] = {
-        "repo": repo,
-        "ref": ref,
-        "commit": commit,
-        "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "items": items,
-    }
+    installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    # One entry per layer that installed something. An agent with no layer of
+    # its own (none, or a notice-only agent) writes no entry, so uninstalling
+    # it reports nothing to remove rather than failing on a missing key.
+    for layer, layer_items in items.items():
+        manifest[layer] = {
+            "repo": repo,
+            "ref": ref,
+            "commit": commit,
+            "installed_at": installed_at,
+            "items": layer_items,
+        }
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -709,7 +799,21 @@ def install_skills_cmd(
             f"{_BACKUP_DIR}/ — restored by `wfctl uninstall-skills --agent {agent}`"
         )
 
-    console.print(f"[green]✓[/green] Installed {count} item(s) from {repo}@{ref}")
+    console.print(f"[green]✓[/green] Installed from {repo}@{ref}")
+    for line in _format_summary(summary):
+        console.print(line)
+
+    # Only worth saying when nothing agent-specific was installed: that is the
+    # case where a user whose assistant needs native paths sees no sign of them.
+    if not any(layer != _BASE_LAYER for layer in summary):
+        opt_in = [a for a in _AGENT_TARGETS if _AGENT_TARGETS[a]]
+        width = max(len(a) for a in opt_in)
+        console.print(
+            "\n[dim]Installed to .agents/ — skills and commands in their canonical, "
+            "agent-agnostic form.\nIf your agent needs its own native paths:[/dim]"
+        )
+        for a in opt_in:
+            console.print(f"[dim]  {a.ljust(width)}  wfctl install-skills --agent {a}[/dim]")
 
 
 @app.command("uninstall-skills")
@@ -779,7 +883,7 @@ def _resolve_config_agent(repo_root: Path, explicit: str | None) -> str:
     """
     if explicit:
         return explicit
-    agents = [a for a in _load_manifest(repo_root) if a != "tracker"]
+    agents = _agent_keys(_load_manifest(repo_root))
     if len(agents) == 1 and agents[0] != "none":
         return agents[0]
     return "claude"
@@ -962,12 +1066,12 @@ def doctor_cmd() -> None:
         raise typer.Exit(exit_code)
 
     manifest = _load_manifest(repo_root)
-    agents = [a for a in manifest if a != "tracker"]
-    if not agents:
+    layers = _layer_keys(manifest)
+    if not layers:
         console.print("Nothing installed — run `wfctl install-skills` first.")
         raise typer.Exit(exit_code)
 
-    for agent in agents:
+    for agent in layers:
         entry = manifest[agent]
         repo, ref, commit = entry.get("repo"), entry.get("ref"), entry.get("commit")
         if not commit:
