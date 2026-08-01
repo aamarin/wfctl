@@ -772,8 +772,8 @@ def install_skills_cmd(
         if foreign_overwrites and not yes:
             console.print(
                 "[yellow]The following existing file(s) will be overwritten "
-                f"(originals will be backed up, restored by "
-                f"{_restore_hint(l for l, _ in foreign_overwrites)}):[/yellow]"
+                "(originals will be backed up, restored by "
+                f"{_restore_hint(layer for layer, _ in foreign_overwrites)}):[/yellow]"
             )
             for _, p in foreign_overwrites:
                 console.print(f"  {p}")
@@ -892,6 +892,12 @@ def uninstall_skills_cmd(
         f"{', '.join([_BASE_LAYER, *(a for a in _AGENT_TARGETS if _AGENT_TARGETS[a])])}. "
         f"'{_BASE_LAYER}' is the agent-agnostic .agents/ layer a bare install writes.",
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip the confirmation when removing a layer others still read.",
+    ),
 ) -> None:
     """Remove what install-skills installed for --agent, restoring any file it overwrote."""
     import shutil
@@ -907,6 +913,22 @@ def uninstall_skills_cmd(
     if not entry:
         console.print(f"Nothing installed for agent '{agent}' — nothing to uninstall.")
         return
+
+    # Agent layers are views of the base, not copies of it: their command
+    # wrappers point into .agents/skills. Removing the base underneath one
+    # leaves it installed and broken, so this asks first — the only ordering
+    # that isn't destructive is agents first, base last.
+    dependents = _agent_keys(manifest) if agent == _BASE_LAYER else []
+    if dependents and not yes:
+        console.print(
+            f"[yellow]⚠[/yellow] {', '.join(dependents)} still installed, and "
+            f"read the '{_BASE_LAYER}' layer's skills — removing it leaves them "
+            "in place pointing at files that no longer exist.\n"
+            f"[dim]Remove them first: "
+            + " ".join(f"wfctl uninstall-skills --agent {d}" for d in dependents)
+            + "[/dim]"
+        )
+        typer.confirm(f"Remove '{_BASE_LAYER}' anyway?", abort=True)
 
     removed = 0
     restored = 0
