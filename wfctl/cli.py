@@ -911,7 +911,7 @@ def uninstall_skills_cmd(
     manifest = _load_manifest(repo_root)
     entry = manifest.get(agent)
     if not entry:
-        console.print(f"Nothing installed for agent '{agent}' — nothing to uninstall.")
+        console.print(f"Nothing installed for layer '{agent}' — nothing to uninstall.")
         return
 
     # Agent layers are views of the base, not copies of it: their command
@@ -962,7 +962,7 @@ def uninstall_skills_cmd(
 
     console.print(
         f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
-        f"pre-existing file(s) for agent '{agent}'"
+        f"pre-existing file(s) for layer '{agent}'"
     )
 
 
@@ -992,7 +992,8 @@ def install_config_cmd(
     agent: str = typer.Option(
         None, "--agent",
         help="Agent the config targets (workmux `agent:`). Defaults to the "
-        "installed agent from the manifest, else 'claude'.",
+        "sole agent layer in the manifest; with none or several, the key is "
+        "left commented out rather than guessed.",
     ),
     repo: str = typer.Option(
         "https://github.com/aamarin/wf-skills", "--repo", help="wf-skills repo URL"
