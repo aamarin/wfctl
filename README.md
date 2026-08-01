@@ -218,7 +218,8 @@ without their bookkeeping colliding.
 > **Breaking change in 0.12.0.** `--agent` used to default to `claude`, so every
 > repo got `.claude/` shims whether or not Claude was in use. Bare
 > `install-skills` now writes `.agents/` only; pass `--agent claude` for the old
-> behavior. Existing repos upgrade silently — no prompt, no backups — and
+> behavior. `uninstall-skills --agent` follows it, defaulting to `base` rather
+> than `claude`. Existing repos upgrade silently — no prompt, no backups — and
 > nothing needs to be run by hand.
 
 **Overwrite safety:** if `install-skills` would overwrite a file it didn't
@@ -235,7 +236,8 @@ $ wfctl uninstall-skills --agent claude
 removes that layer and restores anything it overwrote to its original content.
 Files installed fresh (nothing to restore) are just deleted. **Only the named
 layer is touched** — uninstalling `claude` leaves `.agents/` intact, because the
-base layer owns it; `--agent base` removes that. State lives in
+base layer owns it. `--agent` defaults to `base`, mirroring `install-skills`, so
+a bare install and a bare uninstall round-trip. State lives in
 `.wf-skills-manifest.json` and `.wf-skills-backup/` at the repo root — both are
 cleaned up once nothing references them.
 
@@ -310,9 +312,12 @@ chosen at install time (`install-skills --tracker <name>`) and defined by
 `.agents/trackers/<name>.json` — a map of verb → command. **GitHub ships built
 in**: a repo's first interactive `install-skills` offers to install it, and
 declining (or any non-interactive run — piped, CI, `--yes`) leaves the repo
-without a tracker until you pass `--tracker`. Once a repo has a tracker, later
-installs leave the choice and your edits to its config alone — re-copy the
-shipped one with an explicit `--tracker github`, clear it with `--tracker none`.
+without a tracker until you pass `--tracker`. Declining is remembered, so the
+question is asked once and not on every upgrade. Once a repo has a tracker,
+later installs leave the choice and your edits to its config alone — re-copy the
+shipped one with an explicit `--tracker github`. `--tracker none` clears the
+choice entirely, which also re-opens the question on the next interactive
+install.
 For anything else — a private
 Jira/Linear CLI — author a config with the `scaffold-tracker` skill and validate
 it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)

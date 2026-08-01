@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import typer
@@ -461,8 +462,29 @@ def _layer_keys(manifest: dict) -> list[str]:
 
 
 def _agent_keys(manifest: dict) -> list[str]:
-    """Manifest keys that name an agent — layers minus the agent-agnostic base."""
-    return [k for k in _layer_keys(manifest) if k != _BASE_LAYER]
+    """Manifest keys that name an agent with paths of its own.
+
+    Layers minus the base, minus any agent that installs nothing. `none` and
+    `codex` write no entry now, but a manifest from before the layer split can
+    still carry a `none` key — and treating that as a chosen agent seeds a
+    literal `agent: none` into the committed .workmux.yaml.
+    """
+    return [
+        k
+        for k in _layer_keys(manifest)
+        if k != _BASE_LAYER and _AGENT_TARGETS.get(k)
+    ]
+
+
+def _restore_hint(layers: Iterable[str]) -> str:
+    """The uninstall command(s) that actually restore a set of backups.
+
+    Backups belong to the layer that took them, not to whatever `--agent` was
+    asked for: a bare install backs up under `base`, and `--agent none` — the
+    obvious guess — matches no entry and silently does nothing.
+    """
+    names = sorted(set(layers))
+    return " and ".join(f"`wfctl uninstall-skills --agent {n}`" for n in names)
 
 
 def _skill_deployment(skill_dir: Path) -> str:
@@ -632,9 +654,8 @@ def install_skills_cmd(
     # user's.
     prior_items = {
         i["path"]: i
-        for key, entry in manifest.items()
-        if key != "tracker" and isinstance(entry, dict)
-        for i in entry.get("items", [])
+        for key in _layer_keys(manifest)
+        for i in manifest[key].get("items", [])
     }
 
     # First install in a repo that has never chosen a tracker: ask, since the
@@ -648,9 +669,15 @@ def install_skills_cmd(
         if typer.confirm("Install it?", default=True):
             tracker = "github"
         else:
+            # Record the decline, so this is asked once and not on every
+            # upgrade. `null` reads as "chose no tracker" — the readers in
+            # _tracker.py test the value's truth, so it behaves exactly like
+            # an absent key. `--tracker none` clears it and re-opens the
+            # question.
+            manifest["tracker"] = None
             console.print(
                 "[dim]Skipped — `wfctl issue` / `wfctl change` no-op until a tracker "
-                "is set. Set one later with:\n"
+                "is set, and this won't be asked again. Set one later with:\n"
                 "  GitHub   wfctl install-skills --tracker github\n"
                 "  Custom   /scaffold-tracker writes .agents/trackers/<name>.json\n"
                 "           wfctl tracker-check <name>\n"
@@ -680,7 +707,10 @@ def install_skills_cmd(
         # base and agent items under separate keys — which is what keeps one
         # layer's uninstall from touching another's paths.
         plan: list[tuple[str, str, str, Path, Path]] = []
-        foreign_overwrites: list[str] = []
+        # (layer, path) — the layer is what makes the restore hint name a
+        # command that works: base-layer backups are not restored by
+        # `--agent <the agent asked for>`.
+        foreign_overwrites: list[tuple[str, str]] = []
         # Paths install-skills owns going forward — gitignored below so a
         # sync never dirties whatever branch happens to be checked out.
         # Tracker config is deliberately excluded: it's project-owned,
@@ -709,7 +739,7 @@ def install_skills_cmd(
                 plan.append((layer, kind, rel_dest, dest, item))
                 gitignore_targets.append(rel_dest)
                 if dest.exists() and rel_dest not in prior_items:
-                    foreign_overwrites.append(rel_dest)
+                    foreign_overwrites.append((layer, rel_dest))
 
                 if src_rel == ".agents/skills":
                     extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
@@ -721,7 +751,7 @@ def install_skills_cmd(
                         plan.append((agent, "skill", extra_rel, extra_dest, extra_item))
                         gitignore_targets.append(extra_rel)
                         if extra_dest.exists() and extra_rel not in prior_items:
-                            foreign_overwrites.append(extra_rel)
+                            foreign_overwrites.append((agent, extra_rel))
 
         # 'github' is the only tracker wf-skills ships; copy just its config.
         if tracker == "github":
@@ -731,7 +761,7 @@ def install_skills_cmd(
                 trel = str(tdest.relative_to(repo_root))
                 plan.append((_BASE_LAYER, "tracker", trel, tdest, tsrc))
                 if tdest.exists() and trel not in prior_items:
-                    foreign_overwrites.append(trel)
+                    foreign_overwrites.append((_BASE_LAYER, trel))
             else:
                 console.print(
                     "[yellow]⚠[/yellow] --tracker github, but "
@@ -742,15 +772,16 @@ def install_skills_cmd(
         if foreign_overwrites and not yes:
             console.print(
                 "[yellow]The following existing file(s) will be overwritten "
-                "(originals will be backed up and can be restored with "
-                f"`wfctl uninstall-skills --agent {agent}`):[/yellow]"
+                f"(originals will be backed up, restored by "
+                f"{_restore_hint(l for l, _ in foreign_overwrites)}):[/yellow]"
             )
-            for p in foreign_overwrites:
+            for _, p in foreign_overwrites:
                 console.print(f"  {p}")
             typer.confirm("Proceed?", abort=True)
 
         count = 0
         new_backups = 0
+        backup_layers: set[str] = set()
         items: dict[str, list[dict]] = {}
         summary: dict[str, dict[str, int]] = {}
         for layer, kind, rel_dest, dest, item in plan:
@@ -771,6 +802,7 @@ def install_skills_cmd(
                     shutil.copy2(dest, backup_dest)
                 backup_rel = str(Path(_BACKUP_DIR) / rel_dest)
                 new_backups += 1
+                backup_layers.add(layer)
             else:
                 backup_rel = None
 
@@ -796,6 +828,18 @@ def install_skills_cmd(
             "items": layer_items,
         }
 
+    # A manifest from before the layer split can carry a `none` entry owning
+    # .agents/* — paths the base layer owns now. Agents that install nothing
+    # never write an entry, so one can only be a leftover, and leaving it in
+    # place double-books those paths: `uninstall-skills --agent none` would
+    # delete files `base` still claims. Drop it only once base has recorded
+    # every path it held, so nothing is orphaned. Its backup pointers already
+    # came across — prior_items carried them into base's items above.
+    base_paths = {i["path"] for i in manifest.get(_BASE_LAYER, {}).get("items", [])}
+    for stale in [k for k, t in _AGENT_TARGETS.items() if not t and k in manifest]:
+        if {i["path"] for i in manifest[stale].get("items", [])} <= base_paths:
+            del manifest[stale]
+
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
         manifest.pop("tracker", None)
@@ -819,7 +863,7 @@ def install_skills_cmd(
     if new_backups:
         console.print(
             f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
-            f"{_BACKUP_DIR}/ — restored by `wfctl uninstall-skills --agent {agent}`"
+            f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
 
     console.print(f"[green]✓[/green] Installed from {repo}@{ref}")
@@ -842,9 +886,11 @@ def install_skills_cmd(
 @app.command("uninstall-skills")
 def uninstall_skills_cmd(
     agent: str = typer.Option(
-        "claude",
+        _BASE_LAYER,
         "--agent",
-        help=f"Target agent: {', '.join(_AGENT_TARGETS)}",
+        help="Layer to remove: "
+        f"{', '.join([_BASE_LAYER, *(a for a in _AGENT_TARGETS if _AGENT_TARGETS[a])])}. "
+        f"'{_BASE_LAYER}' is the agent-agnostic .agents/ layer a bare install writes.",
     ),
 ) -> None:
     """Remove what install-skills installed for --agent, restoring any file it overwrote."""
