@@ -88,3 +88,8 @@ jobs:
       # branch nobody touched — 0.16 would have added ~40 findings here.
       - name: Lint
         run: uv run ruff check .
+
+      # Config lives in [tool.mypy], including which paths it covers, so this
+      # stays a bare invocation rather than drifting from what runs locally.
+      - name: Typecheck
+        run: uv run mypy
