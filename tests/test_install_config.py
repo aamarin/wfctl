@@ -129,3 +129,20 @@ def test_seeded_config_does_not_invent_an_agent(agent_dir: Path, tmp_path: Path)
 
     manifest.write_text(json.dumps({"base": {"items": []}}))
     assert _resolve_config_agent(repo_root, "bob") == "bob", "an explicit flag always wins"
+
+
+def test_legacy_none_manifest_is_not_treated_as_an_agent(agent_dir: Path, tmp_path: Path) -> None:
+    """A pre-split `--agent none` install must not seed `agent: none`.
+
+    Before the layer split, `--agent none` recorded a `none` entry owning
+    `.agents/*`. `none` names the absence of an agent, so mirroring it writes a
+    pane command literally called `none` into a version-controlled .workmux.yaml.
+    """
+    repo_root = agent_dir.parent
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        json.dumps({"none": {"items": [{"path": ".agents/skills/x", "backup": None}]}})
+    )
+    _install(_make_wf_skills_repo_with_config(tmp_path))
+    text = (repo_root / ".workmux.yaml").read_text()
+    assert "agent: none" not in text
+    assert "# agent: claude" in text, "no agent to mirror — the key stays commented out"

@@ -118,7 +118,12 @@ def test_install_skills_no_tracker_without_a_human(agent_dir: Path, tmp_path: Pa
 def test_install_skills_prompts_for_tracker(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str, expected: bool
 ) -> None:
-    """First interactive install offers the GitHub tracker; declining installs nothing."""
+    """First interactive install offers the GitHub tracker; declining installs nothing.
+
+    Either answer is a choice, so both are recorded — see
+    test_declining_the_tracker_is_not_asked_again for why declining writes a
+    key at all.
+    """
     import json
     import os
     from wfctl import cli
@@ -132,7 +137,7 @@ def test_install_skills_prompts_for_tracker(
     assert result.exit_code == 0
     assert (repo_root / ".agents" / "trackers" / "github.json").exists() is expected
     manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
-    assert ("tracker" in manifest) is expected
+    assert manifest["tracker"] == ("github" if expected else None)
     if not expected:  # declining points at both ways back in
         assert "--tracker github" in result.output
         assert "/scaffold-tracker" in result.output
@@ -775,3 +780,138 @@ def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path, tmp_path: P
         app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "none"]
     )
     assert ok.exit_code == 0
+
+
+def test_backup_hint_names_a_command_that_restores(agent_dir: Path, tmp_path: Path) -> None:
+    """The restore hint must name the layer that took the backup, not --agent.
+
+    A bare install backs up under `base`, so a hint built from the requested
+    agent said `--agent none` — which matches no manifest entry and silently
+    does nothing, leaving the user's file overwritten with no working way back.
+    """
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    mine = repo_root / ".agents" / "commands" / "test-cmd.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("# mine, not wfctl's\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+    )
+    assert "uninstall-skills --agent base" in result.output
+    assert "--agent none" not in result.output
+
+    # Follow the printed instruction literally — it has to actually restore.
+    assert runner.invoke(app, ["uninstall-skills", "--agent", "base"]).exit_code == 0
+    assert mine.read_text() == "# mine, not wfctl's\n"
+
+
+def test_overwrite_prompt_names_the_owning_layer(agent_dir: Path, tmp_path: Path) -> None:
+    """Same hint, on the pre-overwrite confirmation — the earlier of the two."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    mine = repo_root / ".agents" / "commands" / "test-cmd.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("# mine\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n"
+    )
+    assert "uninstall-skills --agent base" in result.output
+
+
+def test_legacy_none_entry_is_dropped_once_base_owns_its_paths(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """A pre-split `none` entry must not double-book paths `base` now owns.
+
+    Left in place, `uninstall-skills --agent none` deletes files `base` still
+    claims — and `doctor` reports a phantom layer. It is dropped only after
+    base has recorded every path it held, so nothing is orphaned.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    base = json.loads(manifest_file.read_text())["base"]
+    manifest_file.write_text(json.dumps({"none": base}))  # the pre-split shape
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    manifest = json.loads(manifest_file.read_text())
+    assert "none" not in manifest
+    assert {i["path"] for i in manifest["base"]["items"]} >= {i["path"] for i in base["items"]}
+
+
+def test_legacy_entry_holding_an_unowned_path_survives(agent_dir: Path, tmp_path: Path) -> None:
+    """The guard on the test above: dropping an entry must never orphan a path.
+
+    An entry base does not fully cover still owns something — including the
+    backup pointer for a user file — so it stays and remains uninstallable.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    base = json.loads(manifest_file.read_text())["base"]
+    stale = {**base, "items": [*base["items"], {"path": ".elsewhere/thing", "backup": None}]}
+    manifest_file.write_text(json.dumps({"none": stale}))
+
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert "none" in json.loads(manifest_file.read_text())
+
+
+def test_declining_the_tracker_is_not_asked_again(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-012 — asked once, not once per install.
+
+    Declining used to write nothing, so the question came back on every
+    upgrade and there was no way to answer it permanently: `--tracker none`
+    clears the key rather than recording an opt-out.
+    """
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    _add_tracker(src)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    first = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n"
+    )
+    assert "No issue tracker configured" in first.output
+
+    # No input at all: a re-prompt would abort on EOF rather than pass.
+    again = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert again.exit_code == 0
+    assert "No issue tracker configured" not in again.output
+    assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
+
+
+def test_uninstall_defaults_to_the_layer_a_bare_install_writes(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """`install-skills` then `uninstall-skills`, both bare, must round-trip.
+
+    The default stayed `claude` after install's moved to the base layer, so a
+    bare uninstall reported nothing to remove.
+    """
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert (repo_root / ".agents" / "skills" / "test-skill").exists()
+
+    result = runner.invoke(app, ["uninstall-skills"])
+    assert result.exit_code == 0
+    assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
