@@ -708,3 +708,70 @@ def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) 
     result = runner.invoke(app, ["uninstall-skills", "--agent", "base"])
     assert result.exit_code == 0
     assert mine.read_text() == "# mine, not wfctl's\n"
+
+
+def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-003, SC-003: one command, on a repo with no prior install, and the
+    skills land unmodified — `.agents/skills/<name>/SKILL.md` is already the
+    shape Copilot's skills layout expects, so there is nothing to transform."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app,
+        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "copilot"],
+    )
+    assert result.exit_code == 0
+
+    installed = repo_root / ".github" / "skills" / "test-skill" / "SKILL.md"
+    assert installed.exists()
+    assert installed.read_text() == (repo_root / ".agents" / "skills" / "test-skill" / "SKILL.md").read_text()
+    # Its own root only — no other agent's paths.
+    assert not (repo_root / ".claude").exists()
+    assert not (repo_root / ".bob").exists()
+
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert sorted(manifest) == ["base", "copilot"]
+    assert all(i["path"].startswith(".github/") for i in manifest["copilot"]["items"])
+
+
+def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-008: Codex reads no repo-local command path, so there is nothing to
+    install for it — but that is a fact to state, not an error. The base layer
+    still lands and the command succeeds."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(
+        app,
+        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "codex"],
+    )
+    assert result.exit_code == 0
+    assert "AGENTS.md" in result.output
+
+    assert (repo_root / ".agents" / "skills" / "test-skill").exists()
+    assert not (repo_root / ".codex").exists()
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    # No entry of its own, so uninstalling it has nothing to fail on.
+    assert list(manifest) == ["base"]
+
+
+def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-009: an unrecognised agent fails loudly and says what is accepted;
+    `none` remains a valid way to ask for the base layer explicitly."""
+    from wfctl import cli
+    src = _make_wf_skills_repo(tmp_path)
+    bad = runner.invoke(
+        app,
+        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "nope"],
+    )
+    assert bad.exit_code == 1
+    for name in cli._AGENT_TARGETS:
+        assert name in bad.output, f"{name} missing from the accepted list"
+
+    ok = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "none"]
+    )
+    assert ok.exit_code == 0

@@ -403,11 +403,29 @@ _BASE_TARGETS = [
 # a new agent added here would otherwise reintroduce the collision silently.
 _AGENT_TARGETS = {
     "none": [],
+    "codex": [],
     "claude": [(".agents/commands", ".claude/commands")],
     "bob": [
         (".agents/skills", ".bob/skills"),
         (".agents/commands", ".bob/commands"),
     ],
+    # `.agents/skills/<name>/SKILL.md` is already the shape Copilot's skills
+    # layout expects, so this is a plain copy — no frontmatter transform, no
+    # rename. See specs/…/research.md for why the skills layout was chosen over
+    # `.github/agents/*.agent.md`, which upstream is deprecating.
+    "copilot": [(".agents/skills", ".github/skills")],
+}
+
+# Agents that are recognised but have no repo-local path to install into. They
+# resolve to an empty layer and print why, rather than erroring: the base layer
+# is still what they need, so failing would be misleading.
+_AGENT_NOTICES = {
+    "codex": (
+        "Codex has no repo-local command path — its prompts live in "
+        "~/.codex/prompts (never shared through a repo) and its repo entry "
+        "point is AGENTS.md.\nInstalling the base layer only; Codex reads "
+        ".agents/ and AGENTS.md directly."
+    ),
 }
 
 # The speckit skills shell out to `.specify/scripts/*.sh` and read
@@ -591,6 +609,11 @@ def install_skills_cmd(
             f"{', '.join(_AGENT_TARGETS)}.[/red]"
         )
         raise typer.Exit(1)
+
+    # Said before the install runs, so the reason arrives ahead of a summary
+    # that would otherwise look like the agent was simply ignored.
+    if agent in _AGENT_NOTICES:
+        console.print(f"[cyan]ℹ[/cyan] {_AGENT_NOTICES[agent]}")
 
     try:
         repo_root = get_repo_root()
