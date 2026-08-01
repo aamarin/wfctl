@@ -19,10 +19,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# ruff is pinned to a minor, not floated: its default rule set widens between
+# releases (0.16 added ~40 findings to this repo over 0.15), so an unpinned
+# linter turns someone else's release into a red build on an untouched branch.
+dev = ["pytest>=8", "ruff>=0.15,<0.16"]
 
 [project.scripts]
 wfctl = "wfctl.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["wfctl*"]
+
+[tool.ruff.lint]
+# Explicit rather than inherited, for the same reason the version is pinned.
+# E/F is pycodestyle errors + pyflakes: unused imports, undefined names,
+# f-string mistakes — the class of thing that is always a defect, never taste.
+# Deliberately not enabled yet: I (import sorting), UP, PL, RUF. Each is
+# defensible and each is a separate, reviewable diff; see #14.
+select = ["E4", "E7", "E9", "F"]
