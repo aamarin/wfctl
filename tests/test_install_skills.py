@@ -645,3 +645,66 @@ def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -
         app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
     )
     assert "install-skills --agent" not in claude.output
+
+
+def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-005, SC-002: a repo installed before the layer split upgrades quietly.
+
+    The old shape recorded `.agents/*` under the agent key. This version plans
+    those same paths as the base layer, so without unioning items across
+    entries they read as files the user wrote — and the first install after
+    upgrading would prompt to overwrite content wfctl installed itself, then
+    back it up. The prompt aborts when there is no tty, which is how CI and
+    workmux hooks would see it.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    # Install, then rewrite the manifest into the pre-split shape: one agent
+    # entry owning every path, no `base` key.
+    runner.invoke(
+        app,
+        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"],
+    )
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    legacy_items = [i for entry in manifest.values() for i in entry.get("items", [])]
+    manifest_file.write_text(json.dumps({"claude": {**manifest["claude"], "items": legacy_items}}))
+
+    backups_before = sorted(p.name for p in (repo_root / ".wf-skills-backup").glob("*"))
+
+    # The upgrade path: a bare install, which is what the new default gives you.
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    assert result.exit_code == 0, result.output
+    assert "will be overwritten" not in result.output
+    assert "Backed up" not in result.output
+    assert sorted(p.name for p in (repo_root / ".wf-skills-backup").glob("*")) == backups_before
+
+
+def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-006: unioning prior items must not relax detection of real user files.
+
+    The guard on the test above — a path wfctl never installed is still foreign,
+    still backed up, and still restored on uninstall.
+    """
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    mine = repo_root / ".agents" / "commands" / "test-cmd.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("# mine, not wfctl's\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert "Backed up 1" in result.output
+    assert mine.read_text() == "# test-cmd\n"
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "base"])
+    assert result.exit_code == 0
+    assert mine.read_text() == "# mine, not wfctl's\n"
