@@ -1,0 +1,97 @@
+# workmux project configuration — wfctl
+#
+# Adapted from pfms's config. wfctl is a single Python package installed with
+# uv: no server/client split, no .env files, no ports to assign.
+# For global settings, edit ~/.config/workmux/config.yaml
+# Full reference: https://github.com/jhulten/workmux (or the pfms copy).
+
+#-------------------------------------------------------------------------------
+# Git
+#-------------------------------------------------------------------------------
+
+main_branch: master
+base_branch: master
+
+#-------------------------------------------------------------------------------
+# Naming & Paths
+#-------------------------------------------------------------------------------
+
+worktree_dir: wt
+worktree_naming: full
+
+#-------------------------------------------------------------------------------
+# Tmux
+#-------------------------------------------------------------------------------
+
+mode: session
+window_prefix: 'wfctl__'
+
+windows:
+  - name: term
+    panes:
+      - command: ''
+  - name: agent
+    panes:
+      - command: <agent>
+        focus: true
+
+#-------------------------------------------------------------------------------
+# Agent
+#-------------------------------------------------------------------------------
+
+# Deliberately unset. wfctl is agent-agnostic, so which assistant launches in the
+# `agent` window is a per-developer preference, not a property of this repo.
+# workmux resolves `<agent>` from ~/.config/workmux/config.yaml, falling back to
+# its own default.
+# agent: claude
+
+#-------------------------------------------------------------------------------
+# Hooks
+#-------------------------------------------------------------------------------
+
+# Branch names carry the tracker's issue key — wfctl derives both the spec dir
+# and the state dir from it, so a handle without one leaves both unresolvable.
+pre_create:
+  - |
+    if ! echo "$WM_HANDLE" | grep -qE '^[0-9]+'; then
+      echo "Error: '$WM_HANDLE' must start with an issue number (e.g. 005-my-feature)."
+      exit 1
+    fi
+
+post_create:
+  # wf-skills files are gitignored, so a fresh worktree has none of them.
+  #
+  # No `--agent` hardcoded: this repo is the agent-agnostic install tool, and a
+  # committed config that always writes .claude/ is the exact assumption #5
+  # exists to remove. Set WFCTL_AGENT in your shell profile to also install your
+  # assistant's layer; unset installs the agent-agnostic layer only.
+  #
+  # ponytail: plain re-install, ~15s of network. pfms symlinks from the root
+  # checkout instead (scripts/link-wf-skills.sh) to skip the clone — worth
+  # copying here only if worktree creation starts feeling slow.
+  - cd "$WM_WORKTREE_PATH" && wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
+
+pre_remove:
+  # specs/ and .agent/ are gitignored, so removing the worktree destroys the
+  # spec, plan, tasks, and analysis with it. archive-story.sh copies them into
+  # wfctl's per-branch state dir — flattened, numbered in pipeline order, with
+  # a generated index — so the story stays readable after the worktree is gone.
+  #
+  # Prefer the worktree's own copy of the script: a branch that adds or changes
+  # it should archive with its own version, and the main checkout may not carry
+  # it yet.
+  - |
+    for s in "$WM_WORKTREE_PATH/scripts/archive-story.sh" \
+             "$WM_PROJECT_ROOT/scripts/archive-story.sh"; do
+      [ -x "$s" ] && exec bash "$s" "$WM_WORKTREE_PATH" "$WM_HANDLE"
+    done
+    echo "⚠ archive-story.sh not found — speckit artifacts not archived" >&2
+    exit 0  # never block worktree removal
+
+#-------------------------------------------------------------------------------
+# Files
+#-------------------------------------------------------------------------------
+
+# Nothing to copy or symlink into a worktree: wfctl has no .env, and uv resolves
+# dependencies per-run rather than from a checked-in node_modules equivalent.
+files: {}
