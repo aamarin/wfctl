@@ -113,11 +113,15 @@ After `install-skills` (and optionally `install-config`):
 | `.claude/`, `.bob/`, `.github/skills/` | one assistant's native paths, only if `--agent` asked for them | no (gitignored) |
 | `.specify/` | speckit runtime (scripts + templates the skills call) | no (gitignored) |
 | `.wf-skills-manifest.json` | install record: pinned commit + backups | no (gitignored) |
-| `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | your call — wfctl never ignores them; commit them to review the plan, or ignore them to ship only the implementation |
+| `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | your call — see below |
 | `.workmux.yaml` | worktree config, from `install-config workmux` | **yes** |
 
 The gitignored paths are install artifacts — regenerate them any time with
 `install-skills`. Only your specs and `.workmux.yaml` are project source.
+
+`install-skills` never touches `specs/` either way, so committing it is a
+project decision: commit it and the plan is reviewable in the PR, or gitignore
+it and only the implementation ships. This repo does the latter.
 
 ## Commands
 
@@ -272,7 +276,10 @@ starter (worktrees under `wt/`, session mode, agent + term windows, an
 issue-number `pre_create` branch guard; project-specific port/env hooks ship
 commented). For `workmux` it also idempotently adds `wt/` to `.gitignore` and
 sets the config's `agent:` to the resolved agent — `--agent` if given, else the
-agent `install-skills` recorded, else `claude`.
+sole agent `install-skills` recorded. If the repo installed no agent layer, or
+several, the key is left commented out rather than guessed: `.workmux.yaml` is
+committed, so naming one would push a per-developer preference into everyone's
+checkout. workmux then resolves `<agent>` from `~/.config/workmux/config.yaml`.
 
 It refuses to overwrite an existing file unless you pass `--force` (the file is
 git-tracked, so git is your undo):

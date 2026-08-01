@@ -898,18 +898,23 @@ def uninstall_skills_cmd(
     )
 
 
-def _resolve_config_agent(repo_root: Path, explicit: str | None) -> str:
-    """Agent for a seeded config: explicit flag → sole installed agent → 'claude'.
+def _resolve_config_agent(repo_root: Path, explicit: str | None) -> str | None:
+    """Agent for a seeded config: explicit flag → sole installed agent → None.
 
     Mirrors what `install-skills --agent` recorded, so a repo set up for a
     non-default agent gets a matching workmux config without re-specifying it.
+
+    None means "don't assert one". A repo that installed no agent layer made no
+    choice to mirror, and naming one anyway would commit a claim its own install
+    contradicts — the config is version-controlled, so that lands in everyone's
+    checkout. Same for a repo with several: picking one would be arbitrary.
+    workmux resolves `<agent>` from ~/.config/workmux/config.yaml when the key
+    is absent, which is where a per-developer preference belongs.
     """
     if explicit:
         return explicit
     agents = _agent_keys(_load_manifest(repo_root))
-    if len(agents) == 1 and agents[0] != "none":
-        return agents[0]
-    return "claude"
+    return agents[0] if len(agents) == 1 else None
 
 
 @app.command("install-config")
@@ -986,12 +991,19 @@ def install_config_cmd(
         # Worktrees live in ./wt inside the repo — keep git from tracking them.
         _ensure_gitignored(repo_root, "wt/")
         # Point `agent:` at the installed/〈--agent〉 agent (pane runs `<agent>`).
+        # With no single agent to mirror, comment the key out rather than
+        # guessing — see _resolve_config_agent.
         chosen = _resolve_config_agent(repo_root, agent)
         wf = repo_root / ".workmux.yaml"
         lines = wf.read_text().splitlines(keepends=True)
         for i, ln in enumerate(lines):
             if ln.startswith("agent:"):
-                lines[i] = f"agent: {chosen}\n"
+                lines[i] = (
+                    f"agent: {chosen}\n"
+                    if chosen
+                    else "# agent: claude   # per-developer; set here or in "
+                    "~/.config/workmux/config.yaml\n"
+                )
                 break
         wf.write_text("".join(lines))
 

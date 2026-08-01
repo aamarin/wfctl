@@ -101,3 +101,31 @@ def test_agent_defaults_from_manifest(agent_dir: Path, tmp_path: Path) -> None:
     (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"bob": {"items": []}}))
     _install(_make_wf_skills_repo_with_config(tmp_path))
     assert "agent: bob" in (repo_root / ".workmux.yaml").read_text()
+
+
+def test_seeded_config_does_not_invent_an_agent(agent_dir: Path, tmp_path: Path) -> None:
+    """A repo that installed no agent layer made no choice to mirror.
+
+    Before the layer split a bare install recorded `claude`, so seeding
+    `agent: claude` reflected reality. It no longer does — the default install
+    is agent-agnostic — and .workmux.yaml is committed, so asserting an agent
+    would put a claim the repo's own install contradicts into every checkout.
+    """
+    import json
+    import os
+    from wfctl.cli import _resolve_config_agent
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    manifest = repo_root / ".wf-skills-manifest.json"
+
+    manifest.write_text(json.dumps({"base": {"items": []}}))
+    assert _resolve_config_agent(repo_root, None) is None, "bare install must not name an agent"
+
+    manifest.write_text(json.dumps({"base": {}, "claude": {}}))
+    assert _resolve_config_agent(repo_root, None) == "claude", "a sole agent is mirrored"
+
+    manifest.write_text(json.dumps({"base": {}, "claude": {}, "copilot": {}}))
+    assert _resolve_config_agent(repo_root, None) is None, "several agents — picking one is arbitrary"
+
+    manifest.write_text(json.dumps({"base": {"items": []}}))
+    assert _resolve_config_agent(repo_root, "bob") == "bob", "an explicit flag always wins"
