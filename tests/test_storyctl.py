@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import json
 import types
-from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from wfctl._pipeline import _infer_steps as _infer_pipeline

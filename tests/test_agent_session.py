@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import date
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-import wfctl._session as _session_mod
 from wfctl.cli import app
 
 runner = CliRunner()
