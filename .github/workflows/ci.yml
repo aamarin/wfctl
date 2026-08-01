@@ -24,6 +24,14 @@ jobs:
         # since nothing here is version-sensitive enough to justify every minor.
         python: ["3.11", "3.13"]
 
+    # Pin the interpreter for every uv command in the job rather than relying on
+    # `uv python install` to steer later `uv sync`/`uv run` calls. It happened to
+    # pick the right one (3.11.15 / 3.13.14 in the first run), but that is uv's
+    # discovery order, not a guarantee — and a matrix that silently tests one
+    # version twice is worse than no matrix, because it reports success.
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +44,14 @@ jobs:
 
       - name: Install
         run: uv sync --extra dev
+
+      # Fails the job if the interpreter is not the one the matrix asked for,
+      # so a silent fallback shows up as a red build instead of a green lie.
+      - name: Assert the interpreter matches the matrix
+        run: |
+          actual=$(uv run python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+          echo "matrix=${{ matrix.python }} actual=$actual"
+          test "$actual" = "${{ matrix.python }}"
 
       # The suite shells out to git constantly: it builds throwaway repos as
       # install sources and asserts on `--ref master`. Runner defaults are not
