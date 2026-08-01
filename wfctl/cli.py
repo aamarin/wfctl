@@ -282,7 +282,9 @@ def archive_story_cmd(
     Never exits non-zero. A teardown hook that fails is a hook that strands a
     worktree, and a missed archive is a smaller loss than that — so every error
     is reported and swallowed. This is the one place in wfctl where a bare
-    `except` is the correct behaviour rather than a smell.
+    `except` is the correct behaviour rather than a smell, and it catches
+    SystemExit too: `get_repo_root` raises that rather than an Exception, so
+    `except Exception` alone would let a non-git checkout exit 1.
     """
     import os
     import subprocess as sp
@@ -300,7 +302,12 @@ def archive_story_cmd(
         story = handle or os.environ.get("WM_HANDLE") or branch
         # `story` keys the spec lookup: an explicit handle wins, because the
         # caller knows which story is being torn down better than HEAD does.
-        spec_dir = resolve_spec_dir(story, repo_root) or resolve_spec_dir(branch, repo_root)
+        # Only fall back to `branch` when it differs — a miss walks every
+        # ancestor branch, which is ~270ms of git, and repeating it is free of
+        # any new answer.
+        spec_dir = resolve_spec_dir(story, repo_root)
+        if spec_dir is None and story != branch:
+            spec_dir = resolve_spec_dir(branch, repo_root)
         state_dir = resolve_agent_dir(repo_root, branch)
 
         rev = sp.run(
@@ -310,13 +317,18 @@ def archive_story_cmd(
         commit = rev.stdout.strip() if rev.returncode == 0 else "unknown"
 
         archive_dir, mapped = _archive.archive(
-            repo_root, story, branch, commit, spec_dir, state_dir
+            repo_root,
+            handle=story,
+            branch=branch,
+            commit=commit,
+            spec_dir=spec_dir,
+            state_dir=state_dir,
         )
         if archive_dir is None:
             console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
             return
         console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
-    except Exception as e:  # noqa: BLE001 — see the docstring
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — see the docstring
         console.print(f"[yellow]⚠[/yellow] archive failed ({e}) — continuing so teardown is not blocked")
 
 
