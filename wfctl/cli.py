@@ -265,6 +265,61 @@ def state_dir_cmd() -> None:
     print(agent_dir)
 
 
+@app.command("archive-story")
+def archive_story_cmd(
+    worktree: str = typer.Argument(
+        None, help="Worktree to archive. Defaults to $WM_WORKTREE_PATH, then the current repo."
+    ),
+    handle: str = typer.Argument(
+        None, help="Story handle. Defaults to $WM_HANDLE, then the branch."
+    ),
+) -> None:
+    """Archive a story's speckit artifacts into its state dir before teardown.
+
+    Wired into workmux's `pre_remove`: `specs/` and `.agent/` are gitignored, so
+    removing a worktree destroys the spec, plan, tasks and analysis with it.
+
+    Never exits non-zero. A teardown hook that fails is a hook that strands a
+    worktree, and a missed archive is a smaller loss than that — so every error
+    is reported and swallowed. This is the one place in wfctl where a bare
+    `except` is the correct behaviour rather than a smell.
+    """
+    import os
+    import subprocess as sp
+
+    from wfctl import _archive
+
+    try:
+        root = worktree or os.environ.get("WM_WORKTREE_PATH")
+        repo_root = Path(root).resolve() if root else get_repo_root()
+        if not repo_root.is_dir():
+            console.print(f"[yellow]⚠[/yellow] no worktree at '{repo_root}' — nothing archived")
+            return
+
+        branch = resolve_branch(repo_root)
+        story = handle or os.environ.get("WM_HANDLE") or branch
+        # `story` keys the spec lookup: an explicit handle wins, because the
+        # caller knows which story is being torn down better than HEAD does.
+        spec_dir = resolve_spec_dir(story, repo_root) or resolve_spec_dir(branch, repo_root)
+        state_dir = resolve_agent_dir(repo_root, branch)
+
+        rev = sp.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root, capture_output=True, text=True,
+        )
+        commit = rev.stdout.strip() if rev.returncode == 0 else "unknown"
+
+        archive_dir, mapped = _archive.archive(
+            repo_root, story, branch, commit, spec_dir, state_dir
+        )
+        if archive_dir is None:
+            console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
+            return
+        console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
+    except Exception as e:  # noqa: BLE001 — see the docstring
+        console.print(f"[yellow]⚠[/yellow] archive failed ({e}) — continuing so teardown is not blocked")
+
+
 @app.command("feature-paths")
 def feature_paths_cmd() -> None:
     """Print the active feature's paths as eval-able shell assignments.
