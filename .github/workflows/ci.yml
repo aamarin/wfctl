@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [master]
+  # No base-branch filter: this repo stacks PRs (#15 targets #13's branch, not
+  # master), and `branches: [master]` silently skips every one of them — the
+  # PRs that most need a check are the ones that would not get it.
   pull_request:
-    branches: [master]
 
 # A new push to a PR makes the in-flight run pointless — drop it rather than
 # queue behind it. master is excluded so every merge keeps a run of its own.
