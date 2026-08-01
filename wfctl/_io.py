@@ -42,7 +42,7 @@ def write_md_atomic(path: Path, content: str) -> None:
         raise
 
 
-def append_event(agent_dir: Path, event: str, **kwargs) -> None:
+def append_event(agent_dir: Path, event: str, **kwargs: object) -> None:
     """Append a JSONL event line to events.jsonl."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     record = {"ts": ts, "event": event, **kwargs}

@@ -22,7 +22,7 @@ dependencies = [
 # ruff is pinned to a minor, not floated: its default rule set widens between
 # releases (0.16 added ~40 findings to this repo over 0.15), so an unpinned
 # linter turns someone else's release into a red build on an untouched branch.
-dev = ["pytest>=8", "ruff>=0.15,<0.16"]
+dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3"]
 
 [project.scripts]
 wfctl = "wfctl.cli:app"
@@ -37,3 +37,21 @@ include = ["wfctl*"]
 # Deliberately not enabled yet: I (import sorting), UP, PL, RUF. Each is
 # defensible and each is a separate, reviewable diff; see #14.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+files = ["wfctl"]
+# `disallow_untyped_defs` is the setting that earns its keep here: mypy's
+# defaults skip unannotated function bodies entirely, so a clean run without
+# it mostly means "nothing was checked".
+disallow_untyped_defs = true
+
+# Not `strict`, deliberately. It reports 26 findings, all of one shape:
+# bare `dict`/`tuple` wanting parameters, and json.loads() returning Any. The
+# fix is ~30 lines of `dict[str, Any]` and `cast(...)` around JSON blobs whose
+# shape is genuinely dynamic — noise that buys no safety. Revisit if the
+# manifest and session payloads ever get real TypedDicts.
+
+# Tests are not checked: they are full of intentionally malformed fixtures.
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
