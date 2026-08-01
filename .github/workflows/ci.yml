@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# A new push to a PR makes the in-flight run pointless — drop it rather than
+# queue behind it. master is excluded so every merge keeps a run of its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # requires-python is >=3.11: test the floor and the current release,
+        # since nothing here is version-sensitive enough to justify every minor.
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      - name: Install
+        run: uv sync --extra dev
+
+      # The suite shells out to git constantly: it builds throwaway repos as
+      # install sources and asserts on `--ref master`. Runner defaults are not
+      # guaranteed to match, so pin what the tests assume rather than let a
+      # runner image change break them.
+      - name: Configure git for the test suite
+        run: |
+          git config --global init.defaultBranch master
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+
+      - name: Test
+        # One test clones a deliberately nonexistent repo to assert the failure
+        # path. With no credential helper on the runner, git would sit waiting
+        # for a username instead of failing — this makes it fail fast.
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: uv run pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      # `uv run`, not `uvx`: this has to be the version in uv.lock. `uvx ruff`
+      # pulls whatever is newest, which means an upstream release can redden a
+      # branch nobody touched — 0.16 would have added ~40 findings here.
+      - name: Lint
+        run: uv run ruff check .
