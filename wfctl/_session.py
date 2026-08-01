@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
-from datetime import date as _date
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -153,7 +151,6 @@ def promote(candidates_path: Path, agent_dir: Path) -> None:
     from datetime import date
     from rich.prompt import Prompt
     from rich.console import Console
-    from wfctl._io import write_md_atomic
 
     console = Console()
 
