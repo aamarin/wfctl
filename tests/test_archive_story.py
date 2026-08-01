@@ -96,6 +96,61 @@ def test_rerun_moves_the_previous_archive_aside(agent_dir: Path) -> None:
     assert (_archive_dir(agent_dir) / "2-spec.md").read_text() == "x\n"
 
 
+def test_an_emptied_spec_dir_does_not_displace_a_good_archive(agent_dir: Path) -> None:
+    """A story with nothing left in it must not overwrite the story that was there.
+
+    The spec dir still exists — it has just been emptied — so the run has a
+    resolvable story but no artifacts. Archiving that would move the real
+    archive aside and leave a bare index in its place.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    spec_dir = _make_story(repo_root, handle, "spec.md")
+
+    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    (spec_dir / "spec.md").unlink()
+
+    result = runner.invoke(app, ["archive-story"])
+    assert result.exit_code == 0
+    assert "nothing to archive" in result.output
+    assert (_archive_dir(agent_dir) / "2-spec.md").is_file(), "the real archive survived"
+    assert not list(agent_dir.glob("archive-*")), "nothing was moved aside"
+
+
+def test_two_runs_in_the_same_second_both_archive(agent_dir: Path) -> None:
+    """Back-to-back reruns must not collide on the moved-aside name.
+
+    A second-resolution stamp made the second rename land on a non-empty
+    directory, which raises — swallowed into 'archive failed', losing exactly
+    the archive this command exists to take.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _make_story(repo_root, os.environ["WFCTL_BRANCH"], "spec.md")
+
+    for _ in range(3):
+        result = runner.invoke(app, ["archive-story"])
+        assert result.exit_code == 0
+        assert "archive failed" not in result.output, result.output
+
+    assert (_archive_dir(agent_dir) / "2-spec.md").is_file()
+    assert len(list(agent_dir.glob("archive-*"))) == 2
+
+
+def test_a_non_git_checkout_still_exits_zero(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`get_repo_root` raises SystemExit, which `except Exception` does not catch."""
+    monkeypatch.delenv("WFCTL_REPO_ROOT")
+
+    def not_a_repo() -> Path:
+        raise SystemExit("wfctl: not a git repository")
+
+    monkeypatch.setattr("wfctl.cli.get_repo_root", not_a_repo)
+    result = runner.invoke(app, ["archive-story"])
+    assert result.exit_code == 0
+    assert "archive failed" in result.output
+
+
 def test_nothing_to_archive_is_a_success(agent_dir: Path) -> None:
     """A repo that never opted into speckit still tears down cleanly."""
     result = runner.invoke(app, ["archive-story"])
