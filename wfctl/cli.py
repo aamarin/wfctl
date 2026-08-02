@@ -286,12 +286,15 @@ def archive_story_cmd(
     SystemExit too: `get_repo_root` raises that rather than an Exception, so
     `except Exception` alone would let a non-git checkout exit 1.
     """
-    import os
-    import subprocess as sp
-
-    from wfctl import _archive
-
     try:
+        # Inside the `try` on purpose: an import that raises here would exit
+        # non-zero and strand the worktree, which is exactly what this command
+        # promises not to do. Do not hoist these to module scope or above it.
+        import os
+        import subprocess as sp
+
+        from wfctl import _archive
+
         root = worktree or os.environ.get("WM_WORKTREE_PATH")
         repo_root = Path(root).resolve() if root else get_repo_root()
         if not repo_root.is_dir():
