@@ -79,6 +79,29 @@ def test_unmapped_artifacts_land_under_extra(agent_dir: Path) -> None:
     assert not (arch / "extra" / "spec.md").exists(), "a mapped file must not be duplicated"
 
 
+def test_a_symlink_does_not_drag_in_content_from_outside_the_spec_dir(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """`is_file()` follows symlinks; `find -type f` never matched one.
+
+    Only the unmapped scan skips them. A mapped artifact is archived whether or
+    not it is a link, matching the shell version's `[ -e ]` test.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    spec_dir = _make_story(repo_root, handle, "plan.md")
+
+    outside = _write(tmp_path / "outside" / "secret.md", "not part of this story\n")
+    (spec_dir / "leaked.md").symlink_to(outside)
+    (spec_dir / "spec.md").symlink_to(_write(tmp_path / "outside" / "real-spec.md"))
+
+    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+
+    arch = _archive_dir(agent_dir)
+    assert not (arch / "extra" / "leaked.md").exists()
+    assert (arch / "2-spec.md").is_file(), "a mapped artifact is archived even as a link"
+
+
 def test_rerun_moves_the_previous_archive_aside(agent_dir: Path) -> None:
     """A rerun refreshes rather than accumulating, and never destroys the old one."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])

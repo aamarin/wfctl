@@ -113,7 +113,14 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     # Anything the map didn't name is still archived, so a speckit artifact this
     # list has never heard of is never silently dropped. Sorted, unlike the shell
     # version's `find` order, so the index is reproducible.
-    for src in sorted(p for p in spec_dir.rglob("*") if p.is_file()):
+    #
+    # Symlinks are skipped: `is_file()` follows them, so a link pointing outside
+    # the spec dir would copy its target's content in. The shell version's
+    # `find -type f` tested the link itself and never matched one. `rglob` does
+    # not descend into symlinked directories, so only links to files are at
+    # issue. The `_SPEC_MAP` loop above still follows them, matching the shell
+    # version's `[ -e ]` test.
+    for src in sorted(p for p in spec_dir.rglob("*") if p.is_file() and not p.is_symlink()):
         if src.resolve() not in claimed:
             plan.append((src, f"extra/{src.relative_to(spec_dir)}"))
 
