@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._paths import resolve_agent_dir, resolve_branch, resolve_spec_dir
+from wfctl._paths import project_name, resolve_agent_dir, resolve_branch, resolve_spec_dir
 
 
 def test_resolve_branch_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -215,3 +215,43 @@ def test_resolve_agent_dir_keys_on_main_checkout_not_worktree(
 
     assert from_main == from_worktree
     assert from_worktree.parent.name == repo_root.name
+
+
+def test_project_name_from_a_worktree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The project's name, not the worktree's directory name.
+
+    `--show-toplevel` returns the *worktree* path, so its basename is the branch
+    handle. Deriving the name that way would write `window_prefix:
+    '9-align-node-versions__'` into a committed file from a seed-once command.
+    `--git-common-dir` points at the main checkout's .git from anywhere in the
+    repo, which is what makes both call sites below agree.
+
+    This is the regression guard the helper never had — it shipped with one
+    caller and zero tests.
+    """
+    import subprocess
+
+    # Not the `repo_root` fixture: this test needs the checkout directory to have
+    # a name distinguishable from the worktree's, which is the whole point.
+    repo_root = tmp_path / "myproject"
+    repo_root.mkdir()
+    subprocess.run(["git", "init", str(repo_root)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "config", "user.email", "test@test.com"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "config", "user.name", "Test"],
+        check=True, capture_output=True,
+    )
+    _init_commit(repo_root)
+
+    wt = tmp_path / "myproject" / "wt" / "9-align-node-versions"
+    subprocess.run(
+        ["git", "-C", str(repo_root), "worktree", "add", "-b", "9-align-node-versions", str(wt)],
+        check=True, capture_output=True,
+    )
+
+    assert project_name(repo_root) == "myproject"
+    assert project_name(wt) == "myproject"
+    assert project_name(wt) != wt.name, "would be the branch handle, not the project"

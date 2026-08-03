@@ -13,6 +13,7 @@ from wfctl import _tracker
 from wfctl._paths import (
     extract_issue_key,
     get_repo_root,
+    project_name,
     resolve_agent_dir,
     resolve_branch,
     resolve_spec_dir,
@@ -1127,24 +1128,49 @@ def install_config_cmd(
                 shutil.copy2(item, dest)
 
     if name == "workmux":
+        from wfctl import _workmux
+
         # Worktrees live in ./wt inside the repo — keep git from tracking them.
         _ensure_gitignored(repo_root, "wt/")
-        # Point `agent:` at the installed/〈--agent〉 agent (pane runs `<agent>`).
-        # With no single agent to mirror, comment the key out rather than
-        # guessing — see _resolve_config_agent.
+
+        # Resolve here, substitute in _workmux. The module takes plain values and
+        # never touches git or the manifest, which is what keeps its tests
+        # fixture-free — see wfctl/_workmux.py.
+        #
+        # `agent:` gets the installed/〈--agent〉 agent, or stays commented when
+        # there is no single one to mirror (see _resolve_config_agent).
         chosen = _resolve_config_agent(repo_root, agent)
+
+        # The project's name, not this checkout's. `get_repo_root` is
+        # `--show-toplevel`, which inside a worktree returns the branch handle —
+        # seeding from a worktree would commit `window_prefix: '9-some-branch__'`.
+        raw_project = project_name(repo_root)
+        proj = _workmux.tmux_safe(raw_project)
+        if proj != raw_project:
+            console.print(
+                f"[dim]ℹ window_prefix: '{raw_project}' → '{proj}' — tmux rewrites "
+                ". and : in session names[/dim]",
+                soft_wrap=True,
+            )
+
         wf = repo_root / ".workmux.yaml"
-        lines = wf.read_text().splitlines(keepends=True)
-        for i, ln in enumerate(lines):
-            if ln.startswith("agent:"):
-                lines[i] = (
-                    f"agent: {chosen}\n"
-                    if chosen
-                    else "# agent: claude   # per-developer; set here or in "
-                    "~/.config/workmux/config.yaml\n"
-                )
-                break
-        wf.write_text("".join(lines))
+        patched = _workmux.patch_seed(wf.read_text(), agent=chosen, project=proj)
+        wf.write_text(patched)
+
+        # Watch for the surviving placeholder, not for a missing key: if the
+        # template renames `window_prefix` upstream, a key check passes at exactly
+        # the moment the placeholder does ship. tmux accepts `<` and `>`, so an
+        # unsubstituted prefix becomes a real session named `<project>__<branch>`
+        # — committed, for everyone on the repo.
+        if _workmux.unsubstituted_placeholder(patched):
+            console.print(
+                f"[yellow]⚠[/yellow] .workmux.yaml still contains "
+                f"'{_workmux.PROJECT_PLACEHOLDER}' — the prefix was not substituted.\n"
+                "  The template's window_prefix key may have been renamed or "
+                "reformatted upstream.\n"
+                f"  Fix: set  window_prefix: '{proj}__'",
+                soft_wrap=True,
+            )
 
     console.print(
         f"[green]✓[/green] Seeded {name} config ({len(plan)} file(s)) from {repo}@{ref}"
@@ -1222,6 +1248,94 @@ def _check_wfctl_version() -> int:
     return 0
 
 
+def _archive_destination(repo_root: Path) -> str:
+    """Where `archive-story` would write, for display only — creates nothing.
+
+    `resolve_agent_dir` would answer this but also mkdirs, and a health check that
+    creates directories while reporting on them is a check with side effects.
+    """
+    import os
+
+    override = os.environ.get("WFCTL_STATE_DIR")
+    if override:
+        return f"{override}/archive/"
+    xdg = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
+    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / "archive"
+    try:
+        return f"~/{path.relative_to(Path.home())}/"
+    except ValueError:
+        return f"{path}/"
+
+
+def _check_workmux_hook(repo_root: Path) -> None:
+    """Report a `.workmux.yaml` that won't archive on teardown; offer to fix it.
+
+    `install-config` is seed-once and refuses to overwrite, so fixing the upstream
+    template only ever reaches repos seeded afterwards. This is the one path by
+    which an already-seeded repo becomes protected.
+
+    Deliberately reports `pre_remove` only — never an unsubstituted session
+    prefix. A cosmetic warning beside a data-loss warning trains the reader to
+    skim past both, and this is the one whose job is to be noticed.
+
+    Never touches doctor's exit code: this is drift, reported the way a missing
+    pinned commit is, not a failure.
+    """
+    from wfctl import _workmux
+
+    wf = repo_root / ".workmux.yaml"
+    if not wf.exists():
+        return  # not every repo uses workmux
+    try:
+        text = wf.read_text()
+    except OSError as exc:
+        console.print(f"[yellow]⚠[/yellow] couldn't read .workmux.yaml: {exc}")
+        return
+    if _workmux.pre_remove_wired(text):
+        return
+
+    console.print(
+        "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
+        "`wfctl archive-story` — removing a\n"
+        "  worktree will discard its specs, plan, and tasks."
+    )
+    # soft_wrap: rich would otherwise wrap this at the terminal width and could
+    # split the path itself, which both reads badly and breaks assertions on it.
+    console.print(
+        f"  Archives would be written to: {_archive_destination(repo_root)}",
+        soft_wrap=True,
+    )
+
+    patched = _workmux.wire_pre_remove(text)
+    if patched is None:
+        # Custom steps, or no key at all. Both leave the insertion point and
+        # ordering unknowable, so hand it back rather than guess.
+        # soft_wrap: this line is meant to be copy-pasted into a YAML list, and a
+        # wrapped line pastes broken.
+        console.print(
+            "  pre_remove holds custom steps — add this line to it yourself:\n"
+            f"    - {_workmux.ARCHIVE_HOOK}",
+            soft_wrap=True,
+        )
+        return
+    if not _interactive():
+        # /start-session runs doctor through a non-TTY shell. Without this line
+        # the automated path reports a problem with no route to the fix.
+        console.print("  Run `wfctl doctor` from a terminal to wire it.")
+        return
+    if not typer.confirm("Wire it now?", default=True):
+        # Declining is not recorded. Unlike choosing no tracker — a genuine
+        # one-time decision — an unwired teardown hook is ongoing drift, and
+        # re-reporting drift is what a doctor is for.
+        return
+    try:
+        wf.write_text(patched)
+    except OSError as exc:
+        console.print(f"[yellow]⚠[/yellow] couldn't write .workmux.yaml: {exc}")
+        return
+    console.print("[green]✓[/green] pre_remove wired — .workmux.yaml")
+
+
 @app.command("doctor")
 def doctor_cmd() -> None:
     """Check the wfctl tool and installed wf-skills content for available updates.
@@ -1238,6 +1352,10 @@ def doctor_cmd() -> None:
     except SystemExit:
         console.print("[yellow]⚠[/yellow] not in a git repo — skipping skills check.")
         raise typer.Exit(exit_code)
+
+    # Before the manifest gate below: a repo can have a .workmux.yaml without
+    # having installed skills, and it deserves the warning either way.
+    _check_workmux_hook(repo_root)
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)

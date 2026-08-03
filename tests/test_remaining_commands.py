@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+from wfctl import _workmux
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -109,3 +111,155 @@ def test_state_dir_path_not_wrapped(agent_dir: Path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert result.stdout.strip() == str(agent_dir)
     assert "\n" not in result.stdout.strip()
+
+
+# --- doctor: the .workmux.yaml teardown-hook lint (#17) ---------------------
+#
+# `install-config` is seed-once, so fixing the upstream template never reaches a
+# repo that was already seeded. This lint is the only path by which such a repo
+# becomes protected, which is why its output strings are asserted rather than
+# just its behaviour — the message *is* the deliverable.
+
+_UNWIRED = "worktree_dir: wt\npre_remove: []\n"
+
+
+def _seed_workmux(repo_root: Path, text: str = _UNWIRED) -> Path:
+    wf = repo_root / ".workmux.yaml"
+    wf.write_text(text)
+    return wf
+
+
+def _doctor(monkeypatch: pytest.MonkeyPatch, *, interactive: bool, answer: str = "y"):
+    """Run doctor with the TTY seam forced. `_interactive` exists for this."""
+    monkeypatch.setattr("wfctl.cli._interactive", lambda: interactive)
+    return runner.invoke(app, ["doctor"], input=answer if interactive else "")
+
+
+def test_doctor_warns_when_pre_remove_is_not_wired(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+    result = _doctor(monkeypatch, interactive=False)
+    assert "pre_remove does not call" in result.output
+    assert "discard its specs" in result.output
+
+
+def test_doctor_non_interactive_changes_nothing(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The path /start-session takes: report, never prompt, never write."""
+    repo_root = agent_dir.parent
+    wf = _seed_workmux(repo_root)
+    before = wf.read_text()
+    _doctor(monkeypatch, interactive=False)
+    assert wf.read_text() == before
+
+
+def test_doctor_non_interactive_names_how_to_reach_the_fix(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without this the automated path reports a problem with no route to a fix."""
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+    result = _doctor(monkeypatch, interactive=False)
+    assert "from a terminal" in result.output
+
+
+def test_doctor_states_the_archive_destination_before_asking(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Consent to a change whose entire value is a destination the developer
+    cannot otherwise see."""
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+    result = _doctor(monkeypatch, interactive=False)
+    assert "Archives would be written to:" in result.output
+    assert "/archive/" in result.output
+
+
+def test_doctor_exit_code_is_unchanged_by_this_warning(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Matches the `no pinned commit` precedent: warnings continue, they don't fail."""
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+    assert _doctor(monkeypatch, interactive=False).exit_code == 0
+
+
+def test_doctor_wires_the_hook_when_confirmed(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = agent_dir.parent
+    wf = _seed_workmux(repo_root)
+    _doctor(monkeypatch, interactive=True, answer="y\n")
+    text = wf.read_text()
+    assert _workmux.pre_remove_wired(text)
+    assert "worktree_dir: wt" in text, "the rest of the file must survive"
+
+
+def test_doctor_replaces_one_line_with_two(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The retrofit writes into a file the repo owns and has customized."""
+    repo_root = agent_dir.parent
+    wf = _seed_workmux(repo_root)
+    before = wf.read_text().splitlines()
+    _doctor(monkeypatch, interactive=True, answer="y\n")
+    assert len(wf.read_text().splitlines()) == len(before) + 1
+
+
+def test_doctor_declining_writes_nothing_and_is_not_recorded(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drift recurs, so it is re-reported rather than silenced by one decline."""
+    repo_root = agent_dir.parent
+    wf = _seed_workmux(repo_root)
+    _doctor(monkeypatch, interactive=True, answer="n\n")
+    assert wf.read_text() == _UNWIRED
+    again = _doctor(monkeypatch, interactive=False)
+    assert "pre_remove does not call" in again.output
+
+
+def test_doctor_refuses_a_customized_pre_remove(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = agent_dir.parent
+    custom = "worktree_dir: wt\npre_remove:\n  - echo mine\n"
+    wf = _seed_workmux(repo_root, custom)
+    result = _doctor(monkeypatch, interactive=True, answer="y\n")
+    assert wf.read_text() == custom, "a hook we don't understand is never rewritten"
+    assert "yourself" in result.output
+    assert _workmux.ARCHIVE_HOOK in result.output
+
+
+def test_doctor_silent_when_no_workmux_config(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not every repo uses workmux."""
+    result = _doctor(monkeypatch, interactive=False)
+    assert "pre_remove" not in result.output
+
+
+def test_doctor_silent_when_already_wired(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root, f"worktree_dir: wt\n{_workmux.WIRED_PRE_REMOVE}")
+    result = _doctor(monkeypatch, interactive=False)
+    assert "pre_remove does not call" not in result.output
+
+
+def test_doctor_never_reports_an_unsubstituted_prefix(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cosmetic warning beside a data-loss warning trains the reader to skim
+    past both. This has no task-level symptom, so only a test holds the line."""
+    repo_root = agent_dir.parent
+    _seed_workmux(
+        repo_root,
+        f'# window_prefix: "<project>__"\n{_workmux.WIRED_PRE_REMOVE}',
+    )
+    result = _doctor(monkeypatch, interactive=False)
+    assert "window_prefix" not in result.output
+    assert "<project>" not in result.output
