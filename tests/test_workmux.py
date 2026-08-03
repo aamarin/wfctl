@@ -129,6 +129,38 @@ def test_empty_list_is_not_wired() -> None:
     assert not _workmux.pre_remove_wired(TEMPLATE)
 
 
+def test_archive_story_elsewhere_in_the_file_is_not_wired() -> None:
+    """The scan is scoped to the `pre_remove:` block.
+
+    A whole-file scan reported wired whenever `archive-story` appeared anywhere
+    non-comment — a pane command here — while `pre_remove: []` left teardown
+    unprotected. A safety check that fails open is worse than no check.
+    """
+    assert not _workmux.pre_remove_wired(
+        "windows:\n"
+        "  - name: term\n"
+        "    panes:\n"
+        "      - command: wfctl archive-story --help\n"
+        "pre_remove: []\n"
+    )
+
+
+def test_wired_hook_is_found_when_other_keys_follow() -> None:
+    """Block detection must not stop at the key line or run past its end."""
+    assert _workmux.pre_remove_wired(
+        "pre_remove:\n"
+        "  - command -v wfctl && wfctl archive-story \"$X\" || true\n"
+        "\n"
+        "files: {}\n"
+    )
+
+
+def test_commented_hook_inside_the_block_is_not_wired() -> None:
+    assert not _workmux.pre_remove_wired(
+        "pre_remove:\n  # - wfctl archive-story \"$X\"\n"
+    )
+
+
 def test_comment_only_mention_is_not_wired() -> None:
     """A repo documenting archiving — or explaining why it skips it — is not
     wired, and treating it as wired would silence a real warning."""
