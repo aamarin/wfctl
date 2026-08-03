@@ -1168,7 +1168,7 @@ def install_config_cmd(
                 f"'{_workmux.PROJECT_PLACEHOLDER}' — the prefix was not substituted.\n"
                 "  The template's window_prefix key may have been renamed or "
                 "reformatted upstream.\n"
-                f"  Fix: set  window_prefix: '{proj}__'",
+                f"  Fix: set window_prefix: '{proj}__'",
                 soft_wrap=True,
             )
 

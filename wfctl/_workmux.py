@@ -93,15 +93,38 @@ def unsubstituted_placeholder(text: str) -> bool:
     return PROJECT_PLACEHOLDER in text
 
 
-def pre_remove_wired(text: str) -> bool:
-    """Does a non-comment line invoke `archive-story`?
+def _pre_remove_block(text: str) -> list[str]:
+    """The `pre_remove:` key's own line plus the lines belonging to it.
 
-    The comment test is what stops a repo that documents archiving — or explains
-    why it deliberately skips it — from reading as wired.
+    A block member is indented or blank; the first line at column 0 starts the
+    next key. Empty list when the key is absent.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("pre_remove:"):
+            block = [line]
+            for nxt in lines[i + 1:]:
+                if nxt and not nxt[0].isspace():
+                    break
+                block.append(nxt)
+            return block
+    return []
+
+
+def pre_remove_wired(text: str) -> bool:
+    """Does the `pre_remove` hook invoke `archive-story`?
+
+    Scoped to the block on purpose. A whole-file scan reports wired when
+    `archive-story` appears anywhere else — a pane command, a `post_create`
+    step — while `pre_remove: []` leaves teardown unprotected. That is a check
+    failing *open* on the one question it exists to answer, so it stays narrow.
+
+    The comment test still applies inside the block: a hook someone commented
+    out is not a hook.
     """
     return any(
         "archive-story" in line and not line.lstrip().startswith("#")
-        for line in text.splitlines()
+        for line in _pre_remove_block(text)
     )
 
 

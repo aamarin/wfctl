@@ -263,3 +263,25 @@ def test_doctor_never_reports_an_unsubstituted_prefix(
     result = _doctor(monkeypatch, interactive=False)
     assert "window_prefix" not in result.output
     assert "<project>" not in result.output
+
+
+def test_doctor_still_warns_when_archive_story_appears_outside_the_hook(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mention elsewhere in the file must not silence the warning.
+
+    The lint scans the `pre_remove:` block only. Scanning the whole file let an
+    unrelated occurrence — a pane command here — report the repo as protected
+    while `pre_remove: []` left teardown unwired.
+    """
+    repo_root = agent_dir.parent
+    _seed_workmux(
+        repo_root,
+        "windows:\n"
+        "  - name: term\n"
+        "    panes:\n"
+        "      - command: wfctl archive-story --help\n"
+        "pre_remove: []\n",
+    )
+    result = _doctor(monkeypatch, interactive=False)
+    assert "pre_remove does not call" in result.output
