@@ -191,7 +191,7 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     return None
 
 
-def _project_name(repo_root: Path) -> str:
+def project_name(repo_root: Path) -> str:
     """The project's name — the main checkout's directory, not the worktree's.
 
     The `<project>/` level separates one project's state from another's, but a
@@ -225,7 +225,7 @@ def resolve_agent_dir(repo_root: Path, branch: str) -> Path:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    repo_name = _project_name(repo_root)
+    repo_name = project_name(repo_root)
     xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
     d = xdg_base / "wfctl" / repo_name / branch
     d.mkdir(parents=True, exist_ok=True)

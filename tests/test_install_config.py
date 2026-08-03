@@ -15,7 +15,7 @@ runner = CliRunner()
 _WORKMUX_YAML = "worktree_dir: wt\nagent: claude\n"
 
 
-def _make_wf_skills_repo_with_config(base: Path) -> Path:
+def _make_wf_skills_repo_with_config(base: Path, yaml: str = _WORKMUX_YAML) -> Path:
     src = base / "wf-skills-cfg"
     src.mkdir()
     subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
@@ -23,7 +23,7 @@ def _make_wf_skills_repo_with_config(base: Path) -> Path:
     subprocess.run(["git", "-C", str(src), "config", "user.name", "T"], check=True, capture_output=True)
     cfg = src / ".agents" / "configs" / "workmux"
     cfg.mkdir(parents=True)
-    (cfg / ".workmux.yaml").write_text(_WORKMUX_YAML)
+    (cfg / ".workmux.yaml").write_text(yaml)
     subprocess.run(["git", "-C", str(src), "add", "-A"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
     return src
@@ -146,3 +146,87 @@ def test_legacy_none_manifest_is_not_treated_as_an_agent(agent_dir: Path, tmp_pa
     text = (repo_root / ".workmux.yaml").read_text()
     assert "agent: none" not in text
     assert "# agent: claude" in text, "no agent to mirror — the key stays commented out"
+
+
+# --- window_prefix substitution (#17) --------------------------------------
+#
+# The template ships `# window_prefix: "<project>__"` — a literal a human is
+# expected to replace, and nobody does at seed time. These assert the seam that
+# fills it, plus the guard for when the upstream template moves out from under us.
+
+_TEMPLATE_WITH_PREFIX = (
+    '# Per-project tmux session/window name prefix (workmux default: "wm-").\n'
+    '# window_prefix: "<project>__"\n'
+    "worktree_dir: wt\n"
+    "      - command: <agent>\n"
+    "agent: claude\n"
+)
+
+
+def test_window_prefix_gets_the_real_project_name_active(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """Active, not commented — a project name is derivable, unlike `agent:`."""
+    repo_root = agent_dir.parent
+    src = _make_wf_skills_repo_with_config(tmp_path, _TEMPLATE_WITH_PREFIX)
+    result = _install(src)
+    assert result.exit_code == 0
+    text = (repo_root / ".workmux.yaml").read_text()
+    assert f"window_prefix: '{repo_root.name}__'" in text
+    assert "# window_prefix:" not in text
+
+
+def test_no_placeholder_survives_a_normal_seed(agent_dir: Path, tmp_path: Path) -> None:
+    repo_root = agent_dir.parent
+    _install(_make_wf_skills_repo_with_config(tmp_path, _TEMPLATE_WITH_PREFIX))
+    assert "<project>" not in (repo_root / ".workmux.yaml").read_text()
+
+
+def test_workmux_own_agent_token_is_not_flagged(agent_dir: Path, tmp_path: Path) -> None:
+    """`<agent>` is workmux's runtime token, resolved by workmux — not ours to
+    substitute, and warning about it would be a false positive on every seed."""
+    result = _install(_make_wf_skills_repo_with_config(tmp_path, _TEMPLATE_WITH_PREFIX))
+    assert "<agent>" not in result.output
+    assert "still contains" not in result.output
+
+
+def test_placeholder_warning_when_the_template_renames_the_key(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """The template versions independently. A renamed key defeats a key-presence
+    check at exactly the moment the placeholder does ship, so the check watches
+    for the survivor instead."""
+    repo_root = agent_dir.parent
+    renamed = _TEMPLATE_WITH_PREFIX.replace("window_prefix:", "session_prefix:")
+    result = _install(_make_wf_skills_repo_with_config(tmp_path, renamed))
+    assert result.exit_code == 0, "a drifted template warns, it does not fail the seed"
+    assert "still contains" in result.output
+    assert f"window_prefix: '{repo_root.name}__'" in result.output, "remediation is paste-ready"
+
+
+def test_no_sanitize_notice_when_the_name_is_already_safe(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """The common path stays silent; only a changed name is worth a line."""
+    result = _install(_make_wf_skills_repo_with_config(tmp_path, _TEMPLATE_WITH_PREFIX))
+    assert "tmux rewrites" not in result.output
+
+
+def test_sanitize_notice_when_the_project_name_has_a_dot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tmux silently rewrites `.` and `:`, then cannot be targeted by the original
+    name. Sanitizing keeps the written value equal to what tmux will create."""
+    import subprocess
+
+    repo_root = tmp_path / "my.project"
+    repo_root.mkdir()
+    subprocess.run(["git", "init", str(repo_root)], check=True, capture_output=True)
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(repo_root))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "state"))
+
+    src = _make_wf_skills_repo_with_config(tmp_path, _TEMPLATE_WITH_PREFIX)
+    result = _install(src)
+    assert result.exit_code == 0
+    assert "tmux rewrites" in result.output
+    assert "window_prefix: 'my_project__'" in (repo_root / ".workmux.yaml").read_text()
