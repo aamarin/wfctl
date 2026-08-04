@@ -105,7 +105,21 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             # `Clarifications` line isn't a match. \b rejects `## ClarificationsTODO`
             # while allowing `## Clarifications (2026-08-04)`.
             scanned = re.search(r"^##[ \t]+Clarifications\b", spec_text, re.MULTILINE)
-            symbol = "●" if scanned and not has_markers else "▶"
+            if scanned and not has_markers:
+                symbol = "●"
+            elif has_markers:
+                # markers are clarify's actual job — no bypass, whatever else exists.
+                # ▶ here also keeps _current_step_name's skip branch firing, so a
+                # marked spec routes to clarify rather than back to specify.
+                symbol = "▶"
+            elif _file_exists(spec_dir / "plan.md"):
+                # a spec that predates the gate — planning already passed through where
+                # clarify now sits. – not ● : the scan genuinely never ran, and saying
+                # otherwise would hide that. Counts as done, so an in-flight story is
+                # not sent back to clarify a spec its implementation is already built on.
+                symbol = "–"
+            else:
+                symbol = "▶"
 
         elif name == "plan":
             symbol = "●" if _file_exists(spec_dir / "plan.md") else "○"

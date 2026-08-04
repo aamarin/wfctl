@@ -6,7 +6,7 @@ import types
 
 from typer.testing import CliRunner
 
-from wfctl._pipeline import _current_step_name
+from wfctl._pipeline import _current_step_name, infer_pipeline
 from wfctl._pipeline import _infer_steps as _infer_pipeline
 from wfctl.cli import app
 
@@ -123,6 +123,38 @@ class TestInferPipeline:
     ) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content="# Spec\n\n##\nClarifications\n")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "▶"
+
+    def test_clarify_skipped_when_spec_predates_the_gate(self, storyctl_dir: NS) -> None:
+        # plan.md means planning already passed where clarify now sits, so an
+        # in-flight story keeps moving instead of being sent back to clarify a spec
+        # its implementation is already built on
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo section.\n")
+        storyctl_dir.make_spec_artifact("plan")
+        storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [ ] t2\n")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "–"
+        assert _current_step_name(steps) != "clarify"
+        assert dict(infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root))["clarify"]
+
+    def test_clarify_not_bypassed_when_markers_survive(self, storyctl_dir: NS) -> None:
+        # plan.md must not bypass markers: they are clarify's actual job, and ▶ is
+        # what keeps _current_step_name routing here instead of back to specify
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact(
+            "specify", content="# Spec\n\n[NEEDS CLARIFICATION: open]\n\n## Clarifications\n"
+        )
+        storyctl_dir.make_spec_artifact("plan")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "▶"
+        assert _current_step_name(steps) == "clarify"
+
+    def test_clarify_in_progress_when_no_plan_yet(self, storyctl_dir: NS) -> None:
+        # same spec without plan.md is a new story, not an in-flight one — it stops
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo section.\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].symbol == "▶"
 
