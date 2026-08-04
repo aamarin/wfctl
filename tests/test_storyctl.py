@@ -6,6 +6,7 @@ import types
 
 from typer.testing import CliRunner
 
+from wfctl._pipeline import _current_step_name
 from wfctl._pipeline import _infer_steps as _infer_pipeline
 from wfctl.cli import app
 
@@ -99,6 +100,29 @@ class TestInferPipeline:
     def test_clarify_in_progress_when_markers_present(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content="[NEEDS CLARIFICATION] fix me\n")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "▶"
+
+    def test_clarify_in_progress_when_markers_survive_the_section(
+        self, storyctl_dir: NS
+    ) -> None:
+        # clarify caps at 5 questions and may leave categories Deferred, so a spec can
+        # carry both the section and unresolved markers. Marking clarify done there
+        # routes back to /speckit.specify with auto: true, which rewrites spec.md.
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact(
+            "specify",
+            content="# Spec\n\n[NEEDS CLARIFICATION: still open]\n\n## Clarifications\n\n- Q: a\n",
+        )
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "▶"
+        assert _current_step_name(steps) == "clarify"
+
+    def test_clarify_in_progress_when_heading_word_is_on_the_next_line(
+        self, storyctl_dir: NS
+    ) -> None:
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\n##\nClarifications\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].symbol == "▶"
 

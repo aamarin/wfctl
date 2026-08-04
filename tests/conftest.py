@@ -38,7 +38,8 @@ def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 _STEP_ARTIFACTS: dict[str, object] = {
     "brainstorm": lambda root, spec: root / ".agent" / "spec.md",
     "specify":    lambda root, spec: spec / "spec.md",
-    "clarify":    lambda root, spec: spec / "spec.md",
+    # no "clarify" — its artifact is a section inside specify's spec.md, so writing
+    # it through this helper would clobber the spec instead of appending to it
     "plan":       lambda root, spec: spec / "plan.md",
     "tasks":      lambda root, spec: spec / "tasks.md",
     "analyze":    lambda root, spec: spec / "checklists" / "analysis-report.md",
