@@ -61,7 +61,16 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     spec_md = spec_dir / "spec.md"
     spec_text = ""
     if _file_exists(spec_md):
+        # Blank out code before matching, so a spec that *documents* a marker or a
+        # heading doesn't read as one. Both specify and clarify match against this.
+        #
+        # ```.*?``` with DOTALL — a fenced block: ``` then the shortest run of any
+        # character including newlines, up to the next ```. Non-greedy, so two
+        # separate blocks don't merge into one match spanning the prose between them.
         spec_text = re.sub(r"```.*?```", "", spec_md.read_text(), flags=re.DOTALL)
+        # `[^`\n]+` — an inline span: a backtick, one or more characters that are
+        # neither a backtick nor a newline, then the closing backtick. Excluding
+        # newline keeps an unpaired backtick from swallowing the rest of the file.
         spec_text = re.sub(r"`[^`\n]+`", "", spec_text)
 
     steps: list[_PipelineStep] = []
@@ -90,6 +99,11 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             # clean scan. Presence means the scan happened, not that the spec was vague.
             if not _file_exists(spec_md):
                 symbol = "○"
+            # ^##\s+Clarifications\b with MULTILINE — `##`, one or more spaces, then
+            # the word. MULTILINE anchors ^ to the start of any line, not the file.
+            # \b requires a word boundary after it, so `## ClarificationsTODO` is not
+            # a match while `## Clarifications (2026-08-04)` is. `### Clarifications`
+            # fails too: \s+ needs whitespace after `##` and finds a third `#`.
             elif re.search(r"^##\s+Clarifications\b", spec_text, re.MULTILINE):
                 symbol = "●"
             else:
