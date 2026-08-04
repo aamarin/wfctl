@@ -78,7 +78,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
 
         elif name == "specify":
             if _file_exists(spec_md):
-                symbol = "▶" if "[NEEDS CLARIFICATION]" in spec_text else "●"
+                # prefix match: templates emit `[NEEDS CLARIFICATION: <question>]`,
+                # so the bracketed literal never matches a real marker
+                symbol = "▶" if "[NEEDS CLARIFICATION" in spec_text else "●"
             else:
                 symbol = "○"
 
