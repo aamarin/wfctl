@@ -24,7 +24,9 @@ def _make_spec(spec_dir: Path, *steps: str) -> None:
     for step in steps:
         p = artifact_map[step]
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(f"# {step}\n")
+        # a spec.md that reached a later step has been through clarify, so it
+        # carries the `## Clarifications` section that marks that step done
+        p.write_text(f"# {step}\n\n## Clarifications\n" if step == "specify" else f"# {step}\n")
 
 
 def test_start_writes_current_files(storyctl_dir) -> None:

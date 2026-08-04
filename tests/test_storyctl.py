@@ -28,6 +28,15 @@ STEP_NAMES = [
     "tasks", "analyze", "decompose", "implement",
 ]
 
+# A spec that has been through /speckit.clarify: no markers left, and the
+# `## Clarifications` section the skill writes on every run. Downstream steps
+# only become reachable once clarify is done, so they all start from this.
+CLEAN_SPEC = (
+    "# Spec\n\nClean.\n\n"
+    "## Clarifications\n\n### Session 2026-08-03\n\n"
+    "- No critical ambiguities detected.\n"
+)
+
 
 class TestInferPipeline:
     def test_step_names_always_present(self, storyctl_dir: NS) -> None:
@@ -59,37 +68,60 @@ class TestInferPipeline:
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].symbol == "▶"
 
-    # clarify inherits specify
-    def test_clarify_inherits_specify_done(self, storyctl_dir: NS) -> None:
+    # clarify — gated on the `## Clarifications` section, not on specify's markers
+    def test_clarify_done_when_clarifications_section_present(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nClean.\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].symbol == "●"
 
-    def test_clarify_inherits_specify_in_progress(self, storyctl_dir: NS) -> None:
+    def test_clarify_in_progress_when_marker_free_spec_has_no_section(
+        self, storyctl_dir: NS
+    ) -> None:
+        # the regression: a confidently written spec used to skip clarify entirely
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nClean.\n")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[1].symbol == "●"
+        assert steps[2].symbol == "▶"
+
+    def test_clarify_in_progress_when_markers_present(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content="[NEEDS CLARIFICATION] fix me\n")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "▶"
+
+    def test_clarify_not_started_when_spec_absent(self, storyctl_dir: NS) -> None:
+        storyctl_dir.make_spec_artifact("brainstorm")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[2].symbol == "○"
+
+    def test_clarify_ignores_section_heading_in_fenced_block(self, storyctl_dir: NS) -> None:
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact(
+            "specify", content="# Spec\n\n```\n## Clarifications\n```\n"
+        )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].symbol == "▶"
 
     # plan
     def test_plan_done_when_plan_md_exists(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[3].symbol == "●"
 
     def test_plan_not_started_when_absent(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[3].symbol == "○"
 
     # tasks
     def test_tasks_done_when_tasks_md_exists_no_open_checkboxes(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] task 1\n- [x] task 2\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
@@ -97,7 +129,7 @@ class TestInferPipeline:
 
     def test_tasks_done_when_no_checkboxes(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="# Tasks\n\nno checkboxes here\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
@@ -105,7 +137,7 @@ class TestInferPipeline:
 
     def test_tasks_done_when_open_checkboxes(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] done\n- [ ] not done\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
@@ -113,7 +145,7 @@ class TestInferPipeline:
 
     def test_tasks_not_started_when_absent(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[4].symbol == "○"
@@ -121,7 +153,7 @@ class TestInferPipeline:
     # analyze
     def test_analyze_done_when_requirements_exists(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -130,7 +162,7 @@ class TestInferPipeline:
 
     def test_analyze_not_started_when_absent(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
@@ -140,7 +172,7 @@ class TestInferPipeline:
     def test_decompose_done_when_delivery_exists(self, storyctl_dir: NS) -> None:
         for step in ["brainstorm", "analyze"]:
             storyctl_dir.make_spec_artifact(step)
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
         storyctl_dir.make_spec_artifact("decompose")
@@ -149,7 +181,7 @@ class TestInferPipeline:
 
     def test_decompose_skipped_when_absent_and_all_tasks_done(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [x] t2\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -158,7 +190,7 @@ class TestInferPipeline:
 
     def test_decompose_not_started_when_absent_and_tasks_incomplete(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [ ] t1\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -168,7 +200,7 @@ class TestInferPipeline:
     # implement
     def test_implement_done_when_all_tasks_checked(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [x] t2\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -178,7 +210,7 @@ class TestInferPipeline:
 
     def test_implement_in_progress_when_open_tasks(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [ ] t2\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -188,7 +220,7 @@ class TestInferPipeline:
 
     def test_implement_done_when_sentinel_present(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [ ] t2\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -218,7 +250,7 @@ class TestInferPipeline:
 
     def test_zero_byte_file_treated_as_absent(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         (storyctl_dir.spec_dir / "plan.md").write_text("")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[3].symbol == "○"
@@ -254,7 +286,7 @@ class TestInferPipeline:
 class TestStatus:
     def test_status_output_fully_done(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -292,7 +324,7 @@ class TestStatus:
 class TestNext:
     def test_next_writes_next_step_for_in_progress(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         runner.invoke(app, ["next"])
         next_step_md = storyctl_dir.agent_dir / "next-step.md"
         assert next_step_md.exists()
@@ -301,7 +333,7 @@ class TestNext:
 
     def test_next_auto_true_for_plan(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "auto: true" in content
@@ -311,11 +343,21 @@ class TestNext:
         storyctl_dir.make_spec_artifact("specify", content="[NEEDS CLARIFICATION] something\n")
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
+        assert "/speckit.clarify" in content
+        assert "auto: false" in content
+
+    def test_next_routes_to_clarify_on_marker_free_spec(self, storyctl_dir: NS) -> None:
+        # used to route straight to /speckit.plan, skipping the clarify gate
+        storyctl_dir.make_spec_artifact("brainstorm")
+        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo markers.\n")
+        runner.invoke(app, ["next"])
+        content = (storyctl_dir.agent_dir / "next-step.md").read_text()
+        assert "/speckit.clarify" in content
         assert "auto: false" in content
 
     def test_next_auto_false_for_analyze(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
         runner.invoke(app, ["next"])
@@ -325,7 +367,7 @@ class TestNext:
 
     def test_next_auto_true_for_tasks(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
@@ -334,7 +376,7 @@ class TestNext:
 
     def test_next_writes_completion_when_all_done(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
         storyctl_dir.make_spec_artifact("analyze")
@@ -359,7 +401,7 @@ class TestNext:
 
     def test_next_includes_continuation_line(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="clean\n")
+        storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "Run this command to continue." in content
