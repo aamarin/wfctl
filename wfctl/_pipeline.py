@@ -58,15 +58,16 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
+    spec_md = spec_dir / "spec.md"
+    spec_text = ""
+    if _file_exists(spec_md):
+        spec_text = re.sub(r"```.*?```", "", spec_md.read_text(), flags=re.DOTALL)
+        spec_text = re.sub(r"`[^`\n]+`", "", spec_text)
+
     steps: list[_PipelineStep] = []
     cascade = False
-    specify_symbol = "○"
 
     for name in _STEP_NAMES:
-        if name == "clarify":
-            steps.append(_PipelineStep(name, specify_symbol, None))
-            continue
-
         if cascade:
             steps.append(_PipelineStep(name, "○", None))
             continue
@@ -76,15 +77,21 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             symbol = "●" if _file_exists(agent_spec) else "–"
 
         elif name == "specify":
-            spec_md = spec_dir / "spec.md"
             if _file_exists(spec_md):
-                text = spec_md.read_text()
-                text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
-                text = re.sub(r"`[^`\n]+`", "", text)
-                symbol = "▶" if "[NEEDS CLARIFICATION]" in text else "●"
+                symbol = "▶" if "[NEEDS CLARIFICATION]" in spec_text else "●"
             else:
                 symbol = "○"
-            specify_symbol = symbol
+
+        elif name == "clarify":
+            # clarify has no file of its own — its artifact is the `## Clarifications`
+            # section /speckit.clarify writes into spec.md on every run, including a
+            # clean scan. Presence means the scan happened, not that the spec was vague.
+            if not _file_exists(spec_md):
+                symbol = "○"
+            elif re.search(r"^##\s+Clarifications\b", spec_text, re.MULTILINE):
+                symbol = "●"
+            else:
+                symbol = "▶"
 
         elif name == "plan":
             symbol = "●" if _file_exists(spec_dir / "plan.md") else "○"
@@ -131,7 +138,11 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
 
 
 def _current_step_name(steps: list[_PipelineStep]) -> str:
-    """Return first ▶ or ○ step; skip specify when clarify inherits it; 'complete' if all done."""
+    """Return first ▶ or ○ step; 'complete' if all done.
+
+    Markers in spec.md leave specify ▶, but clarify is the step that resolves
+    them — so skip specify when clarify is also pending.
+    """
     step_map = {s.name: s.symbol for s in steps}
     for s in steps:
         if s.symbol not in ("▶", "○"):
