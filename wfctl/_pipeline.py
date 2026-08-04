@@ -61,17 +61,18 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     spec_md = spec_dir / "spec.md"
     spec_text = ""
     if _file_exists(spec_md):
-        # Blank out code before matching, so a spec that *documents* a marker or a
-        # heading doesn't read as one. Both specify and clarify match against this.
+        # Blank out fenced blocks and inline spans before matching, so a spec that
+        # *documents* a marker or a heading doesn't read as having one. Both specify
+        # and clarify match against the result.
         #
-        # ```.*?``` with DOTALL — a fenced block: ``` then the shortest run of any
-        # character including newlines, up to the next ```. Non-greedy, so two
-        # separate blocks don't merge into one match spanning the prose between them.
-        spec_text = re.sub(r"```.*?```", "", spec_md.read_text(), flags=re.DOTALL)
-        # `[^`\n]+` — an inline span: a backtick, one or more characters that are
-        # neither a backtick nor a newline, then the closing backtick. Excluding
-        # newline keeps an unpaired backtick from swallowing the rest of the file.
-        spec_text = re.sub(r"`[^`\n]+`", "", spec_text)
+        # ```.*?``` is non-greedy under DOTALL so two separate fences don't merge
+        # into one match spanning the prose between them; `[^`\n]+` excludes newline
+        # so an unpaired backtick can't swallow the rest of the file.
+        spec_text = re.sub(r"```.*?```|`[^`\n]+`", "", spec_md.read_text(), flags=re.DOTALL)
+
+    # templates emit `[NEEDS CLARIFICATION: <question>]`, so the bracketed literal
+    # `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix
+    has_markers = "[NEEDS CLARIFICATION" in spec_text
 
     steps: list[_PipelineStep] = []
     cascade = False
@@ -87,27 +88,24 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
 
         elif name == "specify":
             if _file_exists(spec_md):
-                # prefix match: templates emit `[NEEDS CLARIFICATION: <question>]`,
-                # so the bracketed literal never matches a real marker
-                symbol = "▶" if "[NEEDS CLARIFICATION" in spec_text else "●"
+                symbol = "▶" if has_markers else "●"
             else:
                 symbol = "○"
 
         elif name == "clarify":
             # clarify has no file of its own — its artifact is the `## Clarifications`
             # section /speckit.clarify writes into spec.md on every run, including a
-            # clean scan. Presence means the scan happened, not that the spec was vague.
-            if not _file_exists(spec_md):
-                symbol = "○"
-            # ^##\s+Clarifications\b with MULTILINE — `##`, one or more spaces, then
-            # the word. MULTILINE anchors ^ to the start of any line, not the file.
-            # \b requires a word boundary after it, so `## ClarificationsTODO` is not
-            # a match while `## Clarifications (2026-08-04)` is. `### Clarifications`
-            # fails too: \s+ needs whitespace after `##` and finds a third `#`.
-            elif re.search(r"^##\s+Clarifications\b", spec_text, re.MULTILINE):
-                symbol = "●"
-            else:
-                symbol = "▶"
+            # clean scan. Markers still standing mean the scan isn't finished, so both
+            # conditions must hold: without the marker check, a clarified-but-still-
+            # marked spec reads clarify ● and routes back to /speckit.specify, which
+            # rewrites spec.md from the template and destroys the section.
+            #
+            # ^##[ \t]+Clarifications\b — MULTILINE anchors ^ to any line, not the
+            # file. [ \t] rather than \s so a bare `##` line followed by a
+            # `Clarifications` line isn't a match. \b rejects `## ClarificationsTODO`
+            # while allowing `## Clarifications (2026-08-04)`.
+            scanned = re.search(r"^##[ \t]+Clarifications\b", spec_text, re.MULTILINE)
+            symbol = "●" if scanned and not has_markers else "▶"
 
         elif name == "plan":
             symbol = "●" if _file_exists(spec_dir / "plan.md") else "○"
