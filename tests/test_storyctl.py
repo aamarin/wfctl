@@ -61,11 +61,12 @@ class TestInferPipeline:
         assert steps[1].symbol == "●"
 
     def test_specify_in_progress_when_markers_present(self, storyctl_dir: NS) -> None:
-        # the form the templates actually emit — bracketed literal never matches it
+        # the form the templates actually emit — bracketed literal never matches it.
+        # everything after the colon is synthetic: the check reads the prefix only.
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
             "specify",
-            content="# Spec\n\n- FR-006: authenticate via [NEEDS CLARIFICATION: SSO or OAuth?]\n",
+            content="# Spec\n\ntest text [NEEDS CLARIFICATION: this question text is ignored]\n",
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].symbol == "▶"
@@ -351,7 +352,7 @@ class TestNext:
     def test_next_auto_false_for_clarify(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
-            "specify", content="[NEEDS CLARIFICATION: which retention period?]\n"
+            "specify", content="test text [NEEDS CLARIFICATION: this question text is ignored]\n"
         )
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
