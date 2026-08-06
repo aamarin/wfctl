@@ -51,7 +51,13 @@ class _PipelineStep:
 
 
 def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
-    """Internal: return steps with ●/▶/○/– symbols."""
+    """Internal: return steps with ●/▶/○/– symbols.
+
+    `repo_root` is unused since the design doc moved into the spec dir, but is
+    kept so `infer_pipeline`/`steps_display` keep their signatures — the caller
+    in cli.py already has it, and dropping it would churn ~30 test call sites
+    for no behavioural gain.
+    """
     if spec_dir is None:
         return [_PipelineStep(name, "○", None) for name in _STEP_NAMES]
 
@@ -83,8 +89,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             continue
 
         if name == "brainstorm":
-            agent_spec = repo_root / ".agent" / "spec.md"
-            symbol = "●" if _file_exists(agent_spec) else "–"
+            symbol = "●" if _file_exists(spec_dir / "design.md") else "–"
 
         elif name == "specify":
             if _file_exists(spec_md):

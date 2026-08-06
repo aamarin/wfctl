@@ -187,6 +187,50 @@ def test_doctor_exit_code_is_unchanged_by_this_warning(
     assert _doctor(monkeypatch, interactive=False).exit_code == 0
 
 
+# --- doctor: the leftover `.agent/` lint (#24) ------------------------------
+#
+# Per-branch artifacts moved into `specs/<branch>/`. A surviving `.agent/` is
+# positive evidence that an installed component predates the move, and the
+# symptom it causes is silent: step inference reports brainstorm forever. The
+# message is the deliverable here too, so its strings are asserted.
+
+
+def test_doctor_warns_when_the_superseded_dir_exists(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = agent_dir.parent
+    (repo_root / ".agent").mkdir()
+    result = _doctor(monkeypatch, interactive=False)
+    assert "`.agent/` exists" in result.output
+    assert "specs/<branch>/" in result.output
+
+
+def test_doctor_names_the_fix_for_the_superseded_dir(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = agent_dir.parent
+    (repo_root / ".agent").mkdir()
+    result = _doctor(monkeypatch, interactive=False)
+    assert "wfctl install-skills" in result.output
+
+
+def test_doctor_is_silent_without_the_superseded_dir(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Self-clearing: once nothing writes there, the check goes quiet for good."""
+    result = _doctor(monkeypatch, interactive=False)
+    assert "`.agent/` exists" not in result.output
+
+
+def test_doctor_exit_code_is_unchanged_by_the_superseded_dir(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drift, not failure — same precedent as the teardown-hook lint above."""
+    repo_root = agent_dir.parent
+    (repo_root / ".agent").mkdir()
+    assert _doctor(monkeypatch, interactive=False).exit_code == 0
+
+
 def test_doctor_wires_the_hook_when_confirmed(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

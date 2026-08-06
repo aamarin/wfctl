@@ -40,11 +40,10 @@ def test_archives_artifacts_in_pipeline_order(agent_dir: Path) -> None:
     handle = os.environ["WFCTL_BRANCH"]
     _make_story(
         repo_root, handle,
-        "spec.md", "checklists/requirements.md", "plan.md", "research.md",
+        "design.md", "spec.md", "checklists/requirements.md", "plan.md", "research.md",
         "data-model.md", "contracts/cli.md", "quickstart.md", "tasks.md",
         "delivery.md", "checklists/analysis-report.md",
     )
-    _write(repo_root / ".agent" / "spec.md")
 
     result = runner.invoke(app, ["archive-story"])
     assert result.exit_code == 0, result.output
@@ -62,6 +61,13 @@ def test_archives_artifacts_in_pipeline_order(agent_dir: Path) -> None:
     numbers = [int(r.split("-")[0].lstrip("[")) for r in rows]
     assert numbers == sorted(numbers), f"index is out of pipeline order: {rows}"
     assert numbers == list(range(1, 12))
+
+    # Nothing the map should have named may fall through to the catch-all. This
+    # is the assertion that fails if the design doc stops being mapped: it would
+    # still be archived, as `extra/design.md`, so a missing-file check alone
+    # would not notice. A silent renaming is the failure mode worth guarding.
+    extra = arch / "extra"
+    assert not extra.exists(), f"unmapped artifacts fell through: {list(extra.iterdir())}"
 
 
 def test_unmapped_artifacts_land_under_extra(agent_dir: Path) -> None:

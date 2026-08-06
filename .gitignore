@@ -16,5 +16,4 @@ build/
 
 # Speckit artifacts stay local: the implementation is what ships, and
 # committing every spec/plan/tasks tree pollutes the repo.
-.agent/
 specs/
