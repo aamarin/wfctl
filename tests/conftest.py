@@ -43,7 +43,7 @@ def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         ["git", "-C", str(tmp_path), "commit", "-m", "init"],
         check=True, capture_output=True,
     )
-    d = tmp_path / ".agent"
+    d = tmp_path / ".wfctl-state"
     d.mkdir()
     monkeypatch.setenv("WFCTL_STATE_DIR", str(d))
     monkeypatch.setenv("WFCTL_BRANCH", "342-state-workflow")
@@ -52,7 +52,7 @@ def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 _STEP_ARTIFACTS: dict[str, object] = {
-    "brainstorm": lambda root, spec: root / ".agent" / "spec.md",
+    "brainstorm": lambda root, spec: spec / "design.md",
     "specify":    lambda root, spec: spec / "spec.md",
     # no "clarify" — its artifact is a section inside specify's spec.md, so writing
     # it through this helper would clobber the spec instead of appending to it

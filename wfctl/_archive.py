@@ -1,10 +1,10 @@
 """Archive a story's speckit artifacts before its worktree is deleted.
 
-`specs/` and `.agent/` are gitignored — deliberately, so the implementation is
-what ships and the repo doesn't accumulate every spec/plan/tasks tree. The
-consequence is that they live nowhere but the worktree, so `workmux remove`
-destroys them. This copies them into wfctl's per-branch state dir, which
-already holds current.md and session-summary.md and outlives the worktree.
+`specs/` is gitignored — deliberately, so the implementation is what ships and
+the repo doesn't accumulate every spec/plan/tasks tree. The consequence is that
+it lives nowhere but the worktree, so `workmux remove` destroys it. This copies
+it into wfctl's per-branch state dir, which already holds current.md and
+session-summary.md and outlives the worktree.
 
 Files are flattened and numbered in pipeline order, so the archive reads as the
 story of the branch rather than as a directory to dig through. That makes it a
@@ -21,15 +21,12 @@ import datetime
 import shutil
 from pathlib import Path
 
-# The design doc, which lives outside the spec dir — brainstorming writes it
-# before speckit has a directory to write into.
-_DESIGN_DOC = (".agent/spec.md", "1-design.md")
-
 # Spec-dir-relative source -> archived name, in the order the pipeline produces
 # them. Order is the point: this list *is* the numbering, so a plain iteration
 # stays correct past 9 entries where sorting the results would not
 # (10-delivery.md sorts before 2-spec.md).
 _SPEC_MAP: list[tuple[str, str]] = [
+    ("design.md", "1-design.md"),
     ("spec.md", "2-spec.md"),
     ("checklists/requirements.md", "3-requirements-checklist.md"),
     ("plan.md", "4-plan.md"),
@@ -86,7 +83,7 @@ def _render_index(
     return "\n".join(lines) + "\n"
 
 
-def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
+def _plan(spec_dir: Path | None) -> list[tuple[Path, str]]:
     """Every (source, archived name) pair this story would produce, pipeline order.
 
     Separate from the copying so `archive` knows whether there is anything to
@@ -94,10 +91,6 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     emptied must not displace a good archive with an empty one.
     """
     plan: list[tuple[Path, str]] = []
-
-    design = worktree / _DESIGN_DOC[0]
-    if design.is_file():
-        plan.append((design, _DESIGN_DOC[1]))
 
     if spec_dir is None:
         return plan
@@ -135,7 +128,7 @@ def archive(
     Returns (archive_dir, mapped) — `(None, [])` when there was nothing to
     archive, which is a normal outcome, not a failure.
     """
-    plan = _plan(worktree, spec_dir)
+    plan = _plan(spec_dir)
     if not plan:
         return None, []
 

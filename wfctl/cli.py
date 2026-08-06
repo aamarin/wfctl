@@ -284,8 +284,8 @@ def archive_story_cmd(
 ) -> None:
     """Archive a story's speckit artifacts into its state dir before teardown.
 
-    Wired into workmux's `pre_remove`: `specs/` and `.agent/` are gitignored, so
-    removing a worktree destroys the spec, plan, tasks and analysis with it.
+    Wired into workmux's `pre_remove`: `specs/` is gitignored, so removing a
+    worktree destroys the design, spec, plan, tasks and analysis with it.
 
     Never exits non-zero. A teardown hook that fails is a hook that strands a
     worktree, and a missed archive is a smaller loss than that — so every error
@@ -1332,6 +1332,36 @@ def _archive_destination(repo_root: Path) -> str:
         return f"{path}/"
 
 
+def _check_legacy_agent_dir(repo_root: Path) -> None:
+    """Report a `.agent/` directory — proof that a component still writes it.
+
+    Per-branch artifacts moved into `specs/<branch>/`; nothing writes `.agent/`
+    any more. Its presence therefore means an installed component predates the
+    move, and this repo's pipeline state will be wrong — step inference cannot
+    see a design document written to a path it no longer reads, so `wfctl start`
+    reports `brainstorm` forever with no error to explain it.
+
+    Keyed on the directory rather than on version arithmetic. It is positive
+    evidence rather than an inference, it needs no capability field in the
+    manifest, and it self-clears permanently once nothing writes there. The two
+    freshness checks either side of this one already name their own corrective
+    actions; what was missing was connecting a stale component to *this*
+    breakage.
+
+    Never touches doctor's exit code — drift, reported like the checks around it.
+    """
+    if not (repo_root / ".agent").is_dir():
+        return
+    console.print(
+        "[yellow]⚠[/yellow] `.agent/` exists — an installed component still "
+        "writes the superseded artifact path."
+    )
+    console.print("    Per-branch artifacts now live in `specs/<branch>/`.")
+    console.print("    Pipeline state will be wrong until this clears: "
+                  "`wfctl start` reports brainstorm even once a design doc exists.")
+    console.print("    update: wfctl install-skills   (then remove `.agent/`)")
+
+
 def _check_workmux_hook(repo_root: Path) -> None:
     """Report a `.workmux.yaml` that won't archive on teardown; offer to fix it.
 
@@ -1465,11 +1495,13 @@ def doctor_cmd() -> None:
         console.print("[yellow]⚠[/yellow] not in a git repo — skipping skills check.")
         raise typer.Exit(exit_code)
 
-    # Before the manifest gate below: a repo can have a .workmux.yaml — or a
-    # recorded spec_root — without having installed skills, and it deserves
-    # these warnings either way.
+    # Before the manifest gate below: a repo can have a .workmux.yaml, a
+    # recorded spec_root, or a leftover `.agent/` without having installed
+    # skills. All three are drift a repo can carry with nothing pinned, so all
+    # three are reported either way.
     _check_workmux_hook(repo_root)
     _check_spec_root_migration(repo_root)
+    _check_legacy_agent_dir(repo_root)
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)

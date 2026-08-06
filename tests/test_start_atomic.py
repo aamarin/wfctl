@@ -14,7 +14,7 @@ runner = CliRunner()
 def _make_spec(spec_dir: Path, *steps: str) -> None:
     """Create spec artifacts for the given steps."""
     artifact_map = {
-        "brainstorm": spec_dir.parent / ".agent" / "spec.md",
+        "brainstorm": spec_dir / "design.md",
         "specify":    spec_dir / "spec.md",
         "plan":       spec_dir / "plan.md",
         "tasks":      spec_dir / "tasks.md",
