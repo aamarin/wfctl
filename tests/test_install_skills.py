@@ -964,3 +964,195 @@ def test_removing_an_agent_layer_never_asks(agent_dir: Path, tmp_path: Path) -> 
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert result.exit_code == 0
     assert (repo_root / ".agents" / "skills" / "test-skill").exists(), "base survives"
+
+
+def test_install_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-011, FR-012: `spec_root` is a bare string beside the layer entries.
+
+    Anything iterating layers does `manifest[key].get("items", [])`, so a string
+    key that is not registered as a non-layer raises AttributeError on the next
+    install — an upgrade breaking on config the user set is the failure this
+    guards.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["spec_root"] = "~/Development/pfms-specs"
+    manifest_file.write_text(json.dumps(manifest))
+
+    upgrade = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert upgrade.exit_code == 0, upgrade.output
+    assert json.loads(manifest_file.read_text())["spec_root"] == "~/Development/pfms-specs"
+
+
+def test_doctor_runs_over_a_manifest_carrying_spec_root(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-012: `doctor` enumerates layers through the same helper as install."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["spec_root"] = str(tmp_path / "elsewhere")
+    manifest_file.write_text(json.dumps(manifest))
+
+    monkeypatch.chdir(repo_root)
+    result = runner.invoke(app, ["doctor"])
+    assert "AttributeError" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
+
+
+def test_uninstall_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
+    """FR-011, SC-005: uninstalling a layer is not a reason to drop repo config.
+
+    `uninstall` deletes only its own agent key, so this should already hold —
+    pinned rather than trusted, since nothing else would catch a regression that
+    silently discards a user's spec root.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+    )
+
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["spec_root"] = "~/Development/pfms-specs"
+    manifest_file.write_text(json.dumps(manifest))
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(manifest_file.read_text())["spec_root"] == "~/Development/pfms-specs"
+
+
+def _doctor_in(repo_root: Path, monkeypatch: pytest.MonkeyPatch):
+    """Run doctor in `repo_root`, without the real network version check."""
+    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
+    monkeypatch.chdir(repo_root)
+    return runner.invoke(app, ["doctor"])
+
+
+def test_doctor_reports_specs_left_behind_after_a_root_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-014, SC-006: recording a root does not migrate anything, and the
+    recorded root is the only one consulted — so in-repo specs become invisible.
+    Silent invisibility is the failure class this whole issue is about, so the
+    transition gets reported.
+
+    Must fire with no layers installed: a repo can record a spec root without
+    ever having installed skills, and `doctor` returns early on an empty
+    manifest — so the check has to run before that gate.
+    """
+    import json
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
+    (repo / "specs" / "18-left-behind").mkdir(parents=True)
+    (repo / "specs" / "7-also-left").mkdir(parents=True)
+
+    result = _doctor_in(repo, monkeypatch)
+
+    assert "spec_root" in result.output
+    assert "2" in result.output, "says how many, so the scale is visible"
+    assert str(tmp_path / "elsewhere") in result.output
+    assert (repo / "specs" / "18-left-behind").exists(), "reports only — never moves or deletes"
+
+
+def test_doctor_is_quiet_when_specs_dir_is_empty_or_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No leftovers, no warning — the common case must stay silent."""
+    import json
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
+
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+    (repo / "specs").mkdir()  # present but empty
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+
+def test_doctor_is_quiet_without_a_recorded_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In-repo specs are correct when no root is recorded — that is the default."""
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / "specs" / "18-normal").mkdir(parents=True)
+
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+
+def test_doctor_exit_code_is_unchanged_by_the_spec_root_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drift is reported, not failed — same contract as the workmux hook check."""
+    import json
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / "specs" / "18-left-behind").mkdir(parents=True)
+
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({}))
+    without = _doctor_in(repo, monkeypatch).exit_code
+
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
+    with_warning = _doctor_in(repo, monkeypatch)
+
+    assert "still holds" in with_warning.output
+    assert with_warning.exit_code == without
+
+
+def test_doctor_does_not_warn_when_the_root_is_the_in_repo_specs_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recorded root pointing at `<repo>/specs` strands nothing.
+
+    Compared unresolved, it looked like a mismatch: a relative value comes back
+    resolved while repo_root does not have to be (WFCTL_REPO_ROOT is taken
+    verbatim, and /tmp is a symlink on macOS). Doctor then told the reader to
+    move specs from a directory to itself — wrong advice from the command whose
+    job is being trusted about repo state.
+    """
+    import json
+    import os
+    import subprocess
+
+    real = tmp_path / "proj"
+    real.mkdir()
+    subprocess.run(["git", "init", str(real)], check=True, capture_output=True)
+    (real / "specs" / "18-here").mkdir(parents=True)
+    (real / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": "specs"}))
+
+    # An unresolved path to the same repo, which is what an env override gives.
+    link = tmp_path / "via-symlink"
+    os.symlink(real, link)
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(link))
+
+    result = _doctor_in(link, monkeypatch)
+
+    assert "still holds" not in result.output, result.output
