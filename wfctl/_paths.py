@@ -156,25 +156,138 @@ def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
     return [b for b, _ in ranked]
 
 
+def _manifest_spec_root(base: Path) -> Path | None:
+    """The `spec_root` declared by the manifest at `base`, or None.
+
+    A relative value anchors to `base` — the directory of the manifest that
+    declared it — never the cwd, so one relative value means one shared location
+    from every worktree. An empty value counts as not declared.
+
+    Raises when the manifest exists but cannot be parsed. A malformed manifest is
+    a broken repo, not a missing setting: defaulting silently would put specs
+    back inside the worktree with no signal, which is the failure this exists to
+    remove.
+    """
+    from wfctl.cli import _load_manifest  # lazy: cli imports _paths at module scope
+
+    value = _load_manifest(base).get("spec_root")
+    if not value:
+        return None
+    declared = Path(value).expanduser()
+    return declared if declared.is_absolute() else (base / declared).resolve()
+
+
+def main_checkout(repo_root: Path) -> Path | None:
+    """The project's main checkout as seen from `repo_root`, or None.
+
+    None when `repo_root` *is* the main checkout (nothing to fall back to) and
+    when the layout has no identifiable one.
+
+    ponytail: identifies a main checkout only when the git common dir is named
+    exactly `.git` — the standard non-bare layout. In a bare or separate-gitdir
+    layout the common dir is `<name>.git` and its parent is a container
+    directory that may hold an unrelated project's manifest; reading that would
+    silently apply another repo's spec root, which is worse than not resolving.
+    Those layouts get no fallback. If they ever need one, the upgrade path is
+    `git rev-parse --is-bare-repository` plus an explicit setting, not loosening
+    this check.
+    """
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if common.returncode != 0 or not common.stdout.strip():
+        return None
+    # Relative ('.git') from the main checkout, absolute from a worktree.
+    git_dir = (repo_root / common.stdout.strip()).resolve()
+    if git_dir.name != ".git":
+        return None
+    parent = git_dir.parent
+    return None if parent == repo_root.resolve() else parent
+
+
+def spec_root_declaration(repo_root: Path) -> tuple[Path, Path] | None:
+    """`(root, declaring dir)` for the nearest manifest declaring `spec_root`.
+
+    The one walk both `spec_root` and `wfctl spec-root` use, so what resolves and
+    what gets reported as its source cannot drift apart — the report exists to
+    answer "where did this come from", and a second copy of the rule is how that
+    answer goes quietly wrong.
+
+    Deliberately not a loop over `(repo_root, main_checkout(repo_root))`: that
+    tuple evaluates `main_checkout` eagerly, spawning a `git rev-parse` even when
+    this repo's own manifest answers. `feature-paths` runs on every speckit
+    script invocation, so the saved subprocess is worth the extra branch.
+    """
+    declared = _manifest_spec_root(repo_root)
+    if declared is not None:
+        return declared, repo_root
+    main = main_checkout(repo_root)
+    if main is not None:
+        declared = _manifest_spec_root(main)
+        if declared is not None:
+            return declared, main
+    return None
+
+
+def spec_root(repo_root: Path) -> Path:
+    """The directory this repo's spec dirs live under.
+
+    WFCTL_SPEC_DIR → `spec_root` in this repo's manifest → `spec_root` in the
+    main checkout's manifest → `repo_root/specs`. The env var stays a
+    per-invocation escape hatch: it is process-global, so exporting it from a
+    shell profile would redirect every repo wfctl touches. The manifest is
+    already per-repo, which is why the persistent setting lives there.
+
+    The main checkout is consulted because the manifest is gitignored and
+    `install-skills` regenerates it in every fresh worktree — so a
+    worktree-local setting cannot exist at the moment the pipeline first runs
+    there. Without that fallback the setting is unreachable exactly when it
+    matters, and specs land in the worktree and die with it.
+
+    The single decision point for both call sites — `resolve_spec_dir` (which
+    locates existing spec dirs) and `feature_paths_cmd` (which names the one to
+    create). They disagreed before: reads honored the override, creates were
+    hardcoded, so specs could be read from outside the repo but never written
+    there.
+
+    ponytail: never checks that the root exists, and never creates it. A
+    not-yet-existing directory is exactly the case that broke the create path —
+    `resolve_spec_dir` returns None for it, and the hardcoded fallback took over.
+    Adding a check back would rebuild the bug; `setup-plan.sh` already mkdir -p's
+    the feature dir when it writes there.
+    """
+    override = os.environ.get(_SPEC_DIR_OVERRIDE)
+    if override:
+        return Path(override)
+    found = spec_root_declaration(repo_root)
+    return found[0] if found is not None else repo_root / "specs"
+
+
 def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
-    """Return spec dir: WFCTL_SPEC_DIR/{branch-prefix}-* → None if not found.
+    """Return spec dir: {spec root}/{branch-prefix}-* → None if not found.
 
     Falls back to the same lookup against ancestor branches (nearest first) when
     `branch` itself has no match — handles worktrees branched off a parent epic's
     planning branch instead of the target branch.
+
+    Searches one root only, the one `spec_root` resolves. No second look under
+    `repo_root/specs` when a root is configured: falling back would let one
+    feature's artifacts split across two locations — spec.md found in the old
+    root while plan.md is written to the new one. `wfctl doctor` reports the
+    leftovers instead.
     """
-    spec_root_override = os.environ.get(_SPEC_DIR_OVERRIDE)
-    spec_root = Path(spec_root_override) if spec_root_override else repo_root / "specs"
+    root = spec_root(repo_root)
 
     from wfctl import _tracker  # lazy: avoids import cycle at module load
 
     def match(candidate: str) -> Path | None:
-        exact = spec_root / candidate
+        exact = root / candidate
         if exact.is_dir():
             return exact
         key = extract_issue_key(candidate, _tracker.load_key_pattern(repo_root))
         if key != "unknown":
-            matches = sorted(spec_root.glob(f"{key}[-_]*"))
+            matches = sorted(root.glob(f"{key}[-_]*"))
             if matches:
                 return matches[0]
         return None
