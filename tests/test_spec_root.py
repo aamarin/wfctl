@@ -45,7 +45,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_set_writes_the_manifest_and_reports_the_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-009, FR-010: recording is a command, and it says where it wrote."""
+    """Recording is a command, and it says where it wrote."""
     repo = _git_repo(tmp_path / "proj")
     monkeypatch.setenv("WFCTL_REPO_ROOT", str(repo))
 
@@ -59,7 +59,7 @@ def test_set_writes_the_manifest_and_reports_the_file(
 def test_value_is_stored_verbatim_and_nothing_is_created(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-006: `~` survives to disk so the manifest stays portable across
+    """`~` survives to disk so the manifest stays portable across
     machines, and a root that does not exist yet is accepted — that case is the
     entire bug, so validating it would rebuild it."""
     repo = _git_repo(tmp_path / "proj")
@@ -159,7 +159,7 @@ def test_writing_the_gitignore_is_reported(
 def test_setting_from_a_worktree_writes_the_main_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-010: the worktree's manifest is gitignored and dies with the worktree,
+    """The worktree's manifest is gitignored and dies with the worktree,
     so writing there records a setting that silently evaporates — the failure
     mode this feature exists to remove."""
     main = _git_repo(tmp_path / "proj")

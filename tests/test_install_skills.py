@@ -967,7 +967,7 @@ def test_removing_an_agent_layer_never_asks(agent_dir: Path, tmp_path: Path) -> 
 
 
 def test_install_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-011, FR-012: `spec_root` is a bare string beside the layer entries.
+    """`spec_root` is a bare string beside the layer entries, not a layer.
 
     Anything iterating layers does `manifest[key].get("items", [])`, so a string
     key that is not registered as a non-layer raises AttributeError on the next
@@ -993,7 +993,7 @@ def test_install_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
 def test_doctor_runs_over_a_manifest_carrying_spec_root(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-012: `doctor` enumerates layers through the same helper as install."""
+    """`doctor` enumerates layers through the same helper as install."""
     import json
     import os
     src = _make_wf_skills_repo(tmp_path)
@@ -1012,7 +1012,7 @@ def test_doctor_runs_over_a_manifest_carrying_spec_root(
 
 
 def test_uninstall_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-011, SC-005: uninstalling a layer is not a reason to drop repo config.
+    """Uninstalling a layer is not a reason to drop repo config.
 
     `uninstall` deletes only its own agent key, so this should already hold —
     pinned rather than trusted, since nothing else would catch a regression that
@@ -1046,7 +1046,7 @@ def _doctor_in(repo_root: Path, monkeypatch: pytest.MonkeyPatch):
 def test_doctor_reports_specs_left_behind_after_a_root_is_recorded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-014, SC-006: recording a root does not migrate anything, and the
+    """Recording a root does not migrate anything, and the
     recorded root is the only one consulted — so in-repo specs become invisible.
     Silent invisibility is the failure class this whole issue is about, so the
     transition gets reported.
@@ -1156,3 +1156,24 @@ def test_doctor_does_not_warn_when_the_root_is_the_in_repo_specs_dir(
     result = _doctor_in(link, monkeypatch)
 
     assert "still holds" not in result.output, result.output
+
+
+def test_doctor_does_not_warn_for_a_transient_env_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The warning is about what a manifest records, not what resolution returns.
+
+    WFCTL_SPEC_DIR is a per-invocation escape hatch. Keyed on the resolved root,
+    a one-off `WFCTL_SPEC_DIR=... wfctl doctor` announced "spec_root is set" in a
+    repo that records nothing — and anyone who exports the var in a shell profile
+    would be nagged to move their specs into a transient directory, in every repo.
+    """
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / "specs" / "18-normal").mkdir(parents=True)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(tmp_path / "transient"))
+
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
