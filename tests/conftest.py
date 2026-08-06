@@ -13,6 +13,13 @@ import pytest
 # `[green]✓[/green] Installed` arrives as `\x1b[32m✓\x1b[0m Installed` and
 # assertions like `line.startswith("✓ Installed")` fail locally while passing in
 # CI, which has no terminal. Tests must not depend on where they run.
+#
+# NO_COLOR is presence-only per https://no-color.org — rich tests
+# `environ.get("NO_COLOR", "") != ""`, so *any* non-empty value disables color
+# and only unsetting the variable re-enables it. Deliberately not "TRUE"/"FALSE":
+# a boolean-looking value invites someone to write NO_COLOR=FALSE expecting color
+# back, and get no color. The "1" is arbitrary and ignored; this comment is the
+# documentation.
 os.environ["NO_COLOR"] = "1"
 
 

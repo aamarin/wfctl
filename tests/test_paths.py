@@ -270,7 +270,7 @@ def _write_manifest(repo_root: Path, **keys: str) -> None:
 
 
 def test_spec_root_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """FR-002: env override > manifest > repo_root/specs.
+    """Precedence: env override > manifest > repo_root/specs.
 
     The env var stays a per-invocation escape hatch — it is process-global, so
     exporting it from a shell profile would redirect every repo wfctl touches.
@@ -300,7 +300,7 @@ def test_spec_root_empty_value_is_not_set(tmp_path: Path, monkeypatch: pytest.Mo
 def test_spec_root_never_creates_the_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-006: a root that does not exist yet is the case that broke the create
+    """A root that does not exist yet is the case that broke the create
     path — `resolve_spec_dir` returned None for it and the hardcoded fallback
     took over. Resolving must never validate or create it."""
     from wfctl._paths import spec_root
@@ -313,7 +313,7 @@ def test_spec_root_never_creates_the_directory(
 
 
 def test_spec_root_path_forms(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """FR-005: absolute as-is; `~` expanded at read time; relative anchored to
+    """Absolute as-is; `~` expanded at read time; relative anchored to
     the manifest's own directory, never cwd — so one relative value declared
     once means one shared location from every worktree."""
     from wfctl._paths import spec_root
@@ -337,7 +337,7 @@ def test_spec_root_path_forms(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_feature_paths_uses_spec_root_when_no_spec_dir_exists(
     repo_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """SC-003, FR-001: the core regression.
+    """The core regression.
 
     `resolve_spec_dir` honored WFCTL_SPEC_DIR, but `feature-paths` hardcoded
     `repo_root/specs/<branch>` when nothing existed yet — so reads were
@@ -365,7 +365,7 @@ def test_feature_paths_uses_spec_root_when_no_spec_dir_exists(
 def test_recorded_root_does_not_fall_back_to_in_repo_specs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-013: the recorded root is the only root.
+    """The recorded root is the only root.
 
     Falling back would let one feature's artifacts split across two locations —
     spec.md found in the old root while plan.md is written to the new one.
@@ -380,7 +380,7 @@ def test_recorded_root_does_not_fall_back_to_in_repo_specs(
 def test_spec_root_matches_by_issue_key_under_the_configured_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-007: only the root moves. Exact-name and issue-key matching are
+    """Only the root moves. Exact-name and issue-key matching are
     unchanged, and still apply under a configured root."""
     monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
     configured = tmp_path / "configured"
@@ -392,7 +392,7 @@ def test_spec_root_matches_by_issue_key_under_the_configured_root(
 
 
 def test_unparseable_manifest_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """FR-015: a malformed manifest is a broken repo, not a missing setting.
+    """A malformed manifest is a broken repo, not a missing setting.
 
     Defaulting silently would put specs back inside the worktree with no signal
     — the exact failure this feature removes.
@@ -434,7 +434,7 @@ def _worktree_project(tmp_path: Path) -> tuple[Path, Path]:
 def test_worktree_inherits_spec_root_from_main_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-003: the whole reason the fallback exists.
+    """The whole reason the fallback exists.
 
     The manifest is gitignored and `install-skills` regenerates it in every
     fresh worktree, so a worktree-local spec_root cannot exist at the moment the
@@ -467,7 +467,7 @@ def test_worktree_own_spec_root_wins(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_no_main_checkout_reads_no_outside_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-004: the guard.
+    """The guard on reading a manifest outside this repo.
 
     In a bare or separate-gitdir layout the common dir is `<name>.git`, and its
     parent is a container directory that may hold an unrelated project's
@@ -499,7 +499,7 @@ def test_no_main_checkout_reads_no_outside_manifest(
 def test_unparseable_main_checkout_manifest_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-015 covers both locations. The current-repo half is pinned in US1;
+    """Raising covers both manifests. The current-repo half is pinned above;
     this is the half that only exists once the fallback does."""
     from wfctl._paths import spec_root
 
@@ -515,7 +515,7 @@ def test_unparseable_main_checkout_manifest_raises(
 def test_relative_spec_root_in_main_checkout_is_one_shared_location(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-005 across worktrees: a relative value anchors to the manifest that
+    """Relative values across worktrees: one anchors to the manifest that
     declared it, so main checkout and worktree resolve to the same directory —
     the property that makes `../pfms-specs` usable at all."""
     from wfctl._paths import spec_root

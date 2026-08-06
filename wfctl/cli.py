@@ -1430,7 +1430,15 @@ def _check_spec_root_migration(repo_root: Path) -> None:
     in_repo = repo_root / "specs"
     if not in_repo.is_dir():
         return
-    root = spec_root(repo_root)
+    # Keyed on what a manifest *records*, not on what `spec_root` resolves. The
+    # latter honors WFCTL_SPEC_DIR, so a one-off `WFCTL_SPEC_DIR=… wfctl doctor`
+    # — or the env var exported in a shell profile, which this design warns
+    # against but people do — would announce "spec_root is set" in a repo that
+    # records nothing, and nag about moving specs to a transient directory.
+    declared = spec_root_declaration(repo_root)
+    if declared is None:
+        return
+    root = declared[0]
     # Resolve both sides: a recorded relative value comes back resolved, while
     # repo_root does not have to be (WFCTL_REPO_ROOT is taken verbatim). Compared
     # raw, a root pointing at this very directory reads as a mismatch and the

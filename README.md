@@ -401,7 +401,7 @@ Run `wfctl <command> --help` for all options.
 |-------------------------|--------------------------------------------------------------|
 | `WFCTL_STATE_DIR`       | Override XDG state directory for the current session         |
 | `WFCTL_BRANCH`          | Override branch detection                                    |
-| `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation — see [`spec-root`](#keeping-specs-outside-the-repo-spec-root) for the persistent per-repo setting |
+| `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#keeping-specs-outside-the-repo-spec-root)) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
 | `WFCTL_CANDIDATES_FILE` | Override path to `memory-candidates.md`                      |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
