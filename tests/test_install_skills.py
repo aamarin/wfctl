@@ -571,7 +571,7 @@ def test_layer_destinations_are_disjoint() -> None:
 
 
 def test_bare_install_writes_agents_only(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-001, FR-002, SC-001: no --agent means no assistant-specific files."""
+    """No --agent means no assistant-specific files."""
     import json
     import os
     src = _make_wf_skills_repo(tmp_path)
@@ -614,7 +614,7 @@ def _summary_layers(output: str) -> dict[str, str]:
 
 
 def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-011, SC-004: counts are per layer and per kind, never one total that
+    """Counts are per layer and per kind, never one total that
     reads as a skill count. A layer contributing nothing is omitted, not `0`."""
     src = _make_wf_skills_repo(tmp_path)
     bare = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
@@ -634,7 +634,7 @@ def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Pat
 
 
 def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-010: after a base-only install, name every agent that has a layer and
+    """After a base-only install, name every agent that has a layer and
     the command to add it. Derived from _AGENT_TARGETS so an agent added later
     is covered without editing this test."""
     from wfctl import cli
@@ -653,7 +653,7 @@ def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -
 
 
 def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-005, SC-002: a repo installed before the layer split upgrades quietly.
+    """A repo installed before the layer split upgrades quietly.
 
     The old shape recorded `.agents/*` under the agent key. This version plans
     those same paths as the base layer, so without unioning items across
@@ -690,7 +690,7 @@ def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Pa
 
 
 def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-006: unioning prior items must not relax detection of real user files.
+    """Unioning prior items must not relax detection of real user files.
 
     The guard on the test above — a path wfctl never installed is still foreign,
     still backed up, and still restored on uninstall.
@@ -716,7 +716,7 @@ def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) 
 
 
 def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-003, SC-003: one command, on a repo with no prior install, and the
+    """One command, on a repo with no prior install, and the
     skills land unmodified — `.agents/skills/<name>/SKILL.md` is already the
     shape Copilot's skills layout expects, so there is nothing to transform."""
     import json
@@ -742,7 +742,7 @@ def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> 
 
 
 def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-008: Codex reads no repo-local command path, so there is nothing to
+    """Codex reads no repo-local command path, so there is nothing to
     install for it — but that is a fact to state, not an error. The base layer
     still lands and the command succeeds."""
     import json
@@ -764,7 +764,7 @@ def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) 
 
 
 def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-009: an unrecognised agent fails loudly and says what is accepted;
+    """An unrecognised agent fails loudly and says what is accepted;
     `none` remains a valid way to ask for the base layer explicitly."""
     from wfctl import cli
     src = _make_wf_skills_repo(tmp_path)
@@ -873,7 +873,7 @@ def test_legacy_entry_holding_an_unowned_path_survives(agent_dir: Path, tmp_path
 def test_declining_the_tracker_is_not_asked_again(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-012 — asked once, not once per install.
+    """The tracker question is asked once, not once per install.
 
     Declining used to write nothing, so the question came back on every
     upgrade and there was no way to answer it permanently: `--tracker none`
