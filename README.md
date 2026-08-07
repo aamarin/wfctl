@@ -346,51 +346,24 @@ username, or an email) and use `{me}` in any command. wfctl substitutes it, so
 
 ### Where your specs live (`spec-root`)
 
-Three setups, in rough order of how common they are. Pick one; the first needs no
-configuration at all.
+Two setups. The first needs no configuration at all.
 
-| You want | Do this | Survives `git worktree remove`? | In version control? |
-|---|---|---|---|
-| Specs committed with the code | nothing — this is the default | yes (they are committed) | yes |
-| Specs out of the repo entirely | `wfctl spec-root <dir>` | yes | no |
-| Specs committed, but not on the feature branch | orphan branch + `spec-root` | yes | yes |
+| You want | Do this | Survives `git worktree remove`? |
+|---|---|---|
+| Specs alongside the code | nothing — this is the default | only if you commit them |
+| Specs in a durable location | `wfctl spec-root <dir>` | yes |
 
 **If you commit your specs, you probably want the default.** The problem
 `spec-root` solves is worktree teardown destroying *gitignored* specs; committed
-specs survive by being in git. Moving them outside the repo would take them out
-of version control — strictly worse. Nothing in this section applies to you
-unless you also want them off the feature branch.
+specs survive by being in git. Moving them out would take them out of version
+control for no gain.
 
-#### Committed, but not on the feature branch (orphan branch)
+`spec-root` takes any directory. Where you point it is your project's call — a
+sibling directory, a specs repo cloned into the main checkout (which keeps them
+in version control, on their own remote), or anywhere else durable. wfctl only
+resolves the path; it never creates or clones anything.
 
-Keeps specs in git without putting them in the feature's history — the setup
-[`MarinVentures/pfms#499`](https://github.com/MarinVentures/pfms/issues/499)
-uses. Once per project:
-
-```bash
-git checkout --orphan specs-trunk        # no shared history with your code
-git rm -rf . && mkdir specs && touch specs/.gitkeep
-git add specs/.gitkeep && git commit -m "specs trunk"
-git checkout master
-
-git worktree add ../myproject-specs specs-trunk   # a durable checkout of it
-wfctl spec-root ../myproject-specs/specs
-```
-
-Every feature worktree now writes there, with no per-worktree setup:
-
-```bash
-$ cd wt/42-feature && wfctl feature-paths | grep FEATURE_DIR
-FEATURE_DIR='/…/myproject-specs/specs/42-feature'
-```
-
-Commit specs from `../myproject-specs` and push `specs-trunk`. They are in git,
-and deleting `wt/42-feature` does not touch them.
-
-The relative `../myproject-specs/specs` anchors to the main checkout's manifest,
-not to your shell — so it means the same directory from every worktree.
-
-#### Out of the repo entirely (`spec-root`)
+#### Pointing it somewhere durable
 
 By default a feature's artifacts live in `<repo>/specs/<branch>/`. In a worktree
 that is a problem: `specs/` is conventionally gitignored, so removing the
