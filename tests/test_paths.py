@@ -526,3 +526,33 @@ def test_relative_spec_root_in_main_checkout_is_one_shared_location(
     _write_manifest(wt)
 
     assert spec_root(wt) == spec_root(main) == (main / ".." / "shared-specs").resolve()
+
+
+def test_issue_key_match_ignores_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The key glob returns a spec *directory*, never a file that shares the key.
+
+    The exact-name branch has always checked `is_dir()`; the glob branch took
+    `matches[0]` blind. A stray `42-notes.md` beside `42-feature/` sorts first
+    and was handed back as the feature dir, making FEATURE_SPEC a path *inside*
+    a file: `specs/42-notes.md/spec.md`.
+    """
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    specs = tmp_path / "specs"
+    real = specs / "42-feature"
+    real.mkdir(parents=True)
+    (specs / "42-aaa-notes.md").write_text("stray")
+
+    # Branch name differs from the dir name, so resolution goes through the glob.
+    assert resolve_spec_dir("42-renamed", tmp_path) == real
+
+
+def test_issue_key_match_with_no_matching_directory_is_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Files alone are not a match — better no spec dir than a bogus one."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    (specs / "42-notes.md").write_text("stray")
+
+    assert resolve_spec_dir("42-renamed", tmp_path) is None

@@ -287,7 +287,11 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
             return exact
         key = extract_issue_key(candidate, _tracker.load_key_pattern(repo_root))
         if key != "unknown":
-            matches = sorted(root.glob(f"{key}[-_]*"))
+            # is_dir(), like the exact-name branch above: a spec dir is a
+            # directory. Unfiltered, a stray `42-notes.md` beside `42-feature/`
+            # sorts first and is handed back as the feature dir, which makes
+            # FEATURE_SPEC a path *inside* a file — `42-notes.md/spec.md`.
+            matches = sorted(p for p in root.glob(f"{key}[-_]*") if p.is_dir())
             if matches:
                 return matches[0]
         return None
