@@ -10,6 +10,9 @@ import typer
 from rich.console import Console
 
 from wfctl import _tracker
+from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
+from wfctl._manifest import load_manifest as _load_manifest
+from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
     extract_issue_key,
@@ -586,7 +589,6 @@ _RUNTIME_TARGETS = [
 # copy to the repo root.
 _CONFIG_SOURCES = {"workmux": ".agents/configs/workmux"}
 
-_MANIFEST_PATH = ".wf-skills-manifest.json"
 _BACKUP_DIR = ".wf-skills-backup"
 
 _BASE_LAYER = "base"
@@ -717,21 +719,6 @@ def _ensure_gitignored(repo_root: Path, line: str) -> bool:
         text += "\n"
     gi.write_text(text + f"{line}\n")
     return True
-
-
-def _load_manifest(repo_root: Path) -> dict:
-    manifest_file = repo_root / _MANIFEST_PATH
-    if manifest_file.exists():
-        return json.loads(manifest_file.read_text())
-    return {}
-
-
-def _save_manifest(repo_root: Path, manifest: dict) -> None:
-    manifest_file = repo_root / _MANIFEST_PATH
-    if manifest:
-        manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
-    elif manifest_file.exists():
-        manifest_file.unlink()
 
 
 def _interactive() -> bool:
