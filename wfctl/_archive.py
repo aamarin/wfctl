@@ -83,7 +83,7 @@ def _render_index(
     return "\n".join(lines) + "\n"
 
 
-def _plan(spec_dir: Path | None) -> list[tuple[Path, str]]:
+def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     """Every (source, archived name) pair this story would produce, pipeline order.
 
     Separate from the copying so `archive` knows whether there is anything to
@@ -91,6 +91,17 @@ def _plan(spec_dir: Path | None) -> list[tuple[Path, str]]:
     emptied must not displace a good archive with an empty one.
     """
     plan: list[tuple[Path, str]] = []
+
+    # A branch that predates the move still has its design doc at the old path,
+    # and this runs from `pre_remove` — declining to archive it means deleting
+    # it. Preserving a file is not the dual-path *reading* the layout change
+    # forbids: nothing infers from this, and `extra/` is precisely the shelf for
+    # artifacts the map does not name, so the numbered sequence stays honest
+    # about what the current pipeline produces.
+    # ponytail: transition-only; delete once no worktree predates the move.
+    legacy_design = worktree / ".agent" / "spec.md"
+    if legacy_design.is_file():
+        plan.append((legacy_design, "extra/legacy-agent-spec.md"))
 
     if spec_dir is None:
         return plan
@@ -128,7 +139,7 @@ def archive(
     Returns (archive_dir, mapped) — `(None, [])` when there was nothing to
     archive, which is a normal outcome, not a failure.
     """
-    plan = _plan(spec_dir)
+    plan = _plan(worktree, spec_dir)
     if not plan:
         return None, []
 

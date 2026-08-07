@@ -1333,33 +1333,33 @@ def _archive_destination(repo_root: Path) -> str:
 
 
 def _check_legacy_agent_dir(repo_root: Path) -> None:
-    """Report a `.agent/` directory — proof that a component still writes it.
+    """Report a `.agent/` directory — the superseded per-branch artifact path.
 
-    Per-branch artifacts moved into `specs/<branch>/`; nothing writes `.agent/`
-    any more. Its presence therefore means an installed component predates the
-    move, and this repo's pipeline state will be wrong — step inference cannot
-    see a design document written to a path it no longer reads, so `wfctl start`
-    reports `brainstorm` forever with no error to explain it.
+    Per-branch artifacts moved into `specs/<branch>/`. A surviving `.agent/` is
+    evidence that *something* wrote there, but not of when: it is equally a
+    stale leftover and a component that predates the move still writing today.
+    So the message states the observation and names the work, and does not
+    assert a cause it cannot see. Same for the consequence — a branch that also
+    has `specs/<branch>/design.md` infers correctly and the leftover is inert,
+    so claiming the pipeline is broken would be wrong about the common case.
 
-    Keyed on the directory rather than on version arithmetic. It is positive
-    evidence rather than an inference, it needs no capability field in the
-    manifest, and it self-clears permanently once nothing writes there. The two
-    freshness checks either side of this one already name their own corrective
-    actions; what was missing was connecting a stale component to *this*
-    breakage.
+    Keyed on the directory rather than on version arithmetic: positive evidence
+    rather than an inference, and it needs no capability field in the manifest.
+    It does not self-clear — the directory outlives whatever wrote it — which is
+    why removing it is spelled out as a step rather than implied.
 
     Never touches doctor's exit code — drift, reported like the checks around it.
     """
     if not (repo_root / ".agent").is_dir():
         return
     console.print(
-        "[yellow]⚠[/yellow] `.agent/` exists — an installed component still "
-        "writes the superseded artifact path."
+        "[yellow]⚠[/yellow] `.agent/` exists — the superseded per-branch "
+        "artifact path."
     )
     console.print("    Per-branch artifacts now live in `specs/<branch>/`.")
-    console.print("    Pipeline state will be wrong until this clears: "
-                  "`wfctl start` reports brainstorm even once a design doc exists.")
-    console.print("    update: wfctl install-skills   (then remove `.agent/`)")
+    console.print("    If it holds a design doc, move it to `specs/<branch>/design.md`.")
+    console.print("    Step inference no longer reads the old path. Then remove `.agent/`.")
+    console.print("    If it comes back: wfctl install-skills")
 
 
 def _check_workmux_hook(repo_root: Path) -> None:

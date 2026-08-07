@@ -190,34 +190,41 @@ def test_doctor_exit_code_is_unchanged_by_this_warning(
 # --- doctor: the leftover `.agent/` lint (#24) ------------------------------
 #
 # Per-branch artifacts moved into `specs/<branch>/`. A surviving `.agent/` is
-# positive evidence that an installed component predates the move, and the
-# symptom it causes is silent: step inference reports brainstorm forever. The
-# message is the deliverable here too, so its strings are asserted.
+# evidence that something wrote there, and the symptom is silent: a design doc
+# left at the old path is one step inference no longer reads. The message is the
+# deliverable here too, so its strings are asserted.
 
 
 def test_doctor_warns_when_the_superseded_dir_exists(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Names the path, where artifacts moved to, and the move-then-remove fix."""
     repo_root = agent_dir.parent
     (repo_root / ".agent").mkdir()
     result = _doctor(monkeypatch, interactive=False)
     assert "`.agent/` exists" in result.output
-    assert "specs/<branch>/" in result.output
+    assert "specs/<branch>/design.md" in result.output
+    assert "remove `.agent/`" in result.output
 
 
-def test_doctor_names_the_fix_for_the_superseded_dir(
+def test_doctor_does_not_claim_the_pipeline_is_broken(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A leftover beside a correct spec dir is inert — don't call it breakage.
+
+    The directory cannot distinguish a stale leftover from a component still
+    writing, so the message must not assert either.
+    """
     repo_root = agent_dir.parent
     (repo_root / ".agent").mkdir()
     result = _doctor(monkeypatch, interactive=False)
-    assert "wfctl install-skills" in result.output
+    assert "will be wrong" not in result.output
+    assert "still writes" not in result.output
 
 
 def test_doctor_is_silent_without_the_superseded_dir(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Self-clearing: once nothing writes there, the check goes quiet for good."""
     result = _doctor(monkeypatch, interactive=False)
     assert "`.agent/` exists" not in result.output
 

@@ -70,6 +70,45 @@ def test_archives_artifacts_in_pipeline_order(agent_dir: Path) -> None:
     assert not extra.exists(), f"unmapped artifacts fell through: {list(extra.iterdir())}"
 
 
+def test_a_design_doc_at_the_superseded_path_is_still_archived(agent_dir: Path) -> None:
+    """A branch predating the layout move must not lose its design doc.
+
+    This runs from `pre_remove`, so declining to archive `.agent/spec.md` is
+    deleting it. It lands under `extra/` rather than as `1-design.md`: the
+    numbered sequence describes what the current pipeline produces, and nothing
+    infers from the archive, so preserving the file reads nothing twice.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md", "plan.md")
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+
+    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+
+    arch = _archive_dir(agent_dir)
+    legacy = arch / "extra" / "legacy-agent-spec.md"
+    assert legacy.is_file(), "the superseded design doc was silently dropped"
+    assert legacy.read_text() == "legacy design\n"
+    assert not (arch / "1-design.md").exists(), "the old path must not claim the mapped slot"
+
+
+def test_a_design_doc_at_the_superseded_path_is_archived_without_a_spec_dir(
+    agent_dir: Path,
+) -> None:
+    """The whole story may be one file at the old path — that is still a story.
+
+    `_plan` returning empty means `archive` reports nothing to archive and
+    copies nothing, so this is the case where the guard has to run before the
+    `spec_dir is None` bail-out rather than after it.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+
+    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+
+    assert (_archive_dir(agent_dir) / "extra" / "legacy-agent-spec.md").is_file()
+
+
 def test_unmapped_artifacts_land_under_extra(agent_dir: Path) -> None:
     """A speckit artifact the map has never heard of is archived, not dropped."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
