@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from wfctl._manifest import load_manifest
+
 
 _STATE_DIR_OVERRIDE = "WFCTL_STATE_DIR"
 _BRANCH_OVERRIDE = "WFCTL_BRANCH"
@@ -168,9 +170,7 @@ def _manifest_spec_root(base: Path) -> Path | None:
     back inside the worktree with no signal, which is the failure this exists to
     remove.
     """
-    from wfctl.cli import _load_manifest  # lazy: cli imports _paths at module scope
-
-    value = _load_manifest(base).get("spec_root")
+    value = load_manifest(base).get("spec_root")
     if not value:
         return None
     declared = Path(value).expanduser()

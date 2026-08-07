@@ -344,7 +344,53 @@ username, or an email) and use `{me}` in any command. wfctl substitutes it, so
 `list` returns *your* items. Each backend keys on what it needs — GitHub
 `--author @me`, Gerrit `owner:self` — configured once per adapter.
 
-### Keeping specs outside the repo (`spec-root`)
+### Where your specs live (`spec-root`)
+
+Three setups, in rough order of how common they are. Pick one; the first needs no
+configuration at all.
+
+| You want | Do this | Survives `git worktree remove`? | In version control? |
+|---|---|---|---|
+| Specs committed with the code | nothing — this is the default | yes (they are committed) | yes |
+| Specs out of the repo entirely | `wfctl spec-root <dir>` | yes | no |
+| Specs committed, but not on the feature branch | orphan branch + `spec-root` | yes | yes |
+
+**If you commit your specs, you probably want the default.** The problem
+`spec-root` solves is worktree teardown destroying *gitignored* specs; committed
+specs survive by being in git. Moving them outside the repo would take them out
+of version control — strictly worse. Nothing in this section applies to you
+unless you also want them off the feature branch.
+
+#### Committed, but not on the feature branch (orphan branch)
+
+Keeps specs in git without putting them in the feature's history — the setup
+[`MarinVentures/pfms#499`](https://github.com/MarinVentures/pfms/issues/499)
+uses. Once per project:
+
+```bash
+git checkout --orphan specs-trunk        # no shared history with your code
+git rm -rf . && mkdir specs && touch specs/.gitkeep
+git add specs/.gitkeep && git commit -m "specs trunk"
+git checkout master
+
+git worktree add ../myproject-specs specs-trunk   # a durable checkout of it
+wfctl spec-root ../myproject-specs/specs
+```
+
+Every feature worktree now writes there, with no per-worktree setup:
+
+```bash
+$ cd wt/42-feature && wfctl feature-paths | grep FEATURE_DIR
+FEATURE_DIR='/…/myproject-specs/specs/42-feature'
+```
+
+Commit specs from `../myproject-specs` and push `specs-trunk`. They are in git,
+and deleting `wt/42-feature` does not touch them.
+
+The relative `../myproject-specs/specs` anchors to the main checkout's manifest,
+not to your shell — so it means the same directory from every worktree.
+
+#### Out of the repo entirely (`spec-root`)
 
 By default a feature's artifacts live in `<repo>/specs/<branch>/`. In a worktree
 that is a problem: `specs/` is conventionally gitignored, so removing the
@@ -401,7 +447,7 @@ Run `wfctl <command> --help` for all options.
 |-------------------------|--------------------------------------------------------------|
 | `WFCTL_STATE_DIR`       | Override XDG state directory for the current session         |
 | `WFCTL_BRANCH`          | Override branch detection                                    |
-| `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#keeping-specs-outside-the-repo-spec-root)) |
+| `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
 | `WFCTL_CANDIDATES_FILE` | Override path to `memory-candidates.md`                      |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
