@@ -571,7 +571,7 @@ def test_layer_destinations_are_disjoint() -> None:
 
 
 def test_bare_install_writes_agents_only(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-001, FR-002, SC-001: no --agent means no assistant-specific files."""
+    """No --agent means no assistant-specific files."""
     import json
     import os
     src = _make_wf_skills_repo(tmp_path)
@@ -614,7 +614,7 @@ def _summary_layers(output: str) -> dict[str, str]:
 
 
 def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-011, SC-004: counts are per layer and per kind, never one total that
+    """Counts are per layer and per kind, never one total that
     reads as a skill count. A layer contributing nothing is omitted, not `0`."""
     src = _make_wf_skills_repo(tmp_path)
     bare = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
@@ -634,7 +634,7 @@ def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Pat
 
 
 def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-010: after a base-only install, name every agent that has a layer and
+    """After a base-only install, name every agent that has a layer and
     the command to add it. Derived from _AGENT_TARGETS so an agent added later
     is covered without editing this test."""
     from wfctl import cli
@@ -653,7 +653,7 @@ def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -
 
 
 def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-005, SC-002: a repo installed before the layer split upgrades quietly.
+    """A repo installed before the layer split upgrades quietly.
 
     The old shape recorded `.agents/*` under the agent key. This version plans
     those same paths as the base layer, so without unioning items across
@@ -690,7 +690,7 @@ def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Pa
 
 
 def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-006: unioning prior items must not relax detection of real user files.
+    """Unioning prior items must not relax detection of real user files.
 
     The guard on the test above — a path wfctl never installed is still foreign,
     still backed up, and still restored on uninstall.
@@ -716,7 +716,7 @@ def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) 
 
 
 def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-003, SC-003: one command, on a repo with no prior install, and the
+    """One command, on a repo with no prior install, and the
     skills land unmodified — `.agents/skills/<name>/SKILL.md` is already the
     shape Copilot's skills layout expects, so there is nothing to transform."""
     import json
@@ -742,7 +742,7 @@ def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> 
 
 
 def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-008: Codex reads no repo-local command path, so there is nothing to
+    """Codex reads no repo-local command path, so there is nothing to
     install for it — but that is a fact to state, not an error. The base layer
     still lands and the command succeeds."""
     import json
@@ -764,7 +764,7 @@ def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) 
 
 
 def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path, tmp_path: Path) -> None:
-    """FR-009: an unrecognised agent fails loudly and says what is accepted;
+    """An unrecognised agent fails loudly and says what is accepted;
     `none` remains a valid way to ask for the base layer explicitly."""
     from wfctl import cli
     src = _make_wf_skills_repo(tmp_path)
@@ -873,7 +873,7 @@ def test_legacy_entry_holding_an_unowned_path_survives(agent_dir: Path, tmp_path
 def test_declining_the_tracker_is_not_asked_again(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-012 — asked once, not once per install.
+    """The tracker question is asked once, not once per install.
 
     Declining used to write nothing, so the question came back on every
     upgrade and there was no way to answer it permanently: `--tracker none`
@@ -964,3 +964,216 @@ def test_removing_an_agent_layer_never_asks(agent_dir: Path, tmp_path: Path) -> 
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert result.exit_code == 0
     assert (repo_root / ".agents" / "skills" / "test-skill").exists(), "base survives"
+
+
+def test_install_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
+    """`spec_root` is a bare string beside the layer entries, not a layer.
+
+    Anything iterating layers does `manifest[key].get("items", [])`, so a string
+    key that is not registered as a non-layer raises AttributeError on the next
+    install — an upgrade breaking on config the user set is the failure this
+    guards.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["spec_root"] = "~/Development/pfms-specs"
+    manifest_file.write_text(json.dumps(manifest))
+
+    upgrade = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert upgrade.exit_code == 0, upgrade.output
+    assert json.loads(manifest_file.read_text())["spec_root"] == "~/Development/pfms-specs"
+
+
+def test_doctor_runs_over_a_manifest_carrying_spec_root(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor` enumerates layers through the same helper as install."""
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["spec_root"] = str(tmp_path / "elsewhere")
+    manifest_file.write_text(json.dumps(manifest))
+
+    monkeypatch.chdir(repo_root)
+    result = runner.invoke(app, ["doctor"])
+    assert "AttributeError" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
+
+
+def test_uninstall_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
+    """Uninstalling a layer is not a reason to drop repo config.
+
+    `uninstall` deletes only its own agent key, so this should already hold —
+    pinned rather than trusted, since nothing else would catch a regression that
+    silently discards a user's spec root.
+    """
+    import json
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+    )
+
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["spec_root"] = "~/Development/pfms-specs"
+    manifest_file.write_text(json.dumps(manifest))
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(manifest_file.read_text())["spec_root"] == "~/Development/pfms-specs"
+
+
+def _doctor_in(repo_root: Path, monkeypatch: pytest.MonkeyPatch):
+    """Run doctor in `repo_root`, without the real network version check."""
+    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
+    monkeypatch.chdir(repo_root)
+    return runner.invoke(app, ["doctor"])
+
+
+def test_doctor_reports_specs_left_behind_after_a_root_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recording a root does not migrate anything, and the
+    recorded root is the only one consulted — so in-repo specs become invisible.
+    Silent invisibility is the failure class this whole issue is about, so the
+    transition gets reported.
+
+    Must fire with no layers installed: a repo can record a spec root without
+    ever having installed skills, and `doctor` returns early on an empty
+    manifest — so the check has to run before that gate.
+    """
+    import json
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
+    (repo / "specs" / "18-left-behind").mkdir(parents=True)
+    (repo / "specs" / "7-also-left").mkdir(parents=True)
+
+    result = _doctor_in(repo, monkeypatch)
+
+    assert "spec_root" in result.output
+    assert "2" in result.output, "says how many, so the scale is visible"
+    assert str(tmp_path / "elsewhere") in result.output
+    assert (repo / "specs" / "18-left-behind").exists(), "reports only — never moves or deletes"
+
+
+def test_doctor_is_quiet_when_specs_dir_is_empty_or_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No leftovers, no warning — the common case must stay silent."""
+    import json
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
+
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+    (repo / "specs").mkdir()  # present but empty
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+
+def test_doctor_is_quiet_without_a_recorded_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In-repo specs are correct when no root is recorded — that is the default."""
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / "specs" / "18-normal").mkdir(parents=True)
+
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+
+def test_doctor_exit_code_is_unchanged_by_the_spec_root_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drift is reported, not failed — same contract as the workmux hook check."""
+    import json
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / "specs" / "18-left-behind").mkdir(parents=True)
+
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({}))
+    without = _doctor_in(repo, monkeypatch).exit_code
+
+    (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
+    with_warning = _doctor_in(repo, monkeypatch)
+
+    assert "still holds" in with_warning.output
+    assert with_warning.exit_code == without
+
+
+def test_doctor_does_not_warn_when_the_root_is_the_in_repo_specs_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recorded root pointing at `<repo>/specs` strands nothing.
+
+    Compared unresolved, it looked like a mismatch: a relative value comes back
+    resolved while repo_root does not have to be (WFCTL_REPO_ROOT is taken
+    verbatim, and /tmp is a symlink on macOS). Doctor then told the reader to
+    move specs from a directory to itself — wrong advice from the command whose
+    job is being trusted about repo state.
+    """
+    import json
+    import os
+    import subprocess
+
+    real = tmp_path / "proj"
+    real.mkdir()
+    subprocess.run(["git", "init", str(real)], check=True, capture_output=True)
+    (real / "specs" / "18-here").mkdir(parents=True)
+    (real / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": "specs"}))
+
+    # An unresolved path to the same repo, which is what an env override gives.
+    link = tmp_path / "via-symlink"
+    os.symlink(real, link)
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(link))
+
+    result = _doctor_in(link, monkeypatch)
+
+    assert "still holds" not in result.output, result.output
+
+
+def test_doctor_does_not_warn_for_a_transient_env_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The warning is about what a manifest records, not what resolution returns.
+
+    WFCTL_SPEC_DIR is a per-invocation escape hatch. Keyed on the resolved root,
+    a one-off `WFCTL_SPEC_DIR=... wfctl doctor` announced "spec_root is set" in a
+    repo that records nothing — and anyone who exports the var in a shell profile
+    would be nagged to move their specs into a transient directory, in every repo.
+    """
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    (repo / "specs" / "18-normal").mkdir(parents=True)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(tmp_path / "transient"))
+
+    assert "still holds" not in _doctor_in(repo, monkeypatch).output

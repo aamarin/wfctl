@@ -10,13 +10,20 @@ import typer
 from rich.console import Console
 
 from wfctl import _tracker
+from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
+from wfctl._manifest import load_manifest as _load_manifest
+from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
+    _SPEC_DIR_OVERRIDE,
     extract_issue_key,
     get_repo_root,
+    main_checkout,
     project_name,
     resolve_agent_dir,
     resolve_branch,
     resolve_spec_dir,
+    spec_root,
+    spec_root_declaration,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -349,8 +356,11 @@ def feature_paths_cmd() -> None:
     """
     _, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
-    # No spec folder yet → the conventional path setup-plan.sh will `mkdir -p`.
-    feature_dir = spec_dir if spec_dir is not None else repo_root / "specs" / branch
+    # No spec folder yet → the path setup-plan.sh will `mkdir -p`. Resolved
+    # through `spec_root` like the lookup above, not hardcoded: this line names
+    # where every new spec is written, so hardcoding it here made the configured
+    # root honored on read and silently ignored on create.
+    feature_dir = spec_dir if spec_dir is not None else spec_root(repo_root) / branch
     fields = [
         ("REPO_ROOT", repo_root),
         ("CURRENT_BRANCH", branch),
@@ -367,6 +377,69 @@ def feature_paths_cmd() -> None:
     # Plain print: output is eval'd by shell; rich would wrap/inject ANSI.
     for name, val in fields:
         print(f"{name}='{val}'")
+
+
+@app.command("spec-root")
+def spec_root_cmd(
+    path: str | None = typer.Argument(
+        None, help="Directory to write spec dirs under. Omit to show the current root."
+    ),
+    unset: bool = typer.Option(False, "--unset", help="Remove the recorded root."),
+) -> None:
+    """Show, set, or clear where this repo's spec dirs live.
+
+    Stored as `spec_root` in `.wf-skills-manifest.json`. The path is kept exactly
+    as typed — `~` is expanded when read, not when written, so the manifest stays
+    portable — and is neither created nor checked for existence.
+
+    Writes the main checkout's manifest when there is one, and says so: the
+    manifest is gitignored and a worktree's copy dies with the worktree, so
+    recording it there would set a value that silently evaporates.
+    """
+    import os
+
+    if path is not None and unset:
+        console.print("[red]✗[/red] give a path or --unset, not both")
+        raise typer.Exit(2)
+
+    repo_root = get_repo_root()
+
+    if path is None and not unset:
+        if os.environ.get(_SPEC_DIR_OVERRIDE):
+            source = _SPEC_DIR_OVERRIDE
+        else:
+            found = spec_root_declaration(repo_root)
+            source = (
+                str(found[1] / _MANIFEST_PATH)
+                if found is not None
+                else "default (no spec_root recorded)"
+            )
+        console.print(f"spec root: {spec_root(repo_root)}", soft_wrap=True)
+        console.print(f"source:    {source}", soft_wrap=True)
+        return
+
+    target = main_checkout(repo_root) or repo_root
+    manifest = _load_manifest(target)
+    if unset:
+        manifest.pop("spec_root", None)
+    else:
+        manifest["spec_root"] = path
+    _save_manifest(target, manifest)
+
+    # `_save_manifest` deletes a manifest that has become empty, so `--unset` on a
+    # repo that recorded nothing writes no file — claiming otherwise sends the
+    # user looking for a path that isn't there.
+    manifest_file = target / _MANIFEST_PATH
+    if not manifest_file.exists():
+        console.print("nothing to unset — no spec_root was recorded")
+        return
+
+    # soft_wrap: these paths are the point of the lines; rich would wrap mid-path.
+    console.print(f"[green]✓[/green] wrote {manifest_file}", soft_wrap=True)
+    if _ensure_gitignored(target, _MANIFEST_PATH):
+        # Tracked in most repos, and `target` may not be where the user is
+        # standing — an unannounced edit here lands in someone's next commit.
+        console.print(f"[green]✓[/green] gitignored it in {target / '.gitignore'}", soft_wrap=True)
 
 
 @app.command("promote")
@@ -516,15 +589,16 @@ _RUNTIME_TARGETS = [
 # copy to the repo root.
 _CONFIG_SOURCES = {"workmux": ".agents/configs/workmux"}
 
-_MANIFEST_PATH = ".wf-skills-manifest.json"
 _BACKUP_DIR = ".wf-skills-backup"
 
 _BASE_LAYER = "base"
-# `tracker` is a bare string, not an installed layer — it holds the repo's
-# tracker choice alongside the layer entries and must be skipped by anything
-# iterating them. `base` IS a layer (it has items and a pinned commit, so
-# `doctor` checks it for drift), it is just not an *agent* — see _agent_keys.
-_NON_LAYER_KEYS = frozenset({"tracker"})
+# `tracker` and `spec_root` are bare strings, not installed layers — they hold
+# the repo's tracker choice and its spec root alongside the layer entries, and
+# must be skipped by anything iterating them: `_layer_keys` feeds callers that
+# do `manifest[key].get("items", [])`, which raises AttributeError on a string.
+# `base` IS a layer (it has items and a pinned commit, so `doctor` checks it for
+# drift), it is just not an *agent* — see _agent_keys.
+_NON_LAYER_KEYS = frozenset({"tracker", "spec_root"})
 
 
 def _layer_keys(manifest: dict) -> list[str]:
@@ -630,30 +704,21 @@ def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
     return lines
 
 
-def _ensure_gitignored(repo_root: Path, line: str) -> None:
-    """Append `line` to .gitignore if absent (create the file if needed). Idempotent."""
+def _ensure_gitignored(repo_root: Path, line: str) -> bool:
+    """Append `line` to .gitignore if absent (create the file if needed). Idempotent.
+
+    Returns whether it actually wrote. `.gitignore` is a tracked file in most
+    repos, so a caller writing into a directory the user is not standing in has
+    to be able to say so rather than leave a checkout mysteriously dirty.
+    """
     gi = repo_root / ".gitignore"
     text = gi.read_text() if gi.exists() else ""
     if line in text.splitlines():
-        return
+        return False
     if text and not text.endswith("\n"):
         text += "\n"
     gi.write_text(text + f"{line}\n")
-
-
-def _load_manifest(repo_root: Path) -> dict:
-    manifest_file = repo_root / _MANIFEST_PATH
-    if manifest_file.exists():
-        return json.loads(manifest_file.read_text())
-    return {}
-
-
-def _save_manifest(repo_root: Path, manifest: dict) -> None:
-    manifest_file = repo_root / _MANIFEST_PATH
-    if manifest:
-        manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
-    elif manifest_file.exists():
-        manifest_file.unlink()
+    return True
 
 
 def _interactive() -> bool:
@@ -1336,6 +1401,53 @@ def _check_workmux_hook(repo_root: Path) -> None:
     console.print("[green]✓[/green] pre_remove wired — .workmux.yaml")
 
 
+def _check_spec_root_migration(repo_root: Path) -> None:
+    """Report in-repo spec dirs stranded by a recorded `spec_root`.
+
+    Recording a root migrates nothing, and the recorded root is the only one
+    consulted — no fallback, so one feature's artifacts can never split across
+    two locations. The cost is that pre-existing `specs/*` become invisible, and
+    a silently invisible spec is the failure class this whole feature removes.
+    So the transition gets reported until it is finished.
+
+    Reports only: never moves or deletes, and never touches doctor's exit code —
+    same contract as `_check_workmux_hook`, which treats drift as reportable
+    rather than as failure.
+    """
+    in_repo = repo_root / "specs"
+    if not in_repo.is_dir():
+        return
+    # Keyed on what a manifest *records*, not on what `spec_root` resolves. The
+    # latter honors WFCTL_SPEC_DIR, so a one-off `WFCTL_SPEC_DIR=… wfctl doctor`
+    # — or the env var exported in a shell profile, which this design warns
+    # against but people do — would announce "spec_root is set" in a repo that
+    # records nothing, and nag about moving specs to a transient directory.
+    declared = spec_root_declaration(repo_root)
+    if declared is None:
+        return
+    root = declared[0]
+    # Resolve both sides: a recorded relative value comes back resolved, while
+    # repo_root does not have to be (WFCTL_REPO_ROOT is taken verbatim). Compared
+    # raw, a root pointing at this very directory reads as a mismatch and the
+    # warning tells the user to move specs from a directory to itself.
+    if root.resolve() == in_repo.resolve():
+        return
+    stranded = sorted(p for p in in_repo.iterdir() if p.is_dir())
+    if not stranded:
+        return
+
+    one = len(stranded) == 1
+    console.print(
+        f"[yellow]⚠[/yellow] spec_root is set, but {in_repo} still holds "
+        f"{len(stranded)} spec {'directory' if one else 'directories'} that will not be found.",
+        soft_wrap=True,
+    )
+    # soft_wrap: this names a path the reader is expected to act on; a wrapped
+    # path reads as two paths and pastes broken.
+    it = "it" if one else "them"
+    console.print(f"  Move {it} to {root}, or remove {it}.", soft_wrap=True)
+
+
 @app.command("doctor")
 def doctor_cmd() -> None:
     """Check the wfctl tool and installed wf-skills content for available updates.
@@ -1353,9 +1465,11 @@ def doctor_cmd() -> None:
         console.print("[yellow]⚠[/yellow] not in a git repo — skipping skills check.")
         raise typer.Exit(exit_code)
 
-    # Before the manifest gate below: a repo can have a .workmux.yaml without
-    # having installed skills, and it deserves the warning either way.
+    # Before the manifest gate below: a repo can have a .workmux.yaml — or a
+    # recorded spec_root — without having installed skills, and it deserves
+    # these warnings either way.
     _check_workmux_hook(repo_root)
+    _check_spec_root_migration(repo_root)
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)

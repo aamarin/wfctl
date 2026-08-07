@@ -136,6 +136,7 @@ it and only the implementation ships. This repo does the latter.
 | `log`            | Print color-coded event timeline for the current session                 |
 | `state-dir`      | Print the active XDG state directory path                                |
 | `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
+| `spec-root`      | Show, set, or clear the directory this repo's spec dirs live under       |
 | `promote`        | Interactively promote memory candidates to permanent memory              |
 | `issue`          | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`) |
 | `change`         | List/view code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
@@ -343,6 +344,64 @@ username, or an email) and use `{me}` in any command. wfctl substitutes it, so
 `list` returns *your* items. Each backend keys on what it needs — GitHub
 `--author @me`, Gerrit `owner:self` — configured once per adapter.
 
+### Where your specs live (`spec-root`)
+
+Two setups. The first needs no configuration at all.
+
+| You want | Do this | Survives `git worktree remove`? |
+|---|---|---|
+| Specs alongside the code | nothing — this is the default | only if you commit them |
+| Specs in a durable location | `wfctl spec-root <dir>` | yes |
+
+**If you commit your specs, you probably want the default.** The problem
+`spec-root` solves is worktree teardown destroying *gitignored* specs; committed
+specs survive by being in git. Moving them out would take them out of version
+control for no gain.
+
+`spec-root` takes any directory. Where you point it is your project's call — a
+sibling directory, a specs repo cloned into the main checkout (which keeps them
+in version control, on their own remote), or anywhere else durable. wfctl only
+resolves the path; it never creates or clones anything.
+
+#### Pointing it somewhere durable
+
+By default a feature's artifacts live in `<repo>/specs/<branch>/`. In a worktree
+that is a problem: `specs/` is conventionally gitignored, so removing the
+worktree destroys the spec, plan, and tasks with it.
+
+Point the project somewhere durable instead — once, from anywhere in it:
+
+```bash
+wfctl spec-root ~/Development/myproject-specs
+wfctl spec-root            # show the current root and where it came from
+wfctl spec-root --unset    # back to <repo>/specs
+```
+
+The value is stored as `spec_root` in `.wf-skills-manifest.json`. Because that
+file is gitignored and regenerated in every fresh worktree, `spec-root` writes
+the **main checkout's** manifest and tells you which file it wrote; worktrees
+then inherit the setting with no per-worktree setup.
+
+Resolution order:
+
+1. `WFCTL_SPEC_DIR` — a per-invocation override, not configuration. It is
+   process-global, so exporting it from a shell profile redirects *every* repo.
+2. `spec_root` in this repo's manifest.
+3. `spec_root` in the main checkout's manifest — how worktrees inherit it.
+4. `<repo>/specs` — the default.
+
+Paths are stored exactly as typed. `~` is expanded when read, so the manifest
+stays portable across machines; a relative path anchors to the directory of the
+manifest that declared it, never your shell's working directory.
+
+**Recording a root does not move anything.** Existing `<repo>/specs/*` stop being
+found, since the recorded root is the only one consulted — no fallback, so one
+feature's artifacts can never split across two locations. Move them yourself;
+`wfctl doctor` reports the leftovers until you do.
+
+A repo in a bare-clone or separate-gitdir layout has no main checkout to inherit
+from, and nothing outside the repository is read in that case.
+
 ### `resume` vs `next`
 
 `resume` is the primary automation entry point: it re-infers the pipeline step
@@ -361,7 +420,7 @@ Run `wfctl <command> --help` for all options.
 |-------------------------|--------------------------------------------------------------|
 | `WFCTL_STATE_DIR`       | Override XDG state directory for the current session         |
 | `WFCTL_BRANCH`          | Override branch detection                                    |
-| `WFCTL_SPEC_DIR`        | Override spec directory root                                 |
+| `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
 | `WFCTL_CANDIDATES_FILE` | Override path to `memory-candidates.md`                      |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |

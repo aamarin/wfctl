@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def write_json_atomic(path: Path, data: dict) -> None:
-    """Write JSON atomically via tempfile + os.replace (FR-003)."""
+    """Write JSON atomically via tempfile + os.replace."""
     if not path.parent.exists():
         raise FileNotFoundError(f"Parent directory does not exist: {path.parent}")
     fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=path.parent)

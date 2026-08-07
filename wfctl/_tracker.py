@@ -16,6 +16,7 @@ from pathlib import Path
 from rich.console import Console
 
 from wfctl._io import append_event
+from wfctl._manifest import load_manifest
 
 # highlight=False: don't let rich wrap quoted tokens (issue ids, verb names) in
 # ANSI — this output is parsed by agents, so keep it plain.
@@ -126,9 +127,8 @@ def load_key_pattern(repo_root: Path) -> str:
     resolution must never fail because a tracker step couldn't run.
     """
     from wfctl._paths import DEFAULT_KEY_PATTERN
-    from wfctl.cli import _load_manifest
 
-    name = _load_manifest(repo_root).get("tracker")
+    name = load_manifest(repo_root).get("tracker")
     if not name:
         return DEFAULT_KEY_PATTERN
     config = _load_tracker_config(repo_root, name)
@@ -174,9 +174,8 @@ def dispatch(
     is missing/invalid, or the verb is unsupported — a session must not fail
     because a tracker step could not run.
     """
-    from wfctl.cli import _load_manifest
 
-    name = _load_manifest(repo_root).get("tracker")
+    name = load_manifest(repo_root).get("tracker")
     if not name:
         console.print(
             f"ℹ No tracker configured — skipping '{verb}'. "
