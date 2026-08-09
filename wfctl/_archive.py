@@ -44,6 +44,7 @@ _SPEC_MAP: list[tuple[str, str]] = [
     ("tasks.md", "9-tasks.md"),
     ("delivery.md", "10-delivery.md"),
     ("checklists/analysis-report.md", "11-analysis-report.md"),
+    ("checklists/implement-complete.md", "12-implement-complete.md"),
 ]
 
 
@@ -76,7 +77,11 @@ def _render_index(
         f"| Branch | `{branch}` |",
         f"| Last commit | `{commit}` |",
         f"| Archived | {_utc_now().strftime('%Y-%m-%dT%H:%M:%SZ')} |",
-        f"| Source | `{worktree}` (removed) |",
+        # No "(removed)": the hook runs *before* removal and the command is also
+        # invokable by hand, so existence is not knowable here. Where the artifacts
+        # came from is a fact; whether that path still exists is not this file's
+        # claim to make, and a stale archive asserting it is the failure mode.
+        f"| Source | `{worktree}` |",
         "",
         "Speckit artifacts, flattened and numbered in the order the pipeline",
         "produced them. Read top to bottom for the full story.",
