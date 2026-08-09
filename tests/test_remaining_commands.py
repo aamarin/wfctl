@@ -207,6 +207,34 @@ def test_doctor_warns_when_the_superseded_dir_exists(
     assert "remove `.agent/`" in result.output
 
 
+def test_doctor_names_the_repos_own_spec_root_not_a_hardcoded_path(
+    agent_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """A repo whose specs live outside it must not be told to use `specs/`.
+
+    Naming a path the layout does not use is worse than saying nothing — the
+    reader would create the wrong directory and the doc would stay unread.
+
+    `tmp_path_factory`, not `tmp_path`: the `agent_dir` fixture's repo root *is*
+    `tmp_path`, so a root created under it would render relative and prove the
+    opposite of what this test is for.
+    """
+    repo_root = agent_dir.parent
+    (repo_root / ".agent").mkdir()
+    outside = tmp_path_factory.mktemp("specs-outside-repo")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    result = _doctor(monkeypatch, interactive=False)
+
+    # Rich hard-wraps at the console width, and an absolute tmp path is long
+    # enough to be split mid-token. Assert on the content, not the layout.
+    unwrapped = result.output.replace("\n", "")
+    assert f"{outside}/<branch>/design.md" in unwrapped
+    assert "specs/<branch>/" not in result.output
+
+
 def test_doctor_does_not_claim_the_pipeline_is_broken(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
