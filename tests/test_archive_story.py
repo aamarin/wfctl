@@ -113,15 +113,47 @@ def test_unmapped_artifacts_land_under_extra(agent_dir: Path) -> None:
     """A speckit artifact the map has never heard of is archived, not dropped."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     handle = os.environ["WFCTL_BRANCH"]
-    _make_story(repo_root, handle, "spec.md", "REVIEW.md", "checklists/implement-complete.md")
+    _make_story(repo_root, handle, "spec.md", "REVIEW.md", "notes/scratch.md")
 
     assert runner.invoke(app, ["archive-story"]).exit_code == 0
 
     arch = _archive_dir(agent_dir)
     assert (arch / "2-spec.md").is_file(), "mapped file still uses its numbered name"
     assert (arch / "extra" / "REVIEW.md").is_file()
-    assert (arch / "extra" / "checklists" / "implement-complete.md").is_file()
+    assert (arch / "extra" / "notes" / "scratch.md").is_file(), "nesting is preserved"
     assert not (arch / "extra" / "spec.md").exists(), "a mapped file must not be duplicated"
+
+
+def test_implementation_sentinel_is_numbered_last(agent_dir: Path) -> None:
+    """The story ends at the implement sentinel, not one step short at analysis.
+
+    It was previously unmapped and landed under `extra/`, so reading the index top
+    to bottom stopped at `11-analysis-report.md` — omitting the artifact that says
+    the story finished.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(
+        repo_root,
+        handle,
+        "checklists/analysis-report.md",
+        "checklists/implement-complete.md",
+    )
+
+    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+
+    arch = _archive_dir(agent_dir)
+    assert (arch / "12-implement-complete.md").is_file()
+    assert not (arch / "extra" / "checklists" / "implement-complete.md").exists()
+
+    index = (arch / "README.md").read_text()
+    # Presence first: `.index` raises ValueError on a miss, which reads as a broken
+    # test rather than the regression it actually is.
+    assert "11-analysis-report.md" in index
+    assert "12-implement-complete.md" in index
+    assert index.index("11-analysis-report.md") < index.index("12-implement-complete.md"), (
+        "the sentinel must come last, and 12 must not sort ahead of 11"
+    )
 
 
 def test_a_symlink_does_not_drag_in_content_from_outside_the_spec_dir(
