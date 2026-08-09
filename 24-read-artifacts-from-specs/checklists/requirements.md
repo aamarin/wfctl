@@ -44,3 +44,17 @@
   check at repo root only, no auto-migration of an existing `.agent/spec.md`,
   and `.gitignore` cleanup (FR8). Each has a defensible default; reverse any of
   them in `/speckit.plan` if you disagree.
+- **Revised after implementation review (2026-08-06).** Two requirements were
+  wrong as first written and are now corrected in place:
+  - **FR7** demanded the grep return *nothing*, which contradicts FR4 — a
+    warning that says to remove `.agent/` must contain the string `.agent/`.
+    Now scoped to "only the diagnostic, the sweep, and their tests".
+  - **FR3** forbade reading both locations without distinguishing inference from
+    preservation. Taken literally it made `archive-story` delete design docs at
+    the old path on teardown, across 11 live worktrees. **FR3a** now draws the
+    line: infer from one place, but never let a teardown hook be the reason a
+    file stops existing.
+
+  Both were caught by review, not by the spec. Worth noting that a spec written
+  after the implementation still missed them — the tests and a manual teardown
+  run found them.

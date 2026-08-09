@@ -56,16 +56,30 @@ skew, and skew is reported, not accommodated.
   appends it separately are removed, not repointed.
 - **FR2** Step inference resolves the brainstorm artifact inside the spec dir
   (`specs/<branch>/design.md`), not at the repo root.
-- **FR3** No component reads both the old and new locations. There is no
-  fallback, no "try the other path", no transition window.
+- **FR3** No component *infers* from both the old and new locations. There is no
+  fallback, no "try the other path", no transition window. Step inference, the
+  archive's numbered sequence, and the skew diagnostic each read exactly one
+  place, and it is the new one.
+- **FR3a** Preserving a file is not inferring from it. `archive-story` runs from
+  workmux's `pre_remove`, so declining to archive an artifact at the old path
+  *deletes* it — the opposite of that command's purpose. A design document found
+  at `.agent/spec.md` is therefore swept into `extra/legacy-agent-spec.md`.
+  Nothing reads the archive, and `extra/` is already the shelf for artifacts the
+  map does not name, so the numbered sequence keeps describing only what the
+  current pipeline produces. Transition-only: this is deleted once no worktree
+  predates the move.
 - **FR4** `wfctl doctor` emits a `⚠` when the repo carries a `.agent/`
   directory, naming the superseded path and the resolving action.
 - **FR5** The skew diagnostic runs before doctor's installed-skills gate, so a
   repo with nothing installed still gets the warning.
 - **FR6** The skew diagnostic does not change doctor's exit code — it reports
   drift the way the `.workmux.yaml` hook check does, not a failure.
-- **FR7** `grep -rn '"\.agent"\|\.agent/' wfctl/ tests/` returns nothing:
-  source, tests, and the docstrings that describe the old layout all move.
+- **FR7** `grep -rn '"\.agent"\|\.agent/' wfctl/ tests/` returns only the skew
+  diagnostic, the FR3a sweep, and their tests. Nothing else names the old path —
+  no reader, no docstring describing the old layout as current. The literal
+  "returns nothing" this requirement first carried is unsatisfiable: a warning
+  that tells you to remove `.agent/` has to spell `.agent/`, and its tests have
+  to assert that string, so that phrasing contradicted FR4.
 - **FR8** The `.gitignore` entry for `.agent/` is removed. `specs/` is already
   ignored, so the design document stays local at its new home; a leftover
   `.agent/` becoming visible in `git status` reinforces FR4 rather than hiding
@@ -83,7 +97,14 @@ skew, and skew is reported, not accommodated.
   with skills installed and in one without.
 - A repo containing no `.agent/` produces no such warning, and doctor's exit
   code is identical with and without the directory present.
-- `grep -rn '"\.agent"\|\.agent/' wfctl/ tests/` is empty.
+- The warning names the *move* — a developer reading it knows to relocate the
+  file, not only that a component is stale. It asserts nothing about what wrote
+  the directory or when, since a directory cannot establish either.
+- Archiving a branch that still has `.agent/spec.md` preserves it under
+  `extra/`, with its content intact, both alongside a spec dir and as the only
+  artifact present.
+- `grep -rn '"\.agent"\|\.agent/' wfctl/ tests/` returns only the diagnostic,
+  the sweep, and their tests — no reader of the old path.
 - `uv run pytest -q` is green.
 
 ## Key Entities
@@ -95,7 +116,9 @@ skew, and skew is reported, not accommodated.
   feature grows it by one entry at the front and shrinks the code around it.
 - **Layout skew** — a repo whose components disagree about where artifacts
   live, evidenced by a surviving `.agent/` directory. A reported condition, not
-  a supported state.
+  a supported state. The directory is evidence that *something* wrote there, not
+  of when: a stale leftover and a component still writing today look identical
+  from the outside, so the diagnostic reports the observation, not a cause.
 
 ## Assumptions / Out of Scope
 
