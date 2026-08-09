@@ -147,6 +147,10 @@ def test_implementation_sentinel_is_numbered_last(agent_dir: Path) -> None:
     assert not (arch / "extra" / "checklists" / "implement-complete.md").exists()
 
     index = (arch / "README.md").read_text()
+    # Presence first: `.index` raises ValueError on a miss, which reads as a broken
+    # test rather than the regression it actually is.
+    assert "11-analysis-report.md" in index
+    assert "12-implement-complete.md" in index
     assert index.index("11-analysis-report.md") < index.index("12-implement-complete.md"), (
         "the sentinel must come last, and 12 must not sort ahead of 11"
     )
