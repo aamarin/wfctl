@@ -284,8 +284,11 @@ def archive_story_cmd(
 ) -> None:
     """Archive a story's speckit artifacts into its state dir before teardown.
 
-    Wired into workmux's `pre_remove`: `specs/` is gitignored, so removing a
-    worktree destroys the design, spec, plan, tasks and analysis with it.
+    Wired into workmux's `pre_remove`. In the default layout `specs/` is
+    gitignored and lives inside the worktree, so removing one destroys the
+    design, spec, plan, tasks and analysis with it. A spec root outside the
+    worktree is not exposed that way; archiving still produces the flattened,
+    numbered snapshot, which is the point either way.
 
     Never exits non-zero. A teardown hook that fails is a hook that strands a
     worktree, and a missed archive is a smaller loss than that — so every error
@@ -1335,13 +1338,19 @@ def _archive_destination(repo_root: Path) -> str:
 def _check_legacy_agent_dir(repo_root: Path) -> None:
     """Report a `.agent/` directory — the superseded per-branch artifact path.
 
-    Per-branch artifacts moved into `specs/<branch>/`. A surviving `.agent/` is
-    evidence that *something* wrote there, but not of when: it is equally a
+    Per-branch artifacts moved into the branch's spec dir. A surviving `.agent/`
+    is evidence that *something* wrote there, but not of when: it is equally a
     stale leftover and a component that predates the move still writing today.
     So the message states the observation and names the work, and does not
     assert a cause it cannot see. Same for the consequence — a branch that also
-    has `specs/<branch>/design.md` infers correctly and the leftover is inert,
-    so claiming the pipeline is broken would be wrong about the common case.
+    has a `design.md` in its spec dir infers correctly and the leftover is
+    inert, so claiming the pipeline is broken would be wrong about the common
+    case.
+
+    The destination is resolved through `spec_root` rather than spelled
+    `specs/<branch>/`, so a repo whose specs live outside it is told where its
+    own files go. Telling someone to move a file to a path their layout does not
+    use is worse than saying nothing — they would create the wrong directory.
 
     Keyed on the directory rather than on version arithmetic: positive evidence
     rather than an inference, and it needs no capability field in the manifest.
@@ -1352,12 +1361,17 @@ def _check_legacy_agent_dir(repo_root: Path) -> None:
     """
     if not (repo_root / ".agent").is_dir():
         return
+    root = spec_root(repo_root)
+    try:
+        dest = f"{root.relative_to(repo_root)}/<branch>/"
+    except ValueError:
+        dest = f"{root}/<branch>/"  # spec root outside the repo
     console.print(
         "[yellow]⚠[/yellow] `.agent/` exists — the superseded per-branch "
         "artifact path."
     )
-    console.print("    Per-branch artifacts now live in `specs/<branch>/`.")
-    console.print("    If it holds a design doc, move it to `specs/<branch>/design.md`.")
+    console.print(f"    Per-branch artifacts now live in `{dest}`.")
+    console.print(f"    If it holds a design doc, move it to `{dest}design.md`.")
     console.print("    Step inference no longer reads the old path. Then remove `.agent/`.")
     console.print("    If it comes back: wfctl install-skills")
 

@@ -1,10 +1,17 @@
 """Archive a story's speckit artifacts before its worktree is deleted.
 
-`specs/` is gitignored — deliberately, so the implementation is what ships and
-the repo doesn't accumulate every spec/plan/tasks tree. The consequence is that
-it lives nowhere but the worktree, so `workmux remove` destroys it. This copies
-it into wfctl's per-branch state dir, which already holds current.md and
-session-summary.md and outlives the worktree.
+In the default layout `specs/` is gitignored — deliberately, so the
+implementation is what ships and the repo doesn't accumulate every
+spec/plan/tasks tree. The consequence is that it lives nowhere but the worktree,
+so `workmux remove` destroys it. This copies it into wfctl's per-branch state
+dir, which already holds current.md and session-summary.md and outlives the
+worktree.
+
+A repo with a spec root outside the worktree (`spec_root` / `WFCTL_SPEC_DIR`)
+is not exposed that way — teardown cannot reach those files. Archiving still
+runs, and is still worth running: the archive is the flattened, numbered
+snapshot, which the live tree is not. Only the data-loss urgency is
+layout-dependent.
 
 Files are flattened and numbered in pipeline order, so the archive reads as the
 story of the branch rather than as a directory to dig through. That makes it a
