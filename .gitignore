@@ -18,3 +18,6 @@ build/
 # Speckit artifacts stay local: the implementation is what ships, and
 # committing every spec/plan/tasks tree pollutes the repo.
 specs/
+
+# Worktrees workmux nests here — checkouts of this repo, not project source.
+wt/

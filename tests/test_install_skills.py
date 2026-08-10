@@ -1177,3 +1177,212 @@ def test_doctor_does_not_warn_for_a_transient_env_override(
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(tmp_path / "transient"))
 
     assert "still holds" not in _doctor_in(repo, monkeypatch).output
+
+
+# .gitignore coverage guard (#11). These assert on the resulting file contents,
+# not on how coverage was determined, so a batched implementation must pass them
+# unchanged.
+
+
+def test_install_skills_skips_glob_covered_paths(agent_dir: Path, tmp_path: Path) -> None:
+    """A path an existing pattern already covers gets no line of its own.
+
+    Regression test for #11 — fails against a literal-comparison guard.
+    """
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".gitignore").write_text(".agents/\n")
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert ".agents/skills/test-skill" not in lines
+    assert ".agents/commands/test-cmd.md" not in lines
+    assert ".agents/" in lines, "the covering pattern itself is untouched"
+
+
+def test_install_skills_second_run_leaves_gitignore_identical(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """Installing twice against an unchanged repo is a no-op on .gitignore."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    assert runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"]
+    ).exit_code == 0
+    after_first = (repo_root / ".gitignore").read_bytes()
+
+    assert runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"]
+    ).exit_code == 0
+    assert (repo_root / ".gitignore").read_bytes() == after_first
+
+
+def test_install_skills_creates_gitignore_when_absent(agent_dir: Path, tmp_path: Path) -> None:
+    """No .gitignore at all still gets one, listing every installed path."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".gitignore").unlink(missing_ok=True)
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert ".agents/skills/test-skill" in lines
+    assert ".agents/commands/test-cmd.md" in lines
+    assert ".wf-skills-manifest.json" in lines
+    assert ".wf-skills-backup/" in lines
+
+
+def test_install_skills_appends_uncovered_paths(agent_dir: Path, tmp_path: Path) -> None:
+    """An existing .gitignore that covers none of the install paths is appended to,
+    unchanged from the behavior before the coverage guard."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".gitignore").write_text("*.log\n")
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert "*.log" in lines, "the unrelated pattern survives"
+    assert ".agents/skills/test-skill" in lines
+    assert ".agents/commands/test-cmd.md" in lines
+
+
+def test_ensure_gitignored_handles_directory_form(repo_root: Path) -> None:
+    """Directory-form entries need their trailing slash to resolve.
+
+    git only matches the pattern with the slash when the directory does not yet
+    exist on disk, which is the normal case at install time.
+    """
+    from wfctl.cli import _ensure_gitignored
+
+    (repo_root / ".gitignore").write_text("wt/\n")
+    assert _ensure_gitignored(repo_root, "wt/") is False, "covered, nothing written"
+    assert _ensure_gitignored(repo_root, ".wf-skills-backup/") is True, "not covered, written"
+    assert ".wf-skills-backup/" in (repo_root / ".gitignore").read_text().splitlines()
+    assert (repo_root / ".gitignore").read_text().splitlines().count("wt/") == 1
+
+
+def test_ensure_gitignored_appends_when_not_a_repo(tmp_path: Path, capsys) -> None:
+    """Outside a git repo the check cannot answer: write the line, stay quiet.
+
+    `check-ignore` exits 128 there and writes `fatal:` to stderr.
+    """
+    from wfctl.cli import _ensure_gitignored
+
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+    capsys.readouterr()  # drop anything buffered before this call
+
+    assert _ensure_gitignored(not_a_repo, "build/") is True
+    assert (not_a_repo / ".gitignore").read_text() == "build/\n"
+
+    captured = capsys.readouterr()
+    assert "fatal" not in captured.err
+    assert "fatal" not in captured.out
+
+
+def test_install_skills_skips_tracked_path_covered_by_pattern(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """A tracked path matched by a pattern gets no entry — one would be inert.
+
+    Covers `--no-index`; without it `check-ignore` reports a tracked path as not
+    ignored and the guard appends a dead line.
+    """
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    dest = repo_root / ".agents" / "skills" / "test-skill"
+    dest.mkdir(parents=True)
+    (dest / "SKILL.md").write_text("# placeholder\n")
+    # -f because .agents/ is ignored below; a plain `add` would refuse.
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "-f", ".agents/skills/test-skill/SKILL.md"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", "track a skill"],
+        check=True, capture_output=True,
+    )
+    (repo_root / ".gitignore").write_text(".agents/\n")
+
+    # --yes: the pre-created destination reads as a foreign overwrite, which
+    # otherwise prompts and aborts under the non-interactive test runner.
+    result = runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert ".agents/skills/test-skill" not in (
+        repo_root / ".gitignore"
+    ).read_text().splitlines()
+
+
+def test_install_skills_appends_after_missing_trailing_newline(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """A .gitignore with no trailing newline must not get the first entry glued
+    onto its last line."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".gitignore").write_text("*.log")  # deliberately no newline
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert "*.log" in lines, "not concatenated with the appended entry"
+    assert ".wf-skills-manifest.json" in lines
+
+
+def test_install_skills_reports_skipped_count(agent_dir: Path, tmp_path: Path) -> None:
+    """Entries skipped as already covered are counted in the output."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".gitignore").write_text(".agents/\n")
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    # `.agents/` covers the skill and the command; the manifest and the backup
+    # dir match nothing, so exactly two of the four are skipped.
+    assert "2 ignore entries already covered" in result.output
+
+
+def test_install_skills_silent_when_nothing_skipped(agent_dir: Path, tmp_path: Path) -> None:
+    """The clean case adds no output — no zero count."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".gitignore").unlink(missing_ok=True)
+
+    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    assert result.exit_code == 0
+    assert "already covered" not in result.output
+
+
+def test_ensure_gitignored_treats_dash_leading_paths_as_paths(repo_root: Path) -> None:
+    """A path beginning with `-` is a path, not a flag.
+
+    Covers the `--` separator; without it git parses the dash as an option
+    (`-Z` exits 129) and the non-zero result reads as "not covered".
+    """
+    from wfctl.cli import _ensure_gitignored
+
+    (repo_root / ".gitignore").write_text("-Z\n--no-index\n")
+    assert _ensure_gitignored(repo_root, "-Z") is False, "covered, nothing written"
+    assert _ensure_gitignored(repo_root, "--no-index") is False, "covered, nothing written"
+    assert (repo_root / ".gitignore").read_text() == "-Z\n--no-index\n", "byte-identical"
+
+    assert _ensure_gitignored(repo_root, "-unlisted") is True, "uncovered, written"
+    assert "-unlisted" in (repo_root / ".gitignore").read_text().splitlines()
