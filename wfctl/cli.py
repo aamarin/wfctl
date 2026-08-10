@@ -708,16 +708,39 @@ def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
 
 
 def _ensure_gitignored(repo_root: Path, line: str) -> bool:
-    """Append `line` to .gitignore if absent (create the file if needed). Idempotent.
+    """Ignore `line` via .gitignore unless git already ignores it.
 
-    Returns whether it actually wrote. `.gitignore` is a tracked file in most
-    repos, so a caller writing into a directory the user is not standing in has
-    to be able to say so rather than leave a checkout mysteriously dirty.
+    Coverage is git's own verdict, so a broader pattern already matching the path
+    suppresses the write — a literal comparison cannot see that, and enumerating
+    every path under an existing `.agents/` is what #11 was.
+
+    Returns whether it wrote. `spec-root` announces the edit, since `.gitignore`
+    is tracked and `repo_root` may not be where the user is standing;
+    `install-skills` counts the Falses to report how many it skipped.
     """
+    import subprocess as sp
+
+    # ponytail: one process per path, ~7ms each (~600ms per install) against a
+    # ~15s clone. Batch via `check-ignore --stdin` over gitignore_targets if #1
+    # lands and the clone stops dominating.
+    #
+    # Every argument below is load-bearing; each has a test that fails without it.
+    #   --no-index  a tracked path reports "not ignored" even when a pattern
+    #               matches, so we would write a line that cannot affect it
+    #   --          a leading dash otherwise parses as an option (`-Z` exits 129)
+    #   capture_output  git writes `fatal:` to stderr outside a repo
+    #
+    # Non-zero means "not covered", which is also the safe fallback: when the
+    # check cannot run at all, write the line.
+    if sp.run(
+        ["git", "check-ignore", "-q", "--no-index", "--", line],
+        cwd=repo_root,
+        capture_output=True,
+    ).returncode == 0:
+        return False
+
     gi = repo_root / ".gitignore"
     text = gi.read_text() if gi.exists() else ""
-    if line in text.splitlines():
-        return False
     if text and not text.endswith("\n"):
         text += "\n"
     gi.write_text(text + f"{line}\n")
@@ -994,10 +1017,17 @@ def install_skills_cmd(
 
     _save_manifest(repo_root, manifest)
 
-    _ensure_gitignored(repo_root, _MANIFEST_PATH)
-    _ensure_gitignored(repo_root, f"{_BACKUP_DIR}/")
-    for rel in gitignore_targets:
-        _ensure_gitignored(repo_root, rel)
+    # A count, not a list: `git check-ignore -v <path>` already attributes each
+    # skip to a file, line, and pattern, and a second listing here would drift.
+    skipped = sum(
+        not _ensure_gitignored(repo_root, rel)
+        for rel in (_MANIFEST_PATH, f"{_BACKUP_DIR}/", *gitignore_targets)
+    )
+    if skipped:
+        console.print(
+            f"[dim]ℹ {skipped} ignore entr{'y' if skipped == 1 else 'ies'} "
+            f"already covered by .gitignore — skipped[/dim]"
+        )
 
     if new_backups:
         console.print(
