@@ -254,7 +254,12 @@ behaviour.
 - The three presented options and their rendered form are settled in issue #26
   and adopted as specified; this specification does not re-open them.
 - Rescuing untracked or uncommitted work from a worktree is a separate concern,
-  tracked separately, and out of scope here.
+  tracked separately, and out of scope here. The boundary is structural rather
+  than arbitrary: work that version control can see makes a worktree read dirty,
+  and the removal tool already refuses on that basis. Design artifacts are
+  deliberately excluded from version control, so they leave a worktree reading
+  clean and no such check can ever see them. This feature covers exactly the
+  artifacts nothing else can.
 - The health check required by FR-020 is transitional, like the several
   superseded-path checks the project already carries. Their collective removal is
   tracked separately; this specification adds one more on the understanding that
