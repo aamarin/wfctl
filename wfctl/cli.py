@@ -670,7 +670,7 @@ _BASE_LAYER = "base"
 # do `manifest[key].get("items", [])`, which raises AttributeError on a string.
 # `base` IS a layer (it has items and a pinned commit, so `doctor` checks it for
 # drift), it is just not an *agent* — see _agent_keys.
-_NON_LAYER_KEYS = frozenset({"tracker", "spec_root"})
+_NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 
 
 def _layer_keys(manifest: dict) -> list[str]:
@@ -821,6 +821,101 @@ def _interactive() -> bool:
     return sys.stdin.isatty()
 
 
+_SPEC_ROOT_ASKED = "spec_root_asked"
+
+
+def _spec_root_question_answered(repo_root: Path) -> bool:
+    """Has this project already answered the spec-location question?
+
+    Walks this checkout then the main one, mirroring `spec_root_declaration`.
+    `post_create` reinstalls in every fresh worktree, where the manifest is
+    regenerated from scratch — a local-only read would re-ask in each of them.
+    """
+    if _load_manifest(repo_root).get(_SPEC_ROOT_ASKED):
+        return True
+    main = main_checkout(repo_root)
+    return bool(main and _load_manifest(main).get(_SPEC_ROOT_ASKED))
+
+
+def _spec_root_panels(name: str) -> list[object]:
+    """The three options, rendered.
+
+    Stacked rather than side by side: three boxes across truncate their titles
+    below ~110 columns.
+    """
+    from rich.panel import Panel
+
+    return [
+        Panel(
+            f"  [bold]{name}/[/bold]\n"
+            "  ├── specs/42-feature/      ← spec.md, plan.md, tasks.md\n"
+            "  └── wt/42-feature/         worktree\n\n"
+            "  Committed with your code, or gitignored — your .gitignore decides.\n"
+            "  If gitignored, removing the worktree deletes them.",
+            title="[bold]1[/bold]  Keep them in the repo",
+            subtitle="default · nothing to configure",
+            title_align="left", subtitle_align="right", width=78,
+        ),
+        Panel(
+            f"  [bold]{name}/[/bold]\n"
+            f"  ├── {name}-specs/       its own repo, gitignored here\n"
+            "  │   └── specs/42-feature/\n"
+            "  └── wt/42-feature/         worktree\n\n"
+            "  Survives worktree removal, versioned on its own remote, and\n"
+            "  greppable from any worktree without a checkout.",
+            title="[bold]2[/bold]  In a specs repo cloned here",
+            subtitle="durable · in git · greppable",
+            title_align="left", subtitle_align="right", width=78,
+        ),
+        Panel(
+            "  [bold]~/Development/[/bold]\n"
+            f"  ├── {name}-specs/\n"
+            "  │   └── 42-feature/\n"
+            f"  └── {name}/wt/42-feature/\n\n"
+            "  Survives worktree removal. Whether it is version-controlled is\n"
+            "  up to you.",
+            title="[bold]3[/bold]  Somewhere else on disk",
+            subtitle="durable",
+            title_align="left", subtitle_align="right", width=78,
+        ),
+    ]
+
+
+def _ask_where_specs_live(repo_root: Path) -> str | None:
+    """Ask once, on first interactive install. Returns a path, or None to keep
+    the default.
+
+    Option 1 records no `spec_root` at all: the default *is* the absence of the
+    key, so a repo that answers "keep them here" must resolve byte-identically to
+    one that was never asked. Recording `null` instead would be bookkeeping under
+    a name that implies behaviour.
+
+    Never creates, clones, or checks the target. A not-yet-existing root is
+    exactly the case the setting exists to support, and network I/O mid-install
+    is a blast radius this does not need.
+    """
+    name = project_name(repo_root)
+    console.print()
+    console.print("[bold]Where should this project's specs live?[/bold]")
+    console.print(
+        "Each feature gets a spec, plan, and tasks. Worktrees get removed when\n"
+        "the work ends — if the specs live inside one, they go with it."
+    )
+    for panel in _spec_root_panels(name):
+        console.print(panel)
+    console.print(
+        "Change any time with `wfctl spec-root`. Skipping keeps option 1."
+    )
+
+    choice = typer.prompt("Choose [1/2/3]", default="1", show_default=True).strip()
+    if choice == "2":
+        directory = typer.prompt("Directory", default=f"{name}-specs").strip()
+        return directory or f"{name}-specs"
+    if choice == "3":
+        return typer.prompt("Path").strip() or None
+    return None
+
+
 @app.command("install-skills")
 def install_skills_cmd(
     repo: str = typer.Option(
@@ -915,6 +1010,53 @@ def install_skills_cmd(
                 "           wfctl install-skills --tracker <name>\n"
                 "Once set, later installs leave that choice — and your edits to its "
                 "config — alone.[/dim]"
+            )
+
+    # Same shape as the tracker question above, and asked in the same breath:
+    # first interactive install only, never under --yes or a pipe, never twice.
+    # `spec_root` exists since #25 but nothing pointed a project at it, so repos
+    # took the default and found out it was wrong when `workmux remove` deleted a
+    # spec — the failure the setting exists to prevent.
+    if not yes and _interactive() and not _spec_root_question_answered(repo_root):
+        chosen = _ask_where_specs_live(repo_root)
+        # The main checkout, not this one: the manifest is gitignored and a
+        # worktree's copy dies with the worktree, so recording it here would set
+        # a value that silently evaporates. Same target `wfctl spec-root` uses.
+        target = main_checkout(repo_root) or repo_root
+        target_manifest = _load_manifest(target)
+        target_manifest[_SPEC_ROOT_ASKED] = True
+        if chosen:
+            target_manifest["spec_root"] = chosen
+        _save_manifest(target, target_manifest)
+        if target == repo_root:
+            # Keep the in-memory copy in step, or the save at the end of this
+            # command writes the pre-answer manifest back over it.
+            manifest[_SPEC_ROOT_ASKED] = True
+            if chosen:
+                manifest["spec_root"] = chosen
+
+        console.print(
+            f"[green]✓[/green] wrote {target / _MANIFEST_PATH}", soft_wrap=True
+        )
+        if chosen and _ensure_gitignored(target, _MANIFEST_PATH):
+            console.print(
+                f"[green]✓[/green] gitignored it in {target / '.gitignore'}", soft_wrap=True
+            )
+        if chosen and not Path(chosen).expanduser().is_absolute():
+            # Option 2: a sibling directory inside the checkout, so it needs
+            # ignoring here too — and the commands to create it are printed
+            # rather than run. wfctl resolves paths; it does not clone for you.
+            if _ensure_gitignored(target, f"{chosen}/"):
+                console.print(
+                    f"[green]✓[/green] gitignored {chosen}/ in {target / '.gitignore'}",
+                    soft_wrap=True,
+                )
+            console.print(
+                f"\n[dim]Not created yet — when you have a specs repo:\n"
+                f"  git clone <url> {chosen}\n\n"
+                f"Or start one:\n"
+                f"  mkdir -p {chosen}/specs && git -C {chosen} init[/dim]",
+                soft_wrap=True,
             )
 
     with tempfile.TemporaryDirectory() as tmp:
