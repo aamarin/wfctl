@@ -297,20 +297,37 @@ def archive_specs_cmd(
         None, help="Story handle. Defaults to $WM_HANDLE, then the branch."
     ),
 ) -> None:
-    """Archive a story's speckit artifacts into its state dir before teardown.
+    """Rescue a story's speckit artifacts before its worktree is deleted.
 
-    Wired into workmux's `pre_remove`. In the default layout `specs/` is
-    gitignored and lives inside the worktree, so removing one destroys the
-    design, spec, plan, tasks and analysis with it. A spec root outside the
-    worktree is not exposed that way; archiving still produces the flattened,
-    numbered snapshot, which is the point either way.
+    Wired into workmux's `pre_remove`. `specs/` is gitignored, so a worktree
+    holding only design artifacts reads *clean* to git and is removed without
+    complaint — while work git can see already stops the removal on its own.
+    This covers exactly the set nothing else can. Artifacts outside the worktree
+    are not at risk and are not copied; the message names the resolved path so
+    the absence of an archive does not read as a failed lookup.
 
-    Never exits non-zero. A teardown hook that fails is a hook that strands a
-    worktree, and a missed archive is a smaller loss than that — so every error
-    is reported and swallowed. This is the one place in wfctl where a bare
-    `except` is the correct behaviour rather than a smell, and it catches
-    SystemExit too: `get_repo_root` raises that rather than an Exception, so
-    `except Exception` alone would let a non-git checkout exit 1.
+    Two exit rules, and the split matters:
+
+    * **Non-zero only when at-risk artifacts existed and copying them failed**
+      (`ArchiveIncomplete`). A failing `pre_remove` hook aborts the removal, so
+      this refuses the teardown rather than reporting the loss afterwards.
+      `workmux remove --force` does *not* bypass the hook, which is why the
+      refusal prints the manual route out — completely, since `git worktree
+      remove` itself refuses when untracked files are present.
+    * **Zero for everything else**, still via a bare `except`. An unrelated
+      internal failure must not strand a worktree, and nothing was provably lost.
+      It catches SystemExit too: `get_repo_root` raises that rather than an
+      Exception, so `except Exception` alone would let a non-git checkout exit 1.
+
+    This replaces an earlier "never exits non-zero" contract. That guarantee, in
+    combination with `|| true` in the hook, meant a failed archive was silent and
+    the worktree was destroyed anyway — the exact failure this command exists to
+    prevent, delivered by its own error handling.
+
+    Named `archive-specs` since #27, because it archives the spec dir and one
+    superseded path and nothing else. `archive-story` survives as a hidden alias:
+    `.workmux.yaml` is repo-local, and with the hook now able to abort a removal,
+    an unknown command name would make those repos' worktrees unremovable.
     """
     try:
         # Inside the `try` on purpose: an import that raises here would exit

@@ -1,26 +1,49 @@
-"""Archive a story's speckit artifacts before its worktree is deleted.
+"""Rescue a story's speckit artifacts from a worktree about to be deleted.
 
-In the default layout `specs/` is gitignored — deliberately, so the
-implementation is what ships and the repo doesn't accumulate every
-spec/plan/tasks tree. The consequence is that it lives nowhere but the worktree,
-so `workmux remove` destroys it. This copies it into wfctl's per-branch state
-dir, which already holds current.md and session-summary.md and outlives the
-worktree.
+**This is a rescue, not a presentation.** Copying is justified by risk of loss
+and by nothing else. That decision reverses what this docstring said before: it
+argued the flattened, numbered snapshot was worth producing regardless of risk,
+so a durable spec root should still be archived. It should not. The numbering and
+the generated index remain — they are how the archive *reads* — but they stopped
+being the reason it exists.
 
-A repo with a spec root outside the worktree (`spec_root` / `WFCTL_SPEC_DIR`)
-is not exposed that way — teardown cannot reach those files. Archiving still
-runs, and is still worth running: the archive is the flattened, numbered
-snapshot, which the live tree is not. Only the data-loss urgency is
-layout-dependent.
+The gap this fills is structural. `specs/` is gitignored deliberately, so the
+implementation is what ships and the repo does not accumulate every
+spec/plan/tasks tree. The consequence is that a worktree holding only design
+artifacts reads *clean* to `git status`, so every version-control-based check
+sees nothing to protect and `workmux remove` destroys them without complaint.
+Work git *can* see — tracked edits, untracked files — already stops the removal
+on its own. This covers exactly the set nothing else can.
+
+So the predicate is containment: archive what this teardown would destroy, skip
+what it would not (`is_inside`). A spec root outside the worktree survives
+removal untouched; copying it produced a lossy duplicate that drifted from the
+original the moment either changed, and protected nothing. Path containment,
+never "is `spec_root` set" — a configured root resolving back inside the worktree
+is still at risk.
+
+That same predicate decides the exit code. Failing to copy at-risk artifacts
+raises `ArchiveIncomplete`, which the CLI turns into a non-zero exit; a failing
+`pre_remove` hook aborts the removal, so the worktree survives to be retried
+rather than being destroyed with a warning printed after the fact.
+
+`archive()` is promote-on-success: nothing reaches `archive/` until every copy
+has landed. Writing in place meant a mid-copy failure left an unindexed partial
+under the canonical name, and — since failure now prompts a retry — the retry
+displaced that partial into the timestamped pool where nothing distinguished it
+from a real previous run.
 
 Files are flattened and numbered in pipeline order, so the archive reads as the
 story of the branch rather than as a directory to dig through. That makes it a
-forensic snapshot, not a tree anyone can copy back.
+forensic snapshot, not a tree anyone can copy back. `wfctl checkpoint` is the
+restorable half; keeping the two in separate containers is deliberate.
 
-Ported from scripts/archive-story.sh. One deliberate behaviour change: the spec
-directory is resolved through `_paths.resolve_spec_dir` rather than a literal
-`specs/<handle>`, so a worktree whose handle doesn't match its spec directory
-now archives instead of silently finding nothing.
+Ported from scripts/archive-story.sh, and named `archive-specs` since #27 —
+`archive-story` remains as a hidden alias. One deliberate behaviour change from
+the shell version: the spec directory is resolved through
+`_paths.resolve_spec_dir` rather than a literal `specs/<handle>`, so a worktree
+whose handle doesn't match its spec directory now archives instead of silently
+finding nothing.
 """
 from __future__ import annotations
 
@@ -144,10 +167,19 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
 
     # A branch that predates the move still has its design doc at the old path,
     # and this runs from `pre_remove` — declining to archive it means deleting
-    # it. Preserving a file is not the dual-path *reading* the layout change
-    # forbids: nothing infers from this, and `extra/` is precisely the shelf for
-    # artifacts the map does not name, so the numbered sequence stays honest
-    # about what the current pipeline produces.
+    # it. `extra/` is precisely the shelf for artifacts the map does not name, so
+    # the numbered sequence stays honest about what the current pipeline
+    # produces.
+    #
+    # Reconciling aamarin/wf-skills#11 FR-013, "Tooling MUST read exactly one
+    # artifact location — the new one. No component reads both." That requirement
+    # is about *inference*: two locations feeding pipeline state is how the two
+    # disagree and a branch reports the wrong step. Nothing infers from this read.
+    # It copies bytes out of a directory that is about to be deleted, and the
+    # alternative to reading it is destroying it. The requirement's own purpose —
+    # one source of truth for what the pipeline has produced — is unaffected;
+    # `_pipeline.py` still reads only the new location. Recorded here because that
+    # epic is closed, so this is the only place the reconciliation can live.
     # ponytail: transition-only; delete once no worktree predates the move.
     legacy_design = worktree / ".agent" / "spec.md"
     if legacy_design.is_file():
