@@ -72,16 +72,35 @@ post_create:
   - cd "$WM_WORKTREE_PATH" && wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
 
 pre_remove:
-  # specs/ and .agent/ are gitignored, so removing the worktree destroys the
-  # spec, plan, tasks, and analysis with it. `wfctl archive-story` copies them
-  # into wfctl's per-branch state dir — flattened, numbered in pipeline order,
-  # with a generated index — so the story stays readable after the worktree is
-  # gone. It is a forensic snapshot, not a tree you can copy back.
+  # Gitignored artifacts are invisible to every git-based check: a worktree
+  # holding only `specs/` reads *clean*, so workmux removes it without complaint
+  # and the design work is gone. Work git can see — tracked edits, untracked
+  # files — already stops removal on its own ("Worktree has uncommitted
+  # changes"). This hook covers exactly the set nothing else can.
   #
-  # `command -v` guards a checkout without wfctl on PATH: a teardown hook must
-  # never be the thing that strands a worktree. The subcommand exits 0 on every
-  # internal failure for the same reason.
-  - command -v wfctl >/dev/null && wfctl archive-story "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
+  # `wfctl archive-specs` copies them into wfctl's per-branch state dir,
+  # flattened and numbered in pipeline order with a generated index. It is a
+  # forensic snapshot, not a tree you can copy back.
+  #
+  # No `|| true`. A failing pre_remove hook aborts the removal, and that is now
+  # the point: if artifacts were at risk and could not be preserved, losing the
+  # worktree is the worse outcome. archive-specs exits non-zero only in that
+  # case — a durable spec root, nothing to archive, or an unrelated internal
+  # failure all still exit 0, so an unrelated bug cannot strand a worktree.
+  #
+  # A block scalar, not a folded one. YAML folds a plain multi-line scalar's
+  # break into a space, which would turn `else` into an argument rather than a
+  # keyword — it passes `bash -n`, then invokes wfctl with four junk arguments
+  # (non-zero: every removal refused) and never prints the warning.
+  #
+  # The missing-wfctl branch proceeds deliberately: blocking there would strand
+  # every worktree on a machine that never had the tool.
+  - |
+    if command -v wfctl >/dev/null; then
+      wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
+    else
+      echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"
+    fi
 
 #-------------------------------------------------------------------------------
 # Files

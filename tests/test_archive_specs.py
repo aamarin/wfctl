@@ -530,6 +530,15 @@ def test_refusal_message_names_both_routes_out(
     assert "--force" in out, "the untracked-files caveat is missing"
     assert "tmux" in out, "the skipped-cleanup note is missing"
 
+    # The escape route has to survive being pasted. rich wraps at the terminal
+    # width and will break a long path across lines unless soft_wrap is set —
+    # every assertion above still passes when that happens, because the
+    # substrings are short. Caught by running the real teardown, not by the
+    # tests, which is why this line exists.
+    escape = next(ln for ln in out.splitlines() if "git worktree remove" in ln)
+    assert str(repo_root) in escape, "the path was wrapped out of the command"
+    assert "git branch -D" in escape, "the command was split across lines"
+
 
 def test_failed_run_leaves_the_previous_archive_untouched(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch

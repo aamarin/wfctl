@@ -378,11 +378,16 @@ def archive_specs_cmd(
             f"[red]✗[/red] {e.at_risk} spec file(s) could not be archived — "
             "removal aborted, nothing lost."
         )
-        console.print(f"  Cause: {e}")
+        # soft_wrap on every line carrying a path or a command: rich wraps at the
+        # terminal width and would break mid-path, so the escape route the user
+        # is meant to copy arrives split across lines and does not run. A route
+        # that cannot be pasted is no better than one that is not printed.
+        console.print(f"  Cause: {e}", soft_wrap=True)
         console.print("")
-        console.print(f"  Retry:         workmux remove {story}")
+        console.print(f"  Retry:         workmux remove {story}", soft_wrap=True)
         console.print(
-            f"  Remove anyway: git worktree remove {repo_root} && git branch -D {branch}"
+            f"  Remove anyway: git worktree remove {repo_root} && git branch -D {branch}",
+            soft_wrap=True,
         )
         console.print(
             "                 (add --force to the first if the worktree has untracked\n"
