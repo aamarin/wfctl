@@ -1420,7 +1420,12 @@ def test_asked_marker_is_not_mistaken_for_an_installed_layer(
     )
 
     assert "spec_root_asked" not in _layer_keys(_manifest(repo_root))
-    assert runner.invoke(app, ["doctor"]).exit_code is not None  # did not raise
+    # `exit_code is not None` was vacuous: CliRunner captures the exception and
+    # still reports a code, so an AttributeError would have passed. Assert the
+    # run actually succeeded and that nothing was raised.
+    result = runner.invoke(app, ["doctor"])
+    assert result.exception is None, result.exception
+    assert result.exit_code == 0, result.output
 
 
 def test_spec_location_is_not_asked_without_a_human(agent_dir: Path, tmp_path: Path) -> None:
@@ -1511,3 +1516,84 @@ def test_the_question_is_asked_once(
     second = _install(src, answers="")
     assert second.exit_code == 0
     assert "Where should this project's specs live?" not in second.output
+
+
+def test_an_existing_spec_root_counts_as_already_answered(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #26 requires the question be skipped when a root is already recorded.
+
+    Repos that ran `wfctl spec-root` before this prompt existed have no marker.
+    Asking them would be asking a question they answered more explicitly than the
+    prompt can, and a wrong answer would silently relocate their specs.
+    """
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        '{"spec_root": "/somewhere/durable"}\n'
+    )
+
+    # No answer supplied: a re-prompt would abort on EOF rather than pass.
+    result = _install(src, answers="n\n")
+
+    assert result.exit_code == 0
+    assert "Where should this project's specs live?" not in result.output
+    assert _manifest(repo_root)["spec_root"] == "/somewhere/durable"
+
+
+def test_option_two_with_an_absolute_path_keeps_its_clone_guidance(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The option drives the guidance, not the path's shape.
+
+    Both prompts accept absolute and relative input, so inferring the option from
+    `is_absolute()` dropped the clone instructions for an absolute answer to
+    option 2 — and handed them to a relative answer to option 3.
+    """
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    target = tmp_path.parent / "abs-specs"
+
+    result = _install(src, answers=f"n\n2\n{target}\n")
+
+    assert result.exit_code == 0
+    assert "git clone" in result.output, "option 2 lost its guidance"
+    assert _manifest(repo_root)["spec_root"] == str(target)
+
+
+def test_option_three_with_a_relative_path_gets_no_clone_guidance(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror case: a relative answer to option 3 is not a specs repo."""
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+
+    result = _install(src, answers="n\n3\n../elsewhere\n")
+
+    assert result.exit_code == 0
+    assert "git clone" not in result.output
+
+
+def test_option_two_clone_commands_are_anchored_to_the_main_checkout(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`chosen` is stored relative to the main checkout, but these lines get
+    pasted into whatever shell the user is standing in. Left relative, running
+    them from a linked worktree would create the specs repo inside the worktree —
+    the one place it must not go."""
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    result = _install(src, answers="n\n2\nproj-specs\n")
+
+    assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output

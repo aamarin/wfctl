@@ -370,17 +370,19 @@ def archive_specs_cmd(
             spec_dir=spec_dir,
             state_dir=state_dir,
         )
+        # Reported whether or not anything else was archived. Gating this on an
+        # empty plan hid it in the mixed case — an external spec root *plus* a
+        # legacy `.agent/spec.md` — where the legacy file produces an archive and
+        # the durable directory is skipped silently, which is exactly when the
+        # explanation is most needed.
+        if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
+            console.print(
+                f"[green]✓[/green] spec dir is durable ({spec_dir}) — "
+                "nothing there was at risk, nothing copied",
+                soft_wrap=True,
+            )
         if archive_dir is None:
-            # Name the resolved path, not just the fact of skipping: without it
-            # this is indistinguishable from a lookup that found nothing, and a
-            # user reads the absence of an archive as a failure.
-            if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
-                console.print(
-                    f"[green]✓[/green] spec dir is durable ({spec_dir}) — "
-                    "nothing was at risk, nothing archived",
-                    soft_wrap=True,
-                )
-            else:
+            if spec_dir is None or _archive.is_inside(repo_root, spec_dir):
                 console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
             return
         console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
@@ -395,16 +397,27 @@ def archive_specs_cmd(
             f"[red]✗[/red] {e.at_risk} spec file(s) could not be archived — "
             "removal aborted, nothing lost."
         )
-        # soft_wrap on every line carrying a path or a command: rich wraps at the
-        # terminal width and would break mid-path, so the escape route the user
-        # is meant to copy arrives split across lines and does not run. A route
-        # that cannot be pasted is no better than one that is not printed.
-        console.print(f"  Cause: {e}", soft_wrap=True)
+        # These lines are meant to be pasted into a shell, so every interpolated
+        # value is quoted: a worktree path containing a space otherwise produces a
+        # command that fails, and a branch or path carrying shell metacharacters
+        # produces one that does something else entirely.
+        #
+        # markup=False with them: a path may legitimately contain `[`, which rich
+        # would read as a style tag and swallow. soft_wrap for the same reason as
+        # above — rich wraps at the terminal width and would break mid-path, and a
+        # route that cannot be pasted is no better than one not printed.
+        import shlex
+
+        console.print(f"  Cause: {e}", soft_wrap=True, markup=False)
         console.print("")
-        console.print(f"  Retry:         workmux remove {story}", soft_wrap=True)
         console.print(
-            f"  Remove anyway: git worktree remove {repo_root} && git branch -D {branch}",
-            soft_wrap=True,
+            f"  Retry:         workmux remove {shlex.quote(story)}",
+            soft_wrap=True, markup=False,
+        )
+        console.print(
+            f"  Remove anyway: git worktree remove {shlex.quote(str(repo_root))}"
+            f" && git branch -D {shlex.quote(branch)}",
+            soft_wrap=True, markup=False,
         )
         console.print(
             "                 (add --force to the first if the worktree has untracked\n"
@@ -827,10 +840,21 @@ _SPEC_ROOT_ASKED = "spec_root_asked"
 def _spec_root_question_answered(repo_root: Path) -> bool:
     """Has this project already answered the spec-location question?
 
-    Walks this checkout then the main one, mirroring `spec_root_declaration`.
-    `post_create` reinstalls in every fresh worktree, where the manifest is
-    regenerated from scratch — a local-only read would re-ask in each of them.
+    Two ways to have answered, and both count:
+
+    * the marker this prompt writes, or
+    * a `spec_root` already recorded — by `wfctl spec-root`, or by a repo that
+      configured one before this prompt existed. Asking those projects would be
+      asking a question they have already answered more explicitly than the
+      prompt can, and a wrong answer would silently relocate their specs.
+
+    Walks this checkout then the main one for both, mirroring
+    `spec_root_declaration`. `post_create` reinstalls in every fresh worktree,
+    where the manifest is regenerated from scratch, so a local-only read would
+    re-ask in each of them.
     """
+    if spec_root_declaration(repo_root) is not None:
+        return True
     if _load_manifest(repo_root).get(_SPEC_ROOT_ASKED):
         return True
     main = main_checkout(repo_root)
@@ -881,9 +905,15 @@ def _spec_root_panels(name: str) -> list[object]:
     ]
 
 
-def _ask_where_specs_live(repo_root: Path) -> str | None:
-    """Ask once, on first interactive install. Returns a path, or None to keep
-    the default.
+def _ask_where_specs_live(repo_root: Path) -> tuple[str, str | None]:
+    """Ask once, on first interactive install.
+
+    Returns `(choice, path)` — the option the user picked and the path they gave,
+    or None for the default. The choice is returned rather than re-derived from
+    the path's shape: both prompts accept absolute *and* relative input, so
+    inferring "this was option 2" from `not is_absolute()` mislabels an absolute
+    answer to option 2 and a relative answer to option 3, and the clone guidance
+    and gitignore entry hang off that distinction.
 
     Option 1 records no `spec_root` at all: the default *is* the absence of the
     key, so a repo that answers "keep them here" must resolve byte-identically to
@@ -910,10 +940,10 @@ def _ask_where_specs_live(repo_root: Path) -> str | None:
     choice = typer.prompt("Choose [1/2/3]", default="1", show_default=True).strip()
     if choice == "2":
         directory = typer.prompt("Directory", default=f"{name}-specs").strip()
-        return directory or f"{name}-specs"
+        return "2", (directory or f"{name}-specs")
     if choice == "3":
-        return typer.prompt("Path").strip() or None
-    return None
+        return "3", (typer.prompt("Path").strip() or None)
+    return "1", None
 
 
 @app.command("install-skills")
@@ -1018,7 +1048,7 @@ def install_skills_cmd(
     # took the default and found out it was wrong when `workmux remove` deleted a
     # spec — the failure the setting exists to prevent.
     if not yes and _interactive() and not _spec_root_question_answered(repo_root):
-        chosen = _ask_where_specs_live(repo_root)
+        choice, chosen = _ask_where_specs_live(repo_root)
         # The main checkout, not this one: the manifest is gitignored and a
         # worktree's copy dies with the worktree, so recording it here would set
         # a value that silently evaporates. Same target `wfctl spec-root` uses.
@@ -1042,20 +1072,36 @@ def install_skills_cmd(
             console.print(
                 f"[green]✓[/green] gitignored it in {target / '.gitignore'}", soft_wrap=True
             )
-        if chosen and not Path(chosen).expanduser().is_absolute():
-            # Option 2: a sibling directory inside the checkout, so it needs
-            # ignoring here too — and the commands to create it are printed
-            # rather than run. wfctl resolves paths; it does not clone for you.
-            if _ensure_gitignored(target, f"{chosen}/"):
+        if choice == "2" and chosen:
+            # Keyed on the option the user picked, not on the path's shape. Both
+            # prompts accept absolute and relative input, so an absolute answer to
+            # option 2 would have lost this guidance and a relative answer to
+            # option 3 would have received it wrongly — along with a `../…`
+            # gitignore entry that means nothing.
+            import shlex
+
+            # Only a path inside the checkout can be gitignored by it. An absolute
+            # answer to option 2 lands elsewhere on disk and simply has no entry
+            # to write; `_ensure_gitignored` would otherwise be handed a path its
+            # `check-ignore` call cannot evaluate against this repo.
+            rel = Path(chosen).expanduser()
+            if not rel.is_absolute() and _ensure_gitignored(target, f"{chosen}/"):
                 console.print(
                     f"[green]✓[/green] gitignored {chosen}/ in {target / '.gitignore'}",
                     soft_wrap=True,
                 )
+            # Anchored to `target`, not left relative. `chosen` is stored relative
+            # to the main checkout, but these lines get pasted into whatever shell
+            # the user is standing in — from a linked worktree that would create
+            # the specs repo inside the worktree, which is the one place it must
+            # not go. Quoted for the same reason as the teardown escape route.
+            where = shlex.quote(str(target / chosen)) if not rel.is_absolute() \
+                else shlex.quote(str(rel))
             console.print(
                 f"\n[dim]Not created yet — when you have a specs repo:\n"
-                f"  git clone <url> {chosen}\n\n"
+                f"  git clone <url> {where}\n\n"
                 f"Or start one:\n"
-                f"  mkdir -p {chosen}/specs && git -C {chosen} init[/dim]",
+                f"  mkdir -p {where}/specs && git -C {where} init[/dim]",
                 soft_wrap=True,
             )
 

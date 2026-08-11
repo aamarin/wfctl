@@ -348,10 +348,11 @@ username, or an email) and use `{me}` in any command. wfctl substitutes it, so
 ### Where your specs live (`spec-root`)
 
 **The first interactive `wfctl install-skills` in a project asks this**, beside
-the tracker question, and records the answer so it is never asked again. Keeping
-specs in the repo records nothing at all — the default is the absence of a
-setting, so answering "keep them here" behaves exactly like never answering.
-Non-interactive installs, and `--yes`, never ask.
+the tracker question, and records that you answered so it is never asked again.
+Keeping specs in the repo records no `spec_root` — the default is the absence of
+that setting, so artifacts resolve exactly as they do in a project that predates
+the question. Non-interactive installs, and `--yes`, never ask; nor does a
+project that already ran `wfctl spec-root`.
 
 Two setups. The first needs no configuration at all.
 

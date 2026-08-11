@@ -244,11 +244,20 @@ def archive(
     # distinguished it from a real previous run. The safety mechanism was
     # manufacturing the ambiguity.
     #
-    # Cleared first: a process killed outright (SIGKILL) leaves staging behind
-    # with no exception to catch, and `_copy` mkdirs with `exist_ok`, so stale
-    # files would merge into this run and be promoted as phantom entries.
-    shutil.rmtree(staging, ignore_errors=True)
+    # Copy *and* promotion are both inside the `try`. Leaving the renames outside
+    # it meant a failed promotion raised a bare OSError, which the CLI's generic
+    # handler turns into exit 0 — teardown proceeds and the worktree is deleted
+    # while nothing was ever promoted. Every way this function can fail with a
+    # non-empty plan must reach `ArchiveIncomplete`, or the refusal has a hole.
     try:
+        # Cleared first, and *not* with `ignore_errors`: a staging directory we
+        # cannot remove is one whose stale files `_copy` would merge into this run
+        # (it mkdirs with `exist_ok`) and promote as phantom entries. Failing here
+        # blocks teardown, which is the right answer — the alternative is an
+        # archive quietly claiming files this run never copied.
+        if staging.exists():
+            shutil.rmtree(staging)
+
         for src, dst in plan:
             _copy(src, staging / dst)
         mapped = [(dst, _describe(worktree, src)) for src, dst in plan]
@@ -257,16 +266,32 @@ def archive(
         (staging / "README.md").write_text(
             _render_index(handle, branch, commit, worktree, mapped)
         )
+
+        # A previous run moves aside rather than being deleted, so a rerun never
+        # destroys an earlier story. Microseconds in the stamp, not just seconds:
+        # renaming onto a non-empty directory raises, so a same-second rerun would
+        # otherwise fail outright.
+        if archive_dir.exists():
+            stamp = _utc_now().strftime("%Y%m%dT%H%M%S%fZ")
+            archive_dir.rename(archive_dir.with_name(f"{archive_dir.name}-{stamp}"))
+        staging.rename(archive_dir)
     except Exception as exc:
-        shutil.rmtree(staging, ignore_errors=True)
+        # Best effort, and wrapped in its own `try` rather than trusting
+        # `ignore_errors` alone: this runs while another exception is in flight,
+        # and *anything* raised here would replace `ArchiveIncomplete` with a
+        # bare error the CLI treats as exit 0 — turning a refused teardown into a
+        # completed one. Cleanup must not be able to undo the refusal.
+        # A residue left behind is handled by the un-ignored rmtree at the top of
+        # the next run.
+        #
+        # If the first rename succeeded and the second did not, the previous
+        # archive now sits under its timestamp with no `archive/` beside it.
+        # Nothing is lost and teardown is blocked, so the retry resolves it;
+        # rolling back would add a failure path of its own for a rarer case.
+        try:
+            shutil.rmtree(staging, ignore_errors=True)
+        except Exception:  # noqa: BLE001 — see above; the refusal outranks cleanup
+            pass
         raise ArchiveIncomplete(len(plan), exc) from exc
 
-    # Only reached when the whole copy succeeded. A previous run moves aside
-    # rather than being deleted, so a rerun never destroys an earlier story.
-    # Microseconds in the stamp, not just seconds: renaming onto a non-empty
-    # directory raises, so a same-second rerun would otherwise fail outright.
-    if archive_dir.exists():
-        stamp = _utc_now().strftime("%Y%m%dT%H%M%S%fZ")
-        archive_dir.rename(archive_dir.with_name(f"{archive_dir.name}-{stamp}"))
-    staging.rename(archive_dir)
     return archive_dir, mapped

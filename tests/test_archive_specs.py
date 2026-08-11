@@ -585,3 +585,99 @@ def test_failure_then_retry_leaves_no_junk_directory(
     assert "archive" in dirs
     for d in dirs:
         assert (agent_dir / d / "README.md").is_file(), f"{d} is an incomplete result"
+
+
+def test_failed_promotion_also_refuses_the_removal(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every failure with a non-empty plan must reach ArchiveIncomplete.
+
+    The promotion renames used to sit outside the try, so a failure there raised a
+    bare OSError, the CLI's generic handler turned it into exit 0, and teardown
+    deleted the worktree with nothing promoted.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md", "spec.md")
+
+    real_rename = Path.rename
+
+    def refuse_promotion(self: Path, target: object) -> object:
+        if self.name.endswith(".staging"):
+            raise OSError(13, "Permission denied")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", refuse_promotion)
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code != 0, "teardown would have proceeded with nothing promoted"
+
+
+def test_unclearable_staging_refuses_rather_than_merging_stale_files(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_copy` mkdirs with exist_ok, so a staging dir left by a killed run would
+    have its stale files promoted as if this run had copied them. If it cannot be
+    cleared, block instead."""
+    import shutil
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md")
+    stale = agent_dir / "archive.staging"
+    _write(stale / "9-tasks.md", "left by a killed run\n")
+
+    # Honours `ignore_errors` the way the real one does, so this exercises the
+    # un-ignored clear at the top of the run rather than the best-effort cleanup
+    # in the handler.
+    def refuse(path: object, *a: object, ignore_errors: bool = False, **k: object) -> None:
+        if not ignore_errors:
+            raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(shutil, "rmtree", refuse)
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code != 0
+    assert not (_archive_dir(agent_dir) / "9-tasks.md").exists(), "stale file promoted"
+
+
+def test_durable_skip_is_reported_even_when_something_else_is_archived(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mixed case: an external spec root plus a legacy design doc. The legacy
+    file produces an archive, so gating the notice on an empty plan hid the
+    explanation exactly where it is most needed."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    durable = tmp_path.parent / "durable-mixed"
+    spec_dir = _durable_story(durable, handle, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+
+    out = runner.invoke(app, ["archive-specs"]).output
+
+    assert "durable" in out.lower()
+    assert str(spec_dir) in out
+    assert "archived" in out, "the at-risk legacy file should still be archived"
+
+
+def test_escape_route_survives_a_path_with_spaces(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The refusal message is meant to be pasted. An unquoted path containing a
+    space produces a command that fails; metacharacters produce one that does
+    something else."""
+    import shlex
+    spaced = tmp_path / "a dir with spaces"
+    spaced.mkdir()
+    _make_story(spaced, "42-spaced", "design.md", "spec.md")
+    _fail_copy_on(monkeypatch, 1)
+
+    out = runner.invoke(app, ["archive-specs", str(spaced), "42-spaced"]).output
+
+    line = next(ln for ln in out.splitlines() if "git worktree remove" in ln)
+    assert shlex.quote(str(spaced)) in line, "the path was interpolated unquoted"
+    # Pasting it must parse as one argument, not three.
+    parsed = shlex.split(line.split("git worktree remove", 1)[1].split("&&")[0])
+    assert parsed == [str(spaced)]
