@@ -376,8 +376,15 @@ def archive_specs_cmd(
         # the durable directory is skipped silently, which is exactly when the
         # explanation is most needed.
         if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
+            # escape(): the line carries rich markup for the tick, so a path
+            # containing `[…]` — legal on every platform — would be parsed as a
+            # style tag and silently dropped. This message exists to name a
+            # location; printing a path that is not the real one is worse than
+            # printing none.
+            from rich.markup import escape
+
             console.print(
-                f"[green]✓[/green] spec dir is durable ({spec_dir}) — "
+                f"[green]✓[/green] spec dir is durable ({escape(str(spec_dir))}) — "
                 "nothing there was at risk, nothing copied",
                 soft_wrap=True,
             )
@@ -867,7 +874,13 @@ def _spec_root_panels(name: str) -> list[object]:
     Stacked rather than side by side: three boxes across truncate their titles
     below ~110 columns.
     """
+    from rich.markup import escape
     from rich.panel import Panel
+
+    # A directory name is not markup. `[` is legal in one, and unescaped it is
+    # parsed as a style tag and dropped, so the panel would show a project name
+    # the user does not recognise.
+    name = escape(name)
 
     return [
         Panel(
@@ -1084,10 +1097,13 @@ def install_skills_cmd(
             # answer to option 2 lands elsewhere on disk and simply has no entry
             # to write; `_ensure_gitignored` would otherwise be handed a path its
             # `check-ignore` call cannot evaluate against this repo.
+            from rich.markup import escape
+
             rel = Path(chosen).expanduser()
             if not rel.is_absolute() and _ensure_gitignored(target, f"{chosen}/"):
                 console.print(
-                    f"[green]✓[/green] gitignored {chosen}/ in {target / '.gitignore'}",
+                    f"[green]✓[/green] gitignored {escape(chosen)}/ in "
+                    f"{escape(str(target / '.gitignore'))}",
                     soft_wrap=True,
                 )
             # Anchored to `target`, not left relative. `chosen` is stored relative
@@ -1097,6 +1113,11 @@ def install_skills_cmd(
             # not go. Quoted for the same reason as the teardown escape route.
             where = shlex.quote(str(target / chosen)) if not rel.is_absolute() \
                 else shlex.quote(str(rel))
+            # escape() as well as quote(): shell quoting protects the shell, rich
+            # markup is a separate layer, and `[` is legal in a path. Without it
+            # these lines — which exist to be pasted — lose part of the path and
+            # create the specs repo somewhere else, or nowhere.
+            where = escape(where)
             console.print(
                 f"\n[dim]Not created yet — when you have a specs repo:\n"
                 f"  git clone <url> {where}\n\n"
@@ -1604,7 +1625,7 @@ def _check_wfctl_version() -> int:
 
 
 def _archive_destination(repo_root: Path) -> str:
-    """Where `archive-story` would write, for display only — creates nothing.
+    """Where `archive-specs` would write, for display only — creates nothing.
 
     `resolve_agent_dir` would answer this but also mkdirs, and a health check that
     creates directories while reporting on them is a check with side effects.
@@ -1692,7 +1713,7 @@ def _check_workmux_hook(repo_root: Path) -> None:
 
     console.print(
         "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
-        "`wfctl archive-story` — removing a\n"
+        "`wfctl archive-specs` — removing a\n"
         "  worktree will discard its specs, plan, and tasks."
     )
     # soft_wrap: rich would otherwise wrap this at the terminal width and could

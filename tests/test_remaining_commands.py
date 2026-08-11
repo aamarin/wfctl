@@ -424,3 +424,21 @@ def test_doctor_is_quiet_about_a_hook_using_the_current_name(
 
     assert "renamed to" not in out
     assert "does not call" not in out
+
+
+def test_unwired_warning_names_the_current_command(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The message is the deliverable — it tells someone what to add.
+
+    It named `archive-story` after the rename, so following it would have wired
+    the compatibility alias rather than the command. The existing warning test
+    asserts the sentence but not the command, so nothing caught it.
+    """
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+
+    out = _doctor(monkeypatch, interactive=False).output
+
+    assert "archive-specs" in out
+    assert "`wfctl archive-story`" not in out

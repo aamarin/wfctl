@@ -681,3 +681,21 @@ def test_escape_route_survives_a_path_with_spaces(
     # Pasting it must parse as one argument, not three.
     parsed = shlex.split(line.split("git worktree remove", 1)[1].split("&&")[0])
     assert parsed == [str(spaced)]
+
+
+def test_durable_message_survives_a_path_containing_markup(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`[` is legal in a directory name; rich reads it as a style tag.
+
+    The message exists to name a location, so a silently truncated path is worse
+    than no message at all.
+    """
+    handle = os.environ["WFCTL_BRANCH"]
+    durable = tmp_path.parent / "durable[bold]root"
+    spec_dir = _durable_story(durable, handle, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+
+    out = runner.invoke(app, ["archive-specs"]).output
+
+    assert str(spec_dir) in out, "the path was mangled by markup parsing"
