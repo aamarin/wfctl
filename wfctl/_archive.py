@@ -48,8 +48,46 @@ _SPEC_MAP: list[tuple[str, str]] = [
 ]
 
 
+class ArchiveIncomplete(Exception):
+    """Copying at-risk artifacts failed partway; `at_risk` is how many were planned.
+
+    The channel the CLI needs. `cli.py` wraps this whole command in one `try` and
+    exits 0 on anything it catches — correct for a teardown hook, which must not
+    strand a worktree over an unrelated bug. But a bare `OSError` carries no
+    indication that the plan was non-empty, so without a distinct type the caller
+    cannot tell "artifacts were lost" from "git rev-parse failed", and those two
+    must produce opposite exit codes.
+
+    Carries the count rather than making the caller recompute it: re-running
+    `_plan` after a failure would re-stat a directory mid-failure and could
+    disagree with what the failed run actually attempted.
+    """
+
+    def __init__(self, at_risk: int, cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.at_risk = at_risk
+
+
 def _utc_now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
+
+
+def is_inside(worktree: Path, path: Path) -> bool:
+    """Would deleting `worktree` destroy `path`?
+
+    The whole predicate. Path containment, never "is `spec_root` set" — a repo
+    whose configured root resolves back inside the worktree is still at risk, and
+    a flag keyed on the setting would silently skip it.
+
+    Resolved on both sides so a symlinked state dir or a `/private/var` vs `/var`
+    mismatch does not read as "outside" and quietly stop archiving files that are
+    in fact about to be deleted.
+    """
+    try:
+        path.resolve().relative_to(worktree.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _describe(worktree: Path, path: Path) -> str:
@@ -115,7 +153,15 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     if legacy_design.is_file():
         plan.append((legacy_design, "extra/legacy-agent-spec.md"))
 
-    if spec_dir is None:
+    # Archive what this teardown would destroy; skip what it would not. A spec dir
+    # outside the worktree survives `workmux remove` untouched, so copying it
+    # produces a lossy duplicate that drifts from the original the moment either
+    # changes — and the copy was never protecting anything.
+    #
+    # Tested once against the directory rather than per file: every source below
+    # is under `spec_dir`, so a per-file test would ask the same question N times
+    # and answer it identically.
+    if spec_dir is None or not is_inside(worktree, spec_dir):
         return plan
 
     claimed: set[Path] = set()
@@ -156,21 +202,39 @@ def archive(
         return None, []
 
     archive_dir = state_dir / "archive"
-    # A re-archive of the same branch should refresh, not accumulate. Any
-    # previous run moves aside rather than being deleted, so a rerun never
-    # destroys an earlier story. Microseconds in the stamp, not just seconds:
-    # renaming onto a non-empty directory raises, so a same-second rerun would
-    # otherwise fail and skip the archive entirely.
+    staging = archive_dir.with_name(f"{archive_dir.name}.staging")
+
+    # Nothing is written to `archive/` until every copy has landed. Writing into
+    # it directly meant a mid-copy failure left an unindexed partial under the
+    # canonical name while the complete result sat under a timestamp reading as
+    # superseded — and since a failed archive now refuses the removal, the retry
+    # that follows displaced that partial into the timestamped pool, where nothing
+    # distinguished it from a real previous run. The safety mechanism was
+    # manufacturing the ambiguity.
+    #
+    # Cleared first: a process killed outright (SIGKILL) leaves staging behind
+    # with no exception to catch, and `_copy` mkdirs with `exist_ok`, so stale
+    # files would merge into this run and be promoted as phantom entries.
+    shutil.rmtree(staging, ignore_errors=True)
+    try:
+        for src, dst in plan:
+            _copy(src, staging / dst)
+        mapped = [(dst, _describe(worktree, src)) for src, dst in plan]
+        # Into staging, not the live directory: an index promoted separately would
+        # describe files this run may not have copied.
+        (staging / "README.md").write_text(
+            _render_index(handle, branch, commit, worktree, mapped)
+        )
+    except Exception as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise ArchiveIncomplete(len(plan), exc) from exc
+
+    # Only reached when the whole copy succeeded. A previous run moves aside
+    # rather than being deleted, so a rerun never destroys an earlier story.
+    # Microseconds in the stamp, not just seconds: renaming onto a non-empty
+    # directory raises, so a same-second rerun would otherwise fail outright.
     if archive_dir.exists():
         stamp = _utc_now().strftime("%Y%m%dT%H%M%S%fZ")
         archive_dir.rename(archive_dir.with_name(f"{archive_dir.name}-{stamp}"))
-    archive_dir.mkdir(parents=True, exist_ok=True)
-
-    for src, dst in plan:
-        _copy(src, archive_dir / dst)
-    mapped = [(dst, _describe(worktree, src)) for src, dst in plan]
-
-    (archive_dir / "README.md").write_text(
-        _render_index(handle, branch, commit, worktree, mapped)
-    )
+    staging.rename(archive_dir)
     return archive_dir, mapped

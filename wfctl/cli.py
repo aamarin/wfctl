@@ -10,6 +10,12 @@ import typer
 from rich.console import Console
 
 from wfctl import _tracker
+# Module scope, unlike the rest of `_archive`, which `archive-specs` imports
+# lazily inside its `try` so an import error cannot strand a worktree. An
+# `except` clause resolves its class before the handler runs, so this name has to
+# exist by then. Safe to hoist: `_archive` imports only datetime, shutil and
+# pathlib, so there is no import here that can fail on its own.
+from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
@@ -273,8 +279,17 @@ def state_dir_cmd() -> None:
     print(agent_dir)
 
 
-@app.command("archive-story")
-def archive_story_cmd(
+# Two names, one function. `archive-story` is a compatibility shim, hidden so it
+# is not advertised as a second supported spelling: `.workmux.yaml` is repo-local,
+# so copies predating the rename persist indefinitely, and a failing `pre_remove`
+# hook now aborts the removal. Without the alias those repos would hit an unknown
+# command, exit non-zero, and find their worktrees unremovable — a worse failure
+# than the silent loss this command exists to prevent.
+# ponytail: transition-only; delete once `wfctl doctor` reports no repo still
+# naming it (see the stale-hook check below, and issue #36).
+@app.command("archive-specs")
+@app.command("archive-story", hidden=True)
+def archive_specs_cmd(
     worktree: str = typer.Argument(
         None, help="Worktree to archive. Defaults to $WM_WORKTREE_PATH, then the current repo."
     ),
@@ -339,9 +354,41 @@ def archive_story_cmd(
             state_dir=state_dir,
         )
         if archive_dir is None:
-            console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
+            # Name the resolved path, not just the fact of skipping: without it
+            # this is indistinguishable from a lookup that found nothing, and a
+            # user reads the absence of an archive as a failure.
+            if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
+                console.print(
+                    f"[green]✓[/green] spec dir is durable ({spec_dir}) — "
+                    "nothing was at risk, nothing archived",
+                    soft_wrap=True,
+                )
+            else:
+                console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
             return
         console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
+    except _ArchiveIncomplete as e:
+        # The one path that exits non-zero. `pre_remove` failing aborts the
+        # removal, so this refuses the teardown rather than reporting the loss
+        # after it happened. `workmux remove --force` does NOT bypass the hook,
+        # which is why the manual route is spelled out rather than implied — and
+        # spelled out completely: `git worktree remove` refuses when untracked
+        # files are present, and bypassing workmux skips its tmux cleanup.
+        console.print(
+            f"[red]✗[/red] {e.at_risk} spec file(s) could not be archived — "
+            "removal aborted, nothing lost."
+        )
+        console.print(f"  Cause: {e}")
+        console.print("")
+        console.print(f"  Retry:         workmux remove {story}")
+        console.print(
+            f"  Remove anyway: git worktree remove {repo_root} && git branch -D {branch}"
+        )
+        console.print(
+            "                 (add --force to the first if the worktree has untracked\n"
+            "                  files; leaves the tmux window workmux would have closed)"
+        )
+        raise typer.Exit(1) from e
     except (Exception, SystemExit) as e:  # noqa: BLE001 — see the docstring
         console.print(f"[yellow]⚠[/yellow] archive failed ({e}) — continuing so teardown is not blocked")
 

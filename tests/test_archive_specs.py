@@ -562,9 +562,13 @@ def test_failure_then_retry_leaves_no_junk_directory(
     _make_story(repo_root, handle, "design.md", "spec.md", "plan.md")
     assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
+    # Fires once, on the 2nd copy, then lets everything through — so the retry
+    # below runs clean. Deliberately not `monkeypatch.undo()`: pytest hands the
+    # test and the `agent_dir` fixture the same monkeypatch instance, so undoing
+    # would also unset WFCTL_STATE_DIR and send the retry to a different state
+    # dir, where it would find nothing to displace and pass vacuously.
     _fail_copy_on(monkeypatch, 2)
     assert runner.invoke(app, ["archive-specs"]).exit_code != 0
-    monkeypatch.undo()
     assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     dirs = sorted(p.name for p in agent_dir.iterdir() if p.is_dir())
