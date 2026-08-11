@@ -27,8 +27,8 @@ repository root.
 
 **Purpose**: Establish the baseline this change must not regress.
 
-- [ ] T001 Record the current green baseline — run `uv run pytest -q`, `uv run ruff check .`, and `uv run mypy`, and note the passing test count; every later checkpoint compares against it
-- [ ] T002 Confirm `wfctl feature-paths` resolves this branch's spec dir outside the repo, so no task writes to a literal `specs/<branch>`
+- [X] T001 Record the current green baseline — run `uv run pytest -q`, `uv run ruff check .`, and `uv run mypy`, and note the passing test count; every later checkpoint compares against it
+- [X] T002 Confirm `wfctl feature-paths` resolves this branch's spec dir outside the repo, so no task writes to a literal `specs/<branch>`
 
 **Checkpoint**: baseline captured, three commands green.
 
@@ -48,11 +48,11 @@ would hit an unknown command, exit non-zero, and find its worktrees
 silent-loss bug into an outage. The alias must exist first; US3 keeps only the
 parts that carry no such risk.
 
-- [ ] T003 [P] Rename `tests/test_archive_story.py` to `tests/test_archive_specs.py` and change every `runner.invoke(app, ["archive-story", ...])` to `"archive-specs"`; expect failures now — the command does not exist yet
-- [ ] T004 [P] Add a test in `tests/test_archive_specs.py` asserting `runner.invoke(app, ["archive-story"])` still dispatches identically to `archive-specs` (same exit code, same archive contents); expect it to fail
-- [ ] T005 Add a test in `tests/test_archive_specs.py` asserting `archive-story` does **not** appear in `runner.invoke(app, ["--help"])` output while `archive-specs` does; expect it to fail
-- [ ] T006 Rename the command to `archive-specs` in `wfctl/cli.py:276` and register `archive-story` as a hidden alias on the same function (no delegating second function, per research.md R-004); verify with `uv run pytest -q tests/test_archive_specs.py`
-- [ ] T007 Validate Phase 2 with `uv run pytest -q && uv run ruff check . && uv run mypy` — merge gate
+- [X] T003 [P] Rename `tests/test_archive_story.py` to `tests/test_archive_specs.py` and change every `runner.invoke(app, ["archive-story", ...])` to `"archive-specs"`; expect failures now — the command does not exist yet
+- [X] T004 [P] Add a test in `tests/test_archive_specs.py` asserting `runner.invoke(app, ["archive-story"])` still dispatches identically to `archive-specs` (same exit code, same archive contents); expect it to fail
+- [X] T005 Add a test in `tests/test_archive_specs.py` asserting `archive-story` does **not** appear in `runner.invoke(app, ["--help"])` output while `archive-specs` does; expect it to fail
+- [X] T006 Rename the command to `archive-specs` in `wfctl/cli.py:276` and register `archive-story` as a hidden alias on the same function (no delegating second function, per research.md R-004); verify with `uv run pytest -q tests/test_archive_specs.py`
+- [X] T007 Validate Phase 2 with `uv run pytest -q && uv run ruff check . && uv run mypy` — merge gate
 
 **Checkpoint**: both names work, only one is advertised, teardown behaviour is
 unchanged. Safe to arm the hook in Phase 3.
@@ -89,28 +89,28 @@ worktree survives.
 > key, no junk directory — so they pass vacuously against a wrong fixture.
 > Confirming the failure is what proves the fixture builds the condition at all.
 
-- [ ] T008 [P] [US1] **Must pass now.** Regression test in `tests/test_archive_specs.py`: a repo with no `spec_root` archives exactly the set it archives today — assert the full mapped list, not a count (FR-001, SC-002)
-- [ ] T009 [P] [US1] Test in `tests/test_archive_specs.py`: `spec_root` outside the worktree archives the legacy `.agent/spec.md` and nothing from the spec dir (FR-002)
-- [ ] T010 [P] [US1] Test in `tests/test_archive_specs.py`: `spec_root` resolving back **inside** the worktree still archives the spec dir — the case an on/off flag gets wrong (FR-003)
-- [ ] T011 [P] [US1] Test in `tests/test_archive_specs.py`: durable location with no legacy file produces **no archive directory at all**, exit 0 (FR-004)
-- [ ] T012 [P] [US1] Test in `tests/test_archive_specs.py`: the durable-skip message names the resolved spec-dir path, not just the fact of skipping (contracts/cli.md)
-- [ ] T013 [P] [US1] Test in `tests/test_archive_specs.py`: at-risk artifacts present and a copy failure injected **mid-loop** — monkeypatch `shutil.copy2` to raise `OSError(28)` on the Nth call — exits non-zero (FR-006). Do **not** use an unwritable state directory: that fails at `mkdir` before any copy runs, so it exercises setup rather than the copy path, and cannot produce the partial state T016 and T017 detect
-- [ ] T014 [P] [US1] **Must pass now.** Test in `tests/test_archive_specs.py`: exit 0 when nothing was at risk, including a missing worktree and a non-git directory (FR-007) — the command already always exits 0, so this guards against the new non-zero path widening beyond its rule
-- [ ] T015 [P] [US1] Test in `tests/test_archive_specs.py`: the failure message contains the cause, the retry command, `git worktree remove`, `git branch -D`, the `--force` caveat, and the tmux-orphan note (FR-008, research.md R-006)
-- [ ] T016 [P] [US1] Test in `tests/test_archive_specs.py`: given an existing complete archive, a run that fails partway leaves that archive **untouched at `archive/`** and leaves no partial directory behind (FR-023); assert the file count and content of `archive/` are unchanged from before the failed run
-- [ ] T017 [P] [US1] Test in `tests/test_archive_specs.py`: a failed run followed by a successful retry produces exactly one `archive/` and one `archive-<stamp>/`, with no junk directory from the failed attempt — the residue this feature's own retry loop would otherwise manufacture (FR-023)
+- [X] T008 [P] [US1] **Must pass now.** Regression test in `tests/test_archive_specs.py`: a repo with no `spec_root` archives exactly the set it archives today — assert the full mapped list, not a count (FR-001, SC-002)
+- [X] T009 [P] [US1] Test in `tests/test_archive_specs.py`: `spec_root` outside the worktree archives the legacy `.agent/spec.md` and nothing from the spec dir (FR-002)
+- [X] T010 [P] [US1] Test in `tests/test_archive_specs.py`: `spec_root` resolving back **inside** the worktree still archives the spec dir — the case an on/off flag gets wrong (FR-003)
+- [X] T011 [P] [US1] Test in `tests/test_archive_specs.py`: durable location with no legacy file produces **no archive directory at all**, exit 0 (FR-004)
+- [X] T012 [P] [US1] Test in `tests/test_archive_specs.py`: the durable-skip message names the resolved spec-dir path, not just the fact of skipping (contracts/cli.md)
+- [X] T013 [P] [US1] Test in `tests/test_archive_specs.py`: at-risk artifacts present and a copy failure injected **mid-loop** — monkeypatch `shutil.copy2` to raise `OSError(28)` on the Nth call — exits non-zero (FR-006). Do **not** use an unwritable state directory: that fails at `mkdir` before any copy runs, so it exercises setup rather than the copy path, and cannot produce the partial state T016 and T017 detect
+- [X] T014 [P] [US1] **Must pass now.** Test in `tests/test_archive_specs.py`: exit 0 when nothing was at risk, including a missing worktree and a non-git directory (FR-007) — the command already always exits 0, so this guards against the new non-zero path widening beyond its rule
+- [X] T015 [P] [US1] Test in `tests/test_archive_specs.py`: the failure message contains the cause, the retry command, `git worktree remove`, `git branch -D`, the `--force` caveat, and the tmux-orphan note (FR-008, research.md R-006)
+- [X] T016 [P] [US1] Test in `tests/test_archive_specs.py`: given an existing complete archive, a run that fails partway leaves that archive **untouched at `archive/`** and leaves no partial directory behind (FR-023); assert the file count and content of `archive/` are unchanged from before the failed run
+- [X] T017 [P] [US1] Test in `tests/test_archive_specs.py`: a failed run followed by a successful retry produces exactly one `archive/` and one `archive-<stamp>/`, with no junk directory from the failed attempt — the residue this feature's own retry loop would otherwise manufacture (FR-023)
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Add the containment predicate to `_plan` in `wfctl/_archive.py:98` — filter sources to those inside `worktree`; do not change `_plan`'s or `archive()`'s returned tuple shapes, since T019 carries failure information out through an exception instead (data-model.md); verify with T008–T012
-- [ ] T019 [US1] Add `ArchiveIncomplete(at_risk, cause)` to `wfctl/_archive.py` and raise it from `archive()`'s copy loop, then catch it specifically in `wfctl/cli.py:345` and exit 1, leaving the existing broad handler to keep exiting 0 for everything else (data-model.md, "How the CLI learns a failure was lossy"). The narrow rule is not implementable without this: `cli.py` wraps everything in one `try` and a bare `OSError` carries no indication that the plan was non-empty; verify with T013, T014
-- [ ] T020 [US1] Make `archive()` in `wfctl/_archive.py:158-176` promote-on-success: **clear any pre-existing staging directory** (`shutil.rmtree(staging, ignore_errors=True)`), copy into staging, write the index into it, discard it on any exception, and only then rename an existing `archive/` aside and rename staging into place (FR-023). Two traps: `_archive.py:173` writes `README.md` into the live directory today and must move into staging, or a failed run still leaves an index describing files it did not copy; and a process killed mid-run (SIGKILL, no exception to catch) leaves staging behind, which `_copy`'s `exist_ok=True` would silently merge into the next run and promote into `archive/` as phantom entries; verify with T016, T017
-- [ ] T021 [US1] Implement the durable-skip and failure messages in `wfctl/cli.py`, including both escape-route caveats; verify with T012, T015
-- [ ] T022 [US1] Rewrite the `pre_remove` hook in `.workmux.yaml:74-84` to the form in contracts/cli.md — remove `|| true` and the `command -v` short-circuit, keep the tool-absent branch; verify manually with quickstart.md step 5 (the hook is shell, not covered by pytest)
-- [ ] T023 [US1] Verify the tool-absent branch of the hook: run teardown on a disposable repo with `wfctl` removed from `PATH`, and confirm it warns, exits 0, and lets the removal proceed (FR-009); verify with quickstart.md step 5b. This is the only path that permits a removal after artifacts went unarchived, so it must not be the only untested one
-- [ ] T024 [P] [US1] Rewrite the module docstring in `wfctl/_archive.py:1-24`: state the rescue purpose and the containment predicate, replacing the superseded argument at lines 10-14 that archiving durable specs "is still worth running" (FR-021); verify by reading it against research.md R-003
-- [ ] T025 [P] [US1] Rewrite the command docstring in `wfctl/cli.py:285-299`: replace "Never exits non-zero" with the two-layer rule, and reconcile the FR-013 one-artifact-location wording against the legacy `.agent/spec.md` read at `wfctl/_archive.py:114` (FR-005, FR-022); verify by reading it against data-model.md's exit-status table
-- [ ] T026 [US1] Validate User Story 1 with `uv run pytest -q tests/test_archive_specs.py && uv run ruff check . && uv run mypy` — merge gate
+- [X] T018 [US1] Add the containment predicate to `_plan` in `wfctl/_archive.py:98` — filter sources to those inside `worktree`; do not change `_plan`'s or `archive()`'s returned tuple shapes, since T019 carries failure information out through an exception instead (data-model.md); verify with T008–T012
+- [X] T019 [US1] Add `ArchiveIncomplete(at_risk, cause)` to `wfctl/_archive.py` and raise it from `archive()`'s copy loop, then catch it specifically in `wfctl/cli.py:345` and exit 1, leaving the existing broad handler to keep exiting 0 for everything else (data-model.md, "How the CLI learns a failure was lossy"). The narrow rule is not implementable without this: `cli.py` wraps everything in one `try` and a bare `OSError` carries no indication that the plan was non-empty; verify with T013, T014
+- [X] T020 [US1] Make `archive()` in `wfctl/_archive.py:158-176` promote-on-success: **clear any pre-existing staging directory** (`shutil.rmtree(staging, ignore_errors=True)`), copy into staging, write the index into it, discard it on any exception, and only then rename an existing `archive/` aside and rename staging into place (FR-023). Two traps: `_archive.py:173` writes `README.md` into the live directory today and must move into staging, or a failed run still leaves an index describing files it did not copy; and a process killed mid-run (SIGKILL, no exception to catch) leaves staging behind, which `_copy`'s `exist_ok=True` would silently merge into the next run and promote into `archive/` as phantom entries; verify with T016, T017
+- [X] T021 [US1] Implement the durable-skip and failure messages in `wfctl/cli.py`, including both escape-route caveats; verify with T012, T015
+- [X] T022 [US1] Rewrite the `pre_remove` hook in `.workmux.yaml:74-84` to the form in contracts/cli.md — remove `|| true` and the `command -v` short-circuit, keep the tool-absent branch; verify manually with quickstart.md step 5 (the hook is shell, not covered by pytest)
+- [X] T023 [US1] Verify the tool-absent branch of the hook: run teardown on a disposable repo with `wfctl` removed from `PATH`, and confirm it warns, exits 0, and lets the removal proceed (FR-009); verify with quickstart.md step 5b. This is the only path that permits a removal after artifacts went unarchived, so it must not be the only untested one
+- [X] T024 [P] [US1] Rewrite the module docstring in `wfctl/_archive.py:1-24`: state the rescue purpose and the containment predicate, replacing the superseded argument at lines 10-14 that archiving durable specs "is still worth running" (FR-021); verify by reading it against research.md R-003
+- [X] T025 [P] [US1] Rewrite the command docstring in `wfctl/cli.py:285-299`: replace "Never exits non-zero" with the two-layer rule, and reconcile the FR-013 one-artifact-location wording against the legacy `.agent/spec.md` read at `wfctl/_archive.py:114` (FR-005, FR-022); verify by reading it against data-model.md's exit-status table
+- [X] T026 [US1] Validate User Story 1 with `uv run pytest -q tests/test_archive_specs.py && uv run ruff check . && uv run mypy` — merge gate
 
 **Checkpoint**: teardown preserves what it must, skips what it needn't, and
 refuses rather than losing. Independently shippable.
@@ -133,20 +133,20 @@ each option in turn, confirm the recorded result. Re-run and confirm silence.
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T027 [P] [US2] Test in `tests/test_install_skills.py`: a manifest containing `spec_root_asked: true` does not crash `_layer_keys`, `doctor`, or `install-skills` — the `AttributeError` guard (data-model.md invariant)
-- [ ] T028 [P] [US2] Test in `tests/test_install_skills.py`: the prompt is asked on first interactive install, and silent under `--yes`, under a non-tty stdin, and when the marker already exists (FR-010, FR-011)
-- [ ] T029 [P] [US2] Test in `tests/test_install_skills.py`: option 1 records `spec_root_asked` and **no** `spec_root`, and `spec_root` resolution is byte-identical to a repo never asked (FR-012, SC-006)
-- [ ] T030 [P] [US2] Test in `tests/test_install_skills.py`: options 2 and 3 write the **main checkout's** manifest and report every file touched (FR-013)
-- [ ] T031 [P] [US2] Test in `tests/test_install_skills.py`: a marker recorded in the main checkout suppresses the prompt when setup runs from a worktree whose own manifest is fresh (FR-016, research.md R-005)
-- [ ] T032 [P] [US2] Test in `tests/test_install_skills.py`: a chosen location that does not exist is recorded without being created, cloned, or checked (FR-014)
+- [X] T027 [P] [US2] Test in `tests/test_install_skills.py`: a manifest containing `spec_root_asked: true` does not crash `_layer_keys`, `doctor`, or `install-skills` — the `AttributeError` guard (data-model.md invariant)
+- [X] T028 [P] [US2] Test in `tests/test_install_skills.py`: the prompt is asked on first interactive install, and silent under `--yes`, under a non-tty stdin, and when the marker already exists (FR-010, FR-011)
+- [X] T029 [P] [US2] Test in `tests/test_install_skills.py`: option 1 records `spec_root_asked` and **no** `spec_root`, and `spec_root` resolution is byte-identical to a repo never asked (FR-012, SC-006)
+- [X] T030 [P] [US2] Test in `tests/test_install_skills.py`: options 2 and 3 write the **main checkout's** manifest and report every file touched (FR-013)
+- [X] T031 [P] [US2] Test in `tests/test_install_skills.py`: a marker recorded in the main checkout suppresses the prompt when setup runs from a worktree whose own manifest is fresh (FR-016, research.md R-005)
+- [X] T032 [P] [US2] Test in `tests/test_install_skills.py`: a chosen location that does not exist is recorded without being created, cloned, or checked (FR-014)
 
 ### Implementation for User Story 2
 
-- [ ] T033 [US2] Add `spec_root_asked` to `_NON_LAYER_KEYS` in `wfctl/cli.py:604` **in the same commit** as any code writing the key; verify with T027
-- [ ] T034 [US2] Implement the three-option prompt in `wfctl/cli.py` beside the tracker question at `cli.py:803`, using the rendered form fixed in issue #26; verify with T028
-- [ ] T035 [US2] Implement the marker read via the existing `spec_root_declaration` walk (`wfctl/_paths.py:222`) and the write to `main_checkout` as `wfctl spec-root` does (`wfctl/cli.py:424`); verify with T029, T030, T031
-- [ ] T036 [US2] Implement option 2's follow-up output — printing the `git clone` and `mkdir` commands rather than running them — per contracts/cli.md; verify with T032
-- [ ] T037 [US2] Validate User Story 2 with `uv run pytest -q tests/test_install_skills.py && uv run ruff check . && uv run mypy` — merge gate
+- [X] T033 [US2] Add `spec_root_asked` to `_NON_LAYER_KEYS` in `wfctl/cli.py:604` **in the same commit** as any code writing the key; verify with T027
+- [X] T034 [US2] Implement the three-option prompt in `wfctl/cli.py` beside the tracker question at `cli.py:803`, using the rendered form fixed in issue #26; verify with T028
+- [X] T035 [US2] Implement the marker read via the existing `spec_root_declaration` walk (`wfctl/_paths.py:222`) and the write to `main_checkout` as `wfctl spec-root` does (`wfctl/cli.py:424`); verify with T029, T030, T031
+- [X] T036 [US2] Implement option 2's follow-up output — printing the `git clone` and `mkdir` commands rather than running them — per contracts/cli.md; verify with T032
+- [X] T037 [US2] Validate User Story 2 with `uv run pytest -q tests/test_install_skills.py && uv run ruff check . && uv run mypy` — merge gate
 
 **Checkpoint**: the durable option is reachable, asked once, and the default
 answer is indistinguishable from never having been asked.
@@ -171,15 +171,15 @@ the old command and confirm it reports without failing.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T038 [P] [US3] Test in `tests/test_remaining_commands.py`: `doctor` reports a `.workmux.yaml` still calling `wfctl archive-story` (FR-020)
-- [ ] T039 [P] [US3] Test in `tests/test_remaining_commands.py`: that report never changes `doctor`'s exit code, matching the superseded-path checks beside it
-- [ ] T040 [P] [US3] Test in `tests/test_remaining_commands.py`: `doctor` stays silent for a `.workmux.yaml` already calling `archive-specs`, and for a repo with no `.workmux.yaml`
+- [X] T038 [P] [US3] Test in `tests/test_remaining_commands.py`: `doctor` reports a `.workmux.yaml` still calling `wfctl archive-story` (FR-020)
+- [X] T039 [P] [US3] Test in `tests/test_remaining_commands.py`: that report never changes `doctor`'s exit code, matching the superseded-path checks beside it
+- [X] T040 [P] [US3] Test in `tests/test_remaining_commands.py`: `doctor` stays silent for a `.workmux.yaml` already calling `archive-specs`, and for a repo with no `.workmux.yaml`
 
 ### Implementation for User Story 3
 
-- [ ] T041 [US3] Implement the stale-hook check in `wfctl/cli.py` beside `_check_legacy_agent_dir` (`wfctl/cli.py:1338`), following its non-fatal drift pattern; verify with T038, T039, T040
-- [ ] T042 [US3] Add a comment on the new check naming its removal condition and referencing issue #36, matching the `ponytail:` convention used at `wfctl/_archive.py:113`; verify by reading it against the #36 table
-- [ ] T043 [US3] Validate User Story 3 with `uv run pytest -q && uv run ruff check . && uv run mypy` — merge gate
+- [X] T041 [US3] Implement the stale-hook check in `wfctl/cli.py` beside `_check_legacy_agent_dir` (`wfctl/cli.py:1338`), following its non-fatal drift pattern; verify with T038, T039, T040
+- [X] T042 [US3] Add a comment on the new check naming its removal condition and referencing issue #36, matching the `ponytail:` convention used at `wfctl/_archive.py:113`; verify by reading it against the #36 table
+- [X] T043 [US3] Validate User Story 3 with `uv run pytest -q && uv run ruff check . && uv run mypy` — merge gate
 
 **Checkpoint**: all three stories independently functional.
 
@@ -187,11 +187,11 @@ the old command and confirm it reports without failing.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T044 [P] Update `README.md` — the `spec-root` section (line ~347) gains the first-run question; the command list (line ~126) gains `archive-specs`; verify by grepping `README.md` for `archive-story` and finding only intentional historical mentions
-- [ ] T045 [P] Write the pull request description covering the teardown behaviour change: under `|| true` no user has ever seen this hook block a removal, and afterwards a full disk stops teardown instead of silently destroying a spec — state what blocks, why, and the escape route; verify against contracts/cli.md's behaviour-change note
-- [ ] T046 Run `quickstart.md` end to end against a disposable repo, including step 5's `--force` case and step 6's old-hook case; verify every expected output matches
-- [ ] T047 Confirm `wfctl doctor` on this repo reports nothing unexpected after the change, since this repo has `spec_root` set and is therefore its own durable-location test case
-- [ ] T048 Validate the whole feature with `uv run pytest -q && uv run ruff check . && uv run mypy`, and compare the test count against the T001 baseline — merge gate
+- [X] T044 [P] Update `README.md` — the `spec-root` section (line ~347) gains the first-run question; the command list (line ~126) gains `archive-specs`; verify by grepping `README.md` for `archive-story` and finding only intentional historical mentions
+- [X] T045 [P] Write the pull request description covering the teardown behaviour change: under `|| true` no user has ever seen this hook block a removal, and afterwards a full disk stops teardown instead of silently destroying a spec — state what blocks, why, and the escape route; verify against contracts/cli.md's behaviour-change note
+- [X] T046 Run `quickstart.md` end to end against a disposable repo, including step 5's `--force` case and step 6's old-hook case; verify every expected output matches
+- [X] T047 Confirm `wfctl doctor` on this repo reports nothing unexpected after the change, since this repo has `spec_root` set and is therefore its own durable-location test case
+- [X] T048 Validate the whole feature with `uv run pytest -q && uv run ruff check . && uv run mypy`, and compare the test count against the T001 baseline — merge gate
 
 ---
 
