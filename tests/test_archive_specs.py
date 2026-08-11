@@ -1,4 +1,4 @@
-"""Tests for `wfctl archive-story` — preserve speckit artifacts before teardown."""
+"""Tests for `wfctl archive-specs` — preserve speckit artifacts before teardown."""
 from __future__ import annotations
 
 import os
@@ -45,7 +45,7 @@ def test_archives_artifacts_in_pipeline_order(agent_dir: Path) -> None:
         "delivery.md", "checklists/analysis-report.md",
     )
 
-    result = runner.invoke(app, ["archive-story"])
+    result = runner.invoke(app, ["archive-specs"])
     assert result.exit_code == 0, result.output
 
     arch = _archive_dir(agent_dir)
@@ -83,7 +83,7 @@ def test_a_design_doc_at_the_superseded_path_is_still_archived(agent_dir: Path) 
     _make_story(repo_root, handle, "spec.md", "plan.md")
     _write(repo_root / ".agent" / "spec.md", "legacy design\n")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     arch = _archive_dir(agent_dir)
     legacy = arch / "extra" / "legacy-agent-spec.md"
@@ -104,7 +104,7 @@ def test_a_design_doc_at_the_superseded_path_is_archived_without_a_spec_dir(
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     _write(repo_root / ".agent" / "spec.md", "legacy design\n")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     assert (_archive_dir(agent_dir) / "extra" / "legacy-agent-spec.md").is_file()
 
@@ -115,7 +115,7 @@ def test_unmapped_artifacts_land_under_extra(agent_dir: Path) -> None:
     handle = os.environ["WFCTL_BRANCH"]
     _make_story(repo_root, handle, "spec.md", "REVIEW.md", "notes/scratch.md")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     arch = _archive_dir(agent_dir)
     assert (arch / "2-spec.md").is_file(), "mapped file still uses its numbered name"
@@ -140,7 +140,7 @@ def test_implementation_sentinel_is_numbered_last(agent_dir: Path) -> None:
         "checklists/implement-complete.md",
     )
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     arch = _archive_dir(agent_dir)
     assert (arch / "12-implement-complete.md").is_file()
@@ -172,7 +172,7 @@ def test_a_symlink_does_not_drag_in_content_from_outside_the_spec_dir(
     (spec_dir / "leaked.md").symlink_to(outside)
     (spec_dir / "spec.md").symlink_to(_write(tmp_path / "outside" / "real-spec.md"))
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     arch = _archive_dir(agent_dir)
     assert not (arch / "extra" / "leaked.md").exists()
@@ -185,10 +185,10 @@ def test_rerun_moves_the_previous_archive_aside(agent_dir: Path) -> None:
     handle = os.environ["WFCTL_BRANCH"]
     _make_story(repo_root, handle, "spec.md")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
     (_archive_dir(agent_dir) / "2-spec.md").write_text("first run\n")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
 
     aside = [p for p in agent_dir.glob("archive-*") if p.is_dir()]
     assert len(aside) == 1, f"expected one archive moved aside, got {aside}"
@@ -207,10 +207,10 @@ def test_an_emptied_spec_dir_does_not_displace_a_good_archive(agent_dir: Path) -
     handle = os.environ["WFCTL_BRANCH"]
     spec_dir = _make_story(repo_root, handle, "spec.md")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
     (spec_dir / "spec.md").unlink()
 
-    result = runner.invoke(app, ["archive-story"])
+    result = runner.invoke(app, ["archive-specs"])
     assert result.exit_code == 0
     assert "nothing to archive" in result.output
     assert (_archive_dir(agent_dir) / "2-spec.md").is_file(), "the real archive survived"
@@ -228,7 +228,7 @@ def test_two_runs_in_the_same_second_both_archive(agent_dir: Path) -> None:
     _make_story(repo_root, os.environ["WFCTL_BRANCH"], "spec.md")
 
     for _ in range(3):
-        result = runner.invoke(app, ["archive-story"])
+        result = runner.invoke(app, ["archive-specs"])
         assert result.exit_code == 0
         assert "archive failed" not in result.output, result.output
 
@@ -246,14 +246,14 @@ def test_a_non_git_checkout_still_exits_zero(
         raise SystemExit("wfctl: not a git repository")
 
     monkeypatch.setattr("wfctl.cli.get_repo_root", not_a_repo)
-    result = runner.invoke(app, ["archive-story"])
+    result = runner.invoke(app, ["archive-specs"])
     assert result.exit_code == 0
     assert "archive failed" in result.output
 
 
 def test_nothing_to_archive_is_a_success(agent_dir: Path) -> None:
     """A repo that never opted into speckit still tears down cleanly."""
-    result = runner.invoke(app, ["archive-story"])
+    result = runner.invoke(app, ["archive-specs"])
     assert result.exit_code == 0
     assert "nothing to archive" in result.output
     assert not _archive_dir(agent_dir).exists()
@@ -261,7 +261,7 @@ def test_nothing_to_archive_is_a_success(agent_dir: Path) -> None:
 
 def test_missing_worktree_does_not_fail(agent_dir: Path, tmp_path: Path) -> None:
     """A path that isn't there is reported, not raised — teardown continues."""
-    result = runner.invoke(app, ["archive-story", str(tmp_path / "gone")])
+    result = runner.invoke(app, ["archive-specs", str(tmp_path / "gone")])
     assert result.exit_code == 0
     assert "no worktree" in result.output
 
@@ -281,7 +281,7 @@ def test_failure_never_blocks_teardown(
         raise OSError("disk on fire")
 
     monkeypatch.setattr("wfctl._archive.archive", boom)
-    result = runner.invoke(app, ["archive-story"])
+    result = runner.invoke(app, ["archive-specs"])
     assert result.exit_code == 0
     assert "archive failed" in result.output
     assert "disk on fire" in result.output
@@ -299,7 +299,7 @@ def test_handle_that_differs_from_the_spec_dir_still_resolves(agent_dir: Path) -
     # but carries the same issue key.
     _make_story(repo_root, "342-a-different-slug", "spec.md", "plan.md")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
     arch = _archive_dir(agent_dir)
     assert (arch / "2-spec.md").is_file()
     assert (arch / "4-plan.md").is_file()
@@ -311,7 +311,7 @@ def test_index_records_branch_commit_and_source(agent_dir: Path) -> None:
     handle = os.environ["WFCTL_BRANCH"]
     _make_story(repo_root, handle, "spec.md")
 
-    assert runner.invoke(app, ["archive-story"]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
     readme = (_archive_dir(agent_dir) / "README.md").read_text()
 
     assert f"# Story archive: {handle}" in readme
@@ -325,6 +325,250 @@ def test_explicit_arguments_win_over_the_environment(agent_dir: Path) -> None:
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     _make_story(repo_root, "342-explicit-story", "spec.md")
 
-    result = runner.invoke(app, ["archive-story", str(repo_root), "342-explicit-story"])
+    result = runner.invoke(app, ["archive-specs", str(repo_root), "342-explicit-story"])
     assert result.exit_code == 0
     assert (_archive_dir(agent_dir) / "2-spec.md").is_file()
+
+
+def test_former_name_still_dispatches(agent_dir: Path) -> None:
+    """`archive-story` must keep working — .workmux.yaml is repo-local and older
+    copies persist. A failing pre_remove hook now aborts the removal, so an
+    unknown command name would make those repos' worktrees unremovable, which is
+    worse than the loss this feature exists to prevent."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md", "plan.md")
+
+    result = runner.invoke(app, ["archive-story"])
+
+    assert result.exit_code == 0, result.output
+    arch = _archive_dir(agent_dir)
+    assert (arch / "2-spec.md").is_file()
+    assert (arch / "4-plan.md").is_file()
+
+
+def test_former_name_is_not_advertised() -> None:
+    """The alias is a compatibility shim, not a second supported spelling."""
+    out = runner.invoke(app, ["--help"]).output
+
+    assert "archive-specs" in out
+    assert "archive-story" not in out
+
+
+# --- Containment: archive what teardown destroys, skip what it cannot reach ----
+#
+# The predicate is path containment, never "is spec_root set". The third test
+# below is the one an on/off flag would get wrong.
+
+
+def _durable_story(root: Path, handle: str, *rels: str) -> Path:
+    """A spec dir under an external root, reached via WFCTL_SPEC_DIR."""
+    spec_dir = root / handle
+    for rel in rels:
+        _write(spec_dir / rel)
+    return spec_dir
+
+
+def test_default_layout_archives_exactly_what_it_archives_today(agent_dir: Path) -> None:
+    """Regression guard — must pass before the predicate exists and after.
+
+    Most repos are here. Asserts the full mapped list rather than a count, so a
+    predicate that silently drops one entry cannot pass.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md", "spec.md", "plan.md", "tasks.md")
+
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+
+    arch = _archive_dir(agent_dir)
+    assert sorted(p.name for p in arch.iterdir()) == [
+        "1-design.md", "2-spec.md", "4-plan.md", "9-tasks.md", "README.md",
+    ]
+
+
+def test_durable_spec_root_is_not_copied(agent_dir: Path, tmp_path: Path,
+                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """Specs outside the worktree are not at risk, so teardown does not copy them.
+
+    The legacy design doc *is* inside the worktree and is still rescued — the
+    predicate is about location, not about which file it is.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    durable = tmp_path.parent / "durable-specs"
+    spec_dir = _durable_story(durable, handle, "design.md", "spec.md", "plan.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+
+    result = runner.invoke(app, ["archive-specs"])
+    assert result.exit_code == 0, result.output
+
+    arch = _archive_dir(agent_dir)
+    assert (arch / "extra" / "legacy-agent-spec.md").is_file(), "at-risk file dropped"
+    assert not (arch / "1-design.md").exists(), "durable spec was copied anyway"
+    assert not (arch / "2-spec.md").exists()
+    assert (spec_dir / "spec.md").is_file(), "the live spec must be untouched"
+
+
+def test_spec_root_resolving_inside_the_worktree_is_still_archived(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Containment, not configuration.
+
+    A spec_root that points back inside the worktree describes files teardown
+    still destroys. Also a regression guard: this passes today, and a predicate
+    keyed on "is spec_root set" rather than on the path would break it.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    inside = repo_root / "nested-specs"
+    _durable_story(inside, handle, "spec.md", "plan.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(inside))
+
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+
+    arch = _archive_dir(agent_dir)
+    assert (arch / "2-spec.md").is_file()
+    assert (arch / "4-plan.md").is_file()
+
+
+def test_durable_root_with_nothing_at_risk_writes_no_archive(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Under the rescue framing, the absence of an archive is the right output."""
+    handle = os.environ["WFCTL_BRANCH"]
+    durable = tmp_path.parent / "durable-none"
+    _durable_story(durable, handle, "spec.md", "plan.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert not _archive_dir(agent_dir).exists(), "copied files that were never at risk"
+
+
+def test_durable_skip_message_names_the_resolved_path(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the path the message cannot be told apart from a failed lookup."""
+    handle = os.environ["WFCTL_BRANCH"]
+    durable = tmp_path.parent / "durable-msg"
+    spec_dir = _durable_story(durable, handle, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+
+    out = runner.invoke(app, ["archive-specs"]).output
+
+    assert "durable" in out.lower()
+    assert str(spec_dir) in out
+
+
+# --- Failure semantics: refuse the removal only when something was lost --------
+
+
+def _fail_copy_on(monkeypatch: pytest.MonkeyPatch, nth: int) -> None:
+    """Make the Nth copy raise, mid-loop.
+
+    Deliberately not an unwritable state dir: that fails at mkdir before any copy
+    runs, so it exercises setup rather than the copy path and cannot leave the
+    partial state these tests exist to detect.
+    """
+    import shutil
+    real = shutil.copy2
+    calls = {"n": 0}
+
+    def flaky(src: object, dst: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == nth:
+            raise OSError(28, "No space left on device")
+        return real(src, dst)
+
+    monkeypatch.setattr(shutil, "copy2", flaky)
+
+
+def test_failed_copy_of_at_risk_files_refuses_the_removal(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-zero is what makes workmux abort — silence here destroys the specs."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md", "spec.md", "plan.md")
+    _fail_copy_on(monkeypatch, 2)
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code != 0, "teardown would have proceeded and lost the specs"
+
+
+def test_nothing_at_risk_still_exits_zero(agent_dir: Path, tmp_path: Path) -> None:
+    """Regression guard — must pass before and after.
+
+    Guards against the new non-zero path widening past its rule. A missing
+    worktree and a non-git directory cannot have lost anything.
+    """
+    assert runner.invoke(app, ["archive-specs", str(tmp_path / "gone")]).exit_code == 0
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+
+
+def test_refusal_message_names_both_routes_out(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`workmux remove --force` does not bypass the hook, so the manual route is
+    the only escape and must be stated completely — including the caveat that
+    `git worktree remove` refuses when untracked files are present."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md", "spec.md")
+    _fail_copy_on(monkeypatch, 1)
+
+    out = runner.invoke(app, ["archive-specs"]).output
+
+    assert "No space left on device" in out, "the cause must be visible"
+    assert "workmux remove" in out
+    assert "git worktree remove" in out
+    assert "git branch -D" in out
+    assert "--force" in out, "the untracked-files caveat is missing"
+    assert "tmux" in out, "the skipped-cleanup note is missing"
+
+
+def test_failed_run_leaves_the_previous_archive_untouched(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refusing a removal invites a retry. A retry that displaced a complete
+    archive with a partial one would make the safety mechanism the damage."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md", "spec.md", "plan.md")
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+    arch = _archive_dir(agent_dir)
+    before = sorted(p.name for p in arch.iterdir())
+    assert "README.md" in before
+
+    _fail_copy_on(monkeypatch, 2)
+    assert runner.invoke(app, ["archive-specs"]).exit_code != 0
+
+    assert sorted(p.name for p in arch.iterdir()) == before, "archive/ was degraded"
+    assert (arch / "README.md").is_file(), "the index went missing"
+
+
+def test_failure_then_retry_leaves_no_junk_directory(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The timestamped pool is real history — every successful re-run adds one.
+    A failed attempt must never land in it, or nothing distinguishes junk from
+    a previous story."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "design.md", "spec.md", "plan.md")
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+
+    _fail_copy_on(monkeypatch, 2)
+    assert runner.invoke(app, ["archive-specs"]).exit_code != 0
+    monkeypatch.undo()
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+
+    dirs = sorted(p.name for p in agent_dir.iterdir() if p.is_dir())
+    assert len(dirs) == 2, f"expected archive/ + one timestamped run, got {dirs}"
+    assert "archive" in dirs
+    for d in dirs:
+        assert (agent_dir / d / "README.md").is_file(), f"{d} is an incomplete result"
