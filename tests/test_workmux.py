@@ -171,12 +171,16 @@ def test_comment_only_mention_is_not_wired() -> None:
 
 # --- wire_pre_remove -------------------------------------------------------
 
-def test_wiring_replaces_one_line_with_two() -> None:
+def test_wiring_replaces_the_placeholder_with_the_hook() -> None:
+    """Derived from WIRED_PRE_REMOVE rather than hardcoding a line count, so the
+    hook's shape can change — as it did when it became a block scalar — without
+    this asserting the old one."""
     out = _workmux.wire_pre_remove(TEMPLATE)
     assert out is not None
     assert _workmux.pre_remove_wired(out)
     assert "pre_remove: []" not in out
-    assert len(out.splitlines()) == len(TEMPLATE.splitlines()) + 1
+    grew = len(_workmux.WIRED_PRE_REMOVE.rstrip("\n").splitlines()) - 1
+    assert len(out.splitlines()) == len(TEMPLATE.splitlines()) + grew
 
 
 def test_wiring_changes_nothing_else() -> None:
@@ -184,7 +188,8 @@ def test_wiring_changes_nothing_else() -> None:
     out = _workmux.wire_pre_remove(TEMPLATE)
     assert out is not None
     before = [ln for ln in TEMPLATE.splitlines() if ln != "pre_remove: []"]
-    after = [ln for ln in out.splitlines() if "pre_remove" not in ln and "archive-story" not in ln]
+    injected = set(_workmux.WIRED_PRE_REMOVE.splitlines())
+    after = [ln for ln in out.splitlines() if ln not in injected]
     assert before == after
 
 
@@ -196,3 +201,51 @@ def test_refuses_a_customized_pre_remove() -> None:
 def test_refuses_when_the_key_is_absent() -> None:
     """Appending a top-level key to an EOF we never parsed mangles files."""
     assert _workmux.wire_pre_remove("worktree_dir: wt\n") is None
+
+
+# --- the rename: both names count as wired, only the old one is reported ------
+
+
+def test_pre_remove_wired_accepts_the_current_name() -> None:
+    """The hook `install-config` seeds now names `archive-specs`. A check keyed on
+    the old name would report every freshly seeded repo as unprotected."""
+    assert _workmux.pre_remove_wired(_workmux.WIRED_PRE_REMOVE)
+
+
+def test_pre_remove_wired_still_accepts_the_former_name() -> None:
+    """A repo wired before the rename IS wired — the alias keeps working. Reporting
+    it as unwired would offer to add a second hook beside the one already there."""
+    assert _workmux.pre_remove_wired(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+    )
+
+
+def test_former_name_in_pre_remove_is_reported() -> None:
+    """The signal that lets the alias eventually be deleted."""
+    assert _workmux.pre_remove_uses_former_name(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+    )
+
+
+def test_current_name_is_not_reported_as_stale() -> None:
+    assert not _workmux.pre_remove_uses_former_name(_workmux.WIRED_PRE_REMOVE)
+
+
+def test_former_name_outside_pre_remove_is_not_reported() -> None:
+    """Same scoping as `pre_remove_wired`: a pane command mentioning the old name
+    is not a stale teardown hook, and reporting it would send someone editing the
+    wrong line."""
+    assert not _workmux.pre_remove_uses_former_name(
+        "windows:\n"
+        "  - name: term\n"
+        "    panes:\n"
+        "      - command: wfctl archive-story --help\n"
+        "pre_remove: []\n"
+    )
+
+
+def test_commented_former_name_is_not_reported() -> None:
+    """A hook someone commented out is not a hook — and not stale drift either."""
+    assert not _workmux.pre_remove_uses_former_name(
+        'pre_remove:\n  # - wfctl archive-story "$X"\n  - echo hi\n'
+    )

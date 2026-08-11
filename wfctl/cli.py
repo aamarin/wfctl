@@ -1663,8 +1663,8 @@ def _check_workmux_hook(repo_root: Path) -> None:
         # soft_wrap: this line is meant to be copy-pasted into a YAML list, and a
         # wrapped line pastes broken.
         console.print(
-            "  pre_remove holds custom steps — add this line to it yourself:\n"
-            f"    - {_workmux.ARCHIVE_HOOK}",
+            "  pre_remove holds custom steps — add this entry to it yourself:\n"
+            f"{_workmux.ARCHIVE_HOOK}",
             soft_wrap=True,
         )
         return
@@ -1684,6 +1684,42 @@ def _check_workmux_hook(repo_root: Path) -> None:
         console.print(f"[yellow]⚠[/yellow] couldn't write .workmux.yaml: {exc}")
         return
     console.print("[green]✓[/green] pre_remove wired — .workmux.yaml")
+
+
+def _check_stale_archive_hook(repo_root: Path) -> None:
+    """Report a `pre_remove` still naming the pre-rename command.
+
+    Not a failure: `archive-story` is a working hidden alias, so this repo is
+    protected. The report exists so the alias has an observable end condition —
+    while any repo still answers yes, deleting it would turn their teardown into
+    an unknown command, and a non-zero `pre_remove` aborts the removal.
+
+    Runs after `_check_workmux_hook`, which treats either name as wired, so a repo
+    is never told both "not archiving" and "archiving under the old name".
+
+    ponytail: transitional, like the superseded-path checks beside it. Their
+    collective removal is issue #36 — do not delete this one alone; the point of
+    sweeping them together is that reviewing them at once makes it obvious none is
+    load-bearing.
+    """
+    from wfctl import _workmux
+
+    wf = repo_root / ".workmux.yaml"
+    if not wf.exists():
+        return
+    try:
+        text = wf.read_text()
+    except OSError:
+        return  # _check_workmux_hook already reported the unreadable file
+    if not _workmux.pre_remove_uses_former_name(text):
+        return
+
+    console.print(
+        "[yellow]⚠[/yellow] .workmux.yaml: pre_remove calls `wfctl archive-story`, "
+        "renamed to\n"
+        "  `archive-specs`. The old name still works, so teardown is protected."
+    )
+    console.print("  Update the hook, or re-seed it with `wfctl install-config`.")
 
 
 def _check_spec_root_migration(repo_root: Path) -> None:
@@ -1755,6 +1791,7 @@ def doctor_cmd() -> None:
     # skills. All three are drift a repo can carry with nothing pinned, so all
     # three are reported either way.
     _check_workmux_hook(repo_root)
+    _check_stale_archive_hook(repo_root)
     _check_spec_root_migration(repo_root)
     _check_legacy_agent_dir(repo_root)
 

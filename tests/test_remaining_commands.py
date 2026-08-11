@@ -277,15 +277,22 @@ def test_doctor_wires_the_hook_when_confirmed(
     assert "worktree_dir: wt" in text, "the rest of the file must survive"
 
 
-def test_doctor_replaces_one_line_with_two(
+def test_doctor_replaces_the_placeholder_with_the_hook(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The retrofit writes into a file the repo owns and has customized."""
+    """The retrofit writes into a file the repo owns and has customized.
+
+    Sized from WIRED_PRE_REMOVE rather than a literal, so the hook's shape can
+    change — as it did when it became a block scalar — without this asserting the
+    old one back into place.
+    """
+    from wfctl import _workmux
     repo_root = agent_dir.parent
     wf = _seed_workmux(repo_root)
     before = wf.read_text().splitlines()
     _doctor(monkeypatch, interactive=True, answer="y\n")
-    assert len(wf.read_text().splitlines()) == len(before) + 1
+    grew = len(_workmux.WIRED_PRE_REMOVE.rstrip("\n").splitlines()) - 1
+    assert len(wf.read_text().splitlines()) == len(before) + grew
 
 
 def test_doctor_declining_writes_nothing_and_is_not_recorded(
@@ -364,3 +371,56 @@ def test_doctor_still_warns_when_archive_story_appears_outside_the_hook(
     )
     result = _doctor(monkeypatch, interactive=False)
     assert "pre_remove does not call" in result.output
+
+
+def test_doctor_reports_a_pre_remove_still_naming_the_former_command(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """The signal that lets the compatibility alias eventually be deleted."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "archive-story" in result.output
+    assert "archive-specs" in result.output
+    # Never "not archiving": the alias works, so this repo is protected.
+    assert "does not call" not in result.output
+
+
+def test_doctor_does_not_fail_over_a_stale_hook_name(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """Drift, reported like the superseded-path checks beside it — never the
+    exit code. /start-session runs doctor and must not read this as broken."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+    )
+    stale = runner.invoke(app, ["doctor"]).exit_code
+
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - wfctl archive-specs "$X"\n'
+    )
+    current = runner.invoke(app, ["doctor"]).exit_code
+
+    assert stale == current
+
+
+def test_doctor_is_quiet_about_a_hook_using_the_current_name(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"\n'
+    )
+
+    out = runner.invoke(app, ["doctor"]).output
+
+    assert "renamed to" not in out
+    assert "does not call" not in out
