@@ -90,6 +90,34 @@ at_risk(source) := source is inside the worktree being removed
 Path containment only. Never "is `spec_root` set" — row 3 is the case that
 distinguishes them, and the one an on/off flag gets wrong.
 
+## Archive directory naming
+
+Two names, two meanings. No third state.
+
+| Name | Always means |
+|---|---|
+| `archive/` | the current result, **complete** — only a fully successful run ever lands here |
+| `archive-<stamp>/` | a previous result, also complete, superseded by a newer one |
+
+Nothing is deleted or overwritten; a successful run displaces the previous
+`archive/` to a timestamp. Multiple stored results are therefore expected — every
+re-run of a teardown, every `merge` cleanup, and every manual invocation produces
+one. Nothing prunes them; they are small markdown and a pruning policy has its own
+failure modes.
+
+**Write ordering** (FR-023): copy into a staging directory, write the index into
+staging, discard staging on any exception, and only then displace `archive/` and
+rename staging into place. The previous behaviour displaced `archive/` *before*
+copying, so a mid-copy failure left an unindexed partial under the canonical name
+while the complete result sat under a timestamp that read as superseded. A retry
+then displaced the partial into the timestamped pool, where it was
+indistinguishable from real history — and refusing removals makes retries the
+normal path, so the safety mechanism was manufacturing the ambiguity.
+
+Note `_archive.py:173` writes `README.md` into the live directory today; it moves
+into staging too. Otherwise a failed run still leaves an index describing files it
+never copied.
+
 ## Archive result
 
 | Field | Type | Meaning |

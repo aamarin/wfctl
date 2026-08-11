@@ -128,7 +128,11 @@ behaviour.
 - **A record of having been asked, with no location recorded** — resolution
   behaves as the default. The record only suppresses the question.
 - **Storage exhausted or unwritable partway through preserving at-risk files** —
-  removal is refused and the partial result does not overwrite a good earlier one.
+  removal is refused, and the previously preserved result is left exactly where
+  it was, complete and in its canonical location. A failed attempt leaves no
+  partial result behind at all. This matters because refusing the removal invites
+  a retry, and a retry that displaced the good result with a partial one would
+  turn the safety mechanism into the source of the damage.
 
 ## Requirements _(mandatory)_
 
@@ -157,9 +161,18 @@ behaviour.
   risk, including when other parts of preservation failed.
 - **FR-008**: When a removal is refused, the system MUST state how many artifacts
   were affected, how to retry, and how to remove the worktree manually — the
-  removal tool offers no way to skip the check.
+  removal tool offers no way to skip the check. The manual route MUST be stated
+  completely: both commands it requires, the condition under which the first one
+  refuses and needs overriding, and the cleanup it skips. A route that fails on a
+  reachable input is not a route.
 - **FR-009**: When the preservation tool is not installed, the system MUST warn
   and allow the removal to proceed.
+- **FR-023**: A preservation attempt MUST leave the previously preserved result
+  intact and in its canonical location unless the attempt succeeds in full, and a
+  failed attempt MUST leave no partial result behind. Refusing a removal invites
+  a retry; a retry that displaced a complete result with an incomplete one, or
+  that accumulated incomplete ones indistinguishable from complete history, would
+  make the safety mechanism the source of the damage.
 
 **Choosing where specs live**
 
@@ -225,6 +238,10 @@ behaviour.
   omissions.
 - **SC-003**: Zero design artifacts are lost to a failed preservation step; every
   such failure results in a refused removal instead.
+- **SC-008**: After any number of failed attempts and retries, the canonical
+  preserved result is complete, and the number of stored results equals the number
+  of attempts that succeeded — a reader can never mistake a failed attempt's
+  leftovers for a real one.
 - **SC-004**: Every refused removal tells the operator how to proceed, in both
   directions, without consulting documentation.
 - **SC-005**: A developer setting up a new project is presented with the spec

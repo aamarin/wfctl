@@ -77,6 +77,51 @@ The message must name the cause, the retry, and the manual removal route. Then
 repeat with `--force`: **it must still refuse.** `--force` suppresses the
 confirmation prompt and the uncommitted-changes check, but not the hook (R-001).
 
+## 5a. A failed run leaves the previous result intact (FR-023, SC-008)
+
+Archive once successfully. Then edit a spec file, make preservation fail, and run
+teardown again.
+
+```bash
+ls "$(wfctl state-dir)"
+```
+
+Expected: `archive/` still holds the **complete** earlier result with its
+`README.md`, and there is no partial directory of any kind. Then free the space
+and retry:
+
+```bash
+workmux remove 99-probe        # now succeeds
+ls "$(wfctl state-dir)"
+```
+
+Expected: exactly one `archive/` (complete, current) and one `archive-<stamp>/`
+(complete, previous). No third directory from the failed attempt.
+
+Before this change the failed run left an unindexed partial at `archive/`, and
+the retry pushed it into the timestamped pool where nothing distinguished it from
+real history.
+
+## 5b. The tool-absent branch proceeds (FR-009)
+
+The one path that still lets a removal complete after artifacts went unarchived.
+It exists so a machine that never had `wfctl` does not end up with worktrees it
+cannot remove — which makes it worth confirming, not worth assuming.
+
+```bash
+env PATH=/usr/bin:/bin workmux remove 99-probe        # wfctl not on PATH
+```
+
+Expected: the hook prints
+
+```
+⚠ wfctl not on PATH — specs in <path> not archived
+```
+
+and the removal **proceeds**, exit 0. Contrast with step 5, where the tool is
+present and failing, and the removal is refused. Both outcomes are correct; the
+difference is whether anything could have been preserved.
+
 ## 6. Backward compatibility (FR-019, SC-007)
 
 Restore the old hook line — `wfctl archive-story "$WM_WORKTREE_PATH" "$WM_HANDLE"`
