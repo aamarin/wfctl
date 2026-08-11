@@ -102,9 +102,16 @@ on that machine.
 
 ```yaml
 pre_remove:
-  - if command -v wfctl >/dev/null; then wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
-    else echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"; fi
+  - |
+    if command -v wfctl >/dev/null; then
+      wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
+    else
+      echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"
+    fi
 ```
+
+The block scalar is required: a folded plain scalar turns `else` into an argument
+and still passes `bash -n`. See contracts/cli.md.
 
 ### Rename: `archive-story` → `archive-specs`
 

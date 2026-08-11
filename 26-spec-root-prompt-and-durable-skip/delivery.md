@@ -67,7 +67,7 @@ make #27's blocking hook safe to arm, and has no standalone user value.
 |---|---|---|---|
 | **0** | T001, T002 | [P] — read-only | baseline captured, three commands green |
 | **1** | T003, T004, T005 [P] → T006 → T007 | tests parallel, impl sequential | rename + alias landed, behaviour unchanged |
-| **2** | T008–T017 [P] ‖ T027–T032 [P] ‖ T038–T040 [P] | [P] — three distinct test files | all new tests written and **confirmed failing** |
+| **2** | T008–T017 [P] ‖ T027–T032 [P] ‖ T038–T040 [P] | [P] — three distinct test files | T008 and T014 **confirmed passing**; every other new test **confirmed failing** |
 | **3** | T018 → T019 → T020 → T021 → T022 | sequential, causal | US1 implementation |
 | **3′** | T033 → T034 → T035 → T036 | sequential | US2 implementation — coordinate with 3 |
 | **3″** | T041, T042 | sequential | US3 implementation — coordinate with 3 |
@@ -109,16 +109,22 @@ exists converts a silent-loss bug into an outage.
 |---|---|---|
 | Wave 0 | `uv run pytest -q && uv run ruff check . && uv run mypy` | everything |
 | Wave 1 (T007) | same | Wave 3 |
-| Wave 2 | every new test confirmed **failing** | Wave 3 |
+| Wave 2 | T008, T014 confirmed **passing**; all others confirmed **failing** | Wave 3 |
 | US1 (T026) | `uv run pytest -q tests/test_archive_specs.py` + lint + types | Wave 5 |
 | US2 (T037) | `uv run pytest -q tests/test_install_skills.py` + lint + types | Wave 5 |
 | US3 (T043) | full suite + lint + types | Wave 5 |
 | Final (T048) | full suite, test count compared against Wave 0 | merge |
 | Manual (T046) | `quickstart.md` end to end, including 5a, 5b, `--force`, old-hook | merge |
 
-Wave 2's gate is the easily-skipped one. Several tests assert **absence** — no
-archive directory, no recorded key, no junk directory — and pass vacuously against
-the wrong setup. Confirm each fails before implementing.
+Wave 2's gate is the easily-skipped one, and it is **not uniform**. T008 and T014
+are regression guards asserting behaviour that is already correct — they must pass
+immediately, and a red there means a broken fixture, not work to do. Every other
+new test must fail first; several assert **absence** (no archive directory, no
+recorded key, no junk directory) and pass vacuously against a wrong fixture, so
+the confirmed failure is what proves the fixture builds the condition at all.
+
+Applying one rule to both kinds is how a broken harness hides behind an expected
+red.
 
 ## Out of Scope
 

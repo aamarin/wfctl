@@ -14,8 +14,12 @@ base_branch: main
 worktree_dir: wt
 worktree_naming: full
 pre_remove:
-  - if command -v wfctl >/dev/null; then wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
-    else echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"; fi
+  - |
+    if command -v wfctl >/dev/null; then
+      wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
+    else
+      echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"
+    fi
 YAML
 git add -A && git commit -qm init && git branch -M main
 git worktree add -q wt/99-probe -b 99-probe

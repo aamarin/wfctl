@@ -129,6 +129,44 @@ never copied.
 durable spec location with no superseded design document produces no archive
 directory at all.
 
+## How the CLI learns a failure was lossy
+
+`archive()` raises; `cli.py:345` catches everything from a single `try`. A bare
+`OSError` cannot tell the caller whether the plan was non-empty, so the CLI cannot
+distinguish "at-risk artifacts failed to copy" from "`resolve_spec_dir` blew up" —
+and FR-006/FR-007 turn on exactly that distinction.
+
+**The channel is a typed exception**, raised by `_archive` and caught specifically
+in `cli.py`:
+
+```python
+class ArchiveIncomplete(Exception):
+    """Copying at-risk artifacts failed partway. `at_risk` is how many were planned."""
+    def __init__(self, at_risk: int, cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.at_risk = at_risk
+        self.__cause__ = cause
+```
+
+`archive()` wraps its copy loop and raises this instead of letting the original
+propagate. Everything else — a missing worktree, an unresolvable repo root, a git
+failure — continues to raise whatever it raises today and is caught by the existing
+broad handler, which keeps exiting 0.
+
+| Caught in `cli.py` | Exit | Message |
+|---|---|---|
+| `ArchiveIncomplete` | 1 | the refusal message, with `at_risk` as the count and `__cause__` as the cause |
+| any other `Exception` / `SystemExit` | 0 | today's warning — nothing was provably at risk |
+
+Chosen over the alternatives because it leaves `_plan`'s and `archive()`'s return
+shapes untouched (T018 depends on that), and because the count needed by FR-008's
+message travels with the failure rather than being recomputed by the caller.
+
+Rejected: widening `archive()`'s return tuple — the failure path does not return;
+and re-running `_plan` from `cli.py` to count at-risk files after catching — it
+would re-stat a directory mid-failure and could disagree with what the failed run
+actually attempted.
+
 ## Exit status
 
 New. Previously the command never exited non-zero.

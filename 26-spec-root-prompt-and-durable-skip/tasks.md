@@ -77,24 +77,34 @@ worktree survives.
 
 ### Tests for User Story 1 ⚠️
 
-> Write these first and confirm they FAIL before implementing.
+> **Two kinds of test here — do not confirm them the same way.**
+>
+> **Must PASS immediately** (T008, T014): regression guards asserting behaviour
+> that is already correct. If either fails before implementation, the fixture is
+> wrong, not the code. Treating them as "expected to fail" would hide a broken
+> harness behind an expected red.
+>
+> **Must FAIL first** (T009–T013, T015–T017): these describe behaviour that does
+> not exist yet. Several assert **absence** — no archive directory, no recorded
+> key, no junk directory — so they pass vacuously against a wrong fixture.
+> Confirming the failure is what proves the fixture builds the condition at all.
 
-- [ ] T008 [P] [US1] Regression test in `tests/test_archive_specs.py`: a repo with no `spec_root` archives exactly the set it archives today — assert the full mapped list, not a count (FR-001, SC-002)
+- [ ] T008 [P] [US1] **Must pass now.** Regression test in `tests/test_archive_specs.py`: a repo with no `spec_root` archives exactly the set it archives today — assert the full mapped list, not a count (FR-001, SC-002)
 - [ ] T009 [P] [US1] Test in `tests/test_archive_specs.py`: `spec_root` outside the worktree archives the legacy `.agent/spec.md` and nothing from the spec dir (FR-002)
 - [ ] T010 [P] [US1] Test in `tests/test_archive_specs.py`: `spec_root` resolving back **inside** the worktree still archives the spec dir — the case an on/off flag gets wrong (FR-003)
 - [ ] T011 [P] [US1] Test in `tests/test_archive_specs.py`: durable location with no legacy file produces **no archive directory at all**, exit 0 (FR-004)
 - [ ] T012 [P] [US1] Test in `tests/test_archive_specs.py`: the durable-skip message names the resolved spec-dir path, not just the fact of skipping (contracts/cli.md)
-- [ ] T013 [P] [US1] Test in `tests/test_archive_specs.py`: at-risk artifacts present and a copy failure injected (unwritable state dir) exits non-zero (FR-006)
-- [ ] T014 [P] [US1] Test in `tests/test_archive_specs.py`: exit 0 when nothing was at risk, including a missing worktree and a non-git directory (FR-007)
+- [ ] T013 [P] [US1] Test in `tests/test_archive_specs.py`: at-risk artifacts present and a copy failure injected **mid-loop** — monkeypatch `shutil.copy2` to raise `OSError(28)` on the Nth call — exits non-zero (FR-006). Do **not** use an unwritable state directory: that fails at `mkdir` before any copy runs, so it exercises setup rather than the copy path, and cannot produce the partial state T016 and T017 detect
+- [ ] T014 [P] [US1] **Must pass now.** Test in `tests/test_archive_specs.py`: exit 0 when nothing was at risk, including a missing worktree and a non-git directory (FR-007) — the command already always exits 0, so this guards against the new non-zero path widening beyond its rule
 - [ ] T015 [P] [US1] Test in `tests/test_archive_specs.py`: the failure message contains the cause, the retry command, `git worktree remove`, `git branch -D`, the `--force` caveat, and the tmux-orphan note (FR-008, research.md R-006)
 - [ ] T016 [P] [US1] Test in `tests/test_archive_specs.py`: given an existing complete archive, a run that fails partway leaves that archive **untouched at `archive/`** and leaves no partial directory behind (FR-023); assert the file count and content of `archive/` are unchanged from before the failed run
 - [ ] T017 [P] [US1] Test in `tests/test_archive_specs.py`: a failed run followed by a successful retry produces exactly one `archive/` and one `archive-<stamp>/`, with no junk directory from the failed attempt — the residue this feature's own retry loop would otherwise manufacture (FR-023)
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Add the containment predicate to `_plan` in `wfctl/_archive.py:98` — filter sources to those inside `worktree`; do not change the returned tuple shape (data-model.md); verify with T008–T012
-- [ ] T019 [US1] Replace the blanket `except` contract in `wfctl/cli.py:300` with the narrow rule: non-zero only when at-risk artifacts existed and copying them failed; verify with T013, T014
-- [ ] T020 [US1] Make `archive()` in `wfctl/_archive.py:158-176` promote-on-success: copy into a staging directory, write the index into it, discard it on any exception, and only then rename any existing `archive/` aside and rename staging into place (FR-023). Note `_archive.py:173` currently writes `README.md` into the live directory — it must move into staging too, or a failed run still leaves an index describing files it did not copy; verify with T016, T017
+- [ ] T018 [US1] Add the containment predicate to `_plan` in `wfctl/_archive.py:98` — filter sources to those inside `worktree`; do not change `_plan`'s or `archive()`'s returned tuple shapes, since T019 carries failure information out through an exception instead (data-model.md); verify with T008–T012
+- [ ] T019 [US1] Add `ArchiveIncomplete(at_risk, cause)` to `wfctl/_archive.py` and raise it from `archive()`'s copy loop, then catch it specifically in `wfctl/cli.py:345` and exit 1, leaving the existing broad handler to keep exiting 0 for everything else (data-model.md, "How the CLI learns a failure was lossy"). The narrow rule is not implementable without this: `cli.py` wraps everything in one `try` and a bare `OSError` carries no indication that the plan was non-empty; verify with T013, T014
+- [ ] T020 [US1] Make `archive()` in `wfctl/_archive.py:158-176` promote-on-success: **clear any pre-existing staging directory** (`shutil.rmtree(staging, ignore_errors=True)`), copy into staging, write the index into it, discard it on any exception, and only then rename an existing `archive/` aside and rename staging into place (FR-023). Two traps: `_archive.py:173` writes `README.md` into the live directory today and must move into staging, or a failed run still leaves an index describing files it did not copy; and a process killed mid-run (SIGKILL, no exception to catch) leaves staging behind, which `_copy`'s `exist_ok=True` would silently merge into the next run and promote into `archive/` as phantom entries; verify with T016, T017
 - [ ] T021 [US1] Implement the durable-skip and failure messages in `wfctl/cli.py`, including both escape-route caveats; verify with T012, T015
 - [ ] T022 [US1] Rewrite the `pre_remove` hook in `.workmux.yaml:74-84` to the form in contracts/cli.md — remove `|| true` and the `command -v` short-circuit, keep the tool-absent branch; verify manually with quickstart.md step 5 (the hook is shell, not covered by pytest)
 - [ ] T023 [US1] Verify the tool-absent branch of the hook: run teardown on a disposable repo with `wfctl` removed from `PATH`, and confirm it warns, exits 0, and lets the removal proceed (FR-009); verify with quickstart.md step 5b. This is the only path that permits a removal after artifacts went unarchived, so it must not be the only untested one

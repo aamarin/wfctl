@@ -151,11 +151,27 @@ Transitional by construction; its removal is tracked as separate work.
 
 ```yaml
 pre_remove:
-  - if command -v wfctl >/dev/null; then wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
-    else echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"; fi
+  - |
+    if command -v wfctl >/dev/null; then
+      wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"
+    else
+      echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"
+    fi
 ```
 
 `|| true` and the `command -v` short-circuit guard are both gone.
+
+**The block scalar (`- |`) is required, not stylistic.** A plain multi-line YAML
+scalar folds its line break into a space, which turns `else` from a keyword into
+an argument. The folded form passes `bash -n`, so it fails silently in both
+directions:
+
+| Form | wfctl present | wfctl absent |
+|---|---|---|
+| folded (`- if …` / `else …`) | invoked as `archive-specs "$PATH" "$HANDLE" else echo …` — extra args, non-zero exit, **every removal refused** | prints nothing, exits 0 — the warning never fires |
+| block scalar (`- \|`) | invoked with exactly two arguments | warning printed, exit 0 |
+
+`.workmux.yaml` already uses `- |` for its `pre_create` hook; this matches it.
 
 | Situation | Hook exit | Removal |
 |---|---|---|
