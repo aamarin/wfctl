@@ -133,6 +133,7 @@ it and only the implementation ships. This repo does the latter.
 | `next`           | Write next actionable step to `next-step.md` (automation shortcut)       |
 | `end`            | End the current session and write summary scaffold                       |
 | `checkpoint`     | Save a numbered checkpoint artifact (diff + md)                          |
+| `archive-specs`  | Rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
 | `log`            | Print color-coded event timeline for the current session                 |
 | `state-dir`      | Print the active XDG state directory path                                |
 | `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
@@ -345,6 +346,12 @@ username, or an email) and use `{me}` in any command. wfctl substitutes it, so
 `--author @me`, Gerrit `owner:self` — configured once per adapter.
 
 ### Where your specs live (`spec-root`)
+
+**The first interactive `wfctl install-skills` in a project asks this**, beside
+the tracker question, and records the answer so it is never asked again. Keeping
+specs in the repo records nothing at all — the default is the absence of a
+setting, so answering "keep them here" behaves exactly like never answering.
+Non-interactive installs, and `--yes`, never ask.
 
 Two setups. The first needs no configuration at all.
 
