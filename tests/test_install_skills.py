@@ -132,7 +132,10 @@ def test_install_skills_prompts_for_tracker(
     _add_tracker(src)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input=answer
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"],
+        # "1" answers the spec-location question that follows: this test is about
+        # the tracker, and option 1 records no spec_root, so it changes nothing here.
+        input=answer + "1\n",
     )
     assert result.exit_code == 0
     assert (repo_root / ".agents" / "trackers" / "github.json").exists() is expected
@@ -887,7 +890,7 @@ def test_declining_the_tracker_is_not_asked_again(
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     first = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n"
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n1\n"
     )
     assert "No issue tracker configured" in first.output
 
@@ -1386,3 +1389,211 @@ def test_ensure_gitignored_treats_dash_leading_paths_as_paths(repo_root: Path) -
 
     assert _ensure_gitignored(repo_root, "-unlisted") is True, "uncovered, written"
     assert "-unlisted" in (repo_root / ".gitignore").read_text().splitlines()
+
+
+# --- Where this project's specs live: asked once, on first interactive setup ---
+
+
+def _manifest(repo_root: Path) -> dict:
+    import json
+    return json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+
+
+def _install(src: Path, *extra: str, answers: str = "") -> object:
+    return runner.invoke(
+        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", *extra],
+        input=answers,
+    )
+
+
+def test_asked_marker_is_not_mistaken_for_an_installed_layer(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """`_layer_keys` returns every manifest key it does not know to skip, and its
+    callers do `manifest[key].get("items", [])`. A bare `True` there raises
+    AttributeError on sight — in doctor and in install-skills both."""
+    import os
+    from wfctl.cli import _layer_keys
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        '{"base": {"items": []}, "tracker": null, "spec_root_asked": true}\n'
+    )
+
+    assert "spec_root_asked" not in _layer_keys(_manifest(repo_root))
+    # `exit_code is not None` was vacuous: CliRunner captures the exception and
+    # still reports a code, so an AttributeError would have passed. Assert the
+    # run actually succeeded and that nothing was raised.
+    result = runner.invoke(app, ["doctor"])
+    assert result.exception is None, result.exception
+    assert result.exit_code == 0, result.output
+
+
+def test_spec_location_is_not_asked_without_a_human(agent_dir: Path, tmp_path: Path) -> None:
+    """Non-interactive installs record no location and no marker."""
+    import os
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    assert _install(src).exit_code == 0
+
+    m = _manifest(repo_root)
+    assert "spec_root" not in m
+    assert "spec_root_asked" not in m
+
+
+def test_spec_location_is_not_asked_with_yes(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--yes` suppresses the question the same way it suppresses the tracker's."""
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    assert _install(src, "--yes").exit_code == 0
+
+    assert "spec_root_asked" not in _manifest(repo_root)
+
+
+def test_keeping_specs_in_the_repo_records_no_location(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default answer must be indistinguishable from never having been asked.
+
+    That is what makes it safe: `spec_root` stays absent, so resolution is
+    byte-identical to a repo that predates the question.
+    """
+    import os
+    from wfctl import cli
+    from wfctl._paths import spec_root
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    assert _install(src, answers="n\n1\n").exit_code == 0
+
+    m = _manifest(repo_root)
+    assert "spec_root" not in m, "option 1 must record no location"
+    assert m["spec_root_asked"] is True
+    assert spec_root(repo_root) == repo_root / "specs"
+
+
+def test_choosing_a_durable_location_records_it_and_reports_the_files(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never created, never cloned, never checked for existence — a not-yet-existing
+    root is the case the setting exists to support."""
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    target = tmp_path.parent / "nowhere-yet"
+
+    result = _install(src, answers=f"n\n3\n{target}\n")
+
+    assert result.exit_code == 0
+    m = _manifest(repo_root)
+    assert m["spec_root"] == str(target)
+    assert m["spec_root_asked"] is True
+    assert not target.exists(), "the root must not be created"
+    assert str(repo_root / ".wf-skills-manifest.json") in result.output
+
+
+def test_the_question_is_asked_once(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """post_create runs install-skills in every new worktree; a second prompt on
+    every upgrade would be noise."""
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+
+    first = _install(src, answers="n\n1\n")
+    assert "Where should this project's specs live?" in first.output
+
+    second = _install(src, answers="")
+    assert second.exit_code == 0
+    assert "Where should this project's specs live?" not in second.output
+
+
+def test_an_existing_spec_root_counts_as_already_answered(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #26 requires the question be skipped when a root is already recorded.
+
+    Repos that ran `wfctl spec-root` before this prompt existed have no marker.
+    Asking them would be asking a question they answered more explicitly than the
+    prompt can, and a wrong answer would silently relocate their specs.
+    """
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        '{"spec_root": "/somewhere/durable"}\n'
+    )
+
+    # No answer supplied: a re-prompt would abort on EOF rather than pass.
+    result = _install(src, answers="n\n")
+
+    assert result.exit_code == 0
+    assert "Where should this project's specs live?" not in result.output
+    assert _manifest(repo_root)["spec_root"] == "/somewhere/durable"
+
+
+def test_option_two_with_an_absolute_path_keeps_its_clone_guidance(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The option drives the guidance, not the path's shape.
+
+    Both prompts accept absolute and relative input, so inferring the option from
+    `is_absolute()` dropped the clone instructions for an absolute answer to
+    option 2 — and handed them to a relative answer to option 3.
+    """
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    target = tmp_path.parent / "abs-specs"
+
+    result = _install(src, answers=f"n\n2\n{target}\n")
+
+    assert result.exit_code == 0
+    assert "git clone" in result.output, "option 2 lost its guidance"
+    assert _manifest(repo_root)["spec_root"] == str(target)
+
+
+def test_option_three_with_a_relative_path_gets_no_clone_guidance(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror case: a relative answer to option 3 is not a specs repo."""
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+
+    result = _install(src, answers="n\n3\n../elsewhere\n")
+
+    assert result.exit_code == 0
+    assert "git clone" not in result.output
+
+
+def test_option_two_clone_commands_are_anchored_to_the_main_checkout(
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`chosen` is stored relative to the main checkout, but these lines get
+    pasted into whatever shell the user is standing in. Left relative, running
+    them from a linked worktree would create the specs repo inside the worktree —
+    the one place it must not go."""
+    import os
+    from wfctl import cli
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    src = _make_wf_skills_repo(tmp_path)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    result = _install(src, answers="n\n2\nproj-specs\n")
+
+    assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output

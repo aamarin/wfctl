@@ -32,14 +32,33 @@ _TMUX_UNSAFE = re.compile(r"[.:]")
 _WINDOW_PREFIX_LINE = re.compile(r"^\s*#?\s*window_prefix:")
 _EMPTY_PRE_REMOVE_LINE = re.compile(r"^pre_remove:\s*\[\]\s*$")
 
+# The command was renamed in #27; `archive-story` survives as a hidden alias.
+_FORMER_COMMAND = "archive-story"
+_COMMAND = "archive-specs"
+
+# A block scalar (`- |`), and that is load-bearing rather than stylistic. YAML
+# folds a multi-line *plain* scalar's break into a space, which would turn `else`
+# into an argument instead of a keyword. That form passes `bash -n`, then invokes
+# wfctl with four junk arguments — non-zero, and a non-zero pre_remove aborts the
+# removal, so every teardown in the repo would be refused — while the missing-wfctl
+# branch silently never fires.
+#
+# No `|| true`: a failed archive must abort the removal. `archive-specs` exits
+# non-zero only when at-risk artifacts were lost, so an unrelated internal failure
+# still cannot strand a worktree. The wfctl-absent branch proceeds deliberately —
+# blocking there would strand every worktree on a machine that never had the tool.
 ARCHIVE_HOOK = (
-    'command -v wfctl >/dev/null && wfctl archive-story '
-    '"$WM_WORKTREE_PATH" "$WM_HANDLE" || true'
+    "  - |\n"
+    "    if command -v wfctl >/dev/null; then\n"
+    f'      wfctl {_COMMAND} "$WM_WORKTREE_PATH" "$WM_HANDLE"\n'
+    "    else\n"
+    '      echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"\n'
+    "    fi\n"
 )
 
 # Kept identical to wfctl's own reviewed config so template and reference cannot
 # drift — the divergence this feature exists to close.
-WIRED_PRE_REMOVE = f"pre_remove:\n  - {ARCHIVE_HOOK}\n"
+WIRED_PRE_REMOVE = f"pre_remove:\n{ARCHIVE_HOOK}"
 
 _COMMENTED_AGENT = (
     "# agent: claude   # per-developer; set here or in "
@@ -111,20 +130,44 @@ def _pre_remove_block(text: str) -> list[str]:
     return []
 
 
+def _live_pre_remove_lines(text: str) -> list[str]:
+    """`pre_remove` block lines that are not commented out.
+
+    Scoped to the block on purpose. A whole-file scan reports wired when the
+    command appears anywhere else — a pane command, a `post_create` step — while
+    `pre_remove: []` leaves teardown unprotected. That is a check failing *open*
+    on the one question it exists to answer, so it stays narrow.
+
+    A hook someone commented out is not a hook.
+    """
+    return [ln for ln in _pre_remove_block(text) if not ln.lstrip().startswith("#")]
+
+
 def pre_remove_wired(text: str) -> bool:
-    """Does the `pre_remove` hook invoke `archive-story`?
+    """Does the `pre_remove` hook archive at all — under either name?
 
-    Scoped to the block on purpose. A whole-file scan reports wired when
-    `archive-story` appears anywhere else — a pane command, a `post_create`
-    step — while `pre_remove: []` leaves teardown unprotected. That is a check
-    failing *open* on the one question it exists to answer, so it stays narrow.
-
-    The comment test still applies inside the block: a hook someone commented
-    out is not a hook.
+    Both count. A repo wired before the rename is genuinely protected, because
+    `archive-story` still dispatches; reporting it as unwired would offer to add
+    a second hook beside the one already there. Whether it names the *old* one is
+    a separate question — see `pre_remove_uses_former_name`.
     """
     return any(
-        "archive-story" in line and not line.lstrip().startswith("#")
-        for line in _pre_remove_block(text)
+        _COMMAND in ln or _FORMER_COMMAND in ln for ln in _live_pre_remove_lines(text)
+    )
+
+
+def pre_remove_uses_former_name(text: str) -> bool:
+    """Is the hook still calling the pre-rename command name?
+
+    Not a failure — the alias works. This is the signal that lets the alias
+    eventually be removed: while any repo still answers yes, deleting it would
+    turn their teardown into an unknown command, and a non-zero `pre_remove`
+    aborts the removal. Tracked for removal alongside the other transitional
+    checks in issue #36.
+    """
+    return any(
+        _FORMER_COMMAND in ln and _COMMAND not in ln
+        for ln in _live_pre_remove_lines(text)
     )
 
 

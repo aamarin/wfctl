@@ -10,6 +10,12 @@ import typer
 from rich.console import Console
 
 from wfctl import _tracker
+# Module scope, unlike the rest of `_archive`, which `archive-specs` imports
+# lazily inside its `try` so an import error cannot strand a worktree. An
+# `except` clause resolves its class before the handler runs, so this name has to
+# exist by then. Safe to hoist: `_archive` imports only datetime, shutil and
+# pathlib, so there is no import here that can fail on its own.
+from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
@@ -273,8 +279,17 @@ def state_dir_cmd() -> None:
     print(agent_dir)
 
 
-@app.command("archive-story")
-def archive_story_cmd(
+# Two names, one function. `archive-story` is a compatibility shim, hidden so it
+# is not advertised as a second supported spelling: `.workmux.yaml` is repo-local,
+# so copies predating the rename persist indefinitely, and a failing `pre_remove`
+# hook now aborts the removal. Without the alias those repos would hit an unknown
+# command, exit non-zero, and find their worktrees unremovable — a worse failure
+# than the silent loss this command exists to prevent.
+# ponytail: transition-only; delete once `wfctl doctor` reports no repo still
+# naming it (see the stale-hook check below, and issue #36).
+@app.command("archive-specs")
+@app.command("archive-story", hidden=True)
+def archive_specs_cmd(
     worktree: str = typer.Argument(
         None, help="Worktree to archive. Defaults to $WM_WORKTREE_PATH, then the current repo."
     ),
@@ -282,20 +297,37 @@ def archive_story_cmd(
         None, help="Story handle. Defaults to $WM_HANDLE, then the branch."
     ),
 ) -> None:
-    """Archive a story's speckit artifacts into its state dir before teardown.
+    """Rescue a story's speckit artifacts before its worktree is deleted.
 
-    Wired into workmux's `pre_remove`. In the default layout `specs/` is
-    gitignored and lives inside the worktree, so removing one destroys the
-    design, spec, plan, tasks and analysis with it. A spec root outside the
-    worktree is not exposed that way; archiving still produces the flattened,
-    numbered snapshot, which is the point either way.
+    Wired into workmux's `pre_remove`. `specs/` is gitignored, so a worktree
+    holding only design artifacts reads *clean* to git and is removed without
+    complaint — while work git can see already stops the removal on its own.
+    This covers exactly the set nothing else can. Artifacts outside the worktree
+    are not at risk and are not copied; the message names the resolved path so
+    the absence of an archive does not read as a failed lookup.
 
-    Never exits non-zero. A teardown hook that fails is a hook that strands a
-    worktree, and a missed archive is a smaller loss than that — so every error
-    is reported and swallowed. This is the one place in wfctl where a bare
-    `except` is the correct behaviour rather than a smell, and it catches
-    SystemExit too: `get_repo_root` raises that rather than an Exception, so
-    `except Exception` alone would let a non-git checkout exit 1.
+    Two exit rules, and the split matters:
+
+    * **Non-zero only when at-risk artifacts existed and copying them failed**
+      (`ArchiveIncomplete`). A failing `pre_remove` hook aborts the removal, so
+      this refuses the teardown rather than reporting the loss afterwards.
+      `workmux remove --force` does *not* bypass the hook, which is why the
+      refusal prints the manual route out — completely, since `git worktree
+      remove` itself refuses when untracked files are present.
+    * **Zero for everything else**, still via a bare `except`. An unrelated
+      internal failure must not strand a worktree, and nothing was provably lost.
+      It catches SystemExit too: `get_repo_root` raises that rather than an
+      Exception, so `except Exception` alone would let a non-git checkout exit 1.
+
+    This replaces an earlier "never exits non-zero" contract. That guarantee, in
+    combination with `|| true` in the hook, meant a failed archive was silent and
+    the worktree was destroyed anyway — the exact failure this command exists to
+    prevent, delivered by its own error handling.
+
+    Named `archive-specs` since #27, because it archives the spec dir and one
+    superseded path and nothing else. `archive-story` survives as a hidden alias:
+    `.workmux.yaml` is repo-local, and with the hook now able to abort a removal,
+    an unknown command name would make those repos' worktrees unremovable.
     """
     try:
         # Inside the `try` on purpose: an import that raises here would exit
@@ -338,10 +370,67 @@ def archive_story_cmd(
             spec_dir=spec_dir,
             state_dir=state_dir,
         )
+        # Reported whether or not anything else was archived. Gating this on an
+        # empty plan hid it in the mixed case — an external spec root *plus* a
+        # legacy `.agent/spec.md` — where the legacy file produces an archive and
+        # the durable directory is skipped silently, which is exactly when the
+        # explanation is most needed.
+        if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
+            # escape(): the line carries rich markup for the tick, so a path
+            # containing `[…]` — legal on every platform — would be parsed as a
+            # style tag and silently dropped. This message exists to name a
+            # location; printing a path that is not the real one is worse than
+            # printing none.
+            from rich.markup import escape
+
+            console.print(
+                f"[green]✓[/green] spec dir is durable ({escape(str(spec_dir))}) — "
+                "nothing there was at risk, nothing copied",
+                soft_wrap=True,
+            )
         if archive_dir is None:
-            console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
+            if spec_dir is None or _archive.is_inside(repo_root, spec_dir):
+                console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
             return
         console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
+    except _ArchiveIncomplete as e:
+        # The one path that exits non-zero. `pre_remove` failing aborts the
+        # removal, so this refuses the teardown rather than reporting the loss
+        # after it happened. `workmux remove --force` does NOT bypass the hook,
+        # which is why the manual route is spelled out rather than implied — and
+        # spelled out completely: `git worktree remove` refuses when untracked
+        # files are present, and bypassing workmux skips its tmux cleanup.
+        console.print(
+            f"[red]✗[/red] {e.at_risk} spec file(s) could not be archived — "
+            "removal aborted, nothing lost."
+        )
+        # These lines are meant to be pasted into a shell, so every interpolated
+        # value is quoted: a worktree path containing a space otherwise produces a
+        # command that fails, and a branch or path carrying shell metacharacters
+        # produces one that does something else entirely.
+        #
+        # markup=False with them: a path may legitimately contain `[`, which rich
+        # would read as a style tag and swallow. soft_wrap for the same reason as
+        # above — rich wraps at the terminal width and would break mid-path, and a
+        # route that cannot be pasted is no better than one not printed.
+        import shlex
+
+        console.print(f"  Cause: {e}", soft_wrap=True, markup=False)
+        console.print("")
+        console.print(
+            f"  Retry:         workmux remove {shlex.quote(story)}",
+            soft_wrap=True, markup=False,
+        )
+        console.print(
+            f"  Remove anyway: git worktree remove {shlex.quote(str(repo_root))}"
+            f" && git branch -D {shlex.quote(branch)}",
+            soft_wrap=True, markup=False,
+        )
+        console.print(
+            "                 (add --force to the first if the worktree has untracked\n"
+            "                  files; leaves the tmux window workmux would have closed)"
+        )
+        raise typer.Exit(1) from e
     except (Exception, SystemExit) as e:  # noqa: BLE001 — see the docstring
         console.print(f"[yellow]⚠[/yellow] archive failed ({e}) — continuing so teardown is not blocked")
 
@@ -601,7 +690,7 @@ _BASE_LAYER = "base"
 # do `manifest[key].get("items", [])`, which raises AttributeError on a string.
 # `base` IS a layer (it has items and a pinned commit, so `doctor` checks it for
 # drift), it is just not an *agent* — see _agent_keys.
-_NON_LAYER_KEYS = frozenset({"tracker", "spec_root"})
+_NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 
 
 def _layer_keys(manifest: dict) -> list[str]:
@@ -752,6 +841,124 @@ def _interactive() -> bool:
     return sys.stdin.isatty()
 
 
+_SPEC_ROOT_ASKED = "spec_root_asked"
+
+
+def _spec_root_question_answered(repo_root: Path) -> bool:
+    """Has this project already answered the spec-location question?
+
+    Two ways to have answered, and both count:
+
+    * the marker this prompt writes, or
+    * a `spec_root` already recorded — by `wfctl spec-root`, or by a repo that
+      configured one before this prompt existed. Asking those projects would be
+      asking a question they have already answered more explicitly than the
+      prompt can, and a wrong answer would silently relocate their specs.
+
+    Walks this checkout then the main one for both, mirroring
+    `spec_root_declaration`. `post_create` reinstalls in every fresh worktree,
+    where the manifest is regenerated from scratch, so a local-only read would
+    re-ask in each of them.
+    """
+    if spec_root_declaration(repo_root) is not None:
+        return True
+    if _load_manifest(repo_root).get(_SPEC_ROOT_ASKED):
+        return True
+    main = main_checkout(repo_root)
+    return bool(main and _load_manifest(main).get(_SPEC_ROOT_ASKED))
+
+
+def _spec_root_panels(name: str) -> list[object]:
+    """The three options, rendered.
+
+    Stacked rather than side by side: three boxes across truncate their titles
+    below ~110 columns.
+    """
+    from rich.markup import escape
+    from rich.panel import Panel
+
+    # A directory name is not markup. `[` is legal in one, and unescaped it is
+    # parsed as a style tag and dropped, so the panel would show a project name
+    # the user does not recognise.
+    name = escape(name)
+
+    return [
+        Panel(
+            f"  [bold]{name}/[/bold]\n"
+            "  ├── specs/42-feature/      ← spec.md, plan.md, tasks.md\n"
+            "  └── wt/42-feature/         worktree\n\n"
+            "  Committed with your code, or gitignored — your .gitignore decides.\n"
+            "  If gitignored, removing the worktree deletes them.",
+            title="[bold]1[/bold]  Keep them in the repo",
+            subtitle="default · nothing to configure",
+            title_align="left", subtitle_align="right", width=78,
+        ),
+        Panel(
+            f"  [bold]{name}/[/bold]\n"
+            f"  ├── {name}-specs/       its own repo, gitignored here\n"
+            "  │   └── specs/42-feature/\n"
+            "  └── wt/42-feature/         worktree\n\n"
+            "  Survives worktree removal, versioned on its own remote, and\n"
+            "  greppable from any worktree without a checkout.",
+            title="[bold]2[/bold]  In a specs repo cloned here",
+            subtitle="durable · in git · greppable",
+            title_align="left", subtitle_align="right", width=78,
+        ),
+        Panel(
+            "  [bold]~/Development/[/bold]\n"
+            f"  ├── {name}-specs/\n"
+            "  │   └── 42-feature/\n"
+            f"  └── {name}/wt/42-feature/\n\n"
+            "  Survives worktree removal. Whether it is version-controlled is\n"
+            "  up to you.",
+            title="[bold]3[/bold]  Somewhere else on disk",
+            subtitle="durable",
+            title_align="left", subtitle_align="right", width=78,
+        ),
+    ]
+
+
+def _ask_where_specs_live(repo_root: Path) -> tuple[str, str | None]:
+    """Ask once, on first interactive install.
+
+    Returns `(choice, path)` — the option the user picked and the path they gave,
+    or None for the default. The choice is returned rather than re-derived from
+    the path's shape: both prompts accept absolute *and* relative input, so
+    inferring "this was option 2" from `not is_absolute()` mislabels an absolute
+    answer to option 2 and a relative answer to option 3, and the clone guidance
+    and gitignore entry hang off that distinction.
+
+    Option 1 records no `spec_root` at all: the default *is* the absence of the
+    key, so a repo that answers "keep them here" must resolve byte-identically to
+    one that was never asked. Recording `null` instead would be bookkeeping under
+    a name that implies behaviour.
+
+    Never creates, clones, or checks the target. A not-yet-existing root is
+    exactly the case the setting exists to support, and network I/O mid-install
+    is a blast radius this does not need.
+    """
+    name = project_name(repo_root)
+    console.print()
+    console.print("[bold]Where should this project's specs live?[/bold]")
+    console.print(
+        "Each feature gets a spec, plan, and tasks. Worktrees get removed when\n"
+        "the work ends — if the specs live inside one, they go with it."
+    )
+    for panel in _spec_root_panels(name):
+        console.print(panel)
+    console.print(
+        "Change any time with `wfctl spec-root`. Skipping keeps option 1."
+    )
+
+    choice = typer.prompt("Choose [1/2/3]", default="1", show_default=True).strip()
+    if choice == "2":
+        directory = typer.prompt("Directory", default=f"{name}-specs").strip()
+        return "2", (directory or f"{name}-specs")
+    if choice == "3":
+        return "3", (typer.prompt("Path").strip() or None)
+    return "1", None
+
+
 @app.command("install-skills")
 def install_skills_cmd(
     repo: str = typer.Option(
@@ -846,6 +1053,77 @@ def install_skills_cmd(
                 "           wfctl install-skills --tracker <name>\n"
                 "Once set, later installs leave that choice — and your edits to its "
                 "config — alone.[/dim]"
+            )
+
+    # Same shape as the tracker question above, and asked in the same breath:
+    # first interactive install only, never under --yes or a pipe, never twice.
+    # `spec_root` exists since #25 but nothing pointed a project at it, so repos
+    # took the default and found out it was wrong when `workmux remove` deleted a
+    # spec — the failure the setting exists to prevent.
+    if not yes and _interactive() and not _spec_root_question_answered(repo_root):
+        choice, chosen = _ask_where_specs_live(repo_root)
+        # The main checkout, not this one: the manifest is gitignored and a
+        # worktree's copy dies with the worktree, so recording it here would set
+        # a value that silently evaporates. Same target `wfctl spec-root` uses.
+        target = main_checkout(repo_root) or repo_root
+        target_manifest = _load_manifest(target)
+        target_manifest[_SPEC_ROOT_ASKED] = True
+        if chosen:
+            target_manifest["spec_root"] = chosen
+        _save_manifest(target, target_manifest)
+        if target == repo_root:
+            # Keep the in-memory copy in step, or the save at the end of this
+            # command writes the pre-answer manifest back over it.
+            manifest[_SPEC_ROOT_ASKED] = True
+            if chosen:
+                manifest["spec_root"] = chosen
+
+        console.print(
+            f"[green]✓[/green] wrote {target / _MANIFEST_PATH}", soft_wrap=True
+        )
+        if chosen and _ensure_gitignored(target, _MANIFEST_PATH):
+            console.print(
+                f"[green]✓[/green] gitignored it in {target / '.gitignore'}", soft_wrap=True
+            )
+        if choice == "2" and chosen:
+            # Keyed on the option the user picked, not on the path's shape. Both
+            # prompts accept absolute and relative input, so an absolute answer to
+            # option 2 would have lost this guidance and a relative answer to
+            # option 3 would have received it wrongly — along with a `../…`
+            # gitignore entry that means nothing.
+            import shlex
+
+            # Only a path inside the checkout can be gitignored by it. An absolute
+            # answer to option 2 lands elsewhere on disk and simply has no entry
+            # to write; `_ensure_gitignored` would otherwise be handed a path its
+            # `check-ignore` call cannot evaluate against this repo.
+            from rich.markup import escape
+
+            rel = Path(chosen).expanduser()
+            if not rel.is_absolute() and _ensure_gitignored(target, f"{chosen}/"):
+                console.print(
+                    f"[green]✓[/green] gitignored {escape(chosen)}/ in "
+                    f"{escape(str(target / '.gitignore'))}",
+                    soft_wrap=True,
+                )
+            # Anchored to `target`, not left relative. `chosen` is stored relative
+            # to the main checkout, but these lines get pasted into whatever shell
+            # the user is standing in — from a linked worktree that would create
+            # the specs repo inside the worktree, which is the one place it must
+            # not go. Quoted for the same reason as the teardown escape route.
+            where = shlex.quote(str(target / chosen)) if not rel.is_absolute() \
+                else shlex.quote(str(rel))
+            # escape() as well as quote(): shell quoting protects the shell, rich
+            # markup is a separate layer, and `[` is legal in a path. Without it
+            # these lines — which exist to be pasted — lose part of the path and
+            # create the specs repo somewhere else, or nowhere.
+            where = escape(where)
+            console.print(
+                f"\n[dim]Not created yet — when you have a specs repo:\n"
+                f"  git clone <url> {where}\n\n"
+                f"Or start one:\n"
+                f"  mkdir -p {where}/specs && git -C {where} init[/dim]",
+                soft_wrap=True,
             )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -1347,7 +1625,7 @@ def _check_wfctl_version() -> int:
 
 
 def _archive_destination(repo_root: Path) -> str:
-    """Where `archive-story` would write, for display only — creates nothing.
+    """Where `archive-specs` would write, for display only — creates nothing.
 
     `resolve_agent_dir` would answer this but also mkdirs, and a health check that
     creates directories while reporting on them is a check with side effects.
@@ -1435,7 +1713,7 @@ def _check_workmux_hook(repo_root: Path) -> None:
 
     console.print(
         "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
-        "`wfctl archive-story` — removing a\n"
+        "`wfctl archive-specs` — removing a\n"
         "  worktree will discard its specs, plan, and tasks."
     )
     # soft_wrap: rich would otherwise wrap this at the terminal width and could
@@ -1452,8 +1730,8 @@ def _check_workmux_hook(repo_root: Path) -> None:
         # soft_wrap: this line is meant to be copy-pasted into a YAML list, and a
         # wrapped line pastes broken.
         console.print(
-            "  pre_remove holds custom steps — add this line to it yourself:\n"
-            f"    - {_workmux.ARCHIVE_HOOK}",
+            "  pre_remove holds custom steps — add this entry to it yourself:\n"
+            f"{_workmux.ARCHIVE_HOOK}",
             soft_wrap=True,
         )
         return
@@ -1473,6 +1751,42 @@ def _check_workmux_hook(repo_root: Path) -> None:
         console.print(f"[yellow]⚠[/yellow] couldn't write .workmux.yaml: {exc}")
         return
     console.print("[green]✓[/green] pre_remove wired — .workmux.yaml")
+
+
+def _check_stale_archive_hook(repo_root: Path) -> None:
+    """Report a `pre_remove` still naming the pre-rename command.
+
+    Not a failure: `archive-story` is a working hidden alias, so this repo is
+    protected. The report exists so the alias has an observable end condition —
+    while any repo still answers yes, deleting it would turn their teardown into
+    an unknown command, and a non-zero `pre_remove` aborts the removal.
+
+    Runs after `_check_workmux_hook`, which treats either name as wired, so a repo
+    is never told both "not archiving" and "archiving under the old name".
+
+    ponytail: transitional, like the superseded-path checks beside it. Their
+    collective removal is issue #36 — do not delete this one alone; the point of
+    sweeping them together is that reviewing them at once makes it obvious none is
+    load-bearing.
+    """
+    from wfctl import _workmux
+
+    wf = repo_root / ".workmux.yaml"
+    if not wf.exists():
+        return
+    try:
+        text = wf.read_text()
+    except OSError:
+        return  # _check_workmux_hook already reported the unreadable file
+    if not _workmux.pre_remove_uses_former_name(text):
+        return
+
+    console.print(
+        "[yellow]⚠[/yellow] .workmux.yaml: pre_remove calls `wfctl archive-story`, "
+        "renamed to\n"
+        "  `archive-specs`. The old name still works, so teardown is protected."
+    )
+    console.print("  Update the hook, or re-seed it with `wfctl install-config`.")
 
 
 def _check_spec_root_migration(repo_root: Path) -> None:
@@ -1544,6 +1858,7 @@ def doctor_cmd() -> None:
     # skills. All three are drift a repo can carry with nothing pinned, so all
     # three are reported either way.
     _check_workmux_hook(repo_root)
+    _check_stale_archive_hook(repo_root)
     _check_spec_root_migration(repo_root)
     _check_legacy_agent_dir(repo_root)
 
