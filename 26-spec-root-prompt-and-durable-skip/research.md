@@ -116,6 +116,44 @@ exists to prevent, and would commit every spec tree to the project's history.
 
 ---
 
+## R-006: Does the manual escape route actually work?
+
+**Decision**: Yes for the case that matters, with two caveats that belong in the
+message rather than in a user's afternoon.
+
+**Evidence**. A worktree holding only a gitignored spec:
+
+```
+$ git worktree remove wt/99-probe
+exit: 0                           # removed; git's dirty check ignores ignored files
+$ git branch --list 99-probe
+  99-probe                        # branch survives — hence the second command
+```
+
+The same worktree with one untracked non-ignored file added:
+
+```
+$ git worktree remove wt/99-probe
+fatal: 'wt/99-probe' contains modified or untracked files, use --force to delete it
+exit: 128
+```
+
+**Rationale**: FR-008 requires the refusal message to name a route out. A route
+that fails with `fatal:` for a reachable input is not a route. The untracked case
+is reachable precisely because the uncommitted-changes guard (R-002) means anyone
+who reached an archive failure with untracked files present used `--force` to get
+there.
+
+Bypassing the removal tool also skips its tmux cleanup, orphaning a window or
+session. Harmless, and worth one clause — unexplained orphans read as breakage.
+
+**Alternatives considered**: printing only `git worktree remove` and letting the
+`--force` hint come from git's own error. Rejected: it arrives mid-teardown,
+after the user has already been refused once, which is the worst moment to learn
+a second command was incomplete.
+
+---
+
 ## R-004: Command aliasing without duplicating the implementation
 
 **Decision**: Register the former name as an additional, hidden command name that

@@ -47,10 +47,33 @@ message is indistinguishable from a lookup that silently found nothing.
 
   Retry:         workmux remove 42-feature
   Remove anyway: git worktree remove <path> && git branch -D 42-feature
+                 (add --force to the first if the worktree has untracked files;
+                  leaves the tmux window, which `workmux remove` would have closed)
 ```
 
 Both routes are mandatory. `workmux remove --force` does **not** bypass the hook
 (R-001), so the manual route is the only escape and must not be left implicit.
+
+**The manual route is verified, with two caveats that must appear in the message
+rather than being discovered.**
+
+| Worktree contains | `git worktree remove` |
+|---|---|
+| gitignored artifacts only — the normal case here | succeeds, exit 0 |
+| any untracked non-ignored file | refuses: `contains modified or untracked files, use --force to delete it` |
+
+The branch always survives `git worktree remove`, which is why the `git branch -D`
+half is not optional.
+
+The untracked case is reachable: the uncommitted-changes guard (R-002) would have
+stopped a plain `workmux remove` earlier, so anyone hitting an archive failure
+with untracked files present arrived via `--force`. Telling them only half the
+command sends them to a `fatal:` they then have to diagnose while teardown is
+already half-done.
+
+Bypassing workmux also skips its tmux cleanup, leaving an orphaned window or
+session. Harmless, but unexplained orphans are how people conclude a tool is
+broken.
 
 **Output — nothing to archive at all** (unchanged): normal, exit 0.
 
