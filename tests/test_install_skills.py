@@ -1407,13 +1407,20 @@ def _install(src: Path, *extra: str, answers: str = "") -> object:
 
 
 def test_asked_marker_is_not_mistaken_for_an_installed_layer(
-    agent_dir: Path, tmp_path: Path
+    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`_layer_keys` returns every manifest key it does not know to skip, and its
     callers do `manifest[key].get("items", [])`. A bare `True` there raises
-    AttributeError on sight — in doctor and in install-skills both."""
+    AttributeError on sight — in doctor and in install-skills both.
+
+    The tool-version check is stubbed: it compares this environment's installed
+    metadata against the newest published tag over the network, which would make
+    the exit-code assertion below report whether the machine is current rather
+    than whether the manifest key was skipped.
+    """
     import os
     from wfctl.cli import _layer_keys
+    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".wf-skills-manifest.json").write_text(
         '{"base": {"items": []}, "tracker": null, "spec_root_asked": true}\n'
