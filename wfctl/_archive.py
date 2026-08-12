@@ -188,11 +188,17 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     # ponytail: transition-only; delete once no worktree predates the move.
     legacy_dir = worktree / ".agent"
     for src in sorted(p for p in legacy_dir.rglob("*") if p.is_file() and not p.is_symlink()):
-        rel = src.relative_to(legacy_dir)
+        # Not `rel`: the `_SPEC_MAP` loop below rebinds that name to a str in this
+        # same scope, and mypy reads the two as one variable.
+        legacy_rel = src.relative_to(legacy_dir)
         # `spec.md` keeps the name it already has on disk in every archive written
         # so far; the rest land under a directory so the two are told apart.
-        dst = "extra/legacy-agent-spec.md" if rel == Path("spec.md") else f"extra/legacy-agent/{rel}"
-        plan.append((src, dst))
+        plan.append((
+            src,
+            "extra/legacy-agent-spec.md"
+            if legacy_rel == Path("spec.md")
+            else f"extra/legacy-agent/{legacy_rel}",
+        ))
 
     # Archive what this teardown would destroy; skip what it would not. A spec dir
     # outside the worktree survives `workmux remove` untouched, so copying it
