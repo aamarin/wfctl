@@ -109,6 +109,30 @@ def test_a_design_doc_at_the_superseded_path_is_archived_without_a_spec_dir(
     assert (_archive_dir(agent_dir) / "extra" / "legacy-agent-spec.md").is_file()
 
 
+def test_the_whole_superseded_directory_is_archived_not_just_spec_md(
+    agent_dir: Path,
+) -> None:
+    """`.agent/` is read as a directory, so a neighbour of spec.md is not deleted.
+
+    Reading one filename rescued `spec.md` and destroyed everything beside it.
+    Three `brief.md` files survived the 2026-08-11 worktree cleanup only because
+    they were copied out by hand first — this is the regression that made that
+    necessary.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+    _write(repo_root / ".agent" / "brief.md", "the brief\n")
+    _write(repo_root / ".agent" / "notes" / "scratch.md", "nested\n")
+
+    assert runner.invoke(app, ["archive-specs"]).exit_code == 0
+
+    arch = _archive_dir(agent_dir)
+    # spec.md keeps the flat name every archive written so far already uses.
+    assert (arch / "extra" / "legacy-agent-spec.md").read_text() == "legacy design\n"
+    assert (arch / "extra" / "legacy-agent" / "brief.md").read_text() == "the brief\n"
+    assert (arch / "extra" / "legacy-agent" / "notes" / "scratch.md").read_text() == "nested\n"
+
+
 def test_unmapped_artifacts_land_under_extra(agent_dir: Path) -> None:
     """A speckit artifact the map has never heard of is archived, not dropped."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])

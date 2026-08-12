@@ -165,11 +165,16 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     """
     plan: list[tuple[Path, str]] = []
 
-    # A branch that predates the move still has its design doc at the old path,
-    # and this runs from `pre_remove` — declining to archive it means deleting
-    # it. `extra/` is precisely the shelf for artifacts the map does not name, so
-    # the numbered sequence stays honest about what the current pipeline
-    # produces.
+    # A branch that predates the move still has its artifacts at the old path, and
+    # this runs from `pre_remove` — declining to archive them means deleting them.
+    # `extra/` is precisely the shelf for artifacts the map does not name, so the
+    # numbered sequence stays honest about what the current pipeline produces.
+    #
+    # The whole directory, not `spec.md` alone. Reading one filename out of a
+    # directory about to be deleted rescues that file and destroys its neighbours:
+    # three `brief.md` files survived the 2026-08-11 worktree cleanup only because
+    # they were copied out by hand first. The new-layout path has never had this
+    # problem — the spec-dir sweep below takes everything it does not map.
     #
     # Reconciling aamarin/wf-skills#11 FR-013, "Tooling MUST read exactly one
     # artifact location — the new one. No component reads both." That requirement
@@ -181,9 +186,13 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     # `_pipeline.py` still reads only the new location. Recorded here because that
     # epic is closed, so this is the only place the reconciliation can live.
     # ponytail: transition-only; delete once no worktree predates the move.
-    legacy_design = worktree / ".agent" / "spec.md"
-    if legacy_design.is_file():
-        plan.append((legacy_design, "extra/legacy-agent-spec.md"))
+    legacy_dir = worktree / ".agent"
+    for src in sorted(p for p in legacy_dir.rglob("*") if p.is_file() and not p.is_symlink()):
+        rel = src.relative_to(legacy_dir)
+        # `spec.md` keeps the name it already has on disk in every archive written
+        # so far; the rest land under a directory so the two are told apart.
+        dst = "extra/legacy-agent-spec.md" if rel == Path("spec.md") else f"extra/legacy-agent/{rel}"
+        plan.append((src, dst))
 
     # Archive what this teardown would destroy; skip what it would not. A spec dir
     # outside the worktree survives `workmux remove` untouched, so copying it
