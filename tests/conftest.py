@@ -23,6 +23,35 @@ import pytest
 os.environ["NO_COLOR"] = "1"
 
 
+@pytest.fixture(autouse=True)
+def _tool_version_is_not_under_test(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stub `doctor`'s tool-version check for every test in the suite.
+
+    Left live, it resolves the newest published tag over the network and compares
+    it against this environment's installed metadata, then contributes to
+    `doctor`'s exit code. Any test asserting that exit code therefore reports
+    whether the machine running it happens to be current — three did, and all
+    three went red the moment v0.14.0 was tagged, on a change that touched none of
+    them.
+
+    A build behind the newest tag is a normal state: a contributor who installed
+    last week, CI on a checkout predating the tag, anyone mid-release. None of
+    that is a test failure. Autouse rather than per-test so a future test cannot
+    reintroduce the dependency by forgetting.
+
+    Also removes the suite's only unavoidable network call, so it runs offline.
+    The check's own behaviour is still tested, by the two cases marked
+    `real_version_check` — they stub `ls-remote` and the installed version
+    themselves, which is the only honest way to assert on a comparison between
+    the two.
+    """
+    if "real_version_check" in request.keywords:
+        return
+    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
+
+
 @pytest.fixture
 def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Isolated state dir backed by a real git repo (checkpoint needs git diff)."""

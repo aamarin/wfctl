@@ -132,15 +132,10 @@ def _seed_workmux(repo_root: Path, text: str = _UNWIRED) -> Path:
 def _doctor(monkeypatch: pytest.MonkeyPatch, *, interactive: bool, answer: str = "y"):
     """Run doctor with the TTY seam forced. `_interactive` exists for this.
 
-    The tool-version check is stubbed out. It resolves the newest published tag
-    over the network and compares it against this environment's installed
-    metadata, so leaving it live makes every exit-code assertion below depend on
-    whether the machine running the tests happens to be current — these tests
-    went red the moment v0.14.0 was tagged, on a change that touched none of
-    this. Its own behaviour is covered where it belongs.
+    Exit-code assertions below are safe because conftest stubs the tool-version
+    check suite-wide — see `_tool_version_is_not_under_test`.
     """
     monkeypatch.setattr("wfctl.cli._interactive", lambda: interactive)
-    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
     return runner.invoke(app, ["doctor"], input=answer if interactive else "")
 
 

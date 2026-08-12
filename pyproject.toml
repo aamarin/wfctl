@@ -30,6 +30,11 @@ wfctl = "wfctl.cli:app"
 [tool.setuptools.packages.find]
 include = ["wfctl*"]
 
+[tool.pytest.ini_options]
+markers = [
+    "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
+]
+
 [tool.ruff.lint]
 # Explicit rather than inherited, for the same reason the version is pinned.
 # E and F are ruff's own reimplementations of pycodestyle and pyflakes — no
