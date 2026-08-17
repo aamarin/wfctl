@@ -1839,9 +1839,6 @@ def doctor_cmd() -> None:
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
     """
-    import subprocess as sp
-    import tempfile
-
     exit_code = _check_wfctl_version()
 
     try:
@@ -1865,40 +1862,39 @@ def doctor_cmd() -> None:
         console.print("Nothing installed — run `wfctl install-skills` first.")
         raise typer.Exit(exit_code)
 
+    # One hash for the whole bundle, so it is computed once no matter how many
+    # layers are on record — every entry in one manifest carries the same value.
+    running_version = _wfctl_version()
+    bundle_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+
     for agent in layers:
         entry = manifest[agent]
-        repo, ref, commit = entry.get("repo"), entry.get("ref"), entry.get("commit")
-        if not commit:
+        recorded = entry.get("content_hash")
+        if not recorded:
+            # Unmeasurable, not stale: the layer may well be current, and there
+            # is nothing the user could have done to avoid this record. Warn and
+            # leave the exit code alone — re-installing writes a hash.
             console.print(
-                f"[yellow]⚠[/yellow] {agent}: no pinned commit on record (installed "
-                "before drift-checking existed) — re-run install-skills to enable this."
+                f"[yellow]⚠[/yellow] {agent}: installed before content hashing — "
+                "re-run install-skills to enable drift checking."
             )
             continue
 
-        remote = sp.run(["git", "ls-remote", repo, ref], capture_output=True, text=True)
-        if remote.returncode != 0 or not remote.stdout.strip():
-            console.print(f"[red]✗[/red] {agent}: couldn't reach {repo}@{ref} — {remote.stderr.strip()}")
-            exit_code = 1
-            continue
-
-        tip = remote.stdout.split()[0]
-        if tip == commit:
-            console.print(f"[green]✓[/green] {agent}: skills up to date ({commit[:7]})")
+        if recorded == bundle_hash:
+            console.print(f"[green]✓[/green] {agent}: skills current (wfctl {running_version})")
             continue
 
         exit_code = 1
-        console.print(f"[cyan]⬆[/cyan] {agent}: skills behind — {commit[:7]} → {tip[:7]}")
-        with tempfile.TemporaryDirectory() as tmp:
-            clone = sp.run(["git", "clone", "-q", repo, tmp], capture_output=True, text=True)
-            if clone.returncode == 0:
-                diff = sp.run(
-                    ["git", "diff", "--stat", commit, tip, "--", ".agents/skills", ".agents/commands"],
-                    cwd=tmp, capture_output=True, text=True,
-                )
-                for line in (diff.stdout.strip().splitlines() or ["(no changes under .agents/skills or .agents/commands)"]):
-                    console.print(f"    {line}")
-            else:
-                console.print(f"    (couldn't clone to diff: {clone.stderr.strip()})")
+        installed_by = entry.get("wfctl_version")
+        if installed_by and installed_by != running_version:
+            console.print(
+                f"[cyan]⬆[/cyan] {agent}: skills stale — installed by wfctl "
+                f"{installed_by}, running {running_version}"
+            )
+        else:
+            # Same version, different content: an editable install whose skills
+            # were edited in place. Naming the version twice would read as a bug.
+            console.print(f"[cyan]⬆[/cyan] {agent}: bundled skills changed since install")
         console.print("    update: wfctl install-skills")
 
     raise typer.Exit(exit_code)

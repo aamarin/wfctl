@@ -1,7 +1,10 @@
 """Tests for wfctl install-skills command."""
 from __future__ import annotations
 
+import contextlib
+import json
 import subprocess
+from collections.abc import Iterator
 from importlib.metadata import version
 from pathlib import Path
 
@@ -13,11 +16,18 @@ from wfctl.cli import app
 runner = CliRunner()
 
 
-@pytest.fixture
-def stub_version_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate the skills-drift tests from doctor's wfctl-tool version check
-    (which does a real network ls-remote)."""
-    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
+@contextlib.contextmanager
+def _edit_manifest(repo_root: Path) -> Iterator[dict]:
+    """Round-trip the manifest so a test can bend one field and write it back.
+
+    doctor's states differ only in what the record claims versus what the bundle
+    now hashes to. Bending the record reaches states the bundle cannot be edited
+    into — a version that is not the running one, a key that predates it.
+    """
+    path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(path.read_text())
+    yield manifest
+    path.write_text(json.dumps(manifest))
 
 
 def test_install_skills_copies_skills(agent_dir: Path) -> None:
@@ -453,11 +463,114 @@ def test_install_records_the_wfctl_version_and_bundle_hash(
     assert not {"repo", "ref", "commit"} & entry.keys()
 
 
-def test_doctor_with_nothing_installed(agent_dir: Path, stub_version_check: None) -> None:
+def test_doctor_with_nothing_installed(agent_dir: Path) -> None:
     """No manifest yet — doctor reports that plainly instead of erroring."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "Nothing installed" in result.output
+
+
+# --- doctor's four staleness states (data-model.md §3) ---
+#
+# All four turn on one comparison: the `content_hash` on record against the
+# bundle's hash right now. Nothing is fetched, so each state is reached by
+# either editing the bundle (a real hash change) or the record.
+
+def test_doctor_reports_up_to_date(agent_dir: Path) -> None:
+    """Nothing has moved since the install — the hash still matches."""
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert f"claude: skills current (wfctl {version('wfctl')})" in result.output
+
+
+def test_doctor_reports_stale_across_versions(bundle: Path, agent_dir: Path) -> None:
+    """A newer wfctl shipped different skills — name both versions, exit 1.
+
+    The bundle is edited for real rather than the hash faked, so this asserts the
+    comparison and not a string put there by the test.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# v2\n")
+    with _edit_manifest(repo_root) as manifest:
+        manifest["claude"]["wfctl_version"] = "0.0.1"
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert f"installed by wfctl 0.0.1, running {version('wfctl')}" in result.output
+    assert "wfctl install-skills" in result.output  # the remedy
+
+
+def test_doctor_reports_stale_at_the_same_version(bundle: Path, agent_dir: Path) -> None:
+    """Skills edited under one wfctl version — the editable-install case.
+
+    Once skills live in this repo they are authored against an editable install,
+    so equal versions with a changed tree is the state a contributor sees most.
+    Reporting it as `installed by 0.15.0, running 0.15.0` would read as a bug.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# v2\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "claude: bundled skills changed since install" in result.output
+    assert "wfctl install-skills" in result.output
+    assert "running" not in result.output, "no version comparison to imply"
+
+
+def test_doctor_warns_on_a_record_without_a_fingerprint(agent_dir: Path) -> None:
+    """A record written before content hashing is unmeasurable, not stale.
+
+    Warn and leave the exit code alone: the layer may well be current, and
+    exiting 1 on a manifest the user cannot have known to avoid would fail every
+    pre-upgrade repo's CI over nothing.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    with _edit_manifest(repo_root) as manifest:
+        del manifest["claude"]["content_hash"]
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "claude: installed before content hashing" in result.output
+
+
+def test_doctor_says_nothing_about_a_layer_that_installed_nothing(agent_dir: Path) -> None:
+    """`none` has no targets of its own, so there is no entry to check.
+
+    doctor iterates the manifest's layer keys, so an entry written for an empty
+    layer would produce a staleness verdict about a layer holding no files —
+    and, being hash-compared like any other, could report it as stale.
+    """
+    repo_root = agent_dir.parent
+    assert runner.invoke(app, ["install-skills", "--agent", "none"]).exit_code == 0
+    assert "none" not in json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert "none:" not in runner.invoke(app, ["doctor"]).output
+
+
+@pytest.mark.real_version_check
+def test_doctor_skills_verdict_survives_an_offline_release_check(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The skills verdict is local, so losing the network must not weaken it.
+
+    The release check needs `ls-remote`; the skills check no longer does. When
+    the first goes dark it reports ⚠ and returns 0, and a stale layer still has
+    to drive the exit code — otherwise `doctor` is quietly advisory offline.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# v2\n")
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 1, stdout="", stderr="no route"),
+    )
+
+    result = runner.invoke(app, ["doctor"])
+    assert "couldn't check latest" in result.output
+    assert "claude: bundled skills changed since install" in result.output
+    assert result.exit_code == 1
 
 
 # --- wfctl tool version check (doctor's first line) ---
