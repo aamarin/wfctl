@@ -31,17 +31,19 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from importlib.resources import files
 from pathlib import Path
 
-from wfctl._bundle import TREES
+# BUNDLE_ROOT is imported, not re-derived from `files("wfctl")`. Re-deriving it
+# would leave the constant every caller resolves the bundle through checked by
+# nothing: conftest's autouse fixture monkeypatches it out of the whole test
+# suite, so this job is the only place it is ever exercised as shipped.
+from wfctl._bundle import BUNDLE_ROOT, TREES
 
-installed_root = Path(str(files("wfctl")))
 repo_root = Path(__file__).resolve().parents[2]
 
-if installed_root == repo_root / "wfctl":
+if BUNDLE_ROOT == repo_root / "wfctl":
     sys.exit(
-        f"FAIL: wfctl resolved to the source tree at {installed_root}.\n"
+        f"FAIL: wfctl resolved to the source tree at {BUNDLE_ROOT}.\n"
         "  This check only means something against a clean wheel install — run it\n"
         "  with the venv's interpreter, from a directory that is not the repo root."
     )
@@ -76,7 +78,7 @@ if not tracked:
 missing = []
 not_executable = []
 for relative, mode in tracked.items():
-    target = installed_root / Path(relative).relative_to("wfctl")
+    target = BUNDLE_ROOT / Path(relative).relative_to("wfctl")
     if not target.is_file():
         missing.append(relative)
     elif mode == "100755" and not os.stat(target).st_mode & 0o111:
@@ -92,7 +94,7 @@ if missing or not_executable:
         print(f"  NOT EXECUTABLE: {relative}", file=sys.stderr)
     sys.exit(
         f"FAIL: {len(missing)} missing, {len(not_executable)} not executable "
-        f"out of {len(tracked)} tracked bundle files, in {installed_root}"
+        f"out of {len(tracked)} tracked bundle files, in {BUNDLE_ROOT}"
     )
 
-print(f"OK: {len(tracked)} bundled files present and correctly moded in {installed_root}")
+print(f"OK: {len(tracked)} bundled files present and correctly moded in {BUNDLE_ROOT}")
