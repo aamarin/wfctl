@@ -48,7 +48,7 @@ wfctl start
 # Check pipeline progress
 wfctl status
 
-# Install wf-skills (agent skills + slash commands) into your project
+# Install the bundled skills + slash commands into your project
 wfctl install-skills
 
 # Resume: re-infer pipeline step, write next-step.md
@@ -112,7 +112,7 @@ After `install-skills` (and optionally `install-config`):
 | `.agents/skills/`, `.agents/commands/` | installed skills + `/speckit.*` command wrappers, agent-agnostic | no (gitignored) |
 | `.claude/`, `.bob/`, `.github/skills/` | one assistant's native paths, only if `--agent` asked for them | no (gitignored) |
 | `.specify/` | speckit runtime (scripts + templates the skills call) | no (gitignored) |
-| `.wf-skills-manifest.json` | install record: pinned commit + backups | no (gitignored) |
+| `.wf-skills-manifest.json` | install record: wfctl version + content hash + backups | no (gitignored) |
 | `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | your call — see below |
 | `.workmux.yaml` | worktree config, from `install-config workmux` | **yes** |
 
@@ -141,11 +141,11 @@ it and only the implementation ships. This repo does the latter.
 | `promote`        | Interactively promote memory candidates to permanent memory              |
 | `issue`          | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`) |
 | `change`         | List/view code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
-| `install-skills` | Clone wf-skills and copy skills + commands + the speckit `.specify/` runtime into the current project |
+| `install-skills` | Copy the skills, commands and speckit `.specify/` runtime wfctl ships into the current project |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
-| `install-config` | Seed a standardized repo config from wf-skills into the project (v1: `workmux`) |
+| `install-config` | Seed a standardized repo config wfctl ships into the project (v1: `workmux`) |
 | `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
-| `doctor`         | Check installed wf-skills content against upstream for drift             |
+| `doctor`         | Check the installed skills against the ones this wfctl ships            |
 
 `wfctl --version` prints the installed package version and exits.
 
@@ -184,7 +184,7 @@ Install skills into a project:
 
 ```
 $ wfctl install-skills
-✓ Installed from https://github.com/aamarin/wf-skills@main
+✓ Installed from wfctl 0.15.0
   base  25 skills · 23 commands · 8 runtime
 
 Installed to .agents/ — skills and commands in their canonical, agent-agnostic
@@ -194,12 +194,13 @@ form. If your agent needs its own native paths:
   copilot  wfctl install-skills --agent copilot
 
 $ wfctl install-skills --agent claude
-✓ Installed from https://github.com/aamarin/wf-skills@main
+✓ Installed from wfctl 0.15.0
   base    25 skills · 23 commands · 8 runtime
   claude  3 skills · 23 commands
 ```
 
-Defaults to `aamarin/wf-skills@main`. Rerun to update.
+The skills ship inside wfctl, so an install copies from the wheel and needs no
+network. Upgrade wfctl, rerun to update.
 
 Installation is layered. The **base layer** always installs: skills and command
 wrappers in their canonical, agent-agnostic form under `.agents/`, plus the
@@ -244,38 +245,45 @@ a bare install and a bare uninstall round-trip. State lives in
 cleaned up once nothing references them.
 
 `wfctl doctor` is the single "am I current?" check — it reports both the wfctl
-tool (installed version vs latest release tag) and the installed skills (pinned
-commit vs upstream tip). Colour-coded: **green ✓** current, **cyan ⬆** upgrade
-available, **yellow ⚠** warning, **red ✗** error.
+tool (installed version vs latest release tag) and the installed skills (the
+hash on record vs the bundle this wfctl ships). Colour-coded: **green ✓**
+current, **cyan ⬆** upgrade available, **yellow ⚠** warning, **red ✗** error.
 
 ```
 $ wfctl doctor
-⬆ wfctl 0.9.0 → 0.10.0 available
+⬆ wfctl 0.14.0 → 0.15.0 available
     upgrade: uv tool install --upgrade git+https://github.com/aamarin/wfctl.git
-⬆ claude: skills behind — dc24ff7 → 7f1c021
-     .agents/skills/end-session/SKILL.md | 76 ++++++++++++++++++++++++++++++++++
+⬆ claude: skills stale — installed by wfctl 0.14.0, running 0.15.0
     update: wfctl install-skills
 ```
 
-`install-skills` pins the resolved commit SHA (not just the `--ref` name) so
-skills staleness is detectable; the tool check assumes you installed wfctl from
-its canonical repo. Exits non-zero when an upgrade is available or a repo is
-unreachable — so `wfctl doctor` doubles as a freshness gate in scripts, and the
-`start-session` skill runs it so you see freshness every session.
+`install-skills` records the wfctl version and a hash of the whole bundle, which
+is what makes staleness detectable without a network call. Four verdicts per
+layer: current; stale across versions, as above; **stale at the same version** —
+`⬆ claude: bundled skills changed since install`, which is what an editable
+checkout with edited skills looks like; and, for a record written before hashing
+existed, `⚠ claude: installed before content hashing`, which warns without
+failing since the layer may well be current. Only the tool check needs the
+network, and it degrades to `⚠ … couldn't check latest (offline?)` without
+weakening the skills verdict.
+
+Exits non-zero when an upgrade is available or a layer is stale — so `wfctl
+doctor` doubles as a freshness gate in scripts, and the `start-session` skill
+runs it so you see freshness every session.
 
 ### Seeding project config (`install-config`)
 
-`install-config` drops a standardized config file into your repo, sourced from
-the same wf-skills repo. Unlike `install-skills` — a managed mirror it keeps in
-sync — this is **seed-once**: the file becomes yours, committed and owned. No
-manifest, no drift-check, no uninstall.
+`install-config` drops a standardized config file into your repo, from the same
+bundle `install-skills` reads. Unlike `install-skills` — a managed mirror it
+keeps in sync — this is **seed-once**: the file becomes yours, committed and
+owned. No manifest, no drift-check, no uninstall.
 
 ```
 $ wfctl install-config workmux
-✓ Seeded workmux config (1 file(s)) from https://github.com/aamarin/wf-skills@main
+✓ Seeded workmux config (1 file(s)) from wfctl 0.15.0
 ```
 
-v1 ships `workmux` — a repo-agnostic [`.workmux.yaml`](https://github.com/aamarin/wf-skills/blob/main/.agents/configs/workmux/.workmux.yaml)
+v1 ships `workmux` — a repo-agnostic [`.workmux.yaml`](wfctl/agents/configs/workmux/.workmux.yaml)
 starter (worktrees under `wt/`, session mode, agent + term windows, an
 issue-number `pre_create` branch guard; project-specific port/env hooks ship
 commented). For `workmux` it also idempotently adds `wt/` to `.gitignore` and
@@ -441,6 +449,13 @@ cd wfctl
 pip install -e ".[dev]"
 pytest
 ```
+
+The skills, commands and speckit runtime `install-skills` writes are committed
+here as package data under `wfctl/agents/` and `wfctl/specify/` — edit them in
+place, then `wfctl install-skills` to try them in a repo. They carry no leading
+dot on purpose: `.gitignore` ignores `.agents/` and `.specify/` unanchored, so a
+dotted vendored copy would be silently untracked. The dotted directories at the
+repo root are this repo's own install output, not the source.
 
 ## Contributing
 
