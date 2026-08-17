@@ -88,6 +88,60 @@ def test_seeding_never_touches_the_manifest(bundle: Path, agent_dir: Path) -> No
     assert manifest.read_text() == before
 
 
+def _seed_github(bundle: Path, body: str = "# Pull Request\n") -> Path:
+    cfg = bundle / "agents" / "configs" / "github" / ".github"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "pull_request_template.md").write_text(body)
+    return cfg
+
+
+def test_nested_config_lands_at_its_path_in_the_repo(bundle: Path, agent_dir: Path) -> None:
+    """A source directory's structure is the structure that lands in the repo."""
+    repo_root = agent_dir.parent
+    _seed_github(bundle)
+
+    result = runner.invoke(app, ["install-config", "github"])
+    assert result.exit_code == 0
+    assert (repo_root / ".github" / "pull_request_template.md").read_text() == "# Pull Request\n"
+
+
+def test_nested_config_merges_into_a_directory_the_repo_already_has(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """An existing `.github/` is not a conflict — the file inside it would be.
+
+    Every repo worth seeding a PR template into already has `.github/`, so a
+    conflict check on the top-level directory name would refuse all of them. The
+    workflows beside the template must also survive the copy.
+    """
+    repo_root = agent_dir.parent
+    workflow = repo_root / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("name: CI\n")
+    _seed_github(bundle)
+
+    result = runner.invoke(app, ["install-config", "github"])
+    assert result.exit_code == 0
+    assert (repo_root / ".github" / "pull_request_template.md").exists()
+    assert workflow.read_text() == "name: CI\n"
+
+
+def test_nested_config_refuses_an_existing_file_by_its_repo_path(
+    bundle: Path, agent_dir: Path
+) -> None:
+    repo_root = agent_dir.parent
+    existing = repo_root / ".github" / "pull_request_template.md"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("mine\n")
+    _seed_github(bundle)
+
+    result = runner.invoke(app, ["install-config", "github"])
+    assert result.exit_code != 0
+    # Named as the repo sees it, not by the bundle-relative path or a bare filename.
+    assert ".github/pull_request_template.md" in result.output
+    assert existing.read_text() == "mine\n"
+
+
 def test_unknown_config_name(agent_dir: Path) -> None:
     result = runner.invoke(app, ["install-config", "nope"])
     assert result.exit_code != 0

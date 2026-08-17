@@ -697,7 +697,13 @@ _RUNTIME_TARGETS = [
 # committed and owned — so install-config keeps no manifest/backup/uninstall
 # bookkeeping. Positional config name → source dir in the bundle whose contents
 # copy to the repo root.
-_CONFIG_SOURCES = {"workmux": "agents/configs/workmux"}
+#
+# A source may nest: `github/` holds `.github/pull_request_template.md`, so the
+# directory structure under the source is the structure that lands in the repo.
+_CONFIG_SOURCES = {
+    "workmux": "agents/configs/workmux",
+    "github": "agents/configs/github",
+}
 
 _BACKUP_DIR = ".wf-skills-backup"
 
@@ -706,7 +712,7 @@ _BASE_LAYER = "base"
 # the repo's tracker choice and its spec root alongside the layer entries, and
 # must be skipped by anything iterating them: `_layer_keys` feeds callers that
 # do `manifest[key].get("items", [])`, which raises AttributeError on a string.
-# `base` IS a layer (it has items and a pinned commit, so `doctor` checks it for
+# `base` IS a layer (it has items and a content hash, so `doctor` checks it for
 # drift), it is just not an *agent* — see _agent_keys.
 _NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 
@@ -1459,7 +1465,10 @@ def install_config_cmd(
     Unlike install-skills (a managed mirror), this is seed-once: the copied files
     become the repo's own, committed and owned — no manifest/backup/uninstall.
     Refuses to overwrite an existing file unless --force (git is your undo).
-    v1 ships 'workmux'.
+
+    \b
+    workmux  .workmux.yaml, with `agent:` and `window_prefix:` filled in
+    github   .github/pull_request_template.md
     """
     import shutil
 
@@ -1489,8 +1498,19 @@ def install_config_cmd(
 
     # Plan the copy (source dir contents → repo root), collecting anything
     # we'd overwrite so we can refuse before touching the tree.
-    plan = [(item, repo_root / item.name) for item in src.iterdir()]
-    conflicts = [item.name for item, dest in plan if dest.exists() and not force]
+    #
+    # File by file, not entry by entry: a nested source lands inside a directory
+    # the repo almost certainly already has. Comparing directory names would
+    # refuse `github` in every repo with a `.github/`, while the copy underneath
+    # it silently overwrote whatever shared a name with a seeded file.
+    plan = [
+        (item, repo_root / item.relative_to(src))
+        for item in sorted(src.rglob("*"))
+        if item.is_file()
+    ]
+    conflicts = [
+        str(dest.relative_to(repo_root)) for _, dest in plan if dest.exists() and not force
+    ]
     if conflicts:
         console.print(
             f"[red]✗ Would overwrite existing file(s): {', '.join(conflicts)}. "
@@ -1499,10 +1519,8 @@ def install_config_cmd(
         raise typer.Exit(1)
 
     for item, dest in plan:
-        if item.is_dir():
-            shutil.copytree(item, dest, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, dest)
 
     if name == "workmux":
         from wfctl import _workmux

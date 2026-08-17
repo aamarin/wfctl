@@ -115,6 +115,7 @@ After `install-skills` (and optionally `install-config`):
 | `.wf-skills-manifest.json` | install record: wfctl version + content hash + backups | no (gitignored) |
 | `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | your call — see below |
 | `.workmux.yaml` | worktree config, from `install-config workmux` | **yes** |
+| `.github/pull_request_template.md` | PR template, from `install-config github` | **yes** |
 
 The gitignored paths are install artifacts — regenerate them any time with
 `install-skills`. Only your specs and `.workmux.yaml` are project source.
@@ -143,7 +144,7 @@ it and only the implementation ships. This repo does the latter.
 | `change`         | List/view code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
 | `install-skills` | Copy the skills, commands and speckit `.specify/` runtime wfctl ships into the current project |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
-| `install-config` | Seed a standardized repo config wfctl ships into the project (v1: `workmux`) |
+| `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
 | `doctor`         | Check the installed skills against the ones this wfctl ships            |
 
@@ -283,7 +284,7 @@ $ wfctl install-config workmux
 ✓ Seeded workmux config (1 file(s)) from wfctl 0.15.0
 ```
 
-v1 ships `workmux` — a repo-agnostic [`.workmux.yaml`](wfctl/agents/configs/workmux/.workmux.yaml)
+`workmux` seeds a repo-agnostic [`.workmux.yaml`](wfctl/agents/configs/workmux/.workmux.yaml)
 starter (worktrees under `wt/`, session mode, agent + term windows, an
 issue-number `pre_create` branch guard; project-specific port/env hooks ship
 commented). For `workmux` it also idempotently adds `wt/` to `.gitignore` and
@@ -304,6 +305,12 @@ $ wfctl install-config workmux
 (**workmux** runs each branch as an isolated git worktree + tmux session, so
 agents work in parallel without stepping on each other. The seeded config makes
 new worktrees come up ready.)
+
+`github` seeds [`.github/pull_request_template.md`](wfctl/agents/configs/github/.github/pull_request_template.md):
+a summary that reads on its own, then issue links, implementation rationale and
+what was actually verified. A config source keeps its own directory structure, so
+this one lands inside the `.github/` your repo already has — the workflows beside
+it are untouched, and only a template already at that path is a conflict.
 
 ### Issue trackers
 
