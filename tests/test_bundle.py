@@ -108,6 +108,38 @@ def test_content_hash_is_defined_for_a_tree_that_is_missing_one_half(
     assert content_hash(root) != content_hash(_build(tmp_path / "full", _FIXED_TREE))
 
 
+def test_content_hash_raises_when_no_tree_is_present(tmp_path: Path) -> None:
+    """A root with neither tree is a broken install, not an empty one.
+
+    Without the guard this returns `sha256(b"")` — a stable, well-formed digest
+    meaning "nothing here". `doctor` compares it against the recorded hash, sees a
+    mismatch, and prescribes `install-skills`, which would then install nothing.
+    """
+    with pytest.raises(FileNotFoundError):
+        content_hash(tmp_path / "nowhere")
+
+    empty = tmp_path / "no-trees"
+    (empty / "unrelated").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError):
+        content_hash(empty)
+
+
+def test_content_hash_distinguishes_a_path_boundary_from_its_content(
+    tmp_path: Path,
+) -> None:
+    """The length prefixes, asserted rather than only argued for in the docstring.
+
+    Concatenating path and bytes with no prefix makes these two trees identical to
+    the digest: `agents/ab` holding `c` and `agents/a` holding `bc` both feed it
+    `agents/abc`. One tree's contents impersonating another's path boundary is the
+    seam the prefixes close.
+    """
+    left = _build(tmp_path / "left", {"agents/ab": "c"})
+    right = _build(tmp_path / "right", {"agents/a": "bc"})
+
+    assert content_hash(left) != content_hash(right)
+
+
 def test_trees_match_the_grafted_directories_in_manifest_in() -> None:
     """Guards the pairing between `TREES` and `MANIFEST.in`.
 

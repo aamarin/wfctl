@@ -62,10 +62,22 @@ def content_hash(root: Path) -> str:
     is copied inline and belongs to no target list, so a per-layer hash would
     never see it. The cost is over-reporting — an edit under `specify/templates/`
     marks every layer stale — and the remedy is `wfctl install-skills` either way.
+
+    Raises `FileNotFoundError` when no tree resolves at all. A missing bundle would
+    otherwise hash to `sha256(b"")` — a well-formed, stable fingerprint meaning
+    "nothing here", which `doctor` would report as ordinary drift and prescribe an
+    install that installs nothing. One tree present is enough: a partial bundle is
+    a real state during a re-sync, and its digest is honest.
     """
+    trees = [root / tree for tree in TREES]
+    if not any(base.is_dir() for base in trees):
+        raise FileNotFoundError(
+            f"no bundled trees under {root} — expected one of {', '.join(TREES)}. "
+            "The wfctl install is incomplete; reinstall the package."
+        )
+
     digest = hashlib.sha256()
-    for tree in TREES:
-        base = root / tree
+    for base in trees:
         if not base.is_dir():
             continue
         # rglob, not glob.glob: the stdlib glob module drops dot-prefixed names,
