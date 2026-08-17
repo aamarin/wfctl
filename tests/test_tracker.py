@@ -257,48 +257,42 @@ def test_tracker_check_rejects_bad_changes_verb(agent_dir: Path) -> None:
 
 # --- install-skills --tracker ---
 
-def _make_wf_skills_repo_with_tracker(base: Path) -> Path:
-    src = base / "wf-skills-src"
-    src.mkdir()
-    subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "config", "user.email", "t@t.com"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "config", "user.name", "T"], check=True, capture_output=True)
-    skill = src / ".agents" / "skills" / "test-skill"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("# test-skill\n")
-    cmd = src / ".agents" / "commands"
-    cmd.mkdir(parents=True)
-    (cmd / "test-cmd.md").write_text("# test-cmd\n")
-    trackers = src / ".agents" / "trackers"
+def _add_tracker_and_runtime(bundle: Path) -> None:
+    """Add what the shared `bundle` fixture leaves out of the fake bundle.
+
+    Skills and commands come from the fixture; the tracker config and the
+    speckit runtime are absent there so their own warning branches stay
+    reachable, and these tests are the ones that need them present.
+    """
+    trackers = bundle / "agents" / "trackers"
     trackers.mkdir(parents=True)
     (trackers / "github.json").write_text(json.dumps(_GITHUB_VERBS))
     # Speckit runtime — installed as a repo-level managed mirror alongside skills.
-    scripts = src / ".specify" / "scripts" / "bash"
+    scripts = bundle / "specify" / "scripts" / "bash"
     scripts.mkdir(parents=True)
     (scripts / "setup-plan.sh").write_text("#!/usr/bin/env bash\necho plan\n")
-    templates = src / ".specify" / "templates"
+    templates = bundle / "specify" / "templates"
     templates.mkdir(parents=True)
     (templates / "plan-template.md").write_text("# plan\n")
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
-    return src
 
 
-def test_install_copies_specify_runtime(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_copies_specify_runtime(bundle: Path, agent_dir: Path) -> None:
     """install-skills provisions the .specify/ runtime (scripts + templates)."""
     repo_root = agent_dir.parent
-    src = _make_wf_skills_repo_with_tracker(tmp_path)
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    _add_tracker_and_runtime(bundle)
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     assert (repo_root / ".specify" / "scripts" / "bash" / "setup-plan.sh").exists()
     assert (repo_root / ".specify" / "templates" / "plan-template.md").exists()
 
 
-def test_install_tracker_github_copies_config_and_sets_manifest(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_tracker_github_copies_config_and_sets_manifest(
+    bundle: Path, agent_dir: Path
+) -> None:
     repo_root = agent_dir.parent
-    src = _make_wf_skills_repo_with_tracker(tmp_path)
+    _add_tracker_and_runtime(bundle)
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"]
+        app, ["install-skills", "--tracker", "github"]
     )
     assert result.exit_code == 0
     assert (repo_root / ".agents" / "trackers" / "github.json").exists()
@@ -306,11 +300,13 @@ def test_install_tracker_github_copies_config_and_sets_manifest(agent_dir: Path,
     assert manifest["tracker"] == "github"
 
 
-def test_install_custom_tracker_warns_when_config_absent(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_custom_tracker_warns_when_config_absent(
+    bundle: Path, agent_dir: Path
+) -> None:
     repo_root = agent_dir.parent
-    src = _make_wf_skills_repo_with_tracker(tmp_path)
+    _add_tracker_and_runtime(bundle)
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "jira"]
+        app, ["install-skills", "--tracker", "jira"]
     )
     assert result.exit_code == 0
     assert "no .agents/trackers/jira.json found" in result.output
