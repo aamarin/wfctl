@@ -25,6 +25,13 @@ from pathlib import Path
 # notices when they change.
 TREES = ("agents", "specify")
 
+# Where those trees came from, pinned to the revision they were copied at. In the
+# tracked source rather than only in `git log`, because the upstream repository is
+# archived by this same feature: a commit message pointing at a repo that has
+# stopped taking commits is a dead end for whoever next needs to know which
+# revision this tree is a copy of, and a re-sync needs that base to diff against.
+BUNDLE_SOURCE = "aamarin/wf-skills@9ee468a6fe19f57e426b1a4711d8ae8c6c40d210"
+
 # `files()` returns a real directory path because wfctl is always installed
 # unpacked — `uv tool install` and `pip install` both explode the wheel, and
 # nothing here supports running from a zipimport. That is what lets this skip
