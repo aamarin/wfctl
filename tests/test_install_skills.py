@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shutil
 import subprocess
 from collections.abc import Iterator
 from importlib.metadata import version
@@ -535,6 +536,39 @@ def test_doctor_warns_on_a_record_without_a_fingerprint(agent_dir: Path) -> None
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "claude: installed before content hashing" in result.output
+
+
+# --- a bundle that is not there ---
+#
+# `_bundle.content_hash` raises rather than fingerprinting an empty tree, so
+# both callers have to turn that into a CLI error. Reached by emptying the fake
+# bundle, which is what a wheel that lost its vendored trees looks like.
+
+def test_doctor_errors_on_a_missing_bundle(bundle: Path, agent_dir: Path) -> None:
+    """A broken install exits 1 with the reason, not a traceback."""
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    shutil.rmtree(bundle / "agents")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "no bundled trees" in result.output
+    assert "reinstall the package" in result.output
+
+
+def test_install_skills_errors_on_a_missing_bundle(bundle: Path, agent_dir: Path) -> None:
+    """Same for install-skills, and it leaves the repo untouched.
+
+    The hash is taken before the copy for this reason: failing afterwards would
+    leave files on disk with no manifest naming them, which uninstall cannot undo.
+    """
+    repo_root = agent_dir.parent
+    shutil.rmtree(bundle / "agents")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 1
+    assert "no bundled trees" in result.output
+    assert not (repo_root / ".wf-skills-manifest.json").exists()
+    assert not (repo_root / ".agents").exists()
 
 
 def test_reinstall_migrates_a_pre_change_record(agent_dir: Path) -> None:

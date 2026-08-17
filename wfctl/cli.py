@@ -1227,6 +1227,17 @@ def install_skills_cmd(
             console.print(f"  {p}")
         typer.confirm("Proceed?", abort=True)
 
+    # Hashed once, before the copy, and shared by every layer. The digest covers
+    # the whole bundle rather than one layer's subtree, so there is nothing
+    # per-layer to compute — see `_bundle.content_hash` for why it is whole-tree.
+    # Computed first so a bundle-less install fails with the repo untouched: the
+    # alternative is a copied tree and no manifest, which uninstall can't undo.
+    try:
+        content_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+    except FileNotFoundError as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1) from e
+
     count = 0
     new_backups = 0
     backup_layers: set[str] = set()
@@ -1264,11 +1275,7 @@ def install_skills_cmd(
         summary[layer][kind] = summary[layer].get(kind, 0) + 1
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    # Hashed once, after the copy, and shared by every layer. The digest covers
-    # the whole bundle rather than one layer's subtree, so there is nothing
-    # per-layer to compute — see `_bundle.content_hash` for why it is whole-tree.
     wfctl_version = _wfctl_version()
-    content_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
     # One entry per layer that installed something. An agent with no layer of
     # its own (none, or a notice-only agent) writes no entry, so uninstalling
     # it reports nothing to remove rather than failing on a missing key.
@@ -1888,7 +1895,13 @@ def doctor_cmd() -> None:
     # One hash for the whole bundle, so it is computed once no matter how many
     # layers are on record — every entry in one manifest carries the same value.
     running_version = _wfctl_version()
-    bundle_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+    try:
+        bundle_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+    except FileNotFoundError as e:
+        # Every remaining check compares against this digest, so there is no
+        # partial report to salvage — the other checks above have already run.
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1) from e
 
     for agent in layers:
         entry = manifest[agent]
