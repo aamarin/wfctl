@@ -537,6 +537,57 @@ def test_doctor_warns_on_a_record_without_a_fingerprint(agent_dir: Path) -> None
     assert "claude: installed before content hashing" in result.output
 
 
+def test_reinstall_migrates_a_pre_change_record(agent_dir: Path) -> None:
+    """One install is the whole migration, and it takes the dead keys with it.
+
+    `repo`/`ref`/`commit` describe a fetch that no longer happens, so they are
+    dropped rather than carried: a record asserting a commit the tool cannot act
+    on is worse than one that says nothing about where the files came from.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    with _edit_manifest(repo_root) as manifest:
+        entry = manifest["claude"]
+        del entry["content_hash"]
+        del entry["wfctl_version"]
+        entry["repo"] = "https://github.com/aamarin/wf-skills"
+        entry["ref"] = "main"
+        entry["commit"] = "9ee468a" + "0" * 33
+
+    assert runner.invoke(app, ["install-skills", "--agent", "claude"]).exit_code == 0
+    entry = json.loads((repo_root / ".wf-skills-manifest.json").read_text())["claude"]
+    assert not {"repo", "ref", "commit"} & entry.keys()
+    assert entry["wfctl_version"] == version("wfctl")
+    assert entry["content_hash"]
+
+
+def test_uninstall_restores_backups_recorded_before_the_change(agent_dir: Path) -> None:
+    """A backup pointer written by the old code still restores after migrating.
+
+    `items` is the one part of a record that cannot be recomputed: it names the
+    user's file and where their copy of it went. A rewrite that dropped the dead
+    provenance keys and took `backup` with it would lose their content silently,
+    on the install that was meant to be a no-op.
+    """
+    repo_root = agent_dir.parent
+    mine = repo_root / ".agents" / "commands" / "test-cmd.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("# mine, not wfctl's\n")
+
+    runner.invoke(app, ["install-skills", "--yes"])  # backs `mine` up
+    with _edit_manifest(repo_root) as manifest:
+        entry = manifest["base"]
+        del entry["content_hash"]
+        entry["commit"] = "9ee468a" + "0" * 33
+    backup = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    recorded = {i["path"]: i["backup"] for i in backup["base"]["items"]}
+    assert recorded[".agents/commands/test-cmd.md"], "precondition: a backup was taken"
+
+    runner.invoke(app, ["install-skills", "--yes"])  # the migrating re-install
+    assert runner.invoke(app, ["uninstall-skills", "--agent", "base"]).exit_code == 0
+    assert mine.read_text() == "# mine, not wfctl's\n"
+
+
 def test_doctor_says_nothing_about_a_layer_that_installed_nothing(agent_dir: Path) -> None:
     """`none` has no targets of its own, so there is no entry to check.
 

@@ -1266,6 +1266,11 @@ def install_skills_cmd(
     # One entry per layer that installed something. An agent with no layer of
     # its own (none, or a notice-only agent) writes no entry, so uninstalling
     # it reports nothing to remove rather than failing on a missing key.
+    #
+    # Replaced, not updated: this is also the migration off `repo`/`ref`/`commit`,
+    # and those name a fetch that no longer happens. `layer_items` already carries
+    # every prior `backup` pointer forward, so the one field that cannot be
+    # recomputed survives — an `.update()` here would keep the dead keys instead.
     for layer, layer_items in items.items():
         manifest[layer] = {
             "wfctl_version": wfctl_version,
