@@ -1,0 +1,20 @@
+# `graft`, not `[tool.setuptools.package-data]` globs, because the vendored trees
+# are third-party content whose shape this repo does not control.
+#
+# package-data patterns are expanded with Python's `glob`, which cannot see
+# dot-prefixed names. `agents/**/*` alone ships 65 of the 66 files and silently
+# drops `agents/configs/workmux/.workmux.yaml` — the only file
+# `install-config workmux` copies. Adding `agents/**/.*` recovers dot-prefixed
+# *files*, but `**` still does not descend into a dot-prefixed *directory*, so a
+# skill that grows a `.github/` or `.claude/` upstream loses its contents the
+# same way and no finite set of globs closes that off.
+#
+# `graft` walks with `os.walk` and filters nothing, so the whole class is covered
+# rather than the two instances a glob pair reaches. Verified against a wheel
+# built from a tree carrying a dot-prefixed subdirectory: 67 files with `graft`,
+# 66 with the globs, mode 100755 preserved on all five scripts either way.
+#
+# `include_package_data` defaults to true under pyproject metadata, which is what
+# carries these into the wheel and not only the sdist.
+graft wfctl/agents
+graft wfctl/specify

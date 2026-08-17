@@ -73,7 +73,7 @@ jobs:
 
   # The one property the other two jobs structurally cannot check. Both run
   # against the source tree, where the vendored trees are present and executable
-  # regardless of what the wheel ships — so a dropped `package-data` glob or a
+  # regardless of what the wheel ships — so a dropped `MANIFEST.in` graft or a
   # `.sh` committed 644 stays green here and fails on a user's machine.
   wheel:
     runs-on: ubuntu-latest

@@ -11,12 +11,12 @@ Run with the interpreter of a *clean, non-editable* install, from the repo root:
 The `rm -rf` matters locally and is why CI, on a fresh checkout, does not need it.
 `build_py` copies with `update=1`, so a `chmod` — which leaves mtime alone — is
 skipped and the wheel keeps the stale mode; and `wfctl.egg-info/SOURCES.txt`
-re-includes files a narrowed `package-data` glob no longer matches. Both make a
+re-includes files a narrowed `MANIFEST.in` no longer grafts. Both make a
 deliberately broken build come out green.
 
 The test suite cannot make this check. It runs against the source tree, where
 `wfctl/agents/` and `wfctl/specify/` are present and executable whether or not
-the wheel ships them — so a broken `[tool.setuptools.package-data]` glob is
+the wheel ships them — so a `MANIFEST.in` that stopped covering them is
 invisible until a user installs and gets nothing. An *editable* install has the
 same blind spot, which is why the instructions above build and install a wheel
 rather than running `uv sync`.

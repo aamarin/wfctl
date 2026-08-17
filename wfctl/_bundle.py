@@ -20,9 +20,10 @@ from pathlib import Path
 # edit read as installed-content drift, and hashing `__pycache__` would make the
 # value depend on whether anything had been imported yet.
 #
-# Adding a third tree means adding it here *and* to `[tool.setuptools.package-data]`
-# in pyproject.toml. Neither half works alone — one ships the files, the other
-# notices when they change.
+# Adding a third tree means adding it here *and* grafting it in MANIFEST.in.
+# Neither half works alone — one ships the files, the other notices when they
+# change — and `test_trees_match_the_grafted_directories_in_manifest_in` fails if
+# the two drift apart.
 TREES = ("agents", "specify")
 
 # Where those trees came from, pinned to the revision they were copied at. In the

@@ -108,11 +108,23 @@ def test_content_hash_is_defined_for_a_tree_that_is_missing_one_half(
     assert content_hash(root) != content_hash(_build(tmp_path / "full", _FIXED_TREE))
 
 
-def test_trees_are_the_two_vendored_directories() -> None:
-    """Guards the pairing with `[tool.setuptools.package-data]` in pyproject.toml.
+def test_trees_match_the_grafted_directories_in_manifest_in() -> None:
+    """Guards the pairing between `TREES` and `MANIFEST.in`.
 
-    A third vendored tree has to be added in both places: one ships the files,
-    the other notices when they change. This test is what makes the second half
-    fail loudly instead of silently under-hashing.
+    A third vendored tree has to be added in both places: the graft ships the
+    files, `TREES` decides what gets hashed. The dangerous direction is grafting
+    a tree and forgetting `TREES` — the files ship, nothing ever hashes them, and
+    drift in them stays invisible to `doctor` forever.
+
+    Asserting a literal here would not catch that: `TREES` would still equal its
+    old value and the test would pass. Reading `MANIFEST.in` is what makes the
+    assertion bidirectional rather than a change-detector for one of the two.
     """
-    assert TREES == ("agents", "specify")
+    manifest = (Path(__file__).parent.parent / "MANIFEST.in").read_text()
+    grafted = {
+        line.split()[1].removeprefix("wfctl/")
+        for line in manifest.splitlines()
+        if line.startswith("graft ")
+    }
+
+    assert grafted == set(TREES)
