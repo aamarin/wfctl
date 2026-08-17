@@ -15,6 +15,25 @@ reviewer who needs them will read that far.
 **Why:** [The gap it closes — what was broken, missing, or painful before]
 **Impact:** [Who benefits, and what they can now do]
 
+## Before / After
+<!--
+Strongly recommended, and usually the highest-value part of the description. One
+picture of the problem and the shape of the fix replaces the three paragraphs a
+reviewer would otherwise have to assemble in their head — and it is easier to
+disagree with, which is the point of a review.
+
+Pick whatever the change actually is:
+- **UI** → a wireframe or a before/after screenshot. ASCII boxes are fine; the
+  point is the layout and the flow, not the pixels.
+- **A flow, a state machine, an architecture** → a `mermaid` fenced block. GitHub
+  renders it inline; keep it to the nodes that changed.
+- **A CLI** → the terminal before and the terminal after, verbatim.
+- **A data shape** → the record before and after, trimmed to the fields that moved.
+
+Two small diagrams beat one that tries to be complete. If a diagram takes longer
+to read than the prose it replaced, delete it.
+-->
+
 ---
 
 ## Type of Change
@@ -83,10 +102,10 @@ than restating that the suite is green.
 
 A negative case verified by hand — the check failing when it should — is worth
 more here than the passing run, because it is the half that is usually skipped.
--->
 
-## Screenshots/Demo
-<!-- Terminal output, a screenshot, or a GIF, if the change is visible. -->
+Proof belongs here rather than in Before / After: that section explains the
+change, this one shows it working. A screenshot or a GIF counts.
+-->
 
 ## Checklist
 
