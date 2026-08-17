@@ -70,10 +70,10 @@ def bundle(
     root = tmp_path_factory.mktemp("bundle")
     skill = root / "agents" / "skills" / "test-skill"
     skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("# Test skill\n")
+    (skill / "SKILL.md").write_text("# test-skill\n")
     commands = root / "agents" / "commands"
     commands.mkdir(parents=True)
-    (commands / "test-cmd.md").write_text("# Test command\n")
+    (commands / "test-cmd.md").write_text("# test-cmd\n")
     monkeypatch.setattr("wfctl._bundle.BUNDLE_ROOT", root)
     return root
 

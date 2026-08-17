@@ -1,7 +1,12 @@
 """Tests for wfctl install-skills command."""
 from __future__ import annotations
 
+import contextlib
+import json
+import shutil
 import subprocess
+from collections.abc import Iterator
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -12,58 +17,41 @@ from wfctl.cli import app
 runner = CliRunner()
 
 
-@pytest.fixture
-def stub_version_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate the skills-drift tests from doctor's wfctl-tool version check
-    (which does a real network ls-remote)."""
-    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
+@contextlib.contextmanager
+def _edit_manifest(repo_root: Path) -> Iterator[dict]:
+    """Round-trip the manifest so a test can bend one field and write it back.
+
+    doctor's states differ only in what the record claims versus what the bundle
+    now hashes to. Bending the record reaches states the bundle cannot be edited
+    into — a version that is not the running one, a key that predates it.
+    """
+    path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(path.read_text())
+    yield manifest
+    path.write_text(json.dumps(manifest))
 
 
-def _make_wf_skills_repo(base: Path) -> Path:
-    """Create a minimal wf-skills git repo for testing."""
-    src = base / "wf-skills-src"
-    src.mkdir()
-    subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "config", "user.email", "t@t.com"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "config", "user.name", "T"], check=True, capture_output=True)
-
-    skill = src / ".agents" / "skills" / "test-skill"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("# test-skill\n")
-
-    cmd = src / ".agents" / "commands"
-    cmd.mkdir(parents=True)
-    (cmd / "test-cmd.md").write_text("# test-cmd\n")
-
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
-    return src
-
-
-def test_install_skills_copies_skills(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_copies_skills(agent_dir: Path) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = os.environ["WFCTL_REPO_ROOT"]
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     assert (Path(repo_root) / ".agents" / "skills" / "test-skill" / "SKILL.md").exists()
 
 
-def test_install_skills_copies_commands(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_copies_commands(agent_dir: Path) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = os.environ["WFCTL_REPO_ROOT"]
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert (Path(repo_root) / ".claude" / "commands" / "test-cmd.md").exists()
 
 
-def test_install_skills_gitignores_installed_paths(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_gitignores_installed_paths(agent_dir: Path) -> None:
     """Installed skill/command paths and the manifest/backup dir land in .gitignore,
     so a sync never dirties whatever branch happens to be checked out."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0
     gitignore = (repo_root / ".gitignore").read_text().splitlines()
     assert ".agents/skills/test-skill" in gitignore
@@ -72,42 +60,41 @@ def test_install_skills_gitignores_installed_paths(agent_dir: Path, tmp_path: Pa
     assert ".wf-skills-backup/" in gitignore
 
 
-def test_install_skills_does_not_gitignore_tracker_config(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_does_not_gitignore_tracker_config(
+    bundle: Path, agent_dir: Path
+) -> None:
     """Tracker config is project-owned and meant to be committed, not managed
     as install-skills output — must not end up in .gitignore."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    tracker_dir = src / ".agents" / "trackers"
-    tracker_dir.mkdir(parents=True)
-    (tracker_dir / "github.json").write_text("{}\n")
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "tracker"], check=True, capture_output=True)
+    _add_tracker(bundle, "{}\n")
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"]
+        app, ["install-skills", "--tracker", "github"]
     )
     assert result.exit_code == 0
     gitignore = (repo_root / ".gitignore").read_text() if (repo_root / ".gitignore").exists() else ""
     assert ".agents/trackers/github.json" not in gitignore.splitlines()
 
 
-def _add_tracker(src: Path, body: str = '{"verbs": {}}\n') -> None:
-    tracker_dir = src / ".agents" / "trackers"
+def _add_tracker(bundle: Path, body: str = '{"verbs": {}}\n') -> None:
+    """Give the `bundle` fixture the tracker config it deliberately omits.
+
+    Absent by default so the tracker prompt and its warning branch are both
+    reachable; every test that wants the config present asks for it here.
+    """
+    tracker_dir = bundle / "agents" / "trackers"
     tracker_dir.mkdir(parents=True, exist_ok=True)
     (tracker_dir / "github.json").write_text(body)
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "tracker"], check=True, capture_output=True)
 
 
-def test_install_skills_no_tracker_without_a_human(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_no_tracker_without_a_human(bundle: Path, agent_dir: Path) -> None:
     """A non-interactive install never commits a tracker config nobody asked for."""
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    _add_tracker(src)
+    _add_tracker(bundle)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
     manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
@@ -115,8 +102,8 @@ def test_install_skills_no_tracker_without_a_human(agent_dir: Path, tmp_path: Pa
 
 
 @pytest.mark.parametrize("answer,expected", [("y\n", True), ("n\n", False)])
-def test_install_skills_prompts_for_tracker(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str, expected: bool
+def test_install_skills_prompts_for_tracker(bundle: Path, 
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, answer: str, expected: bool
 ) -> None:
     """First interactive install offers the GitHub tracker; declining installs nothing.
 
@@ -128,11 +115,10 @@ def test_install_skills_prompts_for_tracker(
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
-    _add_tracker(src)
+    _add_tracker(bundle)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"],
+        app, ["install-skills"],
         # "1" answers the spec-location question that follows: this test is about
         # the tracker, and option 1 records no spec_root, so it changes nothing here.
         input=answer + "1\n",
@@ -146,34 +132,32 @@ def test_install_skills_prompts_for_tracker(
         assert "/scaffold-tracker" in result.output
 
 
-def test_install_skills_keeps_existing_tracker_config(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_keeps_existing_tracker_config(bundle: Path, agent_dir: Path) -> None:
     """Once a tracker is chosen, a plain re-install leaves the config alone —
     local edits to it survive."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    _add_tracker(src)
+    _add_tracker(bundle)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"],
+        ["install-skills", "--tracker", "github"],
     )
 
     cfg = repo_root / ".agents" / "trackers" / "github.json"
     cfg.write_text('{"verbs": {"list": ["gh", "issue", "list", "--limit", "30"]}}\n')
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     assert "--limit" in cfg.read_text()
 
 
-def test_install_skills_tracker_none_opts_out(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_tracker_none_opts_out(bundle: Path, agent_dir: Path) -> None:
     """--tracker none opts out without a prompt."""
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    _add_tracker(src)
+    _add_tracker(bundle)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "none"]
+        app, ["install-skills", "--tracker", "none"]
     )
     assert result.exit_code == 0
     manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
@@ -181,29 +165,25 @@ def test_install_skills_tracker_none_opts_out(agent_dir: Path, tmp_path: Path) -
     assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
 
 
-def test_install_skills_skips_native_mirror_by_default(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_skips_native_mirror_by_default(agent_dir: Path) -> None:
     """A skill with no `deployment` marker (or `deployment: command`) stays reference-only."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
     assert not (repo_root / ".claude" / "skills").exists()
 
 
-def test_install_skills_mirrors_native_skill_for_claude(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_mirrors_native_skill_for_claude(bundle: Path, agent_dir: Path) -> None:
     """`deployment: skill` in SKILL.md frontmatter also mirrors to .claude/skills/<name>."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    native = src / ".agents" / "skills" / "native-skill"
+    native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
     (native / "SKILL.md").write_text(
         "---\nname: native-skill\ndeployment: skill\n---\nBody.\n"
     )
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "add native skill"], check=True, capture_output=True)
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0
     # Still gets the reference-only mirror every agent gets...
     assert (repo_root / ".agents" / "skills" / "native-skill" / "SKILL.md").exists()
@@ -213,44 +193,74 @@ def test_install_skills_mirrors_native_skill_for_claude(agent_dir: Path, tmp_pat
     assert not (repo_root / ".claude" / "skills" / "test-skill").exists()
 
 
-def test_install_skills_bob_ignores_native_deployment_marker(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_bob_ignores_native_deployment_marker(bundle: Path, agent_dir: Path) -> None:
     """The .claude/skills mirror is Claude-specific; bob never gets it."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    native = src / ".agents" / "skills" / "native-skill"
+    native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
     (native / "SKILL.md").write_text("---\ndeployment: skill\n---\nBody.\n")
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "add native skill"], check=True, capture_output=True)
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
+        app, ["install-skills", "--agent", "bob"]
     )
     assert result.exit_code == 0
     assert not (repo_root / ".claude").exists()
 
 
-def test_uninstall_removes_native_skill_mirror(agent_dir: Path, tmp_path: Path) -> None:
+def test_uninstall_removes_native_skill_mirror(bundle: Path, agent_dir: Path) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    native = src / ".agents" / "skills" / "native-skill"
+    native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
     (native / "SKILL.md").write_text("---\ndeployment: skill\n---\nBody.\n")
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "add native skill"], check=True, capture_output=True)
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert (repo_root / ".claude" / "skills" / "native-skill").exists()
 
     runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert not (repo_root / ".claude" / "skills" / "native-skill").exists()
 
 
-def test_install_skills_bad_repo_exits_one(agent_dir: Path) -> None:
-    result = runner.invoke(app, ["install-skills", "--repo", "https://github.com/no/such-repo-xyz"])
-    assert result.exit_code == 1
+def test_removed_source_options_are_an_error(agent_dir: Path) -> None:
+    """`--repo`/`--ref` fail loudly rather than being accepted and ignored.
+
+    Both commands took them, and both are in people's shell history and in
+    scripts. Typer rejects an unknown option with exit 2 and names it, which is
+    the whole behaviour — asserted rather than assumed, because a stray
+    `**kwargs` or a re-added option would silently make an install read from
+    the network again.
+    """
+    for argv in (["install-skills", "--repo", "x"], ["install-config", "workmux", "--ref", "y"]):
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 2, argv
+        assert "No such option" in result.output, argv
+        # Not the flag as written: typer highlights it, and the ANSI it inserts
+        # lands between the two dashes. The stem is what survives that.
+        assert argv[-2].lstrip("-") in result.output, argv
+
+
+def test_no_module_can_still_clone_the_archived_upstream() -> None:
+    """No module holds the wf-skills clone URL any more (FR-003, SC-006).
+
+    The URL, not the bare `aamarin/wf-skills`, which FR-003 does not forbid:
+    `_bundle.BUNDLE_SOURCE` records the revision this tree was copied from, and
+    `_archive.py` cites an issue in that repo. Neither reaches a network. What
+    must not come back is the thing an option default or a `git clone` would
+    need, and that always carries the host.
+
+    Only `wfctl/*.py` is scanned: the vendored trees are wf-skills' own content,
+    and a skill documenting its origin is not a runtime source.
+    """
+    root = Path(__file__).resolve().parent.parent / "wfctl"
+    offenders = [
+        f"{p.relative_to(root).as_posix()}:{n}"
+        for p in root.rglob("*.py")
+        if p.relative_to(root).parts[0] not in ("agents", "specify")
+        for n, line in enumerate(p.read_text().splitlines(), 1)
+        if "github.com/aamarin/wf-skills" in line
+    ]
+    assert offenders == [], f"can still clone the archived upstream: {offenders}"
 
 
 def test_install_skills_reports_what_it_installed(agent_dir: Path, tmp_path: Path) -> None:
@@ -261,22 +271,19 @@ def test_install_skills_reports_what_it_installed(agent_dir: Path, tmp_path: Pat
     number that read as a skill count. Per-layer, per-kind counts are asserted
     by test_install_summary_reports_per_layer_counts.
     """
-    src = _make_wf_skills_repo(tmp_path)
     result = runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"],
+        ["install-skills", "--agent", "claude"],
     )
     assert result.exit_code == 0
-    assert "Installed from" in result.output
-    assert "master" in result.output
+    assert f"Installed from wfctl {version('wfctl')}" in result.output
 
 
-def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
+        app, ["install-skills", "--agent", "bob"]
     )
     assert result.exit_code == 0
     assert (repo_root / ".bob" / "skills" / "test-skill" / "SKILL.md").exists()
@@ -284,37 +291,33 @@ def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path, tmp_path: 
     assert not (repo_root / ".claude").exists()
 
 
-def test_install_skills_unknown_agent_exits_one(agent_dir: Path, tmp_path: Path) -> None:
-    src = _make_wf_skills_repo(tmp_path)
+def test_install_skills_unknown_agent_exits_one(agent_dir: Path) -> None:
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "nope"]
+        app, ["install-skills", "--agent", "nope"]
     )
     assert result.exit_code == 1
 
 
-def test_install_skills_warns_on_missing_source_path(agent_dir: Path, tmp_path: Path) -> None:
-    """If wf-skills is missing a path an agent expects, warn instead of skipping silently."""
-    src = tmp_path / "wf-skills-src"
-    src.mkdir()
-    subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "config", "user.email", "t@t.com"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "config", "user.name", "T"], check=True, capture_output=True)
-    cmd = src / ".agents" / "commands"
-    cmd.mkdir(parents=True)
-    (cmd / "test-cmd.md").write_text("# test-cmd\n")
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "init"], check=True, capture_output=True)
+def test_install_skills_warns_on_missing_source_path(bundle: Path, agent_dir: Path) -> None:
+    """A bundle missing a path a layer expects warns instead of skipping silently.
 
-    # Bob's target is .agents/skills, which this repo doesn't have.
+    Only reachable from a damaged install now that the source ships with the
+    package, which is what the message says — the old wording sent people to
+    look upstream for a problem on their own disk.
+    """
+    import shutil
+
+    # Every layer's skills come from agents/skills, which this bundle lacks.
+    shutil.rmtree(bundle / "agents" / "skills")
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "bob"]
+        app, ["install-skills", "--agent", "bob"]
     )
     assert result.exit_code == 0
-    assert "not found" in result.output
-    assert ".agents/skills" in result.output
+    assert "missing from this wfctl install" in result.output
+    assert "agents/skills" in result.output
 
 
-def test_uninstall_removes_only_the_named_layer(agent_dir: Path, tmp_path: Path) -> None:
+def test_uninstall_removes_only_the_named_layer(bundle: Path, agent_dir: Path) -> None:
     """Uninstalling an agent drops that agent's items and nothing else.
 
     Behavior change: `.agents/skills` used to go with `--agent claude`, because
@@ -323,12 +326,11 @@ def test_uninstall_removes_only_the_named_layer(agent_dir: Path, tmp_path: Path)
     """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
-    _add_tracker(src)
+    _add_tracker(bundle)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--tracker", "github"],
+        ["install-skills", "--tracker", "github"],
     )
     assert (repo_root / ".agents" / "skills" / "test-skill").exists()
 
@@ -344,9 +346,8 @@ def test_uninstall_removes_only_the_named_layer(agent_dir: Path, tmp_path: Path)
     assert manifest["tracker"] == "github"
 
 
-def test_install_backs_up_and_uninstall_restores_pre_existing_file(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_backs_up_and_uninstall_restores_pre_existing_file(agent_dir: Path) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     # A command of the same name already exists before wf-skills touches it.
@@ -356,7 +357,7 @@ def test_install_backs_up_and_uninstall_restores_pre_existing_file(agent_dir: Pa
 
     result = runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master",
+        ["install-skills",
          "--agent", "claude", "--yes"],
     )
     assert result.exit_code == 0
@@ -378,19 +379,18 @@ def test_uninstall_with_nothing_installed_is_a_noop(agent_dir: Path) -> None:
     assert "Nothing installed" in result.output
 
 
-def test_reinstall_does_not_re_backup_already_tracked_item(agent_dir: Path, tmp_path: Path) -> None:
+def test_reinstall_does_not_re_backup_already_tracked_item(agent_dir: Path) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     existing_cmd_dir = repo_root / ".claude" / "commands"
     existing_cmd_dir.mkdir(parents=True)
     (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
 
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"])
+    runner.invoke(app, ["install-skills", "--yes"])
     # Second install of the same item should not report a fresh backup.
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+        app, ["install-skills", "--yes"]
     )
     assert "Backed up" not in result.output
 
@@ -399,18 +399,16 @@ def test_reinstall_does_not_re_backup_already_tracked_item(agent_dir: Path, tmp_
     assert (existing_cmd_dir / "test-cmd.md").read_text() == "# my own pre-existing command\n"
 
 
-def test_install_prompts_before_overwriting_and_declining_aborts(
-    agent_dir: Path, tmp_path: Path
+def test_install_prompts_before_overwriting_and_declining_aborts(    agent_dir: Path
 ) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     existing_cmd_dir = repo_root / ".claude" / "commands"
     existing_cmd_dir.mkdir(parents=True)
     (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
 
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"], input="n\n"
+        app, ["install-skills", "--agent", "claude"], input="n\n"
     )
     assert result.exit_code != 0
     assert "test-cmd.md" in result.output
@@ -419,95 +417,245 @@ def test_install_prompts_before_overwriting_and_declining_aborts(
     assert not (repo_root / ".wf-skills-manifest.json").exists()
 
 
-def test_install_prompts_before_overwriting_and_confirming_proceeds(
-    agent_dir: Path, tmp_path: Path
+def test_install_prompts_before_overwriting_and_confirming_proceeds(    agent_dir: Path
 ) -> None:
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     existing_cmd_dir = repo_root / ".claude" / "commands"
     existing_cmd_dir.mkdir(parents=True)
     (existing_cmd_dir / "test-cmd.md").write_text("# my own pre-existing command\n")
 
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"], input="y\n"
+        app, ["install-skills", "--agent", "claude"], input="y\n"
     )
     assert result.exit_code == 0
     assert (existing_cmd_dir / "test-cmd.md").read_text() == "# test-cmd\n"
 
 
-def test_install_no_prompt_when_nothing_would_be_overwritten(
-    agent_dir: Path, tmp_path: Path
+def test_install_no_prompt_when_nothing_would_be_overwritten(    agent_dir: Path
 ) -> None:
-    src = _make_wf_skills_repo(tmp_path)
     # No --yes, no input supplied — would hang/fail on an unexpected prompt.
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
 
 
-def test_install_pins_resolved_commit(agent_dir: Path, tmp_path: Path) -> None:
-    """The manifest records the clone's resolved HEAD, not just the --ref name."""
+def test_install_records_the_wfctl_version_and_bundle_hash(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The manifest pins what a bundled install can be identified by.
+
+    Both halves are needed and neither substitutes for the other: the version
+    says which wfctl produced the tree, the hash says what that tree actually
+    contained — which is what an editable install changes without the version
+    moving. Asserts the removed keys are gone too, since a stale `commit`
+    left behind would send `doctor` back to comparing against a repo that no
+    longer exists.
+    """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
+
+    from wfctl import _bundle
+
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"])
-    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
-    head = subprocess.run(
-        ["git", "-C", str(src), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    assert manifest["claude"]["commit"] == head
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    entry = json.loads((repo_root / ".wf-skills-manifest.json").read_text())["claude"]
+    assert entry["wfctl_version"] == version("wfctl")
+    assert entry["content_hash"] == _bundle.content_hash(bundle)
+    assert not {"repo", "ref", "commit"} & entry.keys()
 
 
-def test_doctor_reports_up_to_date(agent_dir: Path, tmp_path: Path, stub_version_check: None) -> None:
-    """A fresh install's pinned commit matches upstream's tip — nothing to flag."""
-    src = _make_wf_skills_repo(tmp_path)
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0
-    assert "up to date" in result.output
-
-
-def test_doctor_reports_behind_with_diff(agent_dir: Path, tmp_path: Path, stub_version_check: None) -> None:
-    """When upstream moves past the pinned commit, doctor exits 1 and shows what changed."""
-    src = _make_wf_skills_repo(tmp_path)
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
-
-    # Upstream moves on after the install.
-    (src / ".agents" / "skills" / "test-skill" / "SKILL.md").write_text("# test-skill v2\n")
-    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-m", "update skill"], check=True, capture_output=True)
-
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1
-    assert "behind" in result.output
-    assert "SKILL.md" in result.output
-    assert "install-skills" in result.output  # the update hint
-
-
-def test_doctor_with_nothing_installed(agent_dir: Path, stub_version_check: None) -> None:
+def test_doctor_with_nothing_installed(agent_dir: Path) -> None:
     """No manifest yet — doctor reports that plainly instead of erroring."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "Nothing installed" in result.output
 
 
-def test_doctor_warns_when_no_commit_pinned(agent_dir: Path, tmp_path: Path, stub_version_check: None) -> None:
-    """A manifest from before commit-pinning existed is skipped with a warning, not a crash."""
-    import json
-    import os
-    src = _make_wf_skills_repo(tmp_path)
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"])
+# --- doctor's four staleness states (data-model.md §3) ---
+#
+# All four turn on one comparison: the `content_hash` on record against the
+# bundle's hash right now. Nothing is fetched, so each state is reached by
+# either editing the bundle (a real hash change) or the record.
 
-    manifest_path = repo_root / ".wf-skills-manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    del manifest["claude"]["commit"]
-    manifest_path.write_text(json.dumps(manifest))
+def test_doctor_reports_up_to_date(agent_dir: Path) -> None:
+    """Nothing has moved since the install — the hash still matches."""
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert f"claude: skills current (wfctl {version('wfctl')})" in result.output
+
+
+def test_doctor_reports_stale_across_versions(bundle: Path, agent_dir: Path) -> None:
+    """A newer wfctl shipped different skills — name both versions, exit 1.
+
+    The bundle is edited for real rather than the hash faked, so this asserts the
+    comparison and not a string put there by the test.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# v2\n")
+    with _edit_manifest(repo_root) as manifest:
+        manifest["claude"]["wfctl_version"] = "0.0.1"
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert f"installed by wfctl 0.0.1, running {version('wfctl')}" in result.output
+    assert "wfctl install-skills" in result.output  # the remedy
+
+
+def test_doctor_reports_stale_at_the_same_version(bundle: Path, agent_dir: Path) -> None:
+    """Skills edited under one wfctl version — the editable-install case.
+
+    Once skills live in this repo they are authored against an editable install,
+    so equal versions with a changed tree is the state a contributor sees most.
+    Reporting it as `installed by 0.15.0, running 0.15.0` would read as a bug.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# v2\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "claude: bundled skills changed since install" in result.output
+    assert "wfctl install-skills" in result.output
+    assert "running" not in result.output, "no version comparison to imply"
+
+
+def test_doctor_warns_on_a_record_without_a_fingerprint(agent_dir: Path) -> None:
+    """A record written before content hashing is unmeasurable, not stale.
+
+    Warn and leave the exit code alone: the layer may well be current, and
+    exiting 1 on a manifest the user cannot have known to avoid would fail every
+    pre-upgrade repo's CI over nothing.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    with _edit_manifest(repo_root) as manifest:
+        del manifest["claude"]["content_hash"]
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert "no pinned commit" in result.output
+    assert "claude: installed before content hashing" in result.output
+
+
+# --- a bundle that is not there ---
+#
+# `_bundle.content_hash` raises rather than fingerprinting an empty tree, so
+# both callers have to turn that into a CLI error. Reached by emptying the fake
+# bundle, which is what a wheel that lost its vendored trees looks like.
+
+def test_doctor_errors_on_a_missing_bundle(bundle: Path, agent_dir: Path) -> None:
+    """A broken install exits 1 with the reason, not a traceback."""
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    shutil.rmtree(bundle / "agents")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "no bundled trees" in result.output
+    assert "reinstall the package" in result.output
+
+
+def test_install_skills_errors_on_a_missing_bundle(bundle: Path, agent_dir: Path) -> None:
+    """Same for install-skills, and it leaves the repo untouched.
+
+    The hash is taken before the copy for this reason: failing afterwards would
+    leave files on disk with no manifest naming them, which uninstall cannot undo.
+    """
+    repo_root = agent_dir.parent
+    shutil.rmtree(bundle / "agents")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 1
+    assert "no bundled trees" in result.output
+    assert not (repo_root / ".wf-skills-manifest.json").exists()
+    assert not (repo_root / ".agents").exists()
+
+
+def test_reinstall_migrates_a_pre_change_record(agent_dir: Path) -> None:
+    """One install is the whole migration, and it takes the dead keys with it.
+
+    `repo`/`ref`/`commit` describe a fetch that no longer happens, so they are
+    dropped rather than carried: a record asserting a commit the tool cannot act
+    on is worse than one that says nothing about where the files came from.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    with _edit_manifest(repo_root) as manifest:
+        entry = manifest["claude"]
+        del entry["content_hash"]
+        del entry["wfctl_version"]
+        entry["repo"] = "https://github.com/aamarin/wf-skills"
+        entry["ref"] = "main"
+        entry["commit"] = "9ee468a" + "0" * 33
+
+    assert runner.invoke(app, ["install-skills", "--agent", "claude"]).exit_code == 0
+    entry = json.loads((repo_root / ".wf-skills-manifest.json").read_text())["claude"]
+    assert not {"repo", "ref", "commit"} & entry.keys()
+    assert entry["wfctl_version"] == version("wfctl")
+    assert entry["content_hash"]
+
+
+def test_uninstall_restores_backups_recorded_before_the_change(agent_dir: Path) -> None:
+    """A backup pointer written by the old code still restores after migrating.
+
+    `items` is the one part of a record that cannot be recomputed: it names the
+    user's file and where their copy of it went. A rewrite that dropped the dead
+    provenance keys and took `backup` with it would lose their content silently,
+    on the install that was meant to be a no-op.
+    """
+    repo_root = agent_dir.parent
+    mine = repo_root / ".agents" / "commands" / "test-cmd.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("# mine, not wfctl's\n")
+
+    runner.invoke(app, ["install-skills", "--yes"])  # backs `mine` up
+    with _edit_manifest(repo_root) as manifest:
+        entry = manifest["base"]
+        del entry["content_hash"]
+        entry["commit"] = "9ee468a" + "0" * 33
+    backup = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    recorded = {i["path"]: i["backup"] for i in backup["base"]["items"]}
+    assert recorded[".agents/commands/test-cmd.md"], "precondition: a backup was taken"
+
+    runner.invoke(app, ["install-skills", "--yes"])  # the migrating re-install
+    assert runner.invoke(app, ["uninstall-skills", "--agent", "base"]).exit_code == 0
+    assert mine.read_text() == "# mine, not wfctl's\n"
+
+
+def test_doctor_says_nothing_about_a_layer_that_installed_nothing(agent_dir: Path) -> None:
+    """`none` has no targets of its own, so there is no entry to check.
+
+    doctor iterates the manifest's layer keys, so an entry written for an empty
+    layer would produce a staleness verdict about a layer holding no files —
+    and, being hash-compared like any other, could report it as stale.
+    """
+    repo_root = agent_dir.parent
+    assert runner.invoke(app, ["install-skills", "--agent", "none"]).exit_code == 0
+    assert "none" not in json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert "none:" not in runner.invoke(app, ["doctor"]).output
+
+
+@pytest.mark.real_version_check
+def test_doctor_skills_verdict_survives_an_offline_release_check(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The skills verdict is local, so losing the network must not weaken it.
+
+    The release check needs `ls-remote`; the skills check no longer does. When
+    the first goes dark it reports ⚠ and returns 0, and a stale layer still has
+    to drive the exit code — otherwise `doctor` is quietly advisory offline.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# v2\n")
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 1, stdout="", stderr="no route"),
+    )
+
+    result = runner.invoke(app, ["doctor"])
+    assert "couldn't check latest" in result.output
+    assert "claude: bundled skills changed since install" in result.output
+    assert result.exit_code == 1
 
 
 # --- wfctl tool version check (doctor's first line) ---
@@ -575,13 +723,12 @@ def test_layer_destinations_are_disjoint() -> None:
     assert not collisions, "layers share destinations:\n  " + "\n  ".join(collisions)
 
 
-def test_bare_install_writes_agents_only(agent_dir: Path, tmp_path: Path) -> None:
+def test_bare_install_writes_agents_only(agent_dir: Path) -> None:
     """No --agent means no assistant-specific files."""
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
 
     assert (repo_root / ".agents" / "skills" / "test-skill").exists()
@@ -618,11 +765,10 @@ def _summary_layers(output: str) -> dict[str, str]:
     return layers
 
 
-def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_summary_reports_per_layer_counts(agent_dir: Path) -> None:
     """Counts are per layer and per kind, never one total that
     reads as a skill count. A layer contributing nothing is omitted, not `0`."""
-    src = _make_wf_skills_repo(tmp_path)
-    bare = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    bare = runner.invoke(app, ["install-skills"])
     assert bare.exit_code == 0
     layers = _summary_layers(bare.output)
     assert list(layers) == ["base"], layers
@@ -630,7 +776,7 @@ def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Pat
     assert "0 " not in bare.output  # never a zero count anywhere
 
     claude = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+        app, ["install-skills", "--agent", "claude"]
     )
     assert claude.exit_code == 0
     layers = _summary_layers(claude.output)
@@ -638,13 +784,12 @@ def test_install_summary_reports_per_layer_counts(agent_dir: Path, tmp_path: Pat
     assert "1 command" in layers["claude"]
 
 
-def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -> None:
+def test_bare_install_prints_agent_optin_hint(agent_dir: Path) -> None:
     """After a base-only install, name every agent that has a layer and
     the command to add it. Derived from _AGENT_TARGETS so an agent added later
     is covered without editing this test."""
     from wfctl import cli
-    src = _make_wf_skills_repo(tmp_path)
-    bare = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    bare = runner.invoke(app, ["install-skills"])
     opt_in = [a for a, targets in cli._AGENT_TARGETS.items() if targets]
     assert opt_in, "expected at least one agent with a layer of its own"
     for agent in opt_in:
@@ -652,12 +797,12 @@ def test_bare_install_prints_agent_optin_hint(agent_dir: Path, tmp_path: Path) -
     assert "--agent none" not in bare.output  # no layer, nothing to opt into
 
     claude = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+        app, ["install-skills", "--agent", "claude"]
     )
     assert "install-skills --agent" not in claude.output
 
 
-def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Path) -> None:
+def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path) -> None:
     """A repo installed before the layer split upgrades quietly.
 
     The old shape recorded `.agents/*` under the agent key. This version plans
@@ -669,14 +814,13 @@ def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Pa
     """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     # Install, then rewrite the manifest into the pre-split shape: one agent
     # entry owning every path, no `base` key.
     runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"],
+        ["install-skills", "--agent", "claude"],
     )
     manifest_file = repo_root / ".wf-skills-manifest.json"
     manifest = json.loads(manifest_file.read_text())
@@ -686,7 +830,7 @@ def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Pa
     backups_before = sorted(p.name for p in (repo_root / ".wf-skills-backup").glob("*"))
 
     # The upgrade path: a bare install, which is what the new default gives you.
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
 
     assert result.exit_code == 0, result.output
     assert "will be overwritten" not in result.output
@@ -694,14 +838,13 @@ def test_upgrade_from_pre_layer_manifest_is_silent(agent_dir: Path, tmp_path: Pa
     assert sorted(p.name for p in (repo_root / ".wf-skills-backup").glob("*")) == backups_before
 
 
-def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) -> None:
+def test_user_authored_file_is_still_backed_up(agent_dir: Path) -> None:
     """Unioning prior items must not relax detection of real user files.
 
     The guard on the test above — a path wfctl never installed is still foreign,
     still backed up, and still restored on uninstall.
     """
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     mine = repo_root / ".agents" / "commands" / "test-cmd.md"
@@ -709,7 +852,7 @@ def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) 
     mine.write_text("# mine, not wfctl's\n")
 
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+        app, ["install-skills", "--yes"]
     )
     assert result.exit_code == 0
     assert "Backed up 1" in result.output
@@ -720,17 +863,16 @@ def test_user_authored_file_is_still_backed_up(agent_dir: Path, tmp_path: Path) 
     assert mine.read_text() == "# mine, not wfctl's\n"
 
 
-def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> None:
+def test_agent_copilot_writes_github_skills(agent_dir: Path) -> None:
     """One command, on a repo with no prior install, and the
     skills land unmodified — `.agents/skills/<name>/SKILL.md` is already the
     shape Copilot's skills layout expects, so there is nothing to transform."""
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "copilot"],
+        ["install-skills", "--agent", "copilot"],
     )
     assert result.exit_code == 0
 
@@ -746,17 +888,16 @@ def test_agent_copilot_writes_github_skills(agent_dir: Path, tmp_path: Path) -> 
     assert all(i["path"].startswith(".github/") for i in manifest["copilot"]["items"])
 
 
-def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) -> None:
+def test_agent_codex_informs_and_installs_base(agent_dir: Path) -> None:
     """Codex reads no repo-local command path, so there is nothing to
     install for it — but that is a fact to state, not an error. The base layer
     still lands and the command succeeds."""
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "codex"],
+        ["install-skills", "--agent", "codex"],
     )
     assert result.exit_code == 0
     assert "AGENTS.md" in result.output
@@ -768,26 +909,25 @@ def test_agent_codex_informs_and_installs_base(agent_dir: Path, tmp_path: Path) 
     assert list(manifest) == ["base"]
 
 
-def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path, tmp_path: Path) -> None:
+def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path) -> None:
     """An unrecognised agent fails loudly and says what is accepted;
     `none` remains a valid way to ask for the base layer explicitly."""
     from wfctl import cli
-    src = _make_wf_skills_repo(tmp_path)
     bad = runner.invoke(
         app,
-        ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "nope"],
+        ["install-skills", "--agent", "nope"],
     )
     assert bad.exit_code == 1
     for name in cli._AGENT_TARGETS:
         assert name in bad.output, f"{name} missing from the accepted list"
 
     ok = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "none"]
+        app, ["install-skills", "--agent", "none"]
     )
     assert ok.exit_code == 0
 
 
-def test_backup_hint_names_a_command_that_restores(agent_dir: Path, tmp_path: Path) -> None:
+def test_backup_hint_names_a_command_that_restores(agent_dir: Path) -> None:
     """The restore hint must name the layer that took the backup, not --agent.
 
     A bare install backs up under `base`, so a hint built from the requested
@@ -795,7 +935,6 @@ def test_backup_hint_names_a_command_that_restores(agent_dir: Path, tmp_path: Pa
     does nothing, leaving the user's file overwritten with no working way back.
     """
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     mine = repo_root / ".agents" / "commands" / "test-cmd.md"
@@ -803,7 +942,7 @@ def test_backup_hint_names_a_command_that_restores(agent_dir: Path, tmp_path: Pa
     mine.write_text("# mine, not wfctl's\n")
 
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+        app, ["install-skills", "--yes"]
     )
     assert "uninstall-skills --agent base" in result.output
     assert "--agent none" not in result.output
@@ -813,23 +952,21 @@ def test_backup_hint_names_a_command_that_restores(agent_dir: Path, tmp_path: Pa
     assert mine.read_text() == "# mine, not wfctl's\n"
 
 
-def test_overwrite_prompt_names_the_owning_layer(agent_dir: Path, tmp_path: Path) -> None:
+def test_overwrite_prompt_names_the_owning_layer(agent_dir: Path) -> None:
     """Same hint, on the pre-overwrite confirmation — the earlier of the two."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     mine = repo_root / ".agents" / "commands" / "test-cmd.md"
     mine.parent.mkdir(parents=True)
     mine.write_text("# mine\n")
 
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n"
+        app, ["install-skills"], input="n\n"
     )
     assert "uninstall-skills --agent base" in result.output
 
 
-def test_legacy_none_entry_is_dropped_once_base_owns_its_paths(
-    agent_dir: Path, tmp_path: Path
+def test_legacy_none_entry_is_dropped_once_base_owns_its_paths(    agent_dir: Path
 ) -> None:
     """A pre-split `none` entry must not double-book paths `base` now owns.
 
@@ -839,22 +976,21 @@ def test_legacy_none_entry_is_dropped_once_base_owns_its_paths(
     """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     manifest_file = repo_root / ".wf-skills-manifest.json"
 
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
     base = json.loads(manifest_file.read_text())["base"]
     manifest_file.write_text(json.dumps({"none": base}))  # the pre-split shape
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     manifest = json.loads(manifest_file.read_text())
     assert "none" not in manifest
     assert {i["path"] for i in manifest["base"]["items"]} >= {i["path"] for i in base["items"]}
 
 
-def test_legacy_entry_holding_an_unowned_path_survives(agent_dir: Path, tmp_path: Path) -> None:
+def test_legacy_entry_holding_an_unowned_path_survives(agent_dir: Path) -> None:
     """The guard on the test above: dropping an entry must never orphan a path.
 
     An entry base does not fully cover still owns something — including the
@@ -862,21 +998,20 @@ def test_legacy_entry_holding_an_unowned_path_survives(agent_dir: Path, tmp_path
     """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     manifest_file = repo_root / ".wf-skills-manifest.json"
 
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
     base = json.loads(manifest_file.read_text())["base"]
     stale = {**base, "items": [*base["items"], {"path": ".elsewhere/thing", "backup": None}]}
     manifest_file.write_text(json.dumps({"none": stale}))
 
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
     assert "none" in json.loads(manifest_file.read_text())
 
 
-def test_declining_the_tracker_is_not_asked_again(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_declining_the_tracker_is_not_asked_again(bundle: Path, 
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The tracker question is asked once, not once per install.
 
@@ -887,24 +1022,22 @@ def test_declining_the_tracker_is_not_asked_again(
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
-    _add_tracker(src)
+    _add_tracker(bundle)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     first = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"], input="n\n1\n"
+        app, ["install-skills"], input="n\n1\n"
     )
     assert "No issue tracker configured" in first.output
 
     # No input at all: a re-prompt would abort on EOF rather than pass.
-    again = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    again = runner.invoke(app, ["install-skills"])
     assert again.exit_code == 0
     assert "No issue tracker configured" not in again.output
     assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
 
 
-def test_uninstall_defaults_to_the_layer_a_bare_install_writes(
-    agent_dir: Path, tmp_path: Path
+def test_uninstall_defaults_to_the_layer_a_bare_install_writes(    agent_dir: Path
 ) -> None:
     """`install-skills` then `uninstall-skills`, both bare, must round-trip.
 
@@ -912,9 +1045,8 @@ def test_uninstall_defaults_to_the_layer_a_bare_install_writes(
     bare uninstall reported nothing to remove.
     """
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
     assert (repo_root / ".agents" / "skills" / "test-skill").exists()
 
     result = runner.invoke(app, ["uninstall-skills"])
@@ -922,17 +1054,16 @@ def test_uninstall_defaults_to_the_layer_a_bare_install_writes(
     assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
 
 
-def test_removing_base_under_an_agent_layer_asks_first(agent_dir: Path, tmp_path: Path) -> None:
+def test_removing_base_under_an_agent_layer_asks_first(agent_dir: Path) -> None:
     """Agent layers are views of the base, not copies — their command wrappers
     point into .agents/skills. Removing the base underneath one leaves it
     installed and broken, and `uninstall-skills` with no flags now targets the
     base, so this is the least-typed command in the tool.
     """
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+        app, ["install-skills", "--agent", "claude"]
     )
 
     declined = runner.invoke(app, ["uninstall-skills"], input="n\n")
@@ -945,33 +1076,31 @@ def test_removing_base_under_an_agent_layer_asks_first(agent_dir: Path, tmp_path
     assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
 
 
-def test_removing_base_alone_does_not_ask(agent_dir: Path, tmp_path: Path) -> None:
+def test_removing_base_alone_does_not_ask(agent_dir: Path) -> None:
     """The guard is about dependents, not about the base being special: with no
     agent layer installed there is nothing to break, so no prompt."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
 
     result = runner.invoke(app, ["uninstall-skills"])  # no input to give
     assert result.exit_code == 0
     assert not (repo_root / ".agents" / "skills" / "test-skill").exists()
 
 
-def test_removing_an_agent_layer_never_asks(agent_dir: Path, tmp_path: Path) -> None:
+def test_removing_an_agent_layer_never_asks(agent_dir: Path) -> None:
     """Nothing depends on an agent layer, so removing one is always safe."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+        app, ["install-skills", "--agent", "claude"]
     )
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert result.exit_code == 0
     assert (repo_root / ".agents" / "skills" / "test-skill").exists(), "base survives"
 
 
-def test_install_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_preserves_spec_root(agent_dir: Path) -> None:
     """`spec_root` is a bare string beside the layer entries, not a layer.
 
     Anything iterating layers does `manifest[key].get("items", [])`, so a string
@@ -981,16 +1110,15 @@ def test_install_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
     """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
 
     manifest_file = repo_root / ".wf-skills-manifest.json"
     manifest = json.loads(manifest_file.read_text())
     manifest["spec_root"] = "~/Development/pfms-specs"
     manifest_file.write_text(json.dumps(manifest))
 
-    upgrade = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    upgrade = runner.invoke(app, ["install-skills"])
     assert upgrade.exit_code == 0, upgrade.output
     assert json.loads(manifest_file.read_text())["spec_root"] == "~/Development/pfms-specs"
 
@@ -1001,9 +1129,8 @@ def test_doctor_runs_over_a_manifest_carrying_spec_root(
     """`doctor` enumerates layers through the same helper as install."""
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    runner.invoke(app, ["install-skills"])
 
     manifest_file = repo_root / ".wf-skills-manifest.json"
     manifest = json.loads(manifest_file.read_text())
@@ -1016,7 +1143,7 @@ def test_doctor_runs_over_a_manifest_carrying_spec_root(
     assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
 
 
-def test_uninstall_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
+def test_uninstall_preserves_spec_root(agent_dir: Path) -> None:
     """Uninstalling a layer is not a reason to drop repo config.
 
     `uninstall` deletes only its own agent key, so this should already hold —
@@ -1025,10 +1152,9 @@ def test_uninstall_preserves_spec_root(agent_dir: Path, tmp_path: Path) -> None:
     """
     import json
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--agent", "claude"]
+        app, ["install-skills", "--agent", "claude"]
     )
 
     manifest_file = repo_root / ".wf-skills-manifest.json"
@@ -1189,17 +1315,16 @@ def test_doctor_does_not_warn_for_a_transient_env_override(
 # unchanged.
 
 
-def test_install_skills_skips_glob_covered_paths(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_skips_glob_covered_paths(agent_dir: Path) -> None:
     """A path an existing pattern already covers gets no line of its own.
 
     Regression test for #11 — fails against a literal-comparison guard.
     """
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".gitignore").write_text(".agents/\n")
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
 
     lines = (repo_root / ".gitignore").read_text().splitlines()
@@ -1208,33 +1333,30 @@ def test_install_skills_skips_glob_covered_paths(agent_dir: Path, tmp_path: Path
     assert ".agents/" in lines, "the covering pattern itself is untouched"
 
 
-def test_install_skills_second_run_leaves_gitignore_identical(
-    agent_dir: Path, tmp_path: Path
+def test_install_skills_second_run_leaves_gitignore_identical(    agent_dir: Path
 ) -> None:
     """Installing twice against an unchanged repo is a no-op on .gitignore."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     assert runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"]
+        app, ["install-skills"]
     ).exit_code == 0
     after_first = (repo_root / ".gitignore").read_bytes()
 
     assert runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"]
+        app, ["install-skills"]
     ).exit_code == 0
     assert (repo_root / ".gitignore").read_bytes() == after_first
 
 
-def test_install_skills_creates_gitignore_when_absent(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_creates_gitignore_when_absent(agent_dir: Path) -> None:
     """No .gitignore at all still gets one, listing every installed path."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".gitignore").unlink(missing_ok=True)
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
 
     lines = (repo_root / ".gitignore").read_text().splitlines()
@@ -1244,15 +1366,14 @@ def test_install_skills_creates_gitignore_when_absent(agent_dir: Path, tmp_path:
     assert ".wf-skills-backup/" in lines
 
 
-def test_install_skills_appends_uncovered_paths(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_appends_uncovered_paths(agent_dir: Path) -> None:
     """An existing .gitignore that covers none of the install paths is appended to,
     unchanged from the behavior before the coverage guard."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".gitignore").write_text("*.log\n")
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
 
     lines = (repo_root / ".gitignore").read_text().splitlines()
@@ -1295,8 +1416,7 @@ def test_ensure_gitignored_appends_when_not_a_repo(tmp_path: Path, capsys) -> No
     assert "fatal" not in captured.out
 
 
-def test_install_skills_skips_tracked_path_covered_by_pattern(
-    agent_dir: Path, tmp_path: Path
+def test_install_skills_skips_tracked_path_covered_by_pattern(    agent_dir: Path
 ) -> None:
     """A tracked path matched by a pattern gets no entry — one would be inert.
 
@@ -1304,7 +1424,6 @@ def test_install_skills_skips_tracked_path_covered_by_pattern(
     ignored and the guard appends a dead line.
     """
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     dest = repo_root / ".agents" / "skills" / "test-skill"
@@ -1324,7 +1443,7 @@ def test_install_skills_skips_tracked_path_covered_by_pattern(
     # --yes: the pre-created destination reads as a foreign overwrite, which
     # otherwise prompts and aborts under the non-interactive test runner.
     result = runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", "--yes"]
+        app, ["install-skills", "--yes"]
     )
     assert result.exit_code == 0
     assert ".agents/skills/test-skill" not in (
@@ -1332,17 +1451,15 @@ def test_install_skills_skips_tracked_path_covered_by_pattern(
     ).read_text().splitlines()
 
 
-def test_install_skills_appends_after_missing_trailing_newline(
-    agent_dir: Path, tmp_path: Path
+def test_install_skills_appends_after_missing_trailing_newline(    agent_dir: Path
 ) -> None:
     """A .gitignore with no trailing newline must not get the first entry glued
     onto its last line."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".gitignore").write_text("*.log")  # deliberately no newline
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
 
     lines = (repo_root / ".gitignore").read_text().splitlines()
@@ -1350,28 +1467,26 @@ def test_install_skills_appends_after_missing_trailing_newline(
     assert ".wf-skills-manifest.json" in lines
 
 
-def test_install_skills_reports_skipped_count(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_reports_skipped_count(agent_dir: Path) -> None:
     """Entries skipped as already covered are counted in the output."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".gitignore").write_text(".agents/\n")
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     # `.agents/` covers the skill and the command; the manifest and the backup
     # dir match nothing, so exactly two of the four are skipped.
     assert "2 ignore entries already covered" in result.output
 
 
-def test_install_skills_silent_when_nothing_skipped(agent_dir: Path, tmp_path: Path) -> None:
+def test_install_skills_silent_when_nothing_skipped(agent_dir: Path) -> None:
     """The clean case adds no output — no zero count."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".gitignore").unlink(missing_ok=True)
 
-    result = runner.invoke(app, ["install-skills", "--repo", f"file://{src}", "--ref", "master"])
+    result = runner.invoke(app, ["install-skills"])
     assert result.exit_code == 0
     assert "already covered" not in result.output
 
@@ -1401,9 +1516,9 @@ def _manifest(repo_root: Path) -> dict:
     return json.loads((repo_root / ".wf-skills-manifest.json").read_text())
 
 
-def _install(src: Path, *extra: str, answers: str = "") -> object:
+def _install(*extra: str, answers: str = "") -> object:
     return runner.invoke(
-        app, ["install-skills", "--repo", f"file://{src}", "--ref", "master", *extra],
+        app, ["install-skills", *extra],
         input=answers,
     )
 
@@ -1430,36 +1545,32 @@ def test_asked_marker_is_not_mistaken_for_an_installed_layer(
     assert result.exit_code == 0, result.output
 
 
-def test_spec_location_is_not_asked_without_a_human(agent_dir: Path, tmp_path: Path) -> None:
+def test_spec_location_is_not_asked_without_a_human(bundle: Path, agent_dir: Path) -> None:
     """Non-interactive installs record no location and no marker."""
     import os
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
-    assert _install(src).exit_code == 0
+    assert _install().exit_code == 0
 
     m = _manifest(repo_root)
     assert "spec_root" not in m
     assert "spec_root_asked" not in m
 
 
-def test_spec_location_is_not_asked_with_yes(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_spec_location_is_not_asked_with_yes(    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`--yes` suppresses the question the same way it suppresses the tracker's."""
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
-    assert _install(src, "--yes").exit_code == 0
+    assert _install("--yes").exit_code == 0
 
     assert "spec_root_asked" not in _manifest(repo_root)
 
 
-def test_keeping_specs_in_the_repo_records_no_location(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_keeping_specs_in_the_repo_records_no_location(    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The default answer must be indistinguishable from never having been asked.
 
@@ -1470,10 +1581,9 @@ def test_keeping_specs_in_the_repo_records_no_location(
     from wfctl import cli
     from wfctl._paths import spec_root
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
-    assert _install(src, answers="n\n1\n").exit_code == 0
+    assert _install(answers="n\n1\n").exit_code == 0
 
     m = _manifest(repo_root)
     assert "spec_root" not in m, "option 1 must record no location"
@@ -1489,11 +1599,10 @@ def test_choosing_a_durable_location_records_it_and_reports_the_files(
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     target = tmp_path.parent / "nowhere-yet"
 
-    result = _install(src, answers=f"n\n3\n{target}\n")
+    result = _install(answers=f"n\n3\n{target}\n")
 
     assert result.exit_code == 0
     m = _manifest(repo_root)
@@ -1503,25 +1612,22 @@ def test_choosing_a_durable_location_records_it_and_reports_the_files(
     assert str(repo_root / ".wf-skills-manifest.json") in result.output
 
 
-def test_the_question_is_asked_once(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_question_is_asked_once(    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """post_create runs install-skills in every new worktree; a second prompt on
     every upgrade would be noise."""
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
 
-    first = _install(src, answers="n\n1\n")
+    first = _install(answers="n\n1\n")
     assert "Where should this project's specs live?" in first.output
 
-    second = _install(src, answers="")
+    second = _install(answers="")
     assert second.exit_code == 0
     assert "Where should this project's specs live?" not in second.output
 
 
-def test_an_existing_spec_root_counts_as_already_answered(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_an_existing_spec_root_counts_as_already_answered(    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Issue #26 requires the question be skipped when a root is already recorded.
 
@@ -1532,14 +1638,13 @@ def test_an_existing_spec_root_counts_as_already_answered(
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     (repo_root / ".wf-skills-manifest.json").write_text(
         '{"spec_root": "/somewhere/durable"}\n'
     )
 
     # No answer supplied: a re-prompt would abort on EOF rather than pass.
-    result = _install(src, answers="n\n")
+    result = _install(answers="n\n")
 
     assert result.exit_code == 0
     assert "Where should this project's specs live?" not in result.output
@@ -1558,33 +1663,29 @@ def test_option_two_with_an_absolute_path_keeps_its_clone_guidance(
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     target = tmp_path.parent / "abs-specs"
 
-    result = _install(src, answers=f"n\n2\n{target}\n")
+    result = _install(answers=f"n\n2\n{target}\n")
 
     assert result.exit_code == 0
     assert "git clone" in result.output, "option 2 lost its guidance"
     assert _manifest(repo_root)["spec_root"] == str(target)
 
 
-def test_option_three_with_a_relative_path_gets_no_clone_guidance(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_option_three_with_a_relative_path_gets_no_clone_guidance(    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The mirror case: a relative answer to option 3 is not a specs repo."""
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
 
-    result = _install(src, answers="n\n3\n../elsewhere\n")
+    result = _install(answers="n\n3\n../elsewhere\n")
 
     assert result.exit_code == 0
     assert "git clone" not in result.output
 
 
-def test_option_two_clone_commands_are_anchored_to_the_main_checkout(
-    agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_option_two_clone_commands_are_anchored_to_the_main_checkout(    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`chosen` is stored relative to the main checkout, but these lines get
     pasted into whatever shell the user is standing in. Left relative, running
@@ -1593,9 +1694,8 @@ def test_option_two_clone_commands_are_anchored_to_the_main_checkout(
     import os
     from wfctl import cli
     monkeypatch.setattr(cli, "_interactive", lambda: True)
-    src = _make_wf_skills_repo(tmp_path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
-    result = _install(src, answers="n\n2\nproj-specs\n")
+    result = _install(answers="n\n2\nproj-specs\n")
 
     assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output

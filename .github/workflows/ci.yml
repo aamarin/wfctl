@@ -53,10 +53,10 @@ jobs:
           echo "matrix=${{ matrix.python }} actual=$actual"
           test "$actual" = "${{ matrix.python }}"
 
-      # The suite shells out to git constantly: it builds throwaway repos as
-      # install sources and asserts on `--ref master`. Runner defaults are not
-      # guaranteed to match, so pin what the tests assume rather than let a
-      # runner image change break them.
+      # `conftest.py` `git init`s a real repo for every test that installs into
+      # one, and wfctl resolves the branch and repo root by shelling out to git.
+      # Runner defaults are not guaranteed to match what the tests assume, so pin
+      # them rather than let a runner image change break the suite.
       - name: Configure git for the test suite
         run: |
           git config --global init.defaultBranch master
@@ -64,11 +64,6 @@ jobs:
           git config --global user.name CI
 
       - name: Test
-        # One test clones a deliberately nonexistent repo to assert the failure
-        # path. With no credential helper on the runner, git would sit waiting
-        # for a username instead of failing — this makes it fail fast.
-        env:
-          GIT_TERMINAL_PROMPT: "0"
         run: uv run pytest -q
 
   # The one property the other two jobs structurally cannot check. Both run
@@ -97,6 +92,20 @@ jobs:
 
       - name: Assert the wheel carries the bundled trees, executable bit intact
         run: /tmp/wheel-env/bin/python .github/scripts/check_wheel_contents.py
+
+      # Carrying the trees and installing them are separate failures: a target
+      # pair repointed at a directory that no longer exists copies nothing and
+      # still exits 0. Needs a real repo — wfctl resolves its root through git.
+      - name: Install into a scratch repo from the wheel's own bundle
+        run: |
+          git config --global init.defaultBranch master
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          git init /tmp/scratch-repo
+          cd /tmp/scratch-repo && /tmp/wheel-env/bin/wfctl install-skills --yes
+
+      - name: Assert the installed tree matches the shipped one
+        run: /tmp/wheel-env/bin/python .github/scripts/check_installed_tree.py /tmp/scratch-repo
 
   lint:
     runs-on: ubuntu-latest

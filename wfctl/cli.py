@@ -9,7 +9,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from wfctl import _tracker
+from wfctl import _bundle, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
@@ -38,12 +38,23 @@ app = typer.Typer(no_args_is_help=True)
 console = Console(highlight=False)
 
 
+def _wfctl_version() -> str:
+    """The running wfctl's version — the provenance half the manifest records.
+
+    One function rather than four `pkg_version("wfctl")` calls because it is what
+    `install-skills` writes, what `doctor` compares against, and what two
+    messages print. Tests patch this instead of the metadata machinery, so a
+    fixture can install "1.0.0" and read it back without a real distribution.
+    """
+    from importlib.metadata import version as pkg_version
+
+    return pkg_version("wfctl")
+
+
 def _version_callback(value: bool) -> None:
     """Print wfctl's installed version and exit, if --version was passed."""
     if value:
-        from importlib.metadata import version as pkg_version
-
-        console.print(f"wfctl {pkg_version('wfctl')}")
+        console.print(f"wfctl {_wfctl_version()}")
         raise typer.Exit()
 
 
@@ -627,9 +638,16 @@ def change_cmd(
 # The canonical, agent-agnostic layer. Always installed, whatever --agent says:
 # wf-skills authors one copy of each skill and command wrapper, and this is where
 # that copy lives. Agent layers below are derived views of it.
+#
+# Every pair here and below is (source, destination). Sources are relative to
+# `_bundle.BUNDLE_ROOT` and carry no leading dot — inside the installed package
+# these are ordinary data directories, not a project's hidden config. The dot
+# belongs to the destination alone, which is a real `.agents/` in the user's
+# repo. The two halves are no longer the same string even where they name the
+# same subtree, so neither is derivable from the other.
 _BASE_TARGETS = [
-    (".agents/skills", ".agents/skills"),
-    (".agents/commands", ".agents/commands"),
+    ("agents/skills", ".agents/skills"),
+    ("agents/commands", ".agents/commands"),
 ]
 
 # Added on top of the base layer when --agent names one. Every entry owns a
@@ -641,16 +659,16 @@ _BASE_TARGETS = [
 _AGENT_TARGETS = {
     "none": [],
     "codex": [],
-    "claude": [(".agents/commands", ".claude/commands")],
+    "claude": [("agents/commands", ".claude/commands")],
     "bob": [
-        (".agents/skills", ".bob/skills"),
-        (".agents/commands", ".bob/commands"),
+        ("agents/skills", ".bob/skills"),
+        ("agents/commands", ".bob/commands"),
     ],
-    # `.agents/skills/<name>/SKILL.md` is already the shape Copilot's skills
+    # `agents/skills/<name>/SKILL.md` is already the shape Copilot's skills
     # layout expects, so this is a plain copy — no frontmatter transform, no
     # rename. See specs/…/research.md for why the skills layout was chosen over
     # `.github/agents/*.agent.md`, which upstream is deprecating.
-    "copilot": [(".agents/skills", ".github/skills")],
+    "copilot": [("agents/skills", ".github/skills")],
 }
 
 # Agents that are recognised but have no repo-local path to install into. They
@@ -668,18 +686,24 @@ _AGENT_NOTICES = {
 # The speckit skills shell out to `.specify/scripts/*.sh` and read
 # `.specify/templates/*`. That runtime is repo-level (not per-agent) and
 # version-locked to the skills, so it installs alongside them from the same
-# wf-skills clone — a managed mirror, same (src, dst) copy machinery as above.
+# bundle — a managed mirror, same (src, dst) copy machinery as above.
 _RUNTIME_TARGETS = [
-    (".specify/scripts", ".specify/scripts"),
-    (".specify/templates", ".specify/templates"),
+    ("specify/scripts", ".specify/scripts"),
+    ("specify/templates", ".specify/templates"),
 ]
 
 # Repo-level config files wfctl can seed from wf-skills. Unlike skills (a
 # managed mirror), these are seed-once: the copied file becomes the repo's own,
 # committed and owned — so install-config keeps no manifest/backup/uninstall
-# bookkeeping. Positional config name → source dir in wf-skills whose contents
+# bookkeeping. Positional config name → source dir in the bundle whose contents
 # copy to the repo root.
-_CONFIG_SOURCES = {"workmux": ".agents/configs/workmux"}
+#
+# A source may nest: `github/` holds `.github/pull_request_template.md`, so the
+# directory structure under the source is the structure that lands in the repo.
+_CONFIG_SOURCES = {
+    "workmux": "agents/configs/workmux",
+    "github": "agents/configs/github",
+}
 
 _BACKUP_DIR = ".wf-skills-backup"
 
@@ -688,7 +712,7 @@ _BASE_LAYER = "base"
 # the repo's tracker choice and its spec root alongside the layer entries, and
 # must be skipped by anything iterating them: `_layer_keys` feeds callers that
 # do `manifest[key].get("items", [])`, which raises AttributeError on a string.
-# `base` IS a layer (it has items and a pinned commit, so `doctor` checks it for
+# `base` IS a layer (it has items and a content hash, so `doctor` checks it for
 # drift), it is just not an *agent* — see _agent_keys.
 _NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 
@@ -961,12 +985,6 @@ def _ask_where_specs_live(repo_root: Path) -> tuple[str, str | None]:
 
 @app.command("install-skills")
 def install_skills_cmd(
-    repo: str = typer.Option(
-        "https://github.com/aamarin/wf-skills",
-        "--repo",
-        help="wf-skills repo URL",
-    ),
-    ref: str = typer.Option("main", "--ref", help="Branch or tag to install from"),
     agent: str = typer.Option(
         "none",
         "--agent",
@@ -990,8 +1008,6 @@ def install_skills_cmd(
     """Install wf-skills (skills + commands) into the current project."""
     import datetime
     import shutil
-    import subprocess as sp
-    import tempfile
 
     targets = _AGENT_TARGETS.get(agent)
     if targets is None:
@@ -1126,144 +1142,152 @@ def install_skills_cmd(
                 soft_wrap=True,
             )
 
-    with tempfile.TemporaryDirectory() as tmp:
-        result = sp.run(
-            ["git", "clone", "--depth=1", "--branch", ref, repo, tmp],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            console.print(f"[red]✗ Clone failed: {result.stderr.strip()}[/red]")
-            raise typer.Exit(1)
-
-        commit = sp.run(
-            ["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True
-        ).stdout.strip()
-
-        # Plan first: find every item that would overwrite a file we didn't
-        # install ourselves, so the user can see the list before anything
-        # is touched, rather than finding out from the summary afterward.
-        # Each entry carries the layer that owns it, so the manifest can record
-        # base and agent items under separate keys — which is what keeps one
-        # layer's uninstall from touching another's paths.
-        plan: list[tuple[str, str, str, Path, Path]] = []
-        # (layer, path) — the layer is what makes the restore hint name a
-        # command that works: base-layer backups are not restored by
-        # `--agent <the agent asked for>`.
-        foreign_overwrites: list[tuple[str, str]] = []
-        # Paths install-skills owns going forward — gitignored below so a
-        # sync never dirties whatever branch happens to be checked out.
-        # Tracker config is deliberately excluded: it's project-owned,
-        # user-editable, and meant to be committed.
-        gitignore_targets: list[str] = []
-        # Base layer first, then the agent's own layer, then the repo-level
-        # runtime. An agent install is additive — it never replaces the base.
-        # The runtime is agent-independent, so it belongs to base too.
-        layered = [
-            *((_BASE_LAYER, _kind_of(s), s, d) for s, d in _BASE_TARGETS),
-            *((agent, _kind_of(s), s, d) for s, d in targets),
-            *((_BASE_LAYER, "runtime", s, d) for s, d in _RUNTIME_TARGETS),
-        ]
-        for layer, kind, src_rel, dst_rel in layered:
-            src = Path(tmp) / src_rel
-            dst = repo_root / dst_rel
-            if not src.exists():
-                console.print(
-                    f"[yellow]⚠[/yellow] Expected '{src_rel}' not found in "
-                    f"{repo}@{ref} — skipping (nothing installed for this path)"
-                )
-                continue
-            for item in src.iterdir():
-                dest = dst / item.name
-                rel_dest = str(dest.relative_to(repo_root))
-                plan.append((layer, kind, rel_dest, dest, item))
-                gitignore_targets.append(rel_dest)
-                if dest.exists() and rel_dest not in prior_items:
-                    foreign_overwrites.append((layer, rel_dest))
-
-                if src_rel == ".agents/skills":
-                    extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
-                    extra = extra_fn(repo_root, item) if extra_fn else None
-                    if extra:
-                        # An extra mirror is the agent's own, even though its
-                        # source is a base-layer path.
-                        extra_rel, extra_dest, extra_item = extra
-                        plan.append((agent, "skill", extra_rel, extra_dest, extra_item))
-                        gitignore_targets.append(extra_rel)
-                        if extra_dest.exists() and extra_rel not in prior_items:
-                            foreign_overwrites.append((agent, extra_rel))
-
-        # 'github' is the only tracker wf-skills ships; copy just its config.
-        if tracker == "github":
-            tsrc = Path(tmp) / ".agents" / "trackers" / "github.json"
-            if tsrc.exists():
-                tdest = repo_root / ".agents" / "trackers" / "github.json"
-                trel = str(tdest.relative_to(repo_root))
-                plan.append((_BASE_LAYER, "tracker", trel, tdest, tsrc))
-                if tdest.exists() and trel not in prior_items:
-                    foreign_overwrites.append((_BASE_LAYER, trel))
-            else:
-                console.print(
-                    "[yellow]⚠[/yellow] --tracker github, but "
-                    ".agents/trackers/github.json not found in "
-                    f"{repo}@{ref} — nothing installed for it"
-                )
-
-        if foreign_overwrites and not yes:
+    # Plan first: find every item that would overwrite a file we didn't
+    # install ourselves, so the user can see the list before anything
+    # is touched, rather than finding out from the summary afterward.
+    # Each entry carries the layer that owns it, so the manifest can record
+    # base and agent items under separate keys — which is what keeps one
+    # layer's uninstall from touching another's paths.
+    plan: list[tuple[str, str, str, Path, Path]] = []
+    # (layer, path) — the layer is what makes the restore hint name a
+    # command that works: base-layer backups are not restored by
+    # `--agent <the agent asked for>`.
+    foreign_overwrites: list[tuple[str, str]] = []
+    # Paths install-skills owns going forward — gitignored below so a
+    # sync never dirties whatever branch happens to be checked out.
+    # Tracker config is deliberately excluded: it's project-owned,
+    # user-editable, and meant to be committed.
+    gitignore_targets: list[str] = []
+    # Base layer first, then the agent's own layer, then the repo-level
+    # runtime. An agent install is additive — it never replaces the base.
+    # The runtime is agent-independent, so it belongs to base too.
+    layered = [
+        *((_BASE_LAYER, _kind_of(s), s, d) for s, d in _BASE_TARGETS),
+        *((agent, _kind_of(s), s, d) for s, d in targets),
+        *((_BASE_LAYER, "runtime", s, d) for s, d in _RUNTIME_TARGETS),
+    ]
+    for layer, kind, src_rel, dst_rel in layered:
+        src = _bundle.BUNDLE_ROOT / src_rel
+        dst = repo_root / dst_rel
+        if not src.exists():
+            # Reachable only from a broken install — the bundle ships with the
+            # package, so a missing source means the wheel lost files rather
+            # than that the user asked for something that does not exist. Named
+            # as such, since "not found in wf-skills@main" used to send people
+            # to look upstream for a problem on their own disk.
             console.print(
-                "[yellow]The following existing file(s) will be overwritten "
-                "(originals will be backed up, restored by "
-                f"{_restore_hint(layer for layer, _ in foreign_overwrites)}):[/yellow]"
+                f"[yellow]⚠[/yellow] Expected '{src_rel}' missing from this "
+                f"wfctl install ({_bundle.BUNDLE_ROOT}) — skipping "
+                "(nothing installed for this path)"
             )
-            for _, p in foreign_overwrites:
-                console.print(f"  {p}")
-            typer.confirm("Proceed?", abort=True)
+            continue
+        for item in src.iterdir():
+            dest = dst / item.name
+            rel_dest = str(dest.relative_to(repo_root))
+            plan.append((layer, kind, rel_dest, dest, item))
+            gitignore_targets.append(rel_dest)
+            if dest.exists() and rel_dest not in prior_items:
+                foreign_overwrites.append((layer, rel_dest))
 
-        count = 0
-        new_backups = 0
-        backup_layers: set[str] = set()
-        items: dict[str, list[dict]] = {}
-        summary: dict[str, dict[str, int]] = {}
-        for layer, kind, rel_dest, dest, item in plan:
-            dest.parent.mkdir(parents=True, exist_ok=True)
+            if src_rel == "agents/skills":
+                extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
+                extra = extra_fn(repo_root, item) if extra_fn else None
+                if extra:
+                    # An extra mirror is the agent's own, even though its
+                    # source is a base-layer path.
+                    extra_rel, extra_dest, extra_item = extra
+                    plan.append((agent, "skill", extra_rel, extra_dest, extra_item))
+                    gitignore_targets.append(extra_rel)
+                    if extra_dest.exists() and extra_rel not in prior_items:
+                        foreign_overwrites.append((agent, extra_rel))
 
-            # A pre-existing file we didn't put there ourselves gets backed
-            # up before being overwritten, so uninstall can restore it. If
-            # we already track this path from a prior install, carry its
-            # backup forward instead of treating our own output as foreign.
-            if rel_dest in prior_items:
-                backup_rel = prior_items[rel_dest].get("backup")
-            elif dest.exists():
-                backup_dest = repo_root / _BACKUP_DIR / rel_dest
-                backup_dest.parent.mkdir(parents=True, exist_ok=True)
-                if dest.is_dir():
-                    shutil.copytree(dest, backup_dest)
-                else:
-                    shutil.copy2(dest, backup_dest)
-                backup_rel = str(Path(_BACKUP_DIR) / rel_dest)
-                new_backups += 1
-                backup_layers.add(layer)
+    # 'github' is the only tracker the bundle ships; copy just its config.
+    if tracker == "github":
+        tsrc = _bundle.BUNDLE_ROOT / "agents" / "trackers" / "github.json"
+        if tsrc.exists():
+            tdest = repo_root / ".agents" / "trackers" / "github.json"
+            trel = str(tdest.relative_to(repo_root))
+            plan.append((_BASE_LAYER, "tracker", trel, tdest, tsrc))
+            if tdest.exists() and trel not in prior_items:
+                foreign_overwrites.append((_BASE_LAYER, trel))
+        else:
+            console.print(
+                "[yellow]⚠[/yellow] --tracker github, but "
+                "agents/trackers/github.json is missing from this wfctl "
+                f"install ({_wfctl_version()}) — nothing installed for it"
+            )
+
+    if foreign_overwrites and not yes:
+        console.print(
+            "[yellow]The following existing file(s) will be overwritten "
+            "(originals will be backed up, restored by "
+            f"{_restore_hint(layer for layer, _ in foreign_overwrites)}):[/yellow]"
+        )
+        for _, p in foreign_overwrites:
+            console.print(f"  {p}")
+        typer.confirm("Proceed?", abort=True)
+
+    # Hashed once, before the copy, and shared by every layer. The digest covers
+    # the whole bundle rather than one layer's subtree, so there is nothing
+    # per-layer to compute — see `_bundle.content_hash` for why it is whole-tree.
+    # Computed first so a bundle-less install fails with the repo untouched: the
+    # alternative is a copied tree and no manifest, which uninstall can't undo.
+    try:
+        content_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+    except FileNotFoundError as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1) from e
+
+    count = 0
+    new_backups = 0
+    backup_layers: set[str] = set()
+    items: dict[str, list[dict]] = {}
+    summary: dict[str, dict[str, int]] = {}
+    for layer, kind, rel_dest, dest, item in plan:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        # A pre-existing file we didn't put there ourselves gets backed
+        # up before being overwritten, so uninstall can restore it. If
+        # we already track this path from a prior install, carry its
+        # backup forward instead of treating our own output as foreign.
+        if rel_dest in prior_items:
+            backup_rel = prior_items[rel_dest].get("backup")
+        elif dest.exists():
+            backup_dest = repo_root / _BACKUP_DIR / rel_dest
+            backup_dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.is_dir():
+                shutil.copytree(dest, backup_dest)
             else:
-                backup_rel = None
+                shutil.copy2(dest, backup_dest)
+            backup_rel = str(Path(_BACKUP_DIR) / rel_dest)
+            new_backups += 1
+            backup_layers.add(layer)
+        else:
+            backup_rel = None
 
-            if item.is_dir():
-                shutil.copytree(item, dest, dirs_exist_ok=True)
-            else:
-                shutil.copy2(item, dest)
-            count += 1
-            items.setdefault(layer, []).append({"path": rel_dest, "backup": backup_rel})
-            summary.setdefault(layer, {})
-            summary[layer][kind] = summary[layer].get(kind, 0) + 1
+        if item.is_dir():
+            shutil.copytree(item, dest, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, dest)
+        count += 1
+        items.setdefault(layer, []).append({"path": rel_dest, "backup": backup_rel})
+        summary.setdefault(layer, {})
+        summary[layer][kind] = summary[layer].get(kind, 0) + 1
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    wfctl_version = _wfctl_version()
     # One entry per layer that installed something. An agent with no layer of
     # its own (none, or a notice-only agent) writes no entry, so uninstalling
     # it reports nothing to remove rather than failing on a missing key.
+    #
+    # Replaced, not updated: this is also the migration off `repo`/`ref`/`commit`,
+    # and those name a fetch that no longer happens. `layer_items` already carries
+    # every prior `backup` pointer forward, so the one field that cannot be
+    # recomputed survives — an `.update()` here would keep the dead keys instead.
     for layer, layer_items in items.items():
         manifest[layer] = {
-            "repo": repo,
-            "ref": ref,
-            "commit": commit,
+            "wfctl_version": wfctl_version,
+            "content_hash": content_hash,
             "installed_at": installed_at,
             "items": layer_items,
         }
@@ -1313,7 +1337,7 @@ def install_skills_cmd(
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
 
-    console.print(f"[green]✓[/green] Installed from {repo}@{ref}")
+    console.print(f"[green]✓[/green] Installed from wfctl {wfctl_version}")
     for line in _format_summary(summary):
         console.print(line)
 
@@ -1442,21 +1466,18 @@ def install_config_cmd(
         "sole agent layer in the manifest; with none or several, the key is "
         "left commented out rather than guessed.",
     ),
-    repo: str = typer.Option(
-        "https://github.com/aamarin/wf-skills", "--repo", help="wf-skills repo URL"
-    ),
-    ref: str = typer.Option("main", "--ref", help="Branch or tag to install from"),
 ) -> None:
     """Seed a standardized repo config from wf-skills into the current repo.
 
     Unlike install-skills (a managed mirror), this is seed-once: the copied files
     become the repo's own, committed and owned — no manifest/backup/uninstall.
     Refuses to overwrite an existing file unless --force (git is your undo).
-    v1 ships 'workmux'.
+
+    \b
+    workmux  .workmux.yaml, with `agent:` and `window_prefix:` filled in
+    github   .github/pull_request_template.md
     """
     import shutil
-    import subprocess as sp
-    import tempfile
 
     src_rel = _CONFIG_SOURCES.get(name)
     if src_rel is None:
@@ -1471,37 +1492,42 @@ def install_config_cmd(
         console.print("[red]✗ Not in a git repo.[/red]")
         raise typer.Exit(1)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        # ponytail: dup'd clone from install_skills_cmd; extract a helper if a 3rd caller appears
-        result = sp.run(
-            ["git", "clone", "--depth=1", "--branch", ref, repo, tmp],
-            capture_output=True, text=True,
+    src = _bundle.BUNDLE_ROOT / src_rel
+    if not src.exists():
+        # `name` is already known to _CONFIG_SOURCES, so the config is one wfctl
+        # ships and the files are missing from this install — not something the
+        # user asked for that never existed.
+        console.print(
+            f"[red]✗ Config '{name}' is missing from this wfctl install "
+            f"({_bundle.BUNDLE_ROOT}) — expected '{src_rel}'.[/red]"
         )
-        if result.returncode != 0:
-            console.print(f"[red]✗ Clone failed: {result.stderr.strip()}[/red]")
-            raise typer.Exit(1)
+        raise typer.Exit(1)
 
-        src = Path(tmp) / src_rel
-        if not src.exists():
-            console.print(f"[red]✗ Config '{name}' not found in {repo}@{ref} ({src_rel}).[/red]")
-            raise typer.Exit(1)
+    # Plan the copy (source dir contents → repo root), collecting anything
+    # we'd overwrite so we can refuse before touching the tree.
+    #
+    # File by file, not entry by entry: a nested source lands inside a directory
+    # the repo almost certainly already has. Comparing directory names would
+    # refuse `github` in every repo with a `.github/`, while the copy underneath
+    # it silently overwrote whatever shared a name with a seeded file.
+    plan = [
+        (item, repo_root / item.relative_to(src))
+        for item in sorted(src.rglob("*"))
+        if item.is_file()
+    ]
+    conflicts = [
+        str(dest.relative_to(repo_root)) for _, dest in plan if dest.exists() and not force
+    ]
+    if conflicts:
+        console.print(
+            f"[red]✗ Would overwrite existing file(s): {', '.join(conflicts)}. "
+            f"Pass --force to overwrite (git is your undo).[/red]"
+        )
+        raise typer.Exit(1)
 
-        # Plan the copy (source dir contents → repo root), collecting anything
-        # we'd overwrite so we can refuse before touching the tree.
-        plan = [(item, repo_root / item.name) for item in src.iterdir()]
-        conflicts = [item.name for item, dest in plan if dest.exists() and not force]
-        if conflicts:
-            console.print(
-                f"[red]✗ Would overwrite existing file(s): {', '.join(conflicts)}. "
-                f"Pass --force to overwrite (git is your undo).[/red]"
-            )
-            raise typer.Exit(1)
-
-        for item, dest in plan:
-            if item.is_dir():
-                shutil.copytree(item, dest, dirs_exist_ok=True)
-            else:
-                shutil.copy2(item, dest)
+    for item, dest in plan:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, dest)
 
     if name == "workmux":
         from wfctl import _workmux
@@ -1549,7 +1575,8 @@ def install_config_cmd(
             )
 
     console.print(
-        f"[green]✓[/green] Seeded {name} config ({len(plan)} file(s)) from {repo}@{ref}"
+        f"[green]✓[/green] Seeded {name} config ({len(plan)} file(s)) "
+        f"from wfctl {_wfctl_version()}"
     )
 
 
@@ -1842,9 +1869,6 @@ def doctor_cmd() -> None:
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
     """
-    import subprocess as sp
-    import tempfile
-
     exit_code = _check_wfctl_version()
 
     try:
@@ -1868,40 +1892,45 @@ def doctor_cmd() -> None:
         console.print("Nothing installed — run `wfctl install-skills` first.")
         raise typer.Exit(exit_code)
 
+    # One hash for the whole bundle, so it is computed once no matter how many
+    # layers are on record — every entry in one manifest carries the same value.
+    running_version = _wfctl_version()
+    try:
+        bundle_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+    except FileNotFoundError as e:
+        # Every remaining check compares against this digest, so there is no
+        # partial report to salvage — the other checks above have already run.
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1) from e
+
     for agent in layers:
         entry = manifest[agent]
-        repo, ref, commit = entry.get("repo"), entry.get("ref"), entry.get("commit")
-        if not commit:
+        recorded = entry.get("content_hash")
+        if not recorded:
+            # Unmeasurable, not stale: the layer may well be current, and there
+            # is nothing the user could have done to avoid this record. Warn and
+            # leave the exit code alone — re-installing writes a hash.
             console.print(
-                f"[yellow]⚠[/yellow] {agent}: no pinned commit on record (installed "
-                "before drift-checking existed) — re-run install-skills to enable this."
+                f"[yellow]⚠[/yellow] {agent}: installed before content hashing — "
+                "re-run install-skills to enable drift checking."
             )
             continue
 
-        remote = sp.run(["git", "ls-remote", repo, ref], capture_output=True, text=True)
-        if remote.returncode != 0 or not remote.stdout.strip():
-            console.print(f"[red]✗[/red] {agent}: couldn't reach {repo}@{ref} — {remote.stderr.strip()}")
-            exit_code = 1
-            continue
-
-        tip = remote.stdout.split()[0]
-        if tip == commit:
-            console.print(f"[green]✓[/green] {agent}: skills up to date ({commit[:7]})")
+        if recorded == bundle_hash:
+            console.print(f"[green]✓[/green] {agent}: skills current (wfctl {running_version})")
             continue
 
         exit_code = 1
-        console.print(f"[cyan]⬆[/cyan] {agent}: skills behind — {commit[:7]} → {tip[:7]}")
-        with tempfile.TemporaryDirectory() as tmp:
-            clone = sp.run(["git", "clone", "-q", repo, tmp], capture_output=True, text=True)
-            if clone.returncode == 0:
-                diff = sp.run(
-                    ["git", "diff", "--stat", commit, tip, "--", ".agents/skills", ".agents/commands"],
-                    cwd=tmp, capture_output=True, text=True,
-                )
-                for line in (diff.stdout.strip().splitlines() or ["(no changes under .agents/skills or .agents/commands)"]):
-                    console.print(f"    {line}")
-            else:
-                console.print(f"    (couldn't clone to diff: {clone.stderr.strip()})")
+        installed_by = entry.get("wfctl_version")
+        if installed_by and installed_by != running_version:
+            console.print(
+                f"[cyan]⬆[/cyan] {agent}: skills stale — installed by wfctl "
+                f"{installed_by}, running {running_version}"
+            )
+        else:
+            # Same version, different content: an editable install whose skills
+            # were edited in place. Naming the version twice would read as a bug.
+            console.print(f"[cyan]⬆[/cyan] {agent}: bundled skills changed since install")
         console.print("    update: wfctl install-skills")
 
     raise typer.Exit(exit_code)

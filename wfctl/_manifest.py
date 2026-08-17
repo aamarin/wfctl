@@ -6,9 +6,10 @@ a cycle papered over with lazy in-function imports, which meant path resolution
 could not be exercised without pulling in typer, rich, and every command.
 
 The file holds two kinds of key: layer entries written by `install-skills`
-(objects with `items` and a pinned commit) and bare scalars recording a repo's
-choices (`tracker`, `spec_root`). Anything enumerating layers must skip the
-scalars — see `_NON_LAYER_KEYS` in `cli`.
+(objects with `items` plus the `wfctl_version` and `content_hash` that installed
+them) and bare scalars recording a repo's choices (`tracker`, `spec_root`).
+Anything enumerating layers must skip the scalars — see `_NON_LAYER_KEYS` in
+`cli`.
 """
 from __future__ import annotations
 
