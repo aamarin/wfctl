@@ -31,6 +31,11 @@ TREES = ("agents", "specify")
 # archived by this same feature: a commit message pointing at a repo that has
 # stopped taking commits is a dead end for whoever next needs to know which
 # revision this tree is a copy of, and a re-sync needs that base to diff against.
+#
+# The diff base, not a claim the tree is byte-identical to it. Fixes landing here
+# rather than upstream is the expected steady state now that wf-skills is
+# archived, so `git log -- wfctl/agents wfctl/specify` is what says how far the
+# copy has moved from this revision.
 BUNDLE_SOURCE = "aamarin/wf-skills@9ee468a6fe19f57e426b1a4711d8ae8c6c40d210"
 
 # `files()` returns a real directory path because wfctl is always installed
