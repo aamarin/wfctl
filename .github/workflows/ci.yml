@@ -71,6 +71,33 @@ jobs:
           GIT_TERMINAL_PROMPT: "0"
         run: uv run pytest -q
 
+  # The one property the other two jobs structurally cannot check. Both run
+  # against the source tree, where the vendored trees are present and executable
+  # regardless of what the wheel ships — so a dropped `MANIFEST.in` graft or a
+  # `.sh` committed 644 stays green here and fails on a user's machine.
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build
+        run: uv build --wheel
+
+      # Deliberately not `uv sync`, which installs the project editable and
+      # would read `wfctl/agents/` straight off the checkout — passing even if
+      # the wheel carried nothing at all.
+      - name: Install the wheel into a clean environment
+        run: |
+          uv venv /tmp/wheel-env
+          VIRTUAL_ENV=/tmp/wheel-env uv pip install dist/*.whl
+
+      - name: Assert the wheel carries the bundled trees, executable bit intact
+        run: /tmp/wheel-env/bin/python .github/scripts/check_wheel_contents.py
+
   lint:
     runs-on: ubuntu-latest
     steps:

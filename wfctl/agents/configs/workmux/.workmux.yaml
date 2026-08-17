@@ -1,0 +1,73 @@
+# workmux project configuration — wfctl standard starter.
+# Repo-agnostic conventions; fill in project-specific hooks where noted.
+# Global settings live in ~/.config/workmux/config.yaml.
+
+#-------------------------------------------------------------------------------
+# Naming & Paths
+#-------------------------------------------------------------------------------
+worktree_dir: wt          # worktrees land in ./wt/<handle> (gitignored by installer)
+worktree_naming: full
+
+# Per-project tmux session/window name prefix (workmux default: "wm-").
+# window_prefix: "<project>__"
+
+#-------------------------------------------------------------------------------
+# Tmux
+#-------------------------------------------------------------------------------
+mode: session
+
+windows:
+  - name: agent
+    panes:
+      - command: <agent>
+        focus: true
+  - name: term
+    panes:
+      - command: ''
+
+#-------------------------------------------------------------------------------
+# Agent
+#-------------------------------------------------------------------------------
+agent: claude
+
+#-------------------------------------------------------------------------------
+# Hooks
+#-------------------------------------------------------------------------------
+# Require branch/handle to start with an issue number (e.g. 359-my-feature),
+# matching wfctl's issue-number branch model. Aborts creation otherwise.
+pre_create:
+  - |
+    ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
+    if [[ -z "$ISSUE" ]]; then
+      echo "Error: '$WM_HANDLE' must start with an issue number (e.g. 359-my-feature)."
+      exit 1
+    fi
+
+# Project-specific setup (ports, .env rewrites, db URLs) goes here.
+# Example — derive a port from the issue number and patch a .env:
+# post_create:
+#   - |
+#     ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
+#     sed -i '' "s|^PORT=.*|PORT=${ISSUE}|" "$WM_WORKTREE_PATH/.env"
+#     exit 0
+
+# Archive the story's planning artifacts before the worktree is deleted. They are
+# gitignored, so the worktree is the only place they exist — `wfctl archive-story`
+# copies them into wfctl's per-branch state dir, numbered in pipeline order with a
+# generated index. A forensic snapshot to read later, not a restorable tree.
+#
+# `command -v` guards a checkout without wfctl on PATH: a teardown hook must never
+# be the thing that stops a worktree from being removed.
+#
+# This replaces workmux's default `pre_remove`, which auto-detects Node.js
+# projects and fast-deletes node_modules. Add that back here if you need it.
+pre_remove:
+  - command -v wfctl >/dev/null && wfctl archive-story "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
+
+#-------------------------------------------------------------------------------
+# Files
+#-------------------------------------------------------------------------------
+# Files to copy into each new worktree (e.g. a gitignored .env):
+# files:
+#   copy:
+#     - .env

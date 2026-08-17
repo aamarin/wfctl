@@ -52,6 +52,32 @@ def _tool_version_is_not_under_test(
     monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
 
 
+@pytest.fixture(autouse=True)
+def bundle(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Point the vendored-tree lookup at a fake bundle for every test.
+
+    Autouse because the alternative is opt-in, and a test that forgets reads the
+    real `wfctl/agents/` — passing for the wrong reason, and coupling assertions
+    about installed content to whatever wf-skills happened to ship. Returns the
+    root so a test needing particular content can add to it.
+
+    Built under `tmp_path_factory` rather than the test's own `tmp_path`: many
+    tests use `tmp_path` as the destination repo root, and a bundle unpacked
+    there would show up inside the repo under test.
+    """
+    root = tmp_path_factory.mktemp("bundle")
+    skill = root / "agents" / "skills" / "test-skill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# Test skill\n")
+    commands = root / "agents" / "commands"
+    commands.mkdir(parents=True)
+    (commands / "test-cmd.md").write_text("# Test command\n")
+    monkeypatch.setattr("wfctl._bundle.BUNDLE_ROOT", root)
+    return root
+
+
 @pytest.fixture
 def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Isolated state dir backed by a real git repo (checkpoint needs git diff)."""
