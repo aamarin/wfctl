@@ -23,7 +23,8 @@ rather than running `uv sync`.
 
 The comparison is against `git ls-files`, not a hardcoded list: the question is
 whether everything committed as bundle content survived packaging, and a list
-maintained by hand would answer a different, staler question.
+maintained by hand would answer a different, staler question. Which files are
+executable comes from git too, for the same reason — see the parse below.
 """
 from __future__ import annotations
 
@@ -45,12 +46,27 @@ if installed_root == repo_root / "wfctl":
         "  with the venv's interpreter, from a directory that is not the repo root."
     )
 
-tracked = subprocess.run(
-    ["git", "-C", str(repo_root), "ls-files", *(f"wfctl/{tree}" for tree in TREES)],
+listing = subprocess.run(
+    ["git", "-C", str(repo_root), "ls-files", "-sz", *(f"wfctl/{tree}" for tree in TREES)],
     capture_output=True,
     text=True,
     check=True,
-).stdout.split()
+).stdout.split("\0")
+
+# `-s` so the mode comes from git rather than from the filename. Every executable
+# in the tree today ends in `.sh`, but that is upstream's habit, not a rule — an
+# executable helper named anything else would ship 644 straight through a suffix
+# check, which is the failure this whole job exists to catch.
+#
+# `-z` for the record separator, and the tab git puts before the path: together
+# they keep a path containing a space or a non-ASCII character in one piece,
+# where splitting on whitespace tears it in two and C-quoting mangles it.
+tracked = {}
+for record in listing:
+    if not record:
+        continue
+    metadata, _, relative = record.partition("\t")
+    tracked[relative] = metadata.split()[0]
 
 # A vacuous pass is the failure mode this check exists to prevent, so the empty
 # case is an error rather than "nothing to verify".
@@ -59,14 +75,14 @@ if not tracked:
 
 missing = []
 not_executable = []
-for relative in tracked:
+for relative, mode in tracked.items():
     target = installed_root / Path(relative).relative_to("wfctl")
     if not target.is_file():
         missing.append(relative)
-    elif relative.endswith(".sh") and not os.stat(target).st_mode & 0o111:
-        # A wheel preserves whatever mode git recorded, so a `.sh` arriving 644
-        # means the tree was committed 644 — and every speckit command shells out
-        # to these, so the whole runtime breaks at the first invocation.
+    elif mode == "100755" and not os.stat(target).st_mode & 0o111:
+        # A wheel preserves whatever mode git recorded, so a file committed 755
+        # arriving 644 means packaging dropped it — and every speckit command
+        # shells out to these, so the runtime breaks at the first invocation.
         not_executable.append(relative)
 
 if missing or not_executable:

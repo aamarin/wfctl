@@ -35,8 +35,13 @@ include = ["wfctl*"]
 # `glob`, which excludes dot-prefixed names from `*` — so `agents/**/*` alone
 # ships 65 of the 66 vendored files and silently drops
 # `agents/configs/workmux/.workmux.yaml`, the only file `install-config workmux`
-# copies. Matched by pattern rather than named outright so the next dotfile
-# upstream adds does not fail the same way.
+# copies.
+#
+# This covers dot-prefixed *files* and stops there. `**` does not descend into a
+# dot-prefixed *directory*, so a skill that grows a `.github/` or `.claude/`
+# subdirectory upstream loses its contents the same way, and no finite set of
+# globs closes that off. The `wheel` CI job is what makes that a red build
+# instead of a silent drop — do not read these two patterns as general cover.
 wfctl = ["agents/**/*", "agents/**/.*", "specify/**/*", "specify/**/.*"]
 
 [tool.pytest.ini_options]
