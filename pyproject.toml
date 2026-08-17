@@ -30,6 +30,15 @@ wfctl = "wfctl.cli:app"
 [tool.setuptools.packages.find]
 include = ["wfctl*"]
 
+[tool.setuptools.package-data]
+# The `.*` entries are not redundant. setuptools globs these with Python's
+# `glob`, which excludes dot-prefixed names from `*` — so `agents/**/*` alone
+# ships 65 of the 66 vendored files and silently drops
+# `agents/configs/workmux/.workmux.yaml`, the only file `install-config workmux`
+# copies. Matched by pattern rather than named outright so the next dotfile
+# upstream adds does not fail the same way.
+wfctl = ["agents/**/*", "agents/**/.*", "specify/**/*", "specify/**/.*"]
+
 [tool.pytest.ini_options]
 markers = [
     "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
