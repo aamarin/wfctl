@@ -245,10 +245,10 @@ a bare install and a bare uninstall round-trip. State lives in
 `.wf-skills-manifest.json` and `.wf-skills-backup/` at the repo root — both are
 cleaned up once nothing references them.
 
-`wfctl doctor` is the single "am I current?" check — it reports both the wfctl
-tool (installed version vs latest release tag) and the installed skills (the
-hash on record vs the bundle this wfctl ships). Colour-coded: **green ✓**
-current, **cyan ⬆** upgrade available, **yellow ⚠** warning, **red ✗** error.
+`wfctl doctor` is the single "am I current?" check — it reports the wfctl tool
+and the installed skills (the hash on record vs the bundle this wfctl ships).
+Colour-coded: **green ✓** current, **cyan ⬆** upgrade available, **yellow ⚠**
+warning, **red ✗** error.
 
 ```
 $ wfctl doctor
@@ -258,6 +258,30 @@ $ wfctl doctor
     update: wfctl install-skills
 ```
 
+The tool half asks **two** questions, because the version string alone cannot
+answer the one that matters. A newer release tag gets the upgrade line above.
+Separately, if your build is behind the tip of the branch it was installed from
+— the ordinary case, since the install above tracks the default branch — you get:
+
+```
+✓ wfctl 0.15.0 — latest release
+⬆ build behind master — d8688f6 → 271bb2c
+    bundled skills are from this build too
+    reinstall: uv tool install --force git+https://github.com/aamarin/wfctl.git
+```
+
+Without that second question a build could sit several merges behind and still
+report `✓ latest`, since the version in `pyproject.toml` only changes at release
+time. It matters more since skills became part of the package: stale build,
+stale skills, and the skills check cannot see it because a bundle always matches
+itself.
+
+The build's commit comes from the install metadata Python already records, so
+this costs no extra network call and nothing needs stamping at build time.
+Installs that cannot drift are left alone — a pinned tag, an editable checkout,
+or an install from a package index. Every printed command names the repository
+you installed from, so a fork is never told to reinstall from upstream.
+
 `install-skills` records the wfctl version and a hash of the whole bundle, which
 is what makes staleness detectable without a network call. Four verdicts per
 layer: current; stale across versions, as above; **stale at the same version** —
@@ -265,8 +289,10 @@ layer: current; stale across versions, as above; **stale at the same version** �
 checkout with edited skills looks like; and, for a record written before hashing
 existed, `⚠ claude: installed before content hashing`, which warns without
 failing since the layer may well be current. Only the tool check needs the
-network, and it degrades to `⚠ … couldn't check latest (offline?)` without
-weakening the skills verdict.
+network, and it degrades to a single `⚠` line naming whichever comparison could
+not run — `⚠ wfctl 0.15.0 — couldn't check releases or branch (offline?)` —
+without weakening the skills verdict. A check that could not run always says so;
+silence would be indistinguishable from a pass.
 
 Exits non-zero when an upgrade is available or a layer is stale — so `wfctl
 doctor` doubles as a freshness gate in scripts, and the `start-session` skill
