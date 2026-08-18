@@ -31,10 +31,33 @@ answer is not permission to build toward the point — it means more supporting
 material *below* the point.
 
 Where this skill and `i-have-adhd` collide, `i-have-adhd` owns the shape and
-this skill owns the order. One collision is worth naming: rule 5 there requires
-restating state every turn. **Restated state goes below the answer, and carries
-only what changed since the previous turn.** Unchanged state is not a
-restatement, it is a recap, which rule 10 already forbids.
+this skill owns the order. Two collisions are worth naming.
+
+**The first line: action or answer.** `i-have-adhd` rule 1 wants an action there
+("something the reader can do"); this skill wants the answer. Usually they are
+the same line — the answer to "how do I fix this?" *is* a command. They diverge
+when the answer is not an action: a yes or no, a recommendation, a diagnosis, a
+recovered state after an error.
+
+**When they diverge, the answer takes the first line.** An action the reader
+takes before knowing the answer is a guess. The action does not get dropped — it
+goes where `i-have-adhd` rule 3 already puts it, as the one concrete next step at
+the end.
+
+```
+Q: "Is the migration safe to run on prod?"
+
+✗  "Run `npm run migrate:dry` first."
+    — an action first, but the reader still doesn't know the answer
+
+✓  "No — it drops `orders.legacy_id`, which the billing export still reads.
+    Next: `npm run migrate:dry` to see the column list yourself."
+```
+
+**Restated state.** Rule 5 there requires restating state every turn.
+**Restated state goes below the answer, and carries only what changed since the
+previous turn.** Unchanged state is not a restatement, it is a recap, which rule
+10 already forbids.
 
 ## 1. Answer first
 

@@ -19,7 +19,7 @@ memory of it — load them before doing anything else.
    session, starting with the report in step 7. `i-have-adhd` sets the length
    and the next action; `conversation-response-shape` sets what comes first and
    how deep it goes. Skip either silently if it isn't installed. The user turns
-   both off with "stop adhd mode".
+   both off with "stop adhd mode" or "normal mode".
 
 2. **Initialize and check freshness:**
    ```bash
