@@ -1,10 +1,30 @@
 ---
 name: design-levels
-description: 'Use before writing a spec or code for any feature, screen, or schema change. Runs design as four separate passes — behavior, architecture, design, implementation — each with its own gate, so the decisions that are expensive to reverse get made deliberately instead of being skipped on the way to code.'
+description: 'Runs design as four separate passes — behavior, architecture, design, implementation — each with its own gate, so decisions that are expensive to reverse get made deliberately rather than buried in code. Use when designing a feature, screen, or schema change, before writing a spec or any code. Use when a question asks what changes for the user, what moves, or who owns a piece of truth. Use when a design conversation has jumped from a wireframe straight to an implementation.'
 deployment: skill
 ---
 
 # Design levels
+
+## Overview
+
+Design conversations collapse four levels into two: a wireframe, then code. The
+two skipped in between are where the expensive-to-reverse decisions live. This
+skill runs each level as its own pass with its own gate.
+
+## When to Use
+
+- Designing a feature, screen, schema change, or CLI surface — anything that
+  introduces new state or new user-visible behavior.
+- A question was asked about behavior or ownership and the answer forming in
+  your head is code.
+- The reader says "I need just a high-level description of this."
+
+Not for: bug fixes, copy edits and other trivial changes that introduce no new
+state, or work whose behavior and boundaries are already settled in an existing
+spec.
+
+## The four levels
 
 Design descends through four levels. Each is a separate pass with its own
 approval. Don't skip, don't collapse.
@@ -79,8 +99,8 @@ were written against them.
 
 ### 4. Implementation — covered by the existing verification skills
 
-`verification-before-completion` and `code-review` own this level. Nothing new
-here.
+Use the `verification-before-completion` skill and the `code-review` skill.
+Nothing new here.
 
 ## The descent is not one-directional
 
@@ -110,10 +130,33 @@ runs. The spec should be derivable from the recorded decisions, not re-invented.
 **verifies** the answer; it does not derive it. Arriving at `speckit.plan`
 without one means going back to level 2, not filling the gate in from memory.
 
-## Failure mode
+## Common Rationalizations
 
-Answering a level-1 or level-2 question with level-4 content. It buries the
-decision under detail and makes editing feel expensive.
+| Rationalization | Reality |
+|---|---|
+| "Showing the code *is* the answer — it's concrete." | It buries the decision under detail and makes editing feel expensive. A level-2 question answered in code has its decision made silently, inside the code. |
+| "Level 1 is obvious, we already know what the user sees." | Then state its level-3 consequence. If you can't, level 1 isn't finished — that's the test. |
+| "Ownership will be clear once I see the schema." | Backwards. The schema encodes the ownership decision; writing it first makes the decision by accident. |
+| "The client can just compute that." | The answer that is fast is the wrong one roughly every time here. Name what the client would need and check it actually has it. |
+| "That's an edge case, not a state." | Empty, first-load, and permission-denied are reachable states. Every one of them renders a string that is either true or a lie. |
+| "Going back up now would waste the design we already have." | Revising a boundary costs a paragraph. Working around it costs a contract, and it is permanent. |
+| "The user is in a hurry." | Urgency is a reason to not build the wrong thing twice. |
+
+## Red Flags
+
+Each of these means a level got collapsed. Stop and go back to the level the
+question was asked at.
+
+- A file path, line number, or function name appears before the decision it
+  implements has been stated.
+- The reader asks "what does that look like?" or "I need just a high level
+  description" — the level they wanted led, and it didn't.
+- A design section describes *how* something is stored before saying *who*
+  computes it.
+- A claim about existing code ("the index covers this", "pagination is already
+  there") appears in the design and was never opened and checked.
+- `design.md` reaches `speckit.specify` with no Boundaries and Ownership
+  content, or with schemas sitting in that section.
 
 ```
 ✗  Q: "Where should the manifest record which commit skills came from?"
@@ -121,13 +164,20 @@ decision under detail and makes editing feel expensive.
       — the question was about where authority lives; the answer was code
 ```
 
-The reader's signal that this happened: "I need just a high-level description of
-this." By then the level-2 decision has already been made silently, inside the
-code you showed.
-
 This skill governs **which level you answer at**, not how the answer is worded.
 
-## When not to use it
+## Verification
 
-Bug fixes, trivial changes with no new state (button label, copy edit), and work
-whose behavior and boundaries are both already settled in an existing spec.
+Before `design.md` is written:
+
+- [ ] Every reachable state was named, and its copy read *in that state* and
+      judged true or false.
+- [ ] Each level-1 decision has a stated level-3 consequence.
+- [ ] Every piece of state or derived value the feature introduces names the
+      side that computes it **and** why the other side cannot.
+- [ ] Every claim about existing code is marked verified or assumed, and the
+      verified ones were checked against the code, not from memory.
+- [ ] Any boundary a lower level invalidated was revised upward, not worked
+      around.
+- [ ] `design.md` has a Boundaries and Ownership section holding ownership
+      decisions, not schemas — and no level-4 code.
