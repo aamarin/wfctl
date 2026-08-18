@@ -1,9 +1,13 @@
 """Tests for doctor's tool-freshness check — release tags and branch drift.
 
 Every test here carries `real_version_check`. Without it, conftest's autouse
-fixture replaces `_check_wfctl_version` with `lambda: 0` and the test passes
-while exercising the stub — green, and proving nothing. That is the single
-easiest mistake to make in this file.
+fixture stubs `_check_wfctl_version` out entirely and the test passes while
+exercising the stub — green, and proving nothing. That is the single easiest
+mistake to make in this file.
+
+The stub's own return value is deliberately not quoted here: it lives in
+`tests/conftest.py`, and a copy of it in this docstring is a second place to
+update that nobody will.
 """
 from __future__ import annotations
 
