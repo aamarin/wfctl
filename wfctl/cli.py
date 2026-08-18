@@ -766,6 +766,17 @@ def _layer_keys(manifest: dict) -> list[str]:
     return [k for k in manifest if k not in _NON_LAYER_KEYS]
 
 
+def _recorded_items(manifest: dict) -> list[dict]:
+    """Every `items` entry across every layer, flattened.
+
+    Both callers want the same traversal and neither wants the layer it came
+    from: `install-skills` keys them by path for backup bookkeeping, `doctor`
+    keeps only the paths. Written out twice, the two drift the moment an entry
+    grows a field or a layer needs filtering.
+    """
+    return [i for key in _layer_keys(manifest) for i in manifest[key].get("items", [])]
+
+
 def _agent_keys(manifest: dict) -> list[str]:
     """Manifest keys that name an agent with paths of its own.
 
@@ -1081,11 +1092,7 @@ def install_skills_cmd(
     # union, the first install after either would prompt to overwrite ~25
     # directories wfctl installed itself, and back them up as if they were the
     # user's.
-    prior_items = {
-        i["path"]: i
-        for key in _layer_keys(manifest)
-        for i in manifest[key].get("items", [])
-    }
+    prior_items = {i["path"]: i for i in _recorded_items(manifest)}
 
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
@@ -1878,7 +1885,20 @@ def _archive_destination(repo_root: Path) -> str:
         return f"{path}/"
 
 
-def _check_workmux_hook(repo_root: Path) -> None:
+# The contract every `_check_*` below implements — the return value, not the
+# arguments, which vary with what a check needs (`_check_abandoned_entries` takes
+# the loaded manifest so it does not re-read one `doctor` already has).
+#
+#   True  — drift found, and still standing as the check returns.
+#   False — no drift; or the check could not tell (offline, unreadable, nothing
+#           recorded to compare against); or it found drift and repaired it.
+#
+# `doctor_cmd` ORs the results, so the exit code describes the repo's state when
+# the run ends rather than what was seen along the way. Could-not-tell returning
+# False is deliberate: a build must not fail because GitHub was briefly
+# unreachable. Say so in the output — a silent False is indistinguishable from a
+# pass, and the return value carries no message.
+def _check_workmux_hook(repo_root: Path) -> bool:
     """Report a `.workmux.yaml` that won't archive on teardown; offer to fix it.
 
     `install-config` is seed-once and refuses to overwrite, so fixing the upstream
@@ -1889,21 +1909,23 @@ def _check_workmux_hook(repo_root: Path) -> None:
     prefix. A cosmetic warning beside a data-loss warning trains the reader to
     skim past both, and this is the one whose job is to be noticed.
 
-    Never touches doctor's exit code: this is drift, reported the way a missing
-    pinned commit is, not a failure.
+    True when the hook is still unwired as this returns. The one check that can
+    *resolve* what it found: accepting the offer leaves the repo protected, so it
+    returns False having written the fix. An unreadable file is could-not-tell —
+    reported, but no finding to fail on.
     """
     from wfctl import _workmux
 
     wf = repo_root / ".workmux.yaml"
     if not wf.exists():
-        return  # not every repo uses workmux
+        return False  # not every repo uses workmux
     try:
         text = wf.read_text()
     except OSError as exc:
         console.print(f"[yellow]⚠[/yellow] couldn't read .workmux.yaml: {exc}")
-        return
+        return False
     if _workmux.pre_remove_wired(text):
-        return
+        return False
 
     console.print(
         "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
@@ -1928,26 +1950,27 @@ def _check_workmux_hook(repo_root: Path) -> None:
             f"{_workmux.ARCHIVE_HOOK}",
             soft_wrap=True,
         )
-        return
+        return True
     if not _interactive():
         # /start-session runs doctor through a non-TTY shell. Without this line
         # the automated path reports a problem with no route to the fix.
         console.print("  Run `wfctl doctor` from a terminal to wire it.")
-        return
+        return True
     if not typer.confirm("Wire it now?", default=True):
         # Declining is not recorded. Unlike choosing no tracker — a genuine
         # one-time decision — an unwired teardown hook is ongoing drift, and
         # re-reporting drift is what a doctor is for.
-        return
+        return True
     try:
         wf.write_text(patched)
     except OSError as exc:
         console.print(f"[yellow]⚠[/yellow] couldn't write .workmux.yaml: {exc}")
-        return
+        return True  # the hook is still unwired, whatever the cause
     console.print("[green]✓[/green] pre_remove wired — .workmux.yaml")
+    return False
 
 
-def _check_spec_root_migration(repo_root: Path) -> None:
+def _check_spec_root_migration(repo_root: Path) -> bool:
     """Report in-repo spec dirs stranded by a recorded `spec_root`.
 
     Recording a root migrates nothing, and the recorded root is the only one
@@ -1963,13 +1986,13 @@ def _check_spec_root_migration(repo_root: Path) -> None:
     adopts a root next year strands whatever it had, exactly as one that adopted
     a root last year did. There is no end condition to observe here.
 
-    Reports only: never moves or deletes, and never touches doctor's exit code —
-    same contract as `_check_workmux_hook`, which treats drift as reportable
-    rather than as failure.
+    Reports only: never moves or deletes. True while spec directories are
+    stranded — the repo stays misconfigured until they are moved or removed, and
+    unlike the teardown hook beside it this one has no self-clearing path.
     """
     in_repo = repo_root / "specs"
     if not in_repo.is_dir():
-        return
+        return False
     # Keyed on what a manifest *records*, not on what `spec_root` resolves. The
     # latter honors WFCTL_SPEC_DIR, so a one-off `WFCTL_SPEC_DIR=… wfctl doctor`
     # — or the env var exported in a shell profile, which this design warns
@@ -1977,17 +2000,17 @@ def _check_spec_root_migration(repo_root: Path) -> None:
     # records nothing, and nag about moving specs to a transient directory.
     declared = spec_root_declaration(repo_root)
     if declared is None:
-        return
+        return False
     root = declared[0]
     # Resolve both sides: a recorded relative value comes back resolved, while
     # repo_root does not have to be (WFCTL_REPO_ROOT is taken verbatim). Compared
     # raw, a root pointing at this very directory reads as a mismatch and the
     # warning tells the user to move specs from a directory to itself.
     if root.resolve() == in_repo.resolve():
-        return
+        return False
     stranded = sorted(p for p in in_repo.iterdir() if p.is_dir())
     if not stranded:
-        return
+        return False
 
     one = len(stranded) == 1
     console.print(
@@ -1999,6 +2022,88 @@ def _check_spec_root_migration(repo_root: Path) -> None:
     # path reads as two paths and pastes broken.
     it = "it" if one else "them"
     console.print(f"  Move {it} to {root}, or remove {it}.", soft_wrap=True)
+    return True
+
+
+# Where the abandoned-entry scan looks: wfctl's own destinations, taken from the
+# target tables rather than restated, so adding a target cannot leave the scan
+# behind. Deliberately *not* every directory the manifest records into.
+#
+# Two exclusions, both deliberate:
+#
+# `.claude/`, `.bob/`, `.github/` — the agent layers copy there, but they are the
+# user's own directories and a slash command someone wrote themselves lands in
+# them. The rename that motivated this check orphans in `.agents/` too, since the
+# base layer installs there, so the real case is caught without reaching into
+# shared ground.
+#
+# `.agents/trackers/` — `install-skills --tracker github` records `github.json`
+# there, but `/scaffold-tracker` documents the same directory as the place to
+# hand-author `<name>.json` for any other tracker. Scanning it would report a
+# repo's own Jira config as abandoned and, under this contract, fail its build
+# over a file wfctl never wrote. It is shared ground wearing an owned tree's
+# prefix, and it stays out by not being a target — no special case to keep in
+# sync. Splitting installed from hand-authored configs would be tidier and buys
+# nothing: every other access is by exact filename, so this scan was the only
+# thing that ever enumerated the directory.
+_SCANNED_DIRS = tuple(dest for _, dest in (*_BASE_TARGETS, *_RUNTIME_TARGETS))
+
+
+def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
+    """Report entries wfctl installed and no longer records.
+
+    A rename upstream writes the new path and leaves the old file; the manifest is
+    then replaced per layer, so the old path falls out of the record entirely.
+    `uninstall-skills` removes only what the manifest lists, so neither command can
+    reach it afterwards — the file is wfctl's output but no longer its
+    responsibility. It is not inert: a stale command file is still invocable and
+    still instructs an agent to write to a handoff path nothing reads.
+
+    Found by comparing disk against the current record rather than against
+    history, because a dropped path leaves no trace to compare against.
+
+    Scans fixed destinations rather than the parents of recorded paths. Deriving
+    them from the record looks tidier and has a hole in it: the last recorded
+    entry in a directory falling out takes the whole directory out of the scan
+    with it, so the orphan goes unreported in exactly the case worth reporting.
+
+    One level deep, not recursive. Every recorded path sits directly inside one of
+    these destinations, so a one-level listing sees exactly the units the record
+    describes; recursing would descend into recorded directories and report their
+    contents — files that are installed and accounted for. That also gives the
+    granularity rule for free: a skill is installed and recorded as one directory,
+    so an abandoned one is one finding rather than one per file inside it.
+
+    Reports only. Removal is correct for a genuine rename and destructive when the
+    file was edited locally, or when the path fell out because a layer was
+    deselected rather than dropped upstream — and this check cannot tell those
+    apart.
+    """
+    recorded = {i["path"] for i in _recorded_items(manifest)}
+
+    abandoned = sorted(
+        rel
+        for scanned in _SCANNED_DIRS
+        if (d := repo_root / scanned).is_dir()
+        for child in d.iterdir()
+        if (rel := str(child.relative_to(repo_root))) not in recorded
+    )
+    if not abandoned:
+        return False
+
+    one = len(abandoned) == 1
+    console.print(
+        f"[yellow]⚠[/yellow] {len(abandoned)} installed "
+        f"{'path is' if one else 'paths are'} no longer on record — "
+        f"renamed or dropped upstream:"
+    )
+    for path in abandoned:
+        console.print(f"    {path}", soft_wrap=True)
+    # Not `uninstall-skills`: it removes what the manifest lists, which is
+    # precisely what these are not. Naming it would send someone to a command
+    # that reports nothing to remove.
+    console.print(f"    Delete {'it' if one else 'them'} by hand once you've checked nothing needs it.")
+    return True
 
 
 @app.command("doctor")
@@ -2006,9 +2111,15 @@ def doctor_cmd() -> None:
     """Check the wfctl tool and installed wf-skills content for available updates.
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
+
+    Exits 1 when a check found drift that still stands as the run ends, 0
+    otherwise — including when a check could not reach an answer, which is a
+    warning rather than a finding. Every applicable check runs before exiting, so
+    one run reports everything wrong at once. `⚠` is the one marker that maps to
+    either code: both cases warn a person, only one is a repo problem.
     """
     # Each check reports whether it found drift; the command's exit code is the
-    # OR of them. See #41 for the contract the remaining checks still adopt.
+    # OR of them. The contract itself is stated above `_check_workmux_hook`.
     exit_code = int(_check_wfctl_version())
 
     try:
@@ -2020,14 +2131,25 @@ def doctor_cmd() -> None:
     # Before the manifest gate below: a repo can have a .workmux.yaml or a
     # recorded spec_root without having installed skills. Both are drift a repo
     # can carry with nothing pinned, so both are reported either way.
-    _check_workmux_hook(repo_root)
-    _check_spec_root_migration(repo_root)
+    #
+    # A list, not `a or b`: `or` short-circuits, so the first check finding drift
+    # would suppress the second and a run would report one problem at a time.
+    if any([
+        _check_workmux_hook(repo_root),
+        _check_spec_root_migration(repo_root),
+    ]):
+        exit_code = 1
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
     if not layers:
         console.print("Nothing installed — run `wfctl install-skills` first.")
         raise typer.Exit(exit_code)
+
+    # After the gate on purpose: with nothing recorded, every file in the owned
+    # trees is unrecorded, and the check would name all of them.
+    if _check_abandoned_entries(repo_root, manifest):
+        exit_code = 1
 
     # One hash for the whole bundle, so it is computed once no matter how many
     # layers are on record — every entry in one manifest carries the same value.

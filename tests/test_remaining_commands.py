@@ -182,13 +182,46 @@ def test_doctor_states_the_archive_destination_before_asking(
     assert "/archive/" in result.output
 
 
-def test_doctor_exit_code_is_unchanged_by_this_warning(
+def test_doctor_fails_over_an_unwired_hook_with_no_terminal(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Matches the `no pinned commit` precedent: warnings continue, they don't fail."""
+    """The path CI takes. No TTY means the offer is skipped, so the hook is still
+    unwired when doctor returns — and the exit code says so."""
     repo_root = agent_dir.parent
     _seed_workmux(repo_root)
-    assert _doctor(monkeypatch, interactive=False).exit_code == 0
+
+    assert _doctor(monkeypatch, interactive=False).exit_code == 1
+
+
+def test_doctor_fails_over_an_unwired_hook_when_the_fix_is_declined(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Declining leaves the drift in place, so it is still a finding."""
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+    monkeypatch.setattr("typer.confirm", lambda *a, **k: False)
+
+    assert _doctor(monkeypatch, interactive=True).exit_code == 1
+
+
+def test_doctor_passes_when_the_offered_fix_is_accepted(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exit code describes the repo when the run ends, not what was seen along
+    the way. Accepting the offer leaves the repo protected, so there is nothing
+    left to report — the one case where a check resolves its own finding.
+
+    Asserts the file too: an exit code of 0 with the hook still unwired would be
+    the dangerous version of this passing.
+    """
+    repo_root = agent_dir.parent
+    _seed_workmux(repo_root)
+    monkeypatch.setattr("typer.confirm", lambda *a, **k: True)
+
+    result = _doctor(monkeypatch, interactive=True)
+
+    assert result.exit_code == 0
+    assert _workmux.pre_remove_wired((repo_root / ".workmux.yaml").read_text())
 
 
 # --- doctor: the swept transition reports (#36) -----------------------------
