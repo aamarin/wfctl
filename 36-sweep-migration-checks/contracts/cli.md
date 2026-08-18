@@ -53,7 +53,13 @@ Emitted when, and only when, invoked as `archive-story`:
 ```
 ⚠ invoked as `archive-story`; renamed to `archive-specs`.
   Re-seed the hook: wfctl install-config
+  The alias is retired once this line stops appearing.
 ```
+
+The third line is not decoration. Without it the reader learns to fix their hook
+but not what the *silence* afterwards means, and the silence is the whole signal
+— SC-005 requires the removal condition be decidable from output alone, not from
+the source comment.
 
 | Aspect | Guarantee |
 |---|---|
@@ -68,8 +74,9 @@ Emitted when, and only when, at least one file was rescued from the superseded
 directory:
 
 ```
-⚠ rescued N file(s) from legacy `.agent/` — this path is scheduled for
-  removal. Nothing else reads it.
+⚠ rescued N file(s) from legacy `.agent/` — a superseded path
+  kept only to rescue them. Nothing else reads it.
+  The read is retired once this line stops appearing.
 ```
 
 | Aspect | Guarantee |

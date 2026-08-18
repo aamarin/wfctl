@@ -5,9 +5,9 @@ How to build, verify, and hand-check this feature.
 ## Validate
 
 ```bash
-uv run pytest -q          # full suite
-uv run ruff check .       # E4, E7, E9, F
-uv run mypy               # disallow_untyped_defs over wfctl/
+uv run pytest -q            # full suite
+uv run ruff check .         # E4, E7, E9, F
+uv run --extra dev mypy     # disallow_untyped_defs over wfctl/; mypy is in the dev extra
 ```
 
 The bundled-template edit additionally rides the wheel checks that CI runs:

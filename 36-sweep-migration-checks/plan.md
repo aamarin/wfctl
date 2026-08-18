@@ -21,7 +21,7 @@ already run.
 **Language/Version**: Python ≥3.11 (`requires-python = ">=3.11"`)
 **Primary Dependencies**: typer ≥0.12, rich ≥13 — both already present; none added
 **Storage**: N/A — reads a repo-local `.workmux.yaml` and a JSON manifest; writes no new state
-**Testing**: `uv run pytest -q`; `uv run ruff check .`; `uv run mypy`; plus `.github/scripts/check_wheel_contents.py` and `check_installed_tree.py` for the bundled template
+**Testing**: `uv run pytest -q`; `uv run ruff check .`; `uv run --extra dev mypy`; plus `.github/scripts/check_wheel_contents.py` and `check_installed_tree.py` for the bundled template
 **Target Platform**: developer workstations (macOS/Linux), invoked directly and from a `pre_remove` teardown hook
 **Project Type**: single-package CLI
 **Performance Goals**: no regression; the deletions remove filesystem probes from the health check's startup path and add none

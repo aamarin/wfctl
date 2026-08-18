@@ -10,7 +10,7 @@
 
 | PR | Tasks | Files Touched | Size | Merge Condition |
 |----|-------|--------------|------|----------------|
-| PR-1 | T001–T025 (all) | `wfctl/cli.py` (modified), `wfctl/_workmux.py` (modified), `wfctl/_archive.py` (modified, comment only), `wfctl/agents/configs/workmux/.workmux.yaml` (modified), `tests/test_workmux.py` (modified), `tests/test_remaining_commands.py` (modified), `tests/test_archive_specs.py` (modified), `tests/test_install_config.py` (modified) | M (8 files; 4 source, 4 test) | `uv run pytest -q && uv run ruff check . && uv run mypy` green, orphan grep returns nothing, both bundle scripts pass |
+| PR-1 | T001–T025 (all) | `wfctl/cli.py` (modified), `wfctl/_workmux.py` (modified), `wfctl/_archive.py` (modified, comment only), `wfctl/agents/configs/workmux/.workmux.yaml` (modified), `tests/test_workmux.py` (modified), `tests/test_remaining_commands.py` (modified), `tests/test_archive_specs.py` (modified), `tests/test_install_config.py` (modified) | M (8 files; 4 source, 4 test) | `uv run pytest -q && uv run ruff check . && uv run --extra dev mypy` green, orphan grep returns nothing, both bundle scripts pass |
 
 **Rationale**: Single PR. Signal 2 (reviewability) is decisive and points the
 opposite way from a split: the entire argument of this change is that reviewing
@@ -114,6 +114,6 @@ Read contracts/cli.md for the install-config guarantees before editing.
 
 **Agent A** takes the rest in single-agent order, skipping T018–T021.
 
-**Fan-in gate**: `uv run pytest -q && uv run ruff check . && uv run mypy`, plus
+**Fan-in gate**: `uv run pytest -q && uv run ruff check . && uv run --extra dev mypy`, plus
 the orphan grep from the Phase 3 verification block. Run after both agents report
 done, before T022.

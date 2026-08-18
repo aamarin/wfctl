@@ -44,7 +44,7 @@ Flat single-package layout: `wfctl/` and `tests/` at repository root. No `src/`.
 **Purpose**: Establish a known-green baseline so any later failure is attributable
 to this feature rather than inherited.
 
-- [ ] T001 Record the pre-change baseline by running `uv run pytest -q`, `uv run ruff check .`, and `uv run mypy` from the repository root; note the passing test count for comparison in T024
+- [X] T001 Record the pre-change baseline by running `uv run pytest -q`, `uv run ruff check .`, and `uv run --extra dev mypy` from the repository root; note the passing test count for comparison in T024
 
 ---
 
@@ -75,15 +75,15 @@ condition and confirm it still fires.
 
 ### Tasks
 
-- [ ] T002 [US1] Delete `_check_legacy_agent_dir` and its call site in `wfctl/cli.py` (definition at `:1673`, call at `:1887`); verify with the orphan grep above
-- [ ] T003 [US1] Delete `_check_stale_archive_hook` and its call site in `wfctl/cli.py` (definition at `:1783`, call at `:1885`); verify with the orphan grep above
-- [ ] T004 [US1] Delete `pre_remove_uses_former_name` from `wfctl/_workmux.py:159` and the sentence referencing it in the neighbouring docstring at `:152`; depends on T003 having removed its only caller; verify with the orphan grep above
-- [ ] T005 [P] [US1] Remove the `pre_remove_uses_former_name` assertions from `tests/test_workmux.py:225-249`; verify with `uv run pytest -q tests/test_workmux.py`
-- [ ] T006 [P] [US1] Remove the doctor cases covering the two deleted reports from `tests/test_remaining_commands.py`; verify with `uv run pytest -q tests/test_remaining_commands.py`
-- [ ] T007 [US1] Rewrite the `_check_spec_root_migration` docstring in `wfctl/cli.py:1819` to state it reports recurring drift rather than a transition, citing that the setup prompt and `wfctl spec-root` can both create the condition today (FR-002, research.md R-002); verify by reading — no behavior change, so no test changes
-- [ ] T008 [US1] Add a doctor test in `tests/test_remaining_commands.py` asserting that a repository containing a `.agent/` directory and a `.workmux.yaml` naming `archive-story` produces no mention of either; verify with `uv run pytest -q tests/test_remaining_commands.py`
-- [ ] T009 [US1] Add or confirm doctor tests in `tests/test_remaining_commands.py` asserting the two surviving reports still fire — an unwired `pre_remove`, and a recorded spec root with stranded in-repo spec directories; verify with `uv run pytest -q tests/test_remaining_commands.py`
-- [ ] T010 [US1] Validate Phase 3 with `uv run pytest -q && uv run ruff check . && uv run mypy` plus the orphan grep — merge gate
+- [X] T002 [US1] Delete `_check_legacy_agent_dir` and its call site in `wfctl/cli.py` (definition at `:1673`, call at `:1887`); verify with the orphan grep above
+- [X] T003 [US1] Delete `_check_stale_archive_hook` and its call site in `wfctl/cli.py` (definition at `:1783`, call at `:1885`); verify with the orphan grep above
+- [X] T004 [US1] Delete `pre_remove_uses_former_name` from `wfctl/_workmux.py:159` and the sentence referencing it in the neighbouring docstring at `:152`; depends on T003 having removed its only caller; verify with the orphan grep above
+- [X] T005 [P] [US1] Remove the `pre_remove_uses_former_name` assertions from `tests/test_workmux.py:225-249`; verify with `uv run pytest -q tests/test_workmux.py`
+- [X] T006 [P] [US1] Remove the doctor cases covering the two deleted reports from `tests/test_remaining_commands.py`; verify with `uv run pytest -q tests/test_remaining_commands.py`
+- [X] T007 [US1] Rewrite the `_check_spec_root_migration` docstring in `wfctl/cli.py:1819` to state it reports recurring drift rather than a transition, citing that the setup prompt and `wfctl spec-root` can both create the condition today (FR-002, research.md R-002); verify by reading — no behavior change, so no test changes
+- [X] T008 [US1] Add a doctor test in `tests/test_remaining_commands.py` asserting that a repository containing a `.agent/` directory and a `.workmux.yaml` naming `archive-story` produces no mention of either; verify with `uv run pytest -q tests/test_remaining_commands.py`
+- [X] T009 [US1] Confirm (not author) the two surviving reports' coverage. **Both were already covered, in files other than the one this task named**: the unwired `pre_remove` by `tests/test_remaining_commands.py:142`, and the stranded spec-root case by 7 assertions in `tests/test_install_skills.py:1199-1310` — a positive report, an exit-code invariance check, and five silence cases. No new test needed. Verified with `uv run pytest -q tests/test_install_skills.py -k "doctor or spec_root"` (18 passed)
+- [X] T010 [US1] Validate Phase 3 with `uv run pytest -q && uv run ruff check . && uv run --extra dev mypy` plus the orphan grep — merge gate
 
 ---
 
@@ -111,15 +111,15 @@ inputs and confirm silence.
 
 ### Tasks
 
-- [ ] T011 [US2] Add `ctx: typer.Context` as the first parameter of `archive_specs_cmd` in `wfctl/cli.py:299` and emit the retired-name notice when `ctx.info_name` is `archive-story`, per `contracts/cli.md`; place the emission inside the existing `try` so an unexpected failure cannot strand a worktree; verify with T014
-- [ ] T012 [US2] Emit the legacy rescue notice in `wfctl/cli.py` after `_archive.archive` returns, counting entries in `mapped` whose destination starts with `extra/legacy-agent`; keep the derivation at the call site so `wfctl/_archive.py` continues to return data and own no console, and keep the emission inside the existing `try` so a failure while counting cannot strand a worktree (FR-012, same constraint as T011); verify with T015
-- [ ] T013 [P] [US2] Rewrite the `ponytail:` comments on both retained paths — `wfctl/cli.py:299` and `wfctl/_archive.py:188` — to state their removal condition in terms of the notices from T011 and T012 rather than an unobservable trigger (FR-014); verify by reading against `quickstart.md` "The follow-up trigger"
-- [ ] T014 [P] [US2] Add tests in `tests/test_archive_specs.py` asserting the rename notice appears when invoked as `archive-story` and is absent when invoked as `archive-specs`; verify with `uv run pytest -q tests/test_archive_specs.py`
-- [ ] T015 [P] [US2] Add tests in `tests/test_archive_specs.py` asserting the rescue notice reports a count matching the files rescued, and is absent when the superseded directory is missing or empty; verify with `uv run pytest -q tests/test_archive_specs.py`
-- [ ] T016 [US2] Add a test in `tests/test_archive_specs.py` covering a worktree that both holds a superseded directory and is invoked under the retired name — both notices appear, neither suppresses the other, and the exit code is unchanged; verify with `uv run pytest -q tests/test_archive_specs.py`
-- [ ] T016a [US2] Extend `test_durable_spec_root_is_not_copied` in `tests/test_archive_specs.py:413` to assert the rescue notice and the existing durable-spec-dir notice co-occur without suppressing each other — the spec edge case "a worktree whose spec directory lives outside it"; the scenario is already constructed there, so this adds assertions rather than a test; verify with `uv run pytest -q tests/test_archive_specs.py`
-- [ ] T016b [US2] Confirm the four inherited legacy-rescue tests still pass unmodified — `test_a_design_doc_at_the_superseded_path_is_still_archived:73`, `..._without_a_spec_dir:95`, `test_the_whole_superseded_directory_is_archived_not_just_spec_md:112`, and `test_durable_spec_root_is_not_copied:413` in `tests/test_archive_specs.py`. These are FR-006's real coverage; a diff to any of them means the rescue path changed when it should not have. Verify with `uv run pytest -q tests/test_archive_specs.py` and `git diff tests/test_archive_specs.py` showing additions only in the ranges touched by T014–T016a
-- [ ] T017 [US2] Validate Phase 4 with `uv run pytest -q && uv run ruff check . && uv run mypy` — merge gate
+- [X] T011 [US2] Add `ctx: typer.Context` as the first parameter of `archive_specs_cmd` in `wfctl/cli.py:299` and emit the retired-name notice when `ctx.info_name` is `archive-story`, per `contracts/cli.md`; place the emission inside the existing `try` so an unexpected failure cannot strand a worktree; verify with T014
+- [X] T012 [US2] Emit the legacy rescue notice in `wfctl/cli.py` after `_archive.archive` returns, counting entries in `mapped` whose destination starts with `extra/legacy-agent`; keep the derivation at the call site so `wfctl/_archive.py` continues to return data and own no console, and keep the emission inside the existing `try` so a failure while counting cannot strand a worktree (FR-012, same constraint as T011); verify with T015
+- [X] T013 [P] [US2] Rewrite the `ponytail:` comments on both retained paths — `wfctl/cli.py:299` and `wfctl/_archive.py:188` — to state their removal condition in terms of the notices from T011 and T012 rather than an unobservable trigger (FR-014); verify by reading against `quickstart.md` "The follow-up trigger"
+- [X] T014 [P] [US2] Add tests in `tests/test_archive_specs.py` asserting the rename notice appears when invoked as `archive-story` and is absent when invoked as `archive-specs`; verify with `uv run pytest -q tests/test_archive_specs.py`
+- [X] T015 [P] [US2] Add tests in `tests/test_archive_specs.py` asserting the rescue notice reports a count matching the files rescued, and is absent when the superseded directory is missing or empty; verify with `uv run pytest -q tests/test_archive_specs.py`
+- [X] T016 [US2] Add a test in `tests/test_archive_specs.py` covering a worktree that both holds a superseded directory and is invoked under the retired name — both notices appear, neither suppresses the other, and the exit code is unchanged; verify with `uv run pytest -q tests/test_archive_specs.py`
+- [X] T016a [US2] Extend `test_durable_spec_root_is_not_copied` in `tests/test_archive_specs.py:413` to assert the rescue notice and the existing durable-spec-dir notice co-occur without suppressing each other — the spec edge case "a worktree whose spec directory lives outside it"; the scenario is already constructed there, so this adds assertions rather than a test; verify with `uv run pytest -q tests/test_archive_specs.py`
+- [X] T016b [US2] Confirm the four inherited legacy-rescue tests still pass unmodified — `test_a_design_doc_at_the_superseded_path_is_still_archived:73`, `..._without_a_spec_dir:95`, `test_the_whole_superseded_directory_is_archived_not_just_spec_md:112`, and `test_durable_spec_root_is_not_copied:413` in `tests/test_archive_specs.py`. These are FR-006's real coverage; a diff to any of them means the rescue path changed when it should not have. Verify with `uv run pytest -q tests/test_archive_specs.py` and `git diff tests/test_archive_specs.py` showing additions only in the ranges touched by T014–T016a
+- [X] T017 [US2] Validate Phase 4 with `uv run pytest -q && uv run ruff check . && uv run --extra dev mypy` — merge gate
 
 ---
 
@@ -134,25 +134,25 @@ one.
 
 ### Verification
 
-- Automated: `uv run pytest -q tests/test_install_config.py`
+- Automated: `uv run pytest -q tests/test_bundle.py` (see T019 — the guard landed here rather than in `test_install_config.py`)
 - Bundle: `.github/scripts/check_wheel_contents.py` and `.github/scripts/check_installed_tree.py` — these arrived with the vendoring merge and assert on bundle contents, so the template edit is not free until they pass.
 - Manual: `quickstart.md` "Verify the template correction".
 
 ### Tasks
 
-- [ ] T018 [US3] Retarget both occurrences in `wfctl/agents/configs/workmux/.workmux.yaml` — the executable hook line at `:65` and the explanatory comment at `:55` — from `wfctl archive-story` to `wfctl archive-specs`; verify with `grep -c "archive-story" wfctl/agents/configs/workmux/.workmux.yaml` returning 0
-- [ ] T019 [US3] Add a test in `tests/test_install_config.py` asserting a freshly seeded `.workmux.yaml` contains zero occurrences of the retired command name; verify with `uv run pytest -q tests/test_install_config.py`
-- [ ] T020 [US3] Run the bundle checks against a built wheel per `quickstart.md` to confirm the corrected template ships and installs; verify with `.github/scripts/check_wheel_contents.py` and `.github/scripts/check_installed_tree.py`
-- [ ] T021 [US3] Validate Phase 5 with `uv run pytest -q && uv run ruff check . && uv run mypy` plus the two bundle scripts — merge gate
+- [X] T018 [US3] Retarget both occurrences in `wfctl/agents/configs/workmux/.workmux.yaml` — the executable hook line at `:65` and the explanatory comment at `:55` — from `wfctl archive-story` to `wfctl archive-specs`; verify with `grep -c "archive-story" wfctl/agents/configs/workmux/.workmux.yaml` returning 0
+- [X] T019 [US3] Add a test asserting the bundled `.workmux.yaml` names the current command. **Landed in `tests/test_bundle.py`, not `tests/test_install_config.py` as originally written**: every test there seeds a *fake* bundle through the `_install` helper, so an assertion in that file would only check what the test itself wrote. `test_bundle.py` already asserts against the real repository tree, which is the guarantee FR-013 needs. Verified with `uv run pytest -q tests/test_bundle.py`; the guard was confirmed to fail pre-edit — `git show HEAD:wfctl/agents/configs/workmux/.workmux.yaml | grep -c archive-story` returns 2
+- [X] T020 [US3] Run the bundle checks against a built wheel per `quickstart.md` to confirm the corrected template ships and installs; verify with `.github/scripts/check_wheel_contents.py` and `.github/scripts/check_installed_tree.py`
+- [X] T021 [US3] Validate Phase 5 with `uv run pytest -q && uv run ruff check . && uv run --extra dev mypy` plus the two bundle scripts — merge gate
 
 ---
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] Confirm `wfctl/_archive.py` rescue logic is unchanged apart from its comment — `git diff wfctl/_archive.py` should show comment lines only; verify by reading the diff
-- [ ] T023 [P] Walk `quickstart.md` end to end against this repository and correct any step that does not match observed behavior. Use the live legacy worktree at `~/Development/pfms/wt/440-editable-table-row` if it still exists; the synthetic `/tmp` construction in `quickstart.md` is the portable fallback once it is gone. Close by restating the follow-up trigger from the emitted output alone, without opening `wfctl/cli.py` or `wfctl/_archive.py` — if that cannot be done, SC-005 is not met and the notices need rewording
-- [ ] T024 Run the full gate — `uv run pytest -q && uv run ruff check . && uv run mypy` — and compare the passing test count against the T001 baseline, accounting for tests deliberately removed in T005 and T006
-- [ ] T025 Post a comment on issue #36 once the PR is open, recording that three of the five listed checks proved load-bearing and why — `_check_workmux_hook` and `_check_spec_root_migration` report recurring drift (research.md R-002), and the two rescue paths destroy data if removed early (research.md R-003) — so the follow-up removal inherits the reasoning rather than re-deriving it; approved 2026-08-17, post after implementation, not before; verify by reading the posted comment against research.md
+- [X] T022 [P] Confirm `wfctl/_archive.py` rescue logic is unchanged apart from its comment — `git diff wfctl/_archive.py` should show comment lines only; verify by reading the diff
+- [X] T023 [P] Walk `quickstart.md` end to end against this repository and correct any step that does not match observed behavior. Use the live legacy worktree at `~/Development/pfms/wt/440-editable-table-row` if it still exists; the synthetic `/tmp` construction in `quickstart.md` is the portable fallback once it is gone. Close by restating the follow-up trigger from the emitted output alone, without opening `wfctl/cli.py` or `wfctl/_archive.py` — if that cannot be done, SC-005 is not met and the notices need rewording
+- [X] T024 Run the full gate — `uv run pytest -q && uv run ruff check . && uv run --extra dev mypy` — and compare the passing test count against the T001 baseline, accounting for tests deliberately removed in T005 and T006
+- [X] T025 Post a comment on issue #36 once the PR is open, recording that three of the five listed checks proved load-bearing and why — `_check_workmux_hook` and `_check_spec_root_migration` report recurring drift (research.md R-002), and the two rescue paths destroy data if removed early (research.md R-003) — so the follow-up removal inherits the reasoning rather than re-deriving it; approved 2026-08-17, post after implementation, not before; verify by reading the posted comment against research.md
 
 ---
 

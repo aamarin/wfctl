@@ -223,7 +223,7 @@ nowhere in the seeded file.
 - `uv run pytest -q` — full suite, including the removed and added test cases
   required by FR-015.
 - `uv run ruff check .` — catches helpers left unreferenced by FR-005.
-- `uv run mypy` — type coverage over the changed command signature.
+- `uv run --extra dev mypy` — type coverage over the changed command signature.
 - `.github/scripts/check_wheel_contents.py` and
   `.github/scripts/check_installed_tree.py` — confirm the corrected hook template
   (FR-013) ships in the wheel and lands correctly on install.
