@@ -2108,9 +2108,24 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
 
 @app.command("doctor")
 def doctor_cmd() -> None:
-    """Check the wfctl tool and installed wf-skills content for available updates.
+    """Report state wfctl put in this repo that has since drifted.
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
+
+    A check belongs here when it describes something wfctl installed or seeded
+    that no longer matches its source, and can name the command that repairs it.
+    A check describing what the *user* has or hasn't done belongs wherever that
+    work happens — this command runs unprompted at every session start, which
+    makes it a magnet for anything you want noticed, and each arrival costs the
+    exit code some of its meaning. Uncommitted spec artifacts are the worked
+    example: mid-feature they are the normal state, so reporting them here turns
+    the one green signal red for a condition that is not wrong.
+
+    Two of the checks below are freshness (the tool version, the content hash)
+    and three are integrity (the teardown hook, the spec-root move, abandoned
+    entries) — `npm outdated` and `npm doctor` under one name. Kept together
+    while the whole report is five lines a session; a sixth check is the sign
+    to split them.
 
     Exits 1 when a check found drift that still stands as the run ends, 0
     otherwise — including when a check could not reach an answer, which is a
