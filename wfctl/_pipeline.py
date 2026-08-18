@@ -1,4 +1,9 @@
-"""Pipeline step inference and display."""
+"""Pipeline step inference and display, and the commands wfctl names.
+
+The command inventory lives here rather than at its call sites so one check can
+reach all of it: a slash command that no longer ships is indistinguishable from
+one that does until someone runs it.
+"""
 from __future__ import annotations
 
 import re
@@ -6,33 +11,41 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-_STEP_NAMES = [
-    "brainstorm", "specify", "clarify", "plan",
-    "tasks", "analyze", "decompose", "implement",
-]
-
-_STEP_COMMAND: dict[str, str] = {
-    "brainstorm": "/speckit.brainstorm",
-    "specify":    "/speckit.specify",
-    "clarify":    "/speckit.clarify",
-    "plan":       "/speckit.plan",
-    "tasks":      "/speckit.tasks",
-    "analyze":    "/speckit.analyze",
-    "decompose":  "/speckit.decompose",
-    "implement":  "/speckit.implement",
+# step → (slash command that advances it, whether speckit-orchestrate may proceed
+# without pausing). One table rather than three keyed by the same names: a step
+# defined here carries both values or it does not parse. Split across separate
+# tables, omitting the command was silent and severe — `next_step_content`
+# returned "", which `next_cmd` treats as a finished pipeline, so a step with no
+# command announced "story complete" with half the pipeline unrun.
+_STEPS: dict[str, tuple[str, bool]] = {
+    "brainstorm": ("/speckit.brainstorm", False),
+    "specify":    ("/speckit.specify",    True),
+    "clarify":    ("/speckit.clarify",    False),
+    "plan":       ("/speckit.plan",       True),
+    "tasks":      ("/speckit.tasks",      True),
+    "analyze":    ("/speckit.analyze",    False),
+    "decompose":  ("/speckit.decompose",  False),
+    "implement":  ("/speckit.implement",  False),
 }
 
-# auto=True → speckit-orchestrate may proceed without pausing
-_STEP_AUTO: dict[str, bool] = {
-    "brainstorm": False,
-    "specify":    True,
-    "clarify":    False,
-    "plan":       True,
-    "tasks":      True,
-    "analyze":    False,
-    "decompose":  False,
-    "implement":  False,
-}
+# Insertion order is pipeline order — derived, so it cannot disagree with the table.
+_STEP_NAMES = list(_STEPS)
+
+# Commands wfctl names that no step advances to. `/end-session` ships in
+# `agents/commands/` like any step command and carries the same drift risk, but a
+# check that walks `_STEPS` cannot see it — and it is the last instruction a
+# session receives, at the moment the pipeline reports complete. #23's failure one
+# step later in the flow. Kept here so the inventory of commands wfctl emits is in
+# one place; `cli` builds its completion messages from it rather than inlining the
+# name three times.
+_END_SESSION = "/end-session"
+_LOOSE_COMMANDS = (_END_SESSION,)
+
+# What `cli` prints once no step remains. Two spellings of one sentence: the file
+# form is read by an agent, the console form marks the command up for a human.
+# Public because `cli` imports them — the data above stays private.
+STORY_COMPLETE_FILE = f"Story complete. Open PR or run {_END_SESSION}.\n"
+STORY_COMPLETE_CONSOLE = f"Story complete — open PR or run `{_END_SESSION}`."
 
 
 def _file_exists(path: Path) -> bool:
@@ -201,10 +214,13 @@ def current_step(steps: list[tuple[str, bool]]) -> str:
 
 
 def next_step_content(step: str) -> tuple[str, bool]:
-    """Return (slash_command, auto_flag) for the given pipeline step."""
-    command = _STEP_COMMAND.get(step, "")
-    auto = _STEP_AUTO.get(step, False)
-    return command, auto
+    """Return (slash_command, auto_flag) for the given pipeline step.
+
+    An undefined step yields ("", False) rather than raising: `current_step`
+    returns "complete" for a story with nothing left, and the caller reads the
+    empty command as the finished pipeline it is.
+    """
+    return _STEPS.get(step, ("", False))
 
 
 def steps_display(spec_dir: Path | None, repo_root: Path) -> list[dict]:
