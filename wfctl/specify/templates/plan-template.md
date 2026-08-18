@@ -51,6 +51,9 @@ _GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 - [ ] Complexity is justified: any added abstraction, infrastructure, or
       dependency has a measured or explicit reason the simpler path is
       insufficient.
+- [ ] Ownership is stated: for every piece of state or derived value this
+      feature introduces, the plan names which side computes it and why the
+      other side cannot.
 
 ## Project Structure
 

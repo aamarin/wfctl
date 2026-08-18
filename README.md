@@ -186,7 +186,7 @@ Install skills into a project:
 ```
 $ wfctl install-skills
 ✓ Installed from wfctl 0.15.0
-  base  25 skills · 23 commands · 8 runtime
+  base  26 skills · 23 commands · 8 runtime
 
 Installed to .agents/ — skills and commands in their canonical, agent-agnostic
 form. If your agent needs its own native paths:
@@ -196,8 +196,8 @@ form. If your agent needs its own native paths:
 
 $ wfctl install-skills --agent claude
 ✓ Installed from wfctl 0.15.0
-  base    25 skills · 23 commands · 8 runtime
-  claude  3 skills · 23 commands
+  base    26 skills · 23 commands · 8 runtime
+  claude  4 skills · 23 commands
 ```
 
 The skills ship inside wfctl, so an install copies from the wheel and needs no

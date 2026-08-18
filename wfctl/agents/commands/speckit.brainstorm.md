@@ -10,8 +10,9 @@ allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(mkdir*) Bash(git 
 ---
 
 Read `AGENTS.md` at the repository root for project overrides. It is optional —
-if the file is absent, proceed silently. Then invoke and follow the
-`brainstorming` skill exactly.
+if the file is absent, proceed silently. Then invoke the `design-levels` skill —
+it governs which level each question gets answered at, and its gates run
+throughout — and follow the `brainstorming` skill exactly.
 
 Create the destination directory:
 
