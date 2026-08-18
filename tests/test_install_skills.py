@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import app
+from wfctl.cli import _recorded_items, app
 
 runner = CliRunner()
 
@@ -536,6 +536,181 @@ def test_doctor_warns_on_a_record_without_a_fingerprint(agent_dir: Path) -> None
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "claude: installed before content hashing" in result.output
+
+
+# --- doctor: entries wfctl installed and no longer records (#38) -------------
+#
+# An upstream rename writes the new path and leaves the old file, then the
+# manifest is replaced per layer and the old path falls out of the record.
+# `uninstall-skills` reads only the current manifest, so nothing can reach the
+# file afterwards. Simulated by dropping a path from the record, which is exactly
+# the state a rename leaves behind.
+
+
+def _forget_one_item(repo_root: Path, suffix: str) -> str:
+    """Drop the recorded entry ending in `suffix`, leaving the file on disk."""
+    with _edit_manifest(repo_root) as manifest:
+        for key, entry in manifest.items():
+            if not isinstance(entry, dict) or "items" not in entry:
+                continue
+            for i, item in enumerate(entry["items"]):
+                if item["path"].endswith(suffix):
+                    del entry["items"][i]
+                    return str(item["path"])
+    raise AssertionError(f"no recorded item ends in {suffix!r}")
+
+
+def test_doctor_reports_an_installed_path_that_fell_out_of_the_record(
+    agent_dir: Path,
+) -> None:
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    forgotten = _forget_one_item(repo_root, "test-cmd.md")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert forgotten in result.output
+    assert result.exit_code == 1
+
+
+def test_doctor_never_removes_what_it_reports(agent_dir: Path) -> None:
+    """Report-only, and the one property here whose violation destroys work.
+
+    A consumer may have edited the file, and a path also falls out of the record
+    when a layer is deselected rather than dropped upstream — this check cannot
+    tell either case from a genuine rename, so it must not act on any of them.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    forgotten = _forget_one_item(repo_root, "test-cmd.md")
+    (repo_root / forgotten).write_text("edited by hand\n")
+
+    runner.invoke(app, ["doctor"])
+
+    assert (repo_root / forgotten).read_text() == "edited by hand\n"
+
+
+def test_an_abandoned_directory_is_one_finding_however_many_files_it_holds(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """SC-007. A skill is installed and recorded as one directory, so a renamed
+    one is one finding — not one per file inside it, which is what a recursive
+    walk would produce and what makes a single upstream rename unreadable."""
+    repo_root = agent_dir.parent
+    (bundle / "agents" / "skills" / "test-skill" / "extra.md").write_text("x\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    forgotten = _forget_one_item(repo_root, "skills/test-skill")
+    held = [p for p in (repo_root / forgotten).rglob("*") if p.is_file()]
+
+    out = runner.invoke(app, ["doctor"]).output
+
+    assert len(held) > 1, "fixture must hold several files for this to mean anything"
+    assert out.count(forgotten) == 1
+    assert "1 installed path is" in out
+
+
+def test_doctor_does_not_report_a_command_the_user_wrote_themselves(
+    agent_dir: Path,
+) -> None:
+    """`.claude/` is the user's own agent directory. wfctl copies into it, but a
+    slash command someone authored there is not wfctl's abandoned output — and
+    under this contract, reporting it would fail their build over their file."""
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    mine = repo_root / ".claude" / "commands" / "my-own-thing.md"
+    mine.parent.mkdir(parents=True, exist_ok=True)
+    mine.write_text("mine\n")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "my-own-thing" not in result.output
+    assert result.exit_code == 0
+
+
+def test_doctor_does_not_report_a_hand_authored_tracker_config(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """`.agents/trackers/` is shared ground wearing an owned tree's prefix.
+
+    The real deployment, not a simplified one: `github.json` recorded by
+    `install-skills --tracker github`, and a Jira config hand-authored beside it
+    the way `/scaffold-tracker` documents. That pairing is what makes the
+    directory a candidate at all — with nothing recorded there, a scan derived
+    from the record would skip it for the wrong reason and the test would pass
+    without proving anything.
+
+    Scanning it would call the repo's own Jira config abandoned and, under this
+    contract, fail its build over a file wfctl never wrote.
+    """
+    repo_root = agent_dir.parent
+    trackers_src = bundle / "agents" / "trackers"
+    trackers_src.mkdir(parents=True, exist_ok=True)
+    (trackers_src / "github.json").write_text(json.dumps({"verbs": {}}))
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--tracker", "github"])
+
+    recorded = {i["path"] for i in _recorded_items(_manifest(repo_root))}
+    assert ".agents/trackers/github.json" in recorded, "fixture must record a tracker"
+
+    mine = repo_root / ".agents" / "trackers" / "jira.json"
+    mine.write_text('{"verbs": {"list": "jira issue list"}}\n')
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "jira" not in result.output
+    assert result.exit_code == 0
+    assert mine.exists(), "report-only, and this one is not wfctl's file at all"
+
+
+def test_an_orphan_is_reported_even_as_its_directorys_last_recorded_entry(
+    agent_dir: Path,
+) -> None:
+    """The scan reads fixed destinations, not the parents of recorded paths.
+
+    Derived from the record, a directory whose last recorded entry falls out drops
+    out of the scan with it — so the orphan goes unreported in exactly the case
+    the check exists for. Here `.agents/commands/` holds one recorded file and it
+    is the one that falls out.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    forgotten = _forget_one_item(repo_root, ".agents/commands/test-cmd.md")
+    remaining = [
+        i["path"]
+        for i in _recorded_items(_manifest(repo_root))
+        if i["path"].startswith(".agents/commands/")
+    ]
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert remaining == [], "fixture must leave the directory with nothing recorded"
+    assert forgotten in result.output
+    assert result.exit_code == 1
+
+
+def test_doctor_is_silent_when_every_installed_path_is_still_recorded(
+    agent_dir: Path,
+) -> None:
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "no longer on record" not in result.output
+    assert result.exit_code == 0
+
+
+def test_doctor_does_not_scan_for_abandoned_entries_with_nothing_installed(
+    agent_dir: Path,
+) -> None:
+    """With no layers recorded, every file in the owned trees is unrecorded. The
+    scan sits behind the manifest gate so it never reports all of them."""
+    repo_root = agent_dir.parent
+    (repo_root / ".agents" / "commands").mkdir(parents=True)
+    (repo_root / ".agents" / "commands" / "stray.md").write_text("x\n")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "no longer on record" not in result.output
+    assert "Nothing installed" in result.output
 
 
 # --- a bundle that is not there ---
@@ -1196,10 +1371,20 @@ def test_doctor_is_quiet_without_a_recorded_root(
     assert "still holds" not in _doctor_in(repo, monkeypatch).output
 
 
-def test_doctor_exit_code_is_unchanged_by_the_spec_root_warning(
+def test_doctor_fails_over_stranded_specs_and_passes_without_a_recorded_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Drift is reported, not failed — same contract as the workmux hook check."""
+    """Stranded specs fail the run; the same repo with no recorded root does not.
+
+    One repo, two manifests, so the only difference between the passing and
+    failing runs is the recorded root — the property under test. Asserting a
+    constant 1 against a fixture that always strands would pass for a check that
+    ignores the manifest entirely.
+
+    Asserted the reverse until the exit-code contract landed. A spec directory the
+    tool has stopped reading is exactly the silent failure the spec_root feature
+    exists to remove, so it is a finding, not a note.
+    """
     import json
     import subprocess
 
@@ -1209,13 +1394,13 @@ def test_doctor_exit_code_is_unchanged_by_the_spec_root_warning(
     (repo / "specs" / "18-left-behind").mkdir(parents=True)
 
     (repo / ".wf-skills-manifest.json").write_text(json.dumps({}))
-    without = _doctor_in(repo, monkeypatch).exit_code
+    assert _doctor_in(repo, monkeypatch).exit_code == 0
 
     (repo / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(tmp_path / "elsewhere")}))
-    with_warning = _doctor_in(repo, monkeypatch)
+    stranded = _doctor_in(repo, monkeypatch)
 
-    assert "still holds" in with_warning.output
-    assert with_warning.exit_code == without
+    assert "still holds" in stranded.output
+    assert stranded.exit_code == 1
 
 
 def test_doctor_does_not_warn_when_the_root_is_the_in_repo_specs_dir(
