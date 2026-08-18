@@ -370,8 +370,8 @@ def archive_specs_cmd(
         # the output, not only in the ponytail comment above.
         if ctx.info_name == _FORMER_ARCHIVE_COMMAND:
             console.print(
-                "[yellow]⚠[/yellow] invoked as `archive-story`; renamed to "
-                "`archive-specs`.\n"
+                f"[yellow]⚠[/yellow] invoked as `{_FORMER_ARCHIVE_COMMAND}`; renamed "
+                "to `archive-specs`.\n"
                 "  Re-seed the hook: wfctl install-config\n"
                 "  The alias is retired once this line stops appearing."
             )

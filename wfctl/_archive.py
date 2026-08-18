@@ -70,12 +70,14 @@ _SPEC_MAP: list[tuple[str, str]] = [
     ("checklists/implement-complete.md", "12-implement-complete.md"),
 ]
 
-# Where rescued `.agent/` files land. Public because the destination prefix is
-# the only thing marking a plan entry as a rescue, and `cli.py` counts them by it
-# to decide whether to print the rescue notice. Spelled once so the writer and
-# the counter cannot drift — a silent zero would read as "this machine is
-# migrated", which is exactly the wrong answer.
-LEGACY_DEST_PREFIX = "extra/legacy-agent"
+# Where rescued `.agent/` files land. Private on purpose: it names files, and
+# nothing may infer *which* files were rescued from it. Unmapped spec artifacts
+# land under `extra/` too, so a spec file named `legacy-agent-notes.md` matches
+# this prefix without having come from `.agent/` at all — counting by it reported
+# a superseded directory in repos that had none, and those repos could then never
+# go silent, which is the one signal the rescue notice exists to give. `_plan`
+# counts rescues as it makes them and returns the number; use that.
+_LEGACY_DEST_PREFIX = "extra/legacy-agent"
 
 
 class ArchiveIncomplete(Exception):
@@ -216,9 +218,9 @@ def _plan(worktree: Path, spec_dir: Path | None) -> tuple[list[tuple[Path, str]]
         # so far; the rest land under a directory so the two are told apart.
         plan.append((
             src,
-            f"{LEGACY_DEST_PREFIX}-spec.md"
+            f"{_LEGACY_DEST_PREFIX}-spec.md"
             if legacy_rel == Path("spec.md")
-            else f"{LEGACY_DEST_PREFIX}/{legacy_rel}",
+            else f"{_LEGACY_DEST_PREFIX}/{legacy_rel}",
         ))
         rescued += 1
 

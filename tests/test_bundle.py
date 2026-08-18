@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._bundle import BUNDLE_ROOT, TREES, content_hash
+from wfctl._bundle import TREES, content_hash
 
 # A tree with one file in each of the six sourceable directories, including the
 # dot-prefixed workmux config — the file setuptools' globs drop by default and
@@ -176,8 +176,17 @@ def test_the_bundled_teardown_hook_names_the_current_command() -> None:
     Both the hook line and the comment above it are checked: a corrected command
     beside a comment naming the old one is a contradiction the reader has to
     resolve, and the comment is what they read first.
+
+    Resolved through `importlib.resources` rather than `_bundle.BUNDLE_ROOT`,
+    which conftest's autouse `bundle` fixture repoints at a fake for every test.
+    Importing that name happens to capture the real value before the fixture
+    runs, so it works — but by import ordering rather than by intent, and the day
+    the fake bundle grows a `configs/` directory this would silently assert
+    against it. This test is specifically about what ships.
     """
-    template = BUNDLE_ROOT / "agents" / "configs" / "workmux" / ".workmux.yaml"
+    from importlib.resources import files
+
+    template = Path(str(files("wfctl"))) / "agents" / "configs" / "workmux" / ".workmux.yaml"
     text = template.read_text()
 
     assert "archive-story" not in text, "the bundled hook still seeds the retired command name"
