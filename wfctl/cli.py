@@ -152,7 +152,13 @@ def status_cmd() -> None:
 @app.command("next")
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
-    from wfctl._pipeline import _infer_steps, _current_step_name, next_step_content
+    from wfctl._pipeline import (
+        STORY_COMPLETE_CONSOLE,
+        STORY_COMPLETE_FILE,
+        _current_step_name,
+        _infer_steps,
+        next_step_content,
+    )
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -172,8 +178,8 @@ def next_cmd() -> None:
         content = f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n"
         console.print(f"→ Next step: {command} (auto: {auto_str})")
     else:
-        content = "Story complete. Open PR or run /end-session.\n"
-        console.print("Story complete — open PR or run `/end-session`.")
+        content = STORY_COMPLETE_FILE
+        console.print(STORY_COMPLETE_CONSOLE)
 
     next_step_md.write_text(content)
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
@@ -183,7 +189,7 @@ def next_cmd() -> None:
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
     from wfctl import _session
-    from wfctl._pipeline import next_step_content
+    from wfctl._pipeline import STORY_COMPLETE_FILE, next_step_content
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -207,7 +213,7 @@ def resume_cmd() -> None:
         next_step_md.write_text(f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n")
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
     else:
-        next_step_md.write_text("Story complete. Open PR or run /end-session.\n")
+        next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
 
     append_event(agent_dir, "resume", step=step_name, command=command or "complete", auto=auto)
