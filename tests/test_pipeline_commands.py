@@ -106,7 +106,7 @@ def test_step_table_resolves_in_order() -> None:
 
 
 def test_an_undefined_step_yields_an_empty_command() -> None:
-    """`cli.next` reads an empty command as a finished pipeline (cli.py:170).
+    """`next_cmd` treats an empty command as a finished pipeline.
 
     So an unknown step must come back empty rather than raise: "complete" is not
     a table entry, and it is the value `_current_step_name` returns for a story

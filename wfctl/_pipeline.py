@@ -15,8 +15,8 @@ from pathlib import Path
 # without pausing). One table rather than three keyed by the same names: a step
 # defined here carries both values or it does not parse. Split across separate
 # tables, omitting the command was silent and severe — `next_step_content`
-# returned "", which `cli.next` reads as a finished pipeline (cli.py:170), so a
-# step with no command announced "story complete" with half the pipeline unrun.
+# returned "", which `next_cmd` treats as a finished pipeline, so a step with no
+# command announced "story complete" with half the pipeline unrun.
 _STEPS: dict[str, tuple[str, bool]] = {
     "brainstorm": ("/speckit.brainstorm", False),
     "specify":    ("/speckit.specify",    True),
