@@ -5,6 +5,7 @@ import json
 import sys
 from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
 
 import typer
 from rich.console import Console
@@ -1616,9 +1617,11 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
-# wfctl is installed from this repo (uv tool install git+…); doctor compares the
-# running version against its latest release tag. Assumes the canonical origin;
-# a fork install just shows "couldn't check" / a spurious upgrade, never an error.
+# Where releases come from. Tags are always read from here, even for a fork
+# install: a fork's tag list freezes at fork time, so comparing against it would
+# report "latest" straight through an upstream release. Where the *branch* comes
+# from, and where every remedy points, is the recorded origin instead — see
+# _installed_build.
 _WFCTL_REPO = "https://github.com/aamarin/wfctl.git"
 
 
@@ -1629,32 +1632,194 @@ def _parse_semver(v: str) -> tuple | None:
         return None
 
 
-def _check_wfctl_version() -> int:
-    """Report the wfctl tool's freshness. Return 1 if an upgrade is available.
+class _Build(NamedTuple):
+    """What the running wfctl records about where it came from."""
 
-    green ✓ = latest · cyan ⬆ = upgrade available · yellow ⚠ = couldn't check.
+    url: str
+    """The repository installed from. Every remedy names this, pinned or not."""
+
+    commit: str
+    """The commit installed, for comparing against a branch tip."""
+
+    pinned: bool
+    """The user asked for a fixed revision, so drift against a branch is not news."""
+
+
+def _installed_build() -> _Build | None:
+    """Where this wfctl came from, or None if it did not come from a repository.
+
+    Read from PEP 610 `direct_url.json`, which pip and uv both write for a
+    source-control install. That the commit is already on disk is what keeps this
+    check free: no build-time stamping, no packaging change, no network.
+
+    `pinned` and `None` answer two different questions, and collapsing them loses
+    the url. A pinned build still has an origin, and every remedy has to name it —
+    telling someone who pinned a fork to install from upstream would swap their
+    lineage, which is the one instruction this command must never give. So a pin
+    suppresses only the branch comparison.
+
+    None is for the shapes with no origin to name at all:
+
+      no direct_url.json    installed from an index or a source archive
+      no vcs_info           an editable or plain-directory install — a checkout
+                            is not drift, it is someone's working copy
+      unreadable            a health check must not raise on a metadata file
+                            some other tool wrote
+
+    Deliberately keyed on `vcs_info` rather than the URL scheme: `git+file://`
+    is a real git install of a local clone, with a real branch worth comparing.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    try:
+        raw = distribution("wfctl").read_text("direct_url.json")
+    except (PackageNotFoundError, OSError):
+        return None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        vcs = payload["vcs_info"]
+        return _Build(
+            url=str(payload["url"]),
+            commit=str(vcs["commit_id"]),
+            pinned="requested_revision" in vcs,
+        )
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _remote_state(url: str) -> tuple[str, str, list[str]] | None:
+    """(default_branch, tip, tags) from one ls-remote, or None if unreachable.
+
+    `--symref HEAD` answers both halves in a single round trip and reports the
+    default branch by name, so nothing here hardcodes "master" and a rename to
+    "main" needs no change.
+
+    None means the query failed, which is deliberately distinct from a repo that
+    simply has no tags — the caller has to tell "couldn't look" from "looked, and
+    there is nothing", or a failed check reads as a passing one.
     """
     import re
     import subprocess as sp
-    from importlib.metadata import version as pkg_version
 
-    installed = pkg_version("wfctl")
-    r = sp.run(["git", "ls-remote", "--tags", "--refs", _WFCTL_REPO], capture_output=True, text=True)
+    # No `--refs` here, deliberately: it filters out anything not under refs/,
+    # which includes HEAD — so `--refs` and `--symref HEAD` cancel out and the
+    # branch half silently goes missing. The cost is that annotated tags also
+    # emit a `^{}` dereference row, which the tag pattern below matches twice;
+    # harmless, since the comparison only takes a maximum.
+    # `--` before the url, because the url comes from direct_url.json — a file on
+    # disk that this process does not own. git reads leading-dash arguments as
+    # options wherever they appear, so a recorded url of
+    # `--upload-pack=<command>` would run that command on every doctor, i.e. on
+    # every session start, forever. The terminator makes it a pathname again.
+    r = sp.run(
+        ["git", "ls-remote", "--symref", "--", url, "HEAD", "refs/tags/v*"],
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0 or not r.stdout.strip():
-        console.print(f"[yellow]⚠[/yellow] wfctl {installed} — couldn't check latest (offline?)")
-        return 0
+        return None
 
-    tags = [(t, _parse_semver(t)) for t in re.findall(r"refs/tags/v(\d+\.\d+\.\d+)", r.stdout)]
-    parsed = [(pv, t) for t, pv in tags if pv]
+    branch = re.search(r"^ref: refs/heads/(\S+)\tHEAD$", r.stdout, re.M)
+    tip = re.search(r"^([0-9a-f]{40})\tHEAD$", r.stdout, re.M)
+    if not branch or not tip:
+        return None
+    tags = re.findall(r"refs/tags/(v\d+\.\d+\.\d+)", r.stdout)
+    return branch.group(1), tip.group(1), tags
+
+
+def _check_wfctl_version() -> bool:
+    """Report the wfctl tool's freshness. True if there is something to act on.
+
+    Two independent verdicts. The release check asks whether a newer version has
+    been published; the branch check asks whether this build is the branch it was
+    installed from. They are not the same question, and for anyone following the
+    README — which installs from the default branch — only the second one can
+    answer "am I running the current code?".
+
+    green ✓ = current · cyan ⬆ = action available · yellow ⚠ = couldn't check.
+    """
+    installed = _wfctl_version()
     cur = _parse_semver(installed)
-    if parsed and cur is not None and max(parsed)[0] > cur:
-        latest = max(parsed)[1]
-        console.print(f"[cyan]⬆[/cyan] wfctl {installed} → {latest} available")
-        console.print(f"    upgrade: uv tool install --upgrade {_WFCTL_REPO}")
-        return 1
+    build = _installed_build()
+
+    # Every remedy names the repo the user actually installed from — including a
+    # pinned build, which still has an origin even though it is not branch-
+    # comparable. Telling a fork user to install from upstream would replace
+    # their build with a different lineage: the one instruction doctor must
+    # never give.
+    remedy = build.url if build else _WFCTL_REPO
+
+    # A pin is a deliberate choice of revision, so only the *branch* half is
+    # suppressed; the release half and the remedy still apply.
+    comparable = build if build is not None and not build.pinned else None
+
+    # Releases always come from upstream, whoever you installed from: a fork's
+    # tag list freezes at fork time.
+    upstream = _remote_state(_WFCTL_REPO)
+
+    # A newer release outranks the branch check, so it is answered first — the
+    # upgrade it prescribes re-resolves the branch too, and two remedies is one
+    # more than anyone acts on. Answering it here also means a fork never pays
+    # for the second query below only to have its answer discarded.
+    if upstream is not None and cur is not None:
+        newer = [(pv, t) for t in upstream[2] if (pv := _parse_semver(t.lstrip("v")))]
+        if newer and max(newer)[0] > cur:
+            console.print(f"[cyan]⬆[/cyan] wfctl {installed} → {max(newer)[1].lstrip('v')} available")
+            console.print(f"    upgrade: uv tool install --upgrade {remedy}")
+            return True
+
+    # The branch comes from wherever this build did. For the ordinary install
+    # that is the same repo already queried above — one round trip, as before.
+    # String equality is the test: uv and pip record the url verbatim, so the
+    # worst a cosmetic difference (a trailing slash, a missing .git) costs is one
+    # extra query, never a wrong verdict.
+    if comparable is None:
+        branch_state = None
+    elif comparable.url == _WFCTL_REPO:
+        branch_state = upstream
+    else:
+        branch_state = _remote_state(comparable.url)
+
+    drift = comparable is not None and branch_state is not None and comparable.commit != branch_state[1]
+    tags_lost = upstream is None
+    branch_lost = comparable is not None and branch_state is None
+
+    if not drift and (tags_lost or branch_lost):
+        # One warning line, always, naming what could not run — and what could,
+        # so a check that failed is never mistaken for a check that passed.
+        if tags_lost and branch_lost:
+            note = "couldn't check releases or branch (offline?)"
+        elif branch_lost:
+            note = "latest release; couldn't check branch drift"
+        elif comparable is not None:
+            note = "couldn't check releases; build matches branch tip"
+        else:
+            note = "couldn't check releases (offline?)"
+        console.print(f"[yellow]⚠[/yellow] wfctl {installed} — {note}")
+        return False
+
+    if drift:
+        assert comparable is not None and branch_state is not None  # implied by `drift`
+        # One condition, one pair: a green ✓ next to "couldn't check" would be a
+        # contradiction, and two ternaries are two chances to introduce it.
+        mark, head = (
+            ("[yellow]⚠[/yellow]", "couldn't check releases")
+            if tags_lost
+            else ("[green]✓[/green]", "latest release")
+        )
+        console.print(f"{mark} wfctl {installed} — {head}")
+        console.print(
+            f"[cyan]⬆[/cyan] build behind {branch_state[0]} — "
+            f"{comparable.commit[:7]} → {branch_state[1][:7]}"
+        )
+        console.print("    bundled skills are from this build too")
+        console.print(f"    reinstall: uv tool install --force {remedy}")
+        return True
 
     console.print(f"[green]✓[/green] wfctl {installed} — latest")
-    return 0
+    return False
 
 
 def _archive_destination(repo_root: Path) -> str:
@@ -1875,7 +2040,9 @@ def doctor_cmd() -> None:
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
     """
-    exit_code = _check_wfctl_version()
+    # Each check reports whether it found drift; the command's exit code is the
+    # OR of them. See #41 for the contract the remaining checks still adopt.
+    exit_code = int(_check_wfctl_version())
 
     try:
         repo_root = get_repo_root()

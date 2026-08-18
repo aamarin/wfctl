@@ -49,7 +49,7 @@ def _tool_version_is_not_under_test(
     """
     if "real_version_check" in request.keywords:
         return
-    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: 0)
+    monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: False)
 
 
 @pytest.fixture(autouse=True)

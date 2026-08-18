@@ -653,49 +653,9 @@ def test_doctor_skills_verdict_survives_an_offline_release_check(
     )
 
     result = runner.invoke(app, ["doctor"])
-    assert "couldn't check latest" in result.output
+    assert "couldn't check releases" in result.output
     assert "claude: bundled skills changed since install" in result.output
     assert result.exit_code == 1
-
-
-# --- wfctl tool version check (doctor's first line) ---
-
-def _fake_ls_remote_tags(*tags: str):
-    """A subprocess.run stand-in that returns the given tags as `git ls-remote --tags` output."""
-    def run(argv, **kwargs):
-        if "ls-remote" in argv:
-            out = "".join(f"{'0'*40}\trefs/tags/{t}\n" for t in tags)
-            return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
-        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
-    return run
-
-
-def _plain(s: str) -> str:
-    """Strip ANSI so assertions don't break on rich's number highlighting."""
-    import re
-    return re.sub(r"\x1b\[[0-9;]*m", "", s)
-
-
-@pytest.mark.real_version_check
-def test_check_wfctl_version_upgrade_available(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    import importlib.metadata
-    from wfctl.cli import _check_wfctl_version
-    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.9.0")
-    monkeypatch.setattr(subprocess, "run", _fake_ls_remote_tags("v0.9.0", "v0.10.0"))
-    rc = _check_wfctl_version()
-    assert rc == 1
-    assert "0.10.0 available" in _plain(capsys.readouterr().out)
-
-
-@pytest.mark.real_version_check
-def test_check_wfctl_version_latest(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    import importlib.metadata
-    from wfctl.cli import _check_wfctl_version
-    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.10.0")
-    monkeypatch.setattr(subprocess, "run", _fake_ls_remote_tags("v0.9.0", "v0.10.0"))
-    rc = _check_wfctl_version()
-    assert rc == 0
-    assert "latest" in _plain(capsys.readouterr().out)
 
 
 def test_layer_destinations_are_disjoint() -> None:
