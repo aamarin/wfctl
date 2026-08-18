@@ -70,6 +70,15 @@ _SPEC_MAP: list[tuple[str, str]] = [
     ("checklists/implement-complete.md", "12-implement-complete.md"),
 ]
 
+# Where rescued `.agent/` files land. Private on purpose: it names files, and
+# nothing may infer *which* files were rescued from it. Unmapped spec artifacts
+# land under `extra/` too, so a spec file named `legacy-agent-notes.md` matches
+# this prefix without having come from `.agent/` at all — counting by it reported
+# a superseded directory in repos that had none, and those repos could then never
+# go silent, which is the one signal the rescue notice exists to give. `_plan`
+# counts rescues as it makes them and returns the number; use that.
+_LEGACY_DEST_PREFIX = "extra/legacy-agent"
+
 
 class ArchiveIncomplete(Exception):
     """Copying at-risk artifacts failed partway; `at_risk` is how many were planned.
@@ -156,14 +165,22 @@ def _render_index(
     return "\n".join(lines) + "\n"
 
 
-def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
-    """Every (source, archived name) pair this story would produce, pipeline order.
+def _plan(worktree: Path, spec_dir: Path | None) -> tuple[list[tuple[Path, str]], int]:
+    """Every (source, archived name) pair this story would produce, pipeline order,
+    and how many of them were rescued from the superseded directory.
 
     Separate from the copying so `archive` knows whether there is anything to
     archive *before* it moves the previous run aside — a spec dir that has been
     emptied must not displace a good archive with an empty one.
+
+    The rescue count is returned rather than left for the caller to recover from
+    the destination names: unmapped spec files land under `extra/` too, so a spec
+    artifact merely *named* like a rescue — `extra/legacy-agent-notes.md` — was
+    counted as one, and the machine reported a superseded directory it did not
+    have. Only this loop knows which files actually came from there.
     """
     plan: list[tuple[Path, str]] = []
+    rescued = 0
 
     # A branch that predates the move still has its artifacts at the old path, and
     # this runs from `pre_remove` — declining to archive them means deleting them.
@@ -185,7 +202,13 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     # one source of truth for what the pipeline has produced — is unaffected;
     # `_pipeline.py` still reads only the new location. Recorded here because that
     # epic is closed, so this is the only place the reconciliation can live.
-    # ponytail: transition-only; delete once no worktree predates the move.
+    # ponytail: transition-only. Delete once the rescue notice the caller prints
+    # from this plan has stopped appearing during teardowns on every machine —
+    # that silence is the end condition, and making it observable is why the
+    # notice exists. #36 removed the doctor check that reported these directories
+    # because it only fired where someone happened to run doctor; this fires
+    # where the files are actually about to be destroyed. Delete this read, the
+    # notice, and the `archive-story` alias together.
     legacy_dir = worktree / ".agent"
     for src in sorted(p for p in legacy_dir.rglob("*") if p.is_file() and not p.is_symlink()):
         # Not `rel`: the `_SPEC_MAP` loop below rebinds that name to a str in this
@@ -195,10 +218,11 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
         # so far; the rest land under a directory so the two are told apart.
         plan.append((
             src,
-            "extra/legacy-agent-spec.md"
+            f"{_LEGACY_DEST_PREFIX}-spec.md"
             if legacy_rel == Path("spec.md")
-            else f"extra/legacy-agent/{legacy_rel}",
+            else f"{_LEGACY_DEST_PREFIX}/{legacy_rel}",
         ))
+        rescued += 1
 
     # Archive what this teardown would destroy; skip what it would not. A spec dir
     # outside the worktree survives `workmux remove` untouched, so copying it
@@ -209,7 +233,7 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
     # is under `spec_dir`, so a per-file test would ask the same question N times
     # and answer it identically.
     if spec_dir is None or not is_inside(worktree, spec_dir):
-        return plan
+        return plan, rescued
 
     claimed: set[Path] = set()
     for rel, dst in _SPEC_MAP:
@@ -233,20 +257,23 @@ def _plan(worktree: Path, spec_dir: Path | None) -> list[tuple[Path, str]]:
         if src.resolve() not in claimed:
             plan.append((src, f"extra/{src.relative_to(spec_dir)}"))
 
-    return plan
+    return plan, rescued
 
 
 def archive(
     worktree: Path, handle: str, branch: str, commit: str, spec_dir: Path | None, state_dir: Path
-) -> tuple[Path | None, list[tuple[str, str]]]:
+) -> tuple[Path | None, list[tuple[str, str]], int]:
     """Copy this story's artifacts into `state_dir/archive`.
 
-    Returns (archive_dir, mapped) — `(None, [])` when there was nothing to
-    archive, which is a normal outcome, not a failure.
+    Returns (archive_dir, mapped, rescued) — `(None, [], 0)` when there was
+    nothing to archive, which is a normal outcome, not a failure. `rescued`
+    counts the files taken from the superseded directory, for the caller's
+    notice; it is reported here because only `_plan` can tell a rescue from a
+    spec artifact that happens to share its archived-name prefix.
     """
-    plan = _plan(worktree, spec_dir)
+    plan, rescued = _plan(worktree, spec_dir)
     if not plan:
-        return None, []
+        return None, [], 0
 
     archive_dir = state_dir / "archive"
     staging = archive_dir.with_name(f"{archive_dir.name}.staging")
@@ -309,4 +336,4 @@ def archive(
             pass
         raise ArchiveIncomplete(len(plan), exc) from exc
 
-    return archive_dir, mapped
+    return archive_dir, mapped, rescued

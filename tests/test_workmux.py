@@ -218,34 +218,3 @@ def test_pre_remove_wired_still_accepts_the_former_name() -> None:
     assert _workmux.pre_remove_wired(
         'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
     )
-
-
-def test_former_name_in_pre_remove_is_reported() -> None:
-    """The signal that lets the alias eventually be deleted."""
-    assert _workmux.pre_remove_uses_former_name(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
-    )
-
-
-def test_current_name_is_not_reported_as_stale() -> None:
-    assert not _workmux.pre_remove_uses_former_name(_workmux.WIRED_PRE_REMOVE)
-
-
-def test_former_name_outside_pre_remove_is_not_reported() -> None:
-    """Same scoping as `pre_remove_wired`: a pane command mentioning the old name
-    is not a stale teardown hook, and reporting it would send someone editing the
-    wrong line."""
-    assert not _workmux.pre_remove_uses_former_name(
-        "windows:\n"
-        "  - name: term\n"
-        "    panes:\n"
-        "      - command: wfctl archive-story --help\n"
-        "pre_remove: []\n"
-    )
-
-
-def test_commented_former_name_is_not_reported() -> None:
-    """A hook someone commented out is not a hook — and not stale drift either."""
-    assert not _workmux.pre_remove_uses_former_name(
-        'pre_remove:\n  # - wfctl archive-story "$X"\n  - echo hi\n'
-    )

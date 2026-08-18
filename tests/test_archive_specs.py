@@ -434,6 +434,13 @@ def test_durable_spec_root_is_not_copied(agent_dir: Path, tmp_path: Path,
     assert not (arch / "2-spec.md").exists()
     assert (spec_dir / "spec.md").is_file(), "the live spec must be untouched"
 
+    # The mixed case is where both messages earn their place, and where either
+    # alone would mislead: the durable notice explains why almost nothing was
+    # copied, the rescue notice explains why an archive exists at all. Neither
+    # may suppress the other (#36).
+    assert "spec dir is durable" in result.output
+    assert "rescued 1 file(s)" in result.output
+
 
 def test_spec_root_resolving_inside_the_worktree_is_still_archived(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -723,3 +730,145 @@ def test_durable_message_survives_a_path_containing_markup(
     out = runner.invoke(app, ["archive-specs"]).output
 
     assert str(spec_dir) in out, "the path was mangled by markup parsing"
+
+
+# --- the two end-condition notices (#36) ------------------------------------
+#
+# Two compatibility paths survived the sweep because deleting them destroys
+# data: the read that rescues a superseded `.agent/`, and the `archive-story`
+# alias. Each now announces itself when it fires, so "has this machine been
+# migrated" is answerable from teardown output instead of from a comment nobody
+# observes. The silence cases matter as much as the firing ones — a notice that
+# never goes quiet can never end the transition it exists to close.
+
+
+def test_the_former_name_reports_its_own_rename(agent_dir: Path) -> None:
+    """Invoking the alias names the current command and the fix."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md")
+
+    result = runner.invoke(app, ["archive-story"])
+
+    assert result.exit_code == 0, result.output
+    assert "archive-story" in result.output
+    assert "archive-specs" in result.output
+    assert "install-config" in result.output
+    assert "retired once this line stops appearing" in result.output
+
+
+def test_the_current_name_says_nothing_about_the_rename(agent_dir: Path) -> None:
+    """The silence half. A notice on every invocation could never end."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md")
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert "renamed to" not in result.output
+    assert "install-config" not in result.output
+
+
+def test_the_former_name_still_reports_when_there_is_nothing_to_archive(
+    agent_dir: Path,
+) -> None:
+    """The hook needs re-seeding whether or not this teardown archived anything.
+
+    Gating the notice on a non-empty archive would hide it on exactly the
+    worktrees that are cheapest to tear down, which are the ones a machine
+    accumulates most of.
+    """
+    result = runner.invoke(app, ["archive-story"])
+
+    assert result.exit_code == 0, result.output
+    assert "archive-specs" in result.output
+
+
+def test_a_legacy_rescue_reports_how_many_files_it_saved(agent_dir: Path) -> None:
+    """The count must match the files actually rescued, not the archive total."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md")
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+    _write(repo_root / ".agent" / "brief.md", "the brief\n")
+    _write(repo_root / ".agent" / "notes" / "scratch.md", "nested\n")
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert "rescued 3 file(s)" in result.output, result.output
+    # The end condition, stated in the output rather than only in a comment:
+    # without it a reader learns the path is going away but not that the
+    # silence afterwards is the signal to delete it (SC-005).
+    assert "retired once this line stops appearing" in result.output
+
+
+def test_no_legacy_dir_means_no_rescue_notice(agent_dir: Path) -> None:
+    """The silence half — this is the signal the path is removable."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md")
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert "rescued" not in result.output
+
+
+def test_an_empty_legacy_dir_is_not_reported_as_a_rescue(agent_dir: Path) -> None:
+    """Present but empty rescues nothing, so it must read as migrated.
+
+    An existence-keyed notice would report a directory someone had already
+    emptied, and the machine would look unmigrated forever.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md")
+    (repo_root / ".agent").mkdir()
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert "rescued" not in result.output
+
+
+def test_both_notices_appear_together_without_suppressing_each_other(
+    agent_dir: Path,
+) -> None:
+    """The two conditions are independent, and a machine can carry both.
+
+    Reporting only one would understate what that machine still needs, and the
+    exit code must not move — a teardown is never aborted by a message about a
+    shim.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md")
+    _write(repo_root / ".agent" / "spec.md", "legacy design\n")
+
+    result = runner.invoke(app, ["archive-story"])
+
+    assert result.exit_code == 0, result.output
+    assert "rescued 1 file(s)" in result.output
+    assert "archive-specs" in result.output
+
+
+def test_an_unmapped_spec_file_is_not_miscounted_as_a_rescue(agent_dir: Path) -> None:
+    """The rescue count must come from the rescue, not from a name that resembles it.
+
+    Unmapped spec-dir files land under `extra/` too, so counting by destination
+    prefix let `extra/legacy-agent-notes.md` — an ordinary spec artifact — read
+    as a rescued `.agent/` file. The machine then reports a superseded path it
+    does not have, and the notice can never go silent, which is precisely the
+    signal the notice exists to give.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    handle = os.environ["WFCTL_BRANCH"]
+    _make_story(repo_root, handle, "spec.md", "legacy-agent-notes.md")
+    assert not (repo_root / ".agent").exists(), "the fixture must have no legacy dir"
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert "rescued" not in result.output, result.output

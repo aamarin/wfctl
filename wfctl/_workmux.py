@@ -148,26 +148,12 @@ def pre_remove_wired(text: str) -> bool:
 
     Both count. A repo wired before the rename is genuinely protected, because
     `archive-story` still dispatches; reporting it as unwired would offer to add
-    a second hook beside the one already there. Whether it names the *old* one is
-    a separate question — see `pre_remove_uses_former_name`.
+    a second hook beside the one already there. Which of the two names it uses is
+    not this function's business — the archive command itself reports that, at
+    the moment the hook actually runs.
     """
     return any(
         _COMMAND in ln or _FORMER_COMMAND in ln for ln in _live_pre_remove_lines(text)
-    )
-
-
-def pre_remove_uses_former_name(text: str) -> bool:
-    """Is the hook still calling the pre-rename command name?
-
-    Not a failure — the alias works. This is the signal that lets the alias
-    eventually be removed: while any repo still answers yes, deleting it would
-    turn their teardown into an unknown command, and a non-zero `pre_remove`
-    aborts the removal. Tracked for removal alongside the other transitional
-    checks in issue #36.
-    """
-    return any(
-        _FORMER_COMMAND in ln and _COMMAND not in ln
-        for ln in _live_pre_remove_lines(text)
     )
 
 
