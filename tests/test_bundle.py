@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._bundle import TREES, content_hash
+from wfctl._bundle import BUNDLE_ROOT, TREES, content_hash
 
 # A tree with one file in each of the six sourceable directories, including the
 # dot-prefixed workmux config — the file setuptools' globs drop by default and
@@ -160,3 +160,25 @@ def test_trees_match_the_grafted_directories_in_manifest_in() -> None:
     }
 
     assert grafted == set(TREES)
+
+
+def test_the_bundled_teardown_hook_names_the_current_command() -> None:
+    """The seeded `pre_remove` must not hand out the pre-rename command name.
+
+    `archive-story` is a hidden alias kept so repos seeded before the rename keep
+    archiving. Shipping it in the template inverts that: every newly seeded repo
+    is *born* needing the alias, so the alias can never be retired and the notice
+    that reports it never goes quiet. That is the condition issue #36 exists to
+    make reachable.
+
+    Reads the real bundled file rather than a fixture — a fixture would assert
+    what the test itself wrote, which is the failure mode this guards against.
+    Both the hook line and the comment above it are checked: a corrected command
+    beside a comment naming the old one is a contradiction the reader has to
+    resolve, and the comment is what they read first.
+    """
+    template = BUNDLE_ROOT / "agents" / "configs" / "workmux" / ".workmux.yaml"
+    text = template.read_text()
+
+    assert "archive-story" not in text, "the bundled hook still seeds the retired command name"
+    assert "wfctl archive-specs" in text, "the bundled hook must invoke the archive command"

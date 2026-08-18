@@ -52,7 +52,7 @@ pre_create:
 #     exit 0
 
 # Archive the story's planning artifacts before the worktree is deleted. They are
-# gitignored, so the worktree is the only place they exist — `wfctl archive-story`
+# gitignored, so the worktree is the only place they exist — `wfctl archive-specs`
 # copies them into wfctl's per-branch state dir, numbered in pipeline order with a
 # generated index. A forensic snapshot to read later, not a restorable tree.
 #
@@ -62,7 +62,7 @@ pre_create:
 # This replaces workmux's default `pre_remove`, which auto-detects Node.js
 # projects and fast-deletes node_modules. Add that back here if you need it.
 pre_remove:
-  - command -v wfctl >/dev/null && wfctl archive-story "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
+  - command -v wfctl >/dev/null && wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
 
 #-------------------------------------------------------------------------------
 # Files

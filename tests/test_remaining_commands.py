@@ -191,83 +191,58 @@ def test_doctor_exit_code_is_unchanged_by_this_warning(
     assert _doctor(monkeypatch, interactive=False).exit_code == 0
 
 
-# --- doctor: the leftover `.agent/` lint (#24) ------------------------------
+# --- doctor: the swept transition reports (#36) -----------------------------
 #
-# Per-branch artifacts moved into `specs/<branch>/`. A surviving `.agent/` is
-# evidence that something wrote there, and the symptom is silent: a design doc
-# left at the old path is one step inference no longer reads. The message is the
-# deliverable here too, so its strings are asserted.
+# Two reports were removed here: the leftover `.agent/` lint (#24) and the
+# stale `archive-story` hook name. Both were transitional — nothing creates
+# either condition any more — and each is now handled where it actually
+# matters: the superseded directory by the rescue path in `archive-specs`,
+# which runs at teardown rather than whenever someone happens to run doctor,
+# and the retired hook name by the archive command reporting its own
+# invocation. What follows guards their *absence*, because a silently
+# reintroduced check is how this sweep gets undone.
 
 
-def test_doctor_warns_when_the_superseded_dir_exists(
+def test_doctor_ignores_the_superseded_dir_entirely(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Names the path, where artifacts moved to, and the move-then-remove fix."""
-    repo_root = agent_dir.parent
-    (repo_root / ".agent").mkdir()
-    result = _doctor(monkeypatch, interactive=False)
-    assert "`.agent/` exists" in result.output
-    assert "specs/<branch>/design.md" in result.output
-    assert "remove `.agent/`" in result.output
+    """A leftover `.agent/` is not doctor's business since #36.
 
-
-def test_doctor_names_the_repos_own_spec_root_not_a_hardcoded_path(
-    agent_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path_factory: pytest.TempPathFactory,
-) -> None:
-    """A repo whose specs live outside it must not be told to use `specs/`.
-
-    Naming a path the layout does not use is worse than saying nothing — the
-    reader would create the wrong directory and the doc would stay unread.
-
-    `tmp_path_factory`, not `tmp_path`: the `agent_dir` fixture's repo root *is*
-    `tmp_path`, so a root created under it would render relative and prove the
-    opposite of what this test is for.
+    Deleting it destroys data, so the directory itself is untouched and still
+    rescued at teardown — but reporting it here told the reader about a path
+    they could not lose anything through, in a repo that may never be torn down.
     """
     repo_root = agent_dir.parent
     (repo_root / ".agent").mkdir()
-    outside = tmp_path_factory.mktemp("specs-outside-repo")
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+    (repo_root / ".agent" / "spec.md").write_text("legacy design\n")
 
     result = _doctor(monkeypatch, interactive=False)
 
-    # Rich hard-wraps at the console width, and an absolute tmp path is long
-    # enough to be split mid-token. Assert on the content, not the layout.
-    unwrapped = result.output.replace("\n", "")
-    assert f"{outside}/<branch>/design.md" in unwrapped
-    assert "specs/<branch>/" not in result.output
+    assert ".agent/" not in result.output
+    assert "superseded" not in result.output
+    assert result.exit_code == 0
 
 
-def test_doctor_does_not_claim_the_pipeline_is_broken(
+def test_doctor_ignores_a_hook_naming_the_former_command(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A leftover beside a correct spec dir is inert — don't call it breakage.
+    """Such a repo is protected — the alias dispatches — so doctor stays quiet.
 
-    The directory cannot distinguish a stale leftover from a component still
-    writing, so the message must not assert either.
+    The report moved to `archive-specs` itself, which fires at the moment the
+    hook runs rather than whenever doctor happens to be invoked. Asserting the
+    silence here is what keeps the two from both reporting it.
     """
     repo_root = agent_dir.parent
-    (repo_root / ".agent").mkdir()
+    _seed_workmux(
+        repo_root,
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n',
+    )
+
     result = _doctor(monkeypatch, interactive=False)
-    assert "will be wrong" not in result.output
-    assert "still writes" not in result.output
 
-
-def test_doctor_is_silent_without_the_superseded_dir(
-    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    result = _doctor(monkeypatch, interactive=False)
-    assert "`.agent/` exists" not in result.output
-
-
-def test_doctor_exit_code_is_unchanged_by_the_superseded_dir(
-    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Drift, not failure — same precedent as the teardown-hook lint above."""
-    repo_root = agent_dir.parent
-    (repo_root / ".agent").mkdir()
-    assert _doctor(monkeypatch, interactive=False).exit_code == 0
+    assert "archive-story" not in result.output
+    assert "renamed" not in result.output
+    assert result.exit_code == 0
 
 
 def test_doctor_wires_the_hook_when_confirmed(
@@ -377,57 +352,33 @@ def test_doctor_still_warns_when_archive_story_appears_outside_the_hook(
     assert "pre_remove does not call" in result.output
 
 
-def test_doctor_reports_a_pre_remove_still_naming_the_former_command(
+def test_doctor_treats_either_command_name_identically(
     agent_dir: Path, tmp_path: Path
 ) -> None:
-    """The signal that lets the compatibility alias eventually be deleted."""
+    """Both names archive, so both must read as protected and exit the same.
+
+    The report distinguishing them was removed in #36. What survives is that
+    neither produces the "not archiving" warning and neither moves the exit
+    code — /start-session runs doctor and must not read a pre-rename hook as
+    broken.
+    """
     import os
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
     (repo_root / ".workmux.yaml").write_text(
         'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
     )
-
-    result = runner.invoke(app, ["doctor"])
-
-    assert "archive-story" in result.output
-    assert "archive-specs" in result.output
-    # Never "not archiving": the alias works, so this repo is protected.
-    assert "does not call" not in result.output
-
-
-def test_doctor_does_not_fail_over_a_stale_hook_name(
-    agent_dir: Path, tmp_path: Path
-) -> None:
-    """Drift, reported like the superseded-path checks beside it — never the
-    exit code. /start-session runs doctor and must not read this as broken."""
-    import os
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    (repo_root / ".workmux.yaml").write_text(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
-    )
-    stale = runner.invoke(app, ["doctor"]).exit_code
+    former = runner.invoke(app, ["doctor"])
 
     (repo_root / ".workmux.yaml").write_text(
         'pre_remove:\n  - wfctl archive-specs "$X"\n'
     )
-    current = runner.invoke(app, ["doctor"]).exit_code
+    current = runner.invoke(app, ["doctor"])
 
-    assert stale == current
-
-
-def test_doctor_is_quiet_about_a_hook_using_the_current_name(
-    agent_dir: Path, tmp_path: Path
-) -> None:
-    import os
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    (repo_root / ".workmux.yaml").write_text(
-        'pre_remove:\n  - wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE"\n'
-    )
-
-    out = runner.invoke(app, ["doctor"]).output
-
-    assert "renamed to" not in out
-    assert "does not call" not in out
+    assert former.exit_code == current.exit_code
+    for out in (former.output, current.output):
+        assert "does not call" not in out
+        assert "renamed to" not in out
 
 
 def test_unwired_warning_names_the_current_command(

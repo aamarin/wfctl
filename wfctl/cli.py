@@ -296,11 +296,18 @@ def state_dir_cmd() -> None:
 # hook now aborts the removal. Without the alias those repos would hit an unknown
 # command, exit non-zero, and find their worktrees unremovable — a worse failure
 # than the silent loss this command exists to prevent.
-# ponytail: transition-only; delete once `wfctl doctor` reports no repo still
-# naming it (see the stale-hook check below, and issue #36).
+# ponytail: transition-only. Delete once the notice below has stopped appearing
+# during teardowns on every machine — that silence is the end condition, and it
+# is why the notice exists at all. #36 removed the doctor check that used to
+# report this, because it only fired where someone happened to run doctor; this
+# fires where the hook actually runs. Delete the alias and the notice together.
+_FORMER_ARCHIVE_COMMAND = "archive-story"
+
+
 @app.command("archive-specs")
-@app.command("archive-story", hidden=True)
+@app.command(_FORMER_ARCHIVE_COMMAND, hidden=True)
 def archive_specs_cmd(
+    ctx: typer.Context,
     worktree: str = typer.Argument(
         None, help="Worktree to archive. Defaults to $WM_WORKTREE_PATH, then the current repo."
     ),
@@ -349,6 +356,20 @@ def archive_specs_cmd(
 
         from wfctl import _archive
 
+        # First, before any work that can return early: a repo whose hook still
+        # names the alias should hear about it even on the teardowns that archive
+        # nothing, since re-seeding the hook is the fix either way.
+        #
+        # Third line as in the rescue notice below — the end condition belongs in
+        # the output, not only in the ponytail comment above.
+        if ctx.info_name == _FORMER_ARCHIVE_COMMAND:
+            console.print(
+                "[yellow]⚠[/yellow] invoked as `archive-story`; renamed to "
+                "`archive-specs`.\n"
+                "  Re-seed the hook: wfctl install-config\n"
+                "  The alias is retired once this line stops appearing."
+            )
+
         root = worktree or os.environ.get("WM_WORKTREE_PATH")
         repo_root = Path(root).resolve() if root else get_repo_root()
         if not repo_root.is_dir():
@@ -373,7 +394,7 @@ def archive_specs_cmd(
         )
         commit = rev.stdout.strip() if rev.returncode == 0 else "unknown"
 
-        archive_dir, mapped = _archive.archive(
+        archive_dir, mapped, rescued = _archive.archive(
             repo_root,
             handle=story,
             branch=branch,
@@ -404,6 +425,22 @@ def archive_specs_cmd(
                 console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
             return
         console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
+
+        # Additional to the count above, not a replacement: that line says what
+        # was archived, this one says where it came from. Both matter in the
+        # mixed case, where a durable spec dir is skipped and the only reason an
+        # archive exists at all is the superseded directory.
+        #
+        # The closing sentence is the shim's end condition, in the output rather
+        # than only in the ponytail comment below — otherwise the reader learns
+        # the path is going away but not that the silence is the signal.
+        if rescued:
+            console.print(
+                f"[yellow]⚠[/yellow] rescued {rescued} file(s) from legacy `.agent/` — "
+                "a superseded path\n"
+                "  kept only to rescue them. Nothing else reads it.\n"
+                "  The read is retired once this line stops appearing."
+            )
     except _ArchiveIncomplete as e:
         # The one path that exits non-zero. `pre_remove` failing aborts the
         # removal, so this refuses the teardown rather than reporting the loss
@@ -1670,47 +1707,6 @@ def _archive_destination(repo_root: Path) -> str:
         return f"{path}/"
 
 
-def _check_legacy_agent_dir(repo_root: Path) -> None:
-    """Report a `.agent/` directory — the superseded per-branch artifact path.
-
-    Per-branch artifacts moved into the branch's spec dir. A surviving `.agent/`
-    is evidence that *something* wrote there, but not of when: it is equally a
-    stale leftover and a component that predates the move still writing today.
-    So the message states the observation and names the work, and does not
-    assert a cause it cannot see. Same for the consequence — a branch that also
-    has a `design.md` in its spec dir infers correctly and the leftover is
-    inert, so claiming the pipeline is broken would be wrong about the common
-    case.
-
-    The destination is resolved through `spec_root` rather than spelled
-    `specs/<branch>/`, so a repo whose specs live outside it is told where its
-    own files go. Telling someone to move a file to a path their layout does not
-    use is worse than saying nothing — they would create the wrong directory.
-
-    Keyed on the directory rather than on version arithmetic: positive evidence
-    rather than an inference, and it needs no capability field in the manifest.
-    It does not self-clear — the directory outlives whatever wrote it — which is
-    why removing it is spelled out as a step rather than implied.
-
-    Never touches doctor's exit code — drift, reported like the checks around it.
-    """
-    if not (repo_root / ".agent").is_dir():
-        return
-    root = spec_root(repo_root)
-    try:
-        dest = f"{root.relative_to(repo_root)}/<branch>/"
-    except ValueError:
-        dest = f"{root}/<branch>/"  # spec root outside the repo
-    console.print(
-        "[yellow]⚠[/yellow] `.agent/` exists — the superseded per-branch "
-        "artifact path."
-    )
-    console.print(f"    Per-branch artifacts now live in `{dest}`.")
-    console.print(f"    If it holds a design doc, move it to `{dest}design.md`.")
-    console.print("    Step inference no longer reads the old path. Then remove `.agent/`.")
-    console.print("    If it comes back: wfctl install-skills")
-
-
 def _check_workmux_hook(repo_root: Path) -> None:
     """Report a `.workmux.yaml` that won't archive on teardown; offer to fix it.
 
@@ -1780,42 +1776,6 @@ def _check_workmux_hook(repo_root: Path) -> None:
     console.print("[green]✓[/green] pre_remove wired — .workmux.yaml")
 
 
-def _check_stale_archive_hook(repo_root: Path) -> None:
-    """Report a `pre_remove` still naming the pre-rename command.
-
-    Not a failure: `archive-story` is a working hidden alias, so this repo is
-    protected. The report exists so the alias has an observable end condition —
-    while any repo still answers yes, deleting it would turn their teardown into
-    an unknown command, and a non-zero `pre_remove` aborts the removal.
-
-    Runs after `_check_workmux_hook`, which treats either name as wired, so a repo
-    is never told both "not archiving" and "archiving under the old name".
-
-    ponytail: transitional, like the superseded-path checks beside it. Their
-    collective removal is issue #36 — do not delete this one alone; the point of
-    sweeping them together is that reviewing them at once makes it obvious none is
-    load-bearing.
-    """
-    from wfctl import _workmux
-
-    wf = repo_root / ".workmux.yaml"
-    if not wf.exists():
-        return
-    try:
-        text = wf.read_text()
-    except OSError:
-        return  # _check_workmux_hook already reported the unreadable file
-    if not _workmux.pre_remove_uses_former_name(text):
-        return
-
-    console.print(
-        "[yellow]⚠[/yellow] .workmux.yaml: pre_remove calls `wfctl archive-story`, "
-        "renamed to\n"
-        "  `archive-specs`. The old name still works, so teardown is protected."
-    )
-    console.print("  Update the hook, or re-seed it with `wfctl install-config`.")
-
-
 def _check_spec_root_migration(repo_root: Path) -> None:
     """Report in-repo spec dirs stranded by a recorded `spec_root`.
 
@@ -1823,7 +1783,14 @@ def _check_spec_root_migration(repo_root: Path) -> None:
     consulted — no fallback, so one feature's artifacts can never split across
     two locations. The cost is that pre-existing `specs/*` become invisible, and
     a silently invisible spec is the failure class this whole feature removes.
-    So the transition gets reported until it is finished.
+
+    Recurring drift, not a transition — which is why #36 swept the checks beside
+    this one and left this one standing. The condition needs a repo that
+    accumulated `specs/*` and then adopted a root elsewhere, and both halves are
+    still produced today: `install-skills` asks every new project where its specs
+    live, and `wfctl spec-root` re-answers it for an existing one. A project that
+    adopts a root next year strands whatever it had, exactly as one that adopted
+    a root last year did. There is no end condition to observe here.
 
     Reports only: never moves or deletes, and never touches doctor's exit code —
     same contract as `_check_workmux_hook`, which treats drift as reportable
@@ -1877,14 +1844,11 @@ def doctor_cmd() -> None:
         console.print("[yellow]⚠[/yellow] not in a git repo — skipping skills check.")
         raise typer.Exit(exit_code)
 
-    # Before the manifest gate below: a repo can have a .workmux.yaml, a
-    # recorded spec_root, or a leftover `.agent/` without having installed
-    # skills. All three are drift a repo can carry with nothing pinned, so all
-    # three are reported either way.
+    # Before the manifest gate below: a repo can have a .workmux.yaml or a
+    # recorded spec_root without having installed skills. Both are drift a repo
+    # can carry with nothing pinned, so both are reported either way.
     _check_workmux_hook(repo_root)
-    _check_stale_archive_hook(repo_root)
     _check_spec_root_migration(repo_root)
-    _check_legacy_agent_dir(repo_root)
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
