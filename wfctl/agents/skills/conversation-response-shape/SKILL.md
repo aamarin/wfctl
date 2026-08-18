@@ -1,7 +1,10 @@
 ---
 name: conversation-response-shape
 description: 'Shape what a response says and in what order: answer first, frame in plain language before mechanics, then scale depth to the question. Layers over i-have-adhd, which governs brevity and next actions. Activated by /start-session and /conversation-response-shape; stays on until "stop adhd mode".'
-disable-model-invocation: true
+# No `disable-model-invocation`: this skill is not mirrored into `.claude/skills/`
+# (that needs `deployment: skill`), so Claude never offers it for auto-invocation
+# and the key would be inert — and it is not in the Agent Skills spec. Add both
+# together or neither.
 ---
 
 # Conversation response shape
