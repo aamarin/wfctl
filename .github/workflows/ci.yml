@@ -129,3 +129,52 @@ jobs:
       # stays a bare invocation rather than drifting from what runs locally.
       - name: Typecheck
         run: uv run mypy
+
+  # The bump stays human — it belongs in the PR that makes the change, where the
+  # major/minor/patch call has context. Only the tag is automated, because the
+  # tag is the half that keeps getting dropped: `doctor` and `uv tool install`
+  # both resolve releases by tag, so an untagged bump reports the stale build as
+  # current (#55).
+  tag:
+    # Not a convenience ordering. A tag is what every machine upgrades to, so
+    # tagging a red commit publishes the breakage rather than reporting it.
+    needs: [test, wheel, lint]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are the state this job reads; the default shallow fetch has none.
+          fetch-depth: 0
+
+      - name: Tag the version if it is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # `tomllib`, not a grep for `^version =`: a version key in any section
+          # above [project] wins that grep, and "9.9.9" is a perfectly valid tag
+          # name — so the wrong release ships silently rather than failing. Also
+          # handles the single-quoted form, which TOML allows and `cut -d'"'`
+          # returns whole. Python 3.11+ is preinstalled; this needs no setup step.
+          v=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+
+          # Each half is keyed on its own existence rather than both on the tag.
+          # Sharing one key means a `gh release create` that fails after the push
+          # is never retried — the next run sees the tag, exits 0, and the release
+          # stays missing. That is the failure this job exists to stop.
+          # `refs/tags/` explicitly: a branch sharing the name is not a release.
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "v$v already tagged"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "v$v" -m "v$v"
+            git push origin "v$v"
+          fi
+
+          # The message stays bare and the summary lives in the release, built
+          # from the merged PRs. Deriving it from commit subjects was the other
+          # option and this repo's subjects are not consistently conventional.
+          gh release view "v$v" >/dev/null 2>&1 || gh release create "v$v" --generate-notes
