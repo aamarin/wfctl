@@ -25,7 +25,7 @@ You MUST create a task for each of these items and complete them in order:
 2. **Offer the visual companion just-in-time** — NOT upfront. The first time a question would genuinely be clearer shown than described, offer it then (its own message); on approval its browser tab opens for you. If no visual question ever arises, never offer it. See the Visual Companion section below.
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
-5. **Present design** — in sections scaled to their complexity, get user approval after each section
+5. **Present design** — one level at a time per the `design-levels` skill (behavior → architecture → design), in sections scaled to their complexity, get user approval after each level before descending
 6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 7. **User reviews the design** — ask user to review it before it is written
 8. **Hand off the approved design** — carry it in context to `idea-refine`, which sharpens it and performs the single write to `specs/<branch>/design.md`. Do not write that file here.

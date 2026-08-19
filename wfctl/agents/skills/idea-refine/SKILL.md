@@ -35,9 +35,11 @@ directory as `FEATURE_DIR` — resolve it from there rather than writing
 `<branch>` literally. It contains:
 - Problem Statement
 - Recommended Direction
-- Key Assumptions
+- Boundaries and Ownership
+- Key Assumptions to Validate
 - MVP Scope
-- Not Doing list
+- Not Doing (and Why)
+- Open Questions
 
 ## Detailed Instructions
 
@@ -120,6 +122,11 @@ Produce a concrete artifact — a markdown one-pager that moves work forward:
 
 ## Recommended Direction
 [The chosen direction and why — 2-3 paragraphs max]
+
+## Boundaries and Ownership
+[For each piece of state or derived value: which side computes it, and why the
+other side cannot. Ownership decisions, not schemas — see the `design-levels`
+skill.]
 
 ## Key Assumptions to Validate
 - [ ] [Assumption 1 — how to test it]
