@@ -36,9 +36,10 @@ directory as `FEATURE_DIR` — resolve it from there rather than writing
 - Problem Statement
 - Recommended Direction
 - Boundaries and Ownership
-- Key Assumptions
+- Key Assumptions to Validate
 - MVP Scope
-- Not Doing list
+- Not Doing (and Why)
+- Open Questions
 
 ## Detailed Instructions
 
