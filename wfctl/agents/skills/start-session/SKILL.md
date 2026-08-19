@@ -12,11 +12,14 @@ memory of it — load them before doing anything else.
 
 ## Workflow
 
-1. **Set the output style:** read `.agents/skills/i-have-adhd/SKILL.md` (or
-   `../i-have-adhd/SKILL.md` relative to this file) and apply it to every
-   response for the rest of the session, starting with the report in step 7.
-   Skip silently if the file isn't installed. The user turns it off with "stop
-   adhd mode".
+1. **Set the output style:** read `.agents/skills/i-have-adhd/SKILL.md` and
+   `.agents/skills/conversation-response-shape/SKILL.md` (or
+   `../i-have-adhd/SKILL.md` and `../conversation-response-shape/SKILL.md`
+   relative to this file) and apply both to every response for the rest of the
+   session, starting with the report in step 7. `i-have-adhd` sets the length
+   and the next action; `conversation-response-shape` sets what comes first and
+   how deep it goes. Skip either silently if it isn't installed. The user turns
+   both off with "stop adhd mode" or "normal mode".
 
 2. **Initialize and check freshness:**
    ```bash
