@@ -31,6 +31,11 @@ wfctl = "wfctl.cli:app"
 include = ["wfctl*"]
 
 [tool.pytest.ini_options]
+# A bare `pytest` otherwise walks `wt/`, collects every worktree's copy of
+# `tests/` and dies on ImportPathMismatchError. `testpaths` rather than
+# `norecursedirs`, which is a replacement and not an addition — excluding `wt`
+# that way would also drop pytest's own defaults and start collecting `.venv`.
+testpaths = ["tests"]
 markers = [
     "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
 ]
