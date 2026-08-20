@@ -1898,6 +1898,46 @@ def _archive_destination(repo_root: Path) -> str:
 # False is deliberate: a build must not fail because GitHub was briefly
 # unreachable. Say so in the output — a silent False is indistinguishable from a
 # pass, and the return value carries no message.
+def _warn_missing_bootstrap(repo_root: Path) -> None:
+    """Warn that a seeded `.workmux.yaml` won't install skills into new worktrees.
+
+    Warns and returns; never a finding. `install-config` is seed-once, so the
+    template fix reaches only repos seeded afterwards, and this is the one path
+    by which an already-seeded repo hears about it. But a worktree without skills
+    is recoverable by hand, and a repo may bootstrap its own way — so this must
+    not hold the exit code hostage to a preference. `⚠` with the command, and the
+    reader opts in.
+
+    Runs after `_check_workmux_hook` so the teardown warning, which is data loss,
+    is never the second thing on screen.
+    """
+    from wfctl import _workmux
+
+    wf = repo_root / ".workmux.yaml"
+    if not wf.exists():
+        return
+    try:
+        text = wf.read_text()
+    except OSError:
+        return  # _check_workmux_hook already reported the unreadable file
+    if _workmux.post_create_wired(text):
+        return
+
+    console.print(
+        "[yellow]⚠[/yellow] .workmux.yaml: post_create does not call "
+        "`wfctl install-skills` — a new\n"
+        "  worktree will start with no skills, commands, or .specify/ runtime."
+    )
+    # soft_wrap: meant to be pasted into a YAML list, and a wrapped line pastes
+    # broken.
+    console.print(
+        "  Add this entry to post_create yourself:\n"
+        '    - cd "$WM_WORKTREE_PATH" && wfctl install-skills '
+        '${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true',
+        soft_wrap=True,
+    )
+
+
 def _check_workmux_hook(repo_root: Path) -> bool:
     """Report a `.workmux.yaml` that won't archive on teardown; offer to fix it.
 
@@ -2154,6 +2194,10 @@ def doctor_cmd() -> None:
         _check_spec_root_migration(repo_root),
     ]):
         exit_code = 1
+
+    # Not in the list above, and deliberately: this one warns without ever
+    # becoming a finding, so it has no bearing on the exit code to contribute.
+    _warn_missing_bootstrap(repo_root)
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)

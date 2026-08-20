@@ -112,15 +112,15 @@ def unsubstituted_placeholder(text: str) -> bool:
     return PROJECT_PLACEHOLDER in text
 
 
-def _pre_remove_block(text: str) -> list[str]:
-    """The `pre_remove:` key's own line plus the lines belonging to it.
+def _block(text: str, key: str) -> list[str]:
+    """`key`'s own line plus the lines belonging to it.
 
     A block member is indented or blank; the first line at column 0 starts the
     next key. Empty list when the key is absent.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
-        if line.startswith("pre_remove:"):
+        if line.startswith(key):
             block = [line]
             for nxt in lines[i + 1:]:
                 if nxt and not nxt[0].isspace():
@@ -130,17 +130,17 @@ def _pre_remove_block(text: str) -> list[str]:
     return []
 
 
-def _live_pre_remove_lines(text: str) -> list[str]:
-    """`pre_remove` block lines that are not commented out.
+def _live_lines(text: str, key: str) -> list[str]:
+    """`key` block lines that are not commented out.
 
     Scoped to the block on purpose. A whole-file scan reports wired when the
-    command appears anywhere else — a pane command, a `post_create` step — while
-    `pre_remove: []` leaves teardown unprotected. That is a check failing *open*
-    on the one question it exists to answer, so it stays narrow.
+    command appears anywhere else — a pane command, another hook — while the
+    key itself is empty. That is a check failing *open* on the one question it
+    exists to answer, so it stays narrow.
 
     A hook someone commented out is not a hook.
     """
-    return [ln for ln in _pre_remove_block(text) if not ln.lstrip().startswith("#")]
+    return [ln for ln in _block(text, key) if not ln.lstrip().startswith("#")]
 
 
 def pre_remove_wired(text: str) -> bool:
@@ -153,8 +153,22 @@ def pre_remove_wired(text: str) -> bool:
     the moment the hook actually runs.
     """
     return any(
-        _COMMAND in ln or _FORMER_COMMAND in ln for ln in _live_pre_remove_lines(text)
+        _COMMAND in ln or _FORMER_COMMAND in ln
+        for ln in _live_lines(text, "pre_remove:")
     )
+
+
+def post_create_wired(text: str) -> bool:
+    """Does `post_create` reinstall the skills a fresh worktree lacks?
+
+    Unlike `pre_remove_wired`, no missing-hook case here is data loss: a worktree
+    without skills is recoverable by running the install by hand. That is why the
+    caller warns rather than failing — see `_check_workmux_config`.
+
+    Matches on the command, not on `--agent`, which is per-developer: a repo
+    passing the flag explicitly is as wired as one reading WFCTL_AGENT.
+    """
+    return any("install-skills" in ln for ln in _live_lines(text, "post_create:"))
 
 
 def wire_pre_remove(text: str) -> str | None:

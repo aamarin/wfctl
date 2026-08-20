@@ -116,6 +116,51 @@ def test_placeholder_check_does_not_flag_workmux_agent_token() -> None:
     assert not _workmux.unsubstituted_placeholder("      - command: <agent>\n")
 
 
+# --- post_create_wired -----------------------------------------------------
+
+def test_post_create_wired_when_a_real_line_installs() -> None:
+    assert _workmux.post_create_wired(
+        'post_create:\n  - cd "$WM_WORKTREE_PATH" && wfctl install-skills || true\n'
+    )
+
+
+def test_post_create_wired_ignores_the_agent_flag() -> None:
+    """`--agent` is per-developer. A repo passing it explicitly is as wired as one
+    reading WFCTL_AGENT, so the match is on the command alone."""
+    assert _workmux.post_create_wired(
+        'post_create:\n  - wfctl install-skills --agent bob\n'
+    )
+    assert _workmux.post_create_wired(
+        'post_create:\n  - wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"}\n'
+    )
+
+
+def test_post_create_absent_is_not_wired() -> None:
+    """The shipped template carried the key commented out, which is how repos
+    seeded before #63 ended up with worktrees that had no skills at all."""
+    assert not _workmux.post_create_wired("worktree_dir: wt\n")
+
+
+def test_commented_post_create_is_not_wired() -> None:
+    """A hook someone commented out is not a hook — the state every repo seeded
+    from the old template was in."""
+    assert not _workmux.post_create_wired(
+        "post_create:\n  # - wfctl install-skills\n  - echo hi\n"
+    )
+
+
+def test_install_skills_elsewhere_in_the_file_is_not_wired() -> None:
+    """Scoped to the `post_create:` block, for the same reason the pre_remove scan
+    is: a whole-file match reports wired while the hook itself does nothing."""
+    assert not _workmux.post_create_wired(
+        "windows:\n"
+        "  - name: term\n"
+        "    panes:\n"
+        "      - command: wfctl install-skills --help\n"
+        "post_create:\n  - echo hi\n"
+    )
+
+
 # --- pre_remove_wired ------------------------------------------------------
 
 def test_wired_when_a_real_line_invokes_archive_story() -> None:

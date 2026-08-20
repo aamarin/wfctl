@@ -43,9 +43,22 @@ pre_create:
       exit 1
     fi
 
-# Project-specific setup (ports, .env rewrites, db URLs) goes here.
-# Example — derive a port from the issue number and patch a .env:
-# post_create:
+# wf-skills files are gitignored, so a fresh worktree has none of them: no
+# skills, no commands, no `.specify/` runtime. Reinstalling here is what makes a
+# new worktree usable at all.
+#
+# No `--agent` hardcoded. This file is committed, and the agent is per-developer
+# with no correct value to infer — the same reason `install-config` leaves
+# `agent:` commented rather than guessing. Set WFCTL_AGENT in your shell profile
+# to also install your assistant's layer; unset installs the agent-agnostic
+# `.agents/` layer only, which every agent reads.
+#
+# `|| true` because a missing wfctl must not stop the worktree from coming up.
+post_create:
+  - cd "$WM_WORKTREE_PATH" && wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
+
+# Further project-specific setup (ports, .env rewrites, db URLs) goes here, as
+# additional entries above. Example — derive a port from the issue number:
 #   - |
 #     ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
 #     sed -i '' "s|^PORT=.*|PORT=${ISSUE}|" "$WM_WORKTREE_PATH/.env"

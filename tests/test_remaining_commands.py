@@ -410,7 +410,9 @@ def test_doctor_treats_either_command_name_identically(
 
     assert former.exit_code == current.exit_code
     for out in (former.output, current.output):
-        assert "does not call" not in out
+        # Keyed to `pre_remove` specifically: `post_create` has its own
+        # "does not call" warning, and a bare substring match would catch it.
+        assert "pre_remove does not call" not in out
         assert "renamed to" not in out
 
 
