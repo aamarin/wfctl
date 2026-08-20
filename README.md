@@ -5,7 +5,7 @@ Workflow state CLI for AI agent session and pipeline tracking.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-wfctl manages session and pipeline state for AI coding agents (Claude Code, Codex, Copilot). It tracks where you are in a feature development pipeline — specify → plan → implement → verify — and tells the agent what to do next.
+wfctl manages session and pipeline state for AI coding agents (Claude Code, Codex, Copilot). It tracks where you are in a feature development pipeline — design → specify → plan → tasks → implement — and tells the agent what to do next.
 
 ## Why wfctl (spec-driven development)
 
@@ -14,6 +14,7 @@ wfctl operationalizes spec-driven development — keeping agents on the specify 
 - **Persistent by design** — session state on disk; step recoverable even if lost
 - **Truth from artifacts** — step read from real spec files, so phases can't be faked or skipped
 - **Enforced order** — always points to the next required step, blocking code before spec and plan
+- **Design before spec** — `design-levels` runs design as four gated passes, so who owns what is decided out loud, not buried in code
 - **Scope-aware** — tracks your position in the pipeline
 - **Ships with skills** — installs spec-kit skills + slash commands into the project
 
@@ -39,24 +40,38 @@ pip install git+https://github.com/aamarin/wfctl.git
 Installs from the default branch, which always tracks the latest release. Append
 `@<tag>` to either command if you need to pin a fixed version.
 
-## Quickstart
+## Quick start
+
+**1. Install wfctl** (see [Installation](#installation) for pip and pinning):
 
 ```bash
-# Start a session in the current git worktree
-wfctl start
-
-# Check pipeline progress
-wfctl status
-
-# Install the bundled skills + slash commands into your project
-wfctl install-skills
-
-# Resume: re-infer pipeline step, write next-step.md
-wfctl resume
-
-# End the session
-wfctl end
+uv tool install git+https://github.com/aamarin/wfctl.git
 ```
+
+**2. Install the skills into your project.** Once per repo:
+
+```bash
+cd your-project
+wfctl install-skills --agent claude   # drop --agent if you are not on Claude Code
+```
+
+The first interactive run asks two questions — which issue tracker to wire up,
+and where specs should live — and records both, so it never asks again.
+
+**3. Drive the pipeline from inside your agent**, with slash commands:
+
+```
+/start-session                                        # session context + freshness check
+/speckit.brainstorm  "add manual transaction entry"   # design, gated in four levels
+/speckit.specify                                      # turn the design into a spec
+/speckit.plan                                         # design the implementation
+/speckit.tasks                                        # break into ordered tasks
+/speckit.implement                                    # build it
+/end-session                                          # summary + memory candidates
+```
+
+Anywhere along the way, `wfctl status` shows your position and `wfctl resume`
+says what to run next. Those two are the only commands you type by hand often.
 
 ## How it works
 
@@ -64,23 +79,9 @@ wfctl is driven by your coding agent, not typed by hand. You install a set of
 skills and slash commands into the repo once, then the agent runs the
 spec-driven pipeline while wfctl tracks position and enforces order.
 
-**One-time setup, per repo:**
-
-```bash
-wfctl install-skills           # .agents/ skills + commands + the .specify/ runtime
-wfctl install-skills --agent claude   # …plus Claude's native paths
-wfctl install-config workmux   # optional: isolated worktree envs (see below)
-```
-
-**Then, inside your agent (e.g. Claude Code), drive the pipeline** with slash
-commands:
-
-```
-/speckit.specify  "add manual transaction entry"   # write the spec
-/speckit.plan                                       # design the implementation
-/speckit.tasks                                      # break into ordered tasks
-/speckit.implement                                  # build it
-```
+Setup is `install-skills` (plus an optional `install-config workmux` for
+isolated worktree envs, below); everything after that runs from inside the
+agent, as in the quick start above.
 
 Each step reads and writes real files under `specs/<branch>/` (`spec.md`,
 `plan.md`, `tasks.md`), so `wfctl status` infers where you are from artifacts on
@@ -92,6 +93,7 @@ status` shows which are done):
 
 | Step | Slash command | Produces |
 |------|---------------|----------|
+| brainstorm | `/speckit.brainstorm` | `specs/<branch>/design.md` |
 | specify | `/speckit.specify` | `specs/<branch>/spec.md` |
 | clarify | `/speckit.clarify` | a `## Clarifications` section in `spec.md` — written on every run, including one that finds nothing to ask, since that section is what marks the step done |
 | plan | `/speckit.plan` | `plan.md` |
@@ -100,8 +102,14 @@ status` shows which are done):
 | decompose | `/speckit.decompose` | PR / issue breakdown |
 | implement | `/speckit.implement` | the code |
 
-A `brainstorm` step (via the brainstorming skill) can precede `specify` for
-fuzzy ideas.
+`brainstorm` is where the `design-levels` skill runs, and it is the step most
+worth not skipping. It descends four levels — behavior, architecture, data and
+ownership, implementation — presenting one per approval instead of a finished
+design in one pass, and each has a gate that has to be answered out loud. Level
+2 lands in `design.md`'s required **Boundaries and Ownership** section, and
+`/speckit.plan`'s Constitution Check verifies it was stated. When a lower level
+invalidates a boundary drawn above it, the rule is to go back up, not to work
+around it in the spec.
 
 ### What lands in your repo
 
@@ -154,28 +162,30 @@ it and only the implementation ships. This repo does the latter.
 
 ```
 $ wfctl start
-✓ Session started — step: implement, next: /speckit.implement
+✓ Session started — step: analyze, next: /speckit.analyze
 
 $ wfctl status
 #436  436-manual-transaction-entry
 ────────────────────────────────────
 brainstorm   ●
 specify      ●
+clarify      ●
 plan         ●
 tasks        ●
-implement    ▶  ← current
-verify       ○
+analyze      ○  ← current
+decompose    ○
+implement    ○
 
 $ wfctl checkpoint
 ✓ Checkpoint 1 saved
 
 $ wfctl resume
-↺ Resumed — step: implement, next: /speckit.implement (auto: true)
+↺ Resumed — step: analyze, next: /speckit.analyze (auto: false)
 
 $ wfctl log
-2026-07-15 09:12  start       step=implement
+2026-07-15 09:12  start       branch=436-manual-transaction-entry  step=analyze
 2026-07-15 09:14  checkpoint  n=1
-2026-07-15 11:03  resume      step=implement  command=/speckit.implement
+2026-07-15 11:03  resume      step=analyze  command=/speckit.analyze  auto=False
 
 $ wfctl end
 ✓ Session ended. Summary written to ~/.local/state/wfctl/.../session-summary.md
@@ -186,7 +196,7 @@ Install skills into a project:
 ```
 $ wfctl install-skills
 ✓ Installed from wfctl 0.15.0
-  base  26 skills · 23 commands · 8 runtime
+  base  27 skills · 24 commands · 8 runtime
 
 Installed to .agents/ — skills and commands in their canonical, agent-agnostic
 form. If your agent needs its own native paths:
@@ -196,8 +206,8 @@ form. If your agent needs its own native paths:
 
 $ wfctl install-skills --agent claude
 ✓ Installed from wfctl 0.15.0
-  base    26 skills · 23 commands · 8 runtime
-  claude  4 skills · 23 commands
+  base    27 skills · 24 commands · 8 runtime
+  claude  4 skills · 24 commands
 ```
 
 The skills ship inside wfctl, so an install copies from the wheel and needs no
@@ -234,7 +244,7 @@ and:
 
 ```
 $ wfctl uninstall-skills --agent claude
-✓ Removed 26 item(s), restored 1 pre-existing file(s) for agent 'claude'
+✓ Removed 27 item(s), restored 1 pre-existing file(s) for layer 'claude'
 ```
 
 removes that layer and restores anything it overwrote to its original content.
