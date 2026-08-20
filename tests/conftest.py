@@ -80,7 +80,8 @@ def bundle(
 
 @pytest.fixture
 def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Isolated state dir backed by a real git repo (checkpoint needs git diff)."""
+    """Isolated state dir backed by a real git repo — wfctl resolves the branch
+    and repo root by shelling out to git."""
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(tmp_path), "config", "user.email", "test@test.com"],

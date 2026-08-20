@@ -66,9 +66,9 @@ def test_append_event_writes_jsonl(tmp_path: Path) -> None:
 
 def test_append_event_appends_multiple_lines(tmp_path: Path) -> None:
     append_event(tmp_path, "start")
-    append_event(tmp_path, "checkpoint", n=1)
+    append_event(tmp_path, "resume", n=1)
     append_event(tmp_path, "end")
     lines = (tmp_path / "events.jsonl").read_text().splitlines()
     assert len(lines) == 3
     events = [json.loads(line)["event"] for line in lines]
-    assert events == ["start", "checkpoint", "end"]
+    assert events == ["start", "resume", "end"]

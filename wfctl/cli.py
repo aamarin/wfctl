@@ -235,25 +235,6 @@ def end_cmd() -> None:
     console.print(f"[green]✓[/green] Session ended. Summary written to {summary_path}")
 
 
-@app.command("checkpoint")
-def checkpoint_cmd() -> None:
-    """Save a numbered checkpoint artifact."""
-    from wfctl import _session
-
-    agent_dir, repo_root, branch, _ = _resolve_context()
-
-    if not (agent_dir / "current.json").exists():
-        console.print("[red]✗ Not initialized. Run `wfctl start` first.[/red]")
-        raise typer.Exit(1)
-
-    try:
-        n = _session.checkpoint(agent_dir, repo_root)
-        console.print(f"[green]✓[/green] Checkpoint {n} saved")
-    except RuntimeError as e:
-        console.print(f"[red]✗ {e}[/red]")
-        raise typer.Exit(1)
-
-
 @app.command("log")
 def log_cmd() -> None:
     """Print the event log for the current session."""
@@ -269,7 +250,6 @@ def log_cmd() -> None:
         "end": "red",
         "resume": "cyan",
         "next": "yellow",
-        "checkpoint": "blue",
         "promote": "magenta",
         "issue": "green",
     }

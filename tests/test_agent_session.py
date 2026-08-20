@@ -85,19 +85,6 @@ def test_init_current_md_word_count(agent_dir: Path) -> None:
 
 # ─── Checkpoint & End ────────────────────────────────────────────────────────
 
-def test_checkpoint_creates_files(agent_dir: Path) -> None:
-    runner.invoke(app, ["start"])
-    result = runner.invoke(app, ["checkpoint"])
-    assert result.exit_code == 0
-    assert (agent_dir / "current.json").exists()
-    data = json.loads((agent_dir / "current.json").read_text())
-    assert "updated" in data or "last_updated" in data
-
-
-def test_checkpoint_not_initialized(agent_dir: Path) -> None:
-    result = runner.invoke(app, ["checkpoint"])
-    assert result.exit_code == 1
-
 
 def test_end_writes_summary(agent_dir: Path) -> None:
     runner.invoke(app, ["start"])

@@ -1,8 +1,7 @@
-"""Session lifecycle operations — start, end, resume, checkpoint, promote."""
+"""Session lifecycle operations — start, end, resume, promote."""
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -117,33 +116,6 @@ def resume(agent_dir: Path, spec_dir: Optional[Path], repo_root: Path) -> dict:
     write_json_atomic(current_json, data)
     append_event(agent_dir, "resume", branch=data.get("branch", ""), step=step_name)
     return data
-
-
-def checkpoint(agent_dir: Path, repo_root: Path) -> int:
-    """Save numbered checkpoint; returns checkpoint number."""
-    current_json = agent_dir / "current.json"
-    data = json.loads(current_json.read_text())
-
-    diff_result = subprocess.run(
-        ["git", "diff", "HEAD"], capture_output=True, text=True, cwd=repo_root
-    )
-    if diff_result.returncode != 0:
-        raise RuntimeError(f"Cannot capture diff: {diff_result.stderr.strip()}")
-
-    # Find next checkpoint number by scanning existing patch files
-    nums = [
-        int(p.stem.split("-")[1])
-        for p in agent_dir.glob("checkpoint-*.patch")
-        if p.stem.split("-")[1].isdigit()
-    ]
-    n = max(nums, default=0) + 1
-
-    patch_path = agent_dir / f"checkpoint-{n}.patch"
-    md_path = agent_dir / f"checkpoint-{n}.md"
-    patch_path.write_text(diff_result.stdout)
-    write_md_atomic(md_path, f"# Checkpoint {n}\n\n**Step**: {data.get('workflow_step', '?')}\n")
-    append_event(agent_dir, "checkpoint", n=n)
-    return n
 
 
 def promote(candidates_path: Path, agent_dir: Path) -> None:

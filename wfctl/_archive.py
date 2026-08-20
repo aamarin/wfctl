@@ -35,7 +35,7 @@ from a real previous run.
 
 Files are flattened and numbered in pipeline order, so the archive reads as the
 story of the branch rather than as a directory to dig through. That makes it a
-forensic snapshot, not a tree anyone can copy back. `wfctl checkpoint` is the
+forensic snapshot, not a tree anyone can copy back. `git stash` is the
 restorable half; keeping the two in separate containers is deliberate.
 
 Ported from scripts/archive-story.sh, and named `archive-specs` since #27 —
