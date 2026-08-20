@@ -141,7 +141,6 @@ it and only the implementation ships. This repo does the latter.
 | `resume`         | Re-infer step from filesystem, write `next-step.md`, print current state |
 | `next`           | Write next actionable step to `next-step.md` (automation shortcut)       |
 | `end`            | End the current session and write summary scaffold                       |
-| `checkpoint`     | Save a numbered checkpoint artifact (diff + md)                          |
 | `archive-specs`  | Rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
 | `log`            | Print color-coded event timeline for the current session                 |
 | `state-dir`      | Print the active XDG state directory path                                |
@@ -176,15 +175,11 @@ analyze      ○  ← current
 decompose    ○
 implement    ○
 
-$ wfctl checkpoint
-✓ Checkpoint 1 saved
-
 $ wfctl resume
 ↺ Resumed — step: analyze, next: /speckit.analyze (auto: false)
 
 $ wfctl log
 2026-07-15 09:12  start       branch=436-manual-transaction-entry  step=analyze
-2026-07-15 09:14  checkpoint  n=1
 2026-07-15 11:03  resume      step=analyze  command=/speckit.analyze  auto=False
 
 $ wfctl end

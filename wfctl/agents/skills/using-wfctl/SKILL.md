@@ -1,6 +1,6 @@
 ---
 name: using-wfctl
-description: Reference for wfctl, the session/pipeline state CLI these skills are built on. Use when you need to call wfctl directly, or aren't sure which subcommand fits — session lifecycle, pipeline status, checkpoints, or installing/removing wf-skills itself.
+description: Reference for wfctl, the session/pipeline state CLI these skills are built on. Use when you need to call wfctl directly, or aren't sure which subcommand fits — session lifecycle, pipeline status, or installing/removing wf-skills itself.
 compatibility: 'Requires wfctl to be installed'
 ---
 
@@ -21,7 +21,6 @@ command those don't cover, or when picking the right one isn't obvious.
 | `wfctl resume` | Re-infer the pipeline step from the filesystem, write `next-step.md`, print current state. The thing to run after any spec/plan/tasks artifact changes underneath you. |
 | `wfctl next` | Write the next actionable step to `next-step.md` without the full resume output — an automation shortcut. |
 | `wfctl end` | End the current session and write a summary scaffold. |
-| `wfctl checkpoint` | Save a numbered checkpoint (diff + metadata) — use before a risky change you might need to unwind. |
 | `wfctl log` | Print the event timeline for the current session. |
 | `wfctl state-dir` | Print the active state directory path (XDG-based, outside the repo — session artifacts never touch git). |
 | `wfctl promote` | Interactively promote memory candidates to permanent memory. |
@@ -30,8 +29,8 @@ command those don't cover, or when picking the right one isn't obvious.
 
 ## Where state lives
 
-Session state (`current.json`, `current.md`, `next-step.md`, checkpoints,
-session summaries) lives under `wfctl state-dir` — an XDG state path outside
+Session state (`current.json`, `current.md`, `next-step.md`, session
+summaries) lives under `wfctl state-dir` — an XDG state path outside
 the repo, not inside it. It never needs to be committed and running any
 wfctl command never touches your git history on its own.
 

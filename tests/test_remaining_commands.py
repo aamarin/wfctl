@@ -1,4 +1,4 @@
-"""Tests for wfctl resume, end, and checkpoint commands (Phase 7)."""
+"""Tests for wfctl resume and end commands (Phase 7)."""
 from __future__ import annotations
 
 import json
@@ -64,24 +64,6 @@ def test_end_current_json_valid(agent_dir: Path) -> None:
     json.loads((agent_dir / "current.json").read_text())
 
 
-def test_checkpoint_creates_patch(agent_dir: Path) -> None:
-    runner.invoke(app, ["start"])
-    result = runner.invoke(app, ["checkpoint"])
-    assert result.exit_code == 0
-    assert (agent_dir / "checkpoint-1.patch").exists()
-
-
-def test_checkpoint_creates_md(agent_dir: Path) -> None:
-    runner.invoke(app, ["start"])
-    runner.invoke(app, ["checkpoint"])
-    assert (agent_dir / "checkpoint-1.md").exists()
-
-
-def test_checkpoint_not_initialized_exits_one(agent_dir: Path) -> None:
-    result = runner.invoke(app, ["checkpoint"])
-    assert result.exit_code == 1
-
-
 def test_log_shows_events(agent_dir: Path) -> None:
     runner.invoke(app, ["start"])
     runner.invoke(app, ["next"])
@@ -95,13 +77,6 @@ def test_log_empty_before_start(agent_dir: Path) -> None:
     result = runner.invoke(app, ["log"])
     assert result.exit_code == 0
     assert "No events" in result.output
-
-
-def test_checkpoint_increments(agent_dir: Path) -> None:
-    runner.invoke(app, ["start"])
-    runner.invoke(app, ["checkpoint"])
-    runner.invoke(app, ["checkpoint"])
-    assert (agent_dir / "checkpoint-2.patch").exists()
 
 
 def test_state_dir_path_not_wrapped(agent_dir: Path, monkeypatch) -> None:
