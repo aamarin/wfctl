@@ -2,14 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   # No base-branch filter: this repo stacks PRs (#15 targets #13's branch, not
-  # master), and `branches: [master]` silently skips every one of them — the
+  # main), and `branches: [main]` silently skips every one of them — the
   # PRs that most need a check are the ones that would not get it.
   pull_request:
 
 # A new push to a PR makes the in-flight run pointless — drop it rather than
-# queue behind it. master is excluded so every merge keeps a run of its own.
+# queue behind it. main is excluded so every merge keeps a run of its own.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -139,7 +139,7 @@ jobs:
     # Not a convenience ordering. A tag is what every machine upgrades to, so
     # tagging a red commit publishes the breakage rather than reporting it.
     needs: [test, wheel, lint]
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write

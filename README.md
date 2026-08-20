@@ -275,7 +275,7 @@ Separately, if your build is behind the tip of the branch it was installed from
 
 ```
 ✓ wfctl 0.15.0 — latest release
-⬆ build behind master — d8688f6 → 271bb2c
+⬆ build behind main — d8688f6 → 271bb2c
     bundled skills are from this build too
     reinstall: uv tool install --force git+https://github.com/aamarin/wfctl.git
 ```
