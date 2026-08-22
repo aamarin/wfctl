@@ -102,6 +102,84 @@ were written against them.
 Use the `verification-before-completion` skill and the `code-review` skill.
 Nothing new here.
 
+## Rendering the gate's answer
+
+The *Form* column above names an artifact per level. That is what the gate's
+answer is written as — not a paragraph, and not a table by default. A table is
+one form among several, and reaching for it first is the most common way a
+rendered answer still arrives unreadable.
+
+Pick by the shape of the thing:
+
+```
+what shape is the thing?
+ ├ two versions of one output ───► side-by-side code block
+ ├ one input, several outcomes ──► ASCII fan-out
+ ├ a line with sides ────────────► boundary sketch
+ ├ N conditions × M outcomes ────► table
+ └ one thing ────────────────────► render the string
+```
+
+ASCII, not mermaid: a skill is read in a terminal, where mermaid renders as its
+own source.
+
+**Level 1 — the literal string each state renders**, stacked one per state, each
+judged true or false in that state. A table only when the states are a real
+cross product of independent conditions.
+
+```
+implement    ▶  12/12 done  ← current
+                unverified — run `wfctl verify`
+
+implement    ▶  12/12 done  ← current
+                stale — verified at a1b2c3d, tree dirty
+```
+
+**Level 2 — a boundary sketch**: one column per side, phases down the page,
+arrows only where something actually crosses. Read a phase label, read left,
+follow the arrow, drop down.
+
+```
+agent                          │  wfctl
+───────────────────────────────┼──────────────────────────
+config time                    │
+  writes .agents/verify.json ──┼─►  reads argv
+                               │
+implement                      │
+  edits code, ticks boxes      │
+  runs `wfctl verify`       ───┼─►  runs argv
+                               │    records exit + sha + dirty
+                               │
+status                         │
+  (nothing)                    │    reads record + live git
+                               │    decides ● or ▶
+                               │
+  "it passed"  ────────────────┼──✗ never accepted from the left
+```
+
+The line down the middle is the decision, and the bottom row is the one the
+feature exists for. A table would file both under a column header.
+
+Two parallel lists sharing vertical space is not a sketch. Rows that read as
+pairs but are not aligned on purpose are worse than prose, because the reader
+infers a relationship the diagram never claimed.
+
+**Level 3 — two columns, `checked` and `assumed`.** The asymmetry is the
+finding; a reader sees it before reading a word.
+
+## The decisions ledger
+
+Design spans turns and the reader loses what is already settled. Carry a ledger
+and restate it when it changes — number, level, decision, one line each.
+
+| # | Level | Decision |
+|---|---|---|
+| 1 | behavior | not run green → implement ▶, gated |
+| 2 | behavior | record binds sha + dirty; any drift → stale |
+| 3 | architecture | wfctl runs the check — tamper-evident, not unforgeable |
+
+Three columns of short values is what a table is for.
+
 ## The descent is not one-directional
 
 A finding at a lower level can invalidate a boundary drawn higher up. When that
@@ -157,6 +235,8 @@ question was asked at.
   there") appears in the design and was never opened and checked.
 - `design.md` reaches `speckit.specify` with no Boundaries and Ownership
   content, or with schemas sitting in that section.
+- A gate's answer is a paragraph, or a table whose rows are not a cross product
+  — the decision is in there somewhere, and the reader has to extract it.
 
 ```
 ✗  Q: "Where should the manifest record which commit skills came from?"
@@ -181,3 +261,6 @@ Before `design.md` is written:
       around.
 - [ ] `design.md` has a Boundaries and Ownership section holding ownership
       decisions, not schemas — and no level-4 code.
+- [ ] Each gate's answer was rendered in its form — literal strings for level 1,
+      a boundary sketch for level 2, a two-column split for level 3 — not a
+      paragraph, and not a table chosen by default.
