@@ -184,6 +184,27 @@ Reach for it when the description is getting long because it is doing spatial
 or structural work. If the reader asks "what does that look like?", the artifact
 should have led and the prose should have been shorter.
 
+**Render the literal output, not a description of it.** Anything with a surface
+— a CLI line, an error, a field in a file — is written as the exact string the
+reader would see. A sentence describing the string is longer than the string and
+less certain.
+
+```
+✗  "the command should report where the pipeline actually is instead of
+    claiming the session ended"
+
+✓  $ wfctl end
+   ✓ Session closed — implement 3/8.  Summary: <path>
+```
+
+**Tabular content goes in a table.** Columns aligned by hand inside a code block
+read as jumbled the moment one cell outgrows its header. Reserve ASCII for flows
+and timelines, where the arrows carry meaning that a table cannot.
+
+**A two-column split is often the whole answer.** *Can observe / cannot
+observe*, *checked / assumed*, *before / after* — the shape does the arguing, and
+the reader sees the asymmetry before reading a word.
+
 ## Two surfaces that are not prose
 
 **Self-correction is a sentence, not a section.** State the corrected fact; drop
