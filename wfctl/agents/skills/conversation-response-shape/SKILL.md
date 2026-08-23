@@ -139,7 +139,7 @@ framing — it is more jargon, and needs an example before it means anything.
 | Status, tool result, "did it work?", progress | Short. The default. |
 | "explain", "walk me through", "why" | Full reasoning, headers to skim back |
 | "should we X or Y", "what's the proposal", tradeoffs | Recommendation first, then options with costs |
-| Architecture, design, product strategy | Structured and complete; tables over prose |
+| Architecture, design, product strategy | A leading diagram, then named sections; tables where the content is genuinely tabular |
 | Reporting your own error | What is true now, then plain-language cause, then blast radius |
 
 Terseness is the default, not a ceiling. Compressing a question that asks for
@@ -172,7 +172,7 @@ explanation is strongest.
     ignore rules never untrack. `git ls-files` was the check I needed."
 ```
 
-## Show, to simplify the description
+## Show: the drawing is the description
 
 When the subject has a shape — a layout, a structure, a before/after, a flow —
 render it: wireframe, diagram, prototype, worked example. The artifact does not
@@ -204,6 +204,60 @@ and timelines, where the arrows carry meaning that a table cannot.
 **A two-column split is often the whole answer.** *Can observe / cannot
 observe*, *checked / assumed*, *before / after* — the shape does the arguing, and
 the reader sees the asymmetry before reading a word.
+
+## Judgment rules
+
+The three rules under *Show: the drawing is the description* are checkable — you
+can see whether the line is rendered, the table exists, the columns split. These
+aren't. Compliance means re-deriving the judgment behind the rule, not
+inspecting what came out the other end.
+
+**Enumerate real states.** A property that varies across every row is a column,
+not a row. Two states that leave identical output are one state reached two
+ways — collapse them.
+
+| Trigger | Renders |
+|---|---|
+| Manual retry, or the scheduled run | `Retrying…` |
+| Success | `Done` |
+| Failure | `Failed: <reason>` |
+
+Manual retry and the scheduled run print the same line — one row, not two. And
+had `Retrying…` carried an attempt count, that count would be a column: three
+rows for `1/3`, `2/3`, `3/3` say nothing the column doesn't.
+
+**The drawing leads.** When the subject has structure — a pipeline, a control
+plane, a routing decision, a layered architecture — the drawing goes before the
+explanation. The prose then covers only what the picture can't say.
+
+```
+request ─► auth check ─► rate limit ─► handler ─► response
+                │             │
+                ▼             ▼
+             reject        reject
+            no token     quota spent
+```
+
+The three-step chain reads left to right in one glance, and the two exits hang
+off the step that takes them; prose would have to state each branch in sequence
+to say the same thing.
+
+**Sections repeat one shape.** Sections are named concepts, and every section in
+a set holds the same slots in the same order — after the first, the reader
+knows where to look in the rest.
+
+```
+## Section A
+**Goal**: ...
+**Verify**: ...
+
+## Section B
+**Goal**: ...
+**Verify**: ...
+```
+
+Reorder them in Section B and the reader has to re-read both sections to find
+the check.
 
 ## Untangling compressed explanations
 
