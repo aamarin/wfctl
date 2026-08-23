@@ -205,6 +205,49 @@ and timelines, where the arrows carry meaning that a table cannot.
 observe*, *checked / assumed*, *before / after* — the shape does the arguing, and
 the reader sees the asymmetry before reading a word.
 
+## Untangling compressed explanations
+
+Default to this **on the first pass**, not as a repair after the reader gets
+confused. A verbose explanation is usually not under-detailed — it is one
+sentence carrying two separate facts, held together by connective tissue
+("so", "which means", "because"). The connective tissue is the verbosity, and
+it is also where a reader loses the thread on the first read, not just the
+second.
+
+Fix in two moves: **name and separate** the things being fused, one flat
+sentence each — then **render the consequence as a trace**, not a sentence
+connecting them. Naming without the trace leaves the reader to assemble the
+consequence themselves; the trace without names leaves them unsure which part
+is which.
+
+```
+✗  "The design only changed how wfctl reads completion — the agent still
+    runs the old write instruction too, so the file gets written but
+    nothing consults it anymore."
+    — one sentence carrying two facts, joined by "so"; the reader has to
+      unfuse it themselves before either fact is usable
+
+✓  **The write** — an instruction telling the agent: "when you finish,
+   create this file."
+   **The read** — code that checks: "does that file exist?"
+
+   The design changed the read. It never touched the write. So:
+
+   agent finishes implement
+     → still writes implement-complete.md   (untouched instruction)
+     → also runs wfctl verify                (the new step)
+
+   wfctl status
+     → reads the verify record only
+     → the file exists, ignored completely
+```
+
+Signal to catch while drafting, before sending: a sentence joining two nouns
+that are not the same kind of thing — an instruction and a check, a claim and
+an observed fact, a config value and a runtime value — with "so" or "which
+means" is usually two facts wearing one sentence. Split it there; don't wait
+for the reader to ask.
+
 ## Two surfaces that are not prose
 
 **Self-correction is a sentence, not a section.** State the corrected fact; drop
