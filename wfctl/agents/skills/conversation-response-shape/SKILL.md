@@ -187,7 +187,7 @@ explanation is strongest.
     ignore rules never untrack. `git ls-files` was the check I needed."
 ```
 
-## Show, to simplify the description
+## Show: the drawing is the description
 
 When the subject has a shape — a layout, a structure, a before/after, a flow —
 render it: wireframe, diagram, prototype, worked example. The artifact does not
@@ -219,6 +219,103 @@ and timelines, where the arrows carry meaning that a table cannot.
 **A two-column split is often the whole answer.** *Can observe / cannot
 observe*, *checked / assumed*, *before / after* — the shape does the arguing, and
 the reader sees the asymmetry before reading a word.
+
+## Judgment rules
+
+The three rules under *Show: the drawing is the description* are checkable — you
+can see whether the line is rendered, the table exists, the columns split. These
+aren't. Compliance means re-deriving the judgment behind the rule, not
+inspecting what came out the other end.
+
+**Enumerate real states.** A property that varies across every row is a column,
+not a row. Two states that leave identical output are one state reached two
+ways — collapse them.
+
+| Trigger | Renders |
+|---|---|
+| Manual retry, or the scheduled run | `Retrying…` |
+| Success | `Done` |
+| Failure | `Failed: <reason>` |
+
+Manual retry and the scheduled run print the same line — one row, not two. And
+had `Retrying…` carried an attempt count, that count would be a column: three
+rows for `1/3`, `2/3`, `3/3` say nothing the column doesn't.
+
+**The drawing leads.** When the subject has structure — a pipeline, a control
+plane, a routing decision, a layered architecture — the drawing goes before the
+explanation. The prose then covers only what the picture can't say.
+
+```
+request ─► auth check ─► rate limit ─► handler ─► response
+                │             │
+                ▼             ▼
+             reject        reject
+            no token     quota spent
+```
+
+The three-step chain reads left to right in one glance, and the two exits hang
+off the step that takes them; prose would have to state each branch in sequence
+to say the same thing.
+
+**Sections repeat one shape.** Sections are named concepts, and every section in
+a set holds the same slots in the same order — after the first, the reader
+knows where to look in the rest.
+
+```
+## Section A
+**Goal**: ...
+**Verify**: ...
+
+## Section B
+**Goal**: ...
+**Verify**: ...
+```
+
+Reorder them in Section B and the reader has to re-read both sections to find
+the check.
+
+## Untangling compressed explanations
+
+Default to this **on the first pass**, not as a repair after the reader gets
+confused. A verbose explanation is usually not under-detailed — it is one
+sentence carrying two separate facts, held together by connective tissue
+("so", "which means", "because"). The connective tissue is the verbosity, and
+it is also where a reader loses the thread on the first read, not just the
+second.
+
+Fix in two moves: **name and separate** the things being fused, one flat
+sentence each — then **render the consequence as a trace**, not a sentence
+connecting them. Naming without the trace leaves the reader to assemble the
+consequence themselves; the trace without names leaves them unsure which part
+is which.
+
+```
+✗  "The design only changed how wfctl reads completion — the agent still
+    runs the old write instruction too, so the file gets written but
+    nothing consults it anymore."
+    — one sentence carrying two facts, joined by "so"; the reader has to
+      unfuse it themselves before either fact is usable
+
+✓  **The write** — an instruction telling the agent: "when you finish,
+   create this file."
+   **The read** — code that checks: "does that file exist?"
+
+   The design changed the read. It never touched the write. So:
+
+   agent finishes implement
+     → still writes implement-complete.md   (untouched instruction)
+     → also runs wfctl verify                (the new step)
+
+   wfctl status
+     → reads the verify record only
+     → the file exists, ignored completely
+```
+
+Signal to catch while drafting, before sending: a sentence joining two nouns
+that are not the same kind of thing — an instruction and a check, a claim and
+an observed fact, a config value and a runtime value — with "so" or "which
+means" is usually two facts wearing one sentence. Split it there; don't wait
+for the reader to ask.
 
 ## Three surfaces that are not prose
 
