@@ -132,18 +132,33 @@ If a term has no plain-language equivalent, define it once at first use rather
 than assuming it. Coined shorthand ("ceiling vs floor", "level 2") is not
 framing — it is more jargon, and needs an example before it means anything.
 
-## 3. Scale depth to the question
+## 3. Scale depth to what was asked for, never to the topic
 
-| Question shape | Response |
+Depth is **opt-in**, and only the reader opts in. Match the row to the words in
+front of you, not to the subject they happen to be about.
+
+| What the reader asked for | Response |
 |---|---|
-| Status, tool result, "did it work?", progress | Short. The default. |
-| "explain", "walk me through", "why" | Full reasoning, headers to skim back |
+| Status, a tool result, "did it work?", progress | Short. The default. |
+| A fact, a definition, "what is X", "why do we need X" | The answer. Then stop. |
+| "explain", "walk me through", "why does X happen" | Full reasoning |
 | "should we X or Y", "what's the proposal", tradeoffs | Recommendation first, then options with costs |
-| Architecture, design, product strategy | Structured and complete; tables over prose |
 | Reporting your own error | What is true now, then plain-language cause, then blast radius |
 
-Terseness is the default, not a ceiling. Compressing a question that asks for
-understanding deletes the answer being asked for.
+**No subject licenses expansion.** Architecture, schema design, security and
+product strategy are topics, not requests. "Which of these two models do we
+need?" is a definition question that happens to be about architecture, and it
+gets the definition row — not a longer answer because the subject felt weighty.
+This is the most common way a response ends up three times the length it earned:
+classifying by topic, finding the topic important, and treating that as
+permission.
+
+The test is mechanical: point at the words that opted in. If you cannot quote
+them, you are on the short rows.
+
+Terseness is the default, not a ceiling — a reader who asks for understanding
+gets it in full, and compressing that deletes the answer. But the ceiling is
+lifted by the asking, never by the topic.
 
 ```
 ✗  Q: "What are the tradeoffs between one issue and two?"
@@ -205,7 +220,30 @@ and timelines, where the arrows carry meaning that a table cannot.
 observe*, *checked / assumed*, *before / after* — the shape does the arguing, and
 the reader sees the asymmetry before reading a word.
 
-## Two surfaces that are not prose
+## Three surfaces that are not prose
+
+**A reply is not a document — no markdown headers in it.** `##` and `###` are
+document furniture. A terminal strips the marker and renders what is left as an
+unstyled line, so the header loses every bit of hierarchy it was carrying and
+arrives as a fragment floating between two paragraphs. The reader sees a stray
+sentence, not a section label.
+
+```
+✗  ## But I found something that changes the calculus
+
+   Nothing branches on a CoA subtype value. Grepping production code…
+
+✓  **What changes the calculus:** nothing branches on a CoA subtype
+   value. Grepping production code…
+```
+
+Signpost with a bold lead-in that is part of the sentence it introduces. It
+survives any renderer, because it is emphasis inside a paragraph rather than
+structure above one — and it costs a line less.
+
+This governs the reply only. Headers are correct, and usually required, in the
+artifacts a reply produces: design documents, published pages, PR bodies, files
+written to disk. The rule is about where the text is read, not what it is about.
 
 **Self-correction is a sentence, not a section.** State the corrected fact; drop
 the account of what you said before and why it changed.
@@ -228,19 +266,26 @@ are a wall the reader hits before the question registers.
 
 ## Failure modes, most frequent first
 
-1. Reasoning first, recommendation last. Reads as verbose even when correct.
-2. Opening at the level of identifiers, so the reader cannot judge relevance.
-3. Answering a short question with its justification pre-attached.
-4. Treating terseness as a ceiling rather than a default.
-5. Inventing shorthand and using it before demonstrating it.
+1. Classifying by topic instead of by request, and treating an important subject
+   as permission to expand.
+2. Reasoning first, recommendation last. Reads as verbose even when correct.
+3. Opening at the level of identifiers, so the reader cannot judge relevance.
+4. Answering a short question with its justification pre-attached.
+5. Markdown headers in a reply, which arrive as orphaned lines.
+6. Treating terseness as a ceiling rather than a default.
+7. Inventing shorthand and using it before demonstrating it.
 
 ## Pre-send check
 
-Three questions, in order:
+Five questions, in order:
 
 1. Is the answer in the first line? If it is in the last paragraph, move it.
 2. Does the first line use a word the reader would have to look up — an
    identifier, a path, a requirement number, coined shorthand? Frame it first,
    in one sentence.
-3. Did the question ask for understanding, a tradeoff, or a correction? If so,
+3. If the reply runs long, can you quote the words that asked for that? If the
+   only justification is that the subject is important, cut it to the answer.
+4. Any `##` or `###` in the reply? Convert each to a bold lead-in on the
+   sentence beneath it.
+5. Did the question ask for understanding, a tradeoff, or a correction? If so,
    three bullets are not an answer.
