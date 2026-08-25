@@ -54,7 +54,7 @@ Flat single-package layout: `wfctl/` and `tests/` at repository root. No `src/`.
 **Purpose**: Establish a known-green baseline so any later failure is
 attributable to this feature rather than inherited.
 
-- [ ] T001 Confirm baseline: `git status --short wfctl/agents/skills/conversation-response-shape/`
+- [X] T001 Confirm baseline: `git status --short wfctl/agents/skills/conversation-response-shape/`
       is clean, `diff wfctl/agents/skills/conversation-response-shape/SKILL.md .agents/skills/conversation-response-shape/SKILL.md`
       reports identical, and `uv run pytest -q tests/test_skill_cross_references.py`
       passes before any edit
@@ -93,25 +93,25 @@ section.
 
 ### Tasks
 
-- [ ] T002 [US1] Insert a new `## Judgment rules` section into
+- [X] T002 [US1] Insert a new `## Judgment rules` section into
       `wfctl/agents/skills/conversation-response-shape/SKILL.md`, placed after
       the retitled "Show" section and before `## Two surfaces that are not
       prose` (currently line 208) — open with one framing sentence stating
       these rules are verified by re-deriving the judgment behind them, not by
       inspecting the rendered output (FR-001); verify with
       `grep -n "^## Judgment rules" wfctl/agents/skills/conversation-response-shape/SKILL.md`
-- [ ] T003 [US1] Add the "enumerate real states" rule under the new section
+- [X] T003 [US1] Add the "enumerate real states" rule under the new section
       (drafted text, issue #73: a property that varies across every row is a
       column, not a row; two states that leave identical output are one state
       reached two ways), illustrated with a small after-only table (2–3 rows,
       each a genuinely distinct state — no ✗ counterpart, no narrative) —
       depends on T002; verify by reading the added text against FR-002
-- [ ] T004 [US1] Add the "sections repeat one shape" rule under the new section
+- [X] T004 [US1] Add the "sections repeat one shape" rule under the new section
       (drafted text, issue #73: sections are named concepts, and every section
       in a set holds the same slots in the same order), illustrated with a
       small after-only skeleton showing two sections sharing the same slot
       order — depends on T002; verify by reading the added text against FR-003
-- [ ] T005 [US1] Validate Phase 3 with `uv run pytest -q tests/test_skill_cross_references.py`
+- [X] T005 [US1] Validate Phase 3 with `uv run pytest -q tests/test_skill_cross_references.py`
       and `wfctl install-skills && wfctl doctor` (confirms the edit reaches
       install output cleanly) — merge gate
 
@@ -138,7 +138,7 @@ live agent prompt is required (spec Clarifications).
 
 ### Tasks
 
-- [ ] T006 [US2] Add "the drawing leads" rule to the `## Judgment rules` section
+- [X] T006 [US2] Add "the drawing leads" rule to the `## Judgment rules` section
       created in T002 (drafted text, issue #73: when the subject has
       structure — a pipeline, a control plane, a routing decision, a layered
       architecture — the drawing goes before the explanation; the prose then
@@ -146,13 +146,13 @@ live agent prompt is required (spec Clarifications).
       diagram (same shape as the `/end-session` example in the #72 checkable
       section) plus one annotation line — no ✗ counterpart — depends on T002;
       verify by reading the added text against FR-004
-- [ ] T007 [US2] Amend rule 3's architecture row in the table at
+- [X] T007 [US2] Amend rule 3's architecture row in the table at
       `wfctl/agents/skills/conversation-response-shape/SKILL.md:142` from
       "Structured and complete; tables over prose" to "a leading diagram, then
       named sections; tables where the content is genuinely tabular" (FR-005);
       verify with `grep -n "tables over prose" wfctl/agents/skills/conversation-response-shape/SKILL.md`
       returning nothing
-- [ ] T008 [US2] Validate Phase 4: the two greps above pass and
+- [X] T008 [US2] Validate Phase 4: the two greps above pass and
       `uv run pytest -q tests/test_skill_cross_references.py` passes — merge
       gate
 
@@ -177,12 +177,12 @@ drawing as something that "simplifies" prose written first.
 
 ### Tasks
 
-- [ ] T009 [US3] Retitle `## Show, to simplify the description` at
+- [X] T009 [US3] Retitle `## Show, to simplify the description` at
       `wfctl/agents/skills/conversation-response-shape/SKILL.md:175` to a
       title stating the drawing is the description and prose annotates it —
       exact wording is an editorial choice per spec Assumptions, must satisfy
       FR-006's framing; verify by reading the new title against FR-006
-- [ ] T010 [US3] Validate Phase 5 with `uv run pytest -q tests/test_skill_cross_references.py`
+- [X] T010 [US3] Validate Phase 5 with `uv run pytest -q tests/test_skill_cross_references.py`
       — merge gate
 
 **Checkpoint**: All three user stories land; the skill now has a judgment-rules
@@ -193,13 +193,24 @@ doesn't undercut it.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T011 Confirm FR-007/SC-002: no wfctl-specific example strings were
+- [X] T011 Confirm FR-007/SC-002: no wfctl-specific example strings were
       introduced in the new judgment section — `sed -n '/^## Judgment rules/,/^## Two surfaces/p' wfctl/agents/skills/conversation-response-shape/SKILL.md | grep -iE "wfctl |implement [0-9]/[0-9]"`
       returns nothing (the pre-existing example in the #72 checkable section is
       untouched by design, per Clarifications)
-- [ ] T012 Run the full definition of done from `AGENTS.md`: `uv run pytest -q`,
+- [X] T012 Run the full definition of done from `AGENTS.md`: `uv run pytest -q`,
       `uv run ruff check wfctl/ tests/`, `uv run mypy wfctl/`, then
       `wfctl install-skills && wfctl doctor` — all green — final merge gate
+
+**Implementation note**: the plain `wfctl install-skills`/`wfctl doctor` (the
+globally `uv tool install`-ed binary) reported clean without ever picking up
+this session's source edits — it runs a frozen package-data copy from whatever
+git ref it was last installed from, not this working tree. `uv run wfctl
+install-skills` / `uv run wfctl doctor` (the local dev entrypoint) is what
+actually reads `wfctl/agents/` live and is what T005/T008/T010/T012 above must
+use. `uv run mypy wfctl/` also failed to spawn; `uv run --extra dev mypy wfctl/`
+is correct. Worth a follow-up: `AGENTS.md`'s own Definition of Done section
+doesn't say `--extra dev`, and neither it nor the task template flags the
+global-vs-local install split — both cost a detour here.
 
 ---
 
