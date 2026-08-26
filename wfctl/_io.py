@@ -25,13 +25,18 @@ def write_json_atomic(path: Path, data: dict) -> None:
         raise
 
 
-def write_md_atomic(path: Path, content: str) -> None:
-    """Write markdown atomically via tempfile + os.replace."""
+def write_md_atomic(path: Path, content: str, newline: str | None = None) -> None:
+    """Write markdown atomically via tempfile + os.replace.
+
+    `newline=""` writes the content's line endings through untranslated, for a
+    caller rewriting a file it read verbatim. The default keeps the translating
+    behaviour every existing caller was written against.
+    """
     if not path.parent.exists():
         raise FileNotFoundError(f"Parent directory does not exist: {path.parent}")
     fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", newline=newline) as f:
             f.write(content)
         os.replace(tmp, path)
     except Exception:

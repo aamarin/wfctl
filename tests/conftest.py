@@ -23,6 +23,36 @@ import pytest
 os.environ["NO_COLOR"] = "1"
 
 
+def init_git(path: Path) -> Path:
+    """An initialized git repo at `path`, with a committer identity and no commits.
+
+    The identity is not cosmetic: `git commit` fails outright when neither the
+    repo nor the environment supplies one, and CI has no global config.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        subprocess.run(["git", "-C", str(path), "config", key, val],
+                       check=True, capture_output=True)
+    return path
+
+
+def git_repo(path: Path) -> Path:
+    """`init_git` plus one commit.
+
+    The commit is the whole difference: `git worktree add` needs a ref to branch
+    from, and the root-resolution tests exercise the main-checkout fallback from
+    a worktree. Shared rather than copied because `test_spec_root` and
+    `test_arch_root` cover two resolvers built on one walk, so a fixture drifting
+    between them would hide the divergence they exist to catch.
+    """
+    init_git(path)
+    (path / "README.md").write_text("x\n")
+    subprocess.run(["git", "-C", str(path), "add", "README.md"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-m", "init"], check=True, capture_output=True)
+    return path
+
+
 @pytest.fixture(autouse=True)
 def _tool_version_is_not_under_test(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
@@ -167,14 +197,8 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
 
 @pytest.fixture
 def repo_root(tmp_path: Path) -> Path:
-    """Minimal initialized git repo for tests needing real repo root resolution."""
-    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "user.email", "test@test.com"],
-        check=True, capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "user.name", "Test"],
-        check=True, capture_output=True,
-    )
-    return tmp_path
+    """Minimal initialized git repo for tests needing real repo root resolution.
+
+    No commit — `git_repo` is the variant for tests that need one.
+    """
+    return init_git(tmp_path)

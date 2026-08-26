@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -11,17 +10,6 @@ from typer.testing import CliRunner
 from wfctl.cli import app
 
 runner = CliRunner()
-
-CANDIDATE_1 = """### Fix commit granularity
-**Type:** feedback
-**Rationale:** Amend trivial fixes into preceding commit.
-"""
-
-CANDIDATE_NEEDS_EDIT = """### Fix commit granularity
-**Type:** feedback
-**Rationale:** Amend trivial fixes.
-**Status:** NEEDS_EDIT
-"""
 
 
 # ─── Session start ────────────────────────────────────────────────────────────
@@ -101,30 +89,3 @@ def test_end_idempotent_summary(agent_dir: Path) -> None:
     original = (agent_dir / "session-summary.md").read_text()
     runner.invoke(app, ["end"])
     assert (agent_dir / "session-summary.md").read_text() == original
-
-
-# ─── Promote ─────────────────────────────────────────────────────────────────
-
-def test_promote_no_candidates(agent_dir: Path) -> None:
-    (agent_dir / "memory-candidates.md").write_text("")
-    result = runner.invoke(app, ["promote"])
-    assert result.exit_code == 0
-    assert "No candidates" in result.output
-
-
-def test_promote_approve_flow(agent_dir: Path) -> None:
-    (agent_dir / "memory-candidates.md").write_text(CANDIDATE_1)
-    result = runner.invoke(app, ["promote"], input="a\n")
-    assert result.exit_code == 0
-    today = date.today().strftime("%Y-%m-%d")
-    promoted_file = agent_dir / "promoted" / f"{today}.md"
-    assert promoted_file.exists()
-    assert "Fix commit granularity" in promoted_file.read_text()
-    assert "Fix commit granularity" not in (agent_dir / "memory-candidates.md").read_text()
-
-
-def test_promote_skip_flow(agent_dir: Path) -> None:
-    (agent_dir / "memory-candidates.md").write_text(CANDIDATE_1)
-    result = runner.invoke(app, ["promote"], input="s\n")
-    assert result.exit_code == 0
-    assert "Fix commit granularity" in (agent_dir / "memory-candidates.md").read_text()

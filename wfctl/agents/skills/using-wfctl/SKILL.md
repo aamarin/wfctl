@@ -23,7 +23,7 @@ command those don't cover, or when picking the right one isn't obvious.
 | `wfctl end` | End the current session and write a summary scaffold. |
 | `wfctl log` | Print the event timeline for the current session. |
 | `wfctl state-dir` | Print the active state directory path (XDG-based, outside the repo — session artifacts never touch git). |
-| `wfctl promote` | Interactively promote memory candidates to permanent memory. |
+| `wfctl arch-root` | Print the directory this repo's architecture decision records live under. |
 | `wfctl install-skills` | Clone wf-skills and copy skills (+ command wrappers, per `--agent`) into the current project. Lists and confirms before overwriting anything it didn't install itself. |
 | `wfctl uninstall-skills` | Remove what `install-skills` put in place for `--agent`, restoring any pre-existing file it had backed up. |
 
