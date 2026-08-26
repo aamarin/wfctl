@@ -1303,6 +1303,52 @@ _MIRRORED_SKILLS = frozenset({
 _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 
 
+# Frontmatter keys that are Claude-specific and have no meaning in Bob Shell.
+# `disable-model-invocation: true` causes Bob Shell to skip model invocation
+# entirely — the skill body never executes. That is the bug where /end-session
+# and other commands do nothing when invoked in Bob Shell.
+_CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
+    "allowed-tools",
+    "disable-model-invocation",
+})
+
+
+def _strip_claude_frontmatter(text: str) -> str:
+    """Remove Claude-only frontmatter keys from a command file's content.
+
+    Drops lines whose key matches _CLAUDE_ONLY_FRONTMATTER_KEYS from the
+    leading YAML block. Drops the block entirely if no keys remain after
+    stripping. Returns text unchanged when there is no front matter or the
+    block has no closing fence.
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return text
+    close = None
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            close = i
+            break
+    if close is None:
+        return text
+    kept = ["---\n"]
+    for line in lines[1:close]:
+        key = line.split(":", 1)[0].strip()
+        if key not in _CLAUDE_ONLY_FRONTMATTER_KEYS:
+            kept.append(line)
+    # Drop the block entirely if nothing remains between the fences.
+    if all(ln.strip() == "---" for ln in kept):
+        return "".join(lines[close + 1:])
+    kept.append(lines[close])
+    kept.extend(lines[close + 1:])
+    return "".join(kept)
+
+
+def _copy_command_for_bob(src: "Path", dest: "Path") -> None:
+    """Copy a command file to a Bob destination, stripping Claude-only frontmatter."""
+    dest.write_text(_strip_claude_frontmatter(src.read_text()))
+
+
 def _claude_native_skill_mirror(
     repo_root: Path, item: Path
 ) -> tuple[str, Path, Path] | None:
@@ -1973,6 +2019,8 @@ def install_skills_cmd(
 
         if item.is_dir():
             shutil.copytree(item, dest, dirs_exist_ok=True)
+        elif agent == "bob" and rel_dest.startswith(".bob/commands/"):
+            _copy_command_for_bob(item, dest)
         else:
             shutil.copy2(item, dest)
         count += 1

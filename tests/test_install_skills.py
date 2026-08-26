@@ -2090,8 +2090,6 @@ def test_option_two_clone_commands_are_anchored_to_the_main_checkout(    agent_d
 
     assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output
 
-
-
 def _rename_shipped_command(bundle: Path, old: str, new: str) -> None:
     """Rename a file the bundle ships, which is what an upstream rename looks
     like from the installer's side.
@@ -2274,3 +2272,85 @@ def test_doctor_names_the_agent_layer_in_the_command_it_advises(
     assert "update: wfctl install-skills --agent claude" in out
     base_line = [ln for ln in out.splitlines() if "update:" in ln and "--agent" not in ln]
     assert base_line, "the base layer still repairs with no flag"
+
+
+# ---------------------------------------------------------------------------
+# Bob agent: Claude-only frontmatter stripping
+# ---------------------------------------------------------------------------
+
+def test_bob_install_strips_disable_model_invocation(
+    agent_dir: Path, bundle: Path
+) -> None:
+    """Commands installed to .bob/commands/ must not contain
+    `disable-model-invocation` — Bob Shell interprets that key literally and
+    skips model invocation, so the skill body never executes."""
+    import os
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    cmd = bundle / "agents" / "commands" / "test-cmd.md"
+    cmd.write_text(
+        "---\n"
+        "disable-model-invocation: true\n"
+        "allowed-tools: Read Bash(git status*)\n"
+        "description: A command that does something.\n"
+        "---\n"
+        "\nDo the thing.\n"
+    )
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+    assert result.exit_code == 0
+
+    installed = (repo_root / ".bob" / "commands" / "test-cmd.md").read_text()
+    assert "disable-model-invocation" not in installed
+    assert "allowed-tools" not in installed
+    # description must survive
+    assert "description: A command that does something." in installed
+    # body must survive
+    assert "Do the thing." in installed
+
+
+def test_bob_install_drops_frontmatter_block_when_only_claude_keys(
+    agent_dir: Path, bundle: Path
+) -> None:
+    """When every frontmatter key is Claude-only, the block is dropped entirely
+    rather than leaving a bare `---\\n---\\n` stub."""
+    import os
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    cmd = bundle / "agents" / "commands" / "test-cmd.md"
+    cmd.write_text(
+        "---\n"
+        "disable-model-invocation: true\n"
+        "allowed-tools: Read\n"
+        "---\n"
+        "\nDo the thing.\n"
+    )
+
+    runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    installed = (repo_root / ".bob" / "commands" / "test-cmd.md").read_text()
+    # The frontmatter block must be gone — file must not start with a fence.
+    assert not installed.lstrip().startswith("---")
+    assert "Do the thing." in installed
+
+
+def test_non_bob_install_preserves_claude_frontmatter(
+    agent_dir: Path, bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Claude frontmatter must not be stripped when installing for --agent claude."""
+    import os
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    cmd = bundle / "agents" / "commands" / "test-cmd.md"
+    cmd.write_text(
+        "---\n"
+        "disable-model-invocation: true\n"
+        "description: A command.\n"
+        "---\n"
+        "\nDo the thing.\n"
+    )
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    installed = (repo_root / ".claude" / "commands" / "test-cmd.md").read_text()
+    assert "disable-model-invocation: true" in installed
