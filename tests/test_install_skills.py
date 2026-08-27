@@ -77,6 +77,34 @@ def test_install_skills_does_not_gitignore_tracker_config(
     assert ".agents/trackers/github.json" not in gitignore.splitlines()
 
 
+def test_install_skills_does_not_gitignore_the_definition_of_done(agent_dir: Path) -> None:
+    """`wfctl.json` is hand-authored and must stay tracked (FR-011).
+
+    Satisfied by construction today: the ignore list is built by appending each
+    path install-skills is about to write, and it never writes this one. The
+    assertion pins the property rather than that implementation — the list is
+    assembled inside two loops, and a future change that ships a starter config
+    would silently ignore the file every CI run and every fresh clone depends on.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / "wfctl.json").write_text('{"verify": [["pytest", "-q"]]}\n')
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+
+    gitignore = (repo_root / ".gitignore")
+    lines = gitignore.read_text().splitlines() if gitignore.exists() else []
+    assert "wfctl.json" not in lines
+    assert not any(line.strip().rstrip("/") == "wfctl.json" for line in lines)
+
+    tracked = subprocess.run(
+        ["git", "-C", str(repo_root), "check-ignore", "wfctl.json"],
+        capture_output=True, text=True,
+    )
+    assert tracked.returncode != 0, "wfctl.json is ignored by some rule"
+
+
 def _add_tracker(bundle: Path, body: str = '{"verbs": {}}\n') -> None:
     """Give the `bundle` fixture the tracker config it deliberately omits.
 

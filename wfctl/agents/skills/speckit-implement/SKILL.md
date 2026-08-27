@@ -177,9 +177,32 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Report final status with summary of completed work
 
 9b. Write implementation sentinel to `{FEATURE_DIR}/checklists/implement-complete.md`.
-    This file is the machine-readable sentinel that `storyctl` uses to infer implement is complete
+    This file is the machine-readable sentinel that `wfctl` uses to infer implement is complete
     when checkbox state is unavailable (e.g., tasks were executed outside this skill).
     Write a one-line summary: `Implementation complete: <date>`.
+
+    **This sentinel is not evidence.** You are the agent that did the work, so a
+    file you write asserting the work is done certifies nothing. It exists for
+    projects with no definition of done, where it remains the only completion
+    signal. Where one is configured, step 9c is what decides.
+
+9c. Run `wfctl verify` and report the verdict.
+
+    This runs the project's declared definition of done — its tests, linters,
+    type checks, whatever it committed to `wfctl.json` — and records the outcome
+    against the commit and working-tree state it ran on. wfctl reads that record,
+    not this skill's report, when it infers whether `implement` is complete.
+
+    - **Exit 0** — report the work complete, quoting the verdict line.
+    - **Exit non-zero** — **do not report the work complete.** Report which
+      commands failed and either fix them or hand back a clear account of what is
+      red. A red build reported as done is the failure this step exists to
+      prevent.
+    - **No definition of done configured** — `wfctl verify` says so and exits 0.
+      Nothing further to do; step 9b's sentinel carries the signal.
+
+    Verification is not a formality at the end of a checklist. If it fails, the
+    tasks are not finished, whatever their checkboxes say.
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.
 

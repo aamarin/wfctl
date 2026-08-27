@@ -407,3 +407,25 @@ def test_unwired_warning_names_the_current_command(
 
     assert "archive-specs" in out
     assert "`wfctl archive-story`" not in out
+
+
+def test_doctor_reports_a_malformed_definition_of_done(agent_dir: Path) -> None:
+    """A broken `wfctl.json` is drift, and drift fails the build (#41's contract).
+
+    Absent degrades honestly; broken means the implement gate silently never
+    runs. Only someone who runs `wfctl verify` would otherwise find out, and the
+    people who most need to know are the ones whose CI calls `doctor`.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / "wfctl.json").write_text('{"verify": ["pytest -q"]}\n')
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "wfctl.json" in result.output
+
+
+def test_doctor_is_silent_when_no_definition_of_done_exists(agent_dir: Path) -> None:
+    """Not adopting the feature is not a finding."""
+    result = runner.invoke(app, ["doctor"])
+    assert "wfctl.json" not in result.output
