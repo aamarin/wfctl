@@ -85,6 +85,15 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
+**The answer is written as a record, not as a section.** Use
+`.agents/skills/architecture-decisions` and write one file per ownership
+decision, under the root `wfctl arch-root` names. Now, while the answer is being
+given — not once the design settles, by which time the record describes whatever
+got built.
+
+If the level introduced no boundary, declare that — "no boundary drawn, no
+record" — and descend. A declared absence is an answer; silence is not.
+
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 
 Split the design's factual claims into checked and assumed, then go check the
@@ -193,13 +202,14 @@ with it or silently degrade to "find on this page."
 
 ## Where the levels land
 
-Everything through level 3 lands in `specs/<branch>/design.md` before speckit
-runs. The spec should be derivable from the recorded decisions, not re-invented.
+Levels 1 and 3 land in `specs/<branch>/design.md` before speckit runs. Level 2
+does not: it lands in a record.
 
 - Level 1 → the behavior sections of `design.md`, gated by `speckit.clarify`.
-- Level 2 → the **Boundaries and Ownership** section of `design.md`. It has no
-  other home: `speckit.plan`'s Technical Context is a stack inventory and its
-  Project Structure is directory layout — neither asks who owns truth.
+- Level 2 → one record per ownership decision under `wfctl arch-root`, written
+  with `.agents/skills/architecture-decisions`. A design document is read while
+  its feature is being built and closed when it ships; the ownership decision is
+  still binding two features later, and has to be somewhere that is still read.
 - Level 3 → `design.md`, then expanded by `speckit.plan` Phase 1 into
   `data-model.md` and `contracts/`.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design.
@@ -233,8 +243,10 @@ question was asked at.
   computes it.
 - A claim about existing code ("the index covers this", "pagination is already
   there") appears in the design and was never opened and checked.
-- `design.md` reaches `speckit.specify` with no Boundaries and Ownership
-  content, or with schemas sitting in that section.
+- A level-2 answer was given and no record was written — or writing one was
+  deferred until the design settles.
+- A record's `Owns truth` names the owning side and stops, without why the other
+  side cannot compute it.
 - A gate's answer is a paragraph, or a table whose rows are not a cross product
   — the decision is in there somewhere, and the reader has to extract it.
 
@@ -259,8 +271,9 @@ Before `design.md` is written:
       verified ones were checked against the code, not from memory.
 - [ ] Any boundary a lower level invalidated was revised upward, not worked
       around.
-- [ ] `design.md` has a Boundaries and Ownership section holding ownership
-      decisions, not schemas — and no level-4 code.
+- [ ] Every ownership decision was written as a record under `wfctl arch-root`,
+      or the absence of one was declared out loud.
+- [ ] `design.md` holds behavior and structure, and no level-4 code.
 - [ ] Each gate's answer was rendered in its form — literal strings for level 1,
       a boundary sketch for level 2, a two-column split for level 3 — not a
       paragraph, and not a table chosen by default.
