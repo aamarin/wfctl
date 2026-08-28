@@ -407,3 +407,107 @@ def test_unwired_warning_names_the_current_command(
 
     assert "archive-specs" in out
     assert "`wfctl archive-story`" not in out
+
+
+# --- wfctl arch context -------------------------------------------------------
+#
+# `agent_dir` supplies the repo root; the arch root is pointed at a directory
+# under it per test, so a record set is built by writing files and nothing else.
+
+
+def _record(root: Path, slug: str, status: str, decision: str = "x") -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{slug}.md"
+    path.write_text(
+        f"---\nstatus: {status}\n---\n\n# {slug}\n\n## Decision\n\n{decision}\n"
+    )
+    return path
+
+
+def _arch_root(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = agent_dir.parent / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    return root
+
+
+def test_arch_context_lists_only_accepted_records(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The projection is the whole point: a superseded record read as live is
+    the confusion `status` exists to prevent."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "layer-model", "accepted", "wfctl/agents/ is source.")
+    _record(root, "old-way", "superseded", "The way it used to work.")
+    _record(root, "dead-idea", "rejected", "Never built.")
+
+    result = runner.invoke(app, ["arch", "context"])
+
+    assert result.exit_code == 0
+    assert "1 accepted decision" in result.output
+    assert "layer-model" in result.output
+    assert "wfctl/agents/ is source." in result.output
+    assert "old-way" not in result.output
+    assert "The way it used to work." not in result.output
+
+
+def test_arch_context_counts_what_it_left_out(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record silently missing from the contract reads as a decision nobody
+    made — so the excluded ones are counted by status, not dropped."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "in-force", "accepted")
+    _record(root, "replaced", "superseded")
+    _record(root, "gone", "retired")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "2 records not shown" in out
+    assert "1 superseded" in out
+    assert "1 retired" in out
+
+
+def test_arch_context_empty_root_is_not_an_error(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo has no records until it writes its first one. Reporting that
+    state as a failure would describe a normal repo as broken."""
+    _arch_root(agent_dir, monkeypatch)
+
+    result = runner.invoke(app, ["arch", "context"])
+
+    assert result.exit_code == 0
+    assert "no accepted decisions" in result.output
+    assert "holds no records yet" in result.output
+
+
+def test_arch_context_names_an_unreadable_record(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Excluded and said so. Dropping it silently loses the one signal that a
+    record needs fixing, and the author is the only one who can fix it."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "good", "accepted")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "draft-notes.md").write_text("no frontmatter here\n")
+
+    result = runner.invoke(app, ["arch", "context"])
+
+    assert result.exit_code == 0
+    assert "1 record has no readable status" in result.output
+    assert "draft-notes.md" in result.output
+    assert "good" in result.output
+
+
+def test_arch_context_unrecognised_status_is_never_in_force(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The load-bearing case (quickstart.md): defaulting an unparseable record
+    to in-force presents an unreviewed decision as binding."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "garbage", "acepted", "Typo'd status, not a decision.")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "no accepted decisions" in out
+    assert "Typo'd status, not a decision." not in out

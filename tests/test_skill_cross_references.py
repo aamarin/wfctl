@@ -53,3 +53,15 @@ def test_each_output_style_skill_has_a_command_wrapper() -> None:
     session that started without `/start-session` or said "stop adhd mode"."""
     for name in ("i-have-adhd", "conversation-response-shape"):
         assert (_AGENTS / "commands" / f"{name}.md").exists(), name
+
+
+def test_start_session_loads_the_in_force_set() -> None:
+    """FR-009's whole delivery path is this one line in one skill.
+
+    A `SessionStart` hook would have been the obvious route and is not one wfctl
+    controls: the hook file belongs to the consumer (#85). So nothing else puts
+    accepted records in front of an agent, and dropping the call would leave the
+    projection shipping, tested, and read by nobody.
+    """
+    start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
+    assert "wfctl arch context" in start

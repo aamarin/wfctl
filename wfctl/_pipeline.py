@@ -7,6 +7,7 @@ one that does until someone runs it.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +32,12 @@ _STEPS: dict[str, tuple[str, bool]] = {
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
 _STEP_NAMES = list(_STEPS)
 
+# The step `design_gate` fires on: whatever follows the design step in the table,
+# so inserting a step between the two moves the gate with it. Derived rather than
+# spelled "specify", which would go on naming a step that is no longer the one
+# after design — silently, since every step name is a valid string.
+_AFTER_DESIGN = _STEP_NAMES[_STEP_NAMES.index("brainstorm") + 1]
+
 # Commands wfctl names that no step advances to. `/end-session` ships in
 # `agents/commands/` like any step command and carries the same drift risk, but a
 # check that walks `_STEPS` cannot see it — and it is the last instruction a
@@ -46,6 +53,18 @@ _LOOSE_COMMANDS = (_END_SESSION,)
 # Public because `cli` imports them — the data above stays private.
 STORY_COMPLETE_FILE = f"Story complete. Open PR or run {_END_SESSION}.\n"
 STORY_COMPLETE_CONSOLE = f"Story complete — open PR or run `{_END_SESSION}`."
+
+
+# Printed when the design step advanced without answering the boundary question.
+# Both branches are offered because both are legitimate answers: `design-levels`
+# excludes changes that draw no new state, and a check with only one exit turns
+# those into records that say nothing.
+DESIGN_GATE_REFUSAL = """[red]✗[/red] design: no architecture record for this change.
+
+  Either record the boundary this change draws:
+      {location}/<slug>.md
+  or state that it draws none:
+      wfctl arch none --reason "<why>\""""
 
 
 def _file_exists(path: Path) -> bool:
@@ -181,6 +200,50 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             cascade = True
 
     return steps
+
+
+def design_gate(
+    spec_dir: Path | None, step: str, unanswered: Callable[[], bool]
+) -> bool:
+    """Whether advancing past design is being attempted with the question open.
+
+    Decides; it does not render. `DESIGN_GATE_REFUSAL` is the message, and the
+    caller formats it with a location only this module has no way to name — so
+    the path is resolved on the refusal path alone rather than on every `next`.
+
+    Fires on one transition: the step after design, with `design.md` present.
+    Not for the rest of the pipeline — "advance past the design step" is a
+    boundary, and a gate that stayed up through plan, tasks and implement would
+    refuse work that already answered by moving on. Not before it either: a
+    change that never drew a design has nothing to advance past, and gating it
+    would demand a record for the bug fixes and copy edits `design-levels`
+    explicitly excludes.
+
+    `unanswered` is a git fact, computed by the caller and passed unevaluated:
+    this module is pure functions over a tmp dir, and reaching for `subprocess`
+    would make every test of this rule build a repository to assert on a string.
+    A callable rather than a value because the guards above reject every step but
+    one, and an eagerly-evaluated argument would spend up to six git invocations
+    per `next` to reach a result thrown away — while a second copy of the guard
+    at the call site would be a second place to change when the rule moves.
+
+    A `False` from `unanswered` means proceed, and so does a git answer the
+    caller could not get — the caller collapses "cannot tell" into "answered" for the
+    same reason: a gate with no evidence against the work does not refuse it.
+    Deliberately not the conservative default `_arch` applies to record status.
+    There, guessing wrong presents an unreviewed decision as binding; here,
+    guessing wrong blocks a pipeline with no way to unblock it.
+
+    What it does not check is whether the record is *about* this change, or
+    whether a declaration is true. Neither has an objective test, and FR-010a
+    settles the point: the purpose is to stop the question going unanswered, not
+    to catch a wrong answer.
+    """
+    if spec_dir is None or step != _AFTER_DESIGN:
+        return False
+    if not _file_exists(spec_dir / "design.md"):
+        return False
+    return unanswered()
 
 
 def _current_step_name(steps: list[_PipelineStep]) -> str:

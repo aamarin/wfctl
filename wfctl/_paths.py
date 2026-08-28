@@ -303,6 +303,40 @@ def arch_root(repo_root: Path) -> Path:
     return found[0] if found is not None else repo_root / "docs" / "architecture"
 
 
+def touched_on_this_branch(repo_root: Path, path: Path) -> bool | None:
+    """Does the change under review add or modify anything under `path`?
+
+    None when git cannot answer — no trunk to compare against, or a `path`
+    outside the repository. Three states rather than two on purpose: the one
+    caller is a gate, and a gate that reads "cannot tell" as "no" refuses work
+    it has no evidence against.
+
+    Uncommitted first, because the common case is a record written moments ago
+    and not yet committed. Then `trunk...HEAD`, so a record committed earlier on
+    the same branch still counts — otherwise the gate would reopen every time
+    the author commits.
+    """
+    def names(*args: str) -> str | None:
+        """Paths git reports for `args`, or None when the command failed."""
+        r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    if not is_in_tree(path, repo_root):
+        return None
+
+    dirty = names("status", "--porcelain", "--", str(path))
+    if dirty is None:
+        return None
+    if dirty:
+        return True
+
+    trunk = _trunk_branch(repo_root)
+    if trunk is None:
+        return None
+    committed = names("diff", "--name-only", f"{trunk}...HEAD", "--", str(path))
+    return None if committed is None else bool(committed)
+
+
 def is_in_tree(root: Path, repo_root: Path) -> bool:
     """Would a file under `root` be committed with the code in `repo_root`?
 
