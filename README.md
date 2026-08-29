@@ -147,6 +147,7 @@ it and only the implementation ships. This repo does the latter.
 | `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
 | `spec-root`      | Show, set, or clear the directory this repo's spec dirs live under       |
 | `arch-root`      | Show the directory this repo's architecture records live under           |
+| `arch context`   | Print the in-force architectural contract — accepted records only        |
 | `issue`          | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`) |
 | `change`         | List/view code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
 | `install-skills` | Copy the skills, commands and speckit `.specify/` runtime wfctl ships into the current project |
@@ -455,6 +456,45 @@ feature's artifacts can never split across two locations. Move them yourself;
 
 A repo in a bare-clone or separate-gitdir layout has no main checkout to inherit
 from, and nothing outside the repository is read in that case.
+
+### The architectural contract (`arch-root`, `arch context`)
+
+An architecture record is one decision, written down: what was decided, what was
+rejected, and — the field this exists for — **who owns the truth** it settles.
+Records live in `docs/architecture/`, one file per decision, named by a slug
+rather than a number so two worktrees never collide.
+
+```bash
+wfctl arch-root              # where this repo's records live
+wfctl arch context           # the in-force set, for an agent to load
+```
+
+`arch context` is the one an agent reads. It prints only records whose
+frontmatter says `status: accepted`, so a superseded decision cannot be mistaken
+for a live one:
+
+```
+# Architectural contract — 5 accepted decisions
+
+layer-model
+  Source is committed package data under `wfctl/agents/` and
+  `wfctl/specify/`. Every dotted directory at the repo root is generated,
+  gitignored, and never edited by hand.
+```
+
+Anything other than `accepted` — `proposed`, `superseded`, an unrecognized
+value, or no status at all — is left out. The default is deliberately the
+conservative one: presenting an unreviewed decision as binding is the failure
+the status field exists to prevent.
+
+Resolution is the same four steps as `spec-root`: `WFCTL_ARCH_DIR`, then
+`arch_root` in this repo's manifest, then the main checkout's manifest, then
+`<repo>/docs/architecture`. `arch-root` is read-only — the root is declared in
+`.wf-skills-manifest.json`, and the default needs no command to reach it.
+
+Unlike specs, records are **committed**. They are the project's own
+documentation rather than session state, so there is nothing to rescue before a
+worktree is torn down.
 
 ### `resume` vs `next`
 
