@@ -16,7 +16,7 @@ memory of it — load them before doing anything else.
    `.agents/skills/conversation-response-shape/SKILL.md` (or
    `../i-have-adhd/SKILL.md` and `../conversation-response-shape/SKILL.md`
    relative to this file) and apply both to every response for the rest of the
-   session, starting with the report in step 7. `i-have-adhd` sets the length
+   session, starting with the report in step 8. `i-have-adhd` sets the length
    and the next action; `conversation-response-shape` sets what comes first and
    how deep it goes. Skip either silently if it isn't installed. The user turns
    both off with "stop adhd mode" or "normal mode".
@@ -31,20 +31,34 @@ memory of it — load them before doing anything else.
    to update now (`uv tool install --upgrade …` for the tool, `wfctl
    install-skills` for skills). Not a blocker.
 
-3. **Load the handoff artifacts** from the state dir (`$(wfctl state-dir)`):
+3. **Load the architectural contract:**
+   ```bash
+   wfctl arch context   # the decisions this repo is built under
+   ```
+   These bind the work you are about to do; they are not background reading. A
+   record is in force because someone accepted it, and the projection shows only
+   those — proposed, superseded, rejected and retired records are counted but
+   never listed, because a superseded decision read as live is the confusion the
+   status field exists to prevent.
+
+   An empty set is normal: a repo has no records until it writes its first one.
+   Carry the set into the report as slugs, one line each — the full text is a
+   `wfctl arch context` away and does not need repeating.
+
+4. **Load the handoff artifacts** from the state dir (`$(wfctl state-dir)`):
    - `current.md` — the resume point (issue, status, step, next action).
    - `session-summary.md` — the last session's handoff (accomplishments,
      decisions, and **Next Session TODO**). This is the primary context after a
      `/clear`; read it fully. If absent, this is the first session on the branch.
 
-4. **Surface work done on this branch** so you can see where things stand:
+5. **Surface work done on this branch** so you can see where things stand:
    ```bash
    BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
    git log --format="%h %s" ${BASE:+${BASE}..HEAD} ${BASE:--20}
    git status --short
    ```
 
-5. Check open work via the configured backends:
+6. Check open work via the configured backends:
    ```bash
    wfctl issue list     # open issues (scoped to you if the tracker sets {me})
    wfctl change list     # open PRs / patchsets (your changes under review)
@@ -53,8 +67,8 @@ memory of it — load them before doing anything else.
    one). If a backend isn't configured — or doesn't implement the verb — it prints
    a notice and no-ops, so skip whatever comes back empty.
 
-6. **Check alignment** — does the branch's work match what's tracked? Correlate
-   the commits (step 4) with the open issues/changes (step 5). It's a heads-up
+7. **Check alignment** — does the branch's work match what's tracked? Correlate
+   the commits (step 5) with the open issues/changes (step 6). It's a heads-up
    read, not an audit or a gate:
    - **Aligned** — a commit references an issue/change (`#N`, `Closes #N`, or a
      tracker key like `PROJ-123`). Nothing to flag.
@@ -67,13 +81,14 @@ memory of it — load them before doing anything else.
    Only surface the non-aligned items. If everything lines up, say so in one line
    and move on.
 
-7. Report status to the user:
+8. Report status to the user:
    - **Freshness**: anything `wfctl doctor` flagged as behind (tool / skills), or omit if all current
+   - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step (from `current.md`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
-   - **Alignment**: aligned, or the likely-done / untracked items from step 6
+   - **Alignment**: aligned, or the likely-done / untracked items from step 7
 
-8. Ask: "What are we working on today?" — defaulting to the top item from the last
+9. Ask: "What are we working on today?" — defaulting to the top item from the last
    session's Next Session TODO if there was one.

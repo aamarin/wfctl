@@ -443,3 +443,35 @@ def test_projection_orders_by_slug_not_by_filename(tmp_path: Path) -> None:
     slugs = [r.slug for r in _arch.in_force(_arch.load_records(tmp_path))]
 
     assert slugs == ["layer", "layer-model", "layerz"]
+
+
+def test_load_records_ignores_subdirectories(tmp_path: Path) -> None:
+    """`arch none` files its declaration one level down and relies on exactly
+    this: a declaration has no `status`, so a recursive glob would surface every
+    one of them as a record that cannot be read. The coupling was a comment on
+    both sides until this test; `rglob` here is a one-word edit away.
+    """
+    root = tmp_path / "architecture"
+    (root / "declarations").mkdir(parents=True)
+    (root / "layer-model.md").write_text("---\nstatus: accepted\n---\n\n# x\n")
+    (root / "declarations" / "some-branch.md").write_text("---\nbranch: x\n---\n\n# no\n")
+
+    assert [r.slug for r in _arch.load_records(root)] == ["layer-model"]
+
+
+def test_a_fenced_decision_heading_is_not_the_decision(tmp_path: Path) -> None:
+    """The `_log_bounds` failure one heading over: a record documenting the
+    record format carries a fenced `## Decision` example, and projecting it
+    would put template text into the contract agents read as binding."""
+    root = tmp_path / "architecture"
+    root.mkdir(parents=True)
+    path = root / "record-format.md"
+    path.write_text(
+        "---\nstatus: accepted\n---\n\n# How records are written\n\n"
+        "```markdown\n## Decision\n\n<what was decided>\n```\n\n"
+        "## Decision\n\nRecords are MADR-simple with an added ownership field.\n"
+    )
+
+    text = _arch.decision_text(_arch.parse_record(path))
+
+    assert text == "Records are MADR-simple with an added ownership field."

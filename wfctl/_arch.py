@@ -8,7 +8,9 @@ because those are the two things a reader cannot get right by eye.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
+from itertools import dropwhile, takewhile
 from pathlib import Path
 
 from wfctl._io import write_md_atomic
@@ -29,6 +31,10 @@ class Record:
     path: Path
     status: str
     supersedes: str
+    # The file as read, so the one "unreadable file is an excluded record" rule
+    # lives in `parse_record` alone. Every reader of a record's prose would
+    # otherwise re-open the file and carry its own copy of that policy.
+    body: str = ""
 
     @property
     def in_force(self) -> bool:
@@ -120,6 +126,7 @@ def parse_record(path: Path) -> Record:
         path=path,
         status=status if status in STATUSES else "",
         supersedes=front.get("supersedes", ""),
+        body=text,
     )
 
 
@@ -193,6 +200,45 @@ def in_force(records: list[Record]) -> list[Record]:
     return [r for r in records if r.in_force]
 
 
+def decision_text(record: Record) -> str:
+    """The first paragraph of a record's `## Decision` section, or "".
+
+    The projection shows what was decided, not the record. First paragraph and
+    not the whole section because the template asks for "one or two sentences"
+    and a record that writes more has its reasoning under `Context` and
+    `Considered` — printing all of it at session start buries the ten records
+    around it.
+
+    Fenced examples are skipped, via the same scanner `_log_bounds` uses: a
+    record documenting the record format contains a fenced `## Decision`, and
+    projecting that example would put template text in the contract.
+
+    Reads `record.body` — `parse_record` already read the file, and a second
+    read here would be a second copy of its unreadable-file policy.
+
+    Empty for a record with no `Decision` section, which is a record the
+    template did not produce. `arch context` prints the slug alone rather than
+    suppressing it: a record accepted without saying what it decided is a
+    problem to see, not to hide.
+    """
+    lines = record.body.splitlines()
+    for i, stripped in _unfenced(lines):
+        if stripped.lower() != "## decision":
+            continue
+        after = dropwhile(lambda ln: not ln.strip(), lines[i + 1 :])
+        # Stops at a fence as well as a heading: a record whose Decision opens
+        # with a code example would otherwise project the example as the
+        # decision, which is the same failure `_unfenced` prevents one line up.
+        para = takewhile(
+            lambda ln: ln.strip()
+            and not ln.startswith("#")
+            and ln.strip()[:3] not in ("```", "~~~"),
+            after,
+        )
+        return " ".join(ln.strip() for ln in para)
+    return ""
+
+
 def excluded_by_status(records: list[Record]) -> Counter[str]:
     """Counts of what the projection left out, keyed by status ("" = unreadable).
 
@@ -200,6 +246,28 @@ def excluded_by_status(records: list[Record]) -> Counter[str]:
     reads as a decision nobody made.
     """
     return Counter(r.status for r in records if not r.in_force)
+
+
+def _unfenced(lines: list[str]) -> Iterator[tuple[int, str]]:
+    """`(index, stripped line)` for every line outside a fenced code block.
+
+    Shared by the two heading scans so they cannot disagree about what a fence
+    is. A record that documents the record format carries fenced `## Log` and
+    `## Decision` examples — `contracts/record-format.md` is exactly such a
+    document — and matching one would append a transition inside the example, or
+    project the example as the decision the record reached.
+    """
+    fence = ""
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if fence:
+            if stripped.startswith(fence):
+                fence = ""
+            continue
+        if stripped[:3] in ("```", "~~~"):
+            fence = stripped[:3]
+            continue
+        yield i, stripped
 
 
 def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
@@ -217,17 +285,8 @@ def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
     the gap before the next heading survives.
     """
     heading: int | None = None
-    fence = ""
     end = len(lines)
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if fence:
-            if stripped.startswith(fence):
-                fence = ""
-            continue
-        if stripped[:3] in ("```", "~~~"):
-            fence = stripped[:3]
-            continue
+    for i, stripped in _unfenced(lines):
         if heading is None:
             if stripped.lower() == "## log":
                 heading = i

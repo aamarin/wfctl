@@ -55,6 +55,18 @@ def test_each_output_style_skill_has_a_command_wrapper() -> None:
         assert (_AGENTS / "commands" / f"{name}.md").exists(), name
 
 
+def test_start_session_loads_the_in_force_set() -> None:
+    """FR-009's whole delivery path is this one line in one skill.
+
+    A `SessionStart` hook would have been the obvious route and is not one wfctl
+    controls: the hook file belongs to the consumer (#85). So nothing else puts
+    accepted records in front of an agent, and dropping the call would leave the
+    projection shipping, tested, and read by nobody.
+    """
+    start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
+    assert "wfctl arch context" in start
+
+
 def test_the_record_template_ships_beside_the_adr_skill() -> None:
     """The skill tells the agent to copy a template that MANIFEST.in has to
     graft. A skill directory whose non-SKILL.md files were never packaged

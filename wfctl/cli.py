@@ -33,6 +33,7 @@ from wfctl._paths import (
     resolve_spec_dir,
     spec_root,
     spec_root_declaration,
+    touched_on_this_branch,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -161,6 +162,34 @@ def verify_cmd() -> None:
     raise typer.Exit(_verify.perform(agent_dir, repo_root))
 
 
+def _refuse_unless_boundary_answered(
+    spec_dir: Path | None, step_name: str, repo_root: Path
+) -> None:
+    """Exit 1 when the design step is being left with the boundary unanswered.
+
+    Called by every command that writes `next-step.md`, not just `next`:
+    `speckit-orchestrate` advances the pipeline with `wfctl resume`, so gating
+    only `next` would leave the orchestrated path — the one that actually runs —
+    walking straight past the check. `start` is deliberately not gated: it opens
+    the session that has to run `arch none` to answer.
+
+    Before the file is written, never after. `next-step.md` is what the agent
+    reads next, so a refusal that still wrote it would be a message nothing acts
+    on.
+    """
+    from wfctl._pipeline import DESIGN_GATE_REFUSAL, design_gate
+
+    arch = arch_root(repo_root)
+    # `is False` — never a falsy check. `touched_on_this_branch` returns None
+    # when git cannot answer (no trunk, or a root outside the tree), and that
+    # case proceeds along with a real True: the gate refuses only on evidence.
+    if design_gate(
+        spec_dir, step_name, lambda: touched_on_this_branch(repo_root, arch) is False
+    ):
+        console.print(DESIGN_GATE_REFUSAL.format(location=_arch_location(arch, repo_root)))
+        raise typer.Exit(1)
+
+
 @app.command("next")
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
@@ -177,6 +206,10 @@ def next_cmd() -> None:
     spec_dir = resolve_spec_dir(branch, repo_root)
     steps = _infer_steps(spec_dir, repo_root)
     step_name = _current_step_name(steps)
+
+    # `step_name` is read before the `spec_dir is None` branch below rewrites it:
+    # with no spec dir there is no design.md either, so the gate cannot fire.
+    _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
     if spec_dir is None:
         command, auto = "/speckit.specify", False
@@ -201,7 +234,12 @@ def next_cmd() -> None:
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
     from wfctl import _session
-    from wfctl._pipeline import STORY_COMPLETE_FILE, next_step_content
+    from wfctl._pipeline import (
+        STORY_COMPLETE_FILE,
+        _current_step_name,
+        _infer_steps,
+        next_step_content,
+    )
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -211,6 +249,15 @@ def resume_cmd() -> None:
         raise typer.Exit(1)
 
     spec_dir = resolve_spec_dir(branch, repo_root)
+    # Gated before `_session.resume`, not after: that call rewrites
+    # `current.json`'s step and appends a `resume` event. Refusing afterwards
+    # left state advanced and `next-step.md` deliberately stale, so the two
+    # disagreed about where the session was. The step it would compute is the
+    # same one re-inferred here from the same files.
+    _refuse_unless_boundary_answered(
+        spec_dir, _current_step_name(_infer_steps(spec_dir, repo_root)), repo_root
+    )
+
     data = _session.resume(agent_dir, spec_dir, repo_root)
     step_name = data.get("workflow_step", "?")
 
@@ -514,6 +561,188 @@ def feature_paths_cmd() -> None:
     # Plain print: output is eval'd by shell; rich would wrap/inject ANSI.
     for name, val in fields:
         print(f"{name}='{val}'")
+
+
+arch_app = typer.Typer(no_args_is_help=True, help="Architecture decision records.")
+# A group, not `arch-context`/`arch-none`: `arch-root` is named for `spec-root`,
+# which it mirrors, and renaming it into the group would break the one command
+# here that already ships.
+app.add_typer(arch_app, name="arch")
+
+
+def _arch_location(root: Path, repo_root: Path) -> str:
+    """How a path under the arch root is named in output.
+
+    Repo-relative in-tree, absolute outside, and never with a trailing
+    separator — it renders files as well as directories, so a caller that means
+    a directory writes the slash itself.
+
+    A record set lives beside the code by default, and printing the absolute
+    path for it is noise that differs per machine. Out-of-tree has no relative
+    form worth showing, so it stays absolute.
+
+    Escaped here rather than at each print, because one caller forgetting is
+    silent: a path containing `[wip]` is legal on every platform and rich reads
+    it as a style tag, so the message names a directory that does not exist —
+    and `[/y]` raises `MarkupError` instead, killing the message entirely. The
+    same hazard `arch-root` documents, in the one place every caller shares.
+    """
+    from rich.markup import escape
+
+    if not is_in_tree(root, repo_root):
+        return escape(str(root))
+    rel = root.resolve().relative_to(repo_root.resolve())
+    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
+    # next to a slug, so the absolute path is the clearer name for that case.
+    return escape(str(root) if rel == Path(".") else str(rel))
+
+
+@arch_app.command("context")
+def arch_context_cmd() -> None:
+    """Print the architectural decisions currently in force.
+
+    Accepted records only. What is proposed, superseded, rejected or retired
+    stays on disk for people and is counted here, never listed — a superseded
+    record read as live is the confusion `status` exists to prevent.
+
+    This command reports what is in force; it does not judge whether the set is
+    correct, and an empty or unreadable set is not an error.
+
+    Falsification test (`plan.md`): this exists instead of a seeded
+    `grep -l "^status: accepted"` because `install-config` is seed-once, so a
+    fix to a seeded hook reaches only repos seeded afterwards. If in a year this
+    command is still equivalent to that grep — no ordering, no exclusion
+    counts, no unreadable-record reporting that the grep lacks — it did not need
+    to exist, and retiring it is the right call rather than inheriting it.
+    """
+    import textwrap
+
+    from rich.markup import escape
+
+    from wfctl import _arch
+
+    _, repo_root, _, _ = _resolve_context()
+    root = arch_root(repo_root)
+    location = _arch_location(root, repo_root)
+
+    records = _arch.load_records(root)
+    accepted = _arch.in_force(records)
+
+    if accepted:
+        plural = "" if len(accepted) == 1 else "s"
+        console.print(
+            f"# Architectural contract — {len(accepted)} accepted decision{plural}\n"
+        )
+        for record in accepted:
+            console.print(escape(record.slug))
+            decision = _arch.decision_text(record)
+            if decision:
+                # Wrapped here rather than left to rich, which re-wraps at the
+                # terminal edge and drops the indent on continuation lines — the
+                # second line of one decision then lines up with the next slug.
+                # break_on_hyphens=False keeps "re-derivation" in one piece.
+                console.print(escape(textwrap.fill(
+                    decision, 74, initial_indent="  ", subsequent_indent="  ",
+                    break_on_hyphens=False,
+                )))
+            console.print()
+    else:
+        console.print("# Architectural contract — no accepted decisions\n")
+        if not records:
+            console.print(f"{location}/ holds no records yet.")
+
+    # `excluded` counts the unreadable under "" as well; they get their own
+    # sentence below, so both readers filter rather than one popping the key out
+    # of a Counter the other still needs.
+    excluded = _arch.excluded_by_status(records)
+    unreadable = [r.path.name for r in records if not r.status]
+
+    hidden = sum(n for status, n in excluded.items() if status)
+    if hidden:
+        breakdown = ", ".join(
+            f"{n} {status}" for status, n in sorted(excluded.items()) if status
+        )
+        plural = "" if hidden == 1 else "s"
+        console.print(
+            f"{hidden} record{plural} not shown ({breakdown}) — {location}/",
+            soft_wrap=True,
+        )
+
+    if unreadable:
+        one = len(unreadable) == 1
+        console.print(
+            f"[yellow]⚠[/yellow] {len(unreadable)} record{'' if one else 's'} "
+            f"{'has' if one else 'have'} no readable status and "
+            f"{'was' if one else 'were'} excluded: {escape(', '.join(unreadable))}",
+            soft_wrap=True,
+        )
+
+
+@arch_app.command("none")
+def arch_none_cmd(
+    reason: str = typer.Option(..., "--reason", help="Why this change draws no boundary."),
+) -> None:
+    """Declare that this change draws no new architectural boundary.
+
+    Written to a file in the change under review rather than to the state dir,
+    because the claim's only check is a reviewer reading it and disagreeing.
+    wfctl does not verify it: whether a change draws a boundary is a judgment
+    with no objective test, unlike completion, which either exits zero or does
+    not (FR-010a).
+
+    Kept out of the record set — `docs/architecture/*.md` is decisions, and a
+    declaration is the absence of one. The subdirectory is what keeps it out:
+    `load_records` globs one level, so a declaration filed beside the records
+    would be read as a record with an unreadable status.
+    """
+    from rich.markup import escape
+
+    from wfctl._io import write_md_atomic
+
+    _, repo_root, branch, _ = _resolve_context()
+    root = arch_root(repo_root)
+
+    if not reason.strip():
+        # The declaration exists to be a claim a reviewer can disagree with.
+        # An empty one is the silent omission the check was built to stop,
+        # with an extra command in front of it.
+        console.print("[red]✗[/red] --reason cannot be empty: say why no boundary changed.")
+        raise typer.Exit(1)
+
+    # `.name`: the branch reaches this as a path segment, and unlike the state
+    # dir this write lands in a working tree. Git rejects `..` in a refname, so
+    # only `WFCTL_BRANCH` can carry one — but the file is committed, and a write
+    # that escapes the arch root is not a mistake to discover after review.
+    path = root / "declarations" / f"{Path(branch).name}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Overwritten, not appended: one change makes one claim, and a branch that
+    # declares twice has changed its mind rather than declared again.
+    #
+    # Atomic, for the reason `_arch.supersede` gives about the records beside it:
+    # this is hand-authored and committed, so a torn write loses a claim no later
+    # run can reconstruct.
+    # No frontmatter: nothing reads a declaration, and the two fields it carried
+    # — branch and date — are the two things git answers about a committed file.
+    # `record-format.md` draws the same line for records: the file holds what git
+    # cannot.
+    write_md_atomic(path, f"# No new boundary — {Path(branch).name}\n\n{reason}\n")
+    # The declaration's only check is a reviewer reading it, so "did it land in
+    # the change under review?" is the whole question — and both ways it can
+    # fail are silent. An out-of-tree root writes outside the repo; a gitignored
+    # root writes a file git never reports. Either way the design gate keeps
+    # refusing and the escape hatch it names has no effect, so a green ✓ here
+    # would send the author back to a command that already did nothing.
+    if touched_on_this_branch(repo_root, path) is not True:
+        console.print(
+            f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
+            "part of the change under\n  review — the root is outside the working tree, "
+            "or git is ignoring it. No\n  reviewer will see this claim, and the design "
+            "step will keep refusing.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
 @app.command("arch-root")
