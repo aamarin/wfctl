@@ -56,6 +56,52 @@ def _has_open_checkboxes(text: str) -> bool:
     return bool(re.search(r"\[ \]", text))
 
 
+def _verification_block(repo_root: Path) -> str | None:
+    """Why `implement` cannot be complete, or None if nothing blocks it.
+
+    Returns the *first* matching reason, in the order below. Where two hold at
+    once the earlier one wins, and the order is chosen so the reason a user can
+    act on is named ahead of the one they would only reach after fixing it: a
+    failed run on a moved commit reports the failure, not the staleness.
+
+    A repository with no definition of done is never blocked — that is the whole
+    degrade path (FR-002), and it must cost nothing, so the config read happens
+    before anything touches git.
+    """
+    from wfctl import _verify
+    from wfctl._paths import resolve_agent_dir, resolve_branch
+
+    commands, errs = _verify.load_config(repo_root)
+    if errs:
+        return "definition of done is malformed — run `wfctl verify`"
+    if not commands:
+        return None
+
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    record = _verify.load_record(agent_dir)
+    if record is None:
+        return "unverified — run `wfctl verify`"
+    if record["inconclusive"]:
+        return "inconclusive — re-run `wfctl verify`"
+    if record["exit"] != 0:
+        failed = [" ".join(c) for c in record["failed"]]
+        # Name the commands, not just the count: SC-006 requires a blocked user
+        # to learn which one failed from `status` alone.
+        return (
+            f"failed — {len(failed)} of {len(record['command'])} "
+            f"at {record['sha'][:7]}: {', '.join(failed)}"
+        )
+    if record["command"] != commands:
+        return "stale — definition of done changed since it was verified"
+
+    sha, dirty = _verify.code_identity(repo_root)
+    if record["sha"] != sha:
+        return f"stale — verified at {record['sha'][:7]}, HEAD is {sha[:7]}"
+    if record["dirty"] or dirty:
+        return f"stale — verified at {record['sha'][:7]}, tree has uncommitted changes"
+    return None
+
+
 @dataclass
 class _PipelineStep:
     name: str
@@ -66,10 +112,9 @@ class _PipelineStep:
 def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     """Internal: return steps with ●/▶/○/– symbols.
 
-    `repo_root` is unused since the design doc moved into the spec dir, but is
-    kept so `infer_pipeline`/`steps_display` keep their signatures — the caller
-    in cli.py already has it, and dropping it would churn ~30 test call sites
-    for no behavioural gain.
+    `repo_root` is what the implement arm reads the definition of done and the
+    live git state from. It was carried unused for a while after the design doc
+    moved into the spec dir; #69 gave it a job again.
     """
     if spec_dir is None:
         return [_PipelineStep(name, "○", None) for name in _STEP_NAMES]
@@ -95,6 +140,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
 
     steps: list[_PipelineStep] = []
     cascade = False
+    implement_reason: str | None = None
 
     for name in _STEP_NAMES:
         if cascade:
@@ -159,12 +205,17 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         elif name == "implement":
             if not tasks_text:
                 symbol = "○"
-            elif _file_exists(spec_dir / "checklists" / "implement-complete.md"):
-                symbol = "●"
-            elif _has_open_checkboxes(tasks_text):
+            elif _has_open_checkboxes(tasks_text) and not _file_exists(
+                spec_dir / "checklists" / "implement-complete.md"
+            ):
                 symbol = "▶"
             else:
-                symbol = "●"
+                # Tasks read complete. Before #69 that was the whole check, and
+                # both routes to it are written by the agent doing the work.
+                # A configured definition of done gets the last word.
+                blocked = _verification_block(repo_root)
+                symbol = "▶" if blocked else "●"
+                implement_reason = blocked
 
         else:
             symbol = "○"
@@ -174,6 +225,8 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
             total = done + len(re.findall(r"\[ \]", tasks_text))
             annotation = f"{done}/{total} done"
+            if implement_reason:
+                annotation = f"{annotation}  {implement_reason}"
 
         steps.append(_PipelineStep(name, symbol, annotation))
 
@@ -213,13 +266,28 @@ def current_step(steps: list[tuple[str, bool]]) -> str:
     return "complete"
 
 
-def next_step_content(step: str) -> tuple[str, bool]:
-    """Return (slash_command, auto_flag) for the given pipeline step.
+def next_step_content(
+    step: str, repo_root: Path | None = None, spec_dir: Path | None = None
+) -> tuple[str, bool]:
+    """Return (command, auto_flag) for the given pipeline step.
 
     An undefined step yields ("", False) rather than raising: `current_step`
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
+
+    `repo_root` and `spec_dir` are optional so the ~30 existing call sites keep
+    working. Given both, an `implement` step whose tasks are all ticked but whose
+    definition of done has not passed routes to `wfctl verify` instead of
+    `/speckit.implement` — re-running implement there does nothing, because there
+    is no task left to do. Tasks still open route to the step command as before:
+    the work itself is what remains.
     """
+    if step == "implement" and repo_root is not None and spec_dir is not None:
+        tasks_md = spec_dir / "tasks.md"
+        tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
+        if tasks_text and not _has_open_checkboxes(tasks_text):
+            if _verification_block(repo_root):
+                return "wfctl verify", False
     return _STEPS.get(step, ("", False))
 
 

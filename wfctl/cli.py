@@ -150,6 +150,15 @@ def status_cmd() -> None:
         write_json_atomic(current_json, data)
 
 
+@app.command("verify")
+def verify_cmd() -> None:
+    """Run this repository's definition of done and record the outcome."""
+    from wfctl import _verify
+
+    agent_dir, repo_root, _, _ = _resolve_context()
+    raise typer.Exit(_verify.perform(agent_dir, repo_root))
+
+
 @app.command("next")
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
@@ -171,7 +180,7 @@ def next_cmd() -> None:
         command, auto = "/speckit.specify", False
         step_name = "specify"
     else:
-        command, auto = next_step_content(step_name)
+        command, auto = next_step_content(step_name, repo_root, spec_dir)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -2106,6 +2115,26 @@ def _tracked_paths(repo_root: Path, candidates: list[str]) -> set[str]:
     }
 
 
+def _check_verify_config(repo_root: Path) -> bool:
+    """Report a malformed `wfctl.json`. Returns whether drift still stands.
+
+    A broken definition of done is worse than an absent one: absent degrades to
+    the old behaviour honestly, while broken means the gate silently does not
+    run — the failure this whole check exists to remove, one level up. `verify`
+    already refuses it, but only someone who runs `verify` finds out, and the
+    people who most need to know are the ones whose CI calls `doctor`.
+    """
+    from wfctl import _verify
+
+    _, errs = _verify.load_config(repo_root)
+    if not errs:
+        return False
+    for e in errs:
+        console.print(f"[yellow]⚠[/yellow] {e}")
+    console.print("    fix it, or `wfctl verify` and the implement gate stay blocked")
+    return True
+
+
 def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     """Report entries wfctl installed and no longer records.
 
@@ -2218,6 +2247,7 @@ def doctor_cmd() -> None:
     if any([
         _check_workmux_hook(repo_root),
         _check_spec_root_migration(repo_root),
+        _check_verify_config(repo_root),
     ]):
         exit_code = 1
 

@@ -12,7 +12,7 @@ wfctl manages session and pipeline state for AI coding agents (Claude Code, Code
 wfctl operationalizes spec-driven development — keeping agents on the specify → plan → implement track instead of jumping straight to code:
 
 - **Persistent by design** — session state on disk; step recoverable even if lost
-- **Truth from artifacts** — step read from real spec files, so phases can't be faked or skipped
+- **Truth from artifacts** — step read from real spec files, not from an agent's report; `implement` additionally gates on a definition of done wfctl runs itself (`wfctl verify`), so "done" is a recorded verdict rather than a claim
 - **Enforced order** — always points to the next required step, blocking code before spec and plan
 - **Design before spec** — `design-levels` runs design as four gated passes, so who owns what is decided out loud, not buried in code
 - **Scope-aware** — tracks your position in the pipeline
