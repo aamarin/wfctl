@@ -1,10 +1,13 @@
 ---
 name: conversation-response-shape
 description: 'Shape what a response says and in what order: answer first, frame in plain language before mechanics, then scale depth to the question. Layers over i-have-adhd, which governs brevity and next actions. Activated by /start-session and /conversation-response-shape; stays on until "stop adhd mode".'
-# No `disable-model-invocation`: this skill is not mirrored into `.claude/skills/`
-# (that needs `deployment: skill`), so Claude never offers it for auto-invocation
-# and the key would be inert — and it is not in the Agent Skills spec. Add both
-# together or neither.
+deployment: skill
+# Mirrored into `.claude/skills/` so it can be re-invoked mid-session, not only
+# read once at turn 0. Being forgotten forty turns in *is* the failure this skill
+# exists to prevent, and a rule that only the reader can reload depends on the
+# reader noticing the drift — the same dependency that already failed (#99).
+# No `disable-model-invocation` on purpose: that would leave the reader as the
+# only one who can reload it, which is the state this change is undoing.
 ---
 
 # Conversation response shape

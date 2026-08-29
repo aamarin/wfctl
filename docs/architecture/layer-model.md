@@ -33,8 +33,12 @@ and `.specify/` unanchored — a dotted source tree would match at any depth and
 be silently untracked.
 
 Only skills whose frontmatter carries `deployment: skill` are mirrored into
-`.claude/skills/`. Everything else reaches the agent as a slash command only,
-which is how an always-on output style stays out of the auto-invocable set.
+`.claude/skills/`. Everything else reaches the agent as a slash command only —
+reachable, but only when the reader types it.
+
+Mirroring is therefore opt-in per skill, and a vendored skill cannot opt in: the
+key would have to go in a file the project does not own, and the next upstream
+pull would drop it. See `vendor-upstream-skills`.
 
 ## Owns truth
 
@@ -56,3 +60,4 @@ declared, and the copy that loses is the one a release ships.
 ## Log
 
 - 2026-08-28  accepted    — relocated from `AGENTS.md`, where it was the rule most often got wrong
+- 2026-08-29  amended     — mirroring is opt-in, not a bar on always-on output styles; the exclusion the record described was upstream's key on a vendored file (#99)
