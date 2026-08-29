@@ -153,6 +153,15 @@ def status_cmd() -> None:
         write_json_atomic(current_json, data)
 
 
+@app.command("verify")
+def verify_cmd() -> None:
+    """Run this repository's definition of done and record the outcome."""
+    from wfctl import _verify
+
+    agent_dir, repo_root, _, _ = _resolve_context()
+    raise typer.Exit(_verify.perform(agent_dir, repo_root))
+
+
 def _refuse_unless_boundary_answered(
     spec_dir: Path | None, step_name: str, repo_root: Path
 ) -> None:
@@ -206,7 +215,7 @@ def next_cmd() -> None:
         command, auto = "/speckit.specify", False
         step_name = "specify"
     else:
-        command, auto = next_step_content(step_name)
+        command, auto = next_step_content(step_name, repo_root, spec_dir)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -2322,6 +2331,63 @@ def _check_spec_root_migration(repo_root: Path) -> bool:
 _SCANNED_DIRS = tuple(dest for _, dest in (*_BASE_TARGETS, *_RUNTIME_TARGETS))
 
 
+def _tracked_paths(repo_root: Path, candidates: list[str]) -> set[str]:
+    """Which of `candidates` git tracks — a directory counts when it holds a
+    tracked file.
+
+    `ls-files`, not `check-ignore`: ignore rules never untrack, so a path can be
+    matched by a pattern and still be committed. Asking about coverage would
+    answer a different question and clear the exception lines — `!pfms-*` beside
+    `.agents/skills/*` — that are exactly the case worth keeping.
+
+    One process for the whole set rather than one per path: this runs at every
+    session start, and the scan is a handful of directory entries.
+
+    Empty on failure, which reports every candidate. The alternative fallback
+    treats everything as tracked and silences the check outright — better to warn
+    about a committed file than to go quiet about an orphaned one.
+    """
+    import subprocess as sp
+
+    if not candidates:
+        return set()
+    result = sp.run(
+        ["git", "ls-files", "-z", "--", *candidates],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+
+    # A tracked path arrives as itself (a file) or as its contents (a directory),
+    # so a candidate is tracked when it is listed or prefixes something listed.
+    listed = [p for p in result.stdout.split("\0") if p]
+    return {
+        rel
+        for rel in candidates
+        if any(p == rel or p.startswith(f"{rel}/") for p in listed)
+    }
+
+
+def _check_verify_config(repo_root: Path) -> bool:
+    """Report a malformed `wfctl.json`. Returns whether drift still stands.
+
+    A broken definition of done is worse than an absent one: absent degrades to
+    the old behaviour honestly, while broken means the gate silently does not
+    run — the failure this whole check exists to remove, one level up. `verify`
+    already refuses it, but only someone who runs `verify` finds out, and the
+    people who most need to know are the ones whose CI calls `doctor`.
+    """
+    from wfctl import _verify
+
+    _, errs = _verify.load_config(repo_root)
+    if not errs:
+        return False
+    for e in errs:
+        console.print(f"[yellow]⚠[/yellow] {e}")
+    console.print("    fix it, or `wfctl verify` and the implement gate stay blocked")
+    return True
+
+
 def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     """Report entries wfctl installed and no longer records.
 
@@ -2351,16 +2417,25 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     file was edited locally, or when the path fell out because a layer was
     deselected rather than dropped upstream — and this check cannot tell those
     apart.
+
+    Tracked paths are excluded. These destinations are shared ground: a project
+    may commit its own skills and commands beside the installed ones, naming them
+    as exceptions to a `.gitignore` that ignores the rest. Being in the record is
+    what makes a path wfctl's, and being tracked is what makes it the repo's —
+    absent from the record *and* tracked is the second, not an orphan. Reporting
+    it invites the reader to delete committed work on wfctl's say-so.
     """
     recorded = {i["path"] for i in _recorded_items(manifest)}
 
-    abandoned = sorted(
+    candidates = sorted(
         rel
         for scanned in _SCANNED_DIRS
         if (d := repo_root / scanned).is_dir()
         for child in d.iterdir()
         if (rel := str(child.relative_to(repo_root))) not in recorded
     )
+    tracked = _tracked_paths(repo_root, candidates)
+    abandoned = [rel for rel in candidates if rel not in tracked]
     if not abandoned:
         return False
 
@@ -2425,6 +2500,7 @@ def doctor_cmd() -> None:
     if any([
         _check_workmux_hook(repo_root),
         _check_spec_root_migration(repo_root),
+        _check_verify_config(repo_root),
     ]):
         exit_code = 1
 

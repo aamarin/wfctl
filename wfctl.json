@@ -1,0 +1,7 @@
+{
+  "verify": [
+    ["uv", "run", "--frozen", "--extra", "dev", "pytest", "-q"],
+    ["uv", "run", "--frozen", "--extra", "dev", "ruff", "check", "wfctl/", "tests/"],
+    ["uv", "run", "--frozen", "--extra", "dev", "mypy", "wfctl/"]
+  ]
+}

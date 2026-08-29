@@ -137,6 +137,14 @@ def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return d
 
 
+# A spec that satisfies both `specify` and `clarify`: no markers, and the
+# `## Clarifications` section clarify writes on every run, including a clean scan.
+CLEAN_SPEC = (
+    "# Spec\n\nClean.\n\n"
+    "## Clarifications\n\n### Session 2026-08-25\n\n"
+    "- No critical ambiguities detected.\n"
+)
+
 _STEP_ARTIFACTS: dict[str, object] = {
     "brainstorm": lambda root, spec: spec / "design.md",
     "specify":    lambda root, spec: spec / "spec.md",
@@ -171,6 +179,21 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
         check=True, capture_output=True,
     )
 
+    # Both of these live inside the repo in this fixture, and neither does in a
+    # real one: the state dir is XDG and `specs/` is gitignored by
+    # `install-skills`. Left tracked, the fixture's own bookkeeping reads as
+    # uncommitted work — which is invisible until something consults the working
+    # tree. #69's verification record does, so every record arrived stale and the
+    # step it gates could never report complete.
+    (tmp_path / ".gitignore").write_text(".agent-runs/\nspecs/\n")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", ".gitignore"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "ignore wfctl state and specs"],
+        check=True, capture_output=True,
+    )
+
     agent_dir = tmp_path / ".agent-runs"
     agent_dir.mkdir()
     spec_dir = tmp_path / "specs" / "418-storyctl"
@@ -187,11 +210,32 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
         artifact.write_text(content)
         return artifact
 
+    def stage_upstream_of(step: str, tasks: str = "- [x] T001 done\n") -> None:
+        """Create every artifact a step needs to be *reachable*.
+
+        `_infer_steps` cascades: the first `○` marks everything after it `○` too,
+        so a test that stages only the artifact it cares about asserts against a
+        step the inference never reached. The failure is silent — the assertion
+        sees a plausible symbol for the wrong reason.
+
+        `specify` gets a spec carrying a `## Clarifications` section, because
+        `clarify` reads `▶` without one and cascades just the same.
+        """
+        order = ("brainstorm", "specify", "plan", "analyze", "decompose", "tasks")
+        for name in order[: order.index(step) + 1]:
+            if name == "specify":
+                make_spec_artifact("specify", content=CLEAN_SPEC)
+            elif name == "tasks":
+                make_spec_artifact("tasks", content=tasks)
+            else:
+                make_spec_artifact(name)
+
     return types.SimpleNamespace(
         agent_dir=agent_dir,
         spec_dir=spec_dir,
         repo_root=tmp_path,
         make_spec_artifact=make_spec_artifact,
+        stage_upstream_of=stage_upstream_of,
     )
 
 

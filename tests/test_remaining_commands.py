@@ -511,3 +511,25 @@ def test_arch_context_unrecognised_status_is_never_in_force(
 
     assert "no accepted decisions" in out
     assert "Typo'd status, not a decision." not in out
+
+
+def test_doctor_reports_a_malformed_definition_of_done(agent_dir: Path) -> None:
+    """A broken `wfctl.json` is drift, and drift fails the build (#41's contract).
+
+    Absent degrades honestly; broken means the implement gate silently never
+    runs. Only someone who runs `wfctl verify` would otherwise find out, and the
+    people who most need to know are the ones whose CI calls `doctor`.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / "wfctl.json").write_text('{"verify": ["pytest -q"]}\n')
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "wfctl.json" in result.output
+
+
+def test_doctor_is_silent_when_no_definition_of_done_exists(agent_dir: Path) -> None:
+    """Not adopting the feature is not a finding."""
+    result = runner.invoke(app, ["doctor"])
+    assert "wfctl.json" not in result.output

@@ -77,6 +77,34 @@ def test_install_skills_does_not_gitignore_tracker_config(
     assert ".agents/trackers/github.json" not in gitignore.splitlines()
 
 
+def test_install_skills_does_not_gitignore_the_definition_of_done(agent_dir: Path) -> None:
+    """`wfctl.json` is hand-authored and must stay tracked (FR-011).
+
+    Satisfied by construction today: the ignore list is built by appending each
+    path install-skills is about to write, and it never writes this one. The
+    assertion pins the property rather than that implementation — the list is
+    assembled inside two loops, and a future change that ships a starter config
+    would silently ignore the file every CI run and every fresh clone depends on.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / "wfctl.json").write_text('{"verify": [["pytest", "-q"]]}\n')
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+
+    gitignore = (repo_root / ".gitignore")
+    lines = gitignore.read_text().splitlines() if gitignore.exists() else []
+    assert "wfctl.json" not in lines
+    assert not any(line.strip().rstrip("/") == "wfctl.json" for line in lines)
+
+    tracked = subprocess.run(
+        ["git", "-C", str(repo_root), "check-ignore", "wfctl.json"],
+        capture_output=True, text=True,
+    )
+    assert tracked.returncode != 0, "wfctl.json is ignored by some rule"
+
+
 def _add_tracker(bundle: Path, body: str = '{"verbs": {}}\n') -> None:
     """Give the `bundle` fixture the tracker config it deliberately omits.
 
@@ -625,6 +653,43 @@ def test_doctor_does_not_report_a_command_the_user_wrote_themselves(
 
     assert "my-own-thing" not in result.output
     assert result.exit_code == 0
+
+
+def test_doctor_does_not_report_a_skill_the_repo_commits_beside_the_installed_ones(
+    agent_dir: Path,
+) -> None:
+    """`.agents/skills/` is shared ground: a project may commit its own skills
+    there, ignoring the tree and naming its own as exceptions.
+
+    Found against pfms, which does exactly that and was told to delete eleven
+    committed files — the four `pfms-*` skills, `verifier-storybook`, and the
+    `speckit.git.*` commands — on doctor's say-so. Absent from the record and
+    tracked means the repo owns it, not that wfctl orphaned it.
+
+    Asserts the orphan beside it still reports, because the cheap wrong fix is a
+    fallback that treats everything as tracked and silences the check outright.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    forgotten = _forget_one_item(repo_root, "test-cmd.md")
+
+    mine = repo_root / ".agents" / "skills" / "proj-own-skill"
+    mine.mkdir(parents=True, exist_ok=True)
+    (mine / "SKILL.md").write_text("# proj-own-skill\n")
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "-f", ".agents/skills/proj-own-skill"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", "add project skill"],
+        check=True, capture_output=True,
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "proj-own-skill" not in result.output
+    assert forgotten in result.output, "an untracked orphan must still report"
+    assert result.exit_code == 1
 
 
 def test_doctor_does_not_report_a_hand_authored_tracker_config(
