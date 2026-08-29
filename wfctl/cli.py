@@ -22,6 +22,8 @@ from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
+    arch_root,
+    is_in_tree,
     extract_issue_key,
     get_repo_root,
     main_checkout,
@@ -259,7 +261,6 @@ def log_cmd() -> None:
         "end": "red",
         "resume": "cyan",
         "next": "yellow",
-        "promote": "magenta",
         "issue": "green",
     }
 
@@ -515,6 +516,42 @@ def feature_paths_cmd() -> None:
         print(f"{name}='{val}'")
 
 
+@app.command("arch-root")
+def arch_root_cmd() -> None:
+    """Show where this repo's architecture records live.
+
+    Read-only, unlike `spec-root`. The root is declared as `arch_root` in
+    `.wf-skills-manifest.json`, and the default needs no command to reach it —
+    a repo that wants the records beside its code already has them there.
+
+    Neither creates the root nor requires it to exist: a repo has no records
+    until it writes its first one, and reporting "not found" for that state
+    would describe a normal repo as broken.
+    """
+    from rich.markup import escape
+
+    repo_root = get_repo_root()
+    root = arch_root(repo_root)
+    # escape(): this command's whole job is to name a location, and a path
+    # containing `[…]` — legal on every platform — would otherwise be parsed as
+    # a style tag and dropped, naming a directory that does not exist.
+    console.print(escape(str(root)), soft_wrap=True)
+
+    if not is_in_tree(root, repo_root):
+        # A warning, not a finding: this is a configured choice, so the exit code
+        # stays 0. What it costs is not obvious from the path alone, which is why
+        # the consequence is spelled out rather than labelled "out of tree".
+        # soft_wrap: the break is placed here, so rich must not re-place it. Left
+        # to wrap, a narrow terminal splits the second line mid-sentence and the
+        # hanging indent stops lining up.
+        console.print(
+            "[yellow]⚠[/yellow] Root is outside the working tree. Records will not "
+            "share a commit with the\n  code implementing them, and will not reach "
+            "anyone who clones this repo.",
+            soft_wrap=True,
+        )
+
+
 @app.command("spec-root")
 def spec_root_cmd(
     path: str | None = typer.Argument(
@@ -576,19 +613,6 @@ def spec_root_cmd(
         # Tracked in most repos, and `target` may not be where the user is
         # standing — an unannounced edit here lands in someone's next commit.
         console.print(f"[green]✓[/green] gitignored it in {target / '.gitignore'}", soft_wrap=True)
-
-
-@app.command("promote")
-def promote_cmd() -> None:
-    """Interactively promote memory candidates."""
-    import os
-    from wfctl import _session
-
-    agent_dir, repo_root, branch, _ = _resolve_context()
-    candidates_path = Path(
-        os.environ.get("WFCTL_CANDIDATES_FILE", str(agent_dir / "memory-candidates.md"))
-    )
-    _session.promote(candidates_path, agent_dir)
 
 
 @app.command("issue")

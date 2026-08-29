@@ -12,6 +12,7 @@ from wfctl._manifest import load_manifest
 _STATE_DIR_OVERRIDE = "WFCTL_STATE_DIR"
 _BRANCH_OVERRIDE = "WFCTL_BRANCH"
 _SPEC_DIR_OVERRIDE = "WFCTL_SPEC_DIR"
+_ARCH_DIR_OVERRIDE = "WFCTL_ARCH_DIR"
 _REPO_ROOT_OVERRIDE = "WFCTL_REPO_ROOT"
 
 # Default issue-key shape: a plain leading number (GitHub / stock spec-kit).
@@ -158,8 +159,8 @@ def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
     return [b for b, _ in ranked]
 
 
-def _manifest_spec_root(base: Path) -> Path | None:
-    """The `spec_root` declared by the manifest at `base`, or None.
+def _manifest_root(base: Path, key: str) -> Path | None:
+    """The root `key` declares in the manifest at `base`, or None.
 
     A relative value anchors to `base` — the directory of the manifest that
     declared it — never the cwd, so one relative value means one shared location
@@ -170,7 +171,7 @@ def _manifest_spec_root(base: Path) -> Path | None:
     back inside the worktree with no signal, which is the failure this exists to
     remove.
     """
-    value = load_manifest(base).get("spec_root")
+    value = load_manifest(base).get(key)
     if not value:
         return None
     declared = Path(value).expanduser()
@@ -206,28 +207,38 @@ def main_checkout(repo_root: Path) -> Path | None:
     return None if parent == repo_root.resolve() else parent
 
 
-def spec_root_declaration(repo_root: Path) -> tuple[Path, Path] | None:
-    """`(root, declaring dir)` for the nearest manifest declaring `spec_root`.
+def _root_declaration(repo_root: Path, key: str) -> tuple[Path, Path] | None:
+    """`(root, declaring dir)` for the nearest manifest declaring `key`.
 
-    The one walk both `spec_root` and `wfctl spec-root` use, so what resolves and
-    what gets reported as its source cannot drift apart — the report exists to
-    answer "where did this come from", and a second copy of the rule is how that
-    answer goes quietly wrong.
+    The one walk both the resolver and its reporting command use, so what
+    resolves and what gets reported as its source cannot drift apart — the
+    report exists to answer "where did this come from", and a second copy of the
+    rule is how that answer goes quietly wrong.
 
     Deliberately not a loop over `(repo_root, main_checkout(repo_root))`: that
     tuple evaluates `main_checkout` eagerly, spawning a `git rev-parse` even when
     this repo's own manifest answers. `feature-paths` runs on every speckit
     script invocation, so the saved subprocess is worth the extra branch.
     """
-    declared = _manifest_spec_root(repo_root)
+    declared = _manifest_root(repo_root, key)
     if declared is not None:
         return declared, repo_root
     main = main_checkout(repo_root)
     if main is not None:
-        declared = _manifest_spec_root(main)
+        declared = _manifest_root(main, key)
         if declared is not None:
             return declared, main
     return None
+
+
+def spec_root_declaration(repo_root: Path) -> tuple[Path, Path] | None:
+    """`(root, declaring dir)` for the nearest manifest declaring `spec_root`."""
+    return _root_declaration(repo_root, "spec_root")
+
+
+def arch_root_declaration(repo_root: Path) -> tuple[Path, Path] | None:
+    """`(root, declaring dir)` for the nearest manifest declaring `arch_root`."""
+    return _root_declaration(repo_root, "arch_root")
 
 
 def spec_root(repo_root: Path) -> Path:
@@ -262,6 +273,44 @@ def spec_root(repo_root: Path) -> Path:
         return Path(override)
     found = spec_root_declaration(repo_root)
     return found[0] if found is not None else repo_root / "specs"
+
+
+def arch_root(repo_root: Path) -> Path:
+    """The directory this repo's architecture records live under.
+
+    WFCTL_ARCH_DIR → `arch_root` in this repo's manifest → `arch_root` in the
+    main checkout's manifest → `repo_root/docs/architecture`. Same order and
+    same reasoning as `spec_root`, including its rule that resolution neither
+    checks the root exists nor creates it — a repo has no records until it
+    writes its first one, and the existence check is what broke the spec-root
+    create path.
+
+    The default differs from `spec_root`'s in kind, not just in name: specs are
+    working artifacts a repo may well want outside the tree, while a record is
+    the constraint the code is written under. In-tree keeps the two in one
+    commit and puts them in front of anyone who clones. Out-of-tree is honoured,
+    but `wfctl arch-root` names what it costs.
+    """
+    override = os.environ.get(_ARCH_DIR_OVERRIDE)
+    if override:
+        # Anchored to the repo, never the cwd — the same rule `_manifest_root`
+        # applies to a declared relative value. Left raw, one setting would name
+        # a different directory per shell, and `arch-root` would report a root
+        # inside the tree or outside it depending on where it was run.
+        declared = Path(override).expanduser()
+        return declared if declared.is_absolute() else repo_root / declared
+    found = arch_root_declaration(repo_root)
+    return found[0] if found is not None else repo_root / "docs" / "architecture"
+
+
+def is_in_tree(root: Path, repo_root: Path) -> bool:
+    """Would a file under `root` be committed with the code in `repo_root`?
+
+    Its own function rather than a line inside the command so it can be checked
+    with plain paths, per `plan.md`'s structure decision — inlined, the only way
+    to exercise it is a CLI runner over a real git repo.
+    """
+    return root.resolve().is_relative_to(repo_root.resolve())
 
 
 def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:

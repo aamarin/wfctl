@@ -146,7 +146,7 @@ it and only the implementation ships. This repo does the latter.
 | `state-dir`      | Print the active XDG state directory path                                |
 | `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
 | `spec-root`      | Show, set, or clear the directory this repo's spec dirs live under       |
-| `promote`        | Interactively promote memory candidates to permanent memory              |
+| `arch-root`      | Show the directory this repo's architecture records live under           |
 | `issue`          | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`) |
 | `change`         | List/view code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
 | `install-skills` | Copy the skills, commands and speckit `.specify/` runtime wfctl ships into the current project |
@@ -475,8 +475,8 @@ Run `wfctl <command> --help` for all options.
 | `WFCTL_STATE_DIR`       | Override XDG state directory for the current session         |
 | `WFCTL_BRANCH`          | Override branch detection                                    |
 | `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
+| `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
-| `WFCTL_CANDIDATES_FILE` | Override path to `memory-candidates.md`                      |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
 
 ## Development
