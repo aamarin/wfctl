@@ -128,3 +128,23 @@ def test_the_change_description_skill_does_not_restate_the_template() -> None:
     restated = sorted(h for h in headings if h in skill)
 
     assert restated == []
+
+
+def test_no_shipped_digest_is_truncated_by_the_hook_that_reads_it() -> None:
+    """A digest over `_DIGEST_MAX_CHARS` loses its last rules to an ellipsis.
+
+    The hook truncates rather than errors, on purpose — in a clone the digest's
+    author is whoever wrote the repo. That is right for a digest wfctl did not
+    write and wrong for one it ships: the file still reads as an authoritative
+    short list, and the rules past the cap are gone from every turn of every
+    session with nothing said. Asserted through the real `_digest_text` so a
+    change to how it flattens is caught here rather than in a live session.
+    """
+    from wfctl.cli import _DIGEST_MAX_CHARS, _digest_text
+
+    over = {
+        d.parent.name: len(" ".join(d.read_text().split()))
+        for d in sorted(_AGENTS.glob("skills/*/digest.md"))
+        if _digest_text(d.parent, _AGENTS).endswith("…")
+    }
+    assert not over, f"truncated at {_DIGEST_MAX_CHARS} chars: {over}"

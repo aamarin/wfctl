@@ -23,6 +23,11 @@ one. They do not expire when the topic changes. If you are unsure whether they
 still apply, they do. Turn them off with the same phrase that turns off
 `i-have-adhd` — "stop adhd mode" or "normal mode".
 
+Saying so is not what makes them persist. `digest.md` beside this file is: the
+rules that break first, re-injected every turn by a `UserPromptSubmit` hook,
+capped at 500 characters and truncated silently past it. It projects this file
+and never sources it, so growth goes here and a cut goes there.
+
 ## Precedence
 
 Six rules, each governing the one below it. When two conflict, the lower
