@@ -77,10 +77,12 @@ def _key_value(line: str) -> tuple[str, str] | None:
     that splits on the colon, and not one to anything matching `"status:"` as a
     prefix.
 
-    An indented key is a nested value, not a top-level setting.
+    An indented key is a nested value, not a top-level setting, and a commented
+    line declares nothing at all — `# status: accepted` is a note about the key,
+    not the key.
     """
     name, sep, value = line.partition(":")
-    if not sep or name.startswith((" ", "\t")):
+    if not sep or name.startswith((" ", "\t", "#")):
         return None
     return name.strip(), value.strip().strip("'\"")
 

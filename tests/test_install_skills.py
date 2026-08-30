@@ -217,7 +217,13 @@ def test_install_skills_skips_native_mirror_by_default(
 def test_install_skills_mirrors_native_skill_for_claude(
     bundle: Path, agent_dir: Path, declared_mirror: None
 ) -> None:
-    """A name in the declared set also mirrors to .claude/skills/<name>."""
+    """A name in the declared set also mirrors to .claude/skills/<name>.
+
+    The fixture's frontmatter carries nothing wfctl wrote, which is the point:
+    membership is decided by name alone, so a vendored skill taken unmodified can
+    be mirrored and stay mirrored across an upstream replacement (FR-004). The
+    frontmatter mechanism this replaced could not express that.
+    """
     import os
     native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
@@ -286,29 +292,6 @@ def test_every_declared_mirror_names_a_shipped_skill() -> None:
     missing = sorted(n for n in _MIRRORED_SKILLS if not (skills_root / n).is_dir())
 
     assert missing == []
-
-
-def test_a_skill_wfctl_never_marked_is_mirrored_when_declared(
-    bundle: Path, agent_dir: Path, declared_mirror: None
-) -> None:
-    """A skill whose frontmatter carries nothing wfctl wrote still mirrors.
-
-    This is the property the frontmatter mechanism could not provide, and the
-    reason the switch moved: a vendored skill is taken unmodified, so the only
-    place its inclusion can survive an upstream replacement is outside the file.
-    """
-    import os
-    native = bundle / "agents" / "skills" / "native-skill"
-    native.mkdir(parents=True)
-    (native / "SKILL.md").write_text(
-        "---\nname: native-skill\ndescription: upstream copy\nlicense: MIT\n---\nBody.\n"
-    )
-
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
-
-    assert result.exit_code == 0
-    assert (repo_root / ".claude" / "skills" / "native-skill" / "SKILL.md").exists()
 
 
 def test_installed_tree_is_never_a_mirror_source(

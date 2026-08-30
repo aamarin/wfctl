@@ -52,6 +52,20 @@ def test_an_absent_status_is_excluded_not_accepted(tmp_path: Path) -> None:
     assert not record.in_force
 
 
+def test_a_commented_key_declares_nothing(tmp_path: Path) -> None:
+    """A commented-out `status:` is a note about the key, not the key.
+
+    Without this the scan reads `# status: accepted` as a status, so commenting a
+    line out would be the one edit that cannot un-accept a record.
+    """
+    path = _write(tmp_path, "commented", "---\n# status: accepted\n---\n\n# X\n")
+
+    record = _arch.parse_record(path)
+
+    assert record.status == ""
+    assert not record.in_force
+
+
 def test_an_unrecognised_status_is_excluded(tmp_path: Path) -> None:
     """Anything outside the closed set is excluded (VR-001) — a typo'd `acepted`
     must not read as binding."""
