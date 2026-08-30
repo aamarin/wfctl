@@ -217,7 +217,7 @@ speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
 | `--agent` | Adds on top of `.agents/` |
 |-----------|---------------------------|
 | *(omitted)* / `none` | nothing — the base layer only |
-| `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for skills marked `deployment: skill` |
+| `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable |
 | `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
 | `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
 | `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |

@@ -1045,29 +1045,28 @@ def _restore_hint(layers: Iterable[str]) -> str:
     return " and ".join(f"`wfctl uninstall-skills --agent {n}`" for n in names)
 
 
-def _skill_deployment(skill_dir: Path) -> str:
-    """Read the `deployment:` frontmatter key from a skill's SKILL.md. Defaults to 'command'."""
-    skill_md = skill_dir / "SKILL.md"
-    if not skill_md.exists():
-        return "command"
-    lines = skill_md.read_text().splitlines()
-    if not lines or lines[0].strip() != "---":
-        return "command"
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if line.startswith("deployment:"):
-            return line.split(":", 1)[1].strip().strip("'\"")
-    return "command"
+# The skills Claude discovers natively, declared here rather than marked in each
+# SKILL.md. A file-level mark cannot cover a vendored skill — the next upstream
+# pull drops whatever we added — and it put authority over a layer's contents in
+# the files instead of the installer that owns them (`layer-model`).
+_MIRRORED_SKILLS = frozenset({
+    "architecture-decisions",
+    "conversation-response-shape",
+    "design-levels",
+    "i-have-adhd",
+    "receiving-code-review",
+    "using-superpowers",
+    "verification-before-completion",
+})
 
 
 def _claude_native_skill_mirror(
     repo_root: Path, item: Path
 ) -> tuple[str, Path, Path] | None:
-    """Claude extra: a skill under .agents/skills marked `deployment: skill` also
+    """Claude extra: a skill under .agents/skills named in `_MIRRORED_SKILLS` also
     mirrors to .claude/skills/<name> (Claude's native discovery path), on top of
     the .agents/skills reference copy every agent gets. None if it doesn't apply."""
-    if not item.is_dir() or _skill_deployment(item) != "skill":
+    if not item.is_dir() or item.name not in _MIRRORED_SKILLS:
         return None
     dest = repo_root / ".claude" / "skills" / item.name
     return str(dest.relative_to(repo_root)), dest, item

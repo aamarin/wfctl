@@ -32,13 +32,14 @@ The source trees carry no leading dot because `.gitignore` ignores `.agents/`
 and `.specify/` unanchored — a dotted source tree would match at any depth and
 be silently untracked.
 
-Only skills whose frontmatter carries `deployment: skill` are mirrored into
+Only skills the installer names in `_MIRRORED_SKILLS` are mirrored into
 `.claude/skills/`. Everything else reaches the agent as a slash command only —
 reachable, but only when the reader types it.
 
-Mirroring is therefore opt-in per skill, and a vendored skill cannot opt in: the
-key would have to go in a file the project does not own, and the next upstream
-pull would drop it. See `vendor-upstream-skills`.
+Mirroring is therefore opt-in per skill and declared outside the skill files,
+which is what lets a vendored skill opt in: a mark inside the file would sit in a
+file the project does not own and the next upstream pull would drop it. See
+`vendor-upstream-skills`.
 
 ## Owns truth
 
@@ -61,3 +62,4 @@ declared, and the copy that loses is the one a release ships.
 
 - 2026-08-28  accepted    — relocated from `AGENTS.md`, where it was the rule most often got wrong
 - 2026-08-29  amended     — mirroring is opt-in, not a bar on always-on output styles; the exclusion the record described was upstream's key on a vendored file (#99)
+- 2026-08-30  amended     — the switch moved from each skill's frontmatter into the installer, so a vendored skill can be mirrored without editing it (#59)

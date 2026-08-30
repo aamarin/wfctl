@@ -1,7 +1,6 @@
 ---
 name: architecture-decisions
 description: 'Write an architecture decision as a durable record — one file per decision, naming which side owns a piece of truth and why the other side cannot compute it. Use when a design answers who owns a value, who computes it, or where authority for a question lives. Use when a boundary between two components is being drawn or moved. Use when a decision that is expensive to reverse has just been made in conversation and nothing has written it down.'
-deployment: skill
 ---
 
 # Architecture decisions

@@ -88,10 +88,10 @@ def _key_value(line: str) -> tuple[str, str] | None:
 def _frontmatter(text: str) -> dict[str, str]:
     """The frontmatter block as key → value, by line scan.
 
-    Mirrors `_skill_deployment` in `wfctl/cli.py`: wfctl's runtime dependencies
-    are `typer` and `rich`, and one status field does not justify a third. The
-    scan stops at the closing delimiter, so a `status:` line quoted in the body
-    is prose and cannot set the record's status.
+    Scanned rather than parsed: wfctl's runtime dependencies are `typer` and
+    `rich`, and one status field does not justify a third. The scan stops at the
+    closing delimiter, so a `status:` line quoted in the body is prose and cannot
+    set the record's status.
 
     A repeated key takes the last value, as a YAML parser would.
     """

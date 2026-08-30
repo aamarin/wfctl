@@ -193,22 +193,35 @@ def test_install_skills_tracker_none_opts_out(bundle: Path, agent_dir: Path) -> 
     assert not (repo_root / ".agents" / "trackers" / "github.json").exists()
 
 
-def test_install_skills_skips_native_mirror_by_default(agent_dir: Path) -> None:
-    """A skill with no `deployment` marker (or `deployment: command`) stays reference-only."""
+@pytest.fixture
+def declared_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Narrow the discoverable set to the one skill these tests create.
+
+    The real set names skills that the `bundle` fixture does not ship, so a test
+    left reading it would assert against the installer's production list rather
+    than the fixture in front of it.
+    """
+    monkeypatch.setattr("wfctl.cli._MIRRORED_SKILLS", frozenset({"native-skill"}))
+
+
+def test_install_skills_skips_native_mirror_by_default(
+    agent_dir: Path, declared_mirror: None
+) -> None:
+    """A skill absent from the declared set stays reference-only."""
     import os
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills"])
     assert not (repo_root / ".claude" / "skills").exists()
 
 
-def test_install_skills_mirrors_native_skill_for_claude(bundle: Path, agent_dir: Path) -> None:
-    """`deployment: skill` in SKILL.md frontmatter also mirrors to .claude/skills/<name>."""
+def test_install_skills_mirrors_native_skill_for_claude(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """A name in the declared set also mirrors to .claude/skills/<name>."""
     import os
     native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
-    (native / "SKILL.md").write_text(
-        "---\nname: native-skill\ndeployment: skill\n---\nBody.\n"
-    )
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
@@ -217,16 +230,18 @@ def test_install_skills_mirrors_native_skill_for_claude(bundle: Path, agent_dir:
     assert (repo_root / ".agents" / "skills" / "native-skill" / "SKILL.md").exists()
     # ...plus the Claude-native discovery mirror.
     assert (repo_root / ".claude" / "skills" / "native-skill" / "SKILL.md").exists()
-    # The command-only skill from the base fixture is not mirrored.
+    # The undeclared skill from the base fixture is not mirrored.
     assert not (repo_root / ".claude" / "skills" / "test-skill").exists()
 
 
-def test_install_skills_bob_ignores_native_deployment_marker(bundle: Path, agent_dir: Path) -> None:
+def test_install_skills_bob_ignores_declared_mirror_set(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
     """The .claude/skills mirror is Claude-specific; bob never gets it."""
     import os
     native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
-    (native / "SKILL.md").write_text("---\ndeployment: skill\n---\nBody.\n")
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
@@ -236,17 +251,90 @@ def test_install_skills_bob_ignores_native_deployment_marker(bundle: Path, agent
     assert not (repo_root / ".claude").exists()
 
 
-def test_uninstall_removes_native_skill_mirror(bundle: Path, agent_dir: Path) -> None:
+def test_uninstall_removes_native_skill_mirror(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
     import os
     native = bundle / "agents" / "skills" / "native-skill"
     native.mkdir(parents=True)
-    (native / "SKILL.md").write_text("---\ndeployment: skill\n---\nBody.\n")
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert (repo_root / ".claude" / "skills" / "native-skill").exists()
 
     runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert not (repo_root / ".claude" / "skills" / "native-skill").exists()
+
+
+def test_every_declared_mirror_names_a_shipped_skill() -> None:
+    """A name in `_MIRRORED_SKILLS` that matches no skill directory fails here.
+
+    The failure it catches is silent: rename or remove a skill and its entry in
+    the set becomes a no-op, so the skill simply stops being discoverable and
+    every other test still passes. The set is a declaration, and a declaration
+    nothing checks is a comment.
+
+    Resolved from the installed package, not `BUNDLE_ROOT` — the autouse
+    `bundle` fixture repoints that at a fixture tree with none of these names in
+    it, which would make this assert against the fixture instead of the bundle.
+    """
+    import wfctl
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    skills_root = Path(wfctl.__file__).parent / "agents" / "skills"
+    missing = sorted(n for n in _MIRRORED_SKILLS if not (skills_root / n).is_dir())
+
+    assert missing == []
+
+
+def test_a_skill_wfctl_never_marked_is_mirrored_when_declared(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """A skill whose frontmatter carries nothing wfctl wrote still mirrors.
+
+    This is the property the frontmatter mechanism could not provide, and the
+    reason the switch moved: a vendored skill is taken unmodified, so the only
+    place its inclusion can survive an upstream replacement is outside the file.
+    """
+    import os
+    native = bundle / "agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text(
+        "---\nname: native-skill\ndescription: upstream copy\nlicense: MIT\n---\nBody.\n"
+    )
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0
+    assert (repo_root / ".claude" / "skills" / "native-skill" / "SKILL.md").exists()
+
+
+def test_installed_tree_is_never_a_mirror_source(
+    agent_dir: Path, declared_mirror: None
+) -> None:
+    """A skill sitting in the destination `.agents/skills/` but in no bundle is
+    never mirrored.
+
+    Worth a test because the mirror set is computed from the wheel's own bundle,
+    and nothing in the code says so out loud. A future change that walked the
+    installed tree instead would still pass every other test here — the
+    declaration and its reader would disagree, and the only symptom would be a
+    hand-authored directory quietly becoming discoverable.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    squatter = repo_root / ".agents" / "skills" / "native-skill"
+    squatter.mkdir(parents=True)
+    (squatter / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    assert result.exit_code == 0
+    # Asserted first: if the install had removed the squatter, the real
+    # assertion below would hold for a reason that has nothing to do with FR-008.
+    assert squatter.exists()
     assert not (repo_root / ".claude" / "skills" / "native-skill").exists()
 
 
