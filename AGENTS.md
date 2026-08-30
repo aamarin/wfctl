@@ -78,6 +78,14 @@ tree. `<repo>/specs` is the default, not the truth: resolution is
 `WFCTL_SPEC_DIR`, then this repo's manifest, then the main checkout's manifest,
 then `<repo>/specs`. Ask `wfctl feature-paths` rather than assuming a path.
 
+Specs reach durable storage on `specs-trunk`, an **orphan branch** — one directory
+per feature branch, `specs(<issue>):` commits. Never purge it. Because it shares
+no ancestor with `main`, every merge-based check reports its entire history as
+unmerged, which is indistinguishable from an abandoned branch: `git cherry
+origin/main origin/specs-trunk` counts all of it. `git merge-base origin/main
+origin/<branch>` printing nothing is the tell that a branch is an orphan rather
+than a stale one, and worth running before a branch sweep deletes anything.
+
 ## Worktrees
 
 Create one with `workmux add <issue>-<slug> --base main`, never bare `git
