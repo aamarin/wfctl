@@ -50,7 +50,7 @@ never verified — true for that checkout.
 | `failed` | list of argv lists, or empty | Every command that did not complete successfully — exited non-zero, or could not be executed at all (FR-023). Empty when `exit` is 0. |
 | `sha` | string | Commit at capture. |
 | `dirty` | boolean | Whether the working tree had uncommitted changes, untracked files included. |
-| `inconclusive` | boolean | True when identity differed between the capture before the run and the capture after it. |
+| `inconclusive` | boolean | True when identity differed between the capture before the run and the capture after it. Identity is `(sha, dirty)` and `dirty` is a boolean, so a change made to an already-dirty tree does not flip it — sound, because a dirty record never reports complete. |
 | `at` | string | UTC timestamp, `%Y-%m-%dT%H:%M:%SZ`, matching `append_event`. |
 
 **Validation**

@@ -63,7 +63,7 @@ $ wfctl verify
 wfctl/_verify.py:42:1: F401 'hashlib' imported but unused
 → uv run mypy wfctl/
 Success: no issues found in 11 source files
-✗ failed — 1 of 3 failed at a1b2c3d
+✗ failed — 1 of 3 at a1b2c3d
     uv run ruff check wfctl/ tests/
 $ echo $?
 1
@@ -100,7 +100,7 @@ $ wfctl verify
 ✗ mypyy: no such executable
 → uv run ruff check wfctl/ tests/
 All checks passed!
-✗ failed — 1 of 3 failed at a1b2c3d
+✗ failed — 1 of 3 at a1b2c3d
     uv run mypyy wfctl/
 $ echo $?
 1
@@ -111,6 +111,7 @@ $ echo $?
 ```
 $ wfctl verify
 ✗ wfctl.json: 'verify' entry 2 must be a non-empty list of strings, got a string
+— write it as argv, e.g. ["pytest", "-q"]
 $ echo $?
 1
 ```
