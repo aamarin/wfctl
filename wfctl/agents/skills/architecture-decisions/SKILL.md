@@ -59,8 +59,15 @@ not `verification-work` or `issue-69`.
 
 Copy `record-template.md` from this skill's directory and fill it in. The
 sections are fixed — `Context`, `Direct baseline`, `Decision`, `Owns truth`,
-`Considered` and `Log` are required, `Consequences` is optional. Add
-`supersedes` to the frontmatter only when this record replaces one.
+`Considered` and `Log` are required, `Boundary` and `Consequences` are optional.
+Add `supersedes` to the frontmatter only when this record replaces one.
+
+`Boundary` holds the level-2 sketch the decision came out of, and it is drawn in
+**mermaid**, not ASCII. `design-levels` draws that sketch in ASCII because a
+skill and a terminal reply both render mermaid as its own source; a record is
+read on GitHub, where it renders as a diagram. Same sketch, redrawn for where it
+lands — and `wfctl arch context` projects only the first paragraph of
+`Decision`, so neither format reaches the terminal through the projection.
 
 ## The field that is not in MADR
 
@@ -157,6 +164,8 @@ where anything can be added.
 - [ ] `Considered` carries at least one real alternative with the true reason it
       was not chosen. Losing on fit is a reason; a weakness the alternative does
       not have is never one.
+- [ ] If something crosses the boundary, `Boundary` carries the sketch in
+      mermaid — including the edges the owning side refuses.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.

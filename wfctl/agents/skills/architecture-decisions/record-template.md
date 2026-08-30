@@ -28,6 +28,14 @@ won, say so here — that is a decision, not an absence of one.>
 <Why the other side cannot compute it: "The agent cannot: a self-report is
 unfalsifiable.">
 
+## Boundary
+
+<Optional. The level-2 sketch, as a mermaid flowchart: one subgraph per side,
+phases down the page, an edge only where something actually crosses. Draw the
+refusals too — an `--x` edge for what the owning side never accepts from the
+other — because that edge is the decision. Delete the section if the decision
+moved authority without a flow.>
+
 ## Considered
 
 - <alternative> — <the reason it was not chosen>

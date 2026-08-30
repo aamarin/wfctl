@@ -222,8 +222,10 @@ what shape is the thing?
  └ one thing ────────────────────► render the string
 ```
 
-ASCII, not mermaid: a skill is read in a terminal, where mermaid renders as its
-own source.
+ASCII while the gate is being answered: a skill and a terminal reply both render
+mermaid as its own source. The format follows the surface, not the diagram — a
+level-2 sketch is redrawn as mermaid when it lands in a record, which is read on
+GitHub. `architecture-decisions` carries that section.
 
 **Level 1 — the literal string each state renders**, stacked one per state, each
 judged true or false in that state. A table only when the states are a real
