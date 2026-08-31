@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Pipeline state is one payload; every view is a transformation of it
@@ -65,9 +65,11 @@ from one, and nothing is computed inside one.
 
 ## Considered
 
-- Keep the console as the command and add a `--json` variant beside it — two
-  paths over one question, and the second is the one nobody looks at, so a fact
-  added to the printing branch reaches the human and silently not the agent.
+- Compute the agent's output on a path of its own beside the console's — two
+  branches over one question, and the second is the one nobody looks at, so a
+  fact added to the printing branch reaches the human and silently not the
+  agent. A flag on `status` is not this: what is rejected is a second inference,
+  not a second format.
 - Emit the glyphs as JSON and let the agent map them — moves the legend into the
   reader, where it drifts from the code and is duplicated per agent.
 - Document the legend in a skill so the agent can interpret the console — the
@@ -82,6 +84,10 @@ payload; the glyph map moves to `cli`, the only place that prints. Tests
 asserting on `●` keep asserting on `●`, at the console, which is now the only
 place it exists.
 
+`status` gains a `--json` flag that serialises the payload; it is a second
+format over one inference, not a second path, and the console branch keeps
+rendering from the same object.
+
 `skipped` gets a name for the first time — it is currently readable only as "the
 dash", and only by someone who has read the comment at `_pipeline.py:200`.
 
@@ -92,3 +98,6 @@ forbid.
 ## Log
 
 - 2026-08-30  proposed    — surfaced by #42's level-1 pass; the agent's only read once `current.md` goes
+- 2026-08-31  accepted    — `status --json` is the machine view; FR-009's deferral
+  was removed once it was clear that deleting `current.json` without it left the
+  agent scraping glyphs, which is the thing this record forbids
