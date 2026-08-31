@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from tests.conftest import CLEAN_SPEC
 from wfctl import _verify
 from wfctl.cli import app
 from wfctl._pipeline import (
@@ -390,21 +391,21 @@ def test_a_bracketed_root_reaches_the_reader(
 def test_a_refused_resume_does_not_advance_state(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """State advanced and `next-step.md` stayed stale, so the two disagreed
-    about where the session was — after a command that reported failure."""
-    import json
+    """The event log advanced and `next-step.md` stayed stale, so the two
+    disagreed about where the session was — after a command that reported
+    failure.
 
+    The log is the whole assertion now that the resume point is derived: nothing
+    else is written, so an event appended past the refusal is the only way the
+    session can claim to have moved."""
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["start"])
-    before = (storyctl_dir.agent_dir / "current.json").read_text()
     events_before = (storyctl_dir.agent_dir / "events.jsonl").read_text()
 
     assert runner.invoke(app, ["resume"]).exit_code == 1
 
-    assert (storyctl_dir.agent_dir / "current.json").read_text() == before
     assert (storyctl_dir.agent_dir / "events.jsonl").read_text() == events_before
-    assert json.loads(before)  # the state that survived is still readable
 
 
 # --- the implement arm, once a definition of done exists (#69) ----------------
@@ -415,9 +416,9 @@ def test_a_refused_resume_does_not_advance_state(
 
 
 def _implement_state(spec_dir: Path, repo_root: Path) -> tuple[str, str]:
-    """Return (symbol, annotation) for the implement step."""
+    """Return (state, annotation) for the implement step."""
     step = next(s for s in _infer_steps(spec_dir, repo_root) if s.name == "implement")
-    return step.symbol, step.annotation or ""
+    return step.state, step.annotation or ""
 
 
 def _commit_all(root: Path, message: str = "c") -> None:
@@ -460,7 +461,7 @@ def test_no_definition_of_done_leaves_the_old_behaviour_untouched(
 ) -> None:
     """SC-001. A repository that never adopts this sees no change at all."""
     storyctl_dir.stage_upstream_of("tasks")
-    assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "●"
+    assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "done"
 
 
 def test_a_sentinel_alone_no_longer_reports_complete(
@@ -473,20 +474,20 @@ def test_a_sentinel_alone_no_longer_reports_complete(
     """
     (gated.spec_dir / "checklists").mkdir(exist_ok=True)
     (gated.spec_dir / "checklists" / "implement-complete.md").write_text("done\n")
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert "unverified" in annotation
 
 
 def test_never_verified_reports_unverified(gated: types.SimpleNamespace) -> None:
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert "run `wfctl verify`" in annotation
 
 
 def test_a_passing_current_record_reports_complete(gated: types.SimpleNamespace) -> None:
     _verify.write_record(gated.agent_dir, _record(gated))
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "●"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "done"
 
 
 def test_a_failed_run_names_the_failing_commands(gated: types.SimpleNamespace) -> None:
@@ -494,15 +495,15 @@ def test_a_failed_run_names_the_failing_commands(gated: types.SimpleNamespace) -
     _verify.write_record(
         gated.agent_dir, _record(gated, exit=1, failed=[["uv", "run", "mypy", "wfctl/"]])
     )
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert "failed" in annotation and "uv run mypy wfctl/" in annotation
 
 
 def test_an_inconclusive_run_asks_for_a_rerun(gated: types.SimpleNamespace) -> None:
     _verify.write_record(gated.agent_dir, _record(gated, inconclusive=True))
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶" and "inconclusive" in annotation
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress" and "inconclusive" in annotation
 
 
 def test_a_passing_record_with_open_checkboxes_stays_in_progress(
@@ -515,7 +516,7 @@ def test_a_passing_record_with_open_checkboxes_stays_in_progress(
     """
     gated.make_spec_artifact("tasks", "- [x] T001 done\n- [ ] T002 not done\n")
     _verify.write_record(gated.agent_dir, _record(gated))
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "▶"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "in_progress"
 
 
 def test_a_record_with_no_tasks_file_still_reports_not_started(
@@ -524,7 +525,7 @@ def test_a_record_with_no_tasks_file_still_reports_not_started(
     """A verdict about nothing does not begin the step."""
     (gated.spec_dir / "tasks.md").unlink()
     _verify.write_record(gated.agent_dir, _record(gated))
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "○"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "pending"
 
 
 def test_status_never_runs_the_definition_of_done(gated: types.SimpleNamespace) -> None:
@@ -570,8 +571,8 @@ def test_a_moved_commit_makes_a_passing_record_stale(gated: types.SimpleNamespac
     _verify.write_record(gated.agent_dir, _record(gated))
     (gated.repo_root / "later.py").write_text("pass\n")
     _commit_all(gated.repo_root, "later")
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert "stale" in annotation and "HEAD is" in annotation
 
 
@@ -585,8 +586,8 @@ def test_an_uncommitted_edit_makes_a_passing_record_stale(
     """
     _verify.write_record(gated.agent_dir, _record(gated))
     (gated.repo_root / "ok.py").write_text("raise SystemExit(1)\n")
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert "uncommitted changes" in annotation
 
 
@@ -597,7 +598,7 @@ def test_an_untracked_file_makes_a_passing_record_stale(
     files would let never-verified code sit inside a green verdict."""
     _verify.write_record(gated.agent_dir, _record(gated))
     (gated.repo_root / "brand_new.py").write_text("def f(): ...\n")
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "▶"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "in_progress"
 
 
 def test_changing_the_definition_of_done_makes_a_passing_record_stale(
@@ -613,8 +614,8 @@ def test_changing_the_definition_of_done_makes_a_passing_record_stale(
         json.dumps({"verify": [gated.command, ["python3", "-c", "pass"]]})
     )
     _commit_all(gated.repo_root, "stricter definition")
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert "definition of done changed" in annotation
 
 
@@ -633,13 +634,13 @@ def test_a_reordered_definition_of_done_is_a_different_definition(
     )
     _commit_all(gated.repo_root, "two commands")
     _verify.write_record(gated.agent_dir, _record(gated, command=[gated.command, second]))
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "●"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "done"
 
     (gated.repo_root / _verify.CONFIG_PATH).write_text(
         json.dumps({"verify": [second, gated.command]})
     )
     _commit_all(gated.repo_root, "same two, swapped")
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "▶"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "in_progress"
 
 
 def test_a_failure_on_a_moved_commit_reports_the_failure_not_the_staleness(
@@ -654,8 +655,8 @@ def test_a_failure_on_a_moved_commit_reports_the_failure_not_the_staleness(
     _verify.write_record(gated.agent_dir, _record(gated, exit=1, failed=[gated.command]))
     (gated.repo_root / "later.py").write_text("pass\n")
     _commit_all(gated.repo_root, "later")
-    symbol, annotation = _implement_state(gated.spec_dir, gated.repo_root)
-    assert symbol == "▶"
+    state, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert state == "in_progress"
     assert annotation.count("failed") and "HEAD is" not in annotation
 
 
@@ -669,7 +670,7 @@ def test_a_fresh_checkout_of_a_verified_branch_reports_unverified(
     of done has run on this machine against this tree.
     """
     _verify.write_record(gated.agent_dir, _record(gated))
-    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "●"
+    assert _implement_state(gated.spec_dir, gated.repo_root)[0] == "done"
 
     clone = tmp_path_factory.mktemp("clone") / "wfctl"
     subprocess.run(
@@ -681,8 +682,8 @@ def test_a_fresh_checkout_of_a_verified_branch_reports_unverified(
     monkeypatch.setenv("WFCTL_STATE_DIR", str(fresh_state))
     monkeypatch.setenv("WFCTL_REPO_ROOT", str(clone))
 
-    symbol, annotation = _implement_state(gated.spec_dir, clone)
-    assert symbol == "▶" and "unverified" in annotation
+    state, annotation = _implement_state(gated.spec_dir, clone)
+    assert state == "in_progress" and "unverified" in annotation
 
 
 # --- US3: projects without a definition of done are untouched ----------------
@@ -690,10 +691,10 @@ def test_a_fresh_checkout_of_a_verified_branch_reports_unverified(
 @pytest.mark.parametrize(
     "tasks, expected",
     [
-        ("", "○"),
-        ("- [ ] T001 not done\n", "▶"),
-        ("- [x] T001 done\n", "●"),
-        ("- [x] T001 done\n- [ ] T002 not done\n", "▶"),
+        ("", "pending"),
+        ("- [ ] T001 not done\n", "in_progress"),
+        ("- [x] T001 done\n", "done"),
+        ("- [x] T001 done\n- [ ] T002 not done\n", "in_progress"),
     ],
     ids=["no-tasks", "open-boxes", "all-ticked", "partly-ticked"],
 )
@@ -726,7 +727,7 @@ def test_the_sentinel_route_still_works_without_a_definition_of_done(
     storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 not done\n")
     (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
     (storyctl_dir.spec_dir / "checklists" / "implement-complete.md").write_text("done\n")
-    assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "●"
+    assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "done"
 
 
 def test_an_empty_verify_list_is_the_same_as_no_file(
@@ -736,7 +737,7 @@ def test_an_empty_verify_list_is_the_same_as_no_file(
     storyctl_dir.stage_upstream_of("tasks")
     for payload in ("{}", '{"verify": []}', '{"other": 1}'):
         (storyctl_dir.repo_root / _verify.CONFIG_PATH).write_text(payload)
-        assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "●"
+        assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "done"
 
 
 def test_a_malformed_definition_of_done_blocks_rather_than_degrades(
@@ -750,5 +751,233 @@ def test_a_malformed_definition_of_done_blocks_rather_than_degrades(
     """
     storyctl_dir.stage_upstream_of("tasks")
     (storyctl_dir.repo_root / _verify.CONFIG_PATH).write_text('{"verify": ["pytest -q"]}')
-    symbol, annotation = _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)
-    assert symbol == "▶" and "malformed" in annotation
+    state, annotation = _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+    assert state == "in_progress" and "malformed" in annotation
+
+
+# --- what the four states draw (#74) ------------------------------------------
+#
+# `_infer_steps` carries names now; `cli._STATE_GLYPH` is the only place one
+# becomes a symbol. These pin the rendered line for each state, so the encoding
+# change is provably invisible to a human reading `wfctl status`.
+
+
+def _status_lines(storyctl_dir: types.SimpleNamespace) -> list[str]:
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    return result.output.splitlines()
+
+
+def test_each_state_draws_the_symbol_it_drew_before_it_had_a_name(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Three of the four states in one render, asserted as literal lines.
+
+    A spec with no design and no plan: brainstorm was passed by, specify and
+    clarify are behind, plan is where the reader is sent. Byte-identical to the
+    output before the state names existed — the renderer is the only thing that
+    knows a glyph, and it knows the same ones.
+    """
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+
+    lines = _status_lines(storyctl_dir)
+    assert "brainstorm   –" in lines          # skipped
+    assert "specify      ●" in lines          # done
+    assert "plan         ○  ← current" in lines  # pending, and the cursor
+    assert "tasks        ○" in lines
+
+
+def test_in_progress_draws_the_cursor_glyph(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The fourth state, which needs a spec that clarify has not finished with.
+
+    Separate from the test above because no single feature directory reaches all
+    four: `in_progress` is what a step in flight reads, and every step before it
+    has to be behind the reader for it to be the one drawn.
+    """
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact(
+        "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+    )
+
+    lines = _status_lines(storyctl_dir)
+    assert "brainstorm   ●" in lines
+    assert "clarify      ▶  ← current" in lines
+
+
+def test_the_json_view_and_the_console_view_agree(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Asserting the two agree is the point of the flag, not a side check.
+
+    A fact added to one branch and not the other is the drift `--json` exists to
+    prevent: an agent reading the machine view and a human reading the block
+    would be told different things about the same feature directory.
+    """
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    storyctl_dir.make_spec_artifact("plan")
+    storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+
+    result = runner.invoke(app, ["status", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    console = _status_lines(storyctl_dir)
+
+    glyphs = {"done": "●", "in_progress": "▶", "pending": "○", "skipped": "–"}
+    for step in payload["steps"]:
+        expected = f"{step['name'].ljust(12)} {glyphs[step['state']]}"
+        if step["annotation"]:
+            expected += f"  {step['annotation']}"
+        if step["is_current"]:
+            expected += "  ← current"
+        assert expected in console
+
+    assert f"next: {payload['next_command']}" in console
+    assert payload["current"] == "analyze"
+    assert payload["branch"] == "418-storyctl"
+    assert payload["issue"] == "418"
+    assert payload["session_started"] is False
+
+
+def test_no_glyph_reaches_the_json_view(storyctl_dir: types.SimpleNamespace) -> None:
+    """At any depth, not just on `state` — an annotation carrying one is the same defect."""
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+
+    result = runner.invoke(app, ["status", "--json"])
+
+    assert not set(result.output) & set("●▶○–")
+
+
+# --- the six states from design.md, as literal rendered lines ------------------
+#
+# Every one of these was captured from the real command before the change, and
+# four of the six were wrong. Asserting the literal line rather than a substring
+# is the point: the defects were in what the line *said*, not in whether it
+# appeared.
+
+
+def test_state_1_nothing_exists_yet(storyctl_dir: types.SimpleNamespace) -> None:
+    """No spec dir at all. Brainstorm is where a new feature starts."""
+    import shutil
+    shutil.rmtree(str(storyctl_dir.spec_dir))
+
+    lines = _status_lines(storyctl_dir)
+
+    assert "(no spec dir found)" in lines
+    assert "brainstorm   ○  ← current" in lines
+    assert "next: /speckit.brainstorm" in lines
+
+
+def test_state_2_an_empty_spec_dir_renders_the_same_as_no_spec_dir(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """States 1 and 2 are the same situation and used to get opposite advice.
+
+    An empty directory read `brainstorm –`, which routed past design to specify.
+    Whether a directory happens to exist is not a fact about the feature.
+    """
+    lines = _status_lines(storyctl_dir)
+
+    assert "brainstorm   ○  ← current" in lines
+    assert "specify      ○" in lines
+    assert "next: /speckit.brainstorm" in lines
+
+
+def test_state_3_a_marked_spec_routes_to_clarify(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Markers are clarify's job, so specify is not where the reader is sent back to."""
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact(
+        "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+    )
+
+    lines = _status_lines(storyctl_dir)
+
+    assert "specify      ▶" in lines
+    assert "clarify      ▶  ← current" in lines
+    assert "next: /speckit.clarify" in lines
+
+
+def test_state_4_a_spec_that_predates_the_gate_shows_clarify_skipped(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Planning already passed through where clarify now sits.
+
+    True for a human who has read `_pipeline.py`; the drawing was false for an
+    agent, because `–` and `●` are both "does not block" and nothing recovers
+    which one it has. `--json` is where that difference now survives.
+    """
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo markers.\n")
+    storyctl_dir.make_spec_artifact("plan")
+
+    lines = _status_lines(storyctl_dir)
+
+    assert "specify      ●" in lines
+    assert "clarify      –" in lines
+    assert "plan         ●" in lines
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    states = {s["name"]: s["state"] for s in payload["steps"]}
+    assert states["clarify"] == "skipped"
+    assert states["specify"] == "done"
+
+
+def test_state_5_implementing_but_unverified(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Two observed facts, neither concluded — the state the others should look like."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+    (storyctl_dir.repo_root / _verify.CONFIG_PATH).write_text(
+        json.dumps({"verify": [["true"]]})
+    )
+
+    lines = _status_lines(storyctl_dir)
+
+    assert "implement    ▶  1/1 done  unverified — run `wfctl verify`  ← current" in lines
+    assert "next: wfctl verify" in lines
+
+
+def test_state_6_a_finished_story_says_so(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The terminal state used to render as an absence: no cursor, no line.
+
+    The sentence existed only in `resume`, so the one command an agent asks for
+    position told it nothing at the moment there was nothing left to do.
+    """
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+    storyctl_dir.make_spec_artifact("decompose")
+
+    lines = _status_lines(storyctl_dir)
+
+    assert "implement    ●  1/1 done" in lines
+    assert not any("← current" in line for line in lines)
+    assert f"next: {STORY_COMPLETE_CONSOLE}" in lines
+
+
+@pytest.mark.parametrize("command", ["next", "resume"])
+def test_the_file_an_agent_reads_names_the_command_status_prints(
+    storyctl_dir: types.SimpleNamespace, command: str
+) -> None:
+    """`next-step.md` and the `next:` line are two views of one payload.
+
+    They diverged in the state that matters most: tasks all ticked and the
+    definition of done not passed. `status` routed to `wfctl verify`, and
+    `resume` sent the session back to `/speckit.implement`, where there was no
+    task left to do — so the agent ran the step again, changed nothing, and was
+    told the same thing next time.
+    """
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+    (storyctl_dir.repo_root / _verify.CONFIG_PATH).write_text(
+        json.dumps({"verify": [["true"]]})
+    )
+    runner.invoke(app, ["start"])
+
+    runner.invoke(app, [command])
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    assert "Next step: wfctl verify" in written
+    assert "next: wfctl verify" in runner.invoke(app, ["status"]).output

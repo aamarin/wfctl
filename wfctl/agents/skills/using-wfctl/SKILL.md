@@ -29,10 +29,16 @@ command those don't cover, or when picking the right one isn't obvious.
 
 ## Where state lives
 
-Session state (`current.json`, `current.md`, `next-step.md`, session
-summaries) lives under `wfctl state-dir` — an XDG state path outside
-the repo, not inside it. It never needs to be committed and running any
-wfctl command never touches your git history on its own.
+The state dir (`wfctl state-dir`) is an XDG path outside the repo, not
+inside it. It holds `events.jsonl`, `next-step.md` and the session
+summaries — the history of what happened and the prose a session left
+behind, which is everything about a session that cannot be recomputed.
+
+Where the feature stands is not in there. The pipeline step, the next
+command, the issue and the branch are derived from artifacts on every
+read, so `wfctl status` is true whatever has happened since the last
+command. Nothing needs committing, and running any wfctl command never
+touches your git history on its own.
 
 ## install-skills / uninstall-skills
 

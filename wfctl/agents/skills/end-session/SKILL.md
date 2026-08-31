@@ -43,7 +43,17 @@ unfilled is a failed handoff.
    ```bash
    wfctl end
    ```
-   This writes `session-summary.md` in the state dir (`$(wfctl state-dir)`).
+   This writes `session-summary.md` in the state dir (`$(wfctl state-dir)`) and
+   prints what it observed:
+
+   ```
+   ✓ Session closed — implement 3/8 done, boundary answered, tree dirty.
+     Summary: /Users/…/state/wfctl/<branch>/session-summary.md
+   ```
+
+   Three readings, no verdict. The scaffold it writes already carries them as
+   `**Step**`, `**Boundary**` and `**Tree**` — leave those lines alone. They are
+   what `wfctl` could see; the prose below them is what only you know.
 
 4. **Fill in `$(wfctl state-dir)/session-summary.md`** using the scan from step 2.
    Keep it concrete — this is the next session's starting context:
@@ -52,8 +62,10 @@ unfilled is a failed handoff.
    # Session Summary: {YYYY-MM-DD} — {branch}
 
    **End time:** {timestamp from step 1}
+   **Step**: {left as `wfctl end` wrote it}
+   **Boundary**: {left as `wfctl end` wrote it}
+   **Tree**: {left as `wfctl end` wrote it}
    **Focus:** {one line — what this session was about}
-   **Status:** {in progress | complete | blocked}
 
    ## What We Accomplished
    - {from commit subjects: what shipped}
@@ -75,6 +87,13 @@ unfilled is a failed handoff.
    **CRITICAL:** Fill every field with the actual data from step 2's scan — never
    leave `(fill in)` or template placeholders. No commits this session → "No
    commits." No blockers → "None."
+
+   Do not add a status line. There used to be one — `in progress | complete |
+   blocked` — and nothing could observe which of the three was true, so it was
+   guessed and the next session read the guess as fact. Where the work stands is
+   the `**Step**` line above, which was read rather than decided. Say what is
+   unfinished in **Next Session TODO**, where it is a statement of intent and
+   reads as one.
 
 5. **Ask before committing.** If step 2 showed uncommitted changes, ask the user:
    "Commit these with a message referencing the active issue?" On yes, commit with
