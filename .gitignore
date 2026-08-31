@@ -21,3 +21,7 @@ specs/
 
 # Worktrees workmux nests here — checkouts of this repo, not project source.
 wt/
+
+# macOS writes this into any directory Finder opens; untracked files count
+# toward `wfctl verify`'s dirty-tree check, so it blocks every verification.
+.DS_Store
