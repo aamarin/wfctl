@@ -1,7 +1,6 @@
 ---
 name: design-levels
 description: 'Runs design as four separate passes — behavior, architecture, design, implementation — each with its own gate, so decisions that are expensive to reverse get made deliberately rather than buried in code. Use when designing a feature, screen, or schema change, before writing a spec or any code. Use when a question asks what changes for the user, what moves, or who owns a piece of truth. Use when a design conversation has jumped from a wireframe straight to an implementation.'
-deployment: skill
 ---
 
 # Design levels

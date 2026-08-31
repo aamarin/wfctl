@@ -77,10 +77,12 @@ def _key_value(line: str) -> tuple[str, str] | None:
     that splits on the colon, and not one to anything matching `"status:"` as a
     prefix.
 
-    An indented key is a nested value, not a top-level setting.
+    An indented key is a nested value, not a top-level setting, and a commented
+    line declares nothing at all — `# status: accepted` is a note about the key,
+    not the key.
     """
     name, sep, value = line.partition(":")
-    if not sep or name.startswith((" ", "\t")):
+    if not sep or name.startswith((" ", "\t", "#")):
         return None
     return name.strip(), value.strip().strip("'\"")
 
@@ -88,10 +90,10 @@ def _key_value(line: str) -> tuple[str, str] | None:
 def _frontmatter(text: str) -> dict[str, str]:
     """The frontmatter block as key → value, by line scan.
 
-    Mirrors `_skill_deployment` in `wfctl/cli.py`: wfctl's runtime dependencies
-    are `typer` and `rich`, and one status field does not justify a third. The
-    scan stops at the closing delimiter, so a `status:` line quoted in the body
-    is prose and cannot set the record's status.
+    Scanned rather than parsed: wfctl's runtime dependencies are `typer` and
+    `rich`, and one status field does not justify a third. The scan stops at the
+    closing delimiter, so a `status:` line quoted in the body is prose and cannot
+    set the record's status.
 
     A repeated key takes the last value, as a YAML parser would.
     """

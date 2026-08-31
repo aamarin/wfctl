@@ -40,11 +40,25 @@ def test_each_status_in_the_closed_set_parses(tmp_path: Path, status: str) -> No
 
 
 def test_an_absent_status_is_excluded_not_accepted(tmp_path: Path) -> None:
-    """The load-bearing default, and the one place this deliberately differs from
-    `_skill_deployment`: that defaults to the common case, this to the
-    conservative one. Presenting an unreviewed decision as binding is the exact
-    failure the status field exists to prevent."""
+    """The load-bearing default. A frontmatter scan usually defaults to the
+    common case; this one defaults to the conservative case instead, because
+    presenting an unreviewed decision as binding is the exact failure the status
+    field exists to prevent."""
     path = _write(tmp_path, "no-status", "---\nsupersedes: other\n---\n\n# X\n")
+
+    record = _arch.parse_record(path)
+
+    assert record.status == ""
+    assert not record.in_force
+
+
+def test_a_commented_key_declares_nothing(tmp_path: Path) -> None:
+    """A commented-out `status:` is a note about the key, not the key.
+
+    Without this the scan reads `# status: accepted` as a status, so commenting a
+    line out would be the one edit that cannot un-accept a record.
+    """
+    path = _write(tmp_path, "commented", "---\n# status: accepted\n---\n\n# X\n")
 
     record = _arch.parse_record(path)
 
