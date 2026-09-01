@@ -73,18 +73,7 @@ def test_the_form_selection_table_has_exactly_one_home() -> None:
 
 def _fenced_blocks(text: str) -> list[str]:
     """The fenced example blocks, without their fences."""
-    blocks: list[str] = []
-    current: list[str] | None = None
-    for line in text.splitlines():
-        if line.startswith("```"):
-            if current is None:
-                current = []
-            else:
-                blocks.append("\n".join(current))
-                current = None
-        elif current is not None:
-            current.append(line)
-    return blocks
+    return [b.rstrip("\n") for b in re.findall(r"```[^\n]*\n(.*?)```", text, re.DOTALL)]
 
 
 def test_no_example_teaches_a_rule_in_wfctl_vocabulary() -> None:
