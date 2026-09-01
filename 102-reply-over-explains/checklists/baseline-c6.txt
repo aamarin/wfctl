@@ -1,0 +1,4 @@
+✓  $ wfctl end
+✗  "The design only changed how wfctl reads completion — the agent still
+     → also runs wfctl verify                (the new step)
+   wfctl status

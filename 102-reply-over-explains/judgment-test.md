@@ -91,10 +91,15 @@ first. Any **no** in the first four is a failure regardless of length.
 | J5 | Are the four reachable states drawn rather than described? | FR-005, FR-005a |
 | J6 | If a drawing is present, does its form match the material? | SC-009 |
 | J7 | Does the reply surface the empty-`post_create` decision as the open one? | the discriminator |
+| J8 | If the prompt asked about **current state** rather than a change, does the reply avoid manufacturing a "what changed"? | FR-004 — genre, SC-010 |
 
 J5 is the specific claim of the form-selection change: this material is
 "a property varying across rows", the skill's own *Enumerate real states* rule
 already names that shape, and variant C produced the table while F did not.
+
+J8 does not apply to #88, which asks for an implementation. It applies to the
+state-question read added to the unscored set — the genre split FR-004 introduces
+is otherwise never exercised, because every benchmark task is a change proposal.
 
 J7 is the sharpest single question. Re-arguing the closed decision and missing
 the open one is the exact failure #102 was filed for.

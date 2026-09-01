@@ -86,7 +86,7 @@ tests/test_skill_cross_references.py                       # FR-010 — must sta
 tests/test_response_shape_invariants.py                    # FR-012 — new
 ```
 
-**Three files change, one is added.** The new test file is the answer to "is the
+**Two files change, one is added.** The new test file is the answer to "is the
 contract enforced or decorative": `contracts/skill-structure.md` marks seven
 invariants assertable, and today **none** of them is asserted anywhere — the two
 existing skill test files cover cross-references and the ADR record template

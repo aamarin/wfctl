@@ -87,14 +87,14 @@ in three of five runs, one unwarranted.
    reply is composed, **Then** it draws a fan-out, without the reader asking for
    a diagram.
 3. **Given** a reader with three distinct questions, **When** the reply is
-   composed, **Then** it may carry three drawings — one visual per reply is not a
+   composed, **Then** it may carry three drawings — one drawing per reply is not a
    limit.
 4. **Given** a reply that reports a change, **When** it opens, **Then** it opens
    with what changed, why, and what it affects. **Given** a reply that answers a
    question about current state, **Then** it opens with the claim and the numbers
    in it, and does not manufacture a "what changed".
 5. **Given** subject matter with no structure worth drawing, **When** the reply is
-   composed, **Then** no visual is forced — a two-cell table around twenty words
+   composed, **Then** no drawing is forced — a two-cell table around twenty words
    is a failure of this requirement, not a satisfaction of it.
 6. **Given** a drawing in a reply, **When** it is rendered, **Then** one line
    beneath it names what to look at, and says nothing the drawing already says.
@@ -263,6 +263,18 @@ message is a clarifying question about the subject rather than about the answer.
 - **FR-009**: This feature MUST NOT introduce a new skill, a new frontmatter key,
   or any CLI change. Scope is the skill file and the pull request template.
 - **FR-010**: The skill cross-reference tests MUST continue to pass unchanged.
+- **FR-011**: The skill MUST require a reply to establish its subject before
+  deciding about it. Where a reply determines placement, retention, or a choice
+  between options for a named thing, it MUST first state what that thing is and
+  what it does, rendering its literal surface where one exists.
+- **FR-011a**: The subject rule MUST sit in the precedence list beside "answer
+  first" and "frame in plain language", not in the drawing section — it governs
+  content and order, not form. It MUST be stated as distinct from both: a reply
+  can satisfy either and still fail this one.
+- **FR-011b**: The skill MUST name the observable check — a reader's follow-up
+  asking what the reply is about, rather than about its answer, means the
+  subject was never established.
+
 - **FR-012**: This feature MUST add automated checks for the invariants it
   introduces, so they are enforced rather than merely documented:
   - the draw test and the form-selection table appear in exactly one file under
@@ -275,18 +287,6 @@ message is a clarifying question about the subject rather than about the answer.
 - **FR-012a**: Checks for general skill well-formedness — frontmatter key sets,
   precedence-list contiguity — MUST NOT be added here. #60 is open for exactly
   that and owns it; adding them here would give that concern two homes.
-
-- **FR-011**: The skill MUST require a reply to establish its subject before
-  deciding about it. Where a reply determines placement, retention, or a choice
-  between options for a named thing, it MUST first state what that thing is and
-  what it does, rendering its literal surface where one exists.
-- **FR-011a**: The subject rule MUST sit in the precedence list beside "answer
-  first" and "frame in plain language", not in the drawing section — it governs
-  content and order, not form. It MUST be stated as distinct from both: a reply
-  can satisfy either and still fail this one.
-- **FR-011b**: The skill MUST name the observable check — a reader's follow-up
-  asking what the reply is about, rather than about its answer, means the
-  subject was never established.
 
 ### Out of Scope
 
@@ -357,19 +357,22 @@ message is a clarifying question about the subject rather than about the answer.
 - **SC-008**: On material that is a fan-out or a partition, the reply draws it
   without the reader asking. The #99 failure — a reader having to type "i need a
   diagram here" — does not recur on the same class of material.
-- **SC-009**: Across the benchmark tasks, the share of drawings whose form matches
-  the material rises against the recorded baseline, in which 3 of 5 replies drew a
-  table and one of those had no shape to draw.
+- **SC-009**: Across the four unscored tasks, each drawing's form is recorded
+  against the material's actual shape. **No delta against the 3-of-5 baseline is
+  claimed** — that baseline counted whether a table *appeared*, not whether it was
+  warranted, so the two numbers are not comparable. Whether form selection beats
+  the table habit stays an open question (design.md), not a criterion this feature
+  asserts it meets.
 - **SC-010**: A reply answering a question about current state contains no
   manufactured "what changed" section.
 - **SC-011**: Zero reader follow-ups asking to identify the subject of a reply
   ("what X are we talking about", "which file", "wait, what is X") across the
   benchmark tasks.
-- **SC-013**: Every invariant this feature introduces has an automated check.
-  Zero invariants are documented-but-unenforced.
 - **SC-012**: Prose word count is reported alongside SC-011, never alone. A reply
   that scores well on word count and triggers an SC-011 follow-up counts as a
   failure, not a win.
+- **SC-013**: Every invariant this feature introduces has an automated check.
+  Zero invariants are documented-but-unenforced.
 
 ## Validation Strategy _(mandatory)_
 
