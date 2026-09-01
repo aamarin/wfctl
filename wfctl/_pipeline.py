@@ -357,20 +357,12 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
     return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
-def current_step(steps: list[tuple[str, bool]]) -> str:
-    """Return name of first incomplete step, or 'complete'."""
-    for name, done in steps:
-        if not done:
-            return name
-    return "complete"
-
-
 def next_step_content(
     step: str, repo_root: Path | None = None, spec_dir: Path | None = None
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
-    An undefined step yields ("", False) rather than raising: `current_step`
+    An undefined step yields ("", False) rather than raising: `_current_step_name`
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
 
