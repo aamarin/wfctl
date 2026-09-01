@@ -2,7 +2,7 @@
 
 Its content is prose, so the suite cannot check that it reads well. What it can
 check is the structure other files depend on: that the rule numbers three
-in-file references resolve by have not moved, that the form-selection table has
+in-file references point at have not moved, that the form-selection table has
 exactly one home, and that no example teaches a rule using vocabulary a
 downstream repo has never heard of.
 

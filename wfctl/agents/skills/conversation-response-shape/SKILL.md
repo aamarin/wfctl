@@ -23,7 +23,7 @@ still apply, they do. Turn them off with the same phrase that turns off
 ## Precedence
 
 Six rules, each governing the one below it. When two conflict, the lower
-number wins.
+number wins — except where a named exception below says otherwise.
 
 1. Answer first.
 2. Frame in plain language before mechanics.
