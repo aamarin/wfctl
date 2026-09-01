@@ -36,6 +36,10 @@ Depth never reorders the answer, and never substitutes for the framing. A long
 answer is not permission to build toward the point — it means more supporting
 material *below* the point.
 
+**Rule 1 vs. rule 4.** A subject the question doesn't already name means rule 4
+runs before the answer, not after — its own worked example shows that order,
+which "answer first" alone would skip past.
+
 Where this skill and `i-have-adhd` collide, `i-have-adhd` owns the shape and
 this skill owns the order. Two collisions are worth naming.
 
@@ -248,7 +252,8 @@ does not have to argue for its place.
 ```
 
 Requested reasoning is not volunteered. Rule 3 still governs there — a reader
-who asks why gets the full answer.
+who asks why gets the full answer. Rule 4 material is exempt too — required
+by an earlier rule, not volunteered.
 
 
 ## 6. The whole reply, not the pieces
@@ -277,6 +282,18 @@ fail this just as badly, and length was never the signal.
 
 The drawing carries the argument. The line beneath it is a caption — it names
 what to look at and says nothing the drawing already says.
+
+**A proposed change is a set.** Naming a fix means naming what the code does
+today and what it does once changed, across every input that reaches it — the
+*rows against columns* row below, and the one most often missed. The
+implementation is not that drawing: a branch the reader has to run in their
+head to recover the states is the holding a drawing exists to prevent.
+
+```
+✗  a diff, then "the unset case still falls back to the default"
+    — one state named in prose, the rest readable only by executing
+      the branch
+```
 
 **Pick the form from what the material is**, before reaching for any of them.
 Skip this and the table wins by default, answering whatever question a table can
@@ -316,8 +333,8 @@ copied rather than chosen.
 
 ## Judgment rules
 
-The three rules under *Show: the drawing is the description* are checkable — you
-can see whether the line is rendered, the table exists, the columns split. These
+The rules under *Show: the drawing is the description* are checkable — you can
+see whether the drawing is there, the form matches, the columns split. These
 aren't. Compliance means re-deriving the judgment behind the rule, not
 inspecting what came out the other end.
 
@@ -338,23 +355,6 @@ rows for `1/3`, `2/3`, `3/3` say nothing the column doesn't.
 **The drawing leads.** It goes before the explanation, which then covers only
 what the picture cannot say. Which drawing is the selection table's job; this is
 about where it sits.
-
-**Sections repeat one shape.** Sections are named concepts, and every section in
-a set holds the same slots in the same order — after the first, the reader
-knows where to look in the rest.
-
-```
-## Section A
-**Goal**: ...
-**Verify**: ...
-
-## Section B
-**Goal**: ...
-**Verify**: ...
-```
-
-Reorder them in Section B and the reader has to re-read both sections to find
-the check.
 
 ## Untangling compressed explanations
 
