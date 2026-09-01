@@ -131,11 +131,17 @@ class _PipelineStep:
 def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     """Internal: return steps carrying `done` / `in_progress` / `pending` / `skipped`.
 
-    A name rather than a glyph. `–` and `●` are drawn differently and both mean
-    "does not block", so a reader holding only the drawing cannot recover which
-    of the two it has — and the pipeline report is the agent's only read once
-    `current.json` is gone. `cli` owns the mapping back to symbols, and is the
-    only place one exists.
+    A name rather than a glyph — not because the glyphs are unreadable. Agents
+    decode `● ▶ ○ –` fine, and an experiment run against this docstring's earlier
+    claim found three doing so with no legend and no errors. They decode it by
+    convention they bring, though, not by a map this file publishes: a fourth
+    reader handed one off-map character assigned a state anyway and called itself
+    confident. A legible rendering nothing can verify is still a contract, and it
+    is one whose terms live outside the repo.
+
+    So the state name is what inference stores, and `cli` maps it to a symbol at
+    the moment of printing. That keeps the glyphs restylable — changing them is a
+    change to a drawing, not to what the next session believes.
 
     `repo_root` is what the implement arm reads the definition of done and the
     live git state from. It was carried unused for a while after the design doc

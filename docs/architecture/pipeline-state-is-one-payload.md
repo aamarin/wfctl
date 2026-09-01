@@ -13,10 +13,20 @@ not a view of the state, it is the state.
 
 That was survivable while the console was the only reader. It stops being
 survivable under `session-state-is-re-derived`, which deletes `current.md` and
-makes this output the agent's only answer to "where is this feature". Two of the
-four glyphs are distinctions nothing recovers from the drawing: `–` means the
-step never ran and does not block, and the code is explicit that calling it `●`
-"would hide that".
+makes this output the agent's only answer to "where is this feature".
+
+The cost is not that the drawing is unreadable. An experiment run after this
+record was accepted gave three readers the console output with no legend, and
+all three named every state correctly. The cost is *how* they did it: they
+reported decoding by "standard UI convention" — a mapping they arrive with, not
+one this repo publishes. A fourth reader, given the same output with one
+character corrupted to a symbol in no map, did not report an unknown glyph. It
+assigned a state, called itself highly confident, and cited the step count as
+corroboration.
+
+So the console is legible and unverifiable at once. Nothing checks that a
+reader's convention matches `_STATE_GLYPH`, and a reader that cannot recognise
+disagreement cannot report it.
 
 ## Decision
 
@@ -33,10 +43,14 @@ anything the other cannot see, and the glyph exists nowhere above the renderer.
 wfctl owns "what state is each pipeline step in?", and owns it as data — one
 structure, computed once, from which every rendering is derived.
 
-A view cannot own it, because a view is lossy by construction. The console
-encodes four states in four glyphs chosen for a human eye, and `–` and `●` are
-drawn differently while both meaning "does not block": a reader recovering state
-from the drawing works from strictly less than wfctl had.
+A view cannot own it, because a view is lossy by construction — though not
+where this record first claimed. The four glyphs do survive the trip; what does
+not is everything the drawing has no glyph for. `session_started` is not
+rendered at all. A `next_command` of `null` is printed as an English sentence in
+the slot a runnable command occupies, so "there is nothing to run" and "run
+this" are one shape. A reader recovering state from the drawing works from
+strictly less than wfctl had, and the missing part is the part with no
+symbol.
 
 Nor can a consumer own the interpretation. If meaning lives in the rendering,
 every change to the rendering is a change in behavior — a glyph swapped for
@@ -101,3 +115,11 @@ forbid.
 - 2026-08-31  accepted    — `status --json` is the machine view; FR-009's deferral
   was removed once it was clear that deleting `current.json` without it left the
   agent scraping glyphs, which is the thing this record forbids
+- 2026-08-31  amended     — the acceptance above argued from recoverability, and
+  that argument is wrong: three agents read the glyphs with no legend and named
+  every state correctly. The decision stands on the paragraph under **Owns
+  truth** instead,
+  which the acceptance did not lean on — meaning that lives in a rendering makes
+  every restyle a behavior change. The same experiment supports it: the readers
+  decoded by convention they brought, not by any map this repo controls.
+  Context rewritten; no code changed
