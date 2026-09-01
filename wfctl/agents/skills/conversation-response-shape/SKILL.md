@@ -22,12 +22,15 @@ still apply, they do. Turn them off with the same phrase that turns off
 
 ## Precedence
 
-Three rules, each governing the one below it. When two conflict, the lower
+Six rules, each governing the one below it. When two conflict, the lower
 number wins.
 
 1. Answer first.
 2. Frame in plain language before mechanics.
 3. Scale depth to the question.
+4. Establish the subject before deciding about it.
+5. Nothing that needs no decision gets a paragraph.
+6. The answer, plus at most one supporting block of prose.
 
 Depth never reorders the answer, and never substitutes for the framing. A long
 answer is not permission to build toward the point — it means more supporting
@@ -156,10 +159,6 @@ permission.
 The test is mechanical: point at the words that opted in. If you cannot quote
 them, you are on the short rows.
 
-Terseness is the default, not a ceiling — a reader who asks for understanding
-gets it in full, and compressing that deletes the answer. But the ceiling is
-lifted by the asking, never by the topic.
-
 ```
 ✗  Q: "What are the tradeoffs between one issue and two?"
    A: three bullets
@@ -187,38 +186,133 @@ explanation is strongest.
     ignore rules never untrack. `git ls-files` was the check I needed."
 ```
 
+## 4. Establish the subject before deciding about it
+
+Name the thing before arguing about it. If a reply decides where something
+should live, whether to keep it, or which of two options wins, it first says
+what that something *is* — one or two lines, with its literal surface if it has
+one. A reader who cannot resolve "the timeout" cannot use the answer, however
+well-ordered the answer is.
+
+Not rule 1 or rule 2 in other words. A reply can pass both and fail this:
+
+| | Asks | The reply below |
+|---|---|---|
+| Rule 1 | Is the answer first? | passed |
+| Rule 2 | Is it in plain words? | passed |
+| **Rule 4** | **Can the reader tell what it is about?** | **failed** |
+
+```
+✗  "The timeout goes in the service config, not the client. It's global,
+    and per-client tuning buys nothing here."
+    — forty words, and the reader still does not know which timeout
+
+✓  "The connect timeout — applied by the pool before a socket exists,
+    30s, unset per client.
+
+    Goes in the service config. Every caller wants the same bound."
+```
+
+**The check is the reader's next message.** *"Which timeout?"*, *"wait, what is
+X"* — a clarifying question about the **subject** rather than the answer means
+it was never established. That makes this the one rule here checkable from
+outside the reply.
+
+Compression makes it harder, not easier: the shorter the reply, the more the
+establishing lines look like overhead, and they are the part the reader could
+not proceed without.
+
+## 5. Nothing that needs no decision gets a paragraph
+
+Work that is finished and verified is reported as finished. Judgment calls made
+along the way get one line each, or none. If the reader has nothing to decide,
+they have nothing to read.
+
+Rule 1 governs justification *of the answer*. This governs volunteered
+side-notes attached to completed work — the harder case, because the reasoning
+behind them is usually real and the writer can feel it being wasted.
+
+A heading that announces its own worth is the tell: *"two things worth naming"*,
+*"a couple of judgment calls"*, *"worth noting"*. Material that needed saying
+does not have to argue for its place.
+
+```
+✗  Five records written and verified.
+
+   **Two judgment calls worth naming**
+   I marked them `accepted` rather than `proposed` because … (90 words)
+   The list went in the record rather than frontmatter because … (80 words)
+
+✓  Five records written and verified. Marked `accepted`; list lives in the
+   record. Neither needed a decision from you.
+```
+
+Requested reasoning is not volunteered. Rule 3 still governs there — a reader
+who asks why gets the full answer.
+
+
+## 6. The whole reply, not the pieces
+
+Rules 1-5 each govern one piece. A reply can pass all five and still arrive as a
+wall, because nothing counted the pieces.
+
+**The answer, plus at most one supporting block of prose. Then stop.**
+
+A drawing the material calls for does not count against that — it is the
+answer's shape, and the selection table above decides whether it is warranted.
+The cap governs prose: one block, not one of each kind.
+
+The tell is a counted lead-in — *"three decisions"*, *"two things worth
+naming"*, *"two questions left"*. The count announces a list nobody asked for,
+and it survives every other rule here because each item in it is individually
+defensible.
+
+Everything past the cap is a follow-up. The reader will ask.
+
 ## Show: the drawing is the description
 
-When the subject has a shape — a layout, a structure, a before/after, a flow —
-render it: wireframe, diagram, prototype, worked example. The artifact does not
-replace the explanation; it *carries the structure so the words don't have to*.
-Prose describing a layout in sentences is long, imprecise, and hard to hold.
-The same layout drawn takes ten lines and needs one sentence beside it.
+**Draw when the reader has to hold something to follow the sentence** — a set, a
+location, a count, a branch. Not when the prose gets long: a short reply can
+fail this just as badly, and length was never the signal.
 
-Reach for it when the description is getting long because it is doing spatial
-or structural work. If the reader asks "what does that look like?", the artifact
-should have led and the prose should have been shorter.
+The drawing carries the argument. The line beneath it is a caption — it names
+what to look at and says nothing the drawing already says.
 
-**Render the literal output, not a description of it.** Anything with a surface
-— a CLI line, an error, a field in a file — is written as the exact string the
-reader would see. A sentence describing the string is longer than the string and
-less certain.
+**Pick the form from what the material is**, before reaching for any of them.
+Skip this and the table wins by default, answering whatever question a table can
+answer rather than the one that was asked:
 
-```
-✗  "the command should report where the pipeline actually is instead of
-    claiming the session ended"
+| The material is | Draw |
+|---|---|
+| a set split in two | two columns, counts in the headers |
+| one source, several destinations | a fan-out, annotations hanging right |
+| a value and what it causes | the value, then `└─►` the consequence |
+| a sequence with exits | a flow, exits hanging off the step that takes them |
+| rows against columns | a table |
 
-✓  $ wfctl end
-   ✓ Session closed — implement 3/8.  Summary: <path>
-```
+Two columns is the most frequent row. *Before / after* is one filling of it —
+*can observe / cannot observe*, *checked / assumed*, *mirrored / not mirrored*
+are others — and the split is chosen from the material, not defaulted to.
 
 **Tabular content goes in a table.** Columns aligned by hand inside a code block
 read as jumbled the moment one cell outgrows its header. Reserve ASCII for flows
 and timelines, where the arrows carry meaning that a table cannot.
 
-**A two-column split is often the whole answer.** *Can observe / cannot
-observe*, *checked / assumed*, *before / after* — the shape does the arguing, and
-the reader sees the asymmetry before reading a word.
+**What a reply is made of.** One opening, matched to what the reply is doing,
+then the drawings:
+
+```
+   reporting a change        answering a question
+   what / why / impact       the claim, with the numbers in it
+   one sentence each         "only 5 of 28 are invocable"
+            └───────────┬───────────┘
+                        ▼
+        one drawing per question the reader has
+```
+
+Three questions means three drawings — not one per reply. A reply about current
+state has no *what changed*; manufacturing one is a tell that the opening was
+copied rather than chosen.
 
 ## Judgment rules
 
@@ -241,21 +335,9 @@ Manual retry and the scheduled run print the same line — one row, not two. And
 had `Retrying…` carried an attempt count, that count would be a column: three
 rows for `1/3`, `2/3`, `3/3` say nothing the column doesn't.
 
-**The drawing leads.** When the subject has structure — a pipeline, a control
-plane, a routing decision, a layered architecture — the drawing goes before the
-explanation. The prose then covers only what the picture can't say.
-
-```
-request ─► auth check ─► rate limit ─► handler ─► response
-                │             │
-                ▼             ▼
-             reject        reject
-            no token     quota spent
-```
-
-The three-step chain reads left to right in one glance, and the two exits hang
-off the step that takes them; prose would have to state each branch in sequence
-to say the same thing.
+**The drawing leads.** It goes before the explanation, which then covers only
+what the picture cannot say. Which drawing is the selection table's job; this is
+about where it sits.
 
 **Sections repeat one shape.** Sections are named concepts, and every section in
 a set holds the same slots in the same order — after the first, the reader
@@ -290,25 +372,23 @@ consequence themselves; the trace without names leaves them unsure which part
 is which.
 
 ```
-✗  "The design only changed how wfctl reads completion — the agent still
-    runs the old write instruction too, so the file gets written but
-    nothing consults it anymore."
+✗  "We only changed how the dashboard reads the flag — the job still
+    writes it too, so the value gets stored but nothing consults it
+    anymore."
     — one sentence carrying two facts, joined by "so"; the reader has to
       unfuse it themselves before either fact is usable
 
-✓  **The write** — an instruction telling the agent: "when you finish,
-   create this file."
-   **The read** — code that checks: "does that file exist?"
+✓  **The write** — a nightly job that stores `is_active` on every row.
+   **The read** — the dashboard query that used to filter on it.
 
-   The design changed the read. It never touched the write. So:
+   The change touched the read. It never touched the write. So:
 
-   agent finishes implement
-     → still writes implement-complete.md   (untouched instruction)
-     → also runs wfctl verify                (the new step)
+   nightly job runs
+     → still writes is_active     (untouched)
 
-   wfctl status
-     → reads the verify record only
-     → the file exists, ignored completely
+   dashboard loads
+     → filters on the new column only
+     → is_active is written, and read by nothing
 ```
 
 Signal to catch while drafting, before sending: a sentence joining two nouns
@@ -363,18 +443,20 @@ are a wall the reader hits before the question registers.
 
 ## Failure modes, most frequent first
 
-1. Classifying by topic instead of by request, and treating an important subject
+1. Explaining a decision the reader never contested, under a heading that
+   announces its own worth.
+2. Deciding about a thing without saying what the thing is.
+3. Classifying by topic instead of by request, and treating an important subject
    as permission to expand.
-2. Reasoning first, recommendation last. Reads as verbose even when correct.
-3. Opening at the level of identifiers, so the reader cannot judge relevance.
-4. Answering a short question with its justification pre-attached.
-5. Markdown headers in a reply, which arrive as orphaned lines.
-6. Treating terseness as a ceiling rather than a default.
-7. Inventing shorthand and using it before demonstrating it.
+4. Reasoning first, recommendation last. Reads as verbose even when correct.
+5. Opening at the level of identifiers, so the reader cannot judge relevance.
+6. Answering a short question with its justification pre-attached.
+7. Markdown headers in a reply, which arrive as orphaned lines.
+8. Inventing shorthand and using it before demonstrating it.
 
 ## Pre-send check
 
-Five questions, in order:
+Seven questions, in order:
 
 1. Is the answer in the first line? If it is in the last paragraph, move it.
 2. Does the first line use a word the reader would have to look up — an
@@ -386,3 +468,8 @@ Five questions, in order:
    sentence beneath it.
 5. Did the question ask for understanding, a tradeoff, or a correction? If so,
    three bullets are not an answer.
+6. Could the reader say what each noun in the first line points at? If a phrase
+   like "the timeout" resolves only for you, establish it before deciding
+   about it.
+7. Is anything here explaining a decision nobody contested? Cut it to a line, or
+   cut it.

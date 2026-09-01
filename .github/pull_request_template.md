@@ -30,8 +30,10 @@ Pick whatever the change actually is:
 - **A CLI** → the terminal before and the terminal after, verbatim.
 - **A data shape** → the record before and after, trimmed to the fields that moved.
 
-Two small diagrams beat one that tries to be complete. If a diagram takes longer
-to read than the prose it replaced, delete it.
+Draw when the reader has to hold something to follow the sentence — a set, a
+location, a count, a branch. Which drawing the material calls for is decided by
+the form-selection table in the `conversation-response-shape` skill; that table
+is the single owner, so pick from it rather than restating it here.
 -->
 
 ---
