@@ -70,9 +70,10 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
     Prose below stays as it is. A handoff whose sections were never filled in
     must read as unfilled, and nothing above them may claim otherwise.
     """
+    now = _now_utc()
     return (
-        f"# Session Summary: {_now_utc()[:10]} — {branch}\n\n"
-        f"**End**: {_now_utc()}\n"
+        f"# Session Summary: {now[:10]} — {branch}\n\n"
+        f"**End**: {now}\n"
         f"**Step**: {observed.step}\n"
         f"**Boundary**: {observed.boundary}\n"
         f"**Tree**: {observed.tree}\n\n"
