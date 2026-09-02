@@ -67,6 +67,37 @@ approves before `status` moves to `approved`, which the `Log` already carries.
 `accepted`, because an approved Level-3 record governs one feature and is not
 part of the binding set `wfctl arch context` projects.
 
+## Diagram
+
+          baseline — 6 values       decision — 3 values
+
+stable    ┌──────────────────┐      ┌──────────────────┐
+          │ record           │      │ record           │
+          │   3 outcomes     │      │   3 outcomes     │
+          │   3 routings     │      └──────────────────┘
+          └──────────────────┘             ▲
+              ▲          ▲                 │ writes
+              │←writes   │←reads
+══════════════╪══════════╪═ arch-root ═════╪════════
+              │          │                 │
+volatile  ┌───┴────┐ ┌───┴────┐        ┌───┴─────┐   ┌────────┐
+          │Level-3 │ │ next   │        │ Level-3 │──►│ next   │
+          │ pass   │ │ pass   │        │ pass    │   │ pass   │
+          └────────┘ └────────┘        └─────────┘   └────────┘
+
+Stable above, volatile below: a record is approved once and then read, while a
+pass is rewritten whenever the pipeline changes. The line is `arch-root` —
+above it what the repo persists and tracks, below it state that lives only as
+long as the pass. This record does not draw that line; it already exists, and
+`session-state-is-re-derived` argues who should own what crosses it while still
+being `proposed`, so it is reasoning here rather than an in-force constraint.
+
+The baseline crosses that line twice. The second crossing is the objection: a
+value read back out of `arch-root` to decide what runs next makes a durable
+record the authority on control flow, which is the store #101 has not been
+started to build. In the decision only the write crosses, and the routing
+outcome is handed to the next pass without ever leaving memory.
+
 ## Considered
 
 - **The baseline — no classification field.** Rejected because item 6 of #121
