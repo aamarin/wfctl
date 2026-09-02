@@ -183,8 +183,15 @@ def _refuse_unless_boundary_answered(
     # `is False` — never a falsy check. `touched_on_this_branch` returns None
     # when git cannot answer (no trunk, or a root outside the tree), and that
     # case proceeds along with a real True: the gate refuses only on evidence.
+    # `design/` is excluded, not counted. It holds level-3 records, which govern
+    # one feature and say nothing about ownership — the question this gate asks.
+    # Counting them would let a change that genuinely moves a boundary satisfy
+    # the gate with a record whose own format forbids it from drawing one, and
+    # #121 item 3 guarantees every such record lands in the branch diff.
     if design_gate(
-        spec_dir, step_name, lambda: touched_on_this_branch(repo_root, arch) is False
+        spec_dir,
+        step_name,
+        lambda: touched_on_this_branch(repo_root, arch, exclude=arch / "design") is False,
     ):
         console.print(DESIGN_GATE_REFUSAL.format(location=_arch_location(arch, repo_root)))
         raise typer.Exit(1)

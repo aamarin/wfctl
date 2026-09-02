@@ -303,18 +303,25 @@ def arch_root(repo_root: Path) -> Path:
     return found[0] if found is not None else repo_root / "docs" / "architecture"
 
 
-def touched_on_this_branch(repo_root: Path, path: Path) -> bool | None:
+def touched_on_this_branch(
+    repo_root: Path, path: Path, exclude: Path | None = None
+) -> bool | None:
     """Does the change under review add or modify anything under `path`?
 
     None when git cannot answer — no trunk to compare against, or a `path`
-    outside the repository. Three states rather than two on purpose: the one
-    caller is a gate, and a gate that reads "cannot tell" as "no" refuses work
-    it has no evidence against.
+    outside the repository. Three states rather than two on purpose: the callers
+    include a gate, and a gate that reads "cannot tell" as "no" refuses work it
+    has no evidence against.
 
     Uncommitted first, because the common case is a record written moments ago
     and not yet committed. Then `trunk...HEAD`, so a record committed earlier on
     the same branch still counts — otherwise the gate would reopen every time
     the author commits.
+
+    `exclude` drops one subtree from the question. Asking about a directory is
+    recursive in git and cannot be made otherwise, so a caller that means "this
+    root, but not that corner of it" has no way to say so through the pathspec
+    it would write by hand.
     """
     def names(*args: str) -> str | None:
         """Paths git reports for `args`, or None when the command failed."""
@@ -324,7 +331,14 @@ def touched_on_this_branch(repo_root: Path, path: Path) -> bool | None:
     if not is_in_tree(path, repo_root):
         return None
 
-    dirty = names("status", "--porcelain", "--", str(path))
+    spec = [str(path)]
+    if exclude is not None:
+        # `:(exclude)` is magic-pathspec syntax and takes a repo-relative path —
+        # given an absolute one git reads the whole thing as a literal name and
+        # matches nothing, which fails open and is the direction that hurts.
+        spec.append(f":(exclude){exclude.resolve().relative_to(repo_root.resolve())}")
+
+    dirty = names("status", "--porcelain", "--", *spec)
     if dirty is None:
         return None
     if dirty:
@@ -333,7 +347,7 @@ def touched_on_this_branch(repo_root: Path, path: Path) -> bool | None:
     trunk = _trunk_branch(repo_root)
     if trunk is None:
         return None
-    committed = names("diff", "--name-only", f"{trunk}...HEAD", "--", str(path))
+    committed = names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
     return None if committed is None else bool(committed)
 
 

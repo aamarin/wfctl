@@ -233,6 +233,26 @@ def test_a_record_written_for_this_change_advances(
     assert "Next step:" in result.output
 
 
+def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`design/` sits under the arch root, and "was the root touched?" is a
+    recursive question in git. So a feature that moves a boundary and writes
+    only a level-3 record — which governs one feature and is barred from drawing
+    a boundary at all — would satisfy a gate asking who owns the truth. #121
+    item 3 makes every such record land in the branch diff, so without this the
+    gate would be permanently answered for any feature that writes one."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (root / "design").mkdir(parents=True)
+    (root / "design" / "122-a-choice.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
+
+    result = runner.invoke(app, ["next"])
+
+    assert result.exit_code == 1
+    assert "no architecture record for this change" in result.output
+
+
 def test_a_declaration_advances(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
