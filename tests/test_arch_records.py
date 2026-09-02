@@ -120,18 +120,6 @@ def test_the_slug_is_the_filename_without_extension(tmp_path: Path) -> None:
     assert record.slug == "wfctl-runs-the-check"
 
 
-def test_a_record_in_a_subdirectory_is_not_loaded(tmp_path: Path) -> None:
-    """`design/` holds level-3 records, which govern one feature and must never
-    join the binding set `arch context` puts in front of the agent. Their whole
-    exclusion rests on this glob being one level deep; widening it to `rglob`
-    would promote every feature-local design choice into architecture policy
-    without touching a line that mentions either."""
-    _write(tmp_path, "binding", RECORD.format(status="accepted"))
-    _write(tmp_path / "design", "122-feature-local", RECORD.format(status="accepted"))
-
-    assert [r.slug for r in _arch.load_records(tmp_path)] == ["binding"]
-
-
 def test_an_unreadable_record_parses_as_excluded_rather_than_raising(tmp_path: Path) -> None:
     """One undecodable file must not take down a whole-root read — the record set
     is a directory anyone can drop a file into."""
@@ -483,6 +471,22 @@ def test_load_records_ignores_subdirectories(tmp_path: Path) -> None:
     (root / "declarations" / "some-branch.md").write_text("---\nbranch: x\n---\n\n# no\n")
 
     assert [r.slug for r in _arch.load_records(root)] == ["layer-model"]
+
+
+def test_an_accepted_record_under_design_does_not_join_the_binding_set(
+    tmp_path: Path,
+) -> None:
+    """The test above files a subdirectory record with no `status`, which `rglob`
+    would surface only as excluded — visible, but harmless. `design/` holds valid
+    `accepted` records, so the same one-word edit promotes a feature-local design
+    choice into the architecture policy `arch context` puts in front of the agent.
+    Both tests guard one glob; only this one describes what a widened glob would
+    actually let through."""
+    _write(tmp_path, "binding", RECORD.format(status="accepted"))
+    _write(tmp_path / "design", "122-feature-local", RECORD.format(status="accepted"))
+
+    assert [r.slug for r in _arch.load_records(tmp_path)] == ["binding"]
+
 
 
 def test_a_fenced_decision_heading_is_not_the_decision(tmp_path: Path) -> None:
