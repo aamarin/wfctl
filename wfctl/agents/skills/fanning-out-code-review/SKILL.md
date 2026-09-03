@@ -51,16 +51,19 @@ variable. The rubric is not.
 Resolve the diff once, and give every reviewer the same one. A panel reviewing
 slightly different targets produces disagreement that means nothing.
 
+Reviews go in `$FEATURE_DIR/reviews/`, one file per reviewer — `r1.md`,
+`r2.md`, `r3.md`. `wfctl feature-paths` prints that directory as a shell
+assignment, so bind it rather than reading it off and retyping it:
+
 ```bash
-wfctl feature-paths      # prints FEATURE_DIR='…/specs/<current-branch>'
+eval "$(wfctl feature-paths)"    # binds FEATURE_DIR in *this* shell
 ```
 
-Reviews go in `$FEATURE_DIR/reviews/`, one file per reviewer —
-`r1.md`, `r2.md`, `r3.md`. Substitute the real path; `<branch>` is a
-placeholder, never a directory name. With no feature dir, set `FEATURE_DIR`
-yourself to any directory outside the worktree — Step 3's check reads it, and
-picking a path without binding the name leaves that check looking somewhere
-else.
+Every later command that names `$FEATURE_DIR` re-binds it the same way. A shell
+here does not outlive the command it ran, so a value bound in this step is gone
+by the next one — which is why Step 3's check carries its own `eval` rather than
+trusting this one. Outside a wfctl repo, replace that line with
+`FEATURE_DIR=<some directory outside the worktree>`.
 
 **One file per reviewer, never a shared one.** `code-review` Step 5 sends its
 report to `REVIEW.md`; three reviewers following it unmodified write that same
@@ -110,6 +113,7 @@ So the roster is checked against the disk, not against what you remember
 receiving:
 
 ```bash
+eval "$(wfctl feature-paths)"
 REVIEWS="$FEATURE_DIR/reviews"
 for id in r1 r2 r3; do
   if [ -s "$REVIEWS/$id.md" ]; then echo "reported  $id"; else echo "MISSING   $id"; fi

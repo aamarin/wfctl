@@ -30,27 +30,47 @@ def _roster_command() -> str:
     return blocks[0]
 
 
-def _run(shell: str, feature_dir: Path) -> list[str]:
-    """`FEATURE_DIR` is what `wfctl feature-paths` prints and the only variable
-    Step 1 puts in the agent's hands. Injecting `REVIEWS` instead would leave the
-    fence's own derivation of it untested — which is how the first version of
-    this command shipped reading a variable nothing ever set."""
+def _run(shell: str, bin_dir: Path) -> list[str]:
+    """Nothing is injected but a `PATH` carrying the `wfctl` stub.
+
+    `FEATURE_DIR` has to arrive the way the skill says it does — the fence calls
+    `wfctl feature-paths` and evals it. Handing the variable in directly would
+    test the loop while assuming away the step that binds what the loop reads,
+    which is the defect this command shipped with twice: once with the name
+    never bound at all, once with it bound only in an earlier shell that no
+    longer exists by the time the check runs.
+    """
+    # `zsh -f` skips the startup files; `sh` has none to skip and reads `-f` as
+    # "no globbing", so the flag cannot simply be passed to both. Without it,
+    # /etc/zprofile runs `path_helper`, which prepends the login PATH and puts
+    # the real `wfctl` ahead of the stub — the fence then reports on whatever
+    # repo the test happens to run in.
+    argv = [shell, "-f", "-c"] if shell == "zsh" else [shell, "-c"]
     out = subprocess.run(
-        [shell, "-c", _roster_command()],
-        env={"FEATURE_DIR": str(feature_dir), "PATH": "/usr/bin:/bin"},
+        [*argv, _roster_command()],
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
         capture_output=True,
         text=True,
     )
     return out.stdout.split()
 
 
-def _fixture(feature_dir: Path) -> None:
+def _fixture(feature_dir: Path) -> Path:
     """One reviewer that reported, one that wrote an empty file, one that never
-    wrote at all. The last two are the cases an agent reads as a clean pass."""
+    wrote at all — the last two are the cases an agent reads as a clean pass —
+    plus a `wfctl` stub printing the assignment the real one prints. Returns the
+    directory to put on `PATH`."""
     reviews = feature_dir / "reviews"
     reviews.mkdir(parents=True)
     (reviews / "r1.md").write_text("BLOCKER cli.py:L1 — …\n")
     (reviews / "r2.md").write_text("")
+
+    bin_dir = feature_dir / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "wfctl"
+    stub.write_text(f"#!/bin/sh\necho \"FEATURE_DIR='{feature_dir}'\"\n")
+    stub.chmod(0o755)
+    return bin_dir
 
 
 def test_the_roster_check_names_the_reviewers_that_did_not_report(
@@ -63,9 +83,9 @@ def test_the_roster_check_names_the_reviewers_that_did_not_report(
     second. Checking the disk is what makes the two distinguishable at all, so a
     check that passes an empty report gives the assertion back its cover.
     """
-    _fixture(tmp_path)
+    bin_dir = _fixture(tmp_path)
 
-    assert _run("sh", tmp_path) == [
+    assert _run("sh", bin_dir) == [
         "reported", "r1", "MISSING", "r2", "MISSING", "r3",
     ]
 
@@ -76,17 +96,21 @@ def test_the_roster_check_survives_zsh(tmp_path: Path) -> None:
     treating a construct differently. Skipped where zsh is absent."""
     if not shutil.which("zsh"):
         return
-    _fixture(tmp_path)
+    bin_dir = _fixture(tmp_path)
 
-    assert _run("zsh", tmp_path) == _run("sh", tmp_path)
+    assert _run("zsh", bin_dir) == _run("sh", bin_dir)
 
 
 def test_the_panel_skill_names_every_skill_it_layers_over() -> None:
-    """`vendor-upstream-skills` forbids editing the three skills this one
-    orchestrates, so the whole layering is carried by these references. Drop one
-    and the panel silently becomes a competing account of it — the reviewer
-    hand-off, the rubric, or verify-before-implementing — which is the
-    duplication the record exists to prevent."""
+    """The whole layering is carried by these three references and nothing else.
+
+    Drop one and the panel quietly becomes a second account of what that skill
+    owns — the reviewer hand-off, the rubric, or verify-before-implementing —
+    which is the duplication `knowledge-placement` and #50 are about. Not
+    `vendor-upstream-skills`: that record names `i-have-adhd` alone, identified
+    by the `license:` key none of these three carry, so citing it here would
+    assert something the record does not say.
+    """
     named = set(_REFERENCE.findall(_SKILL.read_text()))
     for skill in ("requesting-code-review", "code-review", "receiving-code-review"):
         assert skill in named, skill
