@@ -42,8 +42,14 @@ jobs:
       - name: Set up Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
 
+      # Bare, not `--extra dev`. The three commands AGENTS.md documents are
+      # supposed to work on an environment nobody prepared, and `--extra dev`
+      # installed the tools directly — so the group they actually depend on
+      # could stop resolving and CI would stay green while every fresh worktree
+      # broke the way #105 did. Syncing the way a contributor does is what makes
+      # this job evidence for the claim the file makes.
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync
 
       # Fails the job if the interpreter is not the one the matrix asked for,
       # so a silent fallback shows up as a red build instead of a green lie.
@@ -116,8 +122,10 @@ jobs:
         with:
           enable-cache: true
 
+      # Bare, for the reason the test job states: `--extra dev` would install
+      # ruff and mypy even if the group stopped resolving.
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync
 
       # `uv run`, not `uvx`: this has to be the version in uv.lock. `uvx ruff`
       # pulls whatever is newest, which means an upstream release can redden a
