@@ -94,7 +94,11 @@ Every dispatch instruction carries these three:
   replaces the parent's proof of done with one taken mid-review.
 - **Write findings to `$FEATURE_DIR/reviews/<id>.md`,** the id you assigned it.
 
-Dispatch them in parallel — they are independent by construction.
+Dispatch them in parallel — they are independent by construction. Sharing one
+tree is a choice, not a limit to engineer around: a harness that can hand each
+reviewer its own worktree lifts the report-only constraint and buys nothing
+back. A reviewer's product is findings, verification stays with the parent
+either way, and the price is an environment per reviewer.
 
 A reviewer nobody dispatched still counts. Bot and human comments already on the
 change are panel members you did not pay for; collect them in the same pass.
