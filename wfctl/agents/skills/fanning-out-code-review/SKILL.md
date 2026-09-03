@@ -38,8 +38,8 @@ actually reported, and the reconciliation.
 
 The obvious panel is one reviewer per axis — correctness, simplification,
 over-engineering. Do not build that one. `code-review` already folds those into
-a single pass on purpose ("*one* review instead of four overlapping ones"): its
-pass 4 is simplification and its pass 6 is over-engineering. A panel split by
+a single pass on purpose ("*one* review instead of four overlapping ones") —
+simplification and over-engineering are each one of its own passes. A panel by
 axis contradicts a skill this project ships, and it gives each reviewer a
 narrower brief than a single reviewer would have had.
 
