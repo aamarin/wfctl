@@ -1152,6 +1152,7 @@ _MIRRORED_SKILLS = frozenset({
     "conversation-response-shape",
     "design-levels",
     "i-have-adhd",
+    "opening-a-change",
     "receiving-code-review",
     "using-superpowers",
     "verification-before-completion",

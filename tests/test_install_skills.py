@@ -1980,3 +1980,17 @@ def test_option_two_clone_commands_are_anchored_to_the_main_checkout(    agent_d
     result = _install(answers="n\n2\nproj-specs\n")
 
     assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output
+
+
+def test_the_change_description_skill_is_model_invocable() -> None:
+    """`opening-a-change` only works if nobody has to type it.
+
+    #124 is a PR opened with the template ignored: a wrapper command fires when
+    a human invokes it, and no human knew to. Native discovery is what makes the
+    skill reachable by the agent that is about to open the change, and for
+    Claude that is the mirror — so dropping the name here restores the exact
+    failure the skill was written for, with the skill still shipping.
+    """
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "opening-a-change" in _MIRRORED_SKILLS

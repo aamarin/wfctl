@@ -95,3 +95,35 @@ def test_the_record_template_carries_every_section_a_record_needs() -> None:
     ).read_text()
     for section in ("Context", "Decision", "Owns truth", "Considered", "Log"):
         assert f"## {section}" in template, section
+
+
+def test_the_change_description_skill_defers_to_the_finishing_skill() -> None:
+    """`opening-a-change` layers a description step over the integration
+    decision rather than owning it.
+
+    `vendor-upstream-skills` forbids editing the vendored skill, so the whole
+    layering depends on this one reference. Drop it and the new skill quietly
+    becomes a second, competing account of how a branch gets integrated — the
+    duplication the record exists to prevent, one skill over.
+    """
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+    assert "finishing-a-development-branch" in set(_REFERENCE.findall(skill))
+
+
+def test_the_change_description_skill_does_not_restate_the_template() -> None:
+    """The skill says to go read the project's template; it must not carry the
+    sections itself.
+
+    A section list copied into the skill is a second home for a fact wfctl
+    already ships one copy of, and #50 is that exact duplication drifting
+    between two repos. The copy that falls behind does not announce itself, so
+    the check is here rather than left to whoever notices the contradiction.
+    """
+    template = (
+        _AGENTS / "configs" / "github" / ".github" / "pull_request_template.md"
+    ).read_text()
+    headings = {line for line in template.splitlines() if line.startswith("## ")}
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+    restated = sorted(h for h in headings if h in skill.splitlines())
+
+    assert restated == []
