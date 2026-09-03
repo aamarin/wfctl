@@ -40,11 +40,14 @@ argument means parsing shell, which is a losing game, so it does not try.
     quoting          segments are split on `|`, `&&` and `;` without honouring
                      quotes, so a separator inside a quoted string splits a
                      segment early. It fails toward refusing.
-    new worktrees    nothing here fires unless a path in the command is owned
-                     by a worktree that already exists, so `git worktree add`
-                     to a fresh path outside every existing one is invisible.
-                     Inside the seeded `wt/` layout it is caught, because the
-                     new tree nests in the main checkout.
+    new worktrees    nothing fires unless a path in the segment is owned by a
+                     worktree that already exists, so `git worktree add` is
+                     caught only when its target is absolute *and* inside a
+                     worktree other than this one. `git worktree add wt/new`
+                     from anywhere, and any absolute target from the checkout
+                     that would own it, both pass. #137 tracks the real fix,
+                     which is detecting the resulting state rather than the
+                     command that caused it.
 
 Worktrees outside `wt/` are *not* on that list: the roots come from
 `git worktree list`, so `.claude/worktrees/agent-*` — eighteen of them in this
@@ -116,23 +119,41 @@ _GIT_OPTS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--nam
 # on every `&` instead breaks `2>&1` into a segment whose first word is `1`,
 # refusing a form that appears in half the read commands anyone writes. So:
 # not after `>` or `&`, and not before `>` or `&`.
-_SEPARATORS = re.compile(r"\|\||&&|(?<![>&])&(?![&>])|[|;\n]")
-
-# A redirect that writes somewhere. Refused wholesale rather than resolved:
-# working out where a redirect points is shell parsing, and the command has
-# already been found naming another worktree.
 #
-# Two conditions, each paying for a false positive found by review. The leading
-# `[\s\d]` is what stops `grep -rn '=>' <other>` and `grep 'a->b' <other>` being
-# read as redirects — an arrow inside a quoted pattern is not preceded by
-# whitespace or a file descriptor, and grepping a sibling is exactly the read
-# this module promises to keep. The possessive `>>?+` is what stops `>> /dev/null`
-# matching: a plain `>>?` backtracks to a single `>` when the lookahead fails,
-# and that shorter match then succeeds against the second `>`. `\s*+` is the same
-# hazard one step later — a greedy `\s*` gives back the space it ate and the
-# lookahead then passes on ` /dev/null`, which is not the exemption failing but
-# the exemption being stepped around.
-_WRITE_REDIRECT = re.compile(r"(?:^|[\s\d])>>?+\s*+(?!&|/dev/null\b)")
+# `$(`, a backtick and `)` are separators too, so the command inside a
+# substitution is judged on its own verb. Without them `echo $(rm -rf <other>)`
+# is one segment that runs as `echo` — the trespass is found, and only the verb
+# check fails open. This is not the documented indirection gap, where the path
+# never appears at all; here it does.
+_SEPARATORS = re.compile(r"\|\||&&|(?<![>&])&(?![&>])|\$\(|[|;\n`()]")
+
+# A redirect that writes somewhere. Refused rather than resolved: working out
+# where a redirect points is shell parsing, and the segment has already been
+# found naming another worktree.
+#
+# The lookbehind is the whole subtlety, and the first attempt at it — requiring
+# whitespace or a file descriptor in front — was a false *allow*: shell needs
+# neither, so `echo pwned>/other/f` slipped straight through while the segment's
+# verb read as `echo`. What actually distinguishes a redirect from an arrow in a
+# quoted pattern is the character before it, and only for the handful that form
+# operators. `=>` and `->` are excluded; `>` after a letter is a redirect.
+#
+# `&` is deliberately not excluded, so `&>` (redirect both streams) is caught.
+# `grep '>=' <other>` is a false refusal and the accepted cost — visible and
+# recoverable, which a false allow is not.
+#
+# The `&` in the lookahead exempts a descriptor dup (`2>&1`, `>&2`) and nothing
+# else, so it has to check what follows it: `>& <file>` is bash redirecting both
+# streams to a file, which is a write. Exempting every `>&` allowed it.
+#
+# The possessive quantifiers are what stop `>> /dev/null` matching: a plain
+# `>>?` backtracks to a single `>` when the lookahead fails, and that shorter
+# match then succeeds against the second `>`. `\s*+` is the same hazard one step
+# later — a greedy `\s*` gives back the space it ate so the lookahead passes on
+# ` /dev/null`, which is not the exemption failing but the exemption being
+# stepped around. `/dev/null` ends at whitespace or end of segment rather than a
+# word boundary, which would exempt `>/dev/null.evil`.
+_WRITE_REDIRECT = re.compile(r"(?<![=<>!-])>>?+\s*+(?!&[\d-]|/dev/null(?:\s|$))")
 
 # Absolute paths, stopping at whitespace and the shell metacharacters that
 # cannot appear unescaped inside one. Deliberately greedy about `-` and `.` so
@@ -189,11 +210,15 @@ def _reads_only(segment: str) -> bool:
         # is how #129's first failure happened — a worktree created outside
         # workmux, so `post_create` never ran and it came up with no skills.
         #
-        # Only a partial guard on that, and worth being clear about which part:
-        # nothing here runs unless some path in the command is already owned by
-        # an existing worktree, so this catches `git worktree add` into a tree
-        # that nests inside one (the `wt/` layout `.workmux.yaml` seeds) and
-        # misses it entirely into a fresh path elsewhere.
+        # Barely a guard on that, and the second attempt at saying so — the
+        # first narrowed an overclaim to a smaller overclaim. It fires only when
+        # the target is written absolute *and* lands inside a worktree that is
+        # not this one. From the main checkout, `git worktree add /repo/wt/new`
+        # is owned by the main checkout itself, so there is no trespass at all;
+        # the ordinary relative spelling `git worktree add wt/new` matches no
+        # root from anywhere. #137 tracks catching the state instead: a worktree
+        # that never ran `post_create` is detectable after the fact, which is
+        # where this belongs.
         if sub[:1] == ["worktree"]:
             return sub[1:2] == ["list"]
         return bool(sub) and sub[0] in _GIT_READ
@@ -213,29 +238,39 @@ def refusal(command: str, here: str, worktrees: Iterable[str]) -> str | None:
     from an ordinary subdirectory.
     """
     roots = list(worktrees)
-    trespass = next(
-        (
-            (root, path)
-            for path in _ABS_PATH.findall(command)
-            for root in [_owner(path.rstrip(".,:"), roots)]
-            if root and root != here
-        ),
-        None,
-    )
-    if trespass is None:
-        return None
-    root, path = trespass
 
-    if _WRITE_REDIRECT.search(command):
-        why = "it redirects output"
-    else:
-        offender = next(
-            (s for s in _SEPARATORS.split(command) if not _reads_only(s)), None
+    # Segment by segment, each judged against the paths *it* names. Judging the
+    # whole command against a trespass found anywhere in it refuses the local
+    # half for the sake of the remote one: `uv run pytest && cat <other>/README`
+    # was refused with "`uv` is not a read command", about a segment that never
+    # left this worktree. Compound commands like that are ordinary, and the `&`
+    # separator widened the class.
+    for segment in _SEPARATORS.split(command):
+        trespass = next(
+            (
+                (root, path)
+                for path in _ABS_PATH.findall(segment)
+                for root in [_owner(path.rstrip(".,:"), roots)]
+                if root and root != here
+            ),
+            None,
         )
-        if offender is None:
-            return None
-        why = f"`{verb_of(offender)}` is not a read command"
+        if trespass is None:
+            continue
+        if _WRITE_REDIRECT.search(segment):
+            why = "it redirects output"
+        elif not _reads_only(segment):
+            why = f"`{verb_of(segment)}` is not a read command"
+        else:
+            continue
+        return _message(here, *trespass, why)
+    return None
 
+
+def _message(here: str, root: str, path: str, why: str) -> str:
+    """The refusal an agent reads. Exit 2 hands this to the model, so it is the
+    whole interface: it has to say what was refused, why, and what to do instead
+    — a refusal without the last part produces the retrying this exists to stop."""
     handle = root.rstrip("/").rsplit("/", 1)[-1]
     return (
         f"Refused: {path} is in another worktree ({root}), and {why}.\n"

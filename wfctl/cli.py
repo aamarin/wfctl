@@ -1970,9 +1970,16 @@ def hook_cmd(
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, UnicodeDecodeError):
         return
+    # Types too, not just presence. `{"tool_input": "…"}` raises on `.get` and a
+    # list `command` raises inside `re.findall` — both the traceback-on-every-
+    # Bash-call this block exists to prevent, which the first version of it
+    # still allowed through.
     if not isinstance(payload, dict):
         return
-    command = (payload.get("tool_input") or {}).get("command") or ""
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str):
+        return
     # The payload's `cwd` is the session's, which is the one the guard is about.
     # This process's own cwd is the agent's project directory and can differ.
     here, roots = _worktree_roots(payload.get("cwd") or ".")

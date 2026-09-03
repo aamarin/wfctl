@@ -164,6 +164,64 @@ def test_workmux_run_is_not_covered_by_the_handoff() -> None:
     assert not refuses(f"workmux path other {OTHER}")
 
 
+def test_a_redirect_needs_no_space_in_front_of_it() -> None:
+    """`echo pwned><other>/f` is a write, and requiring whitespace missed it.
+
+    A regression from the first review round: tightening the redirect check to
+    stop `grep '=>'` being read as one required a preceding whitespace or file
+    descriptor, which shell does not. The segment's verb then read as `echo` and
+    the write went through — a false allow introduced while fixing a false
+    refusal, which is the hazard in tightening any of these.
+    """
+    assert refuses(f"echo pwned>{OTHER}/file")
+    assert refuses(f"echo pwned>>{OTHER}/file")
+    assert refuses(f"wc -l {OTHER}/f>{OTHER}/out")
+
+
+def test_both_spellings_of_redirecting_every_stream() -> None:
+    """`&>` and `>&` are writes; `2>&1` and `>&2` duplicate a descriptor.
+
+    The `&` exemption exists for the second pair and has to check what follows
+    it — a path means the first pair, which is a write to that path.
+    """
+    assert refuses(f"echo hi &> {OTHER}/out")
+    assert refuses(f"echo hi >& {OTHER}/out")
+    assert not refuses(f"git -C {OTHER} log >&2")
+
+
+def test_a_redirect_to_dev_null_is_exact() -> None:
+    """The exemption is `/dev/null`, not anything starting with it."""
+    assert not refuses(f"cat {OTHER}/f >/dev/null")
+    assert refuses(f"cat {OTHER}/f >/dev/null.evil")
+
+
+def test_a_command_substitution_is_judged_on_its_own_verb() -> None:
+    """`echo $(rm -rf <other>)` runs `rm`, whatever the outer verb is.
+
+    Distinct from the documented indirection gap, where the path never appears
+    in the text at all. Here it does, the trespass is found, and only the verb
+    check was failing open.
+    """
+    assert refuses(f"echo $(rm -rf {OTHER})")
+    assert refuses(f"echo `rm -rf {OTHER}`")
+    assert refuses(f"cat {OTHER}/x.txt $(touch {OTHER}/y)")
+
+
+def test_a_local_segment_is_not_judged_by_a_remote_one() -> None:
+    """Compound commands are ordinary, and each half deserves its own verdict.
+
+    `uv run pytest && cat <other>/README.md` was refused with "`uv` is not a
+    read command" — about a segment that never leaves this worktree. Judging the
+    whole command against a trespass found anywhere in it refuses the local half
+    for the sake of the remote one.
+    """
+    assert not refuses(f"uv run pytest && cat {OTHER}/README.md")
+    assert not refuses(f"cat {OTHER}/a.txt && echo done > /tmp/local.log")
+    assert not refuses(f"long-build & cat {OTHER}/x")
+    # The remote half is still judged, which is the half that matters.
+    assert refuses(f"uv run pytest && rm -rf {OTHER}/x")
+
+
 def test_git_is_decided_by_subcommand() -> None:
     """`git -C <other>` reads and writes through the same entry point.
 
