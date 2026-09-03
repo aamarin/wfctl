@@ -865,6 +865,36 @@ def test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored(
     assert result.exit_code == 1
 
 
+def test_doctor_does_not_report_a_claude_skill_the_user_wrote_themselves(
+    agent_dir: Path,
+) -> None:
+    """The layer gate is not enough — `.claude/skills/` is shared ground in a repo
+    that *did* install for claude, and that is the common repo.
+
+    Claude Code and its plugins keep project-local skills there, and `.claude/` is
+    commonly gitignored whole (this repo's own `.gitignore` does it), so
+    `_tracked_paths` cannot exempt a hand-authored skill the way it can under
+    `.agents/`. Reporting one claims wfctl installed it, tells the reader to
+    delete it, and exits 1 in their CI — over their file.
+
+    What separates the two is the base-layer copy: a mirror is a copy of a skill
+    under `.agents/skills/`, and a skill someone wrote has no counterpart there.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    mine = repo_root / ".claude" / "skills" / "my-own-skill"
+    mine.mkdir(parents=True)
+    (mine / "SKILL.md").write_text("mine\n")
+    assert not (repo_root / ".agents" / "skills" / "my-own-skill").exists(), (
+        "a hand-authored claude skill has no base-layer copy — that is the tell"
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "my-own-skill" not in result.output
+    assert result.exit_code == 0
+
+
 def test_doctor_does_not_report_a_claude_skill_in_a_bob_installed_repo(
     agent_dir: Path,
 ) -> None:
