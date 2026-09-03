@@ -44,14 +44,13 @@ def _run(shell: str, feature_dir: Path) -> list[str]:
     return out.stdout.split()
 
 
-def _fixture(feature_dir: Path) -> Path:
+def _fixture(feature_dir: Path) -> None:
     """One reviewer that reported, one that wrote an empty file, one that never
     wrote at all. The last two are the cases an agent reads as a clean pass."""
     reviews = feature_dir / "reviews"
     reviews.mkdir(parents=True)
     (reviews / "r1.md").write_text("BLOCKER cli.py:L1 — …\n")
     (reviews / "r2.md").write_text("")
-    return feature_dir
 
 
 def test_the_roster_check_names_the_reviewers_that_did_not_report(

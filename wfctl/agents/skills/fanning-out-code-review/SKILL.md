@@ -57,8 +57,10 @@ wfctl feature-paths      # prints FEATURE_DIR='…/specs/<current-branch>'
 
 Reviews go in `$FEATURE_DIR/reviews/`, one file per reviewer —
 `r1.md`, `r2.md`, `r3.md`. Substitute the real path; `<branch>` is a
-placeholder, never a directory name. With no feature dir, use any directory
-outside the worktree.
+placeholder, never a directory name. With no feature dir, set `FEATURE_DIR`
+yourself to any directory outside the worktree — Step 3's check reads it, and
+picking a path without binding the name leaves that check looking somewhere
+else.
 
 **One file per reviewer, never a shared one.** `code-review` Step 5 sends its
 report to `REVIEW.md`; three reviewers following it unmodified write that same
