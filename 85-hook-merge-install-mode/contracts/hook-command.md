@@ -18,7 +18,15 @@ the command reads what is installed, it does not receive it as input.
 
 - The current working directory's repo root (same resolution every other wfctl
   command uses — `get_repo_root()`).
-- `<repo_root>/.agents/skills/*/digest.md`, read fresh on every call.
+- `<repo_root>/.wf-skills-manifest.json`, for the skills it records as installed.
+- `<repo_root>/.agents/skills/<recorded name>/digest.md`, read fresh on every call.
+
+  The manifest, not the directory listing, decides which skills are read.
+  `.gitignore` carries one line per *installed* skill, so a directory wfctl never
+  installed is uncovered and travels in a clone, while the hook itself is wired
+  by a committed `.claude/settings.json`. Reading the filesystem let a repository
+  put text of its choosing into the reader's context on every turn, under a
+  header saying that text governs the response.
 
 ## Output (stdout)
 
@@ -33,8 +41,16 @@ the command reads what is installed, it does not receive it as input.
 
   (Exact header text and per-line format are an implementation choice for
   `tasks.md`, not fixed by this contract — what is fixed is: header appears iff
-  at least one digest exists, one skill per line, digest text passed through
-  unmodified.)
+  at least one digest exists, and one skill per line.)
+
+  A digest is flattened to a single line and truncated. Both are trust
+  boundaries, not formatting: one bullet per skill is the format's only
+  structure, and a digest carrying newlines otherwise forged a second header and
+  a bullet attributed to a skill that does not exist. Nothing else bounded what
+  one file could spend of every turn's context.
+
+  A `digest.md` that resolves outside the repo root is not read. Symlinked at a
+  credentials file, it read that file into the model's context every turn.
 
 - **Nothing**, when no installed skill carries a `digest.md`. No header, no
   blank line, no error. Per FR-012 and the reasoning in `research.md`'s command
@@ -55,6 +71,11 @@ the command reads what is installed, it does not receive it as input.
 | Not inside a git repo / no repo root | Exit 0, no output — same silent-degrade rule |
 | `.agents/skills/` missing entirely | Exit 0, no output |
 | A skill directory's `digest.md` is unreadable (permissions, not present) | That skill contributes nothing; every other skill's digest still prints |
+| A `digest.md` that is not valid UTF-8 | That skill contributes nothing; exit stays 0 |
+| `.agents/skills/` exists but cannot be listed | Exit 0, no output |
+| No `git` on `PATH` at all | Exit 0, no output |
+| A skill directory present but not recorded in the manifest | Not read at all |
+| A `digest.md` resolving outside the repo root | Not read at all |
 | A skill directory's `digest.md` is present but empty | Treated as absent — no bullet for that skill |
 
 ## Stability
