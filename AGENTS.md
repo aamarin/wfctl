@@ -20,7 +20,7 @@ There is no setup step. `uv run` resolves the environment from `uv.lock` on
 first use:
 
 ```bash
-uv run pytest -q          # 653 tests, ~50s
+uv run pytest -q          # 653 tests, ~45s
 uv run ruff check wfctl/ tests/
 uv run mypy wfctl/
 ```
