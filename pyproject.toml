@@ -24,6 +24,16 @@ dependencies = [
 # linter turns someone else's release into a red build on an untouched branch.
 dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3"]
 
+[dependency-groups]
+# The same three tools, reached the way `uv run` reaches things. uv installs a
+# `dev` group by default and never installs an extra, so without this the
+# documented `uv run pytest/ruff/mypy` resolve against PATH on a cold venv:
+# mypy is not there and errors, pytest and ruff are and run Homebrew's
+# unpinned copies, reporting a pass from a linter the pin above exists to
+# exclude. Self-referential rather than a second copy of the list — the extra
+# stays the source of truth, and `pip install -e ".[dev]"` keeps working.
+dev = ["wfctl[dev]"]
+
 [project.scripts]
 wfctl = "wfctl.cli:app"
 
