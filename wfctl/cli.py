@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -1350,7 +1351,11 @@ def _merge_hooks(
     problems: list[str] = []
     for rel, event in [(SETTINGS_PATH, SETTINGS_EVENT)] if agent == "claude" else []:
         path = repo_root / rel
-        existed = path.exists()
+        # `or is_symlink`, because `exists()` follows the link: a symlink whose
+        # target does not exist yet read as "nothing here", and wfctl recorded a
+        # file it had created. Uninstall deletes what it created — which would be
+        # the consumer's symlink, not the settings inside it.
+        existed = path.exists() or path.is_symlink()
         # A pass that cannot finish must still hand back the record it was given.
         # The manifest layer is rewritten whole on every install, so a record not
         # re-emitted here is not stale — it is gone, and with it wfctl's claim on
@@ -2147,8 +2152,21 @@ def uninstall_skills_cmd(
 _DIGEST_MAX_CHARS = 500
 
 
+# What a skill directory may be called, for the purpose of printing its name into
+# an agent's context. Deliberately narrower than the filesystem allows: the name
+# is interpolated beside the digest, so anything that can carry a newline can
+# forge a second bullet the same way a digest's own text could. Reaching this
+# needs local write access to the gitignored manifest rather than a clone — but
+# once it is attacker-supplied, the name is as much so as the text.
+_SKILL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
 def _installed_skill_names(manifest: dict) -> list[str]:
-    """Skills the manifest records under `.agents/skills/`, in listing order.
+    """Skills the manifest records under `.agents/skills/`, sorted by name.
+
+    Sorted rather than kept in manifest order: the manifest's order is install
+    order, which is an implementation detail of whichever run wrote it, and the
+    hook's output is read by a person often enough to be worth a stable one.
 
     The manifest, not the directory listing, is what makes a skill installed.
     `.gitignore` gets one line per installed skill, so a directory wfctl never
@@ -2165,12 +2183,12 @@ def _installed_skill_names(manifest: dict) -> list[str]:
         if isinstance(item, dict)
         and isinstance(item.get("path"), str)
         and item["path"].startswith(prefix)
-        and "/" not in item["path"][len(prefix):]
+        and _SKILL_NAME.fullmatch(item["path"][len(prefix):])
     }
     return sorted(names)
 
 
-def _digest_text(skill_dir: Path, repo_root: Path) -> str:
+def _digest_text(skill_dir: Path, root: Path) -> str:
     """One skill's digest, flattened to a single line, or `""` if it has none.
 
     Three things are enforced here rather than left to the digest's author,
@@ -2190,10 +2208,13 @@ def _digest_text(skill_dir: Path, repo_root: Path) -> str:
     """
     digest = skill_dir / "digest.md"
     try:
-        if not digest.resolve().is_relative_to(repo_root.resolve()):
+        if not digest.resolve().is_relative_to(root):
             return ""
         text = digest.read_text()
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, UnicodeDecodeError, ValueError, RuntimeError):
+        # `RuntimeError` is the one that does not look like the others: it is what
+        # `resolve()` raises on a symlink loop, and it descends from neither
+        # OSError nor ValueError, so a looped digest.md crashed the hook.
         return ""
     flat = " ".join(text.split())
     return flat[:_DIGEST_MAX_CHARS].rstrip() + "…" if len(flat) > _DIGEST_MAX_CHARS else flat
@@ -2230,9 +2251,16 @@ def _hook_user_prompt() -> None:
     except (SystemExit, OSError, json.JSONDecodeError):
         return
 
+    # Resolved once, not per skill: it is the same answer every time, and the
+    # loop below asks it for every installed skill on every turn.
+    try:
+        root = repo_root.resolve()
+    except (OSError, RuntimeError):
+        return
+
     lines = []
     for name in _installed_skill_names(manifest):
-        text = _digest_text(repo_root / ".agents" / "skills" / name, repo_root)
+        text = _digest_text(repo_root / ".agents" / "skills" / name, root)
         if text:
             lines.append(f"- {name}: {text}")
 

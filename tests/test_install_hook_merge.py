@@ -430,3 +430,25 @@ def test_uninstall_reports_a_settings_file_it_could_not_parse(agent_dir: Path) -
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
 
     assert "settings.json" in result.output
+
+
+def test_a_broken_symlink_at_the_settings_path_is_still_the_consumers(
+    agent_dir: Path,
+) -> None:
+    """`path.exists()` follows the link, so a symlink whose target does not exist
+    yet read as "no file here" and wfctl recorded the file as one it created.
+    Uninstall then unlinks what it created — which is the consumer's symlink, not
+    the settings inside it.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    target = repo_root / "real-settings.json"
+    settings_path.symlink_to(target)
+    assert not target.exists()
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    assert HOOK_COMMAND in target.read_text()
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert settings_path.is_symlink(), "uninstall removed the consumer's symlink"
