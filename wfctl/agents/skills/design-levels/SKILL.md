@@ -202,7 +202,8 @@ with it or silently degrade to "find on this page."
 ## Where the levels land
 
 Levels 1 and 3 land in `specs/<branch>/design.md` before speckit runs. Level 2
-does not: it lands in a record.
+does not: it lands in a record. Level 3 lands in both when it decided something —
+the claims in `design.md`, the decision in a record.
 
 - Level 1 → the behavior sections of `design.md`, gated by `speckit.clarify`.
 - Level 2 → one record per ownership decision under `wfctl arch-root`, written
@@ -210,7 +211,13 @@ does not: it lands in a record.
   its feature is being built and closed when it ships; the ownership decision is
   still binding two features later, and has to be somewhere that is still read.
 - Level 3 → `design.md`, then expanded by `speckit.plan` Phase 1 into
-  `data-model.md` and `contracts/`.
+  `data-model.md` and `contracts/`. A structural choice that weighed credible
+  alternatives also leaves one record under `<arch-root>/design/`, for level 2's
+  reason and not a new one: `specs/` is gitignored and `spec_root` resolves
+  outside the tree, so a reviewer reading the PR never sees `design.md`. The
+  two-column split stays there; the record carries only the claims its own
+  decision rests on, and `design.md` points at it rather than holding a second
+  copy that drifts. A choice with no credible alternative earns no record.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design.
 
 `plan-template.md`'s Constitution Check re-checks that ownership is stated. It
@@ -272,6 +279,8 @@ Before `design.md` is written:
       around.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
+- [ ] Every level-3 choice that weighed credible alternatives left a record under
+      `<arch-root>/design/`, and `design.md` points at it instead of restating it.
 - [ ] `design.md` holds behavior and structure, and no level-4 code.
 - [ ] Each gate's answer was rendered in its form — literal strings for level 1,
       a boundary sketch for level 2, a two-column split for level 3 — not a
