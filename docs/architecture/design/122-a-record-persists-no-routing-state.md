@@ -54,8 +54,12 @@ keep in sync across the template, the skill and every record already written.
 
 ## Decision
 
-The baseline wins. A Level-3 record's frontmatter carries `status`, plus
-`pattern` and `supersedes` where they apply. There is no `classification` field.
+The baseline wins on the contested question: no typed field. A Level-3
+record's frontmatter carries `status`, plus two optional keys the baseline does
+not have — `pattern`, a bare name, and `supersedes`, a slug. Neither is a closed
+set, so neither adds vocabulary to keep in sync across the template, the skill
+and the records already written, which is what the baseline was defending. There
+is no `classification` field.
 
 Routing outcomes are not persisted anywhere. `insufficient-evidence` means the
 pass has not finished — stay at Level 3 and write nothing. `architecture-impact`
@@ -84,7 +88,7 @@ stable    ┌──────────────────┐        �
 ═════════════════╪═ arch-root ════════════╪══════════╪══════
                  │                        │          │
 volatile     ┌───┴─────┐   ┌────────┐ ┌───┴────┐ ┌───┴────┐
-             │ Level-3 │──►│ next   │ │Level-3 │ │ next   │
+             │ Level-3 │◄──│ next   │ │Level-3 │ │ next   │
              │ pass    │   │ pass   │ │ pass   │ │ pass   │
              └─────────┘   └────────┘ └────────┘ └────────┘
 

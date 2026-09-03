@@ -9,8 +9,10 @@ issue being implemented, not its epic. The filename without `.md` is the slug
 other records cite in `supersedes`, which is why a record is never renamed once
 approved.
 
-Write one only when the choice draws a line or adds state. An implementation
-with no credible alternative needs no record, and saying so is an answer.
+Write one whenever the choice weighed credible alternatives — selecting or
+rejecting a pattern counts, whether or not it draws a line or adds state. An
+implementation with no credible alternative needs no record, and saying so is an
+answer.
 
 `status` runs proposed -> approved -> superseded | rejected. Only a human moves
 it past proposed. Delete this comment. -->
