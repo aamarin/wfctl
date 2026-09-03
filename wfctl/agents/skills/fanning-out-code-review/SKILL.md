@@ -85,6 +85,10 @@ Every dispatch instruction carries these three:
   all four, and the corruption is not recoverable afterwards — you cannot tell
   whose half-applied edit produced the state you are looking at. Writing its own
   findings file is not an edit to the tree; touching anything under review is.
+  The boundary is wider than the tree, though: anything the project reads back
+  later as evidence is off limits too. Under wfctl that is `wfctl verify`, which
+  writes one record per branch outside the worktree — a reviewer running it
+  replaces the parent's proof of done with one taken mid-review.
 - **Write findings to `$FEATURE_DIR/reviews/<id>.md`,** the id you assigned it.
 
 Dispatch them in parallel — they are independent by construction.
@@ -131,9 +135,10 @@ was checked in each**. A bare "looks good" is a missing report wearing a verdict
 Read all the reports together, then group:
 
 - **Two or more reviewers, same defect** → evidence. Verify it anyway; verify it first.
-- **One reviewer only** → a hypothesis, not noise. Expect this to be most of
-  them: one real three-reviewer run produced three disjoint sets and zero
-  overlap, and the single most valuable finding came from one reviewer alone.
+- **One reviewer only** → a hypothesis, not noise. How often this happens is not
+  worth predicting: one three-reviewer run produced three disjoint sets and zero
+  overlap, with the most valuable finding coming from one reviewer alone; the
+  next produced unanimous agreement on a single defect. Both are normal.
   A lone finding is verified, not discounted.
 - **Reviewers contradicting each other** → they read the same code and disagree,
   which means the code supports two readings. That is a finding in itself.
