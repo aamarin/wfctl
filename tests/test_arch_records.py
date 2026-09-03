@@ -473,6 +473,23 @@ def test_load_records_ignores_subdirectories(tmp_path: Path) -> None:
     assert [r.slug for r in _arch.load_records(root)] == ["layer-model"]
 
 
+def test_an_accepted_record_under_design_does_not_join_the_binding_set(
+    tmp_path: Path,
+) -> None:
+    """The test above files a subdirectory record with no `status`, which `rglob`
+    would surface only as excluded — visible, but harmless. This one files
+    `accepted`, the one word the binding set does admit. A Level-3 record carries
+    `approved`, so an `accepted` file under `design/` is misplaced or malformed —
+    and a recursive loader would bind it anyway, promoting a feature-local design
+    choice into the architecture policy `arch context` puts in front of the agent.
+    Both tests guard one glob; only this one describes what a widened glob would
+    actually let through."""
+    _write(tmp_path, "binding", RECORD.format(status="accepted"))
+    _write(tmp_path / "design", "122-feature-local", RECORD.format(status="accepted"))
+
+    assert [r.slug for r in _arch.load_records(tmp_path)] == ["binding"]
+
+
 def test_a_fenced_decision_heading_is_not_the_decision(tmp_path: Path) -> None:
     """The `_log_bounds` failure one heading over: a record documenting the
     record format carries a fenced `## Decision` example, and projecting it
