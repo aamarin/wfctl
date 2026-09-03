@@ -1980,3 +1980,4 @@ def test_option_two_clone_commands_are_anchored_to_the_main_checkout(    agent_d
     result = _install(answers="n\n2\nproj-specs\n")
 
     assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output
+
