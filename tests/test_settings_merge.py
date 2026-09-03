@@ -199,3 +199,31 @@ def test_managed_command_is_none_when_the_consumer_deleted_the_entry() -> None:
     _settings.merge_hook(settings, EVENT, COMMAND)
     _settings.remove_hooks(settings, EVENT)
     assert _settings.managed_command(settings, EVENT) is None
+
+
+def test_remove_leaves_a_group_that_arrived_empty_or_unrecognised() -> None:
+    """The prune drops a group *it* emptied. A group the consumer wrote empty,
+    and one whose shape wfctl does not recognise, are theirs and must survive —
+    FR-006.
+
+    Written because `if kept or not hooks` reduces to `if kept:` with the whole
+    suite still green: nothing else distinguishes "emptied by us" from "arrived
+    empty", so the mutation silently deletes rows out of a consumer's file.
+    """
+    settings = {
+        "hooks": {
+            EVENT: [
+                {"hooks": []},
+                "not-a-group",
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine"}]},
+                {"hooks": [{"type": "command", "command": COMMAND}]},
+            ]
+        }
+    }
+
+    assert _settings.remove_hooks(settings, EVENT) is True
+    assert settings["hooks"][EVENT] == [
+        {"hooks": []},
+        "not-a-group",
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine"}]},
+    ]

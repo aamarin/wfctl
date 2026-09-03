@@ -47,9 +47,11 @@ their own command in the same group as wfctl's — a group is pruned only once
 wfctl has emptied it of its own entries.
 
 Merge mode is scoped to the agent layer: the hook schema belongs to Claude Code,
-not to wfctl's base layer, so it hangs off the same per-agent dispatch that
-already carries other Claude-only extras rather than adding a base-layer path
-every agent would have to interpret.
+not to wfctl's base layer, so it is claude-only rather than a base-layer path
+every agent would have to interpret. It is an explicit branch in `_merge_hooks`,
+not an entry in the `_AGENT_SKILL_EXTRAS` table — one file, one event, one agent
+does not need a table, and a second merge target is a change to that function
+rather than a config edit.
 
 The hook runs a wfctl subcommand rather than carrying pasted text: `wfctl hook
 <name>` prints the digest of whichever installed skills carry one. The digest
@@ -101,8 +103,13 @@ A fix to a seeded template reaches only repos seeded afterwards. That is the
 accepted cost of the repo owning the file, not an oversight.
 
 The first install that adds a managed entry reflows the consumer's settings file
-— indent width and the trailing newline are preserved, key order and array layout
-are not. Later installs do not open it.
+— the trailing newline and any non-ASCII they wrote survive, key order, array
+layout and indent width do not. Indent is written as Claude Code's own two
+spaces: sniffing the consumer's width preserved half a shape whose other half
+was going anyway, and cost every caller a source-text parameter to do it. The
+file's mode is carried over and a symlink is written through rather than
+replaced, because `os.replace` installs a fresh inode. Later installs do not
+open it.
 
 `doctor` needs a check of its own for merged entries. The bundle content hash
 cannot see them: the entry lives in a file wfctl neither owns nor hashes, so a

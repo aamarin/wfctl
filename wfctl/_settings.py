@@ -1,10 +1,7 @@
 """Merge wfctl's own hook entries into a settings file the consumer owns.
 
-The third install mode. The two that existed treat a file as wholly one party's:
-a managed mirror is wfctl's and is overwritten every sync, a seeded config is the
-repo's the moment it lands. `.claude/settings.json` is neither — it holds the
-consumer's permissions and their own hooks, so wfctl may only ever edit the rows
-it put there.
+The merge install mode's pure half — see `docs/architecture/install-modes.md`
+for why the mode exists.
 
 Ownership is per-entry, and the marker is the command itself: every managed hook
 runs `wfctl hook user-prompt`, so the installer finds its own rows by prefix
@@ -62,18 +59,22 @@ def managed_command(settings: dict, event: str) -> str | None:
     equal means current, different means behind, None means the consumer removed
     it after wfctl recorded it.
     """
-    for group in _groups(settings, event):
-        for hook in _hooks_of(group):
-            if _is_managed(hook):
-                command: str = hook["command"]
-                return command
-    return None
+    found = _managed(settings, event)
+    return found[0]["command"] if found else None
 
 
-def _groups(settings: Any, event: str) -> list:
+def _managed(settings: dict, event: str) -> list[dict]:
+    """Every managed hook entry installed for `event`, in file order."""
+    return [
+        hook
+        for group in _groups(settings, event)
+        for hook in _hooks_of(group)
+        if _is_managed(hook)
+    ]
+
+
+def _groups(settings: dict, event: str) -> list:
     """The group list for `event`, or empty when the file has no such shape."""
-    if not isinstance(settings, dict):
-        return []
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
         return []

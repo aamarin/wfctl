@@ -1140,32 +1140,30 @@ _CONFIG_SOURCES = {
     "github": "agents/configs/github",
 }
 
-# The third install mode: merge. Neither of the two above fits a settings file.
-# A managed mirror overwrites the whole file, which would destroy the consumer's
-# own hooks and permissions; a seeded config is never touched again, which would
-# strand a managed hook at whatever the bundle shipped the day it landed. So
-# wfctl edits one entry inside a file the consumer owns and nothing else — see
-# `_settings` for how ownership of a single entry is established.
+# The merge install mode's one target — see `docs/architecture/install-modes.md`
+# for why merge exists and why it is claude-only.
 #
-# `claude` only, per FR-015 — the schema below is Claude Code's, and no other
-# agent shares it. Repo-local `.claude/settings.json`, not the user-global one:
-# the hook reads the skills *this repo* installed, so a global entry would fire
-# in every checkout on the machine, including ones that never ran
-# `install-skills`.
+# Repo-local `.claude/settings.json`, not the user-global one: the hook reads the
+# skills *this repo* installed, so a global entry would fire in every checkout on
+# the machine, including ones that never ran `install-skills`.
 #
 # The command is a fixed string, not derived from which skills are installed —
 # per `research.md`'s command-name decision, a new digest-bearing skill reaches
 # a consumer's next session with no re-install, and `doctor`'s "behind" check
 # narrows to real drift (wfctl renamed the subcommand) rather than firing every
 # time any skill gains a digest.
-#
-# One file, one event, one agent — not a table keyed for a breadth this feature
-# doesn't have. `plan.md`'s Scale/Scope fixes all three for now; a second merge
-# target is a `_merge_hooks`/`_unmerge_hooks` change, not a config edit.
 SETTINGS_PATH = ".claude/settings.json"
 SETTINGS_EVENT = "UserPromptSubmit"
 
-HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}user-prompt"
+# The hooks `wfctl hook` can run. These names are an interface: they are what a
+# consumer's settings.json invokes, so renaming one breaks every settings file
+# already pointing at it. Beside `HOOK_COMMAND` rather than beside the sub-app
+# that answers them, because the installed command and the name it dispatches
+# on are the same fact, and 1200 lines apart they drift.
+_USER_PROMPT = "user-prompt"
+_WORKTREE_GUARD = "worktree-guard"
+
+HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
 
 _BACKUP_DIR = ".wf-skills-backup"
 
@@ -1272,63 +1270,64 @@ _AGENT_SKILL_EXTRAS = {
 }
 
 
-def _read_settings(path: Path) -> tuple[dict | None, str, str | None]:
-    """Parse a consumer-owned settings file. `(settings, text, problem)`.
+def _read_settings(path: Path) -> tuple[dict | None, str | None]:
+    """Parse a consumer-owned settings file. `(settings, problem)`.
 
-    `settings` and `problem` are mutually exclusive. `text` is the file as it was
-    on disk, which the writer needs to put it back the way it found it.
+    `settings` and `problem` are mutually exclusive.
 
-    A missing file is `({}, "", None)` — not an error, and the case the acceptance
+    A missing file is `({}, None)` — not an error, and the case the acceptance
     criterion calls out: a consumer who has never written one gets a valid file
     created underneath their install.
 
     A file that exists and cannot be parsed is a refusal, never a fresh `{}`.
     Defaulting there would let one stray comma cost the consumer every permission
     and hook they had, which is the exact damage this whole mode exists to avoid.
+
+    Decoded as `utf-8-sig` so a leading BOM is consumed rather than reported: an
+    editor that writes one is not a broken file, but it made the merge refuse
+    every time and named no way out of it.
     """
     if not path.exists():
-        return {}, "", None
+        return {}, None
     try:
-        text = path.read_text()
-        settings = json.loads(text)
-    except (OSError, json.JSONDecodeError) as exc:
-        return None, "", str(exc)
+        settings = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, str(exc)
     if not isinstance(settings, dict):
-        return None, text, "top level is not an object"
-    return settings, text, None
+        return None, "top level is not an object"
+    return settings, None
 
 
-def _json_indent(text: str, default: int = 2) -> int:
-    """How far the first indented line of `text` is indented.
-
-    A heuristic, and deliberately a shallow one: the first nested key answers it
-    for every hand-written settings file, and a file whose nesting is irregular
-    has no single answer to give. `default` is Claude Code's own.
-    """
-    for line in text.splitlines():
-        stripped = line.lstrip(" ")
-        if stripped and stripped != line:
-            return len(line) - len(stripped)
-    return default
-
-
-def _write_settings(path: Path, settings: dict, source: str) -> None:
-    """Write a consumer-owned settings file back, matching how they wrote it.
+def _write_settings(path: Path, settings: dict) -> None:
+    """Write a consumer-owned settings file back, disturbing it as little as
+    a JSON round-trip allows.
 
     Rewriting parsed JSON reflows the file — key order and array layout are gone
     the moment it round-trips, and no amount of care here brings them back short
     of a format-preserving parser, which is a runtime dependency for one file.
-    Two things are recoverable cheaply and both are what a reviewer sees first in
-    the diff, so both are honoured: the indent width the consumer chose, and the
+    Indent is Claude Code's own two spaces; sniffing the consumer's width bought
+    half a guarantee at the cost of threading the source text through every
+    caller, while key order went anyway.
+
+    `ensure_ascii=False` because this file is committed and read by a person:
+    escaping every accented character in a path they typed is churn in the diff,
+    not safety. `write_md_atomic` rather than `write_json_atomic`, only for the
     trailing newline every other text file in their repo ends with.
 
-    `write_md_atomic` rather than `write_json_atomic`, only for that newline —
-    the JSON writer's callers are wfctl's own state files, where nothing reads
-    the bytes and adding one would churn every record in the state dir.
+    Resolved first, and the mode carried over, because `os.replace` installs a
+    fresh inode: onto a symlink it swaps the consumer's link for a regular file
+    and leaves the file they actually read untouched, and it would hand back
+    whatever mode `mkstemp` chose rather than the one they set.
     """
     from wfctl._io import write_md_atomic
 
-    write_md_atomic(path, json.dumps(settings, indent=_json_indent(source)) + "\n")
+    target = path.resolve()
+    mode = target.stat().st_mode & 0o777 if target.exists() else None
+    write_md_atomic(
+        target, json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+    )
+    if mode is not None:
+        target.chmod(mode)
 
 
 def _merge_hooks(
@@ -1357,7 +1356,7 @@ def _merge_hooks(
         # re-emitted here is not stale — it is gone, and with it wfctl's claim on
         # an entry still sitting in the consumer's file for uninstall to remove.
         keep = prior.get((rel, event))
-        settings, text, problem = _read_settings(path)
+        settings, problem = _read_settings(path)
         if settings is None:
             problems.append(f"{rel}: {problem}")
             records.extend([keep] if keep else [])
@@ -1371,7 +1370,7 @@ def _merge_hooks(
         if changed:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                _write_settings(path, settings, text)
+                _write_settings(path, settings)
             except OSError as exc:
                 # Same arm as the two above rather than an escape: this runs after
                 # the skill copies and before the manifest is saved, so raising
@@ -1395,30 +1394,35 @@ def _merge_hooks(
     return records, written, problems
 
 
-def _unmerge_hooks(repo_root: Path, records: Iterable[dict]) -> int:
-    """Remove the managed hooks `records` describes. Returns how many files changed.
+def _unmerge_hooks(
+    repo_root: Path, records: Iterable[dict]
+) -> tuple[int, list[str]]:
+    """Remove the managed hooks `records` describes. `(files changed, problems)`.
 
-    Skips silently over a file that has gone or stopped parsing. Uninstall's job
-    is to leave nothing of wfctl's behind, and a settings file the consumer has
-    since broken or deleted already contains nothing of ours to remove — failing
-    there would block the uninstall over a state that needs no action.
+    A file that has gone needs no action — uninstall's job is to leave nothing of
+    wfctl's behind, and there is nothing there. A file that has stopped *parsing*
+    is different: one stray comma still leaves wfctl's entry sitting in it, and
+    the record naming it is deleted moments later. Reported rather than raised,
+    so a broken settings file cannot block the rest of the uninstall.
     """
     changed_files = 0
+    problems: list[str] = []
     for record in records:
         path = repo_root / record["path"]
         if not path.exists():
             continue
-        settings, text, _ = _read_settings(path)
+        settings, problem = _read_settings(path)
         if settings is None:
+            problems.append(f"{record['path']}: {problem}")
             continue
         if not _settings.remove_hooks(settings, record["event"]):
             continue
         if not settings and record.get("created"):
             path.unlink()
         else:
-            _write_settings(path, settings, text)
+            _write_settings(path, settings)
         changed_files += 1
-    return changed_files
+    return changed_files, problems
 
 
 def _kind_of(src_rel: str) -> str:
@@ -1998,7 +2002,8 @@ def install_skills_cmd(
         # working install for an unparseable settings file the user has to fix
         # before they can have either.
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — left untouched, no hook installed",
+            f"[yellow]⚠[/yellow] {problem} — left untouched; the managed hook "
+            "was not added or updated",
             soft_wrap=True,
         )
 
@@ -2102,7 +2107,13 @@ def uninstall_skills_cmd(
     # `SETTINGS_PATH`/`SETTINGS_EVENT` would miss an entry installed by an older
     # wfctl that merged somewhere this one no longer does — and leave it
     # running forever.
-    unmerged = _unmerge_hooks(repo_root, entry.get("merged", []))
+    unmerged, unmerge_problems = _unmerge_hooks(repo_root, entry.get("merged", []))
+    for problem in unmerge_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
+            "this file; the record naming it is being removed either way",
+            soft_wrap=True,
+        )
 
     del manifest[agent]
     _save_manifest(repo_root, manifest)
@@ -2407,13 +2418,6 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
-# The hooks `wfctl hook` can run. Named rather than one command each, because a
-# hook's whole value is being nameable from a settings file, and renaming that
-# entry point later would break every settings.json already pointing at it.
-_WORKTREE_GUARD = "worktree-guard"
-_USER_PROMPT = "user-prompt"
-
-
 def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
     """The worktree `cwd` is in, and every worktree root git knows about.
 
@@ -2444,40 +2448,44 @@ def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
     return here.strip(), roots
 
 
-@app.command("hook")
-def hook_cmd(
-    name: str = typer.Argument(
-        ..., help=f"Hook to run: {_WORKTREE_GUARD}, {_USER_PROMPT}"
-    ),
-) -> None:
-    """Run an agent hook, reading the agent's JSON payload on stdin.
+hook_app = typer.Typer(
+    no_args_is_help=True,
+    help="Run an agent hook. Not for interactive use — this is what a "
+    "`settings.json` hook entry invokes, so the rule stays versioned with wfctl "
+    "instead of pasted into one developer's config.",
+)
+app.add_typer(hook_app, name="hook")
 
-    Not for interactive use — this is what a `settings.json` hook entry invokes,
-    so the rule stays versioned with wfctl instead of pasted into one developer's
-    config. See `wfctl/_guard.py` for the decision and its known gaps.
 
-    \b
-    worktree-guard  PreToolUse/Bash. Refuses a command that mutates or executes
-                    in a git worktree other than the session's own; reads and
-                    `workmux` are allowed. Exits 2 to block, which is what puts
-                    the reason in front of the agent — exit 1 is *non-blocking*
-                    and lets the command through.
-    user-prompt     UserPromptSubmit. Prints each installed skill's `digest.md`
-                    so a skill loaded at session start is re-anchored every
-                    turn. Reads no stdin and exits 0 whatever it finds.
+@hook_app.command(_USER_PROMPT)
+def hook_user_prompt_cmd() -> None:
+    """UserPromptSubmit. Re-anchor the skills installed in this repo.
+
+    Prints each installed skill's `digest.md`. A skill loaded once at session
+    start decays as the context fills; this is the text that re-anchors it,
+    sourced fresh from the skills themselves rather than pasted in at install
+    time, so the hook's coverage tracks the installed tree without the settings
+    file recording which skills it currently covers.
+
+    No arguments: the entry's file location already scopes it to one repo and
+    one agent, and the skill list is discovered, not received as input
+    (`research.md`'s command-name decision).
     """
-    if name == _USER_PROMPT:
-        _hook_user_prompt()
-        return
+    _hook_user_prompt()
 
+
+@hook_app.command(_WORKTREE_GUARD)
+def hook_worktree_guard_cmd() -> None:
+    """PreToolUse/Bash. Refuse a command aimed at another worktree.
+
+    Reads the agent's JSON payload on stdin. Refuses a command that mutates or
+    executes in a git worktree other than the session's own; reads and `workmux`
+    are allowed. Exits 2 to block, which is what puts the reason in front of the
+    agent — exit 1 is *non-blocking* and lets the command through.
+
+    See `wfctl/_guard.py` for the decision and its known gaps.
+    """
     from wfctl import _guard
-
-    if name != _WORKTREE_GUARD:
-        console.print(
-            f"[red]✗ Unknown hook '{name}'. "
-            f"Available: {_WORKTREE_GUARD}, {_USER_PROMPT}.[/red]"
-        )
-        raise typer.Exit(1)
 
     # Every field defensively, because this runs before *every* Bash call and a
     # traceback from it reaches the agent as a hook error on work that had
@@ -3058,7 +3066,7 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     for layer in _layer_keys(manifest):
         for record in manifest[layer].get("merged", []):
             rel, event = record["path"], record["event"]
-            settings, _, problem = _read_settings(repo_root / rel)
+            settings, problem = _read_settings(repo_root / rel)
             if settings is None:
                 console.print(
                     f"[yellow]⚠[/yellow] {escape(rel)}: {escape(problem or '')} — "
@@ -3071,8 +3079,11 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
                 continue
 
             drift = True
-            state = "is gone — the skills it re-anchors decay again mid-session" \
-                if actual is None else "is behind this wfctl"
+            state = (
+                "is gone — the skills it re-anchors decay again mid-session"
+                if actual is None
+                else "is behind this wfctl"
+            )
             # soft_wrap and the break placed by hand: rich would otherwise
             # re-wrap at the terminal edge and split the settings path across
             # two lines, which both reads badly and makes assertions on these

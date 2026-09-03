@@ -154,7 +154,7 @@ it and only the implementation ships. This repo does the latter.
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
-| `hook`           | Run an agent hook from a `settings.json` entry (`worktree-guard`) — not for interactive use |
+| `hook`           | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`) — not for interactive use |
 | `doctor`         | Check the installed skills against the ones this wfctl ships            |
 
 `wfctl --version` prints the installed package version and exits.
@@ -404,10 +404,29 @@ one of them is invisible too. Worktrees outside `wt/` are *not* a gap: the roots
 come from `git worktree list`. See `wfctl/_guard.py` for the full list of what it
 cannot catch.
 
-Not seeded by `install-config` yet. That would mean editing a `settings.json`
-the project already owns, which needs the merge install mode tracked as
-[#85](https://github.com/aamarin/wfctl/issues/85) — seed-once would refuse the
-file outright, and `--force` would take the project's own permissions with it.
+Not seeded by `install-config`, which is seed-once and would refuse a
+`settings.json` the project already owns — `--force` would take the project's own
+permissions with it. `install-skills --agent claude` does install a hook this
+way, using the merge mode described below.
+
+### The merge install mode
+
+`install-skills --agent claude` adds one entry to `.claude/settings.json` and
+edits nothing else in it. The entry runs `wfctl hook user-prompt`, which prints
+the `digest.md` of each skill the manifest records as installed, so a skill
+loaded at session start is re-anchored on later turns instead of decaying as the
+context fills.
+
+Your own permissions, hooks and settings are left alone; `uninstall-skills`
+removes just wfctl's entry, and `doctor` reports it when it goes missing or falls
+behind. The first install that adds the entry reflows the file (key order, array
+layout and indent width are lost to the JSON round-trip; the trailing newline,
+the file mode and any non-ASCII survive). Later installs leave it closed.
+
+The file is deliberately not gitignored — committing it is what shares the hook
+with everyone who clones. That is also why the hook reads the manifest rather
+than the skills directory: a directory nobody installed can ride along in a
+clone, and it must not be able to put text into your context.
 
 ### Issue trackers
 
