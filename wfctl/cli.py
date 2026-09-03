@@ -424,9 +424,47 @@ def log_cmd() -> None:
 
 
 @app.command("state-dir")
-def state_dir_cmd() -> None:
-    """Print the active state directory path."""
-    agent_dir, _, _, _ = _resolve_context()
+def state_dir_cmd(
+    branch: str = typer.Option(
+        None, "--branch", help="Another branch's state dir, instead of the active one."
+    ),
+) -> None:
+    """Print a state directory path — the active branch's, or --branch's."""
+    import os
+    import subprocess as sp
+
+    from wfctl._paths import _STATE_DIR_OVERRIDE
+
+    agent_dir, repo_root, active_branch, _ = _resolve_context()
+
+    # `--branch` exists so a session can write into a branch it is not on — a
+    # worktree handoff, written before the child branch has ever been checked
+    # out. The layout stays here rather than being reconstructed by the caller:
+    # `resolve_agent_dir` has always taken a branch, only the CLI surface didn't.
+    if branch and branch != active_branch:
+        # A branch name reaching this flag came from an argument, not from git,
+        # and it is about to become a path component. git's own parser is the
+        # authority on what a ref may contain — it rejects `..`, a leading `-`
+        # and the rest without a second rule set here to keep in step.
+        ref_ok = sp.run(
+            ["git", "check-ref-format", f"refs/heads/{branch}"], capture_output=True
+        )
+        if ref_ok.returncode != 0:
+            console.print(f"[red]✗ not a valid branch name: {branch}[/red]")
+            raise typer.Exit(1)
+        # The override names one directory outright and has no branch component
+        # to substitute, so it can only ever answer for the active branch.
+        # Answering with it anyway hands the caller the *active* branch's dir
+        # under another branch's name — and the caller is about to write a
+        # handoff there, over its own.
+        if os.environ.get(_STATE_DIR_OVERRIDE):
+            console.print(
+                f"[red]✗ {_STATE_DIR_OVERRIDE} pins one directory; "
+                f"it cannot resolve --branch {branch}[/red]"
+            )
+            raise typer.Exit(1)
+        agent_dir = resolve_agent_dir(repo_root, branch)
+
     # Plain print: output is consumed by $(wfctl state-dir); rich wraps at
     # terminal width and would inject a newline mid-path.
     print(agent_dir)
@@ -1161,6 +1199,7 @@ _MIRRORED_SKILLS = frozenset({
     "receiving-code-review",
     "using-superpowers",
     "verification-before-completion",
+    "worktree-handoff",
 })
 
 
