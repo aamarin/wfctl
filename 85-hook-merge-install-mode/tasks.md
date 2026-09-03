@@ -154,7 +154,8 @@ remains, and the group is pruned only when it was wfctl's alone.
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [X] T024 [P] Run every section of `quickstart.md` end to end against a scratch consumer repo (not this repo) and confirm all six scenarios match their documented "Expect" — evidence: the diff/output pairs quickstart.md names
-- [ ] T025 Manual: run a live Claude Code session against a repo with the hook installed (T011, T012 complete); confirm `wfctl hook user-prompt` fires on more than one `UserPromptSubmit` turn within that session, and that its stdout matches a standalone invocation — the decay-closing claim in SC-005 and spec.md's own Validation Strategy, not exercised by any single-invocation quickstart step (analysis finding E2); evidence: a transcript excerpt showing the digest present at two different turns
+- [~] T025 **Deferred to #111.** Manual: run a live Claude Code session against a repo with the hook installed (T011, T012 complete); confirm `wfctl hook user-prompt` fires on more than one `UserPromptSubmit` turn within that session, and that its stdout matches a standalone invocation — the decay-closing claim in SC-005 and spec.md's own Validation Strategy, not exercised by any single-invocation quickstart step (analysis finding E2); evidence: a transcript excerpt showing the digest present at two different turns.
+  Deferred because the hook has no `digest.md` to print until #111 ships one — running this against an invented fixture digest would exercise the plumbing (already covered by the automated tests) and not SC-005's decay claim.
 - [X] T026 Full-suite gate for the feature: `uv run pytest -q && uv run ruff check wfctl/ tests/ && uv run mypy wfctl/` — merge gate matching AGENTS.md's Definition of done
 
 ---
