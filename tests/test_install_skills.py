@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import _recorded_items, app
+from wfctl.cli import _MIRRORED_SKILLS, _recorded_items, app
 
 runner = CliRunner()
 
@@ -821,6 +821,105 @@ def test_an_orphan_is_reported_even_as_its_directorys_last_recorded_entry(
     assert remaining == [], "fixture must leave the directory with nothing recorded"
     assert forgotten in result.output
     assert result.exit_code == 1
+
+
+def test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#110. `.claude/skills/` is a selective mirror, so its orphans have no twin.
+
+    Every other agent destination copies a base source whole, and a rename there
+    orphans the `.agents/` copy alongside it — which the scan already reports.
+    Dropping a name from `_MIRRORED_SKILLS` orphans nothing under `.agents/`: the
+    skill stays installed and recorded there, and only the `.claude/` copy falls
+    off the record. Before this, nothing named it, ever.
+
+    Un-mirrors for real rather than editing the record — the manifest dropping the
+    path is the link in the chain the fix depends on. The bundle holds exactly one
+    mirrored skill, so `.claude/skills/` also ends with nothing recorded in it,
+    which is the case a record-derived scan stops looking at.
+
+    Reads the name out of `_MIRRORED_SKILLS` rather than hardcoding one: a literal
+    would keep passing as a no-op the day that skill stops being mirrored.
+    """
+    repo_root = agent_dir.parent
+    name = sorted(_MIRRORED_SKILLS)[0]
+    skill = bundle / "agents" / "skills" / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(f"# {name}\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    mirror = repo_root / ".claude" / "skills" / name
+    assert mirror.is_dir(), "fixture must install the mirror before un-mirroring it"
+
+    monkeypatch.setattr("wfctl.cli._MIRRORED_SKILLS", _MIRRORED_SKILLS - {name})
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    result = runner.invoke(app, ["doctor"])
+
+    recorded = {i["path"] for i in _recorded_items(_manifest(repo_root))}
+    assert not [p for p in recorded if p.startswith(".claude/skills/")], (
+        "fixture must leave the mirror root with nothing recorded in it"
+    )
+    assert mirror.exists(), "the copy stays on disk — that is the whole problem"
+    assert f".claude/skills/{name}" in result.output
+    assert result.exit_code == 1
+
+
+def test_doctor_does_not_report_a_claude_skill_the_user_wrote_themselves(
+    agent_dir: Path,
+) -> None:
+    """The layer gate is not enough — `.claude/skills/` is shared ground in a repo
+    that *did* install for claude, and that is the common repo.
+
+    Claude Code and its plugins keep project-local skills there, and `.claude/` is
+    commonly gitignored whole (this repo's own `.gitignore` does it), so
+    `_tracked_paths` cannot exempt a hand-authored skill the way it can under
+    `.agents/`. Reporting one claims wfctl installed it, tells the reader to
+    delete it, and exits 1 in their CI — over their file.
+
+    What separates the two is the base-layer copy: a mirror is a copy of a skill
+    under `.agents/skills/`, and a skill someone wrote has no counterpart there.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    mine = repo_root / ".claude" / "skills" / "my-own-skill"
+    mine.mkdir(parents=True)
+    (mine / "SKILL.md").write_text("mine\n")
+    assert not (repo_root / ".agents" / "skills" / "my-own-skill").exists(), (
+        "a hand-authored claude skill has no base-layer copy — that is the tell"
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "my-own-skill" not in result.output
+    assert result.exit_code == 0
+
+
+def test_doctor_does_not_report_a_claude_skill_in_a_bob_installed_repo(
+    agent_dir: Path,
+) -> None:
+    """The mirror root is scanned only because the claude layer wrote to it.
+
+    Under `--agent bob`, `.claude/` is entirely the user's — wfctl never put a
+    file there — so a skill someone keeps in it is theirs, and reporting it would
+    fail their build over their own work. The gate is the manifest's claude entry,
+    not the directory's existence.
+
+    Asserts an orphan in an owned tree still reports, because a gate that
+    silenced the scan outright would pass the first assertion for the wrong
+    reason.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+    mine = repo_root / ".claude" / "skills" / "my-own-skill"
+    mine.mkdir(parents=True)
+    (mine / "SKILL.md").write_text("mine\n")
+    forgotten = _forget_one_item(repo_root, ".agents/commands/test-cmd.md")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "my-own-skill" not in result.output
+    assert forgotten in result.output, "an orphan in an owned tree must still report"
 
 
 def test_doctor_is_silent_when_every_installed_path_is_still_recorded(

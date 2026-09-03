@@ -1029,8 +1029,9 @@ def change_cmd(
 # belongs to the destination alone, which is a real `.agents/` in the user's
 # repo. The two halves are no longer the same string even where they name the
 # same subtree, so neither is derivable from the other.
+_BASE_SKILL_ROOT = ".agents/skills"
 _BASE_TARGETS = [
-    ("agents/skills", ".agents/skills"),
+    ("agents/skills", _BASE_SKILL_ROOT),
     ("agents/commands", ".agents/commands"),
 ]
 
@@ -1163,6 +1164,15 @@ _MIRRORED_SKILLS = frozenset({
 })
 
 
+# The destination the mirror below owns — shared with Claude Code itself, with
+# its plugins, and with whatever the user keeps there. Named here, beside the
+# mirror, because the abandoned-entry scan has to look in this directory and a
+# root produced inline is a root nothing else can ask about. The alternative was
+# widening the extras hook to return its root alongside the path; that grows a
+# contract to serve its single implementation.
+_CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
+
+
 def _claude_native_skill_mirror(
     repo_root: Path, item: Path
 ) -> tuple[str, Path, Path] | None:
@@ -1171,7 +1181,7 @@ def _claude_native_skill_mirror(
     the .agents/skills reference copy every agent gets. None if it doesn't apply."""
     if not item.is_dir() or item.name not in _MIRRORED_SKILLS:
         return None
-    dest = repo_root / ".claude" / "skills" / item.name
+    dest = repo_root / _CLAUDE_NATIVE_SKILL_ROOT / item.name
     return str(dest.relative_to(repo_root)), dest, item
 
 
@@ -2409,28 +2419,71 @@ def _check_spec_root_migration(repo_root: Path) -> bool:
     return True
 
 
-# Where the abandoned-entry scan looks: wfctl's own destinations, taken from the
-# target tables rather than restated, so adding a target cannot leave the scan
-# behind. Deliberately *not* every directory the manifest records into.
-#
-# Two exclusions, both deliberate:
-#
-# `.claude/`, `.bob/`, `.github/` — the agent layers copy there, but they are the
-# user's own directories and a slash command someone wrote themselves lands in
-# them. The rename that motivated this check orphans in `.agents/` too, since the
-# base layer installs there, so the real case is caught without reaching into
-# shared ground.
-#
-# `.agents/trackers/` — `install-skills --tracker github` records `github.json`
-# there, but `/scaffold-tracker` documents the same directory as the place to
-# hand-author `<name>.json` for any other tracker. Scanning it would report a
-# repo's own Jira config as abandoned and, under this contract, fail its build
-# over a file wfctl never wrote. It is shared ground wearing an owned tree's
-# prefix, and it stays out by not being a target — no special case to keep in
-# sync. Splitting installed from hand-authored configs would be tidier and buys
-# nothing: every other access is by exact filename, so this scan was the only
-# thing that ever enumerated the directory.
-_SCANNED_DIRS = tuple(dest for _, dest in (*_BASE_TARGETS, *_RUNTIME_TARGETS))
+def _scanned_dirs(manifest: dict) -> tuple[str, ...]:
+    """Where the abandoned-entry scan looks: wfctl's own destinations, taken from
+    the target tables rather than restated, so adding a target cannot leave the
+    scan behind.
+
+    Fixed destinations, not every directory the manifest records into, and the
+    agent roots — `.claude/`, `.bob/`, `.github/` — stay out with one exception.
+    They are the user's own directories; a slash command someone authored there
+    is not wfctl's abandoned output. Keeping them out costs nothing for a plain
+    `_AGENT_TARGETS` entry, because every one of those copies a base source whole:
+    the rename that orphans `.claude/commands/old.md` orphans
+    `.agents/commands/old.md` alongside it, and the base layer's copy is scanned.
+    The real case is caught without reaching into shared ground.
+
+    `.claude/skills` is the exception because it is a *selective* mirror — only
+    the skills `_MIRRORED_SKILLS` names — so its orphans have no twin under
+    `.agents/`. Dropping a name from that set leaves `.agents/skills/<name>`
+    installed and recorded and the `.claude/skills/<name>` copy on disk with
+    nothing pointing at it (#110). Nowhere else reports it, so this is the one
+    agent destination worth reaching into. The mirror root is not in
+    `_AGENT_TARGETS` — no (src, dst) pair produces it, the mirror does, one item
+    at a time — so it comes from the constant that mirror declares.
+
+    Gated on the claude layer being recorded, so a `--agent bob` repo's
+    `.claude/` is not read at all. That gate alone is not enough: in a repo that
+    *did* install for claude, `.claude/skills/` is still shared ground, and
+    `_scan_owns` is what keeps the user's own skills out of the report.
+
+    `.agents/trackers/` stays out: `install-skills --tracker github` records
+    `github.json` there, but `/scaffold-tracker` documents the same directory as
+    the place to hand-author `<name>.json` for any other tracker. Scanning it
+    would report a repo's own Jira config as abandoned and, under this contract,
+    fail its build over a file wfctl never wrote. It is shared ground wearing an
+    owned tree's prefix, and it stays out by not being a target — no special case
+    to keep in sync. Splitting installed from hand-authored configs would be
+    tidier and buys nothing: every other access is by exact filename, so this
+    scan was the only thing that ever enumerated the directory.
+    """
+    return (
+        *(dest for _, dest in (*_BASE_TARGETS, *_RUNTIME_TARGETS)),
+        *((_CLAUDE_NATIVE_SKILL_ROOT,) if "claude" in _agent_keys(manifest) else ()),
+    )
+
+
+def _scan_owns(repo_root: Path, scanned: str, child: Path) -> bool:
+    """Whether an unrecorded `child` of `scanned` is wfctl's to report at all.
+
+    True everywhere except the Claude skill mirror, whose root is the one scanned
+    directory the user writes to as well — Claude Code and its plugins keep
+    project-local skills there, and `.claude/` is commonly gitignored whole (this
+    repo does it), so `_tracked_paths` cannot tell a hand-authored skill from an
+    orphan the way it can under `.agents/`.
+
+    A mirror is a copy of a base-layer skill, so the copy is wfctl's only when the
+    thing it copies is on disk. That is exactly the shape of the case this scan
+    exists for — un-mirroring drops the name from `_MIRRORED_SKILLS` and leaves
+    `.agents/skills/<name>` right where it was — and never the shape of a skill
+    someone wrote themselves, which has no base-layer counterpart.
+
+    On disk, not in the record: a skill dropped upstream entirely leaves both
+    copies unrecorded, and both should report.
+    """
+    if scanned != _CLAUDE_NATIVE_SKILL_ROOT:
+        return True
+    return (repo_root / _BASE_SKILL_ROOT / child.name).exists()
 
 
 def _tracked_paths(repo_root: Path, candidates: list[str]) -> set[str]:
@@ -2531,10 +2584,11 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
 
     candidates = sorted(
         rel
-        for scanned in _SCANNED_DIRS
+        for scanned in _scanned_dirs(manifest)
         if (d := repo_root / scanned).is_dir()
         for child in d.iterdir()
         if (rel := str(child.relative_to(repo_root))) not in recorded
+        if _scan_owns(repo_root, scanned, child)
     )
     tracked = _tracked_paths(repo_root, candidates)
     abandoned = [rel for rel in candidates if rel not in tracked]
