@@ -40,6 +40,11 @@ argument means parsing shell, which is a losing game, so it does not try.
     quoting          segments are split on `|`, `&&` and `;` without honouring
                      quotes, so a separator inside a quoted string splits a
                      segment early. It fails toward refusing.
+    new worktrees    nothing here fires unless a path in the command is owned
+                     by a worktree that already exists, so `git worktree add`
+                     to a fresh path outside every existing one is invisible.
+                     Inside the seeded `wt/` layout it is caught, because the
+                     new tree nests in the main checkout.
 
 Worktrees outside `wt/` are *not* on that list: the roots come from
 `git worktree list`, so `.claude/worktrees/agent-*` — eighteen of them in this
@@ -70,10 +75,21 @@ _READ_VERBS = frozenset({
 _FIND_ACTIONS = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir",
                            "-fls", "-fprint", "-fprintf"})
 
-# workmux in full, not verb by verb. It is the handoff mechanism the refusal
-# message points at, and `add`, `send` and `remove` all name another worktree by
-# design — refusing it would block the escape hatch the guard recommends.
-_HANDOFF_TOOLS = frozenset({"workmux"})
+# workmux is the handoff mechanism the refusal message points at, and naming
+# another worktree is what most of it is *for* — refusing it wholesale would
+# block the escape hatch the guard recommends. Still by subcommand, not in full:
+# `workmux run` is documented as "run a command in a worktree's window", which
+# is the exact verb refused everywhere else in this module. Allowing it because
+# of the tool it arrives under would make the allowlist self-defeating.
+#
+# Lifecycle verbs (`add`, `remove`, `merge`) are here on purpose. Creating and
+# tearing down worktrees from anywhere is correct and is how work gets handed
+# off; the guard is about work *landing* in the wrong tree, not about which
+# session may manage them.
+_WORKMUX_OK = frozenset({
+    "add", "remove", "rm", "merge", "rename", "open", "close",
+    "list", "ls", "path", "status", "send", "capture", "wait",
+})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -91,17 +107,32 @@ _GIT_READ = frozenset({
 _GIT_OPTS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
 
 # Quote-blind on purpose — see the module docstring. `||` and `&&` come before
-# the single-character class so the alternation does not split them in half. A
-# lone `&` is not a separator here: it would split `2>&1` into a segment whose
-# first word is `1`, refusing a form that appears in half the read commands
-# anyone writes.
-_SEPARATORS = re.compile(r"\|\||&&|[|;\n]")
+# the single-character alternatives so the alternation does not split them in
+# half.
+#
+# The lone `&` needs both lookarounds. Without it as a separator, `echo hi & rm
+# -rf <other>` is one segment whose verb is `echo`, and the whole command is
+# allowed — a false allow in precisely the class this exists to stop. Splitting
+# on every `&` instead breaks `2>&1` into a segment whose first word is `1`,
+# refusing a form that appears in half the read commands anyone writes. So:
+# not after `>` or `&`, and not before `>` or `&`.
+_SEPARATORS = re.compile(r"\|\||&&|(?<![>&])&(?![&>])|[|;\n]")
 
-# A redirect that writes somewhere. `2>&1` and `>/dev/null` are noise rather than
-# writes and stay allowed; everything else is a write whose target this module
-# will not try to resolve, so the command is refused wholesale once it has
+# A redirect that writes somewhere. Refused wholesale rather than resolved:
+# working out where a redirect points is shell parsing, and the command has
 # already been found naming another worktree.
-_WRITE_REDIRECT = re.compile(r">>?\s*(?!&|/dev/null\b)")
+#
+# Two conditions, each paying for a false positive found by review. The leading
+# `[\s\d]` is what stops `grep -rn '=>' <other>` and `grep 'a->b' <other>` being
+# read as redirects — an arrow inside a quoted pattern is not preceded by
+# whitespace or a file descriptor, and grepping a sibling is exactly the read
+# this module promises to keep. The possessive `>>?+` is what stops `>> /dev/null`
+# matching: a plain `>>?` backtracks to a single `>` when the lookahead fails,
+# and that shorter match then succeeds against the second `>`. `\s*+` is the same
+# hazard one step later — a greedy `\s*` gives back the space it ate and the
+# lookahead then passes on ` /dev/null`, which is not the exemption failing but
+# the exemption being stepped around.
+_WRITE_REDIRECT = re.compile(r"(?:^|[\s\d])>>?+\s*+(?!&|/dev/null\b)")
 
 # Absolute paths, stopping at whitespace and the shell metacharacters that
 # cannot appear unescaped inside one. Deliberately greedy about `-` and `.` so
@@ -157,12 +188,21 @@ def _reads_only(segment: str) -> bool:
         # `worktree` is here for `git worktree list` alone. `git worktree add`
         # is how #129's first failure happened — a worktree created outside
         # workmux, so `post_create` never ran and it came up with no skills.
+        #
+        # Only a partial guard on that, and worth being clear about which part:
+        # nothing here runs unless some path in the command is already owned by
+        # an existing worktree, so this catches `git worktree add` into a tree
+        # that nests inside one (the `wt/` layout `.workmux.yaml` seeds) and
+        # misses it entirely into a fresh path elsewhere.
         if sub[:1] == ["worktree"]:
             return sub[1:2] == ["list"]
         return bool(sub) and sub[0] in _GIT_READ
     if verb == "find":
         return not _FIND_ACTIONS.intersection(words[1:])
-    return verb in _READ_VERBS or verb in _HANDOFF_TOOLS
+    if verb == "workmux":
+        sub = [w for w in words[1:] if not w.startswith("-")]
+        return bool(sub) and sub[0] in _WORKMUX_OK
+    return verb in _READ_VERBS
 
 
 def refusal(command: str, here: str, worktrees: Iterable[str]) -> str | None:

@@ -128,6 +128,42 @@ def test_find_may_not_run_or_delete() -> None:
     assert refuses(f"find {OTHER} -name '*.py' -exec rm {{}} +")
 
 
+def test_a_background_separator_still_splits_segments() -> None:
+    """`&` is a command separator, and dropping it hid a mutation behind `echo`.
+
+    Found in review: excluding `&` to protect `2>&1` made `echo hi & rm -rf
+    <other>` a single segment whose verb is `echo`, so the whole command was
+    allowed — a false allow in exactly the class the guard exists to stop.
+    """
+    assert refuses(f"echo hi & rm -rf {OTHER}/wfctl")
+    assert refuses(f"cat {OTHER}/a & sed -i '' s/a/b/ {OTHER}/b")
+
+
+def test_an_arrow_inside_a_quoted_pattern_is_not_a_redirect() -> None:
+    """Grepping a sibling for `=>` is the read this module promises to keep.
+
+    Found in review: treating every `>` as a redirect refused it, and with the
+    wrong reason attached. A real redirect follows whitespace or a descriptor.
+    """
+    assert not refuses(f"grep -rn '=>' {OTHER}/src")
+    assert not refuses(f"grep -n 'a->b' {OTHER}/f.c")
+    assert not refuses(f"cat {OTHER}/f >> /dev/null")
+    assert refuses(f"cat {OTHER}/f >> {HERE}/log")
+
+
+def test_workmux_run_is_not_covered_by_the_handoff() -> None:
+    """`workmux run` is "run a command in a worktree's window" — the refused verb.
+
+    Found in review: allowlisting workmux wholesale let the escape hatch carry
+    arbitrary execution into another worktree, which makes the allowlist
+    self-defeating. Lifecycle verbs stay, because managing worktrees from
+    anywhere is correct.
+    """
+    assert refuses(f"workmux run other 'rm -rf {OTHER}/.venv'")
+    assert not refuses(f"workmux remove other {OTHER}")
+    assert not refuses(f"workmux path other {OTHER}")
+
+
 def test_git_is_decided_by_subcommand() -> None:
     """`git -C <other>` reads and writes through the same entry point.
 

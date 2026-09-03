@@ -398,8 +398,10 @@ It is a heuristic and says so. It reads the command as text, so a relative path
 (`../105-mypy-cold-venv/…`), a path built in a variable, or a script that `cd`s
 elsewhere all pass unseen — resolving those means parsing shell. `cd` itself is
 not an allowlisted verb, and pairing this with `"deny": ["Bash(cd:*)"]` closes
-most of the remainder. Worktrees outside `wt/` are *not* a gap: the roots come
-from `git worktree list`. See `wfctl/_guard.py` for the full list of what it
+most of the remainder. Nothing fires unless a path in the command belongs to a
+worktree that already exists, so `git worktree add` to a fresh path outside every
+one of them is invisible too. Worktrees outside `wt/` are *not* a gap: the roots
+come from `git worktree list`. See `wfctl/_guard.py` for the full list of what it
 cannot catch.
 
 Not seeded by `install-config` yet. That would mean editing a `settings.json`

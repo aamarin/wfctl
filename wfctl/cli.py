@@ -1962,8 +1962,17 @@ def hook_cmd(
         console.print(f"[red]✗ Unknown hook '{name}'. Available: {_WORKTREE_GUARD}.[/red]")
         raise typer.Exit(1)
 
-    payload = json.loads(sys.stdin.read() or "{}")
-    command = payload.get("tool_input", {}).get("command", "")
+    # Every field defensively, because this runs before *every* Bash call and a
+    # traceback from it reaches the agent as a hook error on work that had
+    # nothing wrong with it. A payload this code cannot read describes no
+    # command, and no command crosses no boundary.
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    command = (payload.get("tool_input") or {}).get("command") or ""
     # The payload's `cwd` is the session's, which is the one the guard is about.
     # This process's own cwd is the agent's project directory and can differ.
     here, roots = _worktree_roots(payload.get("cwd") or ".")
