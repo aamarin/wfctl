@@ -52,6 +52,10 @@ the command reads what is installed, it does not receive it as input.
   A `digest.md` that resolves outside the repo root is not read. Symlinked at a
   credentials file, it read that file into the model's context every turn.
 
+  The skill's *name* is held to a single-line character set for the same
+  reason the digest is flattened: it is printed beside the digest, so a name
+  carrying a newline forges a bullet exactly as the text could.
+
 - **Nothing**, when no installed skill carries a `digest.md`. No header, no
   blank line, no error. Per FR-012 and the reasoning in `research.md`'s command
   invocation section: a hook firing on every turn must be silent when it has
@@ -76,6 +80,8 @@ the command reads what is installed, it does not receive it as input.
 | No `git` on `PATH` at all | Exit 0, no output |
 | A skill directory present but not recorded in the manifest | Not read at all |
 | A `digest.md` resolving outside the repo root | Not read at all |
+| A `digest.md` that is a symlink loop | That skill contributes nothing; exit stays 0 |
+| A recorded skill name outside `[A-Za-z0-9][A-Za-z0-9._-]*` | Not read at all |
 | A skill directory's `digest.md` is present but empty | Treated as absent — no bullet for that skill |
 
 ## Stability
