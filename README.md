@@ -143,7 +143,7 @@ it and only the implementation ships. This repo does the latter.
 | `end`            | End the current session and write summary scaffold                       |
 | `archive-specs`  | Rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
 | `log`            | Print color-coded event timeline for the current session                 |
-| `state-dir`      | Print the active XDG state directory path                                |
+| `state-dir`      | Print the active XDG state directory path (`--branch` for another's)     |
 | `feature-paths`  | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
 | `spec-root`      | Show, set, or clear the directory this repo's spec dirs live under       |
 | `arch-root`      | Show the directory this repo's architecture records live under           |

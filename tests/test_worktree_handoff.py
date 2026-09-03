@@ -8,7 +8,9 @@ end with the handoff in the wrong directory rather than with an error —
 and the skill's prose drifting from the flag it names.
 """
 import re
+import shutil
 import subprocess
+import sys
 from importlib.resources import files
 from pathlib import Path
 
@@ -23,6 +25,15 @@ runner = CliRunner()
 _SKILL = (
     Path(str(files("wfctl"))) / "agents" / "skills" / "worktree-handoff" / "SKILL.md"
 )
+
+
+def _wfctl_binary() -> str | None:
+    """Resolved beside this interpreter first. A bare `wfctl` takes whatever wins
+    the PATH race, so a developer with an older `uv tool install wfctl` ahead of
+    the venv would see these tests blame the code for a stale binary."""
+    return shutil.which("wfctl", path=str(Path(sys.executable).parent)) or shutil.which(
+        "wfctl"
+    )
 
 
 @pytest.fixture
@@ -86,6 +97,36 @@ def test_a_branch_name_git_would_reject_does_not_become_a_path(
     assert "not a valid branch name" in result.output
 
 
+def test_a_name_git_allows_but_an_argv_parser_would_not_is_refused(
+    xdg_repo: Path
+) -> None:
+    """`git check-ref-format refs/heads/-x` exits 0 — a leading dash is a legal
+    ref. It is not a legal argument: the caller's next line is `wm add <branch>`,
+    where `-x` parses as flags. git's parser is the authority on refs, not on
+    what is safe to pass along."""
+    result = runner.invoke(app, ["state-dir", "--branch=-x"])
+    assert result.exit_code == 1
+    assert "not a valid branch name" in result.output
+
+
+def test_a_refusal_never_reaches_stdout(xdg_repo: Path, monkeypatch) -> None:
+    """stdout is this command's entire contract — `cd "$(wfctl state-dir)"`, and
+    the handoff writer's `cp … "$(wfctl state-dir --branch X)/…"`. A refusal
+    printed to stdout becomes the path the caller substitutes in, so the error
+    text turns into a destination instead of stopping the write."""
+    wfctl = _wfctl_binary()
+    if wfctl is None:
+        pytest.skip("wfctl is not installed in this environment")
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(xdg_repo / "pinned"))
+    for bad in (["--branch", "200-other"], ["--branch", "../escaped"]):
+        out = subprocess.run(
+            [wfctl, "state-dir", *bad], capture_output=True, text=True, cwd=xdg_repo
+        )
+        assert out.returncode == 1
+        assert out.stdout.strip() == "", f"{bad} leaked a refusal onto stdout"
+        assert out.stderr.strip()
+
+
 def test_the_skill_runs_the_command_it_tells_the_agent_to_run(
     xdg_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -94,8 +135,11 @@ def test_the_skill_runs_the_command_it_tells_the_agent_to_run(
     failing only in the worktree of whoever followed it."""
     invocations = re.findall(r"wfctl state-dir [^\n\"')]*", _SKILL.read_text())
     assert invocations, "skill no longer names the command it depends on"
+    wfctl = _wfctl_binary()
+    if wfctl is None:
+        pytest.skip("wfctl is not installed in this environment")
     for inv in invocations:
-        cmd = inv.replace("<branch>", "200-derived-from-the-skill").split()
+        cmd = [wfctl, *inv.replace("<branch>", "200-derived-from-the-skill").split()[1:]]
         out = subprocess.run(cmd, capture_output=True, text=True, cwd=xdg_repo)
         assert out.returncode == 0, out.stderr
         assert Path(out.stdout.strip()).name == "200-derived-from-the-skill"

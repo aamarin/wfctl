@@ -435,6 +435,12 @@ def state_dir_cmd(
 
     from wfctl._paths import _STATE_DIR_OVERRIDE
 
+    # This command's whole contract is that stdout is a path — `cd "$(wfctl
+    # state-dir)"`, and the handoff writer's `cp … "$(wfctl state-dir --branch
+    # X)/session-summary.md"`. The module console is stdout-bound, so a refusal
+    # printed through it becomes the destination the caller substitutes in.
+    err = Console(stderr=True, highlight=False)
+
     agent_dir, repo_root, active_branch, _ = _resolve_context()
 
     # `--branch` exists so a session can write into a branch it is not on — a
@@ -444,13 +450,19 @@ def state_dir_cmd(
     if branch and branch != active_branch:
         # A branch name reaching this flag came from an argument, not from git,
         # and it is about to become a path component. git's own parser is the
-        # authority on what a ref may contain — it rejects `..`, a leading `-`
-        # and the rest without a second rule set here to keep in step.
+        # authority on what a ref may contain — it rejects `..` and the rest
+        # without a second rule set here to keep in step.
+        #
+        # The one thing it does not reject is a leading `-`: `check-ref-format
+        # refs/heads/-x` exits 0. That name is a legal ref and an illegal
+        # argument — the caller's next line is `wm add <branch>`, where `-x`
+        # parses as flags. Refused here rather than left for workmux to
+        # misread, which is the only rule this needs beyond git's.
         ref_ok = sp.run(
             ["git", "check-ref-format", f"refs/heads/{branch}"], capture_output=True
         )
-        if ref_ok.returncode != 0:
-            console.print(f"[red]✗ not a valid branch name: {branch}[/red]")
+        if ref_ok.returncode != 0 or branch.startswith("-"):
+            err.print(f"[red]✗ not a valid branch name: {branch}[/red]")
             raise typer.Exit(1)
         # The override names one directory outright and has no branch component
         # to substitute, so it can only ever answer for the active branch.
@@ -458,7 +470,7 @@ def state_dir_cmd(
         # under another branch's name — and the caller is about to write a
         # handoff there, over its own.
         if os.environ.get(_STATE_DIR_OVERRIDE):
-            console.print(
+            err.print(
                 f"[red]✗ {_STATE_DIR_OVERRIDE} pins one directory; "
                 f"it cannot resolve --branch {branch}[/red]"
             )

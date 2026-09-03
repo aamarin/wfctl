@@ -102,11 +102,25 @@ against it.
 
 ## Step 3: Write it, then create the worktree
 
+**Write the sections above into a file first.** Not as a step inside the block
+below — an agent that runs the block as written ships an empty prompt, which is
+the cold start this skill exists to prevent, and Step 4 will not catch it because
+it reads back the same empty file.
+
 ```bash
-HANDOFF=$(mktemp -t handoff)          # write the sections above into this file
-wm add <branch> --background --prompt-file "$HANDOFF"
-cp "$HANDOFF" "$(wfctl state-dir --branch <branch>)/session-summary.md"
+HANDOFF=$(mktemp -t handoff)
 ```
+
+Fill `$HANDOFF`. Then, and only then:
+
+```bash
+wm add <branch> --background --prompt-file "$HANDOFF" &&
+  cp "$HANDOFF" "$(wfctl state-dir --branch <branch>)/session-summary.md"
+```
+
+Chained on purpose. `pre_create` hooks reject branch names — this repo's requires
+a leading issue number — and an unchained `cp` runs anyway, creating a state dir
+for a branch that does not exist.
 
 Both destinations, and neither is optional:
 
@@ -128,6 +142,13 @@ there wasn't one.
 
 Order matters: `wm add` first. Resolving the state dir creates it, and a branch
 whose `pre_create` hook rejected the name should not leave one behind.
+
+One thing landing here does *not* give the reader: `start-session` step 9 offers
+the top item of a **Next Session TODO** as the default answer to "what are we
+working on today?", and a handoff has no such list — its answer is section 2, the
+whole first move. Say the first action in section 2 plainly enough to be that
+default. Do not add a TODO section to get one; it would be a second copy of the
+route, and `.agents/skills/end-session` owns that heading.
 
 ## Step 4: Confirm it landed
 
