@@ -2066,6 +2066,99 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+# The hooks `wfctl hook` can run, name → the callable that decides. One entry
+# today; the command takes a name anyway because a hook's whole value is being
+# nameable from a settings file, and renaming that entry point later would break
+# every settings.json already pointing at it.
+_WORKTREE_GUARD = "worktree-guard"
+
+
+def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
+    """The worktree `cwd` is in, and every worktree root git knows about.
+
+    ('', []) when git cannot answer — no repo, no git on PATH. The guard then
+    has nothing to compare against and allows the command, which is the right
+    failure direction for something that runs before every Bash call.
+    """
+    import subprocess
+
+    def git(*args: str) -> str | None:
+        try:
+            out = subprocess.run(
+                ["git", "-C", cwd, *args], capture_output=True, text=True, check=True
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return out.stdout
+
+    here = git("rev-parse", "--show-toplevel")
+    listing = git("worktree", "list", "--porcelain")
+    if here is None or listing is None:
+        return "", []
+    roots = [
+        line.split(" ", 1)[1]
+        for line in listing.splitlines()
+        if line.startswith("worktree ")
+    ]
+    return here.strip(), roots
+
+
+@app.command("hook")
+def hook_cmd(
+    name: str = typer.Argument(..., help=f"Hook to run: {_WORKTREE_GUARD}"),
+) -> None:
+    """Run an agent hook, reading the agent's JSON payload on stdin.
+
+    Not for interactive use — this is what a `settings.json` hook entry invokes,
+    so the rule stays versioned with wfctl instead of pasted into one developer's
+    config. See `wfctl/_guard.py` for the decision and its known gaps.
+
+    \b
+    worktree-guard  PreToolUse/Bash. Refuses a command that mutates or executes
+                    in a git worktree other than the session's own; reads and
+                    `workmux` are allowed. Exits 2 to block, which is what puts
+                    the reason in front of the agent — exit 1 is *non-blocking*
+                    and lets the command through.
+    """
+    from wfctl import _guard
+
+    if name != _WORKTREE_GUARD:
+        console.print(f"[red]✗ Unknown hook '{name}'. Available: {_WORKTREE_GUARD}.[/red]")
+        raise typer.Exit(1)
+
+    # Every field defensively, because this runs before *every* Bash call and a
+    # traceback from it reaches the agent as a hook error on work that had
+    # nothing wrong with it. A payload this code cannot read describes no
+    # command, and no command crosses no boundary.
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return
+    # Types too, not just presence. `{"tool_input": "…"}` raises on `.get` and a
+    # list `command` raises inside `re.findall` — both the traceback-on-every-
+    # Bash-call this block exists to prevent, which the first version of it
+    # still allowed through.
+    if not isinstance(payload, dict):
+        return
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str):
+        return
+    # The payload's `cwd` is the session's, which is the one the guard is about.
+    # This process's own cwd is the agent's project directory and can differ.
+    here, roots = _worktree_roots(payload.get("cwd") or ".")
+    if not here:
+        return
+
+    message = _guard.refusal(command, here, roots)
+    if message:
+        # Straight to stderr, not through `console`: exit 2 hands stderr to the
+        # model verbatim, and rich would wrap it to this process's terminal
+        # width — which, running under a hook, is whatever the agent inherited.
+        print(message, file=sys.stderr)
+        raise typer.Exit(2)
+
+
 # Where releases come from. Tags are always read from here, even for a fork
 # install: a fork's tag list freezes at fork time, so comparing against it would
 # report "latest" straight through an upstream release. Where the *branch* comes

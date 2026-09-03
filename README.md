@@ -154,6 +154,7 @@ it and only the implementation ships. This repo does the latter.
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
+| `hook`           | Run an agent hook from a `settings.json` entry (`worktree-guard`) — not for interactive use |
 | `doctor`         | Check the installed skills against the ones this wfctl ships            |
 
 `wfctl --version` prints the installed package version and exits.
@@ -343,6 +344,70 @@ a summary that reads on its own, then issue links, implementation rationale and
 what was actually verified. A config source keeps its own directory structure, so
 this one lands inside the `.github/` your repo already has — the workflows beside
 it are untouched, and only a template already at that path is a conflict.
+
+### The cross-worktree guard (`hook worktree-guard`)
+
+A worktree exists so one branch's work has one isolated home, with its own
+environment, skills and agent. An agent reaching into a sibling worktree puts
+changes somewhere its own checks never run — and `Bash` is where it gets
+through, because a path inside a command string is just a string, so the
+working-directory scoping on `Edit` and `Write` does not apply to it.
+
+`wfctl hook worktree-guard` is a `PreToolUse` hook that refuses those calls.
+Three verbs, three answers:
+
+| | | |
+|---|---|---|
+| create | `workmux add`, `git worktree list` | allowed |
+| read | `cat`, `head`, `grep`, `ls`, `diff`, `git -C <other> log\|show\|diff\|status` | allowed |
+| mutate | `sed -i`, `tee`, `rm`, an editor — or *running* anything there: `uv run`, `pytest`, `make` | refused |
+
+Reading a sibling is ordinary review work and cannot cause the failure, so it
+stays allowed. Executing is not reading: `uv run pytest` over there writes a
+`.venv`, builds the package, and reports on a branch this session is not on.
+
+Wire it up in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "wfctl hook worktree-guard" }]
+      }
+    ]
+  }
+}
+```
+
+A refusal exits 2, which blocks the call *and* hands the reason to the agent, so
+it hands off instead of retrying the same thing a different way:
+
+```
+Refused: /…/wt/105-mypy-cold-venv/wfctl/ is in another worktree (/…/wt/105-mypy-cold-venv),
+and `uv` is not a read command.
+This session is in /…/wt/129-cross-worktree-guard. Reading across worktrees is fine — cat,
+grep, diff, `git -C <path> log`. Mutating or running there is not: it puts work on a branch
+this session's own checks never run on.
+Hand off instead: workmux send 105-mypy-cold-venv "…" — or ask the user, if that worktree
+has no session.
+```
+
+It is a heuristic and says so. It reads the command as text, so a relative path
+(`../105-mypy-cold-venv/…`), a path built in a variable, or a script that `cd`s
+elsewhere all pass unseen — resolving those means parsing shell. `cd` itself is
+not an allowlisted verb, and pairing this with `"deny": ["Bash(cd:*)"]` closes
+most of the remainder. Nothing fires unless a path in the command belongs to a
+worktree that already exists, so `git worktree add` to a fresh path outside every
+one of them is invisible too. Worktrees outside `wt/` are *not* a gap: the roots
+come from `git worktree list`. See `wfctl/_guard.py` for the full list of what it
+cannot catch.
+
+Not seeded by `install-config` yet. That would mean editing a `settings.json`
+the project already owns, which needs the merge install mode tracked as
+[#85](https://github.com/aamarin/wfctl/issues/85) — seed-once would refuse the
+file outright, and `--force` would take the project's own permissions with it.
 
 ### Issue trackers
 
