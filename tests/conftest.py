@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import types
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -237,6 +238,39 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
         make_spec_artifact=make_spec_artifact,
         stage_upstream_of=stage_upstream_of,
     )
+
+
+@pytest.fixture
+def spec_tree(tmp_path: Path) -> Callable[..., Path]:
+    """Build a feature dir holding exactly the named artifacts; return its path.
+
+    `storyctl_dir` is the fixture for a command: it builds a repo, sets the env
+    overrides, and stages every upstream artifact a step needs to be reachable.
+    That staging is the wrong tool for a test about which state a step is *in* —
+    it writes files the test never named, so the combination under assertion is
+    not the combination on disk.
+
+    Here the argument list is the whole input. `spec_tree("design.md")` is a
+    feature that has brainstormed and nothing else, and there is no second place
+    to look for what else got written. Suitable only for the pure inference
+    functions, which take a directory and never resolve one.
+
+    Content defaults to a non-empty placeholder because `_file_exists` treats an
+    empty file as absent. Pass `content=` for the two artifacts whose text is
+    read rather than counted — `spec.md` (markers, the Clarifications section)
+    and `tasks.md` (checkbox tallies).
+    """
+    def build(*names: str, content: dict[str, str] | None = None) -> Path:
+        feature = tmp_path / "specs" / "74-feature"
+        feature.mkdir(parents=True, exist_ok=True)
+        text = content or {}
+        for name in (*names, *text):
+            artifact = feature / name
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_text(text.get(name, "x"))
+        return feature
+
+    return build
 
 
 @pytest.fixture

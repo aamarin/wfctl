@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import Iterable
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import typer
 from rich.console import Console
@@ -36,10 +36,31 @@ from wfctl._paths import (
     touched_on_this_branch,
 )
 
+if TYPE_CHECKING:
+    from wfctl import _session
+    from wfctl._pipeline import PipelineReport
+
 app = typer.Typer(no_args_is_help=True)
 # highlight=False: don't let rich auto-color numbers/paths — this output is parsed
 # by agents and asserted on in tests. Explicit [green]/[cyan]/… markup still applies.
 console = Console(highlight=False)
+
+# Pipeline state name → (glyph, rich style). The only place a state is drawn.
+# Inference carries names, so the drawing exists for exactly as long as one
+# console line: a symbol cannot travel back up into `_pipeline` without being
+# spelled here first, and a caller reading the report never sees one.
+#
+# `pending` and `skipped` share a style deliberately — the states differ, the
+# emphasis does not, and colouring "passed by" differently from "not yet" would
+# assert a judgement about which is worse.
+_NO_SESSION = "[red]✗ No session found for this branch. Run `wfctl start` first.[/red]"
+
+_STATE_GLYPH: dict[str, tuple[str, str]] = {
+    "done":        ("●", "green"),
+    "in_progress": ("▶", "yellow"),
+    "pending":     ("○", "dim"),
+    "skipped":     ("–", "dim"),
+}
 
 
 def _wfctl_version() -> str:
@@ -72,6 +93,22 @@ def main(
     """wfctl — workflow state manager for agent sessions."""
 
 
+def _remove_session_fossils(agent_dir: Path) -> None:
+    """Delete `current.md` and `current.json` if this state dir still has them.
+
+    Inert to this code, which reads neither. Not inert to an older `start-session`
+    elsewhere on the machine: it reads `current.md`, whose resume point was
+    written once at `wfctl start` and never again — the stale answer this feature
+    exists to remove. A developer has tens of state directories and upgrades the
+    tool once, so the fossils outlive the code that wrote them.
+
+    Silent. The files are tool-written and never hand-edited, and a notice about
+    a file the reader did not know existed is noise.
+    """
+    for name in ("current.md", "current.json"):
+        (agent_dir / name).unlink(missing_ok=True)
+
+
 def _resolve_context() -> tuple[Path, Path, str, str]:
     """Return (agent_dir, repo_root, branch, issue); exits on error."""
     try:
@@ -84,73 +121,81 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
     # (Jira/Linear/Shortcut) overrides it via key_pattern in its config.
     issue = extract_issue_key(branch, _tracker.load_key_pattern(repo_root))
     agent_dir = resolve_agent_dir(repo_root, branch)
+    _remove_session_fossils(agent_dir)
     return agent_dir, repo_root, branch, issue
 
 
 @app.command("start")
-def start_cmd(force: bool = typer.Option(False, "--force", help="Overwrite existing state")) -> None:
+def start_cmd(
+    force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded")
+) -> None:
     """Initialize agent session context."""
-    from wfctl import _session
+    from wfctl._io import append_event
+    from wfctl._pipeline import build_report
 
-    agent_dir, repo_root, branch, issue = _resolve_context()
-    current_json = agent_dir / "current.json"
-    current_md = agent_dir / "current.md"
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    report = build_report(spec_dir, repo_root, agent_dir)
 
-    # Check for corrupted state before idempotency check
-    if current_json.exists():
-        try:
-            json.loads(current_json.read_text())
-        except json.JSONDecodeError:
-            console.print(f"[red]✗ current.json is corrupted: {current_json}[/red]")
-            raise typer.Exit(1)
-
-    if current_json.exists() and current_md.exists() and not force:
+    if report.session_started and not force:
         console.print("ℹ Already initialized (use --force to reset)")
         return
 
-    spec_dir = resolve_spec_dir(branch, repo_root)
-    _session.start(agent_dir, spec_dir, repo_root, branch, issue, force)
-
-    data = json.loads((agent_dir / "current.json").read_text())
+    step = report.current or "complete"
+    append_event(agent_dir, "start", branch=branch, step=step)
     console.print(
-        f"[green]✓[/green] Session started — step: {data['workflow_step']}, "
-        f"next: {data['next_command'] or '(none)'}"
+        f"[green]✓[/green] Session started — step: {step}, "
+        f"next: {report.next_command or '(none)'}"
     )
 
 
 @app.command("status")
-def status_cmd() -> None:
+def status_cmd(
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
+) -> None:
     """Show pipeline progress."""
-    from wfctl._pipeline import steps_display
+    from wfctl._pipeline import STORY_COMPLETE_CONSOLE, build_report
     from wfctl._paths import resolve_spec_dir
-    from wfctl._io import write_json_atomic
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
+    report = build_report(spec_dir, repo_root, agent_dir)
 
-    _SYMBOL_STYLE = {"●": "green", "▶": "yellow", "○": "dim", "–": "dim"}
+    if as_json:
+        # The same object the console branch renders, in the other format. The
+        # flag selects a rendering and never a second inference — two inference
+        # paths is what `pipeline-state-is-one-payload` rejects, not two formats.
+        # Without this an agent's only source of per-step state is the block
+        # below, whose glyphs are lossy by construction.
+        console.print_json(data={
+            "issue": issue,
+            "branch": branch,
+            "session_started": report.session_started,
+            "current": report.current,
+            "next_command": report.next_command,
+            "steps": report.steps,
+        })
+        return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
         console.print("[dim](no spec dir found)[/dim]")
 
-    steps = steps_display(spec_dir, repo_root)
+    steps = report.steps
     for step in steps:
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
-        color = _SYMBOL_STYLE.get(step["symbol"], "")
-        sym_fmt = f"[{color}]{step['symbol']}[/{color}]" if color else step["symbol"]
+        glyph, color = _STATE_GLYPH[step["state"]]
+        sym_fmt = f"[{color}]{glyph}[/{color}]"
         ann = f"  [dim]{step['annotation']}[/dim]" if step["annotation"] else ""
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
 
-    current_json = agent_dir / "current.json"
-    if current_json.exists():
-        current_name = next((s["name"] for s in steps if s["is_current"]), "complete")
-        data = json.loads(current_json.read_text())
-        data["workflow_step"] = current_name
-        write_json_atomic(current_json, data)
+    # The completion sentence rather than a second spelling of it: `_pipeline`
+    # owns both forms so the file an agent reads and the line a human reads
+    # cannot drift apart.
+    console.print(f"[dim]next:[/dim] {report.next_command or STORY_COMPLETE_CONSOLE}")
 
 
 @app.command("verify")
@@ -214,15 +259,16 @@ def next_cmd() -> None:
     steps = _infer_steps(spec_dir, repo_root)
     step_name = _current_step_name(steps)
 
-    # `step_name` is read before the `spec_dir is None` branch below rewrites it:
-    # with no spec dir there is no design.md either, so the gate cannot fire.
+    # With no spec dir there is no design.md either, so the gate cannot fire.
     _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
-    if spec_dir is None:
-        command, auto = "/speckit.specify", False
-        step_name = "specify"
-    else:
-        command, auto = next_step_content(step_name, repo_root, spec_dir)
+    # No special case for a missing spec dir. It used to force `/speckit.specify`,
+    # from when an absent design read as "skipped" and specify was the honest
+    # first step. Inference now says `brainstorm` for a feature nothing has
+    # happened to, whether or not the directory exists, and `status` prints that
+    # — a `next-step.md` naming a different step would be the drift this file is
+    # the single writer of.
+    command, auto = next_step_content(step_name, repo_root, spec_dir)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -240,38 +286,35 @@ def next_cmd() -> None:
 @app.command("resume")
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
-    from wfctl import _session
-    from wfctl._pipeline import (
-        STORY_COMPLETE_FILE,
-        _current_step_name,
-        _infer_steps,
-        next_step_content,
-    )
+    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report, next_step_content
+    from wfctl._session import session_started
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not (agent_dir / "current.json").exists():
-        console.print("[red]✗ No current state. Run `wfctl start` first.[/red]")
+    if not session_started(agent_dir):
+        console.print(_NO_SESSION)
         raise typer.Exit(1)
 
     spec_dir = resolve_spec_dir(branch, repo_root)
-    # Gated before `_session.resume`, not after: that call rewrites
-    # `current.json`'s step and appends a `resume` event. Refusing afterwards
-    # left state advanced and `next-step.md` deliberately stale, so the two
-    # disagreed about where the session was. The step it would compute is the
-    # same one re-inferred here from the same files.
-    _refuse_unless_boundary_answered(
-        spec_dir, _current_step_name(_infer_steps(spec_dir, repo_root)), repo_root
-    )
+    report = build_report(spec_dir, repo_root, agent_dir)
+    step_name = report.current or "complete"
 
-    data = _session.resume(agent_dir, spec_dir, repo_root)
-    step_name = data.get("workflow_step", "?")
+    # Gated before anything is written. Refusing afterwards left `next-step.md`
+    # deliberately stale while the event log said the session had advanced, so
+    # the two disagreed about where it was — after a command that reported
+    # failure.
+    _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
-    if spec_dir is None:
-        command, auto = "/speckit.specify", False
-    else:
-        command, auto = next_step_content(step_name)
+    # The same call `build_report` makes, with the same arguments, so the command
+    # written here is the one `status` prints. Passing `step_name` alone dropped
+    # `repo_root` and `spec_dir`, which is what routes a finished-but-unverified
+    # implement to `wfctl verify` — so `resume` sent the session back to
+    # `/speckit.implement`, where there was no task left to do.
+    #
+    # `auto` is why this is not just `report.next_command`: the flag is not part
+    # of the payload, and `next-step.md` carries it.
+    command, auto = next_step_content(step_name, repo_root, spec_dir)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -285,19 +328,67 @@ def resume_cmd() -> None:
     append_event(agent_dir, "resume", step=step_name, command=command or "complete", auto=auto)
 
 
+# Whether the boundary question was answered, as a word. Three readings rather
+# than two: git cannot always tell, and `end` reports what it saw — calling a
+# missing answer "answered" is the kind of claim #70 is about.
+_BOUNDARY = {True: "answered", False: "unanswered", None: "unknown"}
+
+
+def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observations":
+    """Read the three facts `end` reports, at the moment it is asked.
+
+    Position comes off the report the caller already built, so the summary file
+    and the printed line cannot name different steps.
+    """
+    from wfctl import _session
+    from wfctl import _verify
+
+    current = next((s for s in report.steps if s["is_current"]), None)
+    if current is None:
+        # Not "complete". `_current_step_name` calls the terminal position that,
+        # and it is accurate about the pipeline — but on a handoff line it reads
+        # as a verdict on the session, which is the word #70 removed. This names
+        # the artifacts instead, and leaves the judgement to whoever reads it.
+        step = "every step done"
+    else:
+        step = f"{current['name']} {current['annotation']}" if current["annotation"] \
+            else current["name"]
+
+    _, dirty = _verify.code_identity(repo_root)
+    return _session.Observations(
+        step=step,
+        boundary=_BOUNDARY[touched_on_this_branch(repo_root, arch_root(repo_root))],
+        tree="dirty" if dirty else "clean",
+    )
+
+
 @app.command("end")
 def end_cmd() -> None:
     """End the current session."""
     from wfctl import _session
+    from wfctl._pipeline import build_report
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not (agent_dir / "current.json").exists():
-        console.print("[red]✗ No current state.[/red]")
+    if not _session.session_started(agent_dir):
+        console.print(_NO_SESSION)
         raise typer.Exit(1)
 
-    summary_path = _session.end(agent_dir)
-    console.print(f"[green]✓[/green] Session ended. Summary written to {summary_path}")
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    observed = _observe(repo_root, build_report(spec_dir, repo_root, agent_dir))
+    summary_path = _session.end(agent_dir, branch, observed)
+
+    # "closed", not "ended and complete". Every clause names something read a
+    # moment ago; none of them concludes the work is done, because `end` has no
+    # way to observe that (#70).
+    console.print(
+        f"[green]✓[/green] Session closed — {observed.step}, "
+        f"boundary {observed.boundary}, tree {observed.tree}."
+    )
+    # soft_wrap: the path is read by an agent, and rich folds a long one at the
+    # console width — which turns the only machine-readable thing `end` prints
+    # into two lines that no longer name a file.
+    console.print(f"  Summary: {summary_path}", soft_wrap=True)
 
 
 @app.command("log")

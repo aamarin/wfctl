@@ -32,23 +32,18 @@ def test_resume_not_initialized_exits_one(agent_dir: Path) -> None:
     assert result.exit_code == 1
 
 
-def test_resume_re_infers_step_from_filesystem(agent_dir: Path) -> None:
-    runner.invoke(app, ["start"])
-    # Force stale step into current.json
-    current_json = agent_dir / "current.json"
-    data = json.loads(current_json.read_text())
-    data["workflow_step"] = "implement"  # stale — no artifacts to back this up
-    current_json.write_text(json.dumps(data))
-    runner.invoke(app, ["resume"])
-    fresh = json.loads(current_json.read_text())
-    assert fresh["workflow_step"] != "implement"  # re-inferred from empty spec dir → brainstorm
+def test_resume_reports_the_step_the_artifacts_say(agent_dir: Path) -> None:
+    """There is no stale value left to plant, so the assertion is the answer itself.
 
-
-def test_end_sets_status_complete(agent_dir: Path) -> None:
+    The old shape of this test wrote `implement` into `current.json` and checked
+    resume overwrote it. Nothing caches the step now: an empty spec dir has
+    nothing past brainstorm, and that is what resume must say every time it is
+    asked, with no write in between to be right or wrong about.
+    """
     runner.invoke(app, ["start"])
-    runner.invoke(app, ["end"])
-    data = json.loads((agent_dir / "current.json").read_text())
-    assert data["status"] == "complete"
+    result = runner.invoke(app, ["resume"])
+    assert result.exit_code == 0
+    assert "step: brainstorm" in result.output
 
 
 def test_end_writes_session_summary(agent_dir: Path) -> None:
@@ -57,11 +52,16 @@ def test_end_writes_session_summary(agent_dir: Path) -> None:
     assert (agent_dir / "session-summary.md").exists()
 
 
-def test_end_current_json_valid(agent_dir: Path) -> None:
+def test_end_appends_an_end_event(agent_dir: Path) -> None:
+    """The event log is what records that the session closed.
+
+    `end` used to set `status: complete` on `current.json`. That field had no
+    reader, and the file is gone — the log already carried the same fact.
+    """
     runner.invoke(app, ["start"])
     runner.invoke(app, ["end"])
-    # Must be parseable — no corruption
-    json.loads((agent_dir / "current.json").read_text())
+    events = (agent_dir / "events.jsonl").read_text().splitlines()
+    assert json.loads(events[-1])["event"] == "end"
 
 
 def test_log_shows_events(agent_dir: Path) -> None:

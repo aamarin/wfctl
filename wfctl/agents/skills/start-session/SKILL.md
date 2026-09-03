@@ -45,8 +45,19 @@ memory of it — load them before doing anything else.
    Carry the set into the report as slugs, one line each — the full text is a
    `wfctl arch context` away and does not need repeating.
 
-4. **Load the handoff artifacts** from the state dir (`$(wfctl state-dir)`):
-   - `current.md` — the resume point (issue, status, step, next action).
+4. **Read the position, then the handoff:**
+   ```bash
+   wfctl status --json   # issue, branch, per-step state, the next command
+   ```
+   Every value there is computed from artifacts at the moment you ask, so it is
+   true whatever happened since the last session — including work done with no
+   wfctl command in between. `state` is one of `done`, `in_progress`, `pending`,
+   `skipped`; read it rather than the glyphs `wfctl status` draws, which spend
+   one symbol on "ran" and another on "passed by" and cannot be told apart once
+   printed.
+
+   Then the one thing no artifact can reconstruct, from the state dir
+   (`$(wfctl state-dir)`):
    - `session-summary.md` — the last session's handoff (accomplishments,
      decisions, and **Next Session TODO**). This is the primary context after a
      `/clear`; read it fully. If absent, this is the first session on the branch.
@@ -84,7 +95,7 @@ memory of it — load them before doing anything else.
 8. Report status to the user:
    - **Freshness**: anything `wfctl doctor` flagged as behind (tool / skills), or omit if all current
    - **In force**: the accepted record slugs, or omit if the set is empty
-   - Current pipeline step (from `current.md`)
+   - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)

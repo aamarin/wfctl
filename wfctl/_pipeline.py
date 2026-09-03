@@ -124,19 +124,31 @@ def _verification_block(repo_root: Path) -> str | None:
 @dataclass
 class _PipelineStep:
     name: str
-    symbol: str
+    state: str
     annotation: str | None
 
 
 def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
-    """Internal: return steps with ●/▶/○/– symbols.
+    """Internal: return steps carrying `done` / `in_progress` / `pending` / `skipped`.
+
+    A name rather than a glyph — not because the glyphs are unreadable. Agents
+    decode `● ▶ ○ –` fine, and an experiment run against this docstring's earlier
+    claim found three doing so with no legend and no errors. They decode it by
+    convention they bring, though, not by a map this file publishes: a fourth
+    reader handed one off-map character assigned a state anyway and called itself
+    confident. A legible rendering nothing can verify is still a contract, and it
+    is one whose terms live outside the repo.
+
+    So the state name is what inference stores, and `cli` maps it to a symbol at
+    the moment of printing. That keeps the glyphs restylable — changing them is a
+    change to a drawing, not to what the next session believes.
 
     `repo_root` is what the implement arm reads the definition of done and the
     live git state from. It was carried unused for a while after the design doc
     moved into the spec dir; #69 gave it a job again.
     """
     if spec_dir is None:
-        return [_PipelineStep(name, "○", None) for name in _STEP_NAMES]
+        return [_PipelineStep(name, "pending", None) for name in _STEP_NAMES]
 
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
@@ -163,17 +175,30 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
 
     for name in _STEP_NAMES:
         if cascade:
-            steps.append(_PipelineStep(name, "○", None))
+            steps.append(_PipelineStep(name, "pending", None))
             continue
 
         if name == "brainstorm":
-            symbol = "●" if _file_exists(spec_dir / "design.md") else "–"
+            if _file_exists(spec_dir / "design.md"):
+                state = "done"
+            elif _file_exists(spec_md):
+                # Passed by: the pipeline moved on without one, which
+                # `design-levels` explicitly allows for a change that draws no
+                # new boundary.
+                state = "skipped"
+            else:
+                # Nothing has happened here yet. Distinct from the branch above,
+                # and the two need opposite advice — this is where the reader is
+                # sent, that is already behind them. `spec.md` stands in for
+                # "a later step ran": every step after this one cascades through
+                # specify, so nothing can be past brainstorm without it.
+                state = "pending"
 
         elif name == "specify":
             if _file_exists(spec_md):
-                symbol = "▶" if has_markers else "●"
+                state = "in_progress" if has_markers else "done"
             else:
-                symbol = "○"
+                state = "pending"
 
         elif name == "clarify":
             # clarify has no file of its own — its artifact is the `## Clarifications`
@@ -189,55 +214,59 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             # while allowing `## Clarifications (2026-08-04)`.
             scanned = re.search(r"^##[ \t]+Clarifications\b", spec_text, re.MULTILINE)
             if scanned and not has_markers:
-                symbol = "●"
+                state = "done"
             elif has_markers:
                 # markers are clarify's actual job — no bypass, whatever else exists.
-                # ▶ here also keeps _current_step_name's skip branch firing, so a
-                # marked spec routes to clarify rather than back to specify.
-                symbol = "▶"
+                # in_progress here also keeps _current_step_name's skip branch firing,
+                # so a marked spec routes to clarify rather than back to specify.
+                state = "in_progress"
             elif _file_exists(spec_dir / "plan.md"):
                 # a spec that predates the gate — planning already passed through where
-                # clarify now sits. – not ● : the scan genuinely never ran, and saying
-                # otherwise would hide that. Counts as done, so an in-flight story is
-                # not sent back to clarify a spec its implementation is already built on.
-                symbol = "–"
+                # clarify now sits. skipped not done: the scan genuinely never ran, and
+                # saying otherwise would hide that. Does not block, so an in-flight story
+                # is not sent back to clarify a spec its implementation is already built on.
+                state = "skipped"
             else:
-                symbol = "▶"
+                state = "in_progress"
 
         elif name == "plan":
-            symbol = "●" if _file_exists(spec_dir / "plan.md") else "○"
+            state = "done" if _file_exists(spec_dir / "plan.md") else "pending"
 
         elif name == "tasks":
-            symbol = "●" if tasks_text else "○"
+            state = "done" if tasks_text else "pending"
 
         elif name == "analyze":
-            symbol = "●" if _file_exists(spec_dir / "checklists" / "analysis-report.md") else "○"
+            state = (
+                "done"
+                if _file_exists(spec_dir / "checklists" / "analysis-report.md")
+                else "pending"
+            )
 
         elif name == "decompose":
             if _file_exists(spec_dir / "delivery.md"):
-                symbol = "●"
+                state = "done"
             elif tasks_text and not _has_open_checkboxes(tasks_text):
-                symbol = "–"
+                state = "skipped"
             else:
-                symbol = "○"
+                state = "pending"
 
         elif name == "implement":
             if not tasks_text:
-                symbol = "○"
+                state = "pending"
             elif _has_open_checkboxes(tasks_text) and not _file_exists(
                 spec_dir / "checklists" / "implement-complete.md"
             ):
-                symbol = "▶"
+                state = "in_progress"
             else:
                 # Tasks read complete. Before #69 that was the whole check, and
                 # both routes to it are written by the agent doing the work.
                 # A configured definition of done gets the last word.
                 blocked = _verification_block(repo_root)
-                symbol = "▶" if blocked else "●"
+                state = "in_progress" if blocked else "done"
                 implement_reason = blocked
 
         else:
-            symbol = "○"
+            state = "pending"
 
         annotation: str | None = None
         if name == "implement" and tasks_text:
@@ -247,9 +276,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             if implement_reason:
                 annotation = f"{annotation}  {implement_reason}"
 
-        steps.append(_PipelineStep(name, symbol, annotation))
+        steps.append(_PipelineStep(name, state, annotation))
 
-        if symbol == "○":
+        if state == "pending":
             cascade = True
 
     return steps
@@ -300,16 +329,23 @@ def design_gate(
 
 
 def _current_step_name(steps: list[_PipelineStep]) -> str:
-    """Return first ▶ or ○ step; 'complete' if all done.
+    """Return the first step that still blocks; 'complete' if none does.
 
-    Markers in spec.md leave specify ▶, but clarify is the step that resolves
-    them — so skip specify when clarify is also pending.
+    `done` and `skipped` are the two states that do not block — one ran, the
+    other was passed by, and neither is somewhere to send a reader back to.
+
+    Markers in spec.md leave specify `in_progress`, but clarify is the step that
+    resolves them — so skip specify when clarify is also unfinished.
     """
-    step_map = {s.name: s.symbol for s in steps}
+    step_map = {s.name: s.state for s in steps}
     for s in steps:
-        if s.symbol not in ("▶", "○"):
+        if s.state not in ("in_progress", "pending"):
             continue
-        if s.name == "specify" and s.symbol == "▶" and step_map.get("clarify") == "▶":
+        if (
+            s.name == "specify"
+            and s.state == "in_progress"
+            and step_map.get("clarify") == "in_progress"
+        ):
             continue
         return s.name
     return "complete"
@@ -318,15 +354,7 @@ def _current_step_name(steps: list[_PipelineStep]) -> str:
 def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bool]]:
     """Return [(step_name, is_done)] ordered list."""
     steps = _infer_steps(spec_dir, repo_root)
-    return [(s.name, s.symbol in ("●", "–")) for s in steps]
-
-
-def current_step(steps: list[tuple[str, bool]]) -> str:
-    """Return name of first incomplete step, or 'complete'."""
-    for name, done in steps:
-        if not done:
-            return name
-    return "complete"
+    return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
 def next_step_content(
@@ -334,7 +362,7 @@ def next_step_content(
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
-    An undefined step yields ("", False) rather than raising: `current_step`
+    An undefined step yields ("", False) rather than raising: `_current_step_name`
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
 
@@ -354,16 +382,56 @@ def next_step_content(
     return _STEPS.get(step, ("", False))
 
 
-def steps_display(spec_dir: Path | None, repo_root: Path) -> list[dict]:
-    """Return per-step display dicts with name, symbol, is_current, annotation."""
+@dataclass(frozen=True)
+class PipelineReport:
+    """Where a feature stands — everything a caller needs from one inference.
+
+    Replaces the pair of reads a caller used to make: the step table from
+    `steps_display`, and the next command from `next_step_content` at the call
+    site. Two reads of the same artifacts can disagree if anything changes
+    between them, and the console and the serialized view would then be two
+    inference paths rather than two renderings.
+
+    `steps` are plain dicts, not `_PipelineStep`: this object is serialized as
+    it stands, and a dataclass reaching `json.dumps` would need a second shape
+    defined beside it to say what a step looks like on the wire.
+    """
+
+    steps: list[dict]
+    current: str | None
+    next_command: str | None
+    session_started: bool
+
+    def __post_init__(self) -> None:
+        # The failure `_STEPS` was collapsed into one table to prevent: a step
+        # that is current with no command to advance it announced "story
+        # complete" with half the pipeline unrun. Unconstructible rather than
+        # merely tested, so no future branch can produce one.
+        if (self.current is None) != (self.next_command is None):
+            raise ValueError(
+                f"current={self.current!r} and next_command={self.next_command!r} "
+                "must be None together"
+            )
+
+
+def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> PipelineReport:
+    """The one inference. Every view of pipeline state is a rendering of this."""
+    from wfctl._session import session_started
+
     raw = _infer_steps(spec_dir, repo_root)
-    current = _current_step_name(raw)
-    return [
-        {
-            "name": s.name,
-            "symbol": s.symbol,
-            "is_current": s.name == current,
-            "annotation": s.annotation,
-        }
-        for s in raw
-    ]
+    name = _current_step_name(raw)
+    command, _ = next_step_content(name, repo_root, spec_dir)
+    return PipelineReport(
+        steps=[
+            {
+                "name": s.name,
+                "state": s.state,
+                "annotation": s.annotation,
+                "is_current": s.name == name,
+            }
+            for s in raw
+        ],
+        current=name if command else None,
+        next_command=command or None,
+        session_started=session_started(agent_dir),
+    )
