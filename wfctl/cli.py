@@ -1352,18 +1352,33 @@ def _merge_hooks(
     for rel, event in [(SETTINGS_PATH, SETTINGS_EVENT)] if agent == "claude" else []:
         path = repo_root / rel
         existed = path.exists()
+        # A pass that cannot finish must still hand back the record it was given.
+        # The manifest layer is rewritten whole on every install, so a record not
+        # re-emitted here is not stale — it is gone, and with it wfctl's claim on
+        # an entry still sitting in the consumer's file for uninstall to remove.
+        keep = prior.get((rel, event))
         settings, text, problem = _read_settings(path)
         if settings is None:
             problems.append(f"{rel}: {problem}")
+            records.extend([keep] if keep else [])
             continue
         try:
             changed = _settings.merge_hook(settings, event, HOOK_COMMAND)
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
+            records.extend([keep] if keep else [])
             continue
         if changed:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            _write_settings(path, settings, text)
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_settings(path, settings, text)
+            except OSError as exc:
+                # Same arm as the two above rather than an escape: this runs after
+                # the skill copies and before the manifest is saved, so raising
+                # here left the copies on disk with nothing recording them.
+                problems.append(f"{rel}: {exc}")
+                records.extend([keep] if keep else [])
+                continue
             written.append(rel)
         # `created` is what lets uninstall leave no trace: a file wfctl brought
         # into existence and then emptied is deleted, while one the consumer
@@ -1373,7 +1388,7 @@ def _merge_hooks(
         # the second install sees the file wfctl itself created on the first and
         # would otherwise conclude the consumer owns it — and leave an empty
         # `{}` behind on uninstall.
-        created = prior.get((rel, event), {}).get("created", not existed)
+        created = (keep or {}).get("created", not existed)
         records.append(
             {"path": rel, "event": event, "command": HOOK_COMMAND, "created": created}
         )
@@ -2115,6 +2130,64 @@ def uninstall_skills_cmd(
         )
 
 
+# What one skill may spend of a turn's context. The digest is a reminder, not the
+# skill — anything past this is a file that has stopped being one, and the cost
+# lands on every turn of every session in the repo rather than once.
+_DIGEST_MAX_CHARS = 500
+
+
+def _installed_skill_names(manifest: dict) -> list[str]:
+    """Skills the manifest records under `.agents/skills/`, in listing order.
+
+    The manifest, not the directory listing, is what makes a skill installed.
+    `.gitignore` gets one line per installed skill, so a directory wfctl never
+    installed is not covered by it and rides along in a clone — and the hook is
+    wired by a *committed* `.claude/settings.json`. Reading the filesystem let a
+    repository put text of its choosing into the reader's context on every turn,
+    under a header saying that text governs the response. Reading the manifest
+    means a clone re-anchors what its owner installed and nothing else.
+    """
+    prefix = ".agents/skills/"
+    names = {
+        item["path"][len(prefix):]
+        for item in _recorded_items(manifest)
+        if isinstance(item, dict)
+        and isinstance(item.get("path"), str)
+        and item["path"].startswith(prefix)
+        and "/" not in item["path"][len(prefix):]
+    }
+    return sorted(names)
+
+
+def _digest_text(skill_dir: Path, repo_root: Path) -> str:
+    """One skill's digest, flattened to a single line, or `""` if it has none.
+
+    Three things are enforced here rather than left to the digest's author,
+    because in a clone the author is whoever wrote the repo:
+
+    Resolved inside `repo_root` — a `digest.md` symlinked at `~/.aws/credentials`
+    otherwise read that file into the model's context every turn.
+
+    Whitespace collapsed — one bullet per skill is the format's only structure,
+    and a digest carrying newlines forged both a second header and a bullet
+    attributed to a skill that does not exist.
+
+    Truncated — see `_DIGEST_MAX_CHARS`.
+
+    `UnicodeDecodeError` is caught beside `OSError` because it is a `ValueError`
+    and does not descend from it: a binary digest.md crashed the hook.
+    """
+    digest = skill_dir / "digest.md"
+    try:
+        if not digest.resolve().is_relative_to(repo_root.resolve()):
+            return ""
+        text = digest.read_text()
+    except (OSError, UnicodeDecodeError, ValueError):
+        return ""
+    flat = " ".join(text.split())
+    return flat[:_DIGEST_MAX_CHARS].rstrip() + "…" if len(flat) > _DIGEST_MAX_CHARS else flat
+
+
 def _hook_user_prompt() -> None:
     """Print what's active, for a hook re-injecting it on every turn.
 
@@ -2137,24 +2210,20 @@ def _hook_user_prompt() -> None:
     otherwise fine, and the failure it would be reporting — a skill or a repo
     that isn't there — is one `wfctl doctor` already covers, once, on request.
     """
+    # `OSError` alongside `SystemExit` because `get_repo_root` shells out to git
+    # and raises `FileNotFoundError` when there is no git on PATH — a case the
+    # sibling `worktree-guard` already handles and this one reached as a crash.
     try:
         repo_root = get_repo_root()
-    except SystemExit:
-        return
-
-    skills_dir = repo_root / ".agents" / "skills"
-    if not skills_dir.is_dir():
+        manifest = _load_manifest(repo_root)
+    except (SystemExit, OSError, json.JSONDecodeError):
         return
 
     lines = []
-    for skill in sorted(skills_dir.iterdir()):
-        digest = skill / "digest.md"
-        try:
-            text = digest.read_text().strip()
-        except OSError:
-            continue
+    for name in _installed_skill_names(manifest):
+        text = _digest_text(repo_root / ".agents" / "skills" / name, repo_root)
         if text:
-            lines.append(f"- {skill.name}: {text}")
+            lines.append(f"- {name}: {text}")
 
     if lines:
         # `typer.echo`, not `console.print`: this is stdout consumed by an agent

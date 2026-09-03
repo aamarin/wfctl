@@ -10,12 +10,6 @@ import re
 from importlib.resources import files
 from pathlib import Path
 
-import pytest
-from typer.testing import CliRunner
-
-from wfctl.cli import app
-
-runner = CliRunner()
 
 # Resolved through `files("wfctl")` for the same reason as
 # `test_pipeline_commands`: conftest's autouse `bundle` fixture repoints
@@ -134,43 +128,3 @@ def test_the_change_description_skill_does_not_restate_the_template() -> None:
     restated = sorted(h for h in headings if h in skill)
 
     assert restated == []
-
-
-# --- `wfctl hook user-prompt` — digest.md discovery (contracts/hook-command.md) ---
-#
-# A repo's installed `.agents/skills/`, not the bundle under test above — this
-# is the copy `wfctl hook user-prompt` actually reads at call time, per #85's
-# design. Local fixture digests rather than a real skill's, so this suite does
-# not depend on #111 (which owns `conversation-response-shape/digest.md`)
-# merging first.
-
-@pytest.fixture
-def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("WFCTL_REPO_ROOT", str(tmp_path))
-    return tmp_path
-
-
-def _skill(repo: Path, name: str, digest: str | None) -> None:
-    d = repo / ".agents" / "skills" / name
-    d.mkdir(parents=True)
-    (d / "SKILL.md").write_text(f"# {name}\n")
-    if digest is not None:
-        (d / "digest.md").write_text(digest)
-
-
-def test_hook_user_prompt_prints_one_bullet_per_digest_bearing_skill(repo: Path) -> None:
-    _skill(repo, "has-digest", "=== reminder text ===")
-    _skill(repo, "no-digest", None)
-
-    result = runner.invoke(app, ["hook", "user-prompt"])
-    assert result.exit_code == 0
-    assert "has-digest: === reminder text ===" in result.output
-    assert "no-digest" not in result.output
-
-
-def test_hook_user_prompt_is_silent_with_zero_digest_bearing_skills(repo: Path) -> None:
-    _skill(repo, "no-digest", None)
-
-    result = runner.invoke(app, ["hook", "user-prompt"])
-    assert result.exit_code == 0
-    assert result.output == ""

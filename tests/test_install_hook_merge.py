@@ -222,3 +222,61 @@ def test_uninstall_with_no_managed_entry_does_not_open_the_file(agent_dir: Path)
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
     assert result.exit_code == 0, result.output
     assert settings_path.stat().st_mtime_ns == before_mtime
+
+
+# --- Failures during merge must not cost the consumer the install ----------
+
+def test_a_failed_merge_keeps_the_prior_record_so_uninstall_still_finds_the_hook(
+    agent_dir: Path,
+) -> None:
+    """The manifest layer is rewritten wholesale on every install, and the merge
+    record was re-attached only when that install produced one. A single failed
+    pass therefore dropped wfctl's claim on an entry that was still in the file:
+    uninstall reported success, left the hook wired, and doctor said nothing.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    # A file the consumer already owns, so uninstall must edit it rather than
+    # delete it — the case where a stranded entry actually stays stranded.
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"permissions": {"allow": ["Bash(ls:*)"]}}))
+    assert runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"]).exit_code == 0
+    assert HOOK_COMMAND in settings_path.read_text()
+
+    settings_path.chmod(0o000)
+    try:
+        runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    finally:
+        settings_path.chmod(0o644)
+
+    assert _manifest(repo_root)["claude"].get("merged"), "ownership was dropped"
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    remaining = settings_path.read_text()
+    assert HOOK_COMMAND not in remaining
+    assert "Bash(ls:*)" in remaining, "uninstall took the consumer's own settings"
+
+
+def test_a_settings_write_that_fails_is_reported_not_raised(
+    agent_dir: Path, monkeypatch
+) -> None:
+    """`_write_settings` was the one call in the merge with no guard around it,
+    so an OSError escaped after the skills were copied and before the manifest
+    was saved. The copies then existed with nothing recording them, and
+    uninstall answered "Nothing installed" — unreachable without a manual rm.
+
+    Fault-injected rather than driven by permissions: a read-only `.claude`
+    makes the *copy loop* raise first, at a separate escape that predates this
+    feature, and the test would pass without the guard it exists to pin.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("wfctl.cli._write_settings", boom)
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    assert result.exit_code == 0
+    assert (repo_root / ".wf-skills-manifest.json").exists(), "install left no manifest"
+    assert "settings.json" in result.output
