@@ -1202,6 +1202,7 @@ _MIRRORED_SKILLS = frozenset({
     "architecture-decisions",
     "conversation-response-shape",
     "design-levels",
+    "fanning-out-code-review",
     "i-have-adhd",
     # Removing this entry restores #124 rather than trimming a list: the skill
     # still ships and still installs, and the only remaining way to reach it is
