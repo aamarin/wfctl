@@ -20,7 +20,7 @@ There is no setup step. `uv run` resolves the environment from `uv.lock` on
 first use:
 
 ```bash
-uv run pytest -q          # 521 tests, ~27s
+uv run pytest -q          # 653 tests, ~45s
 uv run ruff check wfctl/ tests/
 uv run mypy wfctl/
 ```
@@ -56,6 +56,18 @@ it — not in the repo.
 tree. `<repo>/specs` is the default, not the truth: resolution is
 `WFCTL_SPEC_DIR`, then this repo's manifest, then the main checkout's manifest,
 then `<repo>/specs`. Ask `wfctl feature-paths` rather than assuming a path.
+
+## Worktrees
+
+Create one with `workmux add <issue>-<slug> --base main`, never bare `git
+worktree add`. The bare form skips `post_create`, which is what runs `wfctl
+install-skills` — the skills tree is gitignored, so the worktree comes up with
+none of it — and it registers no tmux session, which `workmux list` reports as
+`MUX -`. Neither failure announces itself; the first sign is a session that has
+no `/start-session` to run.
+
+The handle has to start with the issue number. `pre_create` rejects anything
+else, because wfctl derives both the spec dir and the state dir from it.
 
 ## Architectural constraints
 
