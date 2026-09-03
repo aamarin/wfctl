@@ -1152,6 +1152,10 @@ _MIRRORED_SKILLS = frozenset({
     "conversation-response-shape",
     "design-levels",
     "i-have-adhd",
+    # Removing this entry restores #124 rather than trimming a list: the skill
+    # still ships and still installs, and the only remaining way to reach it is
+    # a human typing the command wrapper — which is the failure it was written
+    # for. Nothing else in the tree says the skill has to be discoverable.
     "opening-a-change",
     "receiving-code-review",
     "using-superpowers",

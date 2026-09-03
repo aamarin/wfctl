@@ -123,7 +123,7 @@ def test_the_change_description_skill_does_not_restate_the_template() -> None:
         _AGENTS / "configs" / "github" / ".github" / "pull_request_template.md"
     ).read_text()
     headings = {line for line in template.splitlines() if line.startswith("## ")}
-    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
-    restated = sorted(h for h in headings if h in skill.splitlines())
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text().splitlines()
+    restated = sorted(h for h in headings if h in skill)
 
     assert restated == []

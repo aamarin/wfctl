@@ -1,6 +1,6 @@
 ---
 name: opening-a-change
-description: 'Write the description before opening a change, from the template the repository already ships. Use when about to open a PR, create a pull request, raise a change, push a merge request or a patchset. Use before reaching for `gh pr create`, `glab mr create`, `git push` for review, or `wfctl change`. Layers the description step over finishing-a-development-branch, which still owns the integration decision.'
+description: 'Write the description before opening a change, from the template the repository already ships. Use when about to open a PR, create a pull request, raise a change, push a merge request or a patchset. Use before reaching for `gh pr create`, `glab mr create`, or `git push` for review. Layers the description step over finishing-a-development-branch, which still owns the integration decision.'
 ---
 
 # Opening a change
@@ -38,15 +38,27 @@ Pick up there. Two notes on running it from here:
 It is a file in the repository:
 
 ```bash
-find . -maxdepth 3 \( -iname 'pull_request_template*' \
-     -o -iname 'merge_request_template*' \) -not -path './.git/*'
+find . -maxdepth 3 -name .git -prune -o -type f \
+     \( -ipath '*pull_request_template*' \
+        -o -ipath '*merge_request_template*' \) -print
 ```
 
-`find` rather than a list of paths with globs in it: under `zsh` a glob matching
-nothing aborts the whole command line, so the lookup would report *no template*
-in a repository that has one. Case-insensitive because the same file is shipped
-as `pull_request_template.md` and `PULL_REQUEST_TEMPLATE.md` in about equal
-numbers.
+Four details, each of which has already produced a wrong answer once:
+
+- **`find`, not a list of paths with globs in it.** Under `zsh` a glob matching
+  nothing aborts the whole command line, so the lookup reports *no template* in
+  a repository that has one.
+- **`-ipath`, not `-iname`.** GitHub's multi-template layout puts the files in
+  `.github/PULL_REQUEST_TEMPLATE/`, named `bug.md` and `feature.md` — basenames
+  that match nothing. GitLab's `merge_request_templates/` is the same shape.
+  Matching the path finds them; matching the name finds the directory instead.
+- **`-type f`.** Without it the multi-template *directory* is itself a hit, and
+  the next step tries to read a directory as a template.
+- **`-name .git -prune`.** `-not -path` filters the output but still walks the
+  object store, which is slow and can surface a blob that happens to match.
+
+Case-insensitive throughout: the same file ships as
+`pull_request_template.md` and `PULL_REQUEST_TEMPLATE.md` in about equal numbers.
 
 `.github/` wins over `docs/` and the repository root, which win over a match
 anywhere else.
