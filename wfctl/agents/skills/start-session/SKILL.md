@@ -26,10 +26,38 @@ memory of it — load them before doing anything else.
    wfctl start     # init session context, infer the current pipeline step
    wfctl doctor    # is the wfctl tool / installed skills up to date?
    ```
-   `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available. Surface
-   anything behind as a one-line heads-up in the report — the user decides whether
-   to update now (`uv tool install --upgrade …` for the tool, `wfctl
-   install-skills` for skills). Not a blocker.
+   `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available.
+
+   **If it reports the installed skills behind or drifted, bring them level now:**
+
+   ```bash
+   wfctl install-skills --prune --yes    # plus --agent <name> for any native
+                                         # layer doctor named beside `base`
+   ```
+
+   Then say in one line what changed. This is a correction, not a decision: the
+   installed trees are wfctl's own output — generated, gitignored, never
+   hand-edited — so a repo holding an older copy is holding a stale mirror, not a
+   preference. `--prune` also clears paths a past install left behind when they
+   were renamed upstream; without it they stay on disk and keep being loaded.
+
+   Refreshing here rather than at worktree creation, because that is where the
+   failure lives. A worktree is installed once when it is made and then drifts as
+   the tool moves. A session that starts on a stale mirror silently lacks whichever
+   skills landed since — it does not error, it just does their job by hand, badly.
+
+   Run `doctor` and `install-skills` through the **same** wfctl. They compare the
+   installed tree against whichever bundle the wfctl you invoked carries, so
+   mixing invocations makes them disagree permanently — one reports drift the
+   other cannot see, and every session "fixes" it back and forth. This only comes
+   up in a repo that develops wfctl itself, where a bare `wfctl` is the released
+   wheel and `uv run wfctl` is the working tree; there, refreshing with the bare
+   one would overwrite the skill edits the session exists to make. That repo's
+   AGENTS.md says which to use — follow it for both commands or neither.
+
+   The **tool** being behind is a different call and stays the user's: `uv tool
+   install --upgrade …` changes what is installed on the machine, not what this
+   repo holds. Surface it as a one-line heads-up. Not a blocker.
 
 3. **Load the architectural contract:**
    ```bash
@@ -93,7 +121,10 @@ memory of it — load them before doing anything else.
    and move on.
 
 8. Report status to the user:
-   - **Freshness**: anything `wfctl doctor` flagged as behind (tool / skills), or omit if all current
+   - **Freshness**: skills you refreshed in step 2 and what changed, plus anything
+     `wfctl doctor` still flags as behind (the tool). Omit if all current and
+     nothing was refreshed — a silent refresh is how a mirror gets stale again
+     without anyone noticing it had been wrong
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)

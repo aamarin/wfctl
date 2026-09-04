@@ -37,12 +37,25 @@ branch" (`pyproject.toml`). `uv run` is what applies the pin.
 All three commands above green. That is the whole bar for a code change, and CI
 runs exactly these on 3.11 and 3.13.
 
-Then `wfctl doctor` — it reports drift between what wfctl installed in this repo
-and what it now ships. Exit 1 means a finding that still stands.
+Then `uv run wfctl doctor` — it reports drift between what wfctl installed in this
+repo and what it now ships. Exit 1 means a finding that still stands.
+
+`uv run` here for the same reason as below, and it is not optional: `doctor`
+compares the installed tree against the bundle carried by the wfctl you invoked.
+A bare `wfctl doctor` in this repo compares against the released wheel and so
+reports drift permanently, while `uv run wfctl doctor` compares against the
+working tree. Install and diagnose through the same one or they never agree.
 
 A change to anything under `wfctl/agents/` is not verified by the test suite
-alone: run `wfctl install-skills` and exercise the thing you changed. The suite
-checks that skills ship and cross-reference correctly, not that they read well.
+alone: run `uv run wfctl install-skills` and exercise the thing you changed. The
+suite checks that skills ship and cross-reference correctly, not that they read
+well.
+
+`uv run`, not a bare `wfctl`, and this is the one place the distinction bites.
+A bare `wfctl` is the released wheel, and it installs *its* copy of the skill you
+just edited — the command succeeds, the tree looks installed, and your change is
+nowhere in it. `uv run` resolves the bundle to this worktree, so what lands is
+what you wrote.
 
 ## Session state
 

@@ -66,10 +66,16 @@ post_create:
   # exists to remove. Set WFCTL_AGENT in your shell profile to also install your
   # assistant's layer; unset installs the agent-agnostic layer only.
   #
-  # ponytail: plain re-install, ~15s of network. pfms symlinks from the root
-  # checkout instead (scripts/link-wf-skills.sh) to skip the clone — worth
-  # copying here only if worktree creation starts feeling slow.
-  - cd "$WM_WORKTREE_PATH" && wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
+  # `uv run`, not a bare `wfctl`: a bare one is the released wheel, so a worktree
+  # opened to change `wfctl/agents/` would come up holding the *last release's*
+  # skills rather than the source it is about to edit. This repo develops the
+  # installer, so it has to install from itself.
+  #
+  # ponytail: plain re-install, ~1s warm. pfms symlinks from the root checkout
+  # instead (scripts/link-wf-skills.sh) to skip the clone — do not copy that
+  # here: a worktree needs its own source's skills, not the main checkout's, and
+  # linking is what spread one orphaned file across twelve worktrees in #38.
+  - cd "$WM_WORKTREE_PATH" && uv run wfctl install-skills --prune ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
 
 pre_remove:
   # Gitignored artifacts are invisible to every git-based check: a worktree
