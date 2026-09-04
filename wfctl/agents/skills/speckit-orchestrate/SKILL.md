@@ -56,22 +56,26 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 1. Run `wfctl status` and display the output so the user can see the updated pipeline position.
 
-2. Run `wfctl resume` to re-infer the pipeline step and write `$(wfctl state-dir)/next-step.md`.
+2. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
+   here if the boundary question went unanswered — none of which the read below
+   does.
 
-3. Read `$(wfctl state-dir)/next-step.md` and extract:
-   - `command`: value after `Next step: ` (e.g. `/speckit.plan`)
-   - `auto`: `true` or `false` from the `auto:` line
+3. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
+   Not `$(wfctl state-dir)/next-step.md`: that file is written once per
+   `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
+   during #114. `--json` re-derives from the artifacts on disk at the moment
+   you ask.
 
 4. Branch on the result:
 
-   **Story complete** (file contains "Story complete"):
+   **Story complete** (`next_command` is `null`):
    - Display: "Story complete — open PR or run `/end-session`."
    - Stop.
 
-   **`auto: true`**:
-   - Strip the leading `/` from command (e.g. `/speckit.plan` → `speckit.plan`)
+   **`auto` is `true`**:
+   - Strip the leading `/` from `next_command` (e.g. `/speckit.plan` → `speckit.plan`)
    - Output on its own line: `EXECUTE_COMMAND: {command-without-slash}`
 
-   **`auto: false`**:
-   - Display: "Next: run `{command}` when ready."
+   **`auto` is `false`**:
+   - Display: "Next: run `{next_command}` when ready."
    - Stop.
