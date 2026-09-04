@@ -3510,14 +3510,18 @@ def doctor_cmd() -> None:
     green signal red for a condition that is not wrong.
 
     Two of the checks below are freshness (the tool version, the content hash);
-    the other five are integrity (the teardown hook, the spec-root move, the
-    definition of done, the record set, abandoned entries and managed hooks) —
-    `npm outdated` and `npm doctor` under one name. An earlier count here named
-    the sixth check as the sign to split them. It arrived unremarked and so did
-    the seventh, which is the evidence that the trigger was the wrong one: the
-    cost is report length, and a healthy repo still prints two lines because
-    every integrity check is silent when it passes. Split them when a green run
-    stops fitting on a screen.
+    the rest are integrity (the teardown hook, the spec-root move, the definition
+    of done, the record set, abandoned entries and managed hooks) — `npm
+    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap` is in
+    neither, because it never becomes a finding. Named rather than counted: a
+    numeral here has gone stale three times, and one that has to agree with the
+    list beside it is a second place to be wrong.
+
+    An earlier count made the sixth check the sign to split the two halves. It
+    arrived unremarked and so did the seventh, which is the evidence that the
+    trigger was the wrong one: the cost is report length, and a healthy repo
+    still prints two lines because every integrity check is silent when it
+    passes. Split them when a green run stops fitting on a screen.
 
     Exits 1 when a check found drift that still stands as the run ends, 0
     otherwise — including when a check could not reach an answer, which is a
