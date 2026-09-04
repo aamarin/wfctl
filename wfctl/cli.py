@@ -3292,16 +3292,28 @@ def _check_verify_config(repo_root: Path) -> bool:
 def _check_arch_records(repo_root: Path) -> bool:
     """Report link-integrity findings across the architecture record set.
 
-    `_arch.validate()` computed these from the day it was written and nothing
-    ran it, so a dangling or split supersession read exactly like a healthy set
-    (#113). Here rather than in `arch context` because context is a projection —
-    it prints what is in force and judges nothing — while drift is what this
-    command already looks for.
+    A dangling or split supersession reads exactly like a healthy set otherwise:
+    `arch context` prints the accepted records and judges nothing, so two records
+    replacing the same decision are both delivered as the contract (#113).
 
     Only `error` holds the exit code, matching the severity `Finding` carries. A
     record marked `superseded` whose successor is still on a branch is the normal
     state mid-review, and failing CI on it would make this a check to route
     around rather than read.
+
+    The one check here that reads a directory wfctl never wrote — `arch_root`
+    defaults to `docs/architecture`, which a repo may have been keeping ADRs in
+    long before it installed anything. That set can only reach `warning`: an
+    `error` needs a `supersedes:` frontmatter key, which is this tool's own
+    convention and not MADR's or adr-tools', while `status: superseded` alone is
+    the VR-002 warning. A repo that never adopted the feature can be nagged; it
+    cannot be failed.
+
+    Validates the top-level tier only, because `load_records` globs one level.
+    That is the tier boundary `design-levels` draws and `arch none` already
+    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and stay
+    out. Design records carry their own `supersedes:` and their own status
+    vocabulary, so their link integrity is unchecked by anything (#166).
     """
     from rich.markup import escape
 
@@ -3309,14 +3321,17 @@ def _check_arch_records(repo_root: Path) -> bool:
 
     root = arch_root(repo_root)
     findings = _arch.validate(_arch.load_records(root))
-    for f in findings:
-        marker = "[red]✗[/red]" if f.level == "error" else "[yellow]⚠[/yellow]"
-        console.print(f"{marker} {escape(f.slug)}: {escape(f.message)}")
+    for finding in findings:
+        marker = "[red]✗[/red]" if finding.level == "error" else "[yellow]⚠[/yellow]"
+        console.print(f"{marker} {escape(finding.slug)}: {escape(finding.message)}")
     if findings:
         # The one repair is editing the records, so the reader needs the path
         # rather than a command — and the root is configurable, so it cannot be
         # guessed from the slug.
-        console.print(f"    records: {_arch_location(root, repo_root)}/")
+        #
+        # soft_wrap: an out-of-tree root prints absolute, and a path rich folded
+        # at the terminal width reads as two paths and pastes broken.
+        console.print(f"    records: {_arch_location(root, repo_root)}/", soft_wrap=True)
     return any(f.level == "error" for f in findings)
 
 
@@ -3480,20 +3495,29 @@ def doctor_cmd() -> None:
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
 
-    A check belongs here when it describes something wfctl installed or seeded
-    that no longer matches its source, and can name the command that repairs it.
-    A check describing what the *user* has or hasn't done belongs wherever that
-    work happens — this command runs unprompted at every session start, which
-    makes it a magnet for anything you want noticed, and each arrival costs the
-    exit code some of its meaning. Uncommitted spec artifacts are the worked
-    example: mid-feature they are the normal state, so reporting them here turns
-    the one green signal red for a condition that is not wrong.
+    A check belongs here when it names state this command can decide is wrong on
+    its own, and can point the reader at the repair — the command that performs
+    it, or the file to edit when there is no command, as the record-set check
+    has. Originally that read "something wfctl installed or seeded"; the
+    record-set check is the one that widened it, because integrity over content
+    wfctl only *reads* is still a question with one right answer.
 
-    Two of the checks below are freshness (the tool version, the content hash)
-    and three are integrity (the teardown hook, the spec-root move, abandoned
-    entries) — `npm outdated` and `npm doctor` under one name. Kept together
-    while the whole report is five lines a session; a sixth check is the sign
-    to split them.
+    What stays out is anything whose answer depends on where the user is in
+    their work. This command runs unprompted at every session start, which makes
+    it a magnet for anything you want noticed, and each arrival costs the exit
+    code some of its meaning. Uncommitted spec artifacts are the worked example:
+    mid-feature they are the normal state, so reporting them here turns the one
+    green signal red for a condition that is not wrong.
+
+    Two of the checks below are freshness (the tool version, the content hash);
+    the other five are integrity (the teardown hook, the spec-root move, the
+    definition of done, the record set, abandoned entries and managed hooks) —
+    `npm outdated` and `npm doctor` under one name. An earlier count here named
+    the sixth check as the sign to split them. It arrived unremarked and so did
+    the seventh, which is the evidence that the trigger was the wrong one: the
+    cost is report length, and a healthy repo still prints two lines because
+    every integrity check is silent when it passes. Split them when a green run
+    stops fitting on a screen.
 
     Exits 1 when a check found drift that still stands as the run ends, 0
     otherwise — including when a check could not reach an answer, which is a
@@ -3511,9 +3535,10 @@ def doctor_cmd() -> None:
         console.print("[yellow]⚠[/yellow] not in a git repo — skipping skills check.")
         raise typer.Exit(exit_code)
 
-    # Before the manifest gate below: a repo can have a .workmux.yaml or a
-    # recorded spec_root without having installed skills. Both are drift a repo
-    # can carry with nothing pinned, so both are reported either way.
+    # Before the manifest gate below: a repo can have a .workmux.yaml, a recorded
+    # spec_root, a wfctl.json or a set of architecture records without having
+    # installed skills. Each is drift a repo can carry with nothing pinned, so
+    # each is reported either way.
     #
     # A list, not `a or b`: `or` short-circuits, so the first check finding drift
     # would suppress the second and a run would report one problem at a time.

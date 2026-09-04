@@ -415,11 +415,16 @@ def test_unwired_warning_names_the_current_command(
 # under it per test, so a record set is built by writing files and nothing else.
 
 
-def _record(root: Path, slug: str, status: str, decision: str = "x") -> Path:
+def _record(
+    root: Path, slug: str, status: str, decision: str = "x", supersedes: str = ""
+) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{slug}.md"
+    # Emitted only when asked: an empty `supersedes:` is a *value*, not an absent
+    # key, and `validate` would read the empty string as a claim to check.
+    link = f"supersedes: {supersedes}\n" if supersedes else ""
     path.write_text(
-        f"---\nstatus: {status}\n---\n\n# {slug}\n\n## Decision\n\n{decision}\n"
+        f"---\nstatus: {status}\n{link}---\n\n# {slug}\n\n## Decision\n\n{decision}\n"
     )
     return path
 
@@ -542,16 +547,16 @@ def test_doctor_fails_on_a_dangling_supersedes(
     so a record pointing at a predecessor that is not there read exactly like a
     healthy set. A test that calls `validate()` proves nothing about that."""
     root = _arch_root(agent_dir, monkeypatch)
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "new-way.md").write_text(
-        "---\nstatus: accepted\nsupersedes: never-existed\n---\n\n# New way\n"
-    )
+    _record(root, "new-way", "accepted", supersedes="never-existed")
 
     result = runner.invoke(app, ["doctor"])
 
     assert result.exit_code == 1
     assert "new-way" in result.output
     assert "never-existed" in result.output
+    # The line is the whole repair instruction — this check names no command, so
+    # a reader who cannot find the records cannot act on the finding.
+    assert "docs/architecture/" in result.output
 
 
 def test_doctor_reports_an_orphaned_supersession_without_failing(
@@ -577,9 +582,7 @@ def test_doctor_says_nothing_about_a_healthy_record_set(
     finding is read past. A resolved supersession is healthy, not noteworthy."""
     root = _arch_root(agent_dir, monkeypatch)
     _record(root, "old-way", "superseded")
-    (root / "new-way.md").write_text(
-        "---\nstatus: accepted\nsupersedes: old-way\n---\n\n# New way\n"
-    )
+    _record(root, "new-way", "accepted", supersedes="old-way")
 
     result = runner.invoke(app, ["doctor"])
 
