@@ -3,19 +3,21 @@
 ## Summary
 
 <!--
-Two or three sentences, readable on their own by someone who will not scroll
-further. What can someone do after this merges that they could not before.
+Context first, then the drawing, then the three fields — the drawing leads and
+the prose covers only what the picture cannot say. Readable on its own by
+someone who will not scroll further.
 
 Product perspective, not engineering: no file paths, no branch conventions, no
 slicing rationale, no task IDs. Those belong in Implementation Details, and a
 reviewer who needs them will read that far.
 -->
 
-**What:** [The capability added or changed, as a user would describe it]
-**Why:** [The gap it closes — what was broken, missing, or painful before]
-**Impact:** [Who benefits, and what they can now do]
+**Context:** [What the thing is, for a reader who has never seen it. One or two
+sentences, none of them about this change. No paths, no issue numbers. A
+reviewer who cannot resolve the nouns in **What** cannot use **Why** or
+**Impact** at all.]
 
-## Before / After
+### Before / After
 <!--
 Strongly recommended, and usually the highest-value part of the description. One
 picture of the problem and the shape of the fix replaces the three paragraphs a
@@ -30,9 +32,15 @@ Pick whatever the change actually is:
 - **A CLI** → the terminal before and the terminal after, verbatim.
 - **A data shape** → the record before and after, trimmed to the fields that moved.
 
-Two small diagrams beat one that tries to be complete. If a diagram takes longer
-to read than the prose it replaced, delete it.
+Draw when the reader has to hold something to follow the sentence — a set, a
+location, a count, a branch. Which drawing the material calls for is decided by
+the form-selection table in the `conversation-response-shape` skill; that table
+is the single owner, so pick from it rather than restating it here.
 -->
+
+**What:** [The capability added or changed, as a user would describe it]
+**Why:** [The gap it closes — what was broken, missing, or painful before]
+**Impact:** [Who benefits, and what they can now do]
 
 ---
 

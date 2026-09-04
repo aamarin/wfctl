@@ -287,3 +287,24 @@ def test_sanitize_notice_when_the_project_name_has_a_dot(bundle: Path, tmp_path:
     assert result.exit_code == 0
     assert "tmux rewrites" in result.output
     assert "window_prefix: 'my_project__'" in (repo_root / ".workmux.yaml").read_text()
+
+
+def test_shipped_github_config_matches_this_repos_own_copy() -> None:
+    """The bundle is what `install-config github` seeds; the repo-root copy is the
+    one people actually edit. 77ea0c5 edited only the latter, so for two weeks
+    every consumer was seeded superseded guidance and re-seeding here would have
+    replaced the newer text with the older — with nothing anywhere to notice it.
+
+    Scoped to `github` because it is the only config that seeds verbatim:
+    `workmux` is a template whose keys are substituted per repo.
+    """
+    root = Path(__file__).resolve().parent.parent
+    bundle = root / "wfctl" / "agents" / "configs" / "github"
+    shipped = sorted(p for p in bundle.rglob("*") if p.is_file())
+    assert shipped, "the github config ships no files"
+    for src in shipped:
+        rel = src.relative_to(bundle)
+        assert src.read_text() == (root / rel).read_text(), (
+            f"{rel} has drifted from the copy wfctl ships — "
+            f"re-seed with `uv run wfctl install-config github --force`"
+        )
