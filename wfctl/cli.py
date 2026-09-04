@@ -308,11 +308,7 @@ def resume_cmd() -> None:
     # failure.
     _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
-    # Read off the report rather than inferred a second time. The second call
-    # was here only to recover `auto`, which the payload now carries — and two
-    # reads of the same artifacts can disagree if anything changes between them,
-    # which is the whole reason `PipelineReport` exists.
-    command, auto = report.next_command or "", report.auto
+    command, auto = report.next_command, report.auto
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -323,7 +319,12 @@ def resume_cmd() -> None:
         next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
 
-    append_event(agent_dir, "resume", step=step_name, command=command or "complete", auto=auto)
+    # `bool` because the log has carried a Boolean here since `next` wrote the
+    # first one, and `auto` is None at story complete. Two shapes for one
+    # situation is drift in a record nothing can migrate afterwards.
+    append_event(
+        agent_dir, "resume", step=step_name, command=command or "complete", auto=bool(auto)
+    )
 
 
 # Whether the boundary question was answered, as a word. Three readings rather

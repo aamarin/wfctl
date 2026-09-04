@@ -345,6 +345,34 @@ def test_resume_is_gated_too(
     assert runner.invoke(app, ["resume"]).exit_code == 0
 
 
+def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`resume` re-sourced `auto` from the report; nothing covered its output.
+
+    Every `auto: true/false` assertion in the suite targeted `wfctl next`, so
+    `resume` could have written the wrong flag — or stopped writing one — with
+    the suite green. Both values, because a flag hardcoded either way passes a
+    test that only checks the other.
+    """
+    _arch_root(storyctl_dir, monkeypatch)
+    runner.invoke(app, ["start"])
+
+    stops = runner.invoke(app, ["resume"])
+
+    assert "step: brainstorm" in stops.output
+    assert "auto: false" in stops.output
+
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["arch", "none", "--reason", "no new state"])
+
+    advances = runner.invoke(app, ["resume"])
+
+    assert "/speckit.specify" in advances.output
+    assert "auto: true" in advances.output
+    assert "auto: true" in (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+
 def test_a_declaration_git_will_not_carry_is_refused(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:

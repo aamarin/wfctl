@@ -410,7 +410,8 @@ class PipelineReport:
         # merely tested, so no future branch can produce one. `auto` joins the
         # pair because it is the same fact seen from one more angle: there is a
         # step to run, or there is not.
-        if len({self.current is None, self.next_command is None, self.auto is None}) != 1:
+        paired = (self.current, self.next_command, self.auto)
+        if any(v is None for v in paired) and not all(v is None for v in paired):
             raise ValueError(
                 f"current={self.current!r}, next_command={self.next_command!r} and "
                 f"auto={self.auto!r} must be None together"

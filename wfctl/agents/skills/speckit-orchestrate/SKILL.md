@@ -60,6 +60,11 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    here if the boundary question went unanswered — none of which the read below
    does.
 
+   **If it exits non-zero, display its output and stop.** Step 3 is a read, and
+   a read is not gated: `wfctl status --json` answers with the step the refusal
+   was issued about, and `auto` on that step is `true`, so continuing emits
+   `EXECUTE_COMMAND` for the command `resume` just refused to write.
+
 3. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale

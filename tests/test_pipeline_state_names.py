@@ -160,6 +160,24 @@ def test_changing_the_glyph_map_changes_the_drawing_and_nothing_else(
     assert json.loads(runner.invoke(app, ["status", "--json"]).output) == before
 
 
+def test_the_json_view_carries_the_auto_flag(
+    storyctl_dir: types.SimpleNamespace
+) -> None:
+    """The field `speckit-orchestrate` branches on, in the view it now reads.
+
+    Deleting `auto` from the `--json` payload left all 824 other tests green:
+    the one test that touches this output compares it against itself, so a
+    field that vanished from both sides passed. The skill would have gone on
+    reading a key that was no longer there.
+    """
+    assert json.loads(runner.invoke(app, ["status", "--json"]).output)["auto"] is False
+
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert (payload["next_command"], payload["auto"]) == ("/speckit.plan", True)
+
+
 # --- the report's one invariant (#42) -----------------------------------------
 
 
