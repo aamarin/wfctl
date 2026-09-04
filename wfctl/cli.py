@@ -174,6 +174,7 @@ def status_cmd(
             "session_started": report.session_started,
             "current": report.current,
             "next_command": report.next_command,
+            "auto": report.auto,
             "steps": report.steps,
         })
         return
@@ -287,7 +288,7 @@ def next_cmd() -> None:
 @app.command("resume")
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
-    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report, next_step_content
+    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report
     from wfctl._session import session_started
     from wfctl._io import append_event
 
@@ -307,15 +308,7 @@ def resume_cmd() -> None:
     # failure.
     _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
-    # The same call `build_report` makes, with the same arguments, so the command
-    # written here is the one `status` prints. Passing `step_name` alone dropped
-    # `repo_root` and `spec_dir`, which is what routes a finished-but-unverified
-    # implement to `wfctl verify` — so `resume` sent the session back to
-    # `/speckit.implement`, where there was no task left to do.
-    #
-    # `auto` is why this is not just `report.next_command`: the flag is not part
-    # of the payload, and `next-step.md` carries it.
-    command, auto = next_step_content(step_name, repo_root, spec_dir)
+    command, auto = report.next_command, report.auto
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -326,7 +319,12 @@ def resume_cmd() -> None:
         next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
 
-    append_event(agent_dir, "resume", step=step_name, command=command or "complete", auto=auto)
+    # `bool` because the log has carried a Boolean here since `next` wrote the
+    # first one, and `auto` is None at story complete. Two shapes for one
+    # situation is drift in a record nothing can migrate afterwards.
+    append_event(
+        agent_dir, "resume", step=step_name, command=command or "complete", auto=bool(auto)
+    )
 
 
 # Whether the boundary question was answered, as a word. Three readings rather

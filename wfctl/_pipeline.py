@@ -400,17 +400,21 @@ class PipelineReport:
     steps: list[dict]
     current: str | None
     next_command: str | None
+    auto: bool | None
     session_started: bool
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
         # that is current with no command to advance it announced "story
         # complete" with half the pipeline unrun. Unconstructible rather than
-        # merely tested, so no future branch can produce one.
-        if (self.current is None) != (self.next_command is None):
+        # merely tested, so no future branch can produce one. `auto` joins the
+        # pair because it is the same fact seen from one more angle: there is a
+        # step to run, or there is not.
+        paired = (self.current, self.next_command, self.auto)
+        if any(v is None for v in paired) and not all(v is None for v in paired):
             raise ValueError(
-                f"current={self.current!r} and next_command={self.next_command!r} "
-                "must be None together"
+                f"current={self.current!r}, next_command={self.next_command!r} and "
+                f"auto={self.auto!r} must be None together"
             )
 
 
@@ -420,7 +424,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
 
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
-    command, _ = next_step_content(name, repo_root, spec_dir)
+    command, auto = next_step_content(name, repo_root, spec_dir)
     return PipelineReport(
         steps=[
             {
@@ -433,5 +437,6 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         ],
         current=name if command else None,
         next_command=command or None,
+        auto=auto if command else None,
         session_started=session_started(agent_dir),
     )

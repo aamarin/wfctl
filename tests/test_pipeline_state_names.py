@@ -160,6 +160,24 @@ def test_changing_the_glyph_map_changes_the_drawing_and_nothing_else(
     assert json.loads(runner.invoke(app, ["status", "--json"]).output) == before
 
 
+def test_the_json_view_carries_the_auto_flag(
+    storyctl_dir: types.SimpleNamespace
+) -> None:
+    """The field `speckit-orchestrate` branches on, in the view it now reads.
+
+    Deleting `auto` from the `--json` payload left all 824 other tests green:
+    the one test that touches this output compares it against itself, so a
+    field that vanished from both sides passed. The skill would have gone on
+    reading a key that was no longer there.
+    """
+    assert json.loads(runner.invoke(app, ["status", "--json"]).output)["auto"] is False
+
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert (payload["next_command"], payload["auto"]) == ("/speckit.plan", True)
+
+
 # --- the report's one invariant (#42) -----------------------------------------
 
 
@@ -199,4 +217,46 @@ def test_a_report_with_a_current_step_and_no_command_cannot_be_built(
     holds for code written after this one without that code knowing the rule.
     """
     with pytest.raises(ValueError):
-        PipelineReport(steps=[], current="plan", next_command=None, session_started=True)
+        PipelineReport(
+            steps=[], current="plan", next_command=None, auto=None, session_started=True
+        )
+
+
+def test_a_report_with_a_command_and_no_auto_flag_cannot_be_built() -> None:
+    """`auto` is bound by the same pairing as `next_command`, not exempt from it.
+
+    Added with `auto` itself: a report that names a command but leaves the flag
+    None reads to `speckit-orchestrate` as a step it must never advance, which
+    is the stop-forever half of the failure the pairing exists to prevent.
+    """
+    with pytest.raises(ValueError):
+        PipelineReport(
+            steps=[],
+            current="plan",
+            next_command="/speckit.plan",
+            auto=None,
+            session_started=True,
+        )
+
+
+# --- `auto` reaches the payload (#118) ----------------------------------------
+
+
+def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The flag existed in `_STEPS` and no view but `next-step.md` could see it.
+
+    `build_report` did `command, _ = next_step_content(...)` and threw the flag
+    away, so flipping a step to automatic changed one file an agent reads from
+    disk and nothing that re-derives on demand. Both values are asserted from a
+    report `build_report` actually built: constructing a `PipelineReport` by
+    hand and checking the field exists tests the dataclass, not the defect.
+    """
+    brainstorm = build_report(spec_tree(), tmp_path, tmp_path)
+    assert (brainstorm.current, brainstorm.auto) == ("brainstorm", False)
+
+    # `spec_tree` builds into one directory, so the second call adds to the
+    # first — an empty feature has to be asserted before anything is written.
+    plan = build_report(spec_tree(content={"spec.md": CLEAN_SPEC}), tmp_path, tmp_path)
+    assert (plan.current, plan.auto) == ("plan", True)
