@@ -1183,6 +1183,16 @@ def _layer_keys(manifest: dict) -> list[str]:
     return [k for k in manifest if k not in _NON_LAYER_KEYS]
 
 
+def _agent_flag(layer: str) -> str:
+    """The `--agent` a repair command needs to reach this layer, or nothing.
+
+    The base layer is what `install-skills` writes with no flag, so naming it
+    would print an agent that `_AGENT_TARGETS` does not have. Every other layer
+    is only rewritten when it is asked for by name.
+    """
+    return "" if layer == _BASE_LAYER else f" --agent {layer}"
+
+
 def _recorded_path(repo_root: Path, rel: str) -> Path | None:
     """Join a manifest-recorded path onto the repo, refusing one that escapes it.
 
@@ -3495,7 +3505,13 @@ def doctor_cmd() -> None:
             # Same version, different content: an editable install whose skills
             # were edited in place. Naming the version twice would read as a bug.
             console.print(f"[cyan]⬆[/cyan] {agent}: bundled skills changed since install")
-        console.print("    update: wfctl install-skills")
+        # Names the layer it is reporting, because the bare form does not repair
+        # this finding. `install-skills` rewrites the record only for layers it
+        # installed, so a run without `--agent` leaves an agent layer exactly as
+        # stale as it found it — and this line is what the reader runs next. The
+        # advice then reports the same drift on every later session, each time
+        # re-running the same incomplete fix.
+        console.print(f"    update: wfctl install-skills{_agent_flag(agent)}")
 
     raise typer.Exit(exit_code)
 

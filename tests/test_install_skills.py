@@ -2252,3 +2252,25 @@ def test_prune_leaves_a_recorded_path_that_escapes_the_repo(
     assert result.exit_code == 0
     assert outsider.exists(), "a path outside the repo is never wfctl's to remove"
     assert "outside this repo" in result.output
+
+
+def test_doctor_names_the_agent_layer_in_the_command_it_advises(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The bare form does not repair an agent layer's drift. `install-skills`
+    rewrites the record only for layers it installed, so the advice a reader
+    follows would report the same finding on every later session and re-run the
+    same incomplete fix each time — the loop a review panel reproduced.
+
+    Drift is created by changing the bundle between two real installs rather than
+    by editing the record, because the recorded hash is what doctor reads.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    (bundle / "agents" / "skills" / "later-skill").mkdir(parents=True)
+    (bundle / "agents" / "skills" / "later-skill" / "SKILL.md").write_text("# later\n")
+
+    out = runner.invoke(app, ["doctor"]).output
+
+    assert "update: wfctl install-skills --agent claude" in out
+    base_line = [ln for ln in out.splitlines() if "update:" in ln and "--agent" not in ln]
+    assert base_line, "the base layer still repairs with no flag"

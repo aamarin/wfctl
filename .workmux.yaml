@@ -75,7 +75,10 @@ post_create:
   # instead (scripts/link-wf-skills.sh) to skip the clone — do not copy that
   # here: a worktree needs its own source's skills, not the main checkout's, and
   # linking is what spread one orphaned file across twelve worktrees in #38.
-  - cd "$WM_WORKTREE_PATH" && uv run wfctl install-skills --prune ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
+  # No `--prune`: the manifest is per-worktree and gitignored, so a fresh
+  # worktree has no prior record to diff against and the flag is inert here. It
+  # earns its place at session start, where a record exists.
+  - cd "$WM_WORKTREE_PATH" && uv run wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
 
 pre_remove:
   # Gitignored artifacts are invisible to every git-based check: a worktree

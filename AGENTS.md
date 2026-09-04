@@ -40,22 +40,30 @@ runs exactly these on 3.11 and 3.13.
 Then `uv run wfctl doctor` — it reports drift between what wfctl installed in this
 repo and what it now ships. Exit 1 means a finding that still stands.
 
-`uv run` here for the same reason as below, and it is not optional: `doctor`
-compares the installed tree against the bundle carried by the wfctl you invoked.
-A bare `wfctl doctor` in this repo compares against the released wheel and so
-reports drift permanently, while `uv run wfctl doctor` compares against the
-working tree. Install and diagnose through the same one or they never agree.
+`uv run`, and it is not optional. `doctor` compares the installed tree against
+the bundle carried by the wfctl you invoked, and this repo has two of them: a
+bare `wfctl` is whatever `uv tool install` put on PATH, `uv run wfctl` is the
+working tree. Their bundles are never byte-identical, so they never both report
+clean — **whichever one installed last is the one that reports green, and the
+other reports drift.** Neither verdict is more true than the other; they are
+answers to different questions.
+
+So pick one and use it for `install-skills` and `doctor` both. `uv run` is that
+one, because it is the only one that answers the question this repo cares about:
+does the installed tree match the source I am editing. A worktree whose tree was
+installed by the bare wheel will fail the step above until it is re-installed
+with `uv run` once.
 
 A change to anything under `wfctl/agents/` is not verified by the test suite
 alone: run `uv run wfctl install-skills` and exercise the thing you changed. The
 suite checks that skills ship and cross-reference correctly, not that they read
 well.
 
-`uv run`, not a bare `wfctl`, and this is the one place the distinction bites.
-A bare `wfctl` is the released wheel, and it installs *its* copy of the skill you
-just edited — the command succeeds, the tree looks installed, and your change is
-nowhere in it. `uv run` resolves the bundle to this worktree, so what lands is
-what you wrote.
+`uv run` again, for the sharper half of the same reason. A bare `wfctl` installs
+*its own* copy of the skill you just edited — the command succeeds, the tree
+looks installed, and your change is nowhere in it. Only `.agents/` is overwritten,
+never `wfctl/agents/`, so nothing you wrote is lost; what you lose is the ability
+to exercise it, which is the entire point of the step.
 
 ## Session state
 
@@ -126,7 +134,11 @@ would report a stale build as current — which is why the tag job exists (#55).
 ## Safety
 
 `install-skills` writes into a project and can overwrite hand-authored files; it
-lists them and asks first. `--yes` skips that prompt and is for CI. Hooks seeded
+lists them and asks first. `--yes` skips that prompt — originally for CI, and now
+also for `/start-session`, which refreshes a stale mirror unattended. What it
+skips is the listing, not the backup: the overwritten originals are copied under
+`.wf-skills-backup/` and the run prints where, so the prompt is a chance to stop
+rather than the only thing standing between a hand-authored file and loss. Hooks seeded
 into a repo execute shell commands on worktree create and remove — read them
 before running an unfamiliar one.
 
