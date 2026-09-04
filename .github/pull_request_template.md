@@ -24,24 +24,32 @@ picture of the problem and the shape of the fix replaces the three paragraphs a
 reviewer would otherwise have to assemble in their head — and it is easier to
 disagree with, which is the point of a review.
 
-This section is rendered by GitHub, not read in a terminal. The ASCII-only rule
-in `design-levels` and `architecture-design` applies to skills and records, which
-agents read as source — it does not apply here. Prefer a `mermaid` fenced block
-for a flow, a state machine, or a dependency graph. ASCII stays correct for
-terminal output shown verbatim, and for a before/after of a literal string.
+Draw whenever the reader has to hold a structure — a set, a location, a count, a
+branch, a dependency. Short prose still earns a drawing; the question is whether
+the structure survives being read one clause at a time, not whether the drawing
+is quicker than the sentence.
+
+This section is rendered by GitHub, so mermaid works here and the terminal-ASCII
+rule from `design-levels` and `architecture-design` does not apply — those govern
+skills and records, which agents read as source. Prefer mermaid when you want the
+graph laid out for you. Prefer ASCII when your placement carries meaning a layout
+engine would discard — grouping, alignment, or counts positioned to be compared —
+and for terminal output shown verbatim.
 
 Pick whatever the change actually is:
 - **UI** → a wireframe or a before/after screenshot. ASCII boxes are fine; the
   point is the layout and the flow, not the pixels.
-- **A flow, a state machine, an architecture** → a `mermaid` fenced block. GitHub
+- **A flow, a state machine, a sequence** → a `mermaid` fenced block. GitHub
   renders it inline; keep it to the nodes that changed.
+- **An architecture** → usually ASCII. Band membership and nesting are the
+  content, and an edge into a grouped box forces every member out into its own
+  node before a layout engine can anchor it.
 - **A CLI** → the terminal before and the terminal after, verbatim.
 - **A data shape** → the record before and after, trimmed to the fields that moved.
 
-Draw when the reader has to hold something to follow the sentence — a set, a
-location, a count, a branch. Which drawing the material calls for is decided by
-the form-selection table in the `conversation-response-shape` skill; that table
-is the single owner, so pick from it rather than restating it here.
+Which drawing the material calls for is decided by the form-selection table in
+the `conversation-response-shape` skill; that table is the single owner, so pick
+from it rather than restating it here.
 -->
 
 **What:** [The capability added or changed, as a user would describe it]
