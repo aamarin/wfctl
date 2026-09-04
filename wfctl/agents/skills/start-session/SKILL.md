@@ -21,15 +21,55 @@ memory of it — load them before doing anything else.
    how deep it goes. Skip either silently if it isn't installed. The user turns
    both off with "stop adhd mode" or "normal mode".
 
+   If step 2 then refreshes the skills, read both files again afterwards. This
+   step runs first so the report in step 8 is already shaped, but that puts it
+   ahead of the refresh — so on precisely the run where a skill was missing or
+   stale, this step read the old copy or skipped it. A second read costs nothing
+   and is the only thing that closes that window. Skills installed mid-session
+   may not enter the agent's own index until it restarts; say so in step 8 if a
+   refresh added one, rather than assuming it is loadable by name.
+
 2. **Initialize and check freshness:**
    ```bash
    wfctl start     # init session context, infer the current pipeline step
    wfctl doctor    # is the wfctl tool / installed skills up to date?
    ```
-   `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available. Surface
-   anything behind as a one-line heads-up in the report — the user decides whether
-   to update now (`uv tool install --upgrade …` for the tool, `wfctl
-   install-skills` for skills). Not a blocker.
+   `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available.
+
+   **If it reports any layer's skills behind or drifted, bring them level now.**
+   Doctor names the layer on each finding and prints the command that repairs
+   *that* layer — run what it printed, once per reported layer, adding `--prune`:
+
+   ```bash
+   wfctl install-skills --prune --yes                   # a `base` finding
+   wfctl install-skills --prune --yes --agent claude    # a `claude` finding
+   ```
+
+   Then run `wfctl doctor` again and check it is green before moving on. Without
+   the second run the report says "refreshed" over a tree that is still drifted:
+   a layer is rewritten only when it is asked for by name, so a run that omits
+   `--agent` leaves that layer exactly as stale as it found it.
+
+   `--prune` also clears paths a past install left behind when they were renamed
+   upstream. It reaches only paths still on record; anything doctor lists
+   separately as no longer shipped is a hand-delete it will name.
+
+   `--yes` is what keeps this non-interactive, and it is not free: it skips the
+   prompt that would otherwise list pre-existing files being overwritten — files
+   *not* on wfctl's record, so possibly someone's own. They are backed up and the
+   run says where, so this is recoverable, not silent. If that is not a trade you
+   want made unattended, drop `--yes` and answer the prompt.
+
+   Run `doctor` and `install-skills` through the **same** wfctl. They compare the
+   installed tree against the bundle carried by whichever one you invoked, so two
+   different wfctls disagree permanently — whichever installed last is the one
+   that reports clean. In most repos there is only one and this costs you nothing
+   to honour. In a repo that develops wfctl itself there are two; that project's
+   own AGENTS.md says which to use, and it governs.
+
+   The **tool** being behind is a different call and stays the user's: `uv tool
+   install --upgrade …` changes what is installed on the machine, not what this
+   repo holds. Surface it as a one-line heads-up. Not a blocker.
 
 3. **Load the architectural contract:**
    ```bash
@@ -93,7 +133,11 @@ memory of it — load them before doing anything else.
    and move on.
 
 8. Report status to the user:
-   - **Freshness**: anything `wfctl doctor` flagged as behind (tool / skills), or omit if all current
+   - **Freshness**: skills you refreshed in step 2 and what changed, plus
+     everything `wfctl doctor` still reports — it checks more than skills and
+     still exits 1 on any of them. Omit only when doctor is green and nothing was
+     refreshed; a silent refresh is how a mirror goes stale again without anyone
+     noticing it had been wrong
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
