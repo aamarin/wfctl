@@ -67,7 +67,8 @@ bands has its meaning in one place and its production in another.
 - **`_io` owns wfctl's on-disk formats as well as the mechanism — call it the
   persistence layer.** This is the smallest diff: nothing moves, and the band
   gets a wider name. It is a coherent design and plenty of systems are built
-  this way. Rejected on driver 1: a persistence layer that knows wfctl's fields
+  this way. Rejected because it costs the band its membership test: a
+  persistence layer that knows wfctl's fields
   has no membership test that excludes anything, so the bottom band would grow
   by default and the view's top-level shape would stop meaning anything within
   a few features.

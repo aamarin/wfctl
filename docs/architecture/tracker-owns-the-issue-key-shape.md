@@ -19,10 +19,13 @@ everything crossing it is one string:
      └─► _paths.DEFAULT_KEY_PATTERN
 ```
 
-Both imports are function-local and both carry a comment saying why
-(`_paths.py:379`, `_tracker.py:129`). So the cycle does not break module load —
-it is held open by two authors each having noticed it, which is a property no
-future author inherits.
+Both imports are function-local, so the cycle does not break module load. Only
+one of them says why: `_paths.py:379` carries *"lazy: avoids import cycle at
+module load"*, and `_tracker.py:129` carries nothing at all. The cycle is
+therefore survived rather than managed — a reader of `_tracker` has no way to
+learn that the import's position inside the function is load-bearing, and
+hoisting it to the top of the file is an obvious tidy-up that breaks the
+package.
 
 The cycle is also an upward edge. `_paths` answers "where is this on this
 checkout"; `_tracker` runs the active backend's commands. The current-state view
@@ -55,8 +58,9 @@ answering a tracker question from memory.
 
 ## Considered
 
-- **Leave the cycle.** The two lazy imports work and both comments are good.
-  Rejected on the second driver, not the first: import safety currently holds
+- **Leave the cycle.** The two lazy imports work.
+  Rejected because the safety is unowned, not because it is absent today:
+  import safety currently holds
   because two people noticed, and the next author to make either import eager
   breaks load with no test standing in the way. It also leaves "where is the
   default key shape defined" with a historical answer and no principled one.
@@ -75,10 +79,18 @@ answering a tracker question from memory.
 
 ## Consequences
 
-`_paths` gains an eager import of `_tracker`, which pulls `rich.Console` and
-`_io` into every path resolution. `cli` already imports both, so the cost lands
-only on a caller importing `_paths` alone — no such caller exists today, and one
-appearing later is the signal to revisit.
+**The cycle closes; the band violation does not.** `_paths → _tracker` survives
+this decision and becomes *eager* rather than lazy, so the one upward edge in
+the view is still there afterwards and is now unavoidable at module load. That
+is accepted deliberately: a cycle is a defect at any layering, while an upward
+edge is only a defect against a band model this record does not itself make
+binding. Whoever wants that edge gone is asking a different question — whether
+`_tracker` belongs in the domain band at all — and it needs its own pass.
+
+`_paths` also gains `rich.Console` and `_io` transitively, on every path
+resolution. `cli` already imports both, so the cost lands only on a caller
+importing `_paths` alone — no such caller exists today, and one appearing later
+is the signal to revisit.
 
 `tests/test_key_pattern.py` imports `DEFAULT_KEY_PATTERN` from `_paths` and will
 need its import updated by whoever performs the move.

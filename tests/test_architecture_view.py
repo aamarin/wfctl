@@ -45,13 +45,22 @@ def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
         src = path.stem
         if src == "__init__":
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        tree = ast.parse(path.read_text())
+        # Local name -> module it refers to, for the import forms that bind the
+        # module itself. Collected first because the attribute sweep below runs
+        # over the same tree and a lazy import inside a function still binds.
+        bound: dict[str, str] = {}
+
+        for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 # `from . import _arch` / `from wfctl import _arch` name the
                 # module in `names`; `from wfctl._arch import x` names it in
                 # `module`. Both forms are in use.
                 if (node.level and not node.module) or node.module == "wfctl":
-                    edges[src] |= {a.name for a in node.names if a.name in mods}
+                    for a in node.names:
+                        if a.name in mods:
+                            edges[src].add(a.name)
+                            bound[a.asname or a.name] = a.name
                     continue
                 dst = (node.module or "").rsplit(".", 1)[-1]
                 if dst in mods:
@@ -66,6 +75,22 @@ def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
                     tail = alias.name.rsplit(".", 1)[-1]
                     if alias.name.startswith("wfctl") and tail in mods:
                         edges[src].add(tail)
+                        if alias.asname:
+                            bound[alias.asname] = tail
+
+        # `from wfctl import _paths` then `_paths._STATE_DIR_OVERRIDE` is a
+        # private crossing that no import statement records, and it is the form
+        # `cli` uses for most of its imports — so a sweep that only read import
+        # statements guaranteed less than the view claims it did.
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in bound
+                and node.attr.startswith("_")
+            ):
+                private.add((src, bound[node.value.id], node.attr))
+
     return edges, private
 
 
@@ -87,6 +112,19 @@ def test_every_module_has_a_band(bands: dict[str, str]) -> None:
     graph in #149's first comment was taken, and nothing said so.
     """
     assert _modules() == set(bands), "modules and the view's ```layers disagree"
+
+
+def test_the_package_is_still_flat() -> None:
+    """Every check here globs one level, so a subpackage would go unseen.
+
+    Not hypothetical: #149 phase 2 is expected to split `cli.py`, and modules
+    landing in `wfctl/commands/` would drop out of both sides of the comparison
+    above — which agrees, greenly, while the drawing stops describing the code.
+    Whoever adds the first subpackage has to teach the view about it, and this
+    is what tells them.
+    """
+    nested = sorted(str(p.relative_to(PKG)) for p in PKG.rglob("*.py") if p.parent != PKG)
+    assert nested == [], "wfctl/ gained a subpackage; the view models a flat package"
 
 
 def test_only_the_declared_edge_runs_upward(bands: dict[str, str]) -> None:

@@ -96,9 +96,8 @@ Not here. `wfctl arch context` prints the in-force set; the records live in
 `docs/architecture/`.
 
 `docs/architecture/views/current-state.md` draws the modules and the bands they
-fall into. It describes and does not constrain — which is why it sits a
-directory below the records, where `load_records`' non-recursive glob cannot
-reach it. `tests/test_architecture_view.py` is what keeps it true.
+fall into. It describes rather than constrains, and says in its own opening
+paragraph why it sits below the records rather than among them.
 
 ## Testing conventions
 

@@ -11,7 +11,7 @@ Four private names cross a module boundary into `cli`:
 ```
    cli → _paths._SPEC_DIR_OVERRIDE     ─┐  env var names, printed by
    cli → _paths._STATE_DIR_OVERRIDE    ─┘  `wfctl spec-root` and refused
-                                           by `wfctl handoff --branch`
+                                           by `wfctl state-dir --branch`
 
    cli → _pipeline._current_step_name  ─┐  the inference itself, called
    cli → _pipeline._infer_steps        ─┘  by `wfctl next`
@@ -90,8 +90,8 @@ to have.
 - **Declare `cli` exempt — it is the only importer, so nothing else can be
   broken by the coupling.** This is the honest version of the status quo and it
   is not obviously wrong: `cli` imports all thirteen modules and nothing imports
-  `cli`, so a private name it depends on has exactly one consumer. It loses to
-  driver 1, not to a flaw: an exemption for the one module that touches
+  `cli`, so a private name it depends on has exactly one consumer. It loses on enforceability rather
+  than on a flaw: an exemption for the one module that touches
   everything exempts the coupling that matters, and it would have to be repealed
   the moment `cli` is split — which is phase 2's most likely first move.
 - **Enforce it with a test rather than deciding it.** A check over the AST could
