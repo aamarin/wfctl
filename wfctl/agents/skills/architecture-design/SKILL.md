@@ -41,8 +41,15 @@ Use this skill when level 2 is active and the change may:
 - depend on a quality such as availability, latency, security, modifiability,
   deployability, or integrability under specific conditions.
 
+**Not for**: bug fixes, copy edits, dependency bumps, naming, refactors that
+move no boundary, or any one-off change introducing no new state — those go
+straight to implementation, and running this method over one costs more than the
+change. Nor for work whose boundaries are already settled in an accepted record
+or an existing spec.
+
 File size, unfamiliar code, a named pattern, or an unfavorable metric is not by
-itself an architecture question.
+itself an architecture question. Neither is smallness: the test is whether a
+boundary moves, and a two-line change can move one.
 
 If the change is local and preserves every existing boundary and contract,
 declare **no record** and return to `design-levels`. A declared absence is the
@@ -199,6 +206,13 @@ not work around the contradiction inside this iteration.
 
 ### 6. Close and hand off
 
+Document the alternatives, up to three, each with the reason it was not chosen.
+"It was worse" is not the only reason and often is not the true one: an approach
+can be equally sound and still lose to the ranked drivers, and "equally good —
+this one fits the condition in driver 1" is a better record than a manufactured
+criticism. An alternative dismissed for a weakness it does not have reads as
+diligence and misleads the next reader into rejecting it again.
+
 Recommend one approach only when the evidence supports it. Present:
 
 ```
@@ -257,6 +271,8 @@ Before handing off from this skill:
       answer was recorded even when it was no.
 - [ ] Every approach names the property gained and at least two material
       liabilities.
+- [ ] Each documented alternative carries the true reason it was not chosen,
+      including where that reason is fit rather than fault.
 - [ ] Responsibilities, ownership, and actual boundary crossings are visible.
 - [ ] Evidence, assumptions, and open questions are separated.
 - [ ] No pattern, abstraction, threshold, or artifact was invented to complete
