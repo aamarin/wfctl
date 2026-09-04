@@ -1183,6 +1183,48 @@ def _layer_keys(manifest: dict) -> list[str]:
     return [k for k in manifest if k not in _NON_LAYER_KEYS]
 
 
+def _recorded_path(repo_root: Path, rel: str) -> Path | None:
+    """Join a manifest-recorded path onto the repo, refusing one that escapes it.
+
+    Every path wfctl writes is recorded as `dest.relative_to(repo_root)`, so a
+    rejection here means a hand-edited or corrupted manifest rather than anything
+    wfctl produced. It is checked because it guards a delete: `Path` joining
+    silently discards the left operand when the right is absolute, so a single
+    bad row would have `remove` reach outside the project entirely.
+
+    Lexical rather than resolved. Resolving would follow a symlinked install path
+    through to its target, which is the one thing removal must not do — see
+    `_remove_recorded`.
+    """
+    path = Path(rel)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return repo_root / rel
+
+
+def _remove_recorded(path: Path) -> None:
+    """Remove a path wfctl recorded, whatever kind it turns out to be.
+
+    `is_dir()` follows a symlink and `shutil.rmtree` refuses one, so the obvious
+    directory-or-file branch does not merely mis-handle a linked path — it raises
+    partway through and takes the whole command down with it. Linking installed
+    paths in from a main checkout is a real layout: #38's evidence found twelve
+    worktrees doing exactly that.
+
+    The link is what the record names, so the link is what goes; whatever it
+    points at belongs to whoever made it and is never wfctl's to delete. Tested
+    before `is_file`/`is_dir` because both follow the link, and before any
+    `exists()` check because a dangling link is invisible to it and still ours to
+    clear.
+    """
+    import shutil
+
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
 def _recorded_items(manifest: dict) -> list[dict]:
     """Every `items` entry across every layer, flattened.
 
@@ -2024,11 +2066,15 @@ def install_skills_cmd(
     restored_originals = 0
     if prune:
         for _, item in orphans:
-            path = repo_root / item["path"]
-            if path.is_dir():
-                shutil.rmtree(path)
-            elif path.exists():
-                path.unlink()
+            path = _recorded_path(repo_root, item["path"])
+            if path is None:
+                console.print(
+                    f"[yellow]⚠[/yellow] {item['path']} is recorded as a path "
+                    "outside this repo — left alone",
+                    soft_wrap=True,
+                )
+                continue
+            _remove_recorded(path)
 
             # The same undo `uninstall-skills` performs on a recorded item, for
             # the same reason: the backup is the user's own file from before
@@ -2037,7 +2083,7 @@ def install_skills_cmd(
             # nothing left that would ever restore it — the defect this flag
             # exists to fix, one directory over.
             backup_rel = item.get("backup")
-            backup = repo_root / backup_rel if backup_rel else None
+            backup = _recorded_path(repo_root, backup_rel) if backup_rel else None
             if backup is not None and backup.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(backup), str(path))
@@ -2197,15 +2243,18 @@ def uninstall_skills_cmd(
     removed = 0
     restored = 0
     for item in entry.get("items", []):
-        path = repo_root / item["path"]
-        if path.exists():
-            if path.is_dir():
-                shutil.rmtree(path)
-            else:
-                path.unlink()
+        path = _recorded_path(repo_root, item["path"])
+        if path is None:
+            console.print(
+                f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
+                "this repo — left alone",
+                soft_wrap=True,
+            )
+            continue
+        _remove_recorded(path)
 
         backup_rel = item.get("backup")
-        backup_path = repo_root / backup_rel if backup_rel else None
+        backup_path = _recorded_path(repo_root, backup_rel) if backup_rel else None
         if backup_path is not None and backup_path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(backup_path), str(path))
@@ -3331,7 +3380,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
             "    Delete the rest by hand once you've checked nothing needs them."
             if flagged
             else f"    Delete {'it' if one else 'them'} by hand once you've "
-            "checked nothing needs it."
+            f"checked nothing needs {'it' if one else 'them'}."
         )
     return True
 

@@ -2202,3 +2202,53 @@ def test_prune_puts_back_the_file_it_overwrote_when_it_drops_the_path(
 
     assert result.exit_code == 0
     assert mine.read_text() == "# mine\n"
+
+
+def test_prune_removes_a_symlinked_install_path_without_crashing(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Linking installed paths in from a main checkout is a real layout — #38's
+    own evidence found twelve worktrees doing it. `is_dir()` follows the link and
+    `shutil.rmtree` refuses one, so the plain directory-or-file branch raised
+    partway through `install-skills` and took the whole command down.
+
+    The link goes; what it points at is never wfctl's to delete.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--yes"])
+    installed = repo_root / ".agents" / "skills" / "test-skill"
+    elsewhere = repo_root.parent / "main-checkout-skill"
+    shutil.move(str(installed), str(elsewhere))
+    installed.symlink_to(elsewhere)
+    (bundle / "agents" / "skills" / "test-skill").rename(
+        bundle / "agents" / "skills" / "renamed-skill"
+    )
+
+    result = runner.invoke(app, ["install-skills", "--yes", "--prune"])
+
+    assert result.exit_code == 0, result.output
+    assert not installed.is_symlink()
+    assert (elsewhere / "SKILL.md").exists(), "the link's target is not ours to delete"
+
+
+def test_prune_leaves_a_recorded_path_that_escapes_the_repo(
+    bundle: Path, agent_dir: Path, tmp_path: Path
+) -> None:
+    """`Path` joining discards the repo root when the recorded path is absolute,
+    so one hand-edited or corrupted manifest row would have --prune delete outside
+    the project entirely. Nothing wfctl writes looks like this; the guard is on
+    the delete because that is where being wrong is unrecoverable."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    outsider = tmp_path.parent / "not-ours.md"
+    outsider.write_text("someone else's file\n")
+    runner.invoke(app, ["install-skills", "--yes"])
+    with _edit_manifest(repo_root) as manifest:
+        manifest["base"]["items"].append({"path": str(outsider), "backup": None})
+
+    result = runner.invoke(app, ["install-skills", "--yes", "--prune"])
+
+    assert result.exit_code == 0
+    assert outsider.exists(), "a path outside the repo is never wfctl's to remove"
+    assert "outside this repo" in result.output
