@@ -24,11 +24,13 @@ _VERDICTS = re.compile(r"\b(PASS|FAIL|BLOCKED|INCONCLUSIVE)\b")
 
 def test_the_design_skill_hands_its_proposal_to_the_record_skill() -> None:
     """The handoff is the only thing that turns a proposed boundary into a
-    record, and it is one reference.
+    record.
 
     Same shape as the level-2 gate: eleven designs carried an instruction to
     write the answer somewhere and none of them did. A skill that ends by
-    naming no successor ends by leaving the proposal in the transcript.
+    naming no successor ends by leaving the proposal in the transcript. Presence
+    is the invariant, not count — a second pointer to the same skill breaks
+    nothing.
     """
     assert "architecture-decisions" in set(_REFERENCE.findall(_SKILL.read_text()))
 
