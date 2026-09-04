@@ -10,6 +10,7 @@ import re
 from importlib.resources import files
 from pathlib import Path
 
+
 # Resolved through `files("wfctl")` for the same reason as
 # `test_pipeline_commands`: conftest's autouse `bundle` fixture repoints
 # `_bundle.BUNDLE_ROOT` at a fake tree, and reading the real shipped one is this

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import typer
 from rich.console import Console
 
-from wfctl import _bundle, _tracker
+from wfctl import _bundle, _settings, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
@@ -1140,6 +1141,31 @@ _CONFIG_SOURCES = {
     "github": "agents/configs/github",
 }
 
+# The merge install mode's one target — see `docs/architecture/install-modes.md`
+# for why merge exists and why it is claude-only.
+#
+# Repo-local `.claude/settings.json`, not the user-global one: the hook reads the
+# skills *this repo* installed, so a global entry would fire in every checkout on
+# the machine, including ones that never ran `install-skills`.
+#
+# The command is a fixed string, not derived from which skills are installed —
+# per `research.md`'s command-name decision, a new digest-bearing skill reaches
+# a consumer's next session with no re-install, and `doctor`'s "behind" check
+# narrows to real drift (wfctl renamed the subcommand) rather than firing every
+# time any skill gains a digest.
+SETTINGS_PATH = ".claude/settings.json"
+SETTINGS_EVENT = "UserPromptSubmit"
+
+# The hooks `wfctl hook` can run. These names are an interface: they are what a
+# consumer's settings.json invokes, so renaming one breaks every settings file
+# already pointing at it. Beside `HOOK_COMMAND` rather than beside the sub-app
+# that answers them, because the installed command and the name it dispatches
+# on are the same fact, and 1200 lines apart they drift.
+_USER_PROMPT = "user-prompt"
+_WORKTREE_GUARD = "worktree-guard"
+
+HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
+
 _BACKUP_DIR = ".wf-skills-backup"
 
 _BASE_LAYER = "base"
@@ -1243,6 +1269,165 @@ def _claude_native_skill_mirror(
 _AGENT_SKILL_EXTRAS = {
     "claude": _claude_native_skill_mirror,
 }
+
+
+def _read_settings(path: Path) -> tuple[dict | None, str | None]:
+    """Parse a consumer-owned settings file. `(settings, problem)`.
+
+    `settings` and `problem` are mutually exclusive.
+
+    A missing file is `({}, None)` — not an error, and the case the acceptance
+    criterion calls out: a consumer who has never written one gets a valid file
+    created underneath their install.
+
+    A file that exists and cannot be parsed is a refusal, never a fresh `{}`.
+    Defaulting there would let one stray comma cost the consumer every permission
+    and hook they had, which is the exact damage this whole mode exists to avoid.
+
+    Decoded as `utf-8-sig` so a leading BOM is consumed rather than reported: an
+    editor that writes one is not a broken file, but it made the merge refuse
+    every time and named no way out of it.
+    """
+    if not path.exists():
+        return {}, None
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, str(exc)
+    if not isinstance(settings, dict):
+        return None, "top level is not an object"
+    return settings, None
+
+
+def _write_settings(path: Path, settings: dict) -> None:
+    """Write a consumer-owned settings file back, disturbing it as little as
+    a JSON round-trip allows.
+
+    Rewriting parsed JSON reflows the file — key order and array layout are gone
+    the moment it round-trips, and no amount of care here brings them back short
+    of a format-preserving parser, which is a runtime dependency for one file.
+    Indent is Claude Code's own two spaces; sniffing the consumer's width bought
+    half a guarantee at the cost of threading the source text through every
+    caller, while key order went anyway.
+
+    `ensure_ascii=False` because this file is committed and read by a person:
+    escaping every accented character in a path they typed is churn in the diff,
+    not safety. `write_md_atomic` rather than `write_json_atomic`, only for the
+    trailing newline every other text file in their repo ends with.
+
+    Resolved first, and the mode carried over, because `os.replace` installs a
+    fresh inode: onto a symlink it swaps the consumer's link for a regular file
+    and leaves the file they actually read untouched, and it would hand back
+    whatever mode `mkstemp` chose rather than the one they set.
+    """
+    from wfctl._io import write_md_atomic
+
+    target = path.resolve()
+    mode = target.stat().st_mode & 0o777 if target.exists() else None
+    write_md_atomic(
+        target, json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+    )
+    if mode is not None:
+        target.chmod(mode)
+
+
+def _merge_hooks(
+    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
+) -> tuple[list[dict], list[str], list[str]]:
+    """Install `agent`'s managed hooks. `(records, written, problems)`.
+
+    `records` is what the manifest stores so uninstall can find these entries
+    again; it is recorded even when nothing was written, because an entry already
+    correct is still one wfctl owns and must remove on the way out.
+
+    Writes only when `merge_hook` reports a change. That is half the answer to the
+    one real cost of this mode — a rewrite reflows the consumer's file, so a
+    re-install that changes nothing must not open it at all. `_write_settings` is
+    the other half. Between them the file is reflowed once, on the install that
+    first adds the entry, and never again.
+    """
+    records: list[dict] = []
+    written: list[str] = []
+    problems: list[str] = []
+    for rel, event in [(SETTINGS_PATH, SETTINGS_EVENT)] if agent == "claude" else []:
+        path = repo_root / rel
+        # `or is_symlink`, because `exists()` follows the link: a symlink whose
+        # target does not exist yet read as "nothing here", and wfctl recorded a
+        # file it had created. Uninstall deletes what it created — which would be
+        # the consumer's symlink, not the settings inside it.
+        existed = path.exists() or path.is_symlink()
+        # A pass that cannot finish must still hand back the record it was given.
+        # The manifest layer is rewritten whole on every install, so a record not
+        # re-emitted here is not stale — it is gone, and with it wfctl's claim on
+        # an entry still sitting in the consumer's file for uninstall to remove.
+        keep = prior.get((rel, event))
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            records.extend([keep] if keep else [])
+            continue
+        try:
+            changed = _settings.merge_hook(settings, event, HOOK_COMMAND)
+        except ValueError as exc:
+            problems.append(f"{rel}: {exc}")
+            records.extend([keep] if keep else [])
+            continue
+        if changed:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_settings(path, settings)
+            except OSError as exc:
+                # Same arm as the two above rather than an escape: this runs after
+                # the skill copies and before the manifest is saved, so raising
+                # here left the copies on disk with nothing recording them.
+                problems.append(f"{rel}: {exc}")
+                records.extend([keep] if keep else [])
+                continue
+            written.append(rel)
+        # `created` is what lets uninstall leave no trace: a file wfctl brought
+        # into existence and then emptied is deleted, while one the consumer
+        # already had keeps whatever else is in it.
+        #
+        # Carried forward from the prior record rather than re-derived, because
+        # the second install sees the file wfctl itself created on the first and
+        # would otherwise conclude the consumer owns it — and leave an empty
+        # `{}` behind on uninstall.
+        created = (keep or {}).get("created", not existed)
+        records.append(
+            {"path": rel, "event": event, "command": HOOK_COMMAND, "created": created}
+        )
+    return records, written, problems
+
+
+def _unmerge_hooks(
+    repo_root: Path, records: Iterable[dict]
+) -> tuple[int, list[str]]:
+    """Remove the managed hooks `records` describes. `(files changed, problems)`.
+
+    A file that has gone needs no action — uninstall's job is to leave nothing of
+    wfctl's behind, and there is nothing there. A file that has stopped *parsing*
+    is different: one stray comma still leaves wfctl's entry sitting in it, and
+    the record naming it is deleted moments later. Reported rather than raised,
+    so a broken settings file cannot block the rest of the uninstall.
+    """
+    changed_files = 0
+    problems: list[str] = []
+    for record in records:
+        path = repo_root / record["path"]
+        if not path.exists():
+            continue
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{record['path']}: {problem}")
+            continue
+        if not _settings.remove_hooks(settings, record["event"]):
+            continue
+        if not settings and record.get("created"):
+            path.unlink()
+        else:
+            _write_settings(path, settings)
+        changed_files += 1
+    return changed_files, problems
 
 
 def _kind_of(src_rel: str) -> str:
@@ -1730,6 +1915,22 @@ def install_skills_cmd(
         summary.setdefault(layer, {})
         summary[layer][kind] = summary[layer].get(kind, 0) + 1
 
+    # After the copies, before the manifest write: the hook the merge installs
+    # runs `wfctl hook user-prompt`, which reads the skills the loop above just
+    # placed, and the manifest below has to record what the merge decided.
+    #
+    # No confirmation prompt, unlike a foreign overwrite. The prompt exists
+    # because a mirror destroys whatever it lands on; a merge cannot — it adds
+    # one entry and leaves every other byte of meaning in the file alone. The
+    # edit is still named in the summary, because a consumer-owned file is one
+    # nobody should find changed without being told.
+    prior_merged = {
+        (m["path"], m["event"]): m
+        for key in _layer_keys(manifest)
+        for m in manifest[key].get("merged", [])
+    }
+    merged, merge_written, merge_problems = _merge_hooks(repo_root, agent, prior_merged)
+
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
     # One entry per layer that installed something. An agent with no layer of
@@ -1759,6 +1960,13 @@ def install_skills_cmd(
     for stale in [k for k, t in _AGENT_TARGETS.items() if not t and k in manifest]:
         if {i["path"] for i in manifest[stale].get("items", [])} <= base_paths:
             del manifest[stale]
+
+    # A sibling of `items`, never a member of it. `uninstall-skills` deletes
+    # every path in `items` outright, so recording `.claude/settings.json` there
+    # would have wfctl remove a file it only ever edited one entry of — the
+    # consumer's permissions and their own hooks with it.
+    if merged:
+        manifest.setdefault(agent, {})["merged"] = merged
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -1793,9 +2001,32 @@ def install_skills_cmd(
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
 
+    for problem in merge_problems:
+        # A warning, not a failure. Everything else in this install landed, and
+        # the repo is usable without the hook — refusing here would trade a
+        # working install for an unparseable settings file the user has to fix
+        # before they can have either.
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — left untouched; the managed hook "
+            "was not added or updated",
+            soft_wrap=True,
+        )
+
     console.print(f"[green]✓[/green] Installed from wfctl {wfctl_version}")
     for line in _format_summary(summary):
         console.print(line)
+    for merged_rel in merge_written:
+        # Its own block, below a blank line rather than indented under the ✓.
+        # The lines above it are counts of files wfctl owns outright; this is the
+        # one file in the install that stays the consumer's, and reading as a
+        # third count would bury exactly the thing worth noticing.
+        console.print(
+            f"\n[green]✓[/green] Merged the managed hook into {merged_rel}\n"
+            "  Your own hooks, permissions and settings are still there — "
+            "`wfctl uninstall-skills`\n  removes just wfctl's entry. The rewrite "
+            "reflows the file once; later installs\n  leave it closed.",
+            soft_wrap=True,
+        )
 
     # Only worth saying when nothing agent-specific was installed: that is the
     # case where a user whose assistant needs native paths sees no sign of them.
@@ -1859,7 +2090,7 @@ def uninstall_skills_cmd(
 
     removed = 0
     restored = 0
-    for item in entry["items"]:
+    for item in entry.get("items", []):
         path = repo_root / item["path"]
         if path.exists():
             if path.is_dir():
@@ -1876,6 +2107,19 @@ def uninstall_skills_cmd(
         else:
             removed += 1
 
+    # Before the manifest is dropped, because the record is the only thing that
+    # says which file and which event wfctl edited. Recomputing it from
+    # `SETTINGS_PATH`/`SETTINGS_EVENT` would miss an entry installed by an older
+    # wfctl that merged somewhere this one no longer does — and leave it
+    # running forever.
+    unmerged, unmerge_problems = _unmerge_hooks(repo_root, entry.get("merged", []))
+    for problem in unmerge_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
+            "this file; the record naming it is being removed either way",
+            soft_wrap=True,
+        )
+
     del manifest[agent]
     _save_manifest(repo_root, manifest)
 
@@ -1891,6 +2135,142 @@ def uninstall_skills_cmd(
         f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
         f"pre-existing file(s) for layer '{agent}'"
     )
+    if unmerged:
+        # soft_wrap, break placed by hand: rich re-wraps at the terminal edge and
+        # splits "in place" across two lines under an indent that then stops
+        # lining up with the ✓ above it.
+        console.print(
+            f"  Removed the managed hook from {unmerged} settings file(s).\n"
+            "  Your own entries in them were left alone.",
+            soft_wrap=True,
+        )
+
+
+# What one skill may spend of a turn's context. The digest is a reminder, not the
+# skill — anything past this is a file that has stopped being one, and the cost
+# lands on every turn of every session in the repo rather than once.
+_DIGEST_MAX_CHARS = 500
+
+
+# What a skill directory may be called, for the purpose of printing its name into
+# an agent's context. Deliberately narrower than the filesystem allows: the name
+# is interpolated beside the digest, so anything that can carry a newline can
+# forge a second bullet the same way a digest's own text could. Reaching this
+# needs local write access to the gitignored manifest rather than a clone — but
+# once it is attacker-supplied, the name is as much so as the text.
+_SKILL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _installed_skill_names(manifest: dict) -> list[str]:
+    """Skills the manifest records under `.agents/skills/`, sorted by name.
+
+    Sorted rather than kept in manifest order: the manifest's order is install
+    order, which is an implementation detail of whichever run wrote it, and the
+    hook's output is read by a person often enough to be worth a stable one.
+
+    The manifest, not the directory listing, is what makes a skill installed.
+    `.gitignore` gets one line per installed skill, so a directory wfctl never
+    installed is not covered by it and rides along in a clone — and the hook is
+    wired by a *committed* `.claude/settings.json`. Reading the filesystem let a
+    repository put text of its choosing into the reader's context on every turn,
+    under a header saying that text governs the response. Reading the manifest
+    means a clone re-anchors what its owner installed and nothing else.
+    """
+    prefix = ".agents/skills/"
+    names = {
+        item["path"][len(prefix):]
+        for item in _recorded_items(manifest)
+        if isinstance(item, dict)
+        and isinstance(item.get("path"), str)
+        and item["path"].startswith(prefix)
+        and _SKILL_NAME.fullmatch(item["path"][len(prefix):])
+    }
+    return sorted(names)
+
+
+def _digest_text(skill_dir: Path, root: Path) -> str:
+    """One skill's digest, flattened to a single line, or `""` if it has none.
+
+    Three things are enforced here rather than left to the digest's author,
+    because in a clone the author is whoever wrote the repo:
+
+    Resolved inside `repo_root` — a `digest.md` symlinked at `~/.aws/credentials`
+    otherwise read that file into the model's context every turn.
+
+    Whitespace collapsed — one bullet per skill is the format's only structure,
+    and a digest carrying newlines forged both a second header and a bullet
+    attributed to a skill that does not exist.
+
+    Truncated — see `_DIGEST_MAX_CHARS`.
+
+    `UnicodeDecodeError` is caught beside `OSError` because it is a `ValueError`
+    and does not descend from it: a binary digest.md crashed the hook.
+    """
+    digest = skill_dir / "digest.md"
+    try:
+        if not digest.resolve().is_relative_to(root):
+            return ""
+        text = digest.read_text()
+    except (OSError, UnicodeDecodeError, ValueError, RuntimeError):
+        # `RuntimeError` is the one that does not look like the others: it is what
+        # `resolve()` raises on a symlink loop, and it descends from neither
+        # OSError nor ValueError, so a looped digest.md crashed the hook.
+        return ""
+    flat = " ".join(text.split())
+    return flat[:_DIGEST_MAX_CHARS].rstrip() + "…" if len(flat) > _DIGEST_MAX_CHARS else flat
+
+
+def _hook_user_prompt() -> None:
+    """Print what's active, for a hook re-injecting it on every turn.
+
+    What the managed `UserPromptSubmit` entry runs (`HOOK_COMMAND`). A skill
+    loaded once at session start decays as the context fills; this is the text
+    that re-anchors it — sourced fresh from each installed skill's own
+    `digest.md` rather than pasted in at install time, so the hook's coverage
+    tracks the installed tree without the settings file recording which skills
+    it currently covers.
+
+    No arguments beyond the event name: the entry's file location already scopes
+    it to one repo and one agent, and the skill list is discovered here, not
+    received as input (`research.md`'s command-name decision).
+
+    Reads the repo's installed `.agents/skills/`, not the bundle — a worktree
+    with an older install re-anchors what it has, not what wfctl now ships.
+
+    Exits 0 whatever it finds, printing nothing it cannot source. This runs on
+    every user turn: a hook that fails is a per-turn error in a session that was
+    otherwise fine, and the failure it would be reporting — a skill or a repo
+    that isn't there — is one `wfctl doctor` already covers, once, on request.
+    """
+    # `OSError` alongside `SystemExit` because `get_repo_root` shells out to git
+    # and raises `FileNotFoundError` when there is no git on PATH — a case the
+    # sibling `worktree-guard` already handles and this one reached as a crash.
+    try:
+        repo_root = get_repo_root()
+        manifest = _load_manifest(repo_root)
+    except (SystemExit, OSError, json.JSONDecodeError):
+        return
+
+    # Resolved once, not per skill: it is the same answer every time, and the
+    # loop below asks it for every installed skill on every turn.
+    try:
+        root = repo_root.resolve()
+    except (OSError, RuntimeError):
+        return
+
+    lines = []
+    for name in _installed_skill_names(manifest):
+        text = _digest_text(repo_root / ".agents" / "skills" / name, root)
+        if text:
+            lines.append(f"- {name}: {text}")
+
+    if lines:
+        # `typer.echo`, not `console.print`: this is stdout consumed by an agent
+        # harness, not a terminal. rich would wrap it at the terminal width and
+        # read a `[...]` in a digest's own text as markup to strip.
+        typer.echo("These skills are active and govern this response:")
+        for line in lines:
+            typer.echo(line)
 
 
 def _resolve_config_agent(repo_root: Path, explicit: str | None) -> str | None:
@@ -2066,13 +2446,6 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
-# The hooks `wfctl hook` can run, name → the callable that decides. One entry
-# today; the command takes a name anyway because a hook's whole value is being
-# nameable from a settings file, and renaming that entry point later would break
-# every settings.json already pointing at it.
-_WORKTREE_GUARD = "worktree-guard"
-
-
 def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
     """The worktree `cwd` is in, and every worktree root git knows about.
 
@@ -2103,28 +2476,44 @@ def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
     return here.strip(), roots
 
 
-@app.command("hook")
-def hook_cmd(
-    name: str = typer.Argument(..., help=f"Hook to run: {_WORKTREE_GUARD}"),
-) -> None:
-    """Run an agent hook, reading the agent's JSON payload on stdin.
+hook_app = typer.Typer(
+    no_args_is_help=True,
+    help="Run an agent hook. Not for interactive use — this is what a "
+    "`settings.json` hook entry invokes, so the rule stays versioned with wfctl "
+    "instead of pasted into one developer's config.",
+)
+app.add_typer(hook_app, name="hook")
 
-    Not for interactive use — this is what a `settings.json` hook entry invokes,
-    so the rule stays versioned with wfctl instead of pasted into one developer's
-    config. See `wfctl/_guard.py` for the decision and its known gaps.
 
-    \b
-    worktree-guard  PreToolUse/Bash. Refuses a command that mutates or executes
-                    in a git worktree other than the session's own; reads and
-                    `workmux` are allowed. Exits 2 to block, which is what puts
-                    the reason in front of the agent — exit 1 is *non-blocking*
-                    and lets the command through.
+@hook_app.command(_USER_PROMPT)
+def hook_user_prompt_cmd() -> None:
+    """UserPromptSubmit. Re-anchor the skills installed in this repo.
+
+    Prints each installed skill's `digest.md`. A skill loaded once at session
+    start decays as the context fills; this is the text that re-anchors it,
+    sourced fresh from the skills themselves rather than pasted in at install
+    time, so the hook's coverage tracks the installed tree without the settings
+    file recording which skills it currently covers.
+
+    No arguments: the entry's file location already scopes it to one repo and
+    one agent, and the skill list is discovered, not received as input
+    (`research.md`'s command-name decision).
+    """
+    _hook_user_prompt()
+
+
+@hook_app.command(_WORKTREE_GUARD)
+def hook_worktree_guard_cmd() -> None:
+    """PreToolUse/Bash. Refuse a command aimed at another worktree.
+
+    Reads the agent's JSON payload on stdin. Refuses a command that mutates or
+    executes in a git worktree other than the session's own; reads and `workmux`
+    are allowed. Exits 2 to block, which is what puts the reason in front of the
+    agent — exit 1 is *non-blocking* and lets the command through.
+
+    See `wfctl/_guard.py` for the decision and its known gaps.
     """
     from wfctl import _guard
-
-    if name != _WORKTREE_GUARD:
-        console.print(f"[red]✗ Unknown hook '{name}'. Available: {_WORKTREE_GUARD}.[/red]")
-        raise typer.Exit(1)
 
     # Every field defensively, because this runs before *every* Bash call and a
     # traceback from it reaches the agent as a hook error on work that had
@@ -2687,6 +3076,55 @@ def _check_verify_config(repo_root: Path) -> bool:
     return True
 
 
+def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
+    """Report a managed hook that is missing, or behind what this wfctl installs.
+
+    The merge mode's freshness check, and it needs its own because the bundle
+    content hash cannot see it: the hook lives in a file wfctl does not own and
+    does not hash, so a settings file edited back to the consumer's original
+    leaves every other check reporting the install as current.
+
+    Silent when the hook is current, unlike the checks below. This check has no
+    healthy state worth a line: the file is the consumer's, and a report that
+    names it on every clean run trains them to skim the run that doesn't.
+    """
+    from rich.markup import escape
+
+    drift = False
+    for layer in _layer_keys(manifest):
+        for record in manifest[layer].get("merged", []):
+            rel, event = record["path"], record["event"]
+            settings, problem = _read_settings(repo_root / rel)
+            if settings is None:
+                console.print(
+                    f"[yellow]⚠[/yellow] {escape(rel)}: {escape(problem or '')} — "
+                    "can't tell whether the managed hook is current"
+                )
+                continue
+
+            actual = _settings.managed_command(settings, event)
+            if actual == HOOK_COMMAND:
+                continue
+
+            drift = True
+            state = (
+                "is gone — the skills it re-anchors decay again mid-session"
+                if actual is None
+                else "is behind this wfctl"
+            )
+            # soft_wrap and the break placed by hand: rich would otherwise
+            # re-wrap at the terminal edge and split the settings path across
+            # two lines, which both reads badly and makes assertions on these
+            # strings depend on the terminal running them.
+            console.print(
+                f"[cyan]⬆[/cyan] {layer}: managed {event} hook in "
+                f"{escape(rel)}\n  {state}",
+                soft_wrap=True,
+            )
+            console.print(f"    fix: wfctl install-skills --agent {layer}")
+    return drift
+
+
 def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     """Report entries wfctl installed and no longer records.
 
@@ -2816,7 +3254,13 @@ def doctor_cmd() -> None:
 
     # After the gate on purpose: with nothing recorded, every file in the owned
     # trees is unrecorded, and the check would name all of them.
-    if _check_abandoned_entries(repo_root, manifest):
+    #
+    # A list, not `or`: `or` short-circuits, so the first check finding drift
+    # would suppress the second and a run would report one problem at a time.
+    if any([
+        _check_abandoned_entries(repo_root, manifest),
+        _check_managed_hooks(repo_root, manifest),
+    ]):
         exit_code = 1
 
     # One hash for the whole bundle, so it is computed once no matter how many
