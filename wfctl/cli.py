@@ -1183,6 +1183,48 @@ def _layer_keys(manifest: dict) -> list[str]:
     return [k for k in manifest if k not in _NON_LAYER_KEYS]
 
 
+def _recorded_path(repo_root: Path, rel: str) -> Path | None:
+    """Join a manifest-recorded path onto the repo, refusing one that escapes it.
+
+    Every path wfctl writes is recorded as `dest.relative_to(repo_root)`, so a
+    rejection here means a hand-edited or corrupted manifest rather than anything
+    wfctl produced. It is checked because it guards a delete: `Path` joining
+    silently discards the left operand when the right is absolute, so a single
+    bad row would have `remove` reach outside the project entirely.
+
+    Lexical rather than resolved. Resolving would follow a symlinked install path
+    through to its target, which is the one thing removal must not do — see
+    `_remove_recorded`.
+    """
+    path = Path(rel)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return repo_root / rel
+
+
+def _remove_recorded(path: Path) -> None:
+    """Remove a path wfctl recorded, whatever kind it turns out to be.
+
+    `is_dir()` follows a symlink and `shutil.rmtree` refuses one, so the obvious
+    directory-or-file branch does not merely mis-handle a linked path — it raises
+    partway through and takes the whole command down with it. Linking installed
+    paths in from a main checkout is a real layout: #38's evidence found twelve
+    worktrees doing exactly that.
+
+    The link is what the record names, so the link is what goes; whatever it
+    points at belongs to whoever made it and is never wfctl's to delete. Tested
+    before `is_file`/`is_dir` because both follow the link, and before any
+    `exists()` check because a dangling link is invisible to it and still ours to
+    clear.
+    """
+    import shutil
+
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
 def _recorded_items(manifest: dict) -> list[dict]:
     """Every `items` entry across every layer, flattened.
 
@@ -1644,6 +1686,12 @@ def install_skills_cmd(
         "-y",
         help="Skip the confirmation prompt when files would be overwritten",
     ),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Delete paths a previous install recorded that this one no longer "
+        "ships. Without it they are named and left alone.",
+    ),
     tracker: str = typer.Option(
         None,
         "--tracker",
@@ -1684,6 +1732,12 @@ def install_skills_cmd(
     # directories wfctl installed itself, and back them up as if they were the
     # user's.
     prior_items = {i["path"]: i for i in _recorded_items(manifest)}
+    # The same records kept per layer, because the orphan diff below is only
+    # sound within a layer. A path also leaves the record when the user installs
+    # a narrower set of layers, so a whole-manifest diff would call every path of
+    # a layer they deselected abandoned. Read here rather than later: the loop
+    # that writes the new record replaces these entries wholesale.
+    prior_layer_items = {k: manifest[k].get("items", []) for k in _layer_keys(manifest)}
 
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
@@ -1982,6 +2036,75 @@ def install_skills_cmd(
                     f".agents/trackers/{tracker}.json found — author it with /scaffold-tracker"
                 )
 
+    # Paths a previous install recorded under a layer this install rewrote, and
+    # that this install did not write. What makes removal defensible here and
+    # nowhere else is that the evidence is wfctl's own record: the manifest says
+    # wfctl put the file there, so this is not a guess about who owns it.
+    #
+    # `doctor` reports the same files by scanning disk against the current
+    # record, and that is the half it keeps. It has to guess — a path missing
+    # from the record looks identical whether it was renamed upstream or fell
+    # out because a layer was deselected — which is why it may only report.
+    # Here the two cases are already separated: a deselected layer is not in
+    # `items`, so it is never diffed. Report stays with `doctor`, removal stays
+    # here, and neither grows the other's half.
+    #
+    # Diffed against every layer's new paths rather than the layer's own, so a
+    # path that moved between layers — the pre-layer-split `none` entry is the
+    # live case — is seen as still installed instead of dropped.
+    installed_paths = {i["path"] for entries in items.values() for i in entries}
+    orphans = sorted(
+        (
+            (layer, i)
+            for layer in items
+            for i in prior_layer_items.get(layer, ())
+            if i["path"] not in installed_paths
+        ),
+        key=lambda pair: pair[1]["path"],
+    )
+
+    restored_originals = 0
+    if prune:
+        for _, item in orphans:
+            path = _recorded_path(repo_root, item["path"])
+            if path is None:
+                console.print(
+                    f"[yellow]⚠[/yellow] {item['path']} is recorded as a path "
+                    "outside this repo — left alone",
+                    soft_wrap=True,
+                )
+                continue
+            _remove_recorded(path)
+
+            # The same undo `uninstall-skills` performs on a recorded item, for
+            # the same reason: the backup is the user's own file from before
+            # wfctl overwrote the path. Dropping the path without putting it back
+            # strands it under `.wf-skills-backup/` with its record gone and
+            # nothing left that would ever restore it — the defect this flag
+            # exists to fix, one directory over.
+            backup_rel = item.get("backup")
+            backup = _recorded_path(repo_root, backup_rel) if backup_rel else None
+            if backup is not None and backup.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(backup), str(path))
+                restored_originals += 1
+    else:
+        # Kept in the record rather than dropped with the install that stopped
+        # shipping them. Replacing the layer wholesale is what put the original
+        # orphan out of reach: the file stays on disk and the only note that
+        # wfctl wrote it disappears, so neither `--prune` nor `uninstall-skills`
+        # can ever name it again. Reporting a path and erasing its record in the
+        # same breath would make the line above advice nobody can act on — the
+        # re-run it points at would diff against a record that no longer holds
+        # the path.
+        #
+        # `uninstall-skills` reaching them too is the point, not a side effect:
+        # they are wfctl's output, and a teardown that leaves them behind is the
+        # same defect wearing the other command's name.
+        for layer, item in orphans:
+            items[layer].append({**item, "orphaned": True})
+            manifest[layer]["items"] = items[layer]
+
     _save_manifest(repo_root, manifest)
 
     # A count, not a list: `git check-ignore -v <path>` already attributes each
@@ -2001,6 +2124,34 @@ def install_skills_cmd(
             f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
+
+    if orphans and not prune:
+        one = len(orphans) == 1
+        console.print(
+            f"[yellow]⚠[/yellow] {len(orphans)} path{'' if one else 's'} a previous "
+            f"install recorded {'is' if one else 'are'} no longer shipped, and "
+            f"{'it is' if one else 'they are'} still on disk:"
+        )
+        for _, item in orphans:
+            console.print(f"    {item['path']}", soft_wrap=True)
+        # Named as a re-run of this command, not as a cleanup command of its own:
+        # the diff only exists during an install, so there is nothing else to run.
+        console.print(
+            "    Re-run with --prune to delete "
+            f"{'it' if one else 'them'}, once you've checked nothing needs "
+            f"{'it' if one else 'them'}."
+        )
+
+    elif orphans:
+        line = f"[yellow]ℹ[/yellow] Pruned {len(orphans)} path(s) this wfctl no longer ships"
+        if restored_originals:
+            # Worth its own clause: those paths are not gone, they hold the
+            # user's own file again, and a bare "pruned" would read as deleted.
+            line += (
+                f" — {restored_originals} of them held a pre-existing file wfctl "
+                "had overwritten, and it was put back"
+            )
+        console.print(line)
 
     for problem in merge_problems:
         # A warning, not a failure. Everything else in this install landed, and
@@ -2092,15 +2243,18 @@ def uninstall_skills_cmd(
     removed = 0
     restored = 0
     for item in entry.get("items", []):
-        path = repo_root / item["path"]
-        if path.exists():
-            if path.is_dir():
-                shutil.rmtree(path)
-            else:
-                path.unlink()
+        path = _recorded_path(repo_root, item["path"])
+        if path is None:
+            console.print(
+                f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
+                "this repo — left alone",
+                soft_wrap=True,
+            )
+            continue
+        _remove_recorded(path)
 
         backup_rel = item.get("backup")
-        backup_path = repo_root / backup_rel if backup_rel else None
+        backup_path = _recorded_path(repo_root, backup_rel) if backup_rel else None
         if backup_path is not None and backup_path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(backup_path), str(path))
@@ -3151,10 +3305,14 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     granularity rule for free: a skill is installed and recorded as one directory,
     so an abandoned one is one finding rather than one per file inside it.
 
-    Reports only. Removal is correct for a genuine rename and destructive when the
-    file was edited locally, or when the path fell out because a layer was
-    deselected rather than dropped upstream — and this check cannot tell those
-    apart.
+    Reports only, and cannot do otherwise for what it finds by scanning: a path
+    missing from the record looks identical whether it was renamed upstream, was
+    edited locally, or fell out because a layer was deselected, so removing on
+    that evidence would eventually delete someone's work. `install-skills
+    --prune` removes instead of reporting because it has evidence this check
+    cannot get — the record naming the path, under a layer it just rewrote.
+    Paths that install flagged on the way past are reported here too, so a
+    finding keeps standing after the one run that noticed it.
 
     Tracked paths are excluded. These destinations are shared ground: a project
     may commit its own skills and commands beside the installed ones, naming them
@@ -3163,7 +3321,24 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     absent from the record *and* tracked is the second, not an orphan. Reporting
     it invites the reader to delete committed work on wfctl's say-so.
     """
-    recorded = {i["path"] for i in _recorded_items(manifest)}
+    recorded_items = _recorded_items(manifest)
+    recorded = {i["path"] for i in recorded_items}
+    # The same finding reached from the other side. `install-skills` knows a path
+    # was dropped at the moment it stops writing it, and keeps the record with a
+    # flag rather than erasing it — erasing was what put the orphan beyond every
+    # command's reach. Without reading the flag here, that install's one line is
+    # the only time the path is ever named, and this check would go quiet on
+    # exactly the case it was written for.
+    #
+    # A path is either on record carrying this flag or absent from the record and
+    # found by the scan below, never both, so the two halves cannot report one
+    # file twice. Existence is checked because a reader may already have deleted
+    # it by hand, and the record outlives the file.
+    flagged = {
+        i["path"]
+        for i in recorded_items
+        if i.get("orphaned") and (repo_root / i["path"]).exists()
+    }
 
     candidates = sorted(
         rel
@@ -3174,22 +3349,39 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
         if _scan_owns(repo_root, scanned, child)
     )
     tracked = _tracked_paths(repo_root, candidates)
-    abandoned = [rel for rel in candidates if rel not in tracked]
+    scanned_only = {rel for rel in candidates if rel not in tracked}
+    abandoned = sorted(flagged | scanned_only)
     if not abandoned:
         return False
 
     one = len(abandoned) == 1
     console.print(
         f"[yellow]⚠[/yellow] {len(abandoned)} installed "
-        f"{'path is' if one else 'paths are'} no longer on record — "
+        f"{'path is' if one else 'paths are'} no longer shipped — "
         f"renamed or dropped upstream:"
     )
     for path in abandoned:
         console.print(f"    {path}", soft_wrap=True)
-    # Not `uninstall-skills`: it removes what the manifest lists, which is
-    # precisely what these are not. Naming it would send someone to a command
-    # that reports nothing to remove.
-    console.print(f"    Delete {'it' if one else 'them'} by hand once you've checked nothing needs it.")
+    # Two routes, because the two halves are reachable by different commands and
+    # offering one for both would send half the reader's paths to something that
+    # cannot touch them. A flagged path is still on record, so the installer can
+    # be told to drop it. A scanned one is not — and naming `uninstall-skills`
+    # for it would send someone to a command that removes what the manifest
+    # lists, which is precisely what it is not.
+    if flagged:
+        console.print(
+            "    Remove the recorded one(s) with `wfctl install-skills --prune`."
+            if scanned_only
+            else f"    Remove {'it' if one else 'them'} with "
+            "`wfctl install-skills --prune`."
+        )
+    if scanned_only:
+        console.print(
+            "    Delete the rest by hand once you've checked nothing needs them."
+            if flagged
+            else f"    Delete {'it' if one else 'them'} by hand once you've "
+            f"checked nothing needs {'it' if one else 'them'}."
+        )
     return True
 
 

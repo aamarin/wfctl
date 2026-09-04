@@ -834,10 +834,11 @@ def test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored(
     skill stays installed and recorded there, and only the `.claude/` copy falls
     off the record. Before this, nothing named it, ever.
 
-    Un-mirrors for real rather than editing the record — the manifest dropping the
-    path is the link in the chain the fix depends on. The bundle holds exactly one
-    mirrored skill, so `.claude/skills/` also ends with nothing recorded in it,
-    which is the case a record-derived scan stops looking at.
+    Un-mirrors for real rather than editing the record, because the install that
+    stops mirroring is the link in the chain the fix depends on. That install now
+    keeps the path on record flagged as dropped (#38), so this travels doctor's
+    flag route; `_forget_one_item` covers the disk-scan route, which still owns
+    orphans left by an install that predates the flag.
 
     Reads the name out of `_MIRRORED_SKILLS` rather than hardcoding one: a literal
     would keep passing as a no-op the day that skill stops being mirrored.
@@ -856,13 +857,22 @@ def test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored(
 
     result = runner.invoke(app, ["doctor"])
 
-    recorded = {i["path"] for i in _recorded_items(_manifest(repo_root))}
-    assert not [p for p in recorded if p.startswith(".claude/skills/")], (
-        "fixture must leave the mirror root with nothing recorded in it"
+    dropped = [
+        i for i in _recorded_items(_manifest(repo_root))
+        if i["path"] == f".claude/skills/{name}"
+    ]
+    assert dropped and dropped[0].get("orphaned"), (
+        "the install must keep the path on record and flag it, or nothing names "
+        "it after its own run"
     )
     assert mirror.exists(), "the copy stays on disk — that is the whole problem"
     assert f".claude/skills/{name}" in result.output
     assert result.exit_code == 1
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", "--prune"])
+
+    assert not mirror.exists()
+    assert runner.invoke(app, ["doctor"]).exit_code == 0
 
 
 def test_doctor_does_not_report_a_claude_skill_the_user_wrote_themselves(
@@ -929,7 +939,7 @@ def test_doctor_is_silent_when_every_installed_path_is_still_recorded(
 
     result = runner.invoke(app, ["doctor"])
 
-    assert "no longer on record" not in result.output
+    assert "no longer shipped" not in result.output
     assert result.exit_code == 0
 
 
@@ -944,7 +954,7 @@ def test_doctor_does_not_scan_for_abandoned_entries_with_nothing_installed(
 
     result = runner.invoke(app, ["doctor"])
 
-    assert "no longer on record" not in result.output
+    assert "no longer shipped" not in result.output
     assert "Nothing installed" in result.output
 
 
@@ -2080,3 +2090,165 @@ def test_option_two_clone_commands_are_anchored_to_the_main_checkout(    agent_d
 
     assert f"git clone <url> {repo_root / 'proj-specs'}" in result.output
 
+
+
+def _rename_shipped_command(bundle: Path, old: str, new: str) -> None:
+    """Rename a file the bundle ships, which is what an upstream rename looks
+    like from the installer's side.
+
+    The rename happens between two real installs rather than in a hand-written
+    manifest. The defect #38 reports is in what `install-skills` *writes*, so a
+    fixture asserting what we think it wrote would restate the assumption that
+    produced the bug instead of testing it.
+    """
+    commands = bundle / "agents" / "commands"
+    (commands / old).rename(commands / new)
+
+
+def test_a_path_the_install_stopped_shipping_is_named_and_left_alone(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The default is report, not remove: a path also stops being shipped when
+    the consumer edited it or when a layer was deselected, and the install
+    cannot be sure which of those it is looking at."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    assert result.exit_code == 0
+    assert "no longer shipped" in result.output
+    assert ".claude/commands/test-cmd.md" in result.output
+    assert (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+
+
+def test_a_reported_orphan_stays_on_record_so_the_prune_it_advises_can_reach_it(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The report tells the reader to re-run with --prune, and replacing the
+    layer wholesale would make that advice impossible to act on: the record
+    naming the path is the only thing the next run could diff against, and
+    dropping it in the same breath as reporting it is what put the original
+    orphan out of reach in the first place."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    recorded = {i["path"] for i in _recorded_items(json.loads(
+        (repo_root / ".wf-skills-manifest.json").read_text()
+    ))}
+
+    assert ".claude/commands/test-cmd.md" in recorded
+
+
+def test_prune_deletes_a_path_the_install_no_longer_ships(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The half the automation needs. A prune that only ever reported would
+    leave every orphan on disk, which is the state #38 exists to end."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", "--prune"])
+
+    assert result.exit_code == 0
+    assert not (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+    assert (repo_root / ".claude" / "commands" / "speckit.test-cmd.md").exists()
+    recorded = {i["path"] for i in _recorded_items(json.loads(
+        (repo_root / ".wf-skills-manifest.json").read_text()
+    ))}
+    assert ".claude/commands/test-cmd.md" not in recorded
+
+
+def test_deselecting_an_agent_layer_does_not_orphan_the_paths_it_installed(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The diff is per-layer for this case. A path leaves the union of recorded
+    paths when the user installs a *narrower* set of layers too, so a
+    whole-manifest diff would report every path of the layer they deselected and
+    --prune would delete a working install of it."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    result = runner.invoke(app, ["install-skills", "--yes", "--prune"])
+
+    assert result.exit_code == 0
+    assert "no longer shipped" not in result.output
+    assert (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+
+
+def test_prune_puts_back_the_file_it_overwrote_when_it_drops_the_path(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Deleting the path and leaving the backup would strand the user's own file
+    under .wf-skills-backup/ with its record gone — the same unreachable-output
+    defect this flag exists to fix, one directory over."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    mine = repo_root / ".claude" / "commands" / "test-cmd.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("# mine\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", "--prune"])
+
+    assert result.exit_code == 0
+    assert mine.read_text() == "# mine\n"
+
+
+def test_prune_removes_a_symlinked_install_path_without_crashing(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Linking installed paths in from a main checkout is a real layout — #38's
+    own evidence found twelve worktrees doing it. `is_dir()` follows the link and
+    `shutil.rmtree` refuses one, so the plain directory-or-file branch raised
+    partway through `install-skills` and took the whole command down.
+
+    The link goes; what it points at is never wfctl's to delete.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--yes"])
+    installed = repo_root / ".agents" / "skills" / "test-skill"
+    elsewhere = repo_root.parent / "main-checkout-skill"
+    shutil.move(str(installed), str(elsewhere))
+    installed.symlink_to(elsewhere)
+    (bundle / "agents" / "skills" / "test-skill").rename(
+        bundle / "agents" / "skills" / "renamed-skill"
+    )
+
+    result = runner.invoke(app, ["install-skills", "--yes", "--prune"])
+
+    assert result.exit_code == 0, result.output
+    assert not installed.is_symlink()
+    assert (elsewhere / "SKILL.md").exists(), "the link's target is not ours to delete"
+
+
+def test_prune_leaves_a_recorded_path_that_escapes_the_repo(
+    bundle: Path, agent_dir: Path, tmp_path: Path
+) -> None:
+    """`Path` joining discards the repo root when the recorded path is absolute,
+    so one hand-edited or corrupted manifest row would have --prune delete outside
+    the project entirely. Nothing wfctl writes looks like this; the guard is on
+    the delete because that is where being wrong is unrecoverable."""
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    outsider = tmp_path.parent / "not-ours.md"
+    outsider.write_text("someone else's file\n")
+    runner.invoke(app, ["install-skills", "--yes"])
+    with _edit_manifest(repo_root) as manifest:
+        manifest["base"]["items"].append({"path": str(outsider), "backup": None})
+
+    result = runner.invoke(app, ["install-skills", "--yes", "--prune"])
+
+    assert result.exit_code == 0
+    assert outsider.exists(), "a path outside the repo is never wfctl's to remove"
+    assert "outside this repo" in result.output
