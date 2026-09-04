@@ -15,14 +15,16 @@ _SKILL = _AGENTS / "skills" / "architecture-design" / "SKILL.md"
 
 _REFERENCE = re.compile(r"\.agents/skills/([a-z0-9][a-z0-9-]*)")
 
-# The verdict tokens already in force elsewhere in the bundle: `speckit-implement`
-# and `verification-before-completion` report PASS/FAIL, `wfctl verify` records
-# `inconclusive`. Matched case-sensitively — the skill's prose says a driver must
-# be specific enough to fail, and lowercase "fail" is that sentence, not a verdict.
-_VERDICTS = re.compile(r"\b(PASS|FAIL|BLOCKED|INCONCLUSIVE)\b")
+# The verdict tokens already in force in the bundle: `speckit-implement` and
+# `verification-before-completion` report PASS/FAIL, and `code-review` grades a
+# finding BLOCKER. Case-sensitive because the skill legitimately uses two of
+# these words in lower case — "pass" three times for a design pass, and
+# "inconclusive" once while disclaiming the vocabulary it belongs to. Upper case
+# is what distinguishes a verdict being minted from prose about one.
+_VERDICTS = re.compile(r"\b(PASS|FAIL|BLOCKER)\b")
 
 
-def test_the_design_skill_hands_its_proposal_to_the_record_skill() -> None:
+def test_architecture_design_hands_its_proposal_to_the_record_skill() -> None:
     """The handoff is the only thing that turns a proposed boundary into a
     record.
 
@@ -35,7 +37,7 @@ def test_the_design_skill_hands_its_proposal_to_the_record_skill() -> None:
     assert "architecture-decisions" in set(_REFERENCE.findall(_SKILL.read_text()))
 
 
-def test_the_design_skill_mints_no_verdict_of_its_own() -> None:
+def test_architecture_design_mints_no_verdict_of_its_own() -> None:
     """A `PASS` here would make three skills answer "did this clear the gate?"
 
     #100 exists to settle that question once, and the cost of a competing

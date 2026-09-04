@@ -21,6 +21,9 @@ selects level 2       ───► driver → structure loop ───► writes
 owns the level gates       proposes; never accepts      owns the durable decision
 ```
 
+Level 2 does not route here yet — the current-state view step 1 reads is not
+built. Until it is, a human opens this skill directly.
+
 It does not write `design.md`, run verification, review a diff, define gate
 verdicts, or accept a record. An observation is not policy: a dependency graph
 can find a cycle, but only an accepted decision can say which property that
@@ -42,21 +45,22 @@ File size, unfamiliar code, a named pattern, or an unfavorable metric is not by
 itself an architecture question.
 
 If the change is local and preserves every existing boundary and contract,
-declare **no architecture decision** and return to `design-levels`. A declared
-absence is the result; do not manufacture a boundary to complete the method.
+declare **no record** and return to `design-levels`. A declared absence is the
+result; do not manufacture a boundary to complete the method.
 
 ## Authority
 
 - Project instructions and accepted architecture records outrank this method.
-- Read the in-force set through `wfctl arch context`; do not treat proposed,
-  rejected, retired, or superseded records as binding.
+- Read the in-force set through `wfctl arch context`, which prints the accepted
+  records and only those. A record found any other way is not in force.
 - The agent may derive observations, compare options, and draft a proposal. A
   human decides whether a proposed record becomes accepted.
 - Unknown driver priority or conflicting accepted constraints requires a human
   answer. Do not assign equal weights or quietly choose one.
-- This skill consumes the gate and inconclusive-evidence rules owned elsewhere.
-  It does not mint a verdict vocabulary or grant a waiver.
-- Escalation is always available; waiving required review is not.
+- Gate verdicts, and what inconclusive evidence means, are owned outside this
+  skill and are not settled yet. This skill mints no verdict vocabulary of its
+  own and grants no waiver.
+- Escalation to a human is always available.
 
 ## Inputs
 
@@ -199,18 +203,19 @@ Then do exactly one of the following:
 
 - If no boundary was drawn or moved, declare **no record** and return to
   `design-levels`.
-- If evidence is missing, name what must be checked and pause or escalate under
-  the existing gate policy.
+- If evidence is missing, name what must be checked and stop. Ask the human
+  rather than proceeding on the weaker evidence.
 - If a boundary is proposed, invoke `.agents/skills/architecture-decisions` and
   hand it one proposed ownership decision. That skill resolves `wfctl
   arch-root`, writes the record, and owns its status lifecycle.
 
-Drivers remain feature-local design input until promotion. Where they land is
-`.agents/skills/design-levels`' "Where the levels land", not this skill's to
-decide: levels 1 and 3 land in `specs/<branch>/design.md`, level 2 lands in a
-record under `wfctl arch-root`. Carry the ranked drivers there in context, and
-pass only the decision-specific rationale to the record. Do not create a
-separate drivers artifact or restate the full decision in two places.
+Drivers remain feature-local design input until promotion. Where this
+iteration's output lands is answered once, by `.agents/skills/design-levels`'
+"Where the levels land" — read it there. An iteration that compared credible
+alternatives is the case that section says earns a record of its own, so read it
+before assuming the level-2 record is the only one. Carry the ranked drivers in
+context and give a record only the ones its own decision rests on. Do not create
+a separate drivers artifact or restate the full decision in two places.
 
 ## Common rationalizations
 
@@ -229,8 +234,9 @@ separate drivers artifact or restate the full decision in two places.
 Before handing off from this skill:
 
 - [ ] The question is architecture-significant, or its absence was declared.
-- [ ] The current-state view and accepted records were read, or missing evidence
-      stopped the iteration.
+- [ ] The current-state view and accepted records were read; or the affected
+      boundary alone was established from checked evidence, with the structure
+      outside it named as missing; or missing evidence stopped the iteration.
 - [ ] The iteration has one goal and one decision.
 - [ ] The few drivers that can change the decision are specific and ranked.
 - [ ] At least two credible approaches were compared, including the direct
