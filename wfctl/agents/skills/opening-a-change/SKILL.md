@@ -81,11 +81,11 @@ State the shape you are using rather than refusing or improvising:
 
 ```
 No change-description template in this repo. Using the default shape:
-Summary (what / why / impact) · Before / After · What changed · How it was
-tested · Issue links.
+Summary (context, then the drawing, then what / why / impact) · What changed ·
+How it was tested · Issue links.
 ```
 
-Then fill those five. `wfctl install-config github` seeds a real template — say
+Then fill those four. `wfctl install-config github` seeds a real template — say
 so once, and do not block on it.
 
 ## Step 3: Fill every section

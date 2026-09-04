@@ -123,7 +123,11 @@ def test_the_change_description_skill_does_not_restate_the_template() -> None:
     template = (
         _AGENTS / "configs" / "github" / ".github" / "pull_request_template.md"
     ).read_text()
-    headings = {line for line in template.splitlines() if line.startswith("## ")}
+    # Every heading depth, not just `## `. The template nests: #174 demoted
+    # `Before / After` under Summary, and a `## `-only match would have dropped
+    # it from this guard on the way past — narrowing the check by exactly the
+    # section most likely to be restated.
+    headings = {line for line in template.splitlines() if line.startswith("##")}
     skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text().splitlines()
     restated = sorted(h for h in headings if h in skill)
 

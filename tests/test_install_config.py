@@ -305,6 +305,9 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
     for src in shipped:
         rel = src.relative_to(bundle)
         assert src.read_text() == (root / rel).read_text(), (
-            f"{rel} has drifted from the copy wfctl ships — "
-            f"re-seed with `uv run wfctl install-config github --force`"
+            f"{rel} has drifted between the bundle and this repo's copy — diff the "
+            f"two, decide which is newer, and copy that one over the other. "
+            f"`install-config github --force` only writes bundle → repo, which is "
+            f"the wrong direction when the repo's copy is the newer one, and that "
+            f"is the direction the drift went last time"
         )
