@@ -25,8 +25,8 @@ still apply, they do. Turn them off with the same phrase that turns off
 
 Saying so is not what makes them persist. `digest.md` beside this file is: the
 rules that break first, re-injected every turn by a `UserPromptSubmit` hook,
-capped at 500 characters and truncated silently past it. It projects this file
-and never sources it, so growth goes here and a cut goes there.
+capped at 500 characters — past that the tail becomes an ellipsis and no build
+fails. It projects this file and never sources it: growth goes here, cuts there.
 
 ## Precedence
 
