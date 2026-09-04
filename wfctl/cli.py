@@ -1346,7 +1346,7 @@ def _strip_claude_frontmatter(text: str) -> str:
 
 def _copy_command_for_bob(src: "Path", dest: "Path") -> None:
     """Copy a command file to a Bob destination, stripping Claude-only frontmatter."""
-    dest.write_text(_strip_claude_frontmatter(src.read_text()))
+    dest.write_text(_strip_claude_frontmatter(src.read_text(encoding="utf-8")), encoding="utf-8")
 
 
 def _claude_native_skill_mirror(
