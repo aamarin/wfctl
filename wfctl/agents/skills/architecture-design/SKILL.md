@@ -123,10 +123,22 @@ Do not invent a number merely to make the driver look measurable.
 
 ### 3. Compare credible approaches
 
-Compare at least two approaches that could actually satisfy the behavior. One
-must be the current or direct **no-new-structure baseline**. If literally doing
-nothing cannot satisfy the required behavior, say so; an impossible option is
-not a credible alternative.
+Compare two or three approaches that could actually satisfy the behavior —
+never one, and never more than three. One must be the current or direct
+**no-new-structure baseline**. If literally doing nothing cannot satisfy the
+required behavior, say so; an impossible option is not a credible alternative.
+
+The floor and the ceiling answer opposite failures. One option is the decision
+already made, written up as a comparison. A fourth is usually one of the first
+three restated, and the effort of generating it comes out of the analysis that
+makes any of them trustworthy.
+
+Before comparing, ask once whether a known solution already fits: a pattern, a
+platform feature, a dependency the project already carries, or a shape used
+elsewhere in this codebase. One that fits is the cheaper answer, and a structure
+invented beside an existing one is the more expensive kind of wrong. Record the
+answer either way, including a pattern considered and rejected. That is a fit
+check at the moment of choice, and it is not the catalog refused below.
 
 For each approach, state:
 
@@ -239,8 +251,10 @@ Before handing off from this skill:
       outside it named as missing; or missing evidence stopped the iteration.
 - [ ] The iteration has one goal and one decision.
 - [ ] The few drivers that can change the decision are specific and ranked.
-- [ ] At least two credible approaches were compared, including the direct
+- [ ] Two or three credible approaches were compared, including the direct
       no-new-structure baseline.
+- [ ] Whether a known solution already fits was asked and answered, and the
+      answer was recorded even when it was no.
 - [ ] Every approach names the property gained and at least two material
       liabilities.
 - [ ] Responsibilities, ownership, and actual boundary crossings are visible.
