@@ -3289,6 +3289,37 @@ def _check_verify_config(repo_root: Path) -> bool:
     return True
 
 
+def _check_arch_records(repo_root: Path) -> bool:
+    """Report link-integrity findings across the architecture record set.
+
+    `_arch.validate()` computed these from the day it was written and nothing
+    ran it, so a dangling or split supersession read exactly like a healthy set
+    (#113). Here rather than in `arch context` because context is a projection —
+    it prints what is in force and judges nothing — while drift is what this
+    command already looks for.
+
+    Only `error` holds the exit code, matching the severity `Finding` carries. A
+    record marked `superseded` whose successor is still on a branch is the normal
+    state mid-review, and failing CI on it would make this a check to route
+    around rather than read.
+    """
+    from rich.markup import escape
+
+    from wfctl import _arch
+
+    root = arch_root(repo_root)
+    findings = _arch.validate(_arch.load_records(root))
+    for f in findings:
+        marker = "[red]✗[/red]" if f.level == "error" else "[yellow]⚠[/yellow]"
+        console.print(f"{marker} {escape(f.slug)}: {escape(f.message)}")
+    if findings:
+        # The one repair is editing the records, so the reader needs the path
+        # rather than a command — and the root is configurable, so it cannot be
+        # guessed from the slug.
+        console.print(f"    records: {_arch_location(root, repo_root)}/")
+    return any(f.level == "error" for f in findings)
+
+
 def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     """Report a managed hook that is missing, or behind what this wfctl installs.
 
@@ -3490,6 +3521,7 @@ def doctor_cmd() -> None:
         _check_workmux_hook(repo_root),
         _check_spec_root_migration(repo_root),
         _check_verify_config(repo_root),
+        _check_arch_records(repo_root),
     ]):
         exit_code = 1
 

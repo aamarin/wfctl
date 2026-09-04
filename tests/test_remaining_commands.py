@@ -533,3 +533,56 @@ def test_doctor_is_silent_when_no_definition_of_done_exists(agent_dir: Path) -> 
     """Not adopting the feature is not a finding."""
     result = runner.invoke(app, ["doctor"])
     assert "wfctl.json" not in result.output
+
+
+def test_doctor_fails_on_a_dangling_supersedes(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The defect #113 named: `validate()` was written, tested, and unreachable,
+    so a record pointing at a predecessor that is not there read exactly like a
+    healthy set. A test that calls `validate()` proves nothing about that."""
+    root = _arch_root(agent_dir, monkeypatch)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "new-way.md").write_text(
+        "---\nstatus: accepted\nsupersedes: never-existed\n---\n\n# New way\n"
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "new-way" in result.output
+    assert "never-existed" in result.output
+
+
+def test_doctor_reports_an_orphaned_supersession_without_failing(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VR-002 is a warning and stays one through doctor: mid-review the successor
+    sits on an unmerged branch, and a CI job that goes red for the normal state
+    of a record under review is a check people learn to route around (#41)."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "orphan", "superseded")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "orphan" in result.output
+    assert "no record supersedes it" in result.output
+
+
+def test_doctor_says_nothing_about_a_healthy_record_set(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A check that fires on a healthy set is worse than no check — every later
+    finding is read past. A resolved supersession is healthy, not noteworthy."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "old-way", "superseded")
+    (root / "new-way.md").write_text(
+        "---\nstatus: accepted\nsupersedes: old-way\n---\n\n# New way\n"
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "old-way" not in result.output
+    assert "new-way" not in result.output
