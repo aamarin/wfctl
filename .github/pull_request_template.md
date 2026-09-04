@@ -24,6 +24,12 @@ picture of the problem and the shape of the fix replaces the three paragraphs a
 reviewer would otherwise have to assemble in their head — and it is easier to
 disagree with, which is the point of a review.
 
+This section is rendered by GitHub, not read in a terminal. The ASCII-only rule
+in `design-levels` and `architecture-design` applies to skills and records, which
+agents read as source — it does not apply here. Prefer a `mermaid` fenced block
+for a flow, a state machine, or a dependency graph. ASCII stays correct for
+terminal output shown verbatim, and for a before/after of a literal string.
+
 Pick whatever the change actually is:
 - **UI** → a wireframe or a before/after screenshot. ASCII boxes are fine; the
   point is the layout and the flow, not the pixels.
