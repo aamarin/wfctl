@@ -3558,7 +3558,8 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
 
 
 def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
-    """Report entries wfctl installed and no longer records.
+    """Report entries wfctl installed and no longer records, and name — without
+    reporting — the paths in its destinations that it cannot account for.
 
     A rename upstream writes the new path and leaves the old file; the manifest is
     then replaced per layer, so the old path falls out of the record entirely.
@@ -3597,6 +3598,36 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     what makes a path wfctl's, and being tracked is what makes it the repo's —
     absent from the record *and* tracked is the second, not an orphan. Reporting
     it invites the reader to delete committed work on wfctl's say-so.
+
+    A finding needs evidence that wfctl wrote the path, and the check has three
+    sources of it, not two (#183):
+
+    - **The flag.** Since #38 an install that stops shipping a path keeps it on
+      record marked `orphaned`, so the record itself says wfctl wrote it. Exact.
+    - **A base-layer twin.** A mirror under `.claude/skills/` is a copy of a
+      skill under `.agents/skills/`; the twin being on disk is why `_scan_owns`
+      lets it through, and that is positive proof, not an absence of doubt.
+    - **Nothing.** Under `.agents/`, `_scan_owns` returns `True` because no fact
+      contradicts it. A hand-placed skill and an orphan left by a pre-0.16
+      install are the same thing there — an untracked directory holding a
+      `SKILL.md`, absent from the record — and no filter can separate them,
+      because there is no fact on disk for one to read.
+
+    So the third group is named and nothing more. The bug was never a missing
+    filter beside `_scan_owns`; it was a verdict stronger than its evidence,
+    which claimed wfctl had installed a file, that it was dropped upstream, and
+    that the reader should delete it — three false statements about a skill they
+    had written that morning, with exit 1 behind them.
+
+    `.agents/skills/` being shared ground does not contradict the `layer-model`
+    record. That record governs *this* repo's source-versus-generated split —
+    editing `.agents/` here reaches nothing, because `wfctl/agents/` is the
+    source. It says nothing about a consuming repo, where #87 already found a
+    project keeping its own skills in that tree.
+
+    The trade is a line that stays in a repo keeping its own skills, and silence
+    about a pre-0.16 orphan under `.agents/`. Both beat what #87 priced: a check
+    that fails a consumer's build over their file and tells them to delete it.
     """
     recorded_items = _recorded_items(manifest)
     recorded = {i["path"] for i in recorded_items}
@@ -3611,23 +3642,68 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # found by the scan below, never both, so the two halves cannot report one
     # file twice. Existence is checked because a reader may already have deleted
     # it by hand, and the record outlives the file.
+    # Keyed by layer, unlike `_recorded_items`, because the repair below is
+    # per-layer: `install-skills` diffs only the layers the run installs, so a
+    # bare `--prune` cannot reach a path under `.claude/`.
     flagged = {
-        i["path"]
-        for i in recorded_items
+        i["path"]: layer
+        for layer in _layer_keys(manifest)
+        for i in manifest[layer].get("items", ())
         if i.get("orphaned") and (repo_root / i["path"]).exists()
     }
 
-    candidates = sorted(
-        rel
+    # Kept as (destination, path) pairs, because which destination a candidate
+    # came from is what says whether `_scan_owns` proved anything about it.
+    found = sorted(
+        (scanned, rel)
         for scanned in _scanned_dirs(manifest)
         if (d := repo_root / scanned).is_dir()
         for child in d.iterdir()
         if (rel := str(child.relative_to(repo_root))) not in recorded
         if _scan_owns(repo_root, scanned, child)
     )
-    tracked = _tracked_paths(repo_root, candidates)
-    scanned_only = {rel for rel in candidates if rel not in tracked}
-    abandoned = sorted(flagged | scanned_only)
+    tracked = _tracked_paths(repo_root, [rel for _, rel in found])
+    untracked = [(scanned, rel) for scanned, rel in found if rel not in tracked]
+
+    # `_scan_owns` is not a filter in one place and a verdict in the other; it
+    # answers the same question, and only at the mirror root does it have a fact
+    # to answer from. A mirror surviving it has a base-layer twin on disk, which
+    # is positive proof wfctl put it there — so it is a finding, exactly as it
+    # was before this split. Everywhere else the predicate returned `True`
+    # because nothing contradicted it, which is not the same as knowing.
+    proven = {rel for scanned, rel in untracked if scanned == _CLAUDE_NATIVE_SKILL_ROOT}
+    unknown = {rel for scanned, rel in untracked if rel not in proven}
+    # escape(): these lines carry rich markup, and this block's paths are by
+    # definition ones wfctl did not write — the name is entirely the user's. An
+    # unescaped `[draft]-skill` prints as `-skill`, and `[/x]-skill` raises
+    # MarkupError out of a command that runs at every session start.
+    from rich.markup import escape
+
+    # Printed first and separately because it is not a finding, and saying so is
+    # the whole of #183. Named under the same heading as the flagged half, these
+    # paths borrowed a certainty the scan does not have and told a reader to
+    # delete a skill they had written that morning.
+    if unknown:
+        one = len(unknown) == 1
+        console.print(
+            f"[dim]ℹ {len(unknown)} "
+            f"{'path is' if one else 'paths are'} not on record under a "
+            f"directory wfctl installs into:[/dim]"
+        )
+        for path in sorted(unknown):
+            console.print(f"    [dim]{escape(path)}[/dim]", soft_wrap=True)
+        # One line, short enough not to wrap at 80: it is the only place the
+        # reader is told this is not a finding, and a sentence broken across two
+        # lines beside a path list reads as the next path.
+        console.print(
+            "    [dim]Left alone — wfctl cannot tell yours from an old "
+            "leftover.[/dim]"
+        )
+
+    # Only paths wfctl can show are its own return a finding. Exiting 1 on the
+    # rest meant a repo keeping one skill of its own could never have a green
+    # `doctor`, and the remedy offered for that was to delete the skill.
+    abandoned = sorted({*flagged, *proven})
     if not abandoned:
         return False
 
@@ -3638,21 +3714,22 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
         f"renamed or dropped upstream:"
     )
     for path in abandoned:
-        console.print(f"    {path}", soft_wrap=True)
-    # Two routes, because the two halves are reachable by different commands and
-    # offering one for both would send half the reader's paths to something that
-    # cannot touch them. A flagged path is still on record, so the installer can
-    # be told to drop it. A scanned one is not — and naming `uninstall-skills`
-    # for it would send someone to a command that removes what the manifest
-    # lists, which is precisely what it is not.
-    if flagged:
+        console.print(f"    {escape(path)}", soft_wrap=True)
+    # One repair per layer, because `install-skills` diffs only the layers the
+    # run installs: a bare `--prune` against a flagged `.claude/` path is a
+    # no-op, and doctor would print it again on every run afterwards. A proven
+    # mirror is not on record at all, so no `--prune` can reach it — that one is
+    # still a hand-delete, and saying otherwise sends the reader to a command
+    # that removes what the manifest lists.
+    for flag in sorted({_agent_flag(layer) for layer in flagged.values()}):
+        # soft_wrap for the same reason the path lines have it: this is a line
+        # the reader pastes, and a wrapped one pastes as two broken commands.
         console.print(
-            "    Remove the recorded one(s) with `wfctl install-skills --prune`."
-            if scanned_only
-            else f"    Remove {'it' if one else 'them'} with "
-            "`wfctl install-skills --prune`."
+            f"    Remove the recorded one(s) with "
+            f"`wfctl install-skills{flag} --prune`.",
+            soft_wrap=True,
         )
-    if scanned_only:
+    if proven:
         console.print(
             "    Delete the rest by hand once you've checked nothing needs them."
             if flagged
@@ -3666,7 +3743,8 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
 def doctor_cmd() -> None:
     """Report state wfctl put in this repo that has since drifted.
 
-    green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error.
+    green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error
+    · dim ℹ named, not a finding — it does not reach the exit code.
 
     A check belongs here when it names state this command can decide is wrong on
     its own, and can point the reader at the repair — the command that performs

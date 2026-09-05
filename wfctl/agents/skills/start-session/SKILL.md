@@ -64,8 +64,15 @@ memory of it — load them before doing anything else.
    `--agent` leaves that layer exactly as stale as it found it.
 
    `--prune` also clears paths a past install left behind when they were renamed
-   upstream. It reaches only paths still on record; anything doctor lists
-   separately as no longer shipped is a hand-delete it will name.
+   upstream, and doctor prints the exact command per layer — copy that, because
+   a bare `install-skills --prune` diffs only the base layer and silently leaves
+   a `.claude/` path where it found it.
+
+   It reaches only paths still on record. Doctor's dim `ℹ` block is the other
+   thing entirely: paths in wfctl's destinations that it cannot show are its
+   own, which is what a skill you placed there yourself looks like. **Delete
+   nothing on the strength of that block** — it does not affect the exit code,
+   and its own line says wfctl is leaving the path alone.
 
    `--yes` is what keeps this non-interactive, and it is not free: it skips the
    prompt that would otherwise list pre-existing files being overwritten — files
