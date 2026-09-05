@@ -247,6 +247,34 @@ def test_resolve_spec_dir_prefers_the_feature_whose_delivery_claims_the_key(
     assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) == real
 
 
+def test_resolve_spec_dir_skips_an_ancestor_whose_delivery_md_cannot_be_decoded(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The end-to-end of the decode split, because the unit test above cannot
+    show what it costs. A foreign ancestor whose delivery.md is not UTF-8 was
+    inherited — its 46/46 counted as this story's — for the same reason the
+    unparsed map was: the read failure produced the inheritable answer."""
+    import subprocess
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo_root), *args], check=True, capture_output=True
+        )
+
+    _init_commit(repo_root)
+    git("checkout", "-b", "562-transaction-balance")
+    foreign = repo_root / "specs" / "562-transaction-balance"
+    foreign.mkdir(parents=True)
+    (foreign / "tasks.md").write_text("- [x] T001 done\n")
+    (foreign / "delivery.md").write_bytes(b"\xff\xfe## Issue Grouping Map\n")
+    git("add", "specs")
+    git("commit", "-m", "spec")
+    git("checkout", "-b", "567-readers-to-chart-accounts")
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+
+    assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) is None
+
+
 def test_resolve_spec_dir_refuses_a_key_two_features_both_claim(
     repo_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -379,14 +407,29 @@ def test_delivery_issue_keys_stops_at_the_end_of_the_first_table(
     assert delivery_issue_keys(tmp_path, r"\d+") == {"5"}
 
 
-def test_delivery_issue_keys_survives_a_delivery_md_that_is_not_utf8(
+def test_delivery_issue_keys_fails_closed_on_a_delivery_md_it_cannot_decode(
     tmp_path: Path
 ) -> None:
-    """`UnicodeDecodeError` is a ValueError, not an OSError. Uncaught it left
-    `status`, `resume` and `feature-paths` raising on one unreadable file
-    somewhere under the spec root, none of which was asking about that file."""
+    """Two ways to fail this, and the first fix landed on the second.
+
+    `UnicodeDecodeError` is a ValueError, not an OSError, so uncaught it left
+    `status`, `resume` and `feature-paths` raising over one unreadable file
+    nobody had asked about. Caught alongside a missing file it returns None —
+    the *inheritable* answer — so an ancestor whose delivery.md is not UTF-8
+    gets handed back, which is #120 again. The file is present; it is the
+    unanswered question, not the absent one.
+    """
     (tmp_path / "delivery.md").write_bytes(b"\xff\xfe## Issue Grouping Map\n")
 
+    assert delivery_issue_keys(tmp_path, r"\d+") == set()
+
+
+def test_delivery_issue_keys_returns_none_when_there_is_no_delivery_md(
+    tmp_path: Path
+) -> None:
+    """The other side of that split. A feature with no delivery.md has not been
+    decomposed and is still inheritable, so this one case must stay None while
+    every other read failure fails closed."""
     assert delivery_issue_keys(tmp_path, r"\d+") is None
 
 
