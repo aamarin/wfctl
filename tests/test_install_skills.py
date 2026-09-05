@@ -2715,3 +2715,73 @@ def test_prune_diffs_against_the_named_source_not_the_running_bundle(
         (repo_root / ".wf-skills-manifest.json").read_text()
     ))}
     assert ".claude/commands/test-cmd.md" not in recorded
+
+
+def test_doctor_reports_the_named_source_moving_on(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """The edit-install-test loop, which is silent without this.
+
+    Someone installs from a branch to try a skill, edits the skill, and has no
+    signal that the installed copy is now behind. Reported as a finding rather
+    than a warning: the repo genuinely holds something other than what its record
+    names, which is the same condition as ordinary staleness.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert f"base: source changed since install — {source.resolve()}" in result.output
+
+
+def test_the_remedy_carries_the_source_only_for_the_layer_that_recorded_one(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path, bundle: Path
+) -> None:
+    """FR-008. The printed command is what the reader — or `/start-session` — runs.
+
+    A remedy without `--from` repairs the drift by discarding the source that
+    produced it, which destroys exactly the install the reader was testing. Both
+    layers are asserted in one test because the failure is a line that is right
+    for one kind of layer and wrong for the other, and only the pair catches
+    `--from` leaking onto a default install.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--from", str(source)])
+    # Base back on the default, claude still on the named source.
+    runner.invoke(app, ["install-skills", "--yes"])
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# also moved\n")
+
+    remedies = {
+        line.strip()
+        for line in runner.invoke(app, ["doctor"]).output.splitlines()
+        if line.strip().startswith("update:")
+    }
+
+    assert remedies == {
+        f"update: wfctl install-skills --agent claude --from {source.resolve()}",
+        "update: wfctl install-skills",
+    }
+
+
+def test_doctor_warns_rather_than_fails_when_the_recorded_source_is_gone(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """A checkout that moved is not a defect in this repo.
+
+    Reported as a warning and left out of the exit code, the way a record with no
+    fingerprint already is: the layer may well be current, and the only thing
+    that could say either way is the thing that is missing. Failing here would
+    turn every session start red for a worktree someone tidied up.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    shutil.move(str(source), str(source.parent / "moved-away"))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert f"base: installed from {source.resolve()} — source is gone" in result.output

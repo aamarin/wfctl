@@ -45,6 +45,13 @@ memory of it — load them before doing anything else.
    wfctl install-skills --prune --yes --agent claude    # a `claude` finding
    ```
 
+   **The command doctor printed governs; these two are only its common shapes.**
+   A layer installed from a source someone named is repaired by a line carrying
+   `--from <that source>`, and running the bare form instead does not fail — it
+   succeeds, reinstalls the release over the branch being tested, and reports the
+   layer green. That is a repair destroying the thing it was called to check, and
+   nothing downstream would say so.
+
    Then run `wfctl doctor` again and check it is green before moving on. Without
    the second run the report says "refreshed" over a tree that is still drifted:
    a layer is rewritten only when it is asked for by name, so a run that omits
