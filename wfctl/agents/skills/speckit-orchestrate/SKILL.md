@@ -5,7 +5,28 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 ## Steps
 
-0. **Epic-inherited spec check** — run before trusting wfctl's own inference.
+0. **Session gate** — before anything else, including the spec lookup below.
+
+   Run `wfctl status --json` and read `session_started`. If it is `false`,
+   display this and stop:
+
+   > No wfctl session for this branch. Run `/start-session` first.
+
+   Stop means stop: no checks, no analysis, no recommendation offered first. A
+   run that reaches a conclusion here leaves it in scrollback and nowhere else.
+   `wfctl start` is what opens the event log every later view reads, so without
+   it `/end-session` has no run to summarize and the next session on this branch
+   reads an empty state dir and reports "first session on this branch" — true of
+   the state dir, false of the branch (#117).
+
+   Name `/start-session`, not `wfctl start`. Both clear this check; only the
+   first also refreshes the skills mirror, loads the architecture contract and
+   reads the handoff. And do not run either one yourself to clear your own gate
+   — a read that opens a session writes state as a side effect, which is what
+   `session-state-is-re-derived` exists to forbid, and it hides from the user
+   that `/start-session` was skipped.
+
+1. **Epic-inherited spec check** — run before trusting wfctl's own inference.
    A sub-issue worktree has no spec dir under its own branch name, so
    `wfctl status`/`resume` can report "no spec dir found" and default to
    `brainstorm` even when the epic's spec/plan/tasks/decompose are done and this
@@ -54,24 +75,24 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
        command is `/speckit.implement` scoped to the resolved task range, not
        `/speckit.brainstorm`.
 
-1. Run `wfctl status` and display the output so the user can see the updated pipeline position.
+2. Run `wfctl status` and display the output so the user can see the updated pipeline position.
 
-2. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
+3. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
    here if the boundary question went unanswered — none of which the read below
    does.
 
-   **If it exits non-zero, display its output and stop.** Step 3 is a read, and
+   **If it exits non-zero, display its output and stop.** Step 4 is a read, and
    a read is not gated: `wfctl status --json` answers with the step the refusal
    was issued about, and `auto` on that step is `true`, so continuing emits
    `EXECUTE_COMMAND` for the command `resume` just refused to write.
 
-3. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
+4. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
    you ask.
 
-4. Branch on the result:
+5. Branch on the result:
 
    **Story complete** (`next_command` is `null`):
    - Display: "Story complete — open PR or run `/end-session`."
