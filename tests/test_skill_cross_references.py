@@ -107,11 +107,22 @@ def test_the_record_template_carries_every_section_a_record_needs() -> None:
     """`Owns truth` is the field this feature exists to capture, and the
     template is where the agent gets it from — a template missing it produces
     records missing it, which is the failure being corrected with a new
-    filename."""
+    filename.
+
+    `Direct baseline` is the same shape found later (#162): `architecture-design`
+    step 3 mandates a no-new-structure baseline in every iteration, and the
+    template it hands off to had nowhere for one to land."""
     template = (
         _AGENTS / "skills" / "architecture-decisions" / "record-template.md"
     ).read_text()
-    for section in ("Context", "Decision", "Owns truth", "Considered", "Log"):
+    for section in (
+        "Context",
+        "Direct baseline",
+        "Decision",
+        "Owns truth",
+        "Considered",
+        "Log",
+    ):
         assert f"## {section}" in template, section
 
 
