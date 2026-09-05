@@ -131,7 +131,7 @@ already made this triage decision; re-deriving it from what the change touches
 puts `documentation` on a bug fix, because the fix edited prose.
 
 ```bash
-gh issue view <n> --json assignees,labels,milestone,projectItems
+gh issue view <issue> --json assignees,labels,milestone,projectItems
 gh pr edit <pr> --add-label <name> --milestone <title> \
   --add-assignee <login> --add-project <title>
 ```
@@ -155,7 +155,7 @@ default status, which is the backlog column — so a PR opened for review lands
 behind the issue it closes, which is already in progress. Set it deliberately:
 
 ```bash
-gh project item-list <n> --owner <owner> --format json --limit 200 \
+gh project item-list <project> --owner <owner> --format json --limit 200 \
   --jq '.items[] | select((.content.number//0)==<pr>) | .id'
 gh project item-edit --id <item> --project-id <pid> \
   --field-id <status field> --single-select-option-id <option>
