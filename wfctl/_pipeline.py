@@ -26,7 +26,7 @@ _STEPS: dict[str, tuple[str, bool]] = {
     "tasks":      ("/speckit.tasks",      True),
     "analyze":    ("/speckit.analyze",    False),
     "decompose":  ("/speckit.decompose",  False),
-    "implement":  ("/speckit.implement",  False),
+    "implement":  ("/speckit.implement",  True),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.

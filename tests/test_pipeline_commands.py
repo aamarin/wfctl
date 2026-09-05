@@ -48,7 +48,7 @@ _EXPECTED_STEPS = [
     ("tasks",      "/speckit.tasks",      True),
     ("analyze",    "/speckit.analyze",    False),
     ("decompose",  "/speckit.decompose",  False),
-    ("implement",  "/speckit.implement",  False),
+    ("implement",  "/speckit.implement",  True),
 ]
 
 
@@ -596,6 +596,21 @@ def test_a_blocked_implement_routes_to_verification(gated: types.SimpleNamespace
     assert result.exit_code == 0
     assert "wfctl verify" in result.output
     assert (gated.agent_dir / "next-step.md").read_text().startswith("Next step: wfctl verify")
+
+
+def test_a_blocked_implement_does_not_advance_unattended(
+    gated: types.SimpleNamespace,
+) -> None:
+    """#148. `implement` advances without a prompt, so the halt is now carried by
+    one `False` — the one `next_step_content` returns alongside `wfctl verify`.
+
+    Before the flip both branches said `auto: false` and the route above was the
+    only thing this state proved. Orchestration reads the flag, not the command:
+    a `true` here would emit `EXECUTE_COMMAND` for a story whose definition of
+    done has not passed.
+    """
+    runner.invoke(app, ["next"])
+    assert "auto: false" in (gated.agent_dir / "next-step.md").read_text()
 
 
 def test_open_tasks_still_route_to_the_step_command(gated: types.SimpleNamespace) -> None:
