@@ -280,7 +280,8 @@ cleaned up once nothing references them.
 `wfctl doctor` is the single "am I current?" check — it reports the wfctl tool
 and the installed skills (the hash on record vs the bundle this wfctl ships).
 Colour-coded: **green ✓** current, **cyan ⬆** upgrade available, **yellow ⚠**
-warning, **red ✗** error.
+warning, **red ✗** error, **dim ℹ** named but not a finding — wfctl cannot show
+the path is its own, so it does not reach the exit code.
 
 ```
 $ wfctl doctor

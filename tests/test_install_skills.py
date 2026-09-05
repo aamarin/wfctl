@@ -806,8 +806,19 @@ def test_doctor_warns_on_a_record_without_a_fingerprint(agent_dir: Path) -> None
 # An upstream rename writes the new path and leaves the old file, then the
 # manifest is replaced per layer and the old path falls out of the record.
 # `uninstall-skills` reads only the current manifest, so nothing can reach the
-# file afterwards. Simulated by dropping a path from the record, which is exactly
-# the state a rename leaves behind.
+# file afterwards. Simulated by dropping a path from the record.
+#
+# That simulation stopped being a faithful rename when #38's flag landed in
+# v0.16.0: an install that stops shipping a path now keeps it on record marked
+# `orphaned`, so a rename never empties the record again. What `_forget_one_item`
+# reproduces today is the *pre-flag* orphan — installed by v0.15.0 or earlier and
+# never recorded since — which is the only case the disk scan still owns.
+#
+# It is also indistinguishable from a skill someone hand-placed (#183): both are
+# untracked paths in a wfctl destination that the record does not hold. So the
+# scan names what it finds and exits 0, and only the flag returns a finding.
+# Tests below assert that split; the pair at the end of this section is what
+# keeps it from collapsing into "report nothing".
 
 
 def _forget_one_item(repo_root: Path, suffix: str) -> str:
@@ -823,9 +834,16 @@ def _forget_one_item(repo_root: Path, suffix: str) -> str:
     raise AssertionError(f"no recorded item ends in {suffix!r}")
 
 
-def test_doctor_reports_an_installed_path_that_fell_out_of_the_record(
+def test_doctor_names_an_installed_path_that_fell_out_of_the_record(
     agent_dir: Path,
 ) -> None:
+    """Named, because nothing else ever will — the record does not hold it, so
+    neither `--prune` nor `uninstall-skills` can reach it (#38).
+
+    Exit 0, because the scan cannot tell this from a hand-placed skill (#183) and
+    a wrong exit code here fails a consumer's build over their own file. The
+    certainty lives in the flag, and the flag half still exits 1.
+    """
     repo_root = agent_dir.parent
     runner.invoke(app, ["install-skills", "--agent", "claude"])
     forgotten = _forget_one_item(repo_root, "test-cmd.md")
@@ -833,7 +851,10 @@ def test_doctor_reports_an_installed_path_that_fell_out_of_the_record(
     result = runner.invoke(app, ["doctor"])
 
     assert forgotten in result.output
-    assert result.exit_code == 1
+    assert "no longer shipped" not in result.output, (
+        "the scan has not earned that claim — it did not see the install"
+    )
+    assert result.exit_code == 0
 
 
 def test_doctor_never_removes_what_it_reports(agent_dir: Path) -> None:
@@ -869,7 +890,7 @@ def test_an_abandoned_directory_is_one_finding_however_many_files_it_holds(
 
     assert len(held) > 1, "fixture must hold several files for this to mean anything"
     assert out.count(forgotten) == 1
-    assert "1 installed path is" in out
+    assert "1 path is not on record" in out
 
 
 def test_doctor_does_not_report_a_command_the_user_wrote_themselves(
@@ -923,8 +944,8 @@ def test_doctor_does_not_report_a_skill_the_repo_commits_beside_the_installed_on
     result = runner.invoke(app, ["doctor"])
 
     assert "proj-own-skill" not in result.output
-    assert forgotten in result.output, "an untracked orphan must still report"
-    assert result.exit_code == 1
+    assert forgotten in result.output, "an untracked orphan must still be named"
+    assert result.exit_code == 0
 
 
 def test_doctor_does_not_report_a_hand_authored_tracker_config(
@@ -984,7 +1005,7 @@ def test_an_orphan_is_reported_even_as_its_directorys_last_recorded_entry(
 
     assert remaining == [], "fixture must leave the directory with nothing recorded"
     assert forgotten in result.output
-    assert result.exit_code == 1
+    assert result.exit_code == 0
 
 
 def test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored(
@@ -1093,7 +1114,139 @@ def test_doctor_does_not_report_a_claude_skill_in_a_bob_installed_repo(
     result = runner.invoke(app, ["doctor"])
 
     assert "my-own-skill" not in result.output
-    assert forgotten in result.output, "an orphan in an owned tree must still report"
+    assert forgotten in result.output, "an orphan in an owned tree must still be named"
+
+
+def test_doctor_does_not_report_a_hand_placed_skill_as_abandoned(
+    agent_dir: Path,
+) -> None:
+    """#183. `.agents/skills/` is shared ground too, and the signal #87 used
+    cannot reach here.
+
+    #87 drew the line at git tracking, which works because a repo committing its
+    own skills names them as exceptions to the gitignore. An *uncommitted*
+    hand-placed skill has no such signal: being untracked is exactly what it
+    shares with an orphan, so `_tracked_paths` passes it straight through.
+
+    Before this, `doctor` told the reader wfctl had installed the skill, that it
+    was dropped upstream, and to delete it — three claims about a file wfctl never
+    wrote — and exited 1 every run, so the repo could never be green while the
+    skill existed.
+
+    The path is still named. Silence would be the other wrong answer, and the
+    test below is what stops this one from being reached by turning the check
+    off.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    mine = repo_root / ".agents" / "skills" / "my-own-skill"
+    mine.mkdir(parents=True)
+    (mine / "SKILL.md").write_text("# my-own-skill\n")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "my-own-skill" in result.output, "named, but not as a finding"
+    assert "no longer shipped" not in result.output
+    assert "by hand" not in result.output, "naming a path is not advice to delete it"
+    assert "--prune" not in result.output
+    assert result.exit_code == 0
+
+
+def test_doctor_still_fails_on_a_path_the_install_really_did_stop_shipping(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The half of #183 that gets skipped: the fix must narrow the verdict, not
+    silence the check.
+
+    Renames a file the bundle ships between two real installs, so the flag is
+    written by the code path that writes it in production rather than asserted
+    into a fixture. That is the one case wfctl has evidence for — it watched the
+    path stop being shipped — and it is the case that keeps exiting 1 with
+    `--prune` as its remedy.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert ".claude/commands/test-cmd.md" in result.output
+    assert "no longer shipped" in result.output
+    assert "wfctl install-skills --prune" in result.output
+    assert result.exit_code == 1
+    assert (repo_root / ".claude" / "commands" / "test-cmd.md").exists(), (
+        "report-only: doctor never removes what it names"
+    )
+
+
+def test_doctor_keeps_the_two_halves_apart_when_one_run_holds_both(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The case the old code spent bespoke wording on, and the one a later
+    refactor would quietly re-merge.
+
+    A `--prune` line attached to the informational block would send the reader to
+    a command that removes what the manifest lists — precisely what those paths
+    are not — and it is invisible in a run holding only one of the halves.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    mine = repo_root / ".agents" / "skills" / "my-own-skill"
+    mine.mkdir(parents=True)
+    (mine / "SKILL.md").write_text("# my-own-skill\n")
+
+    out = runner.invoke(app, ["doctor"]).output
+    info, _, warning = out.partition("no longer shipped")
+
+    assert "my-own-skill" in info and "my-own-skill" not in warning
+    assert "test-cmd.md" in warning and "test-cmd.md" not in info
+    assert "--prune" not in info, "the remedy must not attach to the named half"
+
+
+def test_doctor_names_a_bracketed_path_verbatim(agent_dir: Path) -> None:
+    """A path in this block is one wfctl did not write, so its name is entirely
+    the user's — and it is printed through rich markup.
+
+    Unescaped, `[draft]-skill` renders as `-skill`: a different path, in the one
+    block whose whole job is naming the path, about a file the reader then goes
+    looking for.
+
+    Not the MarkupError a closing tag would raise. `[/x]` needs a slash, so no
+    single path component can carry one, and the scan is one level deep — the
+    crash is unreachable here even though the same string raises off a filesystem.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    (repo_root / ".agents" / "skills" / "[draft]-skill").mkdir(parents=True)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "[draft]-skill" in result.output
+    assert result.exit_code == 0
+
+
+def test_the_prune_doctor_advises_names_the_layer_it_has_to_reach(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """`install-skills` diffs only the layers the run installs, so a bare
+    `--prune` never touches `.claude/` — pinned one file over by
+    `test_deselecting_an_agent_layer_does_not_orphan_the_paths_it_installed`.
+
+    Advising the bare form for an agent-layer path is advice that runs, reports
+    success, changes nothing, and leaves doctor exiting 1 on the next run.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    out = runner.invoke(app, ["doctor"]).output
+
+    assert "wfctl install-skills --agent claude --prune" in out
 
 
 def test_doctor_is_silent_when_every_installed_path_is_still_recorded(
@@ -1104,6 +1257,10 @@ def test_doctor_is_silent_when_every_installed_path_is_still_recorded(
     result = runner.invoke(app, ["doctor"])
 
     assert "no longer shipped" not in result.output
+    assert "not on record" not in result.output, (
+        "the informational block must stay silent too — an assertion on the "
+        "warning alone would pass with it printing on every clean repo"
+    )
     assert result.exit_code == 0
 
 
