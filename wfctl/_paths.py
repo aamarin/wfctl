@@ -397,11 +397,19 @@ def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
     """
     try:
         text = (spec_dir / "delivery.md").read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        # ValueError covers UnicodeDecodeError: a delivery.md that is not UTF-8
-        # is unreadable, not a claim, and raising here would take `status`,
-        # `resume` and `feature-paths` down with it.
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except (OSError, ValueError):
+        # The file is there and cannot be read — not UTF-8 (UnicodeDecodeError is
+        # a ValueError), unreadable permissions, a directory wearing the name.
+        # That is the unanswered question, not the absent one, so it takes the
+        # empty set and fails closed. Splitting these two excepts is the whole
+        # point: catching them together returns None for both, and None is the
+        # inheritable answer — which hands a foreign feature back exactly the way
+        # #120 did, on any repo with one unreadable file under the spec root.
+        # Caught rather than raised because a file nobody asked about must not
+        # take `status`, `resume` and `feature-paths` down with it.
+        return set()
     heading = _GROUPING_HEADING.search(text)
     if heading is None:
         return None
