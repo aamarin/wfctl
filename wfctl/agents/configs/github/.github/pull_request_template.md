@@ -29,18 +29,26 @@ branch, a dependency. Short prose still earns a drawing; the question is whether
 the structure survives being read one clause at a time, not whether the drawing
 is quicker than the sentence.
 
-This section is rendered by GitHub, so mermaid works here and the terminal-ASCII
-rule from `design-levels` and `architecture-design` does not apply — those govern
-skills and records, which agents read as source. Prefer mermaid when you want the
-graph laid out for you. Prefer ASCII when your placement carries meaning a layout
-engine would discard — grouping, alignment, or counts positioned to be compared —
-and for terminal output shown verbatim.
+This section is rendered on github.com, so the terminal-ASCII rule from
+`design-levels` and `architecture-design` does not reach it — those govern skills
+and records, which agents read as source.
+
+That is one surface, not every surface. The GitHub mobile app shows a mermaid
+fence as its own source, and the two forms fail differently when they do not
+render: clipped ASCII is still a partial picture, clipped mermaid is syntax.
+
+So prefer mermaid when you want the graph laid out for you and the reader is at a
+desk. Prefer ASCII when the drawing has to survive a phone or a terminal, when
+your placement carries meaning a layout engine would discard — grouping,
+alignment, or counts positioned to be compared — and for terminal output shown
+verbatim.
 
 Pick whatever the change actually is:
 - **UI** → a wireframe or a before/after screenshot. ASCII boxes are fine; the
   point is the layout and the flow, not the pixels.
-- **A flow, a state machine, a sequence** → a `mermaid` fenced block. GitHub
-  renders it inline; keep it to the nodes that changed.
+- **A flow, a state machine, a sequence** → a `mermaid` fenced block, where the
+  reader is on the web. github.com renders it inline; keep it to the nodes that
+  changed. ASCII if it has to read on a phone.
 - **An architecture** → usually ASCII. Band membership and nesting are the
   content, and an edge into a grouped box forces every member out into its own
   node before a layout engine can anchor it.
