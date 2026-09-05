@@ -2933,3 +2933,55 @@ def test_install_skills_inherits_the_tracker_from_the_main_checkout(
     manifest = json.loads((wt / ".wf-skills-manifest.json").read_text())
     assert manifest["tracker"] == chosen
     assert (wt / ".agents" / "trackers" / "github.json").exists() is installs
+
+
+def test_inherited_tracker_leaves_a_committed_config_alone(
+    bundle: Path, agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project that commits its backend config gets it back untouched.
+
+    `.agents/trackers/` is deliberately not gitignored — see
+    test_install_skills_does_not_gitignore_tracker_config — so a worktree checks
+    the config out from git while its own manifest is still empty. Inheriting the
+    name must not also re-plan a copy of it: the write lands on a tracked file
+    that no manifest records, which the installer reads as a foreign overwrite.
+    Under the TTY-less hook this feature exists to serve, that prompt aborts the
+    entire install and no skills land at all; under --yes it replaces the
+    project's own config with the bundle's stock one.
+    """
+    import json
+    import os
+    import subprocess
+    _add_tracker(bundle)
+    main = Path(os.environ["WFCTL_REPO_ROOT"])
+    committed = main / ".agents" / "trackers" / "github.json"
+    committed.parent.mkdir(parents=True)
+    mine = '{"verbs": {"list": ["gh", "issue", "list", "--limit", "99"]}}\n'
+    committed.write_text(mine)
+    subprocess.run(["git", "-C", str(main), "add", "-Af"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(main), "commit", "-m", "commit the tracker config"],
+        check=True, capture_output=True,
+    )
+    # After the commit, never in it: the manifest is gitignored by convention, so
+    # a worktree that checked one out would have the key already and inherit
+    # nothing — the shape that made an earlier draft of this test pass against
+    # the very bug it exists to catch.
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "github"}))
+    wt = tmp_path / "wt" / "184-committed"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-b", "184-committed", str(wt)],
+        check=True, capture_output=True,
+    )
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+
+    # No --yes and no TTY: exactly what `post_create` runs.
+    result = runner.invoke(app, ["install-skills"])
+
+    assert result.exit_code == 0, result.output
+    assert "Proceed?" not in result.output, "a tracked config is not a foreign overwrite"
+    assert (wt / ".agents" / "trackers" / "github.json").read_text() == mine
+    manifest = json.loads((wt / ".wf-skills-manifest.json").read_text())
+    assert manifest["tracker"] == "github"
+    # The install ran to completion rather than aborting before the copy loop.
+    assert (wt / ".agents" / "skills" / "test-skill" / "SKILL.md").exists()
