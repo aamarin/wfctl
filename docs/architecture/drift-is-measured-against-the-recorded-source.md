@@ -24,8 +24,14 @@ happens to be running from.
 
 The manifest records which bundle root an install copied from, beside the
 `content_hash` it recorded for that root. `doctor` re-reads that root and
-compares against it. The running wheel is the default source and the recorded
-source when nothing else was named — not a separate case.
+compares against it.
+
+The running wheel is the default, and it is recorded by the key being **absent**
+rather than by its path. Before this decision the wheel was the only source there
+was, so absence carries a complete answer for every manifest that predates it —
+no migration, no sentinel. Recording the wheel's own path would be worse than
+redundant: an upgrade rewrites that path's contents, so a routine version bump
+would report as the source having changed.
 
 ## Owns truth
 
@@ -77,3 +83,7 @@ would dirty a branch every time someone installed from a path.
 ## Log
 
 - 2026-09-04  proposed    — level-2 gate for #146; `--from` plus provenance
+- 2026-09-05  implemented — Decision amended: the default is recorded by the key
+  being absent, not by the wheel's path. The original wording read as though the
+  wheel were recorded like any other source, which the implementation rejected —
+  an upgrade would then report as the source having changed.
