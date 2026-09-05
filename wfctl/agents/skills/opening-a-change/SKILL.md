@@ -133,9 +133,25 @@ that set, never swapped in for it. The one field that does not copy is an empty
 `assignees`: an unassigned issue is not a decision that the PR has no owner, so
 that case is `--assignee @me`.
 
-`--project` takes the project's title and works on a Projects v2 board. It does
-not carry the status column — a new item lands in the board's default, which is
-the right place for a PR that is not merged yet.
+`--project` takes the project's title and works on a Projects v2 board, but it
+only *adds* the item. The board's "item added" workflow then writes the default
+status, which is the backlog column — so a PR opened for review lands behind the
+issue it closes, which is already in progress. Set it deliberately:
+
+```bash
+gh project item-list <n> --owner <owner> --format json --limit 200 \
+  --jq '.items[] | select((.content.number//0)==<pr>) | .id'
+gh project item-edit --id <item> --project-id <pid> \
+  --field-id <status field> --single-select-option-id <option>
+```
+
+**Never reshape the Status field to make room for a column.**
+`updateProjectV2Field` takes the option list whole rather than appending to it,
+and rewriting it regenerates every option id — which silently clears the status
+of every item on the board, not only the ones you meant to touch. Add the column
+in the project UI. If it has already happened, the values are recoverable: each
+item's content carries a `ProjectV2ItemStatusChangedEvent` timeline, and the last
+one per item is the status it held.
 
 ## Red flags
 
