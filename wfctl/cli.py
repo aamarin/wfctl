@@ -1889,21 +1889,52 @@ def install_skills_cmd(
                 soft_wrap=True,
             )
 
-    # A worktree inherits the project's choice rather than being asked again --
-    # the same reasoning `spec_root` resolves on, and the same main-checkout
-    # fallback. Without it the question below is never posed in a worktree at
-    # all: the manifest is gitignored so it starts empty, and every install in a
-    # worktree's lifecycle is non-interactive (post_create is a hook,
-    # /start-session passes --yes). The key stays absent, which is not "declined"
-    # -- it is permanently unasked, and `wfctl issue` no-ops in silence.
+    # A worktree inherits the project's choice rather than being asked again,
+    # from the main checkout's manifest — the same fallback `spec_root` resolves
+    # through, and for the same reason: the manifest is gitignored, so a
+    # worktree's copy starts empty and dies with the worktree, which leaves the
+    # main checkout the only durable place a project-level decision can live.
+    # Without this the question below is never posed in a worktree at all, since
+    # every install in its lifecycle is non-interactive (post_create is a hook,
+    # /start-session passes --yes). An absent key is not "declined" — it is
+    # permanently unasked, and `wfctl issue` no-ops in silence for the life of
+    # the worktree.
+    #
+    # The parallel with `spec_root` stops at the lookup: that resolves on every
+    # read and stays authoritative, while this copies once into a manifest that
+    # later installs then leave alone. A worktree outliving a change of tracker
+    # keeps the old one. Copying is what `--tracker` already means here, and the
+    # alternative — resolving the backend at dispatch time — would have
+    # `_tracker.py` execute argv out of a config file belonging to a different
+    # checkout. `spec_root` inherits a path; this would inherit a command.
     if tracker is None and "tracker" not in manifest:
         main = main_checkout(repo_root)
-        if main is not None:
-            inherited = _load_manifest(main)
-            if "tracker" in inherited:
-                # Copied even when it is None: the decline is a decision too, and
-                # recording it is what closes the question here as well.
-                manifest["tracker"] = tracker = inherited["tracker"]
+        inherited = _load_manifest(main) if main is not None else {}
+        if "tracker" in inherited:
+            name = inherited["tracker"]
+            # Recorded even when it is None: a decline is a decision, and
+            # recording it is what closes the question here too.
+            manifest["tracker"] = name
+            # `tracker` is not the choice — it is "the caller selected one on
+            # this run", and it is what plans a copy of the backend's config
+            # below. Set it only when this checkout has no config to copy over:
+            # `.agents/trackers/` is deliberately not gitignored, so a project
+            # that commits its backend has the file already, and planning a write
+            # over it classifies a tracked file as a foreign overwrite — which
+            # aborts the whole install on the TTY-less hook this exists to fix,
+            # and silently replaces the project's config under --yes.
+            if name:
+                if not (repo_root / ".agents" / "trackers" / f"{name}.json").exists():
+                    tracker = name
+                # Announced for the same reason the spec-root write below is: a
+                # decision that arrives from another checkout, and that a later
+                # `--tracker none` here cannot durably undo, is not one to make
+                # in silence.
+                console.print(
+                    f"[dim]Tracker '{escape(name)}' inherited from "
+                    f"{escape(str(main))}[/dim]",
+                    soft_wrap=True,
+                )
 
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
