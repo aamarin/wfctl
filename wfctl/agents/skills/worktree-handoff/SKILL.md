@@ -53,7 +53,7 @@ heading next time.
 
 2. **Where to start, and how to read it.** Open with `Run /start-session before
    you touch anything`, and say why on the same line — an agent already holding a
-   full handoff concludes a session-start step is redundant, and four sessions
+   full handoff concludes a session-start step is redundant, and four agents
    concluded exactly that in one afternoon (#206), each running against whatever
    skills its worktree happened to install and never reading the accepted
    records or the pipeline position. Then `Start with <the issue command>`, and
@@ -184,4 +184,4 @@ conversation.
   reasoning dies with it.
 - A section 2 that never says to run `/start-session`. An agent holding a full
   handoff infers the session start is redundant, and the handoff is why it
-  thinks so — four sessions inferred it in one afternoon (#206).
+  thinks so — four agents inferred it in one afternoon (#206).
