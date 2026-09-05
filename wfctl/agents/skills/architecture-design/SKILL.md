@@ -170,6 +170,27 @@ If no known concept fits, there are two honest outcomes:
 
 Never invent an abstraction as a third outcome.
 
+When the approach under comparison is a **boundary between modules that ship
+together**, this claim is one of the positions on the table and is argued
+against rather than adopted:
+
+> An interface is *published* only when it is used outside the codebase that
+> defines it — when you cannot reach the calling code. Inside one codebase a
+> name can be renamed mechanically, so the boundary does not need to be stable;
+> it needs to be legible. Making a boundary checkable is not an abstraction:
+> Yagni exempts "effort to make the software easier to modify" from its own
+> rule.
+
+**It gates nothing.** The step produces a recorded argument, not a verdict, and
+either outcome closes it. What fails the step is passing the claim through
+unexamined — adopting it and refusing it both count.
+
+It is refuted by a consumer outside the package, by an expression that costs
+current readers comprehension, or by a driver that ranks understanding above
+refactoring cost. The conservative form then wins on the record rather than by
+default, which is the outcome this step exists to make available. Sources and
+their refutation conditions: `docs/references/README.md`.
+
 ### 4. Draw responsibilities and crossings
 
 For each credible approach, show:
