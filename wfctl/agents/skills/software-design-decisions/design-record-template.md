@@ -88,10 +88,15 @@ which is what keeps a record a page and not a novel.>
 
 ## Considered
 
-- <alternative> — <why it fell, in terms of the pressure in Context>
-- <alternative> — <why it fell>
+- <alternative> — <the reason it was not chosen, in terms of the pressure in Context>
+- <alternative> — <the reason it was not chosen>
 
-<A deliberately rejected pattern belongs here even when no pattern was used.
+<Fit and fault are both reasons. An alternative can be sound and lose anyway:
+"equally good — this one keeps the choice at the call site" is truer than a
+weakness it does not have, and a manufactured criticism reads as diligence while
+sending the next reader to reject a sound option twice.
+
+A deliberately rejected pattern belongs here even when no pattern was used.
 "Considered Strategy — one implementation, no second caller" is worth a line.>
 
 ## Consequences

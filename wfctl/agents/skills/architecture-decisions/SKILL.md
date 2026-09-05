@@ -58,9 +58,9 @@ not `verification-work` or `issue-69`.
 ## Writing one
 
 Copy `record-template.md` from this skill's directory and fill it in. The
-sections are fixed — `Context`, `Decision`, `Owns truth`, `Considered` and `Log`
-are required, `Consequences` is optional. Add `supersedes` to the frontmatter
-only when this record replaces one.
+sections are fixed — `Context`, `Direct baseline`, `Decision`, `Owns truth`,
+`Considered` and `Log` are required, `Consequences` is optional. Add
+`supersedes` to the frontmatter only when this record replaces one.
 
 ## The field that is not in MADR
 
@@ -127,6 +127,13 @@ Git holds the edit history. The file holds only what git cannot answer — and a
 body edited after the fact makes the record agree with the present, which is
 exactly the thing it was written to prevent.
 
+That rule outranks the section list, so **a record written before a section
+existed does not carry it, and is not backfilled.** `Direct baseline` arrived
+after the accepted records that predate it, and none of them gained one:
+retrofitting a heading across every accepted record is the "agree with the
+present" failure at the only scale where it looks like tidying. A missing
+section in an old record is a date, not a defect.
+
 ## Common Rationalizations
 
 | Rationalization | Reality |
@@ -140,7 +147,10 @@ exactly the thing it was written to prevent.
 - [ ] `Owns truth` names the owning side **and** why the other side cannot
       compute it — both halves, the second one in full.
 - [ ] The owned thing is written as a question in quotes, not as a component name.
-- [ ] `Considered` carries at least one real alternative with why it fell.
+- [ ] `Direct baseline` describes the no-new-structure option concretely enough
+      to compare the decision against.
+- [ ] `Considered` carries at least one real alternative with the true reason it
+      was not chosen — fit counts, and beats a fault the alternative lacks.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.
