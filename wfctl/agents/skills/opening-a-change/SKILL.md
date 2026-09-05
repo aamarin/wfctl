@@ -111,14 +111,20 @@ Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
 
 ```bash
-gh pr create --title "<subject>" --body-file <path> \
-  --assignee <login> --label <name> --milestone <title> --project <title>
+gh pr create --title "<subject>" --body-file <path>
 ```
 
-The four flags after the body are the sidebar, and `gh` sets none of them on its
-own. A body can be perfect and the change still be absent from every board,
-filter and milestone the issue it closes already sits on — the description is
-what a reviewer reads, the attributes are how anyone finds it to read.
+The body only. The sidebar is Step 5 and is deliberately not a flag on this
+command: a flag dropped from an invocation cannot be observed as missing, and
+this step reports done the moment the PR exists. A step can be observed as
+unfinished. That is the whole reason the two are separate.
+
+## Step 5: Fill the sidebar
+
+`gh` sets no attribute on its own. A body can be perfect and the change still be
+absent from every board, filter and milestone the issue it closes already sits
+on — the description is what a reviewer reads, the attributes are how anyone
+finds it to read.
 
 **Read them off the issue rather than inferring them from the diff.** Someone
 already made this triage decision; re-deriving it from what the change touches
@@ -126,17 +132,19 @@ puts `documentation` on a bug fix, because the fix edited prose.
 
 ```bash
 gh issue view <n> --json assignees,labels,milestone,projectItems
+gh pr edit <pr> --add-label <name> --milestone <title> \
+  --add-assignee <login> --add-project <title>
 ```
 
 Copy the set across whole. A label the change earns in its own right is added to
 that set, never swapped in for it. The one field that does not copy is an empty
 `assignees`: an unassigned issue is not a decision that the PR has no owner, so
-that case is `--assignee @me`.
+that case is `--add-assignee @me`.
 
-`--project` takes the project's title and works on a Projects v2 board, but it
-only *adds* the item. The board's "item added" workflow then writes the default
-status, which is the backlog column — so a PR opened for review lands behind the
-issue it closes, which is already in progress. Set it deliberately:
+`--add-project` takes the project's title and works on a Projects v2 board, but
+it only *adds* the item. The board's "item added" workflow then writes the
+default status, which is the backlog column — so a PR opened for review lands
+behind the issue it closes, which is already in progress. Set it deliberately:
 
 ```bash
 gh project item-list <n> --owner <owner> --format json --limit 200 \
@@ -153,6 +161,15 @@ in the project UI. If it has already happened, the values are recoverable: each
 item's content carries a `ProjectV2ItemStatusChangedEvent` timeline, and the last
 one per item is the status it held.
 
+Then read it back, against the issue rather than against your intent:
+
+```bash
+gh pr view <pr> --json labels,assignees,milestone,projectItems
+```
+
+The step is done when that output carries the issue's set. An empty sidebar here
+is this step unfinished, not a PR that happens to have no attributes.
+
 ## Red flags
 
 - Composing a summary first and checking the template afterwards. By then the
@@ -166,3 +183,8 @@ one per item is the status it held.
   skipped, and the only half that proves the check works.
 - Editing the template because a section did not fit. The template is the
   project's file; a change to it is its own change, argued on its own.
+- "The PR is open, so the step is done." The body is what a reviewer reads; the
+  attributes are how anyone finds it to read. PR #179 was opened by an agent that
+  had read this skill in the same turn and landed with none of the issue's four,
+  because the sidebar was an argument on someone else's command rather than a
+  step of its own.
