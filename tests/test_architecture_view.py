@@ -21,7 +21,7 @@ VIEW = REPO_ROOT / "docs" / "architecture" / "views" / "current-state.md"
 
 def _block(name: str) -> list[str]:
     """The non-empty lines of the ```<name> fence in the view."""
-    match = re.search(rf"^```{name}\n(.*?)^```", VIEW.read_text(), re.S | re.M)
+    match = re.search(rf"^```{name}\n(.*?)^```", VIEW.read_text(encoding="utf-8"), re.S | re.M)
     assert match, f"the view has no ```{name} block"
     return [line for line in match.group(1).splitlines() if line.strip()]
 
@@ -45,7 +45,7 @@ def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
         src = path.stem
         if src == "__init__":
             continue
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         # Local name -> module it refers to, for the import forms that bind the
         # module itself. Collected first because the attribute sweep below runs
         # over the same tree and a lazy import inside a function still binds.
