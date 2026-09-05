@@ -51,11 +51,16 @@ heading next time.
    sentence>.` Not a summary of the issue; the sentence the issue would have
    opened with if it had been written after the fact.
 
-2. **Where to start, and how to read it.** `Start with <the issue command>`,
-   then say which parts of it are settled and which are not, and why. "Written
-   after the failure rather than before" and "from a real run, so treat its
-   findings as evidence" are the two that carried; a reader who does not know
-   which sections bind will negotiate with all of them.
+2. **Where to start, and how to read it.** Open with `Run /start-session before
+   you touch anything`, and say why on the same line — an agent already holding a
+   full handoff concludes a session-start step is redundant, and four sessions
+   concluded exactly that in one afternoon (#206), each running against whatever
+   skills its worktree happened to install and never reading the accepted
+   records or the pipeline position. Then `Start with <the issue command>`, and
+   say which parts of it are settled and which are not, and why. "Written after
+   the failure rather than before" and "from a real run, so treat its findings
+   as evidence" are the two that carried; a reader who does not know which
+   sections bind will negotiate with all of them.
 
 3. **Which route this work takes.** Straight to implementation, or through the
    spec pipeline. `.agents/skills/design-levels` owns where the line falls —
@@ -145,8 +150,8 @@ whose `pre_create` hook rejected the name should not leave one behind.
 
 One thing landing here does *not* give the reader: `start-session` step 9 offers
 the top item of a **Next Session TODO** as the default answer to "what are we
-working on today?", and a handoff has no such list — its answer is section 2, the
-whole first move. Say the first action in section 2 plainly enough to be that
+working on today?", and a handoff has no such list — its answer lives in section
+2, after `/start-session`. Say that first action plainly enough to be the
 default. Do not add a TODO section to get one; it would be a second copy of the
 route, and `.agents/skills/end-session` owns that heading.
 
@@ -177,3 +182,6 @@ conversation.
   recover is the conversation that read it.
 - Writing only to `.workmux/`. That file dies with the worktree, and the
   reasoning dies with it.
+- A section 2 that never says to run `/start-session`. An agent holding a full
+  handoff infers the session start is redundant, and the handoff is why it
+  thinks so — four sessions inferred it in one afternoon (#206).
