@@ -1285,10 +1285,10 @@ _MIRRORED_SKILLS = frozenset({
     "fanning-out-code-review",
     "i-have-adhd",
     # Removing this entry restores #124 rather than trimming a list: the skill
-    # still ships and still installs, and the only remaining way to reach it is
-    # a human typing its name — which is the failure it was written for. Nothing
-    # else in the tree says the skill has to be discoverable, and the wrapper
-    # that used to carry the typed route has to be written back with it.
+    # still ships and still installs, its wrapper un-suppresses on the same run,
+    # and the only remaining way to reach it is a human typing that wrapper —
+    # which is the failure it was written for. Nothing else in the tree says the
+    # skill has to be discoverable.
     "opening-a-change",
     "receiving-code-review",
     "using-superpowers",
@@ -1373,9 +1373,14 @@ _AGENT_SKILL_EXTRAS = {
 }
 
 
-def _mirror_supersedes_wrapper(agent: str, src_rel: str, item: Path) -> bool:
+def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path) -> bool:
     """Whether this agent's own command layer should skip `item`, because the
     mirror already put the same name on its native discovery path.
+
+    `layer` is a parameter rather than a caller-side guard because the per-layer
+    scope below is the entire correctness argument, and a contract stated in a
+    docstring while enforced at one call site is a contract the next call site
+    does not get.
 
     Both files claim one `/name`. Claude Code documents the skill as winning that
     tie; a session on 2026-09-04 got the wrapper instead, and its
@@ -1398,7 +1403,8 @@ def _mirror_supersedes_wrapper(agent: str, src_rel: str, item: Path) -> bool:
     name. An agent added to that table later inherits the suppression with it.
     """
     return (
-        src_rel == "agents/commands"
+        layer == agent
+        and src_rel == "agents/commands"
         and agent in _AGENT_SKILL_EXTRAS
         and item.stem in _MIRRORED_SKILLS
     )
@@ -1968,7 +1974,7 @@ def install_skills_cmd(
             )
             continue
         for item in src.iterdir():
-            if layer == agent and _mirror_supersedes_wrapper(agent, src_rel, item):
+            if _mirror_supersedes_wrapper(layer, agent, src_rel, item):
                 continue
             dest = dst / item.name
             rel_dest = str(dest.relative_to(repo_root))

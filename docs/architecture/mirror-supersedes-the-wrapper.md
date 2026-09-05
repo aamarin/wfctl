@@ -75,10 +75,14 @@ Membership decides reachability; the file decides invocability.
 
 ## Consequences
 
-- Adding a name to `_MIRRORED_SKILLS` changes what the mirroring layer installs.
-  An install that already placed `.claude/commands/<name>.md` keeps it until the
-  next run, which reports it as a recorded path this wfctl no longer ships and
-  offers `--prune`; `/start-session` already passes that flag.
+- Adding a name to `_MIRRORED_SKILLS` changes what the mirroring layer installs,
+  and that change is invisible to `doctor`: its staleness check hashes the
+  bundle, which a suppression rule does not touch. A repo installed before the
+  rule keeps its colliding file and reports `skills current`, so the repair runs
+  only when someone reinstalls for another reason. Measured, not inferred.
+- A suppressed wrapper must carry nothing its skill does not. Suppression drops
+  the whole file, so a key like the `allowed-tools` on `start-session.md` would
+  be revoked on the mirroring layer alone by the act of mirroring its skill.
 - `conversation-response-shape` becomes reachable by the model on the Claude
   layer, which its own frontmatter comment has argued for since #99 and the
   colliding wrapper was intermittently denying.

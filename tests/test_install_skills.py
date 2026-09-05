@@ -273,6 +273,86 @@ def test_uninstall_removes_native_skill_mirror(
     assert not (repo_root / ".claude" / "skills" / "native-skill").exists()
 
 
+# The mirrored skills that also ship a command wrapper — the set
+# `_mirror_supersedes_wrapper` acts on. Pinned rather than derived, because
+# deriving it from the two directories is what the tests below would then be
+# asserting against itself: the intersection is exactly the thing that has to be
+# noticed when it changes.
+_SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
+    "conversation-response-shape",
+    "fanning-out-code-review",
+    "i-have-adhd",
+    "opening-a-change",
+    "receiving-code-review",
+    "verification-before-completion",
+    "worktree-handoff",
+})
+
+
+def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
+    """The wrappers the Claude layer skips are still in the bundle for the layers
+    that need them.
+
+    Suppression is per layer and works only because the file still exists —
+    `.bob/commands/` installs it with `_copy_command_for_bob` stripping the key
+    Bob Shell reads as "never execute the body" (#182 tracks that claim's
+    provenance), and `.bob/skills/` gets the vendored `i-have-adhd` with that key
+    intact. Delete the wrapper from the bundle and bob has no route left.
+
+    That is not hypothetical: it is what the first version of #170's fix did, and
+    it is invisible to every other test here. Deleting five of these seven leaves
+    the suite at 838 passed, because the install-level tests build their own
+    wrapper inside the `bundle` fixture and never read the shipped tree.
+
+    Resolved from the installed package for `test_every_declared_mirror_names_a_
+    shipped_skill`'s reason: the autouse `bundle` fixture repoints `BUNDLE_ROOT`
+    at a fixture tree holding none of these names.
+    """
+    import wfctl
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    agents = Path(wfctl.__file__).parent / "agents"
+    assert _SUPPRESSED_ON_A_MIRRORING_LAYER <= _MIRRORED_SKILLS
+    missing = sorted(
+        n for n in _SUPPRESSED_ON_A_MIRRORING_LAYER
+        if not (agents / "commands" / f"{n}.md").exists()
+    )
+
+    assert missing == []
+
+
+def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
+    """A wrapper that is suppressed must hold nothing its skill does not.
+
+    Suppression drops the whole file, so anything the wrapper carries beyond
+    "read the skill" is dropped with it — silently, and only on the mirroring
+    layer. `start-session.md` and `end-session.md` are the live examples: both
+    carry an `allowed-tools:` pre-approval their SKILL.md files do not, so adding
+    either name to `_MIRRORED_SKILLS` would revoke it on the Claude layer with the
+    suite still green.
+
+    `description` and `disable-model-invocation` are the two keys a pointer needs
+    — one to be findable, one to say a human types it — and neither survives into
+    a mirrored skill's behaviour, because the skill file supplies both itself.
+    """
+    import wfctl
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    # Derived from `_MIRRORED_SKILLS`, not from the pinned set above: the whole
+    # failure is a name being *added* to that set, and a loop over the pinned
+    # seven would never see the addition it exists to catch.
+    commands = Path(wfctl.__file__).parent / "agents" / "commands"
+    carrying = {}
+    for name in sorted(n for n in _MIRRORED_SKILLS if (commands / f"{n}.md").exists()):
+        keys = set(_arch._frontmatter((commands / f"{name}.md").read_text()))
+        extra = sorted(keys - {"description", "disable-model-invocation"})
+        if extra:
+            carrying[name] = extra
+
+    assert carrying == {}
+
+
 def test_every_declared_mirror_names_a_shipped_skill() -> None:
     """A name in `_MIRRORED_SKILLS` that matches no skill directory fails here.
 
