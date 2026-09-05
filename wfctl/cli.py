@@ -171,6 +171,11 @@ def status_cmd(
         console.print_json(data={
             "issue": issue,
             "branch": branch,
+            # Which feature the steps below were counted from, null when none
+            # resolved. Without it an unresolved branch and a finished story are
+            # the same payload — every step `pending`/`done` with no way to ask
+            # *whose* tasks.md said so, which is how #120 stayed quiet.
+            "spec_dir": str(spec_dir) if spec_dir is not None else None,
             "session_started": report.session_started,
             "current": report.current,
             "next_command": report.next_command,

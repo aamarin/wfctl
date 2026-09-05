@@ -52,10 +52,11 @@ to move.
 the new worktree's spec dir by hand.** A fresh worktree is a clean checkout, so a
 directory that was never committed does not come across.
 
-Either way, `speckit-orchestrate`'s epic-inherited spec check is what resolves
-it: it globs the spec root for `*/delivery.md`, matches the branch's issue key
-against the table above, and takes that row's `Tasks` column as the sub-issue's
-range.
+Either way, `resolve_spec_dir` is what resolves it: it scans the spec root for
+a `delivery.md` whose Issue Grouping Map names the branch's issue key, and
+`speckit-orchestrate` takes that row's `Tasks` column as the sub-issue's range.
+That scan reads the **first cell of each row in the first table under the
+heading** — which is why the key leads that cell.
 
 Skip the copy in the in-repo case and `wfctl status` reports `brainstorm` for a
 story that is fully planned. That is the symptom; this is the cause.
