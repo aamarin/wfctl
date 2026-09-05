@@ -273,6 +273,86 @@ def test_uninstall_removes_native_skill_mirror(
     assert not (repo_root / ".claude" / "skills" / "native-skill").exists()
 
 
+# The mirrored skills that also ship a command wrapper — the set
+# `_mirror_supersedes_wrapper` acts on. Pinned rather than derived, because
+# deriving it from the two directories is what the tests below would then be
+# asserting against itself: the intersection is exactly the thing that has to be
+# noticed when it changes.
+_SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
+    "conversation-response-shape",
+    "fanning-out-code-review",
+    "i-have-adhd",
+    "opening-a-change",
+    "receiving-code-review",
+    "verification-before-completion",
+    "worktree-handoff",
+})
+
+
+def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
+    """The wrappers the Claude layer skips are still in the bundle for the layers
+    that need them.
+
+    Suppression is per layer and works only because the file still exists —
+    `.bob/commands/` installs it with `_copy_command_for_bob` stripping the key
+    Bob Shell reads as "never execute the body" (#182 tracks that claim's
+    provenance), and `.bob/skills/` gets the vendored `i-have-adhd` with that key
+    intact. Delete the wrapper from the bundle and bob has no route left.
+
+    That is not hypothetical: it is what the first version of #170's fix did, and
+    it is invisible to every other test here. Deleting five of these seven leaves
+    the suite at 838 passed, because the install-level tests build their own
+    wrapper inside the `bundle` fixture and never read the shipped tree.
+
+    Resolved from the installed package for `test_every_declared_mirror_names_a_
+    shipped_skill`'s reason: the autouse `bundle` fixture repoints `BUNDLE_ROOT`
+    at a fixture tree holding none of these names.
+    """
+    import wfctl
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    agents = Path(wfctl.__file__).parent / "agents"
+    assert _SUPPRESSED_ON_A_MIRRORING_LAYER <= _MIRRORED_SKILLS
+    missing = sorted(
+        n for n in _SUPPRESSED_ON_A_MIRRORING_LAYER
+        if not (agents / "commands" / f"{n}.md").exists()
+    )
+
+    assert missing == []
+
+
+def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
+    """A wrapper that is suppressed must hold nothing its skill does not.
+
+    Suppression drops the whole file, so anything the wrapper carries beyond
+    "read the skill" is dropped with it — silently, and only on the mirroring
+    layer. `start-session.md` and `end-session.md` are the live examples: both
+    carry an `allowed-tools:` pre-approval their SKILL.md files do not, so adding
+    either name to `_MIRRORED_SKILLS` would revoke it on the Claude layer with the
+    suite still green.
+
+    `description` and `disable-model-invocation` are the two keys a pointer needs
+    — one to be findable, one to say a human types it — and neither survives into
+    a mirrored skill's behaviour, because the skill file supplies both itself.
+    """
+    import wfctl
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    # Derived from `_MIRRORED_SKILLS`, not from the pinned set above: the whole
+    # failure is a name being *added* to that set, and a loop over the pinned
+    # seven would never see the addition it exists to catch.
+    commands = Path(wfctl.__file__).parent / "agents" / "commands"
+    carrying = {}
+    for name in sorted(n for n in _MIRRORED_SKILLS if (commands / f"{n}.md").exists()):
+        keys = set(_arch._frontmatter((commands / f"{name}.md").read_text()))
+        extra = sorted(keys - {"description", "disable-model-invocation"})
+        if extra:
+            carrying[name] = extra
+
+    assert carrying == {}
+
+
 def test_every_declared_mirror_names_a_shipped_skill() -> None:
     """A name in `_MIRRORED_SKILLS` that matches no skill directory fails here.
 
@@ -292,6 +372,89 @@ def test_every_declared_mirror_names_a_shipped_skill() -> None:
     missing = sorted(n for n in _MIRRORED_SKILLS if not (skills_root / n).is_dir())
 
     assert missing == []
+
+
+def test_the_mirror_suppresses_the_wrapper_it_collides_with(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """A mirrored skill's wrapper does not land in `.claude/commands/`.
+
+    Both files claim one `/name`, and which wins is not wfctl's to set: Claude
+    Code documents the skill as winning, and a session on 2026-09-04 got the
+    wrapper, whose `disable-model-invocation` refused the Skill tool for the very
+    skill it points at, while another session the same day got the skill (#170).
+    Shipping both is shipping the tie.
+
+    The `.agents/` assertion is the half that keeps this honest. Deleting the
+    wrapper from the bundle passes the first assertion too, and takes bob's only
+    working route to `i-have-adhd` with it — `.bob/commands/` gets the copy
+    `_copy_command_for_bob` strips, and `.bob/skills/` gets the vendored key
+    intact.
+    """
+    import os
+    native = bundle / "agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
+    (bundle / "agents" / "commands" / "native-skill.md").write_text(
+        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
+    )
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert not (repo_root / ".claude" / "commands" / "native-skill.md").exists()
+    assert (repo_root / ".agents" / "commands" / "native-skill.md").exists()
+
+
+def test_an_unmirrored_wrapper_still_reaches_the_claude_layer(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """Suppression is scoped to the colliding name, not to the command layer.
+
+    Worth its own test because the guard sits in the loop that builds every
+    layer's plan: a predicate that returned True too broadly would empty
+    `.claude/commands/` entirely, and the collision test above would still pass —
+    it only ever asserts a file is absent.
+    """
+    import os
+    (bundle / "agents" / "commands" / "plain-command.md").write_text("Body.\n")
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert (repo_root / ".claude" / "commands" / "plain-command.md").exists()
+
+
+def test_bob_keeps_the_wrapper_for_a_mirrored_skill(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """Only the layer that got the mirror drops the wrapper.
+
+    bob gets no `.claude/skills` mirror, so for bob the wrapper is not redundant
+    — it is the route. And for `i-have-adhd` it is the only working one: the
+    skills copy is a `copytree` that never reaches `_copy_command_for_bob`, so
+    `.bob/skills/i-have-adhd/SKILL.md` keeps upstream's
+    `disable-model-invocation`, which cli.py records as making Bob Shell skip
+    model invocation entirely — the body never executes.
+
+    This is the test that fails if someone "simplifies" the suppression by
+    deleting the seven wrappers from the bundle instead. Three reviewers found
+    that regression by reading the diff; nothing in the suite caught it.
+    """
+    import os
+    native = bundle / "agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
+    (bundle / "agents" / "commands" / "native-skill.md").write_text(
+        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
+    )
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
+    assert result.exit_code == 0
+    wrapper = repo_root / ".bob" / "commands" / "native-skill.md"
+    assert wrapper.exists()
+    assert "disable-model-invocation" not in wrapper.read_text()
 
 
 def test_installed_tree_is_never_a_mirror_source(

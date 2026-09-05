@@ -42,18 +42,35 @@ def test_every_referenced_skill_ships() -> None:
 
 def test_the_output_style_skills_are_both_loaded_at_session_start() -> None:
     """`i-have-adhd` sets length, `conversation-response-shape` sets order and
-    depth. Neither is model-invocable, so nothing else turns them on — dropping
+    depth. Both have to be on from turn 0 and nothing else turns them on there —
+    `i-have-adhd` carries upstream's `disable-model-invocation`, and the other is
+    model-invocable but only once a turn has already been shaped wrong. Dropping
     either from step 1 disables it for every session, quietly."""
     start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
     loaded = set(_REFERENCE.findall(start))
     assert {"i-have-adhd", "conversation-response-shape"} <= loaded
 
 
-def test_each_output_style_skill_has_a_command_wrapper() -> None:
-    """The wrapper is the only way to turn one back on mid-session, after a
-    session that started without `/start-session` or said "stop adhd mode"."""
+def test_each_output_style_skill_is_typeable_on_every_layer() -> None:
+    """Turning one back on mid-session — after a session that started without
+    `/start-session`, or said "stop adhd mode" — is a human typing its name, so
+    every layer needs a route to it.
+
+    Two routes, because no single one covers every layer, which is the thing
+    #170's first fix got wrong. The wrapper is the route wherever no mirror
+    exists, and for bob it is the only working route to `i-have-adhd`:
+    `.bob/skills/` gets upstream's `disable-model-invocation` verbatim and
+    `.bob/commands/` gets it stripped. The mirror is the route on the layer that
+    has one, where the wrapper is suppressed as a collision.
+
+    Both halves asserted, because either alone stays green through the change
+    that removes the other.
+    """
+    from wfctl.cli import _MIRRORED_SKILLS
+
     for name in ("i-have-adhd", "conversation-response-shape"):
         assert (_AGENTS / "commands" / f"{name}.md").exists(), name
+        assert name in _MIRRORED_SKILLS, name
 
 
 def test_start_session_loads_the_in_force_set() -> None:

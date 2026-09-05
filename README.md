@@ -192,8 +192,8 @@ Install skills into a project:
 
 ```
 $ wfctl install-skills
-✓ Installed from wfctl 0.15.0
-  base  27 skills · 24 commands · 8 runtime
+✓ Installed from wfctl 0.16.0
+  base  33 skills · 27 commands · 8 runtime
 
 Installed to .agents/ — skills and commands in their canonical, agent-agnostic
 form. If your agent needs its own native paths:
@@ -202,9 +202,9 @@ form. If your agent needs its own native paths:
   copilot  wfctl install-skills --agent copilot
 
 $ wfctl install-skills --agent claude
-✓ Installed from wfctl 0.15.0
-  base    27 skills · 24 commands · 8 runtime
-  claude  4 skills · 24 commands
+✓ Installed from wfctl 0.16.0
+  base    33 skills · 27 commands · 8 runtime
+  claude  10 skills · 20 commands
 ```
 
 The skills ship inside wfctl, so an install copies from the wheel and needs no
@@ -218,7 +218,7 @@ speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
 | `--agent` | Adds on top of `.agents/` |
 |-----------|---------------------------|
 | *(omitted)* / `none` | nothing — the base layer only |
-| `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable |
+| `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable. A wrapper whose skill is mirrored is skipped here — both would claim one `/name` — so this layer installs fewer commands than the base one |
 | `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
 | `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
 | `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
@@ -241,7 +241,7 @@ and:
 
 ```
 $ wfctl uninstall-skills --agent claude
-✓ Removed 27 item(s), restored 1 pre-existing file(s) for layer 'claude'
+✓ Removed 30 item(s), restored 1 pre-existing file(s) for layer 'claude'
 ```
 
 removes that layer and restores anything it overwrote to its original content.
