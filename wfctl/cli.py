@@ -1274,6 +1274,10 @@ def _restore_hint(layers: Iterable[str]) -> str:
 # SKILL.md. A file-level mark cannot cover a vendored skill — the next upstream
 # pull drops whatever we added — and it put authority over a layer's contents in
 # the files instead of the installer that owns them (`layer-model`).
+#
+# A name here also suppresses `<name>.md` from the *mirroring layer's* command
+# directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
+# every other layer still gets it.
 _MIRRORED_SKILLS = frozenset({
     "architecture-decisions",
     "conversation-response-shape",
@@ -1282,8 +1286,9 @@ _MIRRORED_SKILLS = frozenset({
     "i-have-adhd",
     # Removing this entry restores #124 rather than trimming a list: the skill
     # still ships and still installs, and the only remaining way to reach it is
-    # a human typing the command wrapper — which is the failure it was written
-    # for. Nothing else in the tree says the skill has to be discoverable.
+    # a human typing its name — which is the failure it was written for. Nothing
+    # else in the tree says the skill has to be discoverable, and the wrapper
+    # that used to carry the typed route has to be written back with it.
     "opening-a-change",
     "receiving-code-review",
     "using-superpowers",
@@ -1366,6 +1371,37 @@ def _claude_native_skill_mirror(
 _AGENT_SKILL_EXTRAS = {
     "claude": _claude_native_skill_mirror,
 }
+
+
+def _mirror_supersedes_wrapper(agent: str, src_rel: str, item: Path) -> bool:
+    """Whether this agent's own command layer should skip `item`, because the
+    mirror already put the same name on its native discovery path.
+
+    Both files claim one `/name`. Claude Code documents the skill as winning that
+    tie; a session on 2026-09-04 got the wrapper instead, and its
+    `disable-model-invocation` refused the Skill tool for the very skill the
+    wrapper points at — while another session the same day, same machine, got the
+    skill and ran it (#170). Which one wins is not wfctl's to set, so the fix is
+    to stop shipping the tie into the layer that has both.
+
+    Suppressed per layer, never from the bundle, and that distinction is the
+    whole correctness of this function. The wrapper is one file whose body is
+    "read the sibling skill", and it is still the only typed route for a layer
+    that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
+    `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
+    body". Deleting the wrapper from the bundle instead would hand bob the
+    vendored `i-have-adhd` skill with that key intact and no stripped copy left
+    to reach it: a Claude-shaped argument taking out a layer it never described.
+
+    Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
+    what makes a wrapper redundant is that this agent got the mirror, not its
+    name. An agent added to that table later inherits the suppression with it.
+    """
+    return (
+        src_rel == "agents/commands"
+        and agent in _AGENT_SKILL_EXTRAS
+        and item.stem in _MIRRORED_SKILLS
+    )
 
 
 def _read_settings(path: Path) -> tuple[dict | None, str | None]:
@@ -1932,6 +1968,8 @@ def install_skills_cmd(
             )
             continue
         for item in src.iterdir():
+            if layer == agent and _mirror_supersedes_wrapper(agent, src_rel, item):
+                continue
             dest = dst / item.name
             rel_dest = str(dest.relative_to(repo_root))
             plan.append((layer, kind, rel_dest, dest, item))
@@ -3172,10 +3210,17 @@ def _scanned_dirs(manifest: dict) -> tuple[str, ...]:
     agent roots — `.claude/`, `.bob/`, `.github/` — stay out with one exception.
     They are the user's own directories; a slash command someone authored there
     is not wfctl's abandoned output. Keeping them out costs nothing for a plain
-    `_AGENT_TARGETS` entry, because every one of those copies a base source whole:
+    `_AGENT_TARGETS` entry, because the base source is copied whole *somewhere*:
     the rename that orphans `.claude/commands/old.md` orphans
     `.agents/commands/old.md` alongside it, and the base layer's copy is scanned.
     The real case is caught without reaching into shared ground.
+
+    `_mirror_supersedes_wrapper` skips names inside one of those copies and does
+    not weaken that: what it skips still ships to the base layer, so the scanned
+    twin is exactly where the argument above already looks for it. A name it
+    suppresses leaves `.claude/commands/<name>.md` behind on the install that
+    adds it, and that one is caught as a recorded path this wfctl no longer
+    ships — the other half of doctor, not this scan.
 
     `.claude/skills` is the exception because it is a *selective* mirror — only
     the skills `_MIRRORED_SKILLS` names — so its orphans have no twin under

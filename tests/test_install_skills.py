@@ -294,6 +294,89 @@ def test_every_declared_mirror_names_a_shipped_skill() -> None:
     assert missing == []
 
 
+def test_the_mirror_suppresses_the_wrapper_it_collides_with(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """A mirrored skill's wrapper does not land in `.claude/commands/`.
+
+    Both files claim one `/name`, and which wins is not wfctl's to set: Claude
+    Code documents the skill as winning, and a session on 2026-09-04 got the
+    wrapper, whose `disable-model-invocation` refused the Skill tool for the very
+    skill it points at, while another session the same day got the skill (#170).
+    Shipping both is shipping the tie.
+
+    The `.agents/` assertion is the half that keeps this honest. Deleting the
+    wrapper from the bundle passes the first assertion too, and takes bob's only
+    working route to `i-have-adhd` with it — `.bob/commands/` gets the copy
+    `_copy_command_for_bob` strips, and `.bob/skills/` gets the vendored key
+    intact.
+    """
+    import os
+    native = bundle / "agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
+    (bundle / "agents" / "commands" / "native-skill.md").write_text(
+        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
+    )
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert not (repo_root / ".claude" / "commands" / "native-skill.md").exists()
+    assert (repo_root / ".agents" / "commands" / "native-skill.md").exists()
+
+
+def test_an_unmirrored_wrapper_still_reaches_the_claude_layer(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """Suppression is scoped to the colliding name, not to the command layer.
+
+    Worth its own test because the guard sits in the loop that builds every
+    layer's plan: a predicate that returned True too broadly would empty
+    `.claude/commands/` entirely, and the collision test above would still pass —
+    it only ever asserts a file is absent.
+    """
+    import os
+    (bundle / "agents" / "commands" / "plain-command.md").write_text("Body.\n")
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0
+    assert (repo_root / ".claude" / "commands" / "plain-command.md").exists()
+
+
+def test_bob_keeps_the_wrapper_for_a_mirrored_skill(
+    bundle: Path, agent_dir: Path, declared_mirror: None
+) -> None:
+    """Only the layer that got the mirror drops the wrapper.
+
+    bob gets no `.claude/skills` mirror, so for bob the wrapper is not redundant
+    — it is the route. And for `i-have-adhd` it is the only working one: the
+    skills copy is a `copytree` that never reaches `_copy_command_for_bob`, so
+    `.bob/skills/i-have-adhd/SKILL.md` keeps upstream's
+    `disable-model-invocation`, which cli.py records as making Bob Shell skip
+    model invocation entirely — the body never executes.
+
+    This is the test that fails if someone "simplifies" the suppression by
+    deleting the seven wrappers from the bundle instead. Three reviewers found
+    that regression by reading the diff; nothing in the suite caught it.
+    """
+    import os
+    native = bundle / "agents" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
+    (bundle / "agents" / "commands" / "native-skill.md").write_text(
+        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
+    )
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
+    assert result.exit_code == 0
+    wrapper = repo_root / ".bob" / "commands" / "native-skill.md"
+    assert wrapper.exists()
+    assert "disable-model-invocation" not in wrapper.read_text()
+
+
 def test_installed_tree_is_never_a_mirror_source(
     agent_dir: Path, declared_mirror: None
 ) -> None:
