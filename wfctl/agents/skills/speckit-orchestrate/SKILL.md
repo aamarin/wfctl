@@ -7,10 +7,14 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 0. **Session gate** — before anything else, including the spec lookup below.
 
-   Run `wfctl status --json` and read `session_started`. If it is `false`,
-   display this and stop:
+   Run `wfctl status --json` and read `session_started`. If it is `false`:
+   - Display: "No wfctl session for this branch. Run `/start-session` first."
+   - Stop.
 
-   > No wfctl session for this branch. Run `/start-session` first.
+   Stop the same way if the command exits non-zero or the payload carries no
+   `session_started` at all, displaying what it printed. A gate that proceeds
+   on a missing answer is not a gate, and the missing answer is the likelier
+   failure: outside a git repo `status` exits 1 before it prints a payload.
 
    Stop means stop: no checks, no analysis, no recommendation offered first. A
    run that reaches a conclusion here leaves it in scrollback and nowhere else.
@@ -19,12 +23,19 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    reads an empty state dir and reports "first session on this branch" — true of
    the state dir, false of the branch (#117).
 
+   **What this catches is a branch's first session, not every session.**
+   `session_started` is true once any `start` event exists in the log and
+   nothing ever clears it, so a later conversation that skips `/start-session`
+   on a branch that has already had one walks straight through this gate. Do
+   not read the check as proof that a session is open now. Closing that gap
+   needs a per-session identity the state dir does not carry, which is a wfctl
+   surface change rather than a skill one.
+
    Name `/start-session`, not `wfctl start`. Both clear this check; only the
    first also refreshes the skills mirror, loads the architecture contract and
-   reads the handoff. And do not run either one yourself to clear your own gate
-   — a read that opens a session writes state as a side effect, which is what
-   `session-state-is-re-derived` exists to forbid, and it hides from the user
-   that `/start-session` was skipped.
+   reads the handoff. And do not run either one yourself to clear your own
+   gate: opening a session is `/start-session`'s job, and doing it from inside
+   a read hides from the user that the step was skipped.
 
 1. **Epic-inherited spec check** — run before trusting wfctl's own inference.
    A sub-issue worktree has no spec dir under its own branch name, so
@@ -90,7 +101,8 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
-   you ask.
+   you ask. Nor step 0's payload: `resume` ran between the two reads, which is
+   the whole reason this one is taken again.
 
 5. Branch on the result:
 
