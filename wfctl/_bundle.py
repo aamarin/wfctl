@@ -90,3 +90,37 @@ def content_hash(root: Path) -> str:
             digest.update(b"%d:" % len(data))
             digest.update(data)
     return digest.hexdigest()
+
+
+def resolve_root(path: Path) -> Path:
+    """Turn a user-supplied path into a validated, absolute bundle root.
+
+    Two spellings are accepted because both are things a person has in hand: the
+    package directory that holds the trees, and the checkout that holds the
+    package. `--from ../116-pr` names a worktree; the trees are at
+    `../116-pr/wfctl`.
+
+    The given path is tried before the nested probe, so the spelling that is
+    already a bundle root keeps its meaning rather than being reinterpreted as a
+    checkout around one.
+
+    Absolute, because the caller records the result and `doctor` reads it back
+    from wherever the next session happens to be standing (FR-004). Resolution
+    has to happen here, where the user's working directory is still the frame the
+    path was written against.
+
+    Raises `FileNotFoundError` in `content_hash`'s shape, but naming both places
+    it looked and not its advice to reinstall the package — a source the caller
+    named is a typo or a wrong layout, not a broken wheel. Naming only the given
+    path leaves someone who pointed at a checkout root one level from the answer
+    with no sign of it.
+    """
+    given = Path(path).expanduser()
+    probe = given / "wfctl"
+    for candidate in (given, probe):
+        if any((candidate / tree).is_dir() for tree in TREES):
+            return candidate.resolve()
+    raise FileNotFoundError(
+        f"no bundled trees under {given} — expected one of {', '.join(TREES)} "
+        f"(also looked in {probe})"
+    )
