@@ -65,8 +65,9 @@ the rule; the earlier phrasing was the same rule stated in a way that could not
 tell its two subjects apart.
 
 **The rule is expressed as an executable check, not as the marker alone.** A
-check over the AST fails the build on any import of a `_`-prefixed member from
-another module in the package. `tests/` is exempt by name.
+check over the AST will fail the build on any import of a `_`-prefixed member
+from another module in the package, with `tests/` exempt by name. Writing it is
+phase 2; nothing checks this today.
 
 Where `cli` needs a name today, the name becomes public rather than the crossing
 being tolerated:
@@ -138,11 +139,16 @@ nothing outside the wheel imports `wfctl.*`.
 
 ## Consequences
 
-The check fails on `tests/`, which imports twenty-six distinct private names,
-including six private modules. The exemption is by directory and is the price of
-the decision rather than a flaw in it — a test that could not reach past the
-marker would be testing the public surface only, which is a different rule
-nobody proposed.
+`tests/` is exempt because it reaches past the marker deliberately: a white-box
+test asserts on the internals the rule is protecting, and a test that could only
+reach the public surface would be testing a different thing. The exemption is by
+directory and is the price of the decision rather than a flaw in it.
+
+Note which imports the check would flag there, because the two subjects separate
+again: it flags **member** imports, and the module imports are not violations at
+all — the rule says so. So the exemption's scope is narrower than "tests import
+private things" suggests, and a count of either set is deliberately not written
+here. It moves with the suite and a stale number in a record reads as a fact.
 
 `tests/test_architecture_view.py` pins the *count* of crossings at four, so it
 fails when a fifth is added and equally when one of the four is resolved. That
@@ -161,3 +167,4 @@ Moving `next_cmd` onto `build_report` removes two crossings and answers nothing;
 
 - 2026-09-04  proposed    — #149 phase 1, pass 2: the four private crossings
 - 2026-09-05  revised     — expression decided: an executable check over members, not the marker alone (#149 amendment)
+- 2026-09-05  revised     — check stated as intent, not as existing; the tests/ exemption scoped to member imports (review on #191)
