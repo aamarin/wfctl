@@ -80,6 +80,23 @@ The recorded source is per-checkout, so it lives in `.wf-skills-manifest.json`
 (gitignored) rather than `wfctl.json` (tracked). Recording it in the tracked file
 would dirty a branch every time someone installed from a path.
 
+**This widens what a repo can steer.** The manifest is gitignored by convention,
+not by any check, so nothing stops a project from committing one. Before this
+decision a manifest could choose at most *which layer* `doctor` told you to
+reinstall, and the bytes always came from the wheel. Now it also chooses *where
+the bytes come from*: a committed manifest carrying a wrong `content_hash` and a
+repo-local `source` makes `doctor` print `update: wfctl install-skills --from
+<repo>/…`, and `/start-session` runs that line with `--yes` before it reports
+anything to a human. What lands is `.agents/skills/` — files whose purpose is to
+instruct the agent — and `.specify/scripts/`, which speckit commands execute.
+
+Accepted rather than gated. Refusing a source inside the repo would break
+vendoring a bundle deliberately, which is a thing people do, and the check would
+be guessing at intent from a path prefix. It is the same hazard `AGENTS.md`
+already names for seeded hooks — cloning an untrusted repo and letting an agent
+run its setup unattended — and it is answered the same way: by saying so, next to
+the other one.
+
 ## Log
 
 - 2026-09-04  proposed    — level-2 gate for #146; `--from` plus provenance
@@ -87,3 +104,7 @@ would dirty a branch every time someone installed from a path.
   being absent, not by the wheel's path. The original wording read as though the
   wheel were recorded like any other source, which the implementation rejected —
   an upgrade would then report as the source having changed.
+- 2026-09-05  reviewed    — Consequences gained the trust boundary `--from`
+  opens, raised by two of three reviewers on the panel over this branch. Amended
+  rather than superseded: this record is still `proposed`, and the never-edit
+  rule binds from `accepted`.
