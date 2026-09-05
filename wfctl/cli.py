@@ -1794,6 +1794,14 @@ def install_skills_cmd(
         help="Issue-tracker backend: 'github' (ships), 'none' to clear, or a "
         "custom name whose .agents/trackers/<name>.json you author. Omit to leave unchanged.",
     ),
+    # `from` is a keyword, so the parameter cannot carry the flag's name. The
+    # option string is what the user types and what `doctor`'s remedy prints.
+    source: str = typer.Option(
+        None,
+        "--from",
+        help="Install from this bundle root instead of the running wfctl. "
+        "Accepts a checkout root or the package directory inside it.",
+    ),
 ) -> None:
     """Install wf-skills (skills + commands) into the current project."""
     import datetime
@@ -1807,10 +1815,33 @@ def install_skills_cmd(
         )
         raise typer.Exit(1)
 
+    from rich.markup import escape
+
     # Said before the install runs, so the reason arrives ahead of a summary
     # that would otherwise look like the agent was simply ignored.
     if agent in _AGENT_NOTICES:
         console.print(f"[cyan]ℹ[/cyan] {_AGENT_NOTICES[agent]}")
+
+    # Before anything is read from the repo and long before anything is written
+    # to it, so a path that resolves to nothing leaves the project exactly as it
+    # was. Never falls back to the running bundle: a run that reported success
+    # over a tree the caller did not name is the confusion #146 opens with.
+    bundle_root = _bundle.BUNDLE_ROOT
+    if source is not None:
+        try:
+            bundle_root = _bundle.resolve_root(Path(source))
+        except FileNotFoundError as e:
+            console.print(f"[red]✗ {e}[/red]", soft_wrap=True)
+            raise typer.Exit(1) from e
+
+    # Who to blame when a tree the install expects is not there. The wheel ships
+    # complete, so its absence is a broken install; a root the caller named is
+    # theirs to fix, and `resolve_root` admits a partial one on purpose.
+    origin_label = (
+        f"the source you named ({escape(str(bundle_root))})"
+        if source is not None
+        else f"this wfctl install ({escape(str(bundle_root))})"
+    )
 
     try:
         repo_root = get_repo_root()
@@ -1834,6 +1865,29 @@ def install_skills_cmd(
     # a layer they deselected abandoned. Read here rather than later: the loop
     # that writes the new record replaces these entries wholesale.
     prior_layer_items = {k: manifest[k].get("items", []) for k in _layer_keys(manifest)}
+
+    # `--from` is one-shot, so a bare install silently discards it. Said before
+    # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
+    # a stale mirror unattended with `--yes`, which makes that the one place the
+    # discard happens without anyone choosing it. Scoped to the layers this run
+    # rewrites, which always include base — `layered` below appends
+    # `_BASE_TARGETS` on every run, so even `--agent claude` rewrites base's
+    # record and drops its source. What the scoping excludes is the *other* agent
+    # layers, whose records this run does not touch.
+    if source is None:
+        rewritten = {_BASE_LAYER, agent} & set(_layer_keys(manifest))
+        for prior_source in sorted(
+            {s for k in rewritten if (s := manifest[k].get("source"))}
+        ):
+            # Future tense: the foreign-overwrite prompt below can still abort
+            # the run, and "Replacing" would have described something that never
+            # happened.
+            console.print(
+                f"[yellow]⚠[/yellow] Will replace an install from "
+                f"{escape(prior_source)} with wfctl {_wfctl_version()} "
+                "— no source named",
+                soft_wrap=True,
+            )
 
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
@@ -1905,8 +1959,6 @@ def install_skills_cmd(
             # answer to option 2 lands elsewhere on disk and simply has no entry
             # to write; `_ensure_gitignored` would otherwise be handed a path its
             # `check-ignore` call cannot evaluate against this repo.
-            from rich.markup import escape
-
             rel = Path(chosen).expanduser()
             if not rel.is_absolute() and _ensure_gitignored(target, f"{chosen}/"):
                 console.print(
@@ -1959,18 +2011,24 @@ def install_skills_cmd(
         *((_BASE_LAYER, "runtime", s, d) for s, d in _RUNTIME_TARGETS),
     ]
     for layer, kind, src_rel, dst_rel in layered:
-        src = _bundle.BUNDLE_ROOT / src_rel
+        src = bundle_root / src_rel
         dst = repo_root / dst_rel
         if not src.exists():
-            # Reachable only from a broken install — the bundle ships with the
-            # package, so a missing source means the wheel lost files rather
-            # than that the user asked for something that does not exist. Named
-            # as such, since "not found in wf-skills@main" used to send people
-            # to look upstream for a problem on their own disk.
+            # Two ways to arrive here, and they blame opposite parties. Without
+            # `--from` the bundle ships with the package, so a missing tree means
+            # the wheel lost files — named as such, since "not found in
+            # wf-skills@main" used to send people to look upstream for a problem
+            # on their own disk. With `--from` the tree is one the caller chose,
+            # and `resolve_root` accepts a root holding only one of them because a
+            # partial bundle is a real state during a re-sync; saying "this wfctl
+            # install" there sends them to reinstall the wheel over a typo.
+            # soft_wrap, like every other line here that carries a path: rich
+            # breaks a long one across two lines, and a wrapped path is one the
+            # reader cannot copy or grep for.
             console.print(
-                f"[yellow]⚠[/yellow] Expected '{src_rel}' missing from this "
-                f"wfctl install ({_bundle.BUNDLE_ROOT}) — skipping "
-                "(nothing installed for this path)"
+                f"[yellow]⚠[/yellow] Expected '{src_rel}' missing from "
+                f"{origin_label} — skipping (nothing installed for this path)",
+                soft_wrap=True,
             )
             continue
         for item in src.iterdir():
@@ -1997,7 +2055,7 @@ def install_skills_cmd(
 
     # 'github' is the only tracker the bundle ships; copy just its config.
     if tracker == "github":
-        tsrc = _bundle.BUNDLE_ROOT / "agents" / "trackers" / "github.json"
+        tsrc = bundle_root / "agents" / "trackers" / "github.json"
         if tsrc.exists():
             tdest = repo_root / ".agents" / "trackers" / "github.json"
             trel = str(tdest.relative_to(repo_root))
@@ -2007,8 +2065,8 @@ def install_skills_cmd(
         else:
             console.print(
                 "[yellow]⚠[/yellow] --tracker github, but "
-                "agents/trackers/github.json is missing from this wfctl "
-                f"install ({_wfctl_version()}) — nothing installed for it"
+                "agents/trackers/github.json is missing from "
+                f"{origin_label} — nothing installed for it"
             )
 
     if foreign_overwrites and not yes:
@@ -2027,7 +2085,7 @@ def install_skills_cmd(
     # Computed first so a bundle-less install fails with the repo untouched: the
     # alternative is a copied tree and no manifest, which uninstall can't undo.
     try:
-        content_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+        content_hash = _bundle.content_hash(bundle_root)
     except FileNotFoundError as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1) from e
@@ -2096,12 +2154,19 @@ def install_skills_cmd(
     # and those name a fetch that no longer happens. `layer_items` already carries
     # every prior `backup` pointer forward, so the one field that cannot be
     # recomputed survives — an `.update()` here would keep the dead keys instead.
+    #
+    # `source` is written only when one was named. Absence means the default,
+    # and it is a complete answer rather than a gap: before `--from` the running
+    # tool was the only source there was, so every manifest predating it reads
+    # correctly with no migration. That is what separates it from `content_hash`,
+    # whose absence is genuinely unmeasurable and warns.
     for layer, layer_items in items.items():
         manifest[layer] = {
             "wfctl_version": wfctl_version,
             "content_hash": content_hash,
             "installed_at": installed_at,
             "items": layer_items,
+            **({"source": str(bundle_root)} if source is not None else {}),
         }
 
     # A manifest from before the layer split can carry a `none` entry owning
@@ -2264,7 +2329,14 @@ def install_skills_cmd(
             soft_wrap=True,
         )
 
-    console.print(f"[green]✓[/green] Installed from wfctl {wfctl_version}")
+    # The path as typed, not the resolved one the manifest holds: this line is
+    # read next to the command that produced it, and `../116-pr` is what the
+    # reader can match against what they wrote.
+    installed_from = escape(source) if source is not None else f"wfctl {wfctl_version}"
+    console.print(
+        f"[green]✓[/green] Installed from {installed_from}",
+        soft_wrap=True,
+    )
     for line in _format_summary(summary):
         console.print(line)
     for merged_rel in merge_written:
@@ -3624,11 +3696,25 @@ def doctor_cmd() -> None:
     ]):
         exit_code = 1
 
-    # One hash for the whole bundle, so it is computed once no matter how many
-    # layers are on record — every entry in one manifest carries the same value.
+    # Both used only by the recorded-source branch below, which prints a path
+    # into a shell-shaped line.
+    import shlex
+
+    from rich.markup import escape
+
+    # One hash per distinct bundle root, not one per layer: every entry produced
+    # by a single install carries the same value, and layers installed from the
+    # same source share the walk. In practice this holds one or two entries.
     running_version = _wfctl_version()
+    digests: dict[Path, str] = {}
+
+    def digest_of(root: Path) -> str:
+        if root not in digests:
+            digests[root] = _bundle.content_hash(root)
+        return digests[root]
+
     try:
-        bundle_hash = _bundle.content_hash(_bundle.BUNDLE_ROOT)
+        bundle_hash = digest_of(_bundle.BUNDLE_ROOT)
     except FileNotFoundError as e:
         # Every remaining check compares against this digest, so there is no
         # partial report to salvage — the other checks above have already run.
@@ -3645,6 +3731,64 @@ def doctor_cmd() -> None:
             console.print(
                 f"[yellow]⚠[/yellow] {agent}: installed before content hashing — "
                 "re-run install-skills to enable drift checking."
+            )
+            continue
+
+        # A layer installed from a named source is measured against that source,
+        # never against the running wheel. Comparing it to the wheel is what made
+        # the edit-install-test loop report drift on every run — the condition
+        # #146 exists to end — and the wheel's digest says nothing about whether
+        # the checkout the caller named has moved.
+        recorded_source = entry.get("source")
+        if recorded_source:
+            # A recorded source is a path off this repo's disk, and every line
+            # below prints it. Bracketed directory names are legal and parse as
+            # rich style tags, so an unescaped `/x/[old]/wfctl` prints as
+            # `/x//wfctl` — a different path, with nothing said about it.
+            shown_source = escape(recorded_source)
+            try:
+                source_hash = digest_of(_bundle.resolve_root(Path(recorded_source)))
+            except OSError:
+                # A warning, not a finding. The install may well be current; what
+                # is missing is the only thing that could tell us either way, and
+                # a checkout moved or deleted is not a defect in this repo.
+                # OSError rather than FileNotFoundError: a source on an unmounted
+                # volume or under a directory this user cannot read is unmeasurable
+                # for the same reason and has the same remedy. The narrower catch
+                # let a PermissionError out as a traceback, and this runs inside
+                # `/start-session` before it has reported anything at all.
+                console.print(
+                    f"[yellow]⚠[/yellow] {agent}: installed from {shown_source} "
+                    "— source is gone, can't check",
+                    soft_wrap=True,
+                )
+                continue
+
+            if recorded == source_hash:
+                console.print(
+                    f"[green]✓[/green] {agent}: skills current (from {shown_source})",
+                    soft_wrap=True,
+                )
+                continue
+
+            exit_code = 1
+            console.print(
+                f"[cyan]⬆[/cyan] {agent}: source changed since install — {shown_source}",
+                soft_wrap=True,
+            )
+            # `--from` carried through, for the same reason the agent flag is:
+            # the printed command is what the reader runs, and a bare install
+            # would repair the drift by discarding the source that produced it.
+            # `/start-session` runs this repair unattended, so the line has to be
+            # correct without anyone reading it.
+            # quote() before escape(): this line is copied into a shell, and a
+            # source under a directory with a space in its name printed as two
+            # arguments — the second one rejected, so the repair that
+            # `/start-session` runs unattended failed at parse.
+            console.print(
+                f"    update: wfctl install-skills{_agent_flag(agent)} "
+                f"--from {escape(shlex.quote(recorded_source))}",
+                soft_wrap=True,
             )
             continue
 

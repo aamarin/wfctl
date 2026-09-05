@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._bundle import TREES, content_hash
+from wfctl._bundle import TREES, content_hash, resolve_root
 
 # A tree with one file in each of the six sourceable directories, including the
 # dot-prefixed workmux config — the file setuptools' globs drop by default and
@@ -191,3 +191,82 @@ def test_the_bundled_teardown_hook_names_the_current_command() -> None:
 
     assert "archive-story" not in text, "the bundled hook still seeds the retired command name"
     assert "wfctl archive-specs" in text, "the bundled hook must invoke the archive command"
+
+
+def test_resolve_root_accepts_the_package_directory_itself(tmp_path: Path) -> None:
+    """The path holding the trees is already a bundle root.
+
+    This is what `--from` receives when someone points it at `…/wfctl` rather
+    than at the checkout around it.
+    """
+    root = _build(tmp_path / "pkg", _FIXED_TREE)
+
+    assert resolve_root(root) == root.resolve()
+
+
+def test_resolve_root_probes_one_level_in_for_a_checkout_root(tmp_path: Path) -> None:
+    """A checkout root is what people have in hand, not the package inside it.
+
+    `--from ../116-pr` names a worktree; the trees live at `../116-pr/wfctl`.
+    Refusing that would make the failure message the only thing that teaches the
+    layout.
+    """
+    checkout = tmp_path / "checkout"
+    _build(checkout / "wfctl", _FIXED_TREE)
+    (checkout / "pyproject.toml").write_text("[project]\n")
+
+    assert resolve_root(checkout) == (checkout / "wfctl").resolve()
+
+
+def test_resolve_root_prefers_the_given_path_over_the_nested_probe(tmp_path: Path) -> None:
+    """A wfctl checkout holds both, and the outer one is not a bundle root.
+
+    Only relevant because the trees at `<path>/wfctl` exist in every wfctl
+    checkout: probing first would resolve `--from <checkout>/wfctl` — which is
+    already correct — to `<checkout>/wfctl/wfctl`, which does not exist.
+    """
+    root = _build(tmp_path / "both", _FIXED_TREE)
+    _build(root / "wfctl", _FIXED_TREE)
+
+    assert resolve_root(root) == root.resolve()
+
+
+def test_resolve_root_names_both_locations_it_looked_in(tmp_path: Path) -> None:
+    """The message is the whole remedy — nothing else tells the caller the layout.
+
+    Naming only the path given leaves someone who pointed at a checkout root one
+    level away from the answer with no sign of it.
+    """
+    nowhere = tmp_path / "not-a-checkout"
+    nowhere.mkdir()
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        resolve_root(nowhere)
+
+    message = str(excinfo.value)
+    assert str(nowhere) in message
+    assert str(nowhere / "wfctl") in message
+    for tree in TREES:
+        assert tree in message
+
+
+def test_resolve_root_raises_for_a_path_that_does_not_exist(tmp_path: Path) -> None:
+    """A typo'd `--from` is the common way to reach this, not a broken install."""
+    with pytest.raises(FileNotFoundError):
+        resolve_root(tmp_path / "no-such-directory")
+
+
+def test_resolve_root_returns_an_absolute_path(tmp_path: Path, monkeypatch) -> None:
+    """FR-004: the recorded value has to mean the same thing from any directory.
+
+    `doctor` runs from wherever the session happens to be, so a relative source
+    resolved at install time and stored as given would resolve against the wrong
+    frame every session after.
+    """
+    _build(tmp_path / "pkg", _FIXED_TREE)
+    monkeypatch.chdir(tmp_path)
+
+    resolved = resolve_root(Path("pkg"))
+
+    assert resolved.is_absolute()
+    assert resolved == (tmp_path / "pkg").resolve()

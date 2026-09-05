@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shlex
 import shutil
 import subprocess
 from collections.abc import Iterator
@@ -2517,3 +2518,384 @@ def test_non_bob_install_preserves_claude_frontmatter(
 
     installed = (repo_root / ".claude" / "commands" / "test-cmd.md").read_text()
     assert "disable-model-invocation: true" in installed
+
+
+# --- install-skills --from: the named source (#146) ---------------------------
+#
+# The autouse `bundle` fixture is the *running* wfctl's tree. Every test below
+# needs a second one to point `--from` at, and needs its content to differ, or
+# "installed from the source you named" and "installed from the running tool"
+# produce the same bytes and no assertion can tell them apart.
+
+_NAMED_SOURCE_SKILL = "# from the named source\n"
+
+
+def _named_source(root: Path) -> Path:
+    """A second bundle, shaped like conftest's but with distinguishable content."""
+    skill = root / "agents" / "skills" / "test-skill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(_NAMED_SOURCE_SKILL)
+    commands = root / "agents" / "commands"
+    commands.mkdir(parents=True)
+    (commands / "test-cmd.md").write_text("# test-cmd from the named source\n")
+    return root
+
+
+def test_install_from_a_named_source_copies_that_source(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """The headline of #146: the installed tree is the one you pointed at.
+
+    Asserts content rather than the summary line, because a run that printed the
+    source and copied the running bundle would satisfy the line and none of the
+    reason for it.
+    """
+    repo_root = agent_dir.parent
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+
+    result = runner.invoke(app, ["install-skills", "--from", str(source)])
+
+    assert result.exit_code == 0
+    installed = repo_root / ".agents" / "skills" / "test-skill" / "SKILL.md"
+    assert installed.read_text() == _NAMED_SOURCE_SKILL
+
+
+def test_install_from_a_checkout_root_finds_the_package_inside_it(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`--from ../116-pr` names a worktree, and the trees are one level in.
+
+    The spelling people actually have in hand — `resolve_root` covers the probe,
+    this covers that `install-skills` goes through it rather than joining the
+    path itself.
+    """
+    repo_root = agent_dir.parent
+    checkout = tmp_path_factory.mktemp("checkout")
+    _named_source(checkout / "wfctl")
+
+    result = runner.invoke(app, ["install-skills", "--from", str(checkout)])
+
+    assert result.exit_code == 0
+    installed = repo_root / ".agents" / "skills" / "test-skill" / "SKILL.md"
+    assert installed.read_text() == _NAMED_SOURCE_SKILL
+
+
+def test_a_named_source_is_recorded_absolute_and_a_default_records_nothing(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """Absence of the key is what means "the default" — no sentinel, no migration.
+
+    Both halves in one test because the pair is the contract: were the key
+    written as `"default"` the first assertion would still pass, and every
+    manifest predating this feature would read as unmeasurable.
+    """
+    repo_root = agent_dir.parent
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--from", str(source)])
+    named = json.loads(manifest_path.read_text())
+    for layer in ("base", "claude"):
+        assert Path(named[layer]["source"]).is_absolute()
+        assert Path(named[layer]["source"]) == source.resolve()
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    default = json.loads(manifest_path.read_text())
+    for layer in ("base", "claude"):
+        assert "source" not in default[layer]
+
+
+def test_doctor_reports_a_named_source_as_a_state_not_as_drift(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """The whole point of the feature.
+
+    Before this change the same situation was reported as drift on every run,
+    because the only thing `doctor` could compare against was the running wheel.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert f"base: skills current (from {source.resolve()})" in result.output
+
+
+def test_a_relative_source_still_resolves_from_a_different_directory(
+    tmp_path_factory: pytest.TempPathFactory,
+    agent_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-004, which asserting the stored path is absolute does not reach.
+
+    `doctor` runs from wherever the session is standing, and `/start-session`
+    runs it unprompted. A source stored as typed would resolve against the wrong
+    directory on every run after the install — including the very next one.
+    """
+    import os
+
+    repo_root = agent_dir.parent
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    monkeypatch.chdir(repo_root)
+    runner.invoke(app, ["install-skills", "--from", os.path.relpath(source, repo_root)])
+
+    monkeypatch.chdir(repo_root / ".agents" / "skills")
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert f"base: skills current (from {source.resolve()})" in result.output
+
+
+def test_a_source_holding_neither_tree_leaves_the_repo_untouched(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """A typo must not half-install, and must never fall back to the default.
+
+    Falling back is the tempting behaviour and the wrong one: the run would
+    report success over a tree the caller did not ask for, which is the exact
+    confusion #146 opens with.
+    """
+    repo_root = agent_dir.parent
+    empty = tmp_path_factory.mktemp("not-a-checkout")
+
+    result = runner.invoke(app, ["install-skills", "--from", str(empty)])
+
+    assert result.exit_code != 0
+    assert str(empty) in result.output
+    assert str(empty / "wfctl") in result.output
+    assert not (repo_root / ".agents").exists()
+    assert not (repo_root / ".wf-skills-manifest.json").exists()
+
+
+def test_a_bare_install_over_a_named_source_says_so_even_under_yes(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`--from` is one-shot, and the run that discards it must say so.
+
+    Not gated on `--yes`, because the unattended session-start refresh is the
+    case it exists for: `/start-session` passes `--yes`, so a suppressed notice
+    would make the discard silent in the only place it happens automatically.
+    """
+    repo_root = agent_dir.parent
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert result.exit_code == 0
+    assert "Will replace an install from" in result.output
+    assert str(source.resolve()) in result.output
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    assert "source" not in manifest["base"]
+
+
+def test_prune_diffs_against_the_named_source_not_the_running_bundle(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """FR-012 holds today only because the prune diff reads from the plan.
+
+    Nothing states that, so a later change routing the diff through
+    `BUNDLE_ROOT` would restore the running tool as the authority and prune
+    against a bundle nobody named. The renamed command still ships under the
+    running bundle, so a prune reading that would keep the old path.
+    """
+    repo_root = agent_dir.parent
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", "--from", str(source)])
+    _rename_shipped_command(source, "test-cmd.md", "speckit.test-cmd.md")
+
+    result = runner.invoke(
+        app, ["install-skills", "--agent", "claude", "--yes", "--prune", "--from", str(source)]
+    )
+
+    assert result.exit_code == 0
+    assert not (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+    assert (repo_root / ".claude" / "commands" / "speckit.test-cmd.md").exists()
+    recorded = {i["path"] for i in _recorded_items(json.loads(
+        (repo_root / ".wf-skills-manifest.json").read_text()
+    ))}
+    assert ".claude/commands/test-cmd.md" not in recorded
+
+
+def test_doctor_reports_the_named_source_moving_on(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """The edit-install-test loop, which is silent without this.
+
+    Someone installs from a branch to try a skill, edits the skill, and has no
+    signal that the installed copy is now behind. Reported as a finding rather
+    than a warning: the repo genuinely holds something other than what its record
+    names, which is the same condition as ordinary staleness.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert f"base: source changed since install — {source.resolve()}" in result.output
+
+
+def test_the_remedy_carries_the_source_only_for_the_layer_that_recorded_one(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path, bundle: Path
+) -> None:
+    """FR-008. The printed command is what the reader — or `/start-session` — runs.
+
+    A remedy without `--from` repairs the drift by discarding the source that
+    produced it, which destroys exactly the install the reader was testing. Both
+    layers are asserted in one test because the failure is a line that is right
+    for one kind of layer and wrong for the other, and only the pair catches
+    `--from` leaking onto a default install.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--from", str(source)])
+    # Base back on the default, claude still on the named source.
+    runner.invoke(app, ["install-skills", "--yes"])
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+    (bundle / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# also moved\n")
+
+    remedies = {
+        line.strip()
+        for line in runner.invoke(app, ["doctor"]).output.splitlines()
+        if line.strip().startswith("update:")
+    }
+
+    assert remedies == {
+        f"update: wfctl install-skills --agent claude --from {source.resolve()}",
+        "update: wfctl install-skills",
+    }
+
+
+def test_doctor_warns_rather_than_fails_when_the_recorded_source_is_gone(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """A checkout that moved is not a defect in this repo.
+
+    Reported as a warning and left out of the exit code, the way a record with no
+    fingerprint already is: the layer may well be current, and the only thing
+    that could say either way is the thing that is missing. Failing here would
+    turn every session start red for a worktree someone tidied up.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    shutil.move(str(source), str(source.parent / "moved-away"))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert f"base: installed from {source.resolve()} — source is gone" in result.output
+
+
+def test_the_remedy_quotes_a_source_whose_path_holds_a_space(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """FR-008 again, for the half of it that is not "carries `--from`".
+
+    The line's contract is that running it repairs the install, and
+    `/start-session` runs it unattended. Unquoted, a source under `my src` printed
+    as `--from /…/my src` and typer rejected the run with `Got unexpected extra
+    argument(s) (src)` — a remedy that parses as two arguments repairs nothing.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named source") / "my src")
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+
+    remedy = next(
+        line.strip()
+        for line in runner.invoke(app, ["doctor"]).output.splitlines()
+        if line.strip().startswith("update:")
+    )
+
+    assert remedy == (
+        f"update: wfctl install-skills --from {shlex.quote(str(source.resolve()))}"
+    )
+    # The point of quoting: the line survives the trip back through a shell.
+    assert shlex.split(remedy)[-1] == str(source.resolve())
+
+
+def test_a_bracketed_source_path_survives_the_console(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """Square brackets are legal in a directory name and are rich's markup syntax.
+
+    Unescaped, `/x/[old]/wfctl` printed as `/x//wfctl` — a different path, with
+    no error and nothing to tell the reader a path had been rewritten. Every
+    source-bearing line is covered here because they took the escape separately
+    and the install line took it last.
+    """
+    source = _named_source(tmp_path_factory.mktemp("bracketed") / "[old]")
+
+    installed = runner.invoke(app, ["install-skills", "--from", str(source)])
+    assert f"Installed from {source}" in installed.output
+
+    current = runner.invoke(app, ["doctor"])
+    assert f"skills current (from {source.resolve()})" in current.output
+
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+    changed = runner.invoke(app, ["doctor"])
+    assert f"source changed since install — {source.resolve()}" in changed.output
+    assert str(source.resolve()) in shlex.split(
+        next(line for line in changed.output.splitlines() if "update:" in line)
+    )
+
+
+def test_doctor_warns_rather_than_crashes_when_the_source_cannot_be_read(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """FR-009 covers "can't check", not only "isn't there".
+
+    A source on an unmounted volume or under a directory this user cannot read is
+    unmeasurable for the same reason a moved one is, and has the same remedy.
+    Catching only FileNotFoundError let a PermissionError out as a traceback, and
+    `doctor` runs inside `/start-session` before it has reported anything.
+    """
+    source = _named_source(tmp_path_factory.mktemp("unreadable"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    # A file, not the directory holding it: `os.walk` skips a directory it cannot
+    # descend and the hash merely comes out different, which is the "source
+    # changed" verdict rather than this one. Reading a file is where it raises.
+    unreadable = source / "agents" / "skills" / "test-skill" / "SKILL.md"
+    unreadable.chmod(0o000)
+    try:
+        result = runner.invoke(app, ["doctor"])
+    finally:
+        unreadable.chmod(0o644)
+
+    assert result.exit_code == 0
+    assert f"base: installed from {source.resolve()} — source is gone" in result.output
+
+
+def test_a_partial_named_source_is_not_reported_as_a_broken_wheel(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`resolve_root` admits a root holding one tree, so this state is reachable.
+
+    The message was written when only a damaged wheel could reach it, and it sent
+    the reader to reinstall wfctl over a defect in the path they had just typed.
+    The default install's wording is asserted alongside, because the fix is a
+    branch and a branch can take the wrong arm.
+    """
+    source = _named_source(tmp_path_factory.mktemp("agents-only"))
+
+    named = runner.invoke(app, ["install-skills", "--from", str(source), "--yes"])
+
+    assert f"missing from the source you named ({source.resolve()})" in named.output
+    assert "missing from this wfctl install" not in named.output
+
+
+def test_the_replacement_notice_is_future_tense(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """It prints before a confirm that can still abort the run.
+
+    Past tense described something that had not happened yet, and on an abort
+    would have been the last word about a replacement that never took place.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert f"Will replace an install from {source.resolve()}" in result.output

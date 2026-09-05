@@ -38,12 +38,25 @@ memory of it — load them before doing anything else.
 
    **If it reports any layer's skills behind or drifted, bring them level now.**
    Doctor names the layer on each finding and prints the command that repairs
-   *that* layer — run what it printed, once per reported layer, adding `--prune`:
+   *that* layer. **Run what it printed, once per reported layer, with `--prune
+   --yes` appended.** Those two flags are this step's, not doctor's: doctor
+   prints the repair for the drift and no policy on top of it, and the policy
+   here is that the refresh runs unattended. So the two most common lines are:
 
    ```bash
    wfctl install-skills --prune --yes                   # a `base` finding
    wfctl install-skills --prune --yes --agent claude    # a `claude` finding
    ```
+
+   **The printed command is the part that governs; those two are only its
+   common shapes.** A layer installed from a source someone named is repaired by
+   a line carrying `--from <that source>`, and running the bare form instead does
+   not fail — it succeeds, reinstalls the release over the branch being tested,
+   and reports the layer green. That is a repair destroying the thing it was
+   called to check, and nothing downstream would say so.
+
+   Copy the printed path as printed. It is quoted when it needs to be, and a
+   path carrying a space or a bracket is one this step has already got wrong.
 
    Then run `wfctl doctor` again and check it is green before moving on. Without
    the second run the report says "refreshed" over a tree that is still drifted:

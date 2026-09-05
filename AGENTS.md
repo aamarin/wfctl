@@ -146,6 +146,14 @@ rather than the only thing standing between a hand-authored file and loss. Hooks
 into a repo execute shell commands on worktree create and remove — read them
 before running an unfamiliar one.
 
+`.wf-skills-manifest.json` is gitignored by convention, and a repo can commit one
+anyway. Since #146 it names the *source* a layer was installed from, and `doctor`
+turns that into `update: wfctl install-skills --from <path>` — a line
+`/start-session` runs with `--yes` before reporting anything. In an unfamiliar
+repo, read a committed manifest before the first `doctor`, for the same reason as
+the hooks: what it can install is agent instructions and `.specify/scripts/`,
+which speckit commands execute.
+
 ## Conventions
 
 Conventional-ish subjects (`fix(scope):`, `feat:`, `docs:`, `chore:`, `test:`),

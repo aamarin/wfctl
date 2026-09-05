@@ -233,6 +233,31 @@ without their bookkeeping colliding.
 > than `claude`. Existing repos upgrade silently — no prompt, no backups — and
 > nothing needs to be run by hand.
 
+**Installing from somewhere else:** `--from <path>` takes the skills from a
+bundle root you name rather than from the wheel that is running — a branch, a
+checked-out PR, or another worktree. Either a checkout (it finds the `wfctl/`
+inside) or the bundle root itself works:
+
+```
+$ wfctl install-skills --from ../116-pr
+✓ Installed from ../116-pr
+
+$ wfctl doctor
+✓ base: skills current (from /home/u/wt/116-pr/wfctl)
+```
+
+**Those two lines name the same source and do not match, on purpose.** The
+install echoes the path you typed, because it is read beside the command you
+just ran. Everything afterwards prints the recorded one, which is resolved —
+absolute, so it means the same thing from any directory, and carrying the
+`wfctl/` that `--from ../116-pr` found *inside* the checkout. Expect both
+differences when matching `doctor` against what you typed.
+
+The path is recorded, so `doctor` afterwards measures that layer against *that*
+tree instead of against the wheel — without it, editing a skill and reinstalling
+reported drift on every run. `--from` is one-shot: a later bare install replaces
+the source with the wheel and says so before it copies.
+
 **Overwrite safety:** if `install-skills` would overwrite a file it didn't
 install itself — e.g. hand-authored speckit commands already in the
 project — it lists them and asks for confirmation first. Pass `--yes`/`-y`
@@ -289,13 +314,20 @@ Installs that cannot drift are left alone — a pinned tag, an editable checkout
 or an install from a package index. Every printed command names the repository
 you installed from, so a fork is never told to reinstall from upstream.
 
-`install-skills` records the wfctl version and a hash of the whole bundle, which
-is what makes staleness detectable without a network call. Four verdicts per
-layer: current; stale across versions, as above; **stale at the same version** —
-`⬆ claude: bundled skills changed since install`, which is what an editable
-checkout with edited skills looks like; and, for a record written before hashing
-existed, `⚠ claude: installed before content hashing`, which warns without
-failing since the layer may well be current. Only the tool check needs the
+`install-skills` records the wfctl version, a hash of the whole bundle, and the
+source it installed from, which is what makes staleness detectable without a
+network call. Seven verdicts per layer. Against the running wheel: current;
+stale across versions, as above; **stale at the same version** — `⬆ claude:
+bundled skills changed since install`, which is what an editable checkout with
+edited skills looks like; and, for a record written before hashing existed, `⚠
+claude: installed before content hashing`, which warns without failing since the
+layer may well be current. Against a source named with `--from` (above): current,
+`✓ base: skills current (from /home/u/wt/116-pr/wfctl)`; changed, `⬆ base:
+source changed since install`, whose printed remedy carries the same `--from` so
+the repair does not silently swap the source out; and unreadable, `⚠ base:
+installed from … — source is gone, can't check`, which warns rather than fails
+because a checkout moved or deleted is not a defect in this repo. Each names the
+recorded path, resolved — never the one typed at install. Only the tool check needs the
 network, and it degrades to a single `⚠` line naming whichever comparison could
 not run — `⚠ wfctl 0.15.0 — couldn't check releases or branch (offline?)` —
 without weakening the skills verdict. A check that could not run always says so;
