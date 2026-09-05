@@ -28,8 +28,9 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    nothing ever clears it, so a later conversation that skips `/start-session`
    on a branch that has already had one walks straight through this gate. Do
    not read the check as proof that a session is open now. Closing that gap
-   needs a per-session identity the state dir does not carry, which is a wfctl
-   surface change rather than a skill one.
+   needs a per-session identity the state dir does not carry (#200), and the
+   six skills that invoke this one as their *last* step meet the gate after
+   their work is done rather than before it (#201).
 
    Name `/start-session`, not `wfctl start`. Both clear this check; only the
    first also refreshes the skills mirror, loads the architecture contract and
