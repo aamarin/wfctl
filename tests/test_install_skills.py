@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shlex
 import shutil
 import subprocess
 from collections.abc import Iterator
@@ -2683,7 +2684,7 @@ def test_a_bare_install_over_a_named_source_says_so_even_under_yes(
     result = runner.invoke(app, ["install-skills", "--yes"])
 
     assert result.exit_code == 0
-    assert "Replacing an install from" in result.output
+    assert "Will replace an install from" in result.output
     assert str(source.resolve()) in result.output
     manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
     assert "source" not in manifest["base"]
@@ -2785,3 +2786,116 @@ def test_doctor_warns_rather_than_fails_when_the_recorded_source_is_gone(
 
     assert result.exit_code == 0
     assert f"base: installed from {source.resolve()} — source is gone" in result.output
+
+
+def test_the_remedy_quotes_a_source_whose_path_holds_a_space(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """FR-008 again, for the half of it that is not "carries `--from`".
+
+    The line's contract is that running it repairs the install, and
+    `/start-session` runs it unattended. Unquoted, a source under `my src` printed
+    as `--from /…/my src` and typer rejected the run with `Got unexpected extra
+    argument(s) (src)` — a remedy that parses as two arguments repairs nothing.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named source") / "my src")
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+
+    remedy = next(
+        line.strip()
+        for line in runner.invoke(app, ["doctor"]).output.splitlines()
+        if line.strip().startswith("update:")
+    )
+
+    assert remedy == (
+        f"update: wfctl install-skills --from {shlex.quote(str(source.resolve()))}"
+    )
+    # The point of quoting: the line survives the trip back through a shell.
+    assert shlex.split(remedy)[-1] == str(source.resolve())
+
+
+def test_a_bracketed_source_path_survives_the_console(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """Square brackets are legal in a directory name and are rich's markup syntax.
+
+    Unescaped, `/x/[old]/wfctl` printed as `/x//wfctl` — a different path, with
+    no error and nothing to tell the reader a path had been rewritten. Every
+    source-bearing line is covered here because they took the escape separately
+    and the install line took it last.
+    """
+    source = _named_source(tmp_path_factory.mktemp("bracketed") / "[old]")
+
+    installed = runner.invoke(app, ["install-skills", "--from", str(source)])
+    assert f"Installed from {source}" in installed.output
+
+    current = runner.invoke(app, ["doctor"])
+    assert f"skills current (from {source.resolve()})" in current.output
+
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# moved on\n")
+    changed = runner.invoke(app, ["doctor"])
+    assert f"source changed since install — {source.resolve()}" in changed.output
+    assert str(source.resolve()) in shlex.split(
+        next(line for line in changed.output.splitlines() if "update:" in line)
+    )
+
+
+def test_doctor_warns_rather_than_crashes_when_the_source_cannot_be_read(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """FR-009 covers "can't check", not only "isn't there".
+
+    A source on an unmounted volume or under a directory this user cannot read is
+    unmeasurable for the same reason a moved one is, and has the same remedy.
+    Catching only FileNotFoundError let a PermissionError out as a traceback, and
+    `doctor` runs inside `/start-session` before it has reported anything.
+    """
+    source = _named_source(tmp_path_factory.mktemp("unreadable"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+    # A file, not the directory holding it: `os.walk` skips a directory it cannot
+    # descend and the hash merely comes out different, which is the "source
+    # changed" verdict rather than this one. Reading a file is where it raises.
+    unreadable = source / "agents" / "skills" / "test-skill" / "SKILL.md"
+    unreadable.chmod(0o000)
+    try:
+        result = runner.invoke(app, ["doctor"])
+    finally:
+        unreadable.chmod(0o644)
+
+    assert result.exit_code == 0
+    assert f"base: installed from {source.resolve()} — source is gone" in result.output
+
+
+def test_a_partial_named_source_is_not_reported_as_a_broken_wheel(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`resolve_root` admits a root holding one tree, so this state is reachable.
+
+    The message was written when only a damaged wheel could reach it, and it sent
+    the reader to reinstall wfctl over a defect in the path they had just typed.
+    The default install's wording is asserted alongside, because the fix is a
+    branch and a branch can take the wrong arm.
+    """
+    source = _named_source(tmp_path_factory.mktemp("agents-only"))
+
+    named = runner.invoke(app, ["install-skills", "--from", str(source), "--yes"])
+
+    assert f"missing from the source you named ({source.resolve()})" in named.output
+    assert "missing from this wfctl install" not in named.output
+
+
+def test_the_replacement_notice_is_future_tense(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """It prints before a confirm that can still abort the run.
+
+    Past tense described something that had not happened yet, and on an abort
+    would have been the last word about a replacement that never took place.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    runner.invoke(app, ["install-skills", "--from", str(source)])
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert f"Will replace an install from {source.resolve()}" in result.output
