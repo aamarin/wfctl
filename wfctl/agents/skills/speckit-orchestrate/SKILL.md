@@ -67,9 +67,23 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    Grouping Map and whose key is not this branch's, you are looking at that
    residual — say so rather than reporting its task counts as this story's.
 
-   What is still yours, when `spec_dir` is a feature the branch did not name
-   itself — compare `spec_dir`'s directory name against the branch's issue key;
-   different means the sub-issue inherited it:
+   What is still yours, when the branch inherited `spec_dir` rather than owning
+   it. **Compare the two issue keys, never a key against a directory name.**
+   Take the leading key off `spec_dir`'s basename and the leading key off the
+   branch, and compare those:
+
+   ```
+   branch 120-spec-dir-ancestor-is-foreign
+   spec_dir  .../wfctl-specs/120-spec-dir-ancestor-is-foreign
+
+     "120-spec-dir-ancestor-is-foreign" vs "120"   → differ   ✗ wrong: every
+                                                                own feature
+                                                                reads inherited
+     "120" vs "120"                                → same     ✓ owned
+   ```
+
+   Same key means the branch owns the feature — stop here, the steps below are
+   not for it. Different keys mean it inherited one, and then:
    - Its `delivery.md` row for this issue key carries the `Tasks` range. That is
      this sub-issue's scope; spec/plan/tasks/decompose are done at the epic
      level.
