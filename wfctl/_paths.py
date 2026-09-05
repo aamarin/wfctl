@@ -19,6 +19,12 @@ _REPO_ROOT_OVERRIDE = "WFCTL_REPO_ROOT"
 # Trackers with non-numeric keys override this via "key_pattern" in their config.
 DEFAULT_KEY_PATTERN = r"\d+"
 
+# Prefix, not a whole line: a heading that deviates from the template
+# ("Issue Grouping Map (revised)") would otherwise read as claiming no
+# issues at all, and a feature that claims nothing is one the ancestor walk
+# still inherits — which is #120 arriving through a typo.
+_GROUPING_HEADING = re.compile(r"^#+[ \t]*Issue Grouping Map", re.M)
+
 
 def extract_issue_key(branch: str, pattern: str) -> str:
     """Pull the issue key off the front of a branch name; 'unknown' if none.
@@ -100,7 +106,7 @@ def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
     specs/{feature}/), rather than off the target branch directly.
 
     Once a parent epic merges, its spec dir lives on the trunk and ancestry stops
-    identifying it; the delivery.md "Issue Grouping Map" scan in speckit-orchestrate
+    identifying it; the delivery.md "Issue Grouping Map" leg of `resolve_spec_dir`
     is what resolves a sub-issue's spec dir from that point on.
     """
     try:
@@ -360,13 +366,98 @@ def is_in_tree(root: Path, repo_root: Path) -> bool:
     """
     return root.resolve().is_relative_to(repo_root.resolve())
 
+def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
+    """The issue keys `spec_dir`'s delivery.md claims in its Issue Grouping Map.
+
+    None means the feature makes no claim at all — no delivery.md, or one with
+    no grouping map. An empty *set* means the opposite: a map is there and no
+    row in it could be read. Callers must not collapse the two. A feature that
+    has not been decomposed says nothing about who owns it and is still
+    inheritable; a map nobody can parse is a question that went unanswered, and
+    answering it "yes, inherit" is how #120 gets back in. Failing closed on the
+    second costs an unresolved spec dir, which is the loud failure.
+
+    Rows are read from the first run of table lines under the heading, and only
+    the leading key of the first cell. The wider scan `speckit-orchestrate` did
+    by hand — every cell of every row — also matches a `Tasks` range or a
+    `PR #12` column and invents a claim on a foreign feature. Stopping at the
+    first blank line keeps a sibling table that shares the heading (a real one
+    tallies acceptance criteria `1`, `3`, `4`, `5`) from being read as issues.
+
+    The cell prefix is generous because the real files are: `**#575** — …`,
+    `[#45](https://…)` and `aamarin/wfctl#24` all appear in the two spec roots
+    this was measured against, and the first is the shape in #120's own repro.
+    Generous here is safe in a way it is not inside the row — an unread row is a
+    silent claim dropped, and a dropped claim is what makes a foreign feature
+    look inheritable.
+
+    `pattern` must compile; unlike `extract_issue_key` this does not degrade a
+    bad one. `_tracker.load_key_pattern` is the only supported source and it
+    guarantees a compilable value.
+    """
+    try:
+        text = (spec_dir / "delivery.md").read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError: a delivery.md that is not UTF-8
+        # is unreadable, not a claim, and raising here would take `status`,
+        # `resume` and `feature-paths` down with it.
+        return None
+    heading = _GROUPING_HEADING.search(text)
+    if heading is None:
+        return None
+
+    keys = set()
+    seen_row = False
+    for line in text[heading.end():].splitlines():
+        if not line.lstrip().startswith("|"):
+            if seen_row:
+                break
+            continue
+        seen_row = True
+        cell = line.split("|")[1].strip()
+        m = re.match(rf"^[*_ ]*\[?(?:[\w.-]+/[\w.-]+)?#?({pattern})\b", cell)
+        if m is None:
+            # Second tier, for cells that label the row before naming it —
+            # `Child #304`, `Issue A (#461)`. Anywhere in the cell, but only
+            # behind a literal `#`: without it `Wave 0 — Setup` claims issue 0.
+            # Trackers whose keys carry no `#` get the leading position only,
+            # which is the one their template mandates anyway.
+            m = re.search(rf"#({pattern})\b", cell)
+        if m:
+            keys.add(m.group(1))
+    return keys
+
 
 def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     """Return spec dir: {spec root}/{branch-prefix}-* → None if not found.
 
-    Falls back to the same lookup against ancestor branches (nearest first) when
-    `branch` itself has no match — handles worktrees branched off a parent epic's
-    planning branch instead of the target branch.
+    When `branch` has no match of its own, two fallbacks, in this order:
+
+    First the feature whose delivery.md names this branch's issue key. That is
+    the answer whenever it exists — a decomposed epic records which sub-issue
+    owns which task range, and the key is the only thing that survives the
+    sub-issue being named nothing like its parent.
+
+    Then the same name lookup against ancestor branches, nearest first, which
+    handles worktrees branched off a parent epic's planning branch instead of
+    the target branch. An ancestor carrying a grouping map is a decomposed
+    feature that had its chance to name this branch and did not — a sibling
+    sub-issue of a foreign feature, which is the stacked-branch shape of #120,
+    where a finished neighbour's `tasks.md` was counted as this story's and
+    `status` said "open PR" on work that had not begun. Skip it: no spec dir is
+    the loud, obviously wrong failure, and a foreign one is the quiet plausible
+    one. Only a feature with no map at all is inherited, which is the epic that
+    has not decomposed yet.
+
+    That leaves one shape of #120 standing: a foreign ancestor that never
+    decomposed has no map to contradict, and is inherited. Nothing in
+    `delivery.md` can decide that case, and widening the fallback is the
+    direction the bug came from — so it stays open rather than guessed at.
+
+    A branch with no parseable issue key loses that inheritance too, since no
+    map can name a key it does not have. wfctl's own worktrees always carry one
+    (`pre_create` enforces it) but the repos wfctl installs into need not, and
+    for them this is the loud failure replacing a guess, not a regression.
 
     Searches one root only, the one `spec_root` resolves. No second look under
     `repo_root/specs` when a root is configured: falling back would let one
@@ -378,11 +469,13 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
 
     from wfctl import _tracker  # lazy: avoids import cycle at module load
 
+    pattern = _tracker.load_key_pattern(repo_root)
+
     def match(candidate: str) -> Path | None:
         exact = root / candidate
         if exact.is_dir():
             return exact
-        key = extract_issue_key(candidate, _tracker.load_key_pattern(repo_root))
+        key = extract_issue_key(candidate, pattern)
         if key != "unknown":
             # is_dir(), like the exact-name branch above: a spec dir is a
             # directory. Unfiltered, a stray `42-notes.md` beside `42-feature/`
@@ -397,10 +490,34 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     if found is not None:
         return found
 
+    key = extract_issue_key(branch, pattern)
+    if key != "unknown":
+        # Every claimant, not the first: two features claiming one key is a real
+        # shape (a parent epic and the sub-feature that later grew its own dir),
+        # and picking the lexicographically first is a silent arbitrary answer
+        # about who owns a branch — the shape of answer #120 is about. Two
+        # claimants with no dir of their own exist in a spec root this was
+        # measured against; they resolve to nothing until a human breaks the tie.
+        claimants = [
+            d.parent for d in sorted(root.glob("*/delivery.md"))
+            if key in (delivery_issue_keys(d.parent, pattern) or set())
+        ]
+        if len(claimants) == 1:
+            return claimants[0]
+        if claimants:
+            return None
+
     for ancestor in _ancestor_branches(branch, repo_root):
         found = match(ancestor)
-        if found is not None:
-            return found
+        if found is None:
+            continue
+        # `is not None`, not truthiness: a decomposed feature whose map could
+        # not be read yields an empty set, and it is the one case that must not
+        # be inherited. Reaching here at all means the leg above already failed
+        # to find this key, so any map present is a map that does not name us.
+        if delivery_issue_keys(found, pattern) is not None:
+            continue
+        return found
 
     return None
 

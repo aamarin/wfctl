@@ -38,54 +38,48 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    gate: opening a session is `/start-session`'s job, and doing it from inside
    a read hides from the user that the step was skipped.
 
-1. **Epic-inherited spec check** — run before trusting wfctl's own inference.
-   A sub-issue worktree has no spec dir under its own branch name, so
-   `wfctl status`/`resume` can report "no spec dir found" and default to
-   `brainstorm` even when the epic's spec/plan/tasks/decompose are done and this
-   sub-issue is mid- or post-implementation.
+1. **Sub-issue scoping** — after `wfctl` has resolved the spec dir, not instead
+   of it.
 
-   `wfctl` closes part of this gap itself: `resolve_spec_dir` tries the exact
-   branch dir, then a key glob, then the same lookup against each ancestor branch
-   nearest-first. **Do not delete this step on the strength of that.** The
-   ancestor leg needs the sub-issue branch to be a git descendant of the epic's
-   branch, which nothing arranges — worktrees branch off the target branch — and
-   the glob legs miss whenever the sub-issue's key differs from the epic's, which
-   is the normal case. The check below resolves both, because it matches on the
-   issue key recorded in `delivery.md` rather than on branch ancestry or
-   directory name.
+   `resolve_spec_dir` does the `delivery.md` key scan itself since #120: exact
+   branch dir, then key glob, then the feature whose Issue Grouping Map names
+   this branch's issue key, then ancestor branches. This step no longer
+   hand-rolls that search.
 
-   Check: run `wfctl feature-paths` and read `FEATURE_DIR` from that output —
-   the plain command, not `eval "$(…)"`, which the command's pre-approval would
-   not match, costing an approval prompt on every run.
-   Substitute the real path everywhere below. It resolves through this repo's
-   recorded spec root, which may be outside the working tree — never assume the
-   spec dir is inside the repo. If that directory does not exist:
-   - Resolve the active tracker's key format: read `key_pattern` from whichever
-     `.agents/trackers/*.json` exists (default `\d+` — GitHub's bare-numeric
-     default — if no tracker config or no `key_pattern` field). Build a match
-     regex `#?{key_pattern}` — optional leading `#`, since GitHub issues are
-     conventionally written `#123` in prose while other trackers' keys (e.g.
-     `PROJ-123`) never take one.
-   - Find every `delivery.md` under the spec root — the parent of `FEATURE_DIR`,
-     so the search follows the spec root wherever it points. Use `Glob` with that
-     absolute directory as its path; a spec root outside the working tree is a
-     normal case here, not an edge one. In each file's "Issue Grouping Map"
-     table, search
-     every row for that regex. A row whose match equals the current issue's key
-     means that `delivery.md`'s directory is the real spec dir, and the row's
-     `Tasks` column is this sub-issue's task range. (Older delivery.md files may
-     predate the standardized `{issue-key}`-leads-the-cell format — the regex
-     search-anywhere-in-row approach still finds them.)
-   - If found, ignore wfctl's brainstorm default:
-     - For a GitHub-backed repo, `gh pr list --head {current-branch}` is a cheap
-       non-blocking nicety — an open/merged PR means the sub-issue is past
-       `implement`; report that instead ("PR #N open, awaiting review" / "PR #N
-       merged — story complete"). Skip this check for other trackers; the six
-       standard verbs don't include a by-branch change lookup.
-     - No PR found (or non-GitHub tracker) → sub-issue is at `implement`
-       (spec/plan/tasks/decompose are already done at the epic level); next
-       command is `/speckit.implement` scoped to the resolved task range, not
-       `/speckit.brainstorm`.
+   **The failure mode to watch is a false positive, not a false negative.** This
+   step used to warn that resolution "can report 'no spec dir found' and default
+   to `brainstorm`" — loud, obviously wrong, harmless. What actually bit was the
+   opposite: on a stacked branch the ancestor leg returned a *different*
+   feature's dir, and `wfctl status` reported that feature's `46/46 done — open
+   PR` on work that had not begun. Quiet, plausible, and it says ship it. The
+   ancestor leg now skips any ancestor that carries a grouping map, since a
+   decomposed feature that had its chance to name this branch and did not is a
+   foreign one.
+
+   Which means: **`(no spec dir found)` is now an answer, not a gap to close by
+   guessing.** Read `spec_dir` off the payload the gate above already fetched —
+   `null` there is the resolver saying no feature claims this branch. Do not go
+   looking for one, and do not re-run `status` for it.
+
+   **One shape survives**, so do not read a resolved dir as proof either: an
+   ancestor feature that never decomposed has no map to contradict, and is still
+   inherited. If `spec_dir` names a feature whose `delivery.md` has no Issue
+   Grouping Map and whose key is not this branch's, you are looking at that
+   residual — say so rather than reporting its task counts as this story's.
+
+   What is still yours, when `spec_dir` is a feature the branch did not name
+   itself — compare `spec_dir`'s directory name against the branch's issue key;
+   different means the sub-issue inherited it:
+   - Its `delivery.md` row for this issue key carries the `Tasks` range. That is
+     this sub-issue's scope; spec/plan/tasks/decompose are done at the epic
+     level.
+   - For a GitHub-backed repo, `gh pr list --head {current-branch}` is a cheap
+     non-blocking nicety — an open/merged PR means the sub-issue is past
+     `implement`; report that instead ("PR #N open, awaiting review" / "PR #N
+     merged — story complete"). Skip this check for other trackers; the six
+     standard verbs don't include a by-branch change lookup.
+   - No PR found (or non-GitHub tracker) → next command is `/speckit.implement`
+     scoped to that task range, not `/speckit.brainstorm`.
 
 2. Run `wfctl status` and display the output so the user can see the updated pipeline position.
 

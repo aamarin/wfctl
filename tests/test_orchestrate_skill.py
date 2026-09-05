@@ -31,12 +31,11 @@ def _first_step() -> str:
 
 
 def test_the_session_gate_is_the_first_step_orchestrate_runs() -> None:
-    """Below the epic-spec check it is not a gate.
+    """Below the sub-issue scoping step it is not a gate.
 
-    That check globs the spec root, resolves a task range and can report a PR's
-    state — findings, produced before anything asked whether they can be
-    recorded. #117 is not that the run ended without a session; it is that the
-    run happened.
+    That step resolves a task range and can report a PR's state — findings,
+    produced before anything asked whether they can be recorded. #117 is not
+    that the run ended without a session; it is that the run happened.
     """
     first = _first_step()
     assert "session_started" in first, f"step 0 is not the session gate:\n{first}"

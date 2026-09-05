@@ -178,6 +178,23 @@ def test_the_json_view_carries_the_auto_flag(
     assert (payload["next_command"], payload["auto"]) == ("/speckit.plan", True)
 
 
+def test_the_json_view_names_the_feature_it_counted(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#120: an unresolved branch and a finished story rendered the same payload.
+
+    Every step carries a state either way, so a reader had no field to ask
+    *whose* tasks.md produced the count — which is what let a foreign feature's
+    46/46 be reported as this story's.
+    """
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["spec_dir"] == str(storyctl_dir.spec_dir)
+
+    monkeypatch.setenv("WFCTL_BRANCH", "999-nothing-here")
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["spec_dir"] is None
+
+
 # --- the report's one invariant (#42) -----------------------------------------
 
 
