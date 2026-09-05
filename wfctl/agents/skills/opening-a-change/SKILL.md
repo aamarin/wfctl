@@ -81,11 +81,11 @@ State the shape you are using rather than refusing or improvising:
 
 ```
 No change-description template in this repo. Using the default shape:
-Summary (what / why / impact) · Before / After · What changed · How it was
-tested · Issue links.
+Summary (context, then the drawing, then what / why / impact) · What changed ·
+How it was tested · Issue links.
 ```
 
-Then fill those five. `wfctl install-config github` seeds a real template — say
+Then fill those four. `wfctl install-config github` seeds a real template — say
 so once, and do not block on it.
 
 ## Step 3: Fill every section
@@ -111,8 +111,47 @@ Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
 
 ```bash
-gh pr create --title "<subject>" --body-file <path>
+gh pr create --title "<subject>" --body-file <path> \
+  --assignee <login> --label <name> --milestone <title> --project <title>
 ```
+
+The four flags after the body are the sidebar, and `gh` sets none of them on its
+own. A body can be perfect and the change still be absent from every board,
+filter and milestone the issue it closes already sits on — the description is
+what a reviewer reads, the attributes are how anyone finds it to read.
+
+**Read them off the issue rather than inferring them from the diff.** Someone
+already made this triage decision; re-deriving it from what the change touches
+puts `documentation` on a bug fix, because the fix edited prose.
+
+```bash
+gh issue view <n> --json assignees,labels,milestone,projectItems
+```
+
+Copy the set across whole. A label the change earns in its own right is added to
+that set, never swapped in for it. The one field that does not copy is an empty
+`assignees`: an unassigned issue is not a decision that the PR has no owner, so
+that case is `--assignee @me`.
+
+`--project` takes the project's title and works on a Projects v2 board, but it
+only *adds* the item. The board's "item added" workflow then writes the default
+status, which is the backlog column — so a PR opened for review lands behind the
+issue it closes, which is already in progress. Set it deliberately:
+
+```bash
+gh project item-list <n> --owner <owner> --format json --limit 200 \
+  --jq '.items[] | select((.content.number//0)==<pr>) | .id'
+gh project item-edit --id <item> --project-id <pid> \
+  --field-id <status field> --single-select-option-id <option>
+```
+
+**Never reshape the Status field to make room for a column.**
+`updateProjectV2Field` takes the option list whole rather than appending to it,
+and rewriting it regenerates every option id — which silently clears the status
+of every item on the board, not only the ones you meant to touch. Add the column
+in the project UI. If it has already happened, the values are recoverable: each
+item's content carries a `ProjectV2ItemStatusChangedEvent` timeline, and the last
+one per item is the status it held.
 
 ## Red flags
 
