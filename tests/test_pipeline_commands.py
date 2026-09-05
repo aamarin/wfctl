@@ -614,10 +614,20 @@ def test_a_blocked_implement_does_not_advance_unattended(
 
 
 def test_open_tasks_still_route_to_the_step_command(gated: types.SimpleNamespace) -> None:
-    """The work itself is what remains, so the step command is right."""
+    """The work itself is what remains, so the step command is right.
+
+    #148 added the flag assertion. Routing and advancing are two answers here,
+    and the command alone pinned only the first: a `next_step_content` that
+    returned the step command with a hardcoded `False` — implement never
+    advancing unattended, the whole point of the flip undone — passed all 863
+    tests. `test_step_table_resolves_in_order` does not reach this, because it
+    calls `next_step_content` without a repo or a spec dir and so never enters
+    the implement branch at all.
+    """
     gated.make_spec_artifact("tasks", "- [ ] T001 not done\n")
     result = runner.invoke(app, ["next"])
     assert "/speckit.implement" in result.output
+    assert "auto: true" in (gated.agent_dir / "next-step.md").read_text()
 
 
 def test_a_verified_story_reports_complete_rather_than_a_next_step(
