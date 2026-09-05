@@ -111,8 +111,31 @@ Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
 
 ```bash
-gh pr create --title "<subject>" --body-file <path>
+gh pr create --title "<subject>" --body-file <path> \
+  --assignee <login> --label <name> --milestone <title> --project <title>
 ```
+
+The four flags after the body are the sidebar, and `gh` sets none of them on its
+own. A body can be perfect and the change still be absent from every board,
+filter and milestone the issue it closes already sits on — the description is
+what a reviewer reads, the attributes are how anyone finds it to read.
+
+**Read them off the issue rather than inferring them from the diff.** Someone
+already made this triage decision; re-deriving it from what the change touches
+puts `documentation` on a bug fix, because the fix edited prose.
+
+```bash
+gh issue view <n> --json assignees,labels,milestone,projectItems
+```
+
+Copy the set across whole. A label the change earns in its own right is added to
+that set, never swapped in for it. The one field that does not copy is an empty
+`assignees`: an unassigned issue is not a decision that the PR has no owner, so
+that case is `--assignee @me`.
+
+`--project` takes the project's title and works on a Projects v2 board. It does
+not carry the status column — a new item lands in the board's default, which is
+the right place for a PR that is not merged yet.
 
 ## Red flags
 
