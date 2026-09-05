@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # wfctl runs the verification, not the agent
@@ -54,3 +54,4 @@ rather than unforgeable, which is the honest ceiling for a local CLI.
 ## Log
 
 - 2026-08-27  proposed    — seeded from #69; level 2 for this boundary is open
+- 2026-08-29  accepted    — #96 shipped it; the code enforced a rule the contract still called open
