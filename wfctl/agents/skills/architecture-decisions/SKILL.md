@@ -127,12 +127,17 @@ Git holds the edit history. The file holds only what git cannot answer — and a
 body edited after the fact makes the record agree with the present, which is
 exactly the thing it was written to prevent.
 
-That rule outranks the section list, so **a record written before a section
-existed does not carry it, and is not backfilled.** `Direct baseline` arrived
-after the accepted records that predate it, and none of them gained one:
-retrofitting a heading across every accepted record is the "agree with the
-present" failure at the only scale where it looks like tidying. A missing
-section in an old record is a date, not a defect.
+That rule outranks the section list, so **an accepted record written before a
+section existed does not carry it, and is not backfilled.** Retrofitting a
+heading across every accepted record is the "agree with the present" failure at
+the only scale where it looks like tidying. A missing section in an accepted
+record is a date, not a defect.
+
+The exemption stops there. A `proposed` body is not frozen, so a proposed record
+gains a section the format has since added like any other edit — and it has to
+before it can be accepted. Nothing in the list below is waived by a record
+having been written first; the exemption is for records already past the point
+where anything can be added.
 
 ## Common Rationalizations
 
@@ -150,7 +155,8 @@ section in an old record is a date, not a defect.
 - [ ] `Direct baseline` describes the no-new-structure option concretely enough
       to compare the decision against.
 - [ ] `Considered` carries at least one real alternative with the true reason it
-      was not chosen — fit counts, and beats a fault the alternative lacks.
+      was not chosen. Losing on fit is a reason; a weakness the alternative does
+      not have is never one.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.

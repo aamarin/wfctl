@@ -12,8 +12,8 @@ status: proposed
 
 <The smallest change that draws no new structure — the boundary left where it
 is — described concretely enough to compare the decision against.
-`architecture-design` step 3 produces one in every iteration; this is where it
-lands. A baseline that is a sentence of hand-waving justifies a decision rather
+`.agents/skills/architecture-design` step 3 produces one in every iteration;
+this is where it lands. A baseline that is a sentence of hand-waving justifies a decision rather
 than making one.>
 
 ## Decision
@@ -34,9 +34,9 @@ unfalsifiable.">
 - <alternative> — <the reason it was not chosen>
 
 <Fit and fault are both reasons. An alternative can be sound and lose anyway:
-"equally good — this one fits the condition in driver 1" is truer than a
-weakness it does not have, and a manufactured criticism reads as diligence while
-sending the next reader to reject a sound option twice.>
+"equally sound — this one puts the answer where the reader already looks" is
+truer than a weakness it does not have, and a manufactured criticism reads as
+diligence while sending the next reader to reject a sound option twice.>
 
 ## Consequences
 
