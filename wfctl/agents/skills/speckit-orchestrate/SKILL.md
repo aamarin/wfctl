@@ -5,7 +5,40 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 ## Steps
 
-0. **Epic-inherited spec check** — run before trusting wfctl's own inference.
+0. **Session gate** — before anything else, including the spec lookup below.
+
+   Run `wfctl status --json` and read `session_started`. If it is `false`:
+   - Display: "No wfctl session for this branch. Run `/start-session` first."
+   - Stop.
+
+   Stop the same way if the command exits non-zero or the payload carries no
+   `session_started` at all, displaying what it printed. A gate that proceeds
+   on a missing answer is not a gate, and the missing answer is the likelier
+   failure: outside a git repo `status` exits 1 before it prints a payload.
+
+   Stop means stop: no checks, no analysis, no recommendation offered first. A
+   run that reaches a conclusion here leaves it in scrollback and nowhere else.
+   `wfctl start` is what opens the event log every later view reads, so without
+   it `/end-session` has no run to summarize and the next session on this branch
+   reads an empty state dir and reports "first session on this branch" — true of
+   the state dir, false of the branch (#117).
+
+   **What this catches is a branch's first session, not every session.**
+   `session_started` is true once any `start` event exists in the log and
+   nothing ever clears it, so a later conversation that skips `/start-session`
+   on a branch that has already had one walks straight through this gate. Do
+   not read the check as proof that a session is open now. Closing that gap
+   needs a per-session identity the state dir does not carry (#200), and the
+   six skills that invoke this one as their *last* step meet the gate after
+   their work is done rather than before it (#201).
+
+   Name `/start-session`, not `wfctl start`. Both clear this check; only the
+   first also refreshes the skills mirror, loads the architecture contract and
+   reads the handoff. And do not run either one yourself to clear your own
+   gate: opening a session is `/start-session`'s job, and doing it from inside
+   a read hides from the user that the step was skipped.
+
+1. **Epic-inherited spec check** — run before trusting wfctl's own inference.
    A sub-issue worktree has no spec dir under its own branch name, so
    `wfctl status`/`resume` can report "no spec dir found" and default to
    `brainstorm` even when the epic's spec/plan/tasks/decompose are done and this
@@ -54,24 +87,25 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
        command is `/speckit.implement` scoped to the resolved task range, not
        `/speckit.brainstorm`.
 
-1. Run `wfctl status` and display the output so the user can see the updated pipeline position.
+2. Run `wfctl status` and display the output so the user can see the updated pipeline position.
 
-2. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
+3. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
    here if the boundary question went unanswered — none of which the read below
    does.
 
-   **If it exits non-zero, display its output and stop.** Step 3 is a read, and
+   **If it exits non-zero, display its output and stop.** Step 4 is a read, and
    a read is not gated: `wfctl status --json` answers with the step the refusal
    was issued about, and `auto` on that step is `true`, so continuing emits
    `EXECUTE_COMMAND` for the command `resume` just refused to write.
 
-3. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
+4. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
-   you ask.
+   you ask. Nor step 0's payload: `resume` ran between the two reads, which is
+   the whole reason this one is taken again.
 
-4. Branch on the result:
+5. Branch on the result:
 
    **Story complete** (`next_command` is `null`):
    - Display: "Story complete — open PR or run `/end-session`."
