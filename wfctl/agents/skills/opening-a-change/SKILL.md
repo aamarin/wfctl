@@ -141,6 +141,14 @@ that set, never swapped in for it. The one field that does not copy is an empty
 `assignees`: an unassigned issue is not a decision that the PR has no owner, so
 that case is `--add-assignee @me`.
 
+**A change that closes nothing still has a source.** Read the set off the issue
+it is filed under — the one in `Related` naming the work this belongs to. Falling
+back to an empty sidebar because no issue carries a closing keyword is the same
+omission this step exists to catch, arriving through a gap in the instruction
+rather than through a dropped flag. Where the change answers to no issue at all,
+triage is a decision you are making rather than one you are copying: make it, and
+say in the description that you did.
+
 `--add-project` takes the project's title and works on a Projects v2 board, but
 it only *adds* the item. The board's "item added" workflow then writes the
 default status, which is the backlog column — so a PR opened for review lands
