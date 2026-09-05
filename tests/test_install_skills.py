@@ -2899,3 +2899,37 @@ def test_the_replacement_notice_is_future_tense(
     result = runner.invoke(app, ["install-skills", "--yes"])
 
     assert f"Will replace an install from {source.resolve()}" in result.output
+
+
+@pytest.mark.parametrize("chosen,installs", [("github", True), (None, False)])
+def test_install_skills_inherits_the_tracker_from_the_main_checkout(
+    bundle: Path, agent_dir: Path, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, chosen: str | None, installs: bool,
+) -> None:
+    """A worktree comes up with the project's tracker without anyone answering.
+
+    #184: every install in a worktree's lifecycle is non-interactive — post_create
+    is a hook and /start-session passes --yes — so the prompt is never shown and
+    the key is never written either way. The choice is the project's, so it is
+    inherited the way `spec_root` is. `None` inherits too: a recorded decline is
+    a decision, and copying it is what keeps the question closed.
+    """
+    import json
+    import os
+    import subprocess
+    _add_tracker(bundle)
+    main = Path(os.environ["WFCTL_REPO_ROOT"])
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": chosen}))
+    wt = tmp_path / "wt" / "184-tracker"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-b", "184-tracker", str(wt)],
+        check=True, capture_output=True,
+    )
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+
+    result = runner.invoke(app, ["install-skills"])
+
+    assert result.exit_code == 0, result.output
+    manifest = json.loads((wt / ".wf-skills-manifest.json").read_text())
+    assert manifest["tracker"] == chosen
+    assert (wt / ".agents" / "trackers" / "github.json").exists() is installs

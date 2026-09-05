@@ -1889,6 +1889,22 @@ def install_skills_cmd(
                 soft_wrap=True,
             )
 
+    # A worktree inherits the project's choice rather than being asked again --
+    # the same reasoning `spec_root` resolves on, and the same main-checkout
+    # fallback. Without it the question below is never posed in a worktree at
+    # all: the manifest is gitignored so it starts empty, and every install in a
+    # worktree's lifecycle is non-interactive (post_create is a hook,
+    # /start-session passes --yes). The key stays absent, which is not "declined"
+    # -- it is permanently unasked, and `wfctl issue` no-ops in silence.
+    if tracker is None and "tracker" not in manifest:
+        main = main_checkout(repo_root)
+        if main is not None:
+            inherited = _load_manifest(main)
+            if "tracker" in inherited:
+                # Copied even when it is None: the decline is a decision too, and
+                # recording it is what closes the question here as well.
+                manifest["tracker"] = tracker = inherited["tracker"]
+
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)
     # leave it unset rather than committing a config nobody asked for.
