@@ -1303,6 +1303,21 @@ _GITHUB_TRACKER_FILES = (
 )
 
 
+def _tracker_file_present(path: Path) -> bool:
+    """Is something already at `path` that the installer must not write over?
+
+    `Path.exists()` follows symlinks, so a dangling one reads as absent — and
+    `shutil.copy2` then follows it the other way and creates its target, which
+    for an absolute link means writing outside the repository with no prompt and
+    no backup. The two together turn a broken link into a silent write to
+    somewhere else, on the unattended `--yes` path `/start-session` runs.
+
+    A link is a placement, not an absence: someone pointed this path somewhere on
+    purpose, which is the same reason a committed config is left alone.
+    """
+    return os.path.lexists(path)
+
+
 def _tracker_files(name: str) -> tuple[str, ...]:
     """Every file backend `name` is made of, config first.
 
@@ -2217,7 +2232,7 @@ def install_skills_cmd(
     # does, an in-place change travels by `--tracker <name>`.
     if tracker is None and manifest.get("tracker") == "github":
         trackers_dir = repo_root / ".agents" / "trackers"
-        if any(not (trackers_dir / f).exists() for f in _tracker_files("github")):
+        if any(not _tracker_file_present(trackers_dir / f) for f in _tracker_files("github")):
             tracker = "github"
             tracker_skip_existing = True
 
@@ -2391,7 +2406,9 @@ def install_skills_cmd(
     # scripts, so a config installed without them declares verbs that cannot run.
     if tracker == "github":
         for fname in _GITHUB_TRACKER_FILES:
-            if tracker_skip_existing and (repo_root / ".agents" / "trackers" / fname).exists():
+            if tracker_skip_existing and _tracker_file_present(
+                repo_root / ".agents" / "trackers" / fname
+            ):
                 continue
             tsrc = bundle_root / "agents" / "trackers" / fname
             if not tsrc.exists():
@@ -2566,10 +2583,15 @@ def install_skills_cmd(
         for name in _tracker_files(active_tracker):
             backend_rel = f".agents/trackers/{name}"
             prior = prior_items.get(backend_rel)
+            # `lexists`, for the reason `_tracker_file_present` gives: a dangling
+            # link reads as absent to `exists()`, so the record would be dropped
+            # and the orphan check below would then report a path that is still
+            # shipped as no longer shipped — and offer `--prune`, which deletes
+            # the link.
             if (
                 backend_rel not in already
                 and prior is not None
-                and (repo_root / backend_rel).exists()
+                and _tracker_file_present(repo_root / backend_rel)
             ):
                 items.setdefault(_BASE_LAYER, []).append(
                     {k: v for k, v in prior.items() if k != "orphaned"}
