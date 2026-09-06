@@ -295,6 +295,34 @@ def test_resolve_spec_dir_prefers_the_feature_whose_delivery_claims_the_key(
     assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) == real
 
 
+def test_resolve_spec_dir_keeps_a_branchs_own_dir_over_a_later_epic_claim(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The order the two legs run in, which nothing pinned before.
+
+    A child of an epic that had not decomposed gets `<spec root>/<branch>` from
+    `feature-paths` and starts writing there. When the epic decomposes later and
+    its grouping map names that key, resolution stays on the child's own
+    directory — the name legs run ahead of the claimant scan.
+
+    Reported against the record on #269 as a recovery path that does not exist,
+    and it does not; the record was wrong rather than the code. Moving the claim
+    ahead would hand a branch holding its own spec.md the epic's task range
+    instead, which loses the artifacts somebody wrote — worse than the failure
+    #263 removed, not a repair of it.
+    """
+    specs = repo_root / "specs"
+    own = specs / "200-child"
+    own.mkdir(parents=True)
+    (own / "spec.md").write_text("# the child's own work\n")
+    epic = specs / "100-parent"
+    epic.mkdir(parents=True)
+    (epic / "delivery.md").write_text(_delivery_map("**#200** — the child"))
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    assert resolve_spec_dir("200-child", repo_root) == own
+
+
 def test_resolve_spec_dir_refuses_a_key_two_features_both_claim(
     repo_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
