@@ -104,6 +104,12 @@ so once, and do not block on it.
 - **Render literal output where the template asks for a before/after.** The CLI
   line as it printed, the record as it is shaped, the error as it read. A
   sentence describing a string is longer than the string and less certain.
+- **Name the issue with a closing keyword.** `Closes #N` — the phrasing the
+  forge parses, not the issue number written into a sentence. It is what fills
+  the Development panel, what closes the issue on merge, and the only one of the
+  sidebar's fields that no Step 5 flag can set: it lives in the body or nowhere.
+  A change that closes nothing links its source issue instead, without the
+  keyword.
 
 ## Step 4: Open it
 
@@ -137,9 +143,16 @@ gh pr edit <pr> --add-label <name> --milestone <title> \
 ```
 
 Copy the set across whole. A label the change earns in its own right is added to
-that set, never swapped in for it. The one field that does not copy is an empty
-`assignees`: an unassigned issue is not a decision that the PR has no owner, so
-that case is `--add-assignee @me`.
+that set, never swapped in for it.
+
+**An empty field on the issue is not an answer to copy.** An unassigned issue is
+not a decision that the PR has no owner, so that case is `--add-assignee @me`.
+Nor is a bare one: an issue filed with no label and no board was triaged by
+nobody, and copying that faithfully produces a PR the read-back below reports as
+unfinished — correctly, because it is as unfindable as one where the flags were
+dropped. Set the label the change's own subject earns and the board the project
+runs on, and say in the description that you decided those rather than copied
+them.
 
 **A change that closes nothing still has a source.** Read the set off the issue
 it is filed under — the one in `Related` naming the work this belongs to. Falling
@@ -169,10 +182,29 @@ in the project UI. If it has already happened, the values are recoverable: each
 item's content carries a `ProjectV2ItemStatusChangedEvent` timeline, and the last
 one per item is the status it held.
 
+**Reviewers are the one field with nothing to copy from.** An issue has no
+reviewers; a change does, and `gh pr create` requests none. Some review bots
+subscribe themselves on open and some wait to be asked, and once either has
+reported it shows up in the same list — so a merged PR's reviewers are not
+evidence of who will read this one. Look at an open PR nobody has touched to see
+who arrived unasked, then request only the readers this project relies on and is
+missing:
+
+```bash
+gh pr view <pr> --json reviewRequests,latestReviews   # who arrived unasked
+gh pr edit <pr> --add-reviewer <login>                # only who is missing
+```
+
+A reviewer the project has stopped using does not become one again because the
+flag still accepts it. Which readers a repository wants is a decision it has
+already made somewhere — a subscribed bot, a `CODEOWNERS` entry, a line in its
+contributing guide — and this step requests what is missing from that set rather
+than everyone the forge offers.
+
 Then read it back, against the issue rather than against your intent:
 
 ```bash
-gh pr view <pr> --json labels,assignees,milestone,projectItems
+gh pr view <pr> --json labels,assignees,milestone,projectItems,reviewRequests
 ```
 
 The step is done when that output carries the issue's set. An empty sidebar here
