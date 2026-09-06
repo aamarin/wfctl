@@ -593,6 +593,23 @@ def test_a_decision_ending_in_a_colon_carries_a_list(tmp_path: Path) -> None:
     )
 
 
+def test_a_four_backtick_fence_keeps_its_delimiter_and_its_nested_fence(
+    tmp_path: Path,
+) -> None:
+    """`_pointed_at` is the first place a fence delimiter becomes *output* rather
+    than scanner state, so `_unfenced`'s three-character shorthand stops being
+    harmless here: it closed a ```` opener with ```, projecting a malformed pair,
+    and a nested ``` ended the block early and dropped everything under it — the
+    shape a record documenting fenced markdown would use."""
+    path = _write(tmp_path, "nested", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nWritten like so:\n\n````\n```\ninner\n```\n````\n"
+    ))
+
+    assert _arch.decision_text(_arch.parse_record(path)) == (
+        "Written like so:\n\n````\n```\ninner\n```\n````"
+    )
+
+
 def test_an_unclosed_fence_carries_nothing_rather_than_the_rest_of_the_record(
     tmp_path: Path,
 ) -> None:
