@@ -31,11 +31,20 @@ _TMUX_UNSAFE = re.compile(r"[.:]")
 
 _WINDOW_PREFIX_LINE = re.compile(r"^\s*#?\s*window_prefix:")
 
-# Column 0 and no leading `#`, matching how `patch_seed` finds `agent:`: a
-# commented key is not a setting. `\S+` stops at the whitespace a YAML trailing
-# comment needs, so the template's `wt          # worktrees land in ...` yields
-# `wt`.
-_WORKTREE_DIR_LINE = re.compile(r"^worktree_dir:\s*(\S+)")
+# Column 0, matching how `patch_seed` finds `agent:`: a commented key is not a
+# setting.
+#
+# Three alternatives rather than one `\S+`, because the thing a quoted YAML
+# scalar exists for is a space — `"my trees"` read by `\S+` yields `my`, and
+# ignoring `my/` while `my trees/` stays tracked is the failure this key is
+# being read to prevent, one space over. Unquoted stops at the whitespace YAML
+# requires before a trailing comment, which is what the shipped template's
+# `wt          # worktrees land in ...` needs; `[^\s#]` first means a key with
+# only a comment after it (`worktree_dir:   # TBD`) matches nothing rather than
+# yielding `#`, which git would write into `.gitignore` as a comment line.
+_WORKTREE_DIR_LINE = re.compile(
+    r"""^worktree_dir:[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s#]\S*))"""
+)
 _EMPTY_PRE_REMOVE_LINE = re.compile(r"^pre_remove:\s*\[\]\s*$")
 
 # The command was renamed in #27; `archive-story` survives as a hidden alias.
@@ -72,14 +81,27 @@ _COMMENTED_AGENT = (
 )
 
 
+def _yaml_scalar(value: str) -> str:
+    """`value` as a YAML scalar, quoted only when writing it bare would change it.
+
+    Quoting everything would rewrite the ordinary `wt` as `'wt'` on every
+    re-seed — a diff in a committed file saying nothing happened.
+    """
+    if value.strip() == value and not any(c in value for c in " '\"#:"):
+        return value
+    return "'" + value.replace("'", "''") + "'"
+
+
 def tmux_safe(name: str) -> str:
     """Rewrite the characters tmux would rewrite itself, so the written name
     matches the session tmux actually creates."""
     return _TMUX_UNSAFE.sub("_", name)
 
 
-def patch_seed(text: str, *, agent: str | None, project: str) -> str:
-    """Fill `window_prefix` and `agent` in a freshly copied template.
+def patch_seed(
+    text: str, *, agent: str | None, project: str, worktree_dir: str | None = None
+) -> str:
+    """Fill `window_prefix`, `agent` and `worktree_dir` in a freshly copied template.
 
     `project` must already be `tmux_safe`. Sanitizing here instead would hide the
     substitution from the caller, which is the only place able to report it.
@@ -87,10 +109,15 @@ def patch_seed(text: str, *, agent: str | None, project: str) -> str:
     A key that isn't in the template is left alone rather than appended: this runs
     on a file wfctl is about to hand to the repo, and inventing keys in it is a
     worse failure than not substituting one.
+
+    `worktree_dir` is a value carried in, not derived — the directory the repo
+    already declared, so a re-seed does not relocate every worktree in it. None
+    leaves the template's own value, which is the fresh-repo case.
     """
     escaped = project.replace("'", "''")  # YAML single-quote escaping
     prefix_done = False
     agent_done = False
+    worktree_dir_done = False
     out = []
     for line in text.splitlines(keepends=True):
         if not prefix_done and _WINDOW_PREFIX_LINE.match(line):
@@ -102,6 +129,16 @@ def patch_seed(text: str, *, agent: str | None, project: str) -> str:
         elif not agent_done and line.startswith("agent:"):
             out.append(f"agent: {agent}\n" if agent else _COMMENTED_AGENT)
             agent_done = True
+        elif (
+            worktree_dir is not None
+            and not worktree_dir_done
+            and _WORKTREE_DIR_LINE.match(line)
+        ):
+            # The template's trailing comment goes with the line it annotates:
+            # it reads "worktrees land in ./wt/<handle>", which a carried value
+            # makes false.
+            out.append(f"worktree_dir: {_yaml_scalar(worktree_dir)}\n")
+            worktree_dir_done = True
         else:
             out.append(line)
     return "".join(out)
@@ -121,7 +158,10 @@ def worktree_dir(text: str) -> str | None:
     for line in text.splitlines():
         m = _WORKTREE_DIR_LINE.match(line)
         if m:
-            return m.group(1).strip("\"'")
+            # One of the three alternatives matched; an empty quoted value
+            # (`worktree_dir: ''`) leaves all of them falsey and is the same
+            # answer as an absent key — the config names no directory.
+            return next((g for g in m.groups() if g), None)
     return None
 
 

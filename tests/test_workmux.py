@@ -7,7 +7,17 @@ substitution is a function call, where it previously took two git repos and a
 """
 from __future__ import annotations
 
+from importlib.resources import files
+from pathlib import Path
+
 from wfctl import _workmux
+
+# The real shipped template, not the trimmed copy below. Resolved through
+# `files("wfctl")` for the same reason as `test_skill_cross_references`: the
+# autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake tree, and
+# a parser asserted only against hand-written strings is three transcriptions
+# with nothing comparing them to the file users actually get.
+_SHIPPED = Path(str(files("wfctl"))) / "agents" / "configs" / "workmux" / ".workmux.yaml"
 
 # Trimmed from the real wf-skills template, keeping the lines that matter:
 # the commented placeholder, workmux's own `<agent>` token, and the disabled hook.
@@ -107,10 +117,28 @@ def test_worktree_dir_reads_the_template_shape() -> None:
     ) == "wt"
 
 
-def test_worktree_dir_reads_a_quoted_value() -> None:
-    """YAML lets the value be quoted, and the quotes are not part of the path."""
+def test_worktree_dir_keeps_a_quoted_value_whole() -> None:
+    """The case quoting exists for is a space, and it was the one being lost:
+    `"my trees"` read a token at a time yields `my`, so `my/` gets ignored while
+    `my trees/` stays tracked — the bug this key is read to prevent, one space
+    over."""
+    assert _workmux.worktree_dir('worktree_dir: "my trees"\n') == "my trees"
     assert _workmux.worktree_dir("worktree_dir: 'trees'\n") == "trees"
-    assert _workmux.worktree_dir('worktree_dir: "trees"\n') == "trees"
+
+
+def test_a_key_with_only_a_comment_after_it_names_nothing() -> None:
+    """`#` read as the value puts `#/` in .gitignore, which git parses as a
+    comment — nothing ignored, and no warning either, because the caller saw a
+    value."""
+    assert _workmux.worktree_dir("worktree_dir:   # not decided yet\n") is None
+    assert _workmux.worktree_dir("worktree_dir:\n") is None
+    assert _workmux.worktree_dir("worktree_dir: ''\n") is None
+
+
+def test_worktree_dir_keeps_a_hash_that_is_not_a_comment() -> None:
+    """YAML starts a comment only after whitespace, so `wt#2` is a directory
+    name and truncating it would ignore the wrong one."""
+    assert _workmux.worktree_dir("worktree_dir: wt#2\n") == "wt#2"
 
 
 def test_a_commented_worktree_dir_is_not_a_setting() -> None:
@@ -123,6 +151,47 @@ def test_worktree_dir_absent_is_none_not_a_default() -> None:
     """A `"wt"` fallback here is indistinguishable at the call site from a
     declared value, which re-instates the hardcode one layer down."""
     assert _workmux.worktree_dir("agent: claude\n") is None
+
+
+def test_the_shipped_template_parses(  ) -> None:
+    """The one live failure mode left. Nothing else compares the parser to the
+    file that ships: a renamed or reformatted key leaves every hand-written case
+    here green while every real install silently gets the warning and no
+    gitignore — the template/code drift this parser exists to close."""
+    assert _workmux.worktree_dir(_SHIPPED.read_text()) == "wt"
+
+
+# --- carrying worktree_dir across a re-seed --------------------------------
+
+def test_a_declared_worktree_dir_survives_the_patch() -> None:
+    """`--force` re-seeds from the template, and this key says where every
+    worktree in the repo already lives. Resetting it to `wt` relocates all of
+    them and leaves the real directory untracked (#35)."""
+    out = _workmux.patch_seed(TEMPLATE, agent="bob", project="p", worktree_dir="trees")
+    assert "worktree_dir: trees\n" in out
+    assert "worktree_dir: wt" not in out
+
+
+def test_no_carried_value_leaves_the_template_alone() -> None:
+    """The fresh-repo case: nothing was declared, so the template's own value
+    stands rather than being rewritten to itself."""
+    out = _workmux.patch_seed(TEMPLATE, agent="bob", project="p", worktree_dir=None)
+    assert "worktree_dir: wt" in out
+
+
+def test_a_carried_value_needing_quotes_gets_them() -> None:
+    """Written back bare, `my trees` is a different value when read again —
+    and this module is the thing that reads it."""
+    out = _workmux.patch_seed(TEMPLATE, agent=None, project="p", worktree_dir="my trees")
+    assert "worktree_dir: 'my trees'\n" in out
+    assert _workmux.worktree_dir(out) == "my trees"
+
+
+def test_an_ordinary_carried_value_is_not_quoted() -> None:
+    """Quoting unconditionally rewrites `wt` as `'wt'` on every re-seed — a diff
+    in a committed file reporting a change that did not happen."""
+    out = _workmux.patch_seed(TEMPLATE, agent=None, project="p", worktree_dir="wt")
+    assert "worktree_dir: wt\n" in out
 
 
 # --- unsubstituted_placeholder ---------------------------------------------

@@ -354,8 +354,10 @@ $ wfctl install-config workmux
 `workmux` seeds a repo-agnostic [`.workmux.yaml`](wfctl/agents/configs/workmux/.workmux.yaml)
 starter (worktrees under `wt/`, session mode, agent + term windows, an
 issue-number `pre_create` branch guard; project-specific port/env hooks ship
-commented). For `workmux` it also idempotently adds `wt/` to `.gitignore` and
-sets the config's `agent:` to the resolved agent — `--agent` if given, else the
+commented). For `workmux` it also idempotently gitignores the directory that
+config's `worktree_dir` names — carried across a re-seed rather than reset, and
+reported rather than guessed at when the key names somewhere git cannot ignore —
+and sets the config's `agent:` to the resolved agent — `--agent` if given, else the
 sole agent `install-skills` recorded. If the repo installed no agent layer, or
 several, the key is left commented out rather than guessed: `.workmux.yaml` is
 committed, so naming one would push a per-developer preference into everyone's
