@@ -31,11 +31,15 @@ SKILLS_ROOT = Path(wfctl.__file__).parent / "agents" / "skills"
 RECORD = Path(__file__).resolve().parent.parent / "docs" / "architecture" / "vendor-upstream-skills.md"
 NOTICES = SKILLS_ROOT.parent / "NOTICES.md"
 
-# The `©` is part of the pattern rather than checked afterwards: a line naming a
-# source but no copyright holder is not the notice MIT asks for, and treating it
-# as one would let a half-written line satisfy the check.
-_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \([^)]*©[^)]*\)\.$")
-_ROW = re.compile(r"^\| `([a-z0-9-]+)` \| `([^`]+)` \|$", re.M)
+# The licence and the `©` are both in the pattern rather than checked afterwards:
+# a line naming a source but no copyright holder is not the notice MIT asks for,
+# and one naming neither licence nor holder is not what the record says the line
+# carries. A half-written line has to fail as an absent one, not pass as a whole.
+_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), [^)]*©[^)]*\)\.$")
+# Padding-tolerant: a table reformatted with aligned columns would otherwise
+# match no row at all, and an empty `_listed()` reads as "nothing is declared"
+# — which passes the direction that matters if a line went missing too.
+_ROW = re.compile(r"^\|\s*`([a-z0-9-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
 
 
 def _attributed() -> dict[str, str]:

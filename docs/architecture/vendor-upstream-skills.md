@@ -21,6 +21,11 @@ project's own `LICENSE`.
 
 ## Decision
 
+*Derived* is the class, and *vendored* is one case of it: a vendored skill is a
+derived one nobody has edited. The record keeps its slug, and this repo uses
+"vendored" in a second, unrelated sense — the skills tree vendored into the wheel
+(#47) — so the class name here is "derived", which collides with neither.
+
 A skill taken from another project carries an attribution line as the last line
 of its `SKILL.md`, naming the source repository, upstream's licence, and
 upstream's copyright holder:
@@ -83,7 +88,7 @@ Upstream owns the derived file's copyright, whatever the local edits. The
 project owns the layer above it, and the attribution line is the file's own
 statement of the first fact.
 
-The project cannot own an untouched vendored file's contents: it does not
+The project cannot own an unedited derived file's contents: it does not
 control the next version, and a local edit to a file that gets replaced is a
 change with no durable home.
 
