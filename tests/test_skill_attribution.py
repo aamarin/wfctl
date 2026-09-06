@@ -51,7 +51,7 @@ SPECIFY_NOTICES = SPECIFY_ROOT / "templates" / "NOTICES.md"
 # a line naming a source but no copyright holder is not the notice MIT asks for,
 # and one naming neither licence nor holder is not what the record says the line
 # carries. A half-written line has to fail as an absent one, not pass as a whole.
-_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), [^)]*© *[^)\s][^)]*\)\.$")
+_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), ([^)]*© *[^)\s][^)]*)\)\.$")
 # Padding-tolerant: a table reformatted with aligned columns would otherwise
 # match no row at all, and an empty `_listed()` reads as "nothing is declared"
 # — which passes the direction that matters if a line went missing too.
@@ -63,8 +63,8 @@ _ROW = re.compile(r"^\|\s*`([a-z0-9./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
 _TEMPLATE_ROW = "specify/templates/"
 
 
-def _attributed() -> dict[str, str]:
-    """Skill name or script path → the upstream the file's own line names.
+def _declared() -> dict[str, tuple[str, str]]:
+    """Skill name or script path → (upstream, copyright holder) from its own line.
 
     Two positions, because two conventions. A `SKILL.md` ends with the line, and
     matching only the last line is what stops a skill that merely *discusses*
@@ -77,13 +77,30 @@ def _attributed() -> dict[str, str]:
         text = skill_md.read_text(encoding="utf-8").rstrip()
         match = _LINE.match(text.rsplit("\n", 1)[-1])
         if match:
-            found[skill_md.parent.name] = match.group(1)
+            found[skill_md.parent.name] = (match.group(1), match.group(3))
     for script in sorted(SPECIFY_ROOT.glob("scripts/**/*.sh")):
         lines = script.read_text(encoding="utf-8").splitlines()
         match = _LINE.match(lines[1].removeprefix("# ")) if len(lines) > 1 else None
         if match:
-            found[script.relative_to(SPECIFY_ROOT.parent).as_posix()] = match.group(1)
+            key = script.relative_to(SPECIFY_ROOT.parent).as_posix()
+            found[key] = (match.group(1), match.group(3))
     return found
+
+
+def _attributed() -> dict[str, str]:
+    """Skill name or script path → the upstream the file's own line names."""
+    return {name: repo for name, (repo, _) in _declared().items()}
+
+
+def _holder(statement: str) -> str:
+    """A copyright statement reduced to the part that identifies the holder.
+
+    An attribution line writes `© 2025 Jesse Vincent` and a notice writes
+    `Copyright (c) 2025 Jesse Vincent` — the marks are interchangeable and carry
+    nothing, so comparing the statements whole would fail on every entry that is
+    correct. What survives is the year, where upstream states one, and the name.
+    """
+    return " ".join(re.sub(r"©|Copyright|\(c\)", " ", statement, flags=re.I).split())
 
 
 def _rows() -> list[tuple[str, str]]:
@@ -100,30 +117,37 @@ def _listed() -> dict[str, str]:
     return {name: upstream for name, upstream in _rows() if not name.startswith(_TEMPLATE_ROW)}
 
 
-def _listed_templates() -> set[str]:
-    """The template paths the record's second table names."""
-    return {name for name, _ in _rows() if name.startswith(_TEMPLATE_ROW)}
+def _listed_templates() -> dict[str, str]:
+    """Template path → the upstream the record's second table names for it."""
+    return {name: upstream for name, upstream in _rows() if name.startswith(_TEMPLATE_ROW)}
 
 
-def _noticed_templates() -> set[str]:
-    """The template paths `wfctl/specify/templates/NOTICES.md` names.
+def _noticed_templates() -> dict[str, str]:
+    """Template path → the upstream whose section in the specify notice names it.
 
     Read off the notice rather than passed in, so a template dropped from the
     notice and left in the record fails rather than being assumed present. The
     notice writes them relative to the specify tree, which is how they read in a
     project's own `.specify/` — the record writes them relative to `wfctl/`.
+
+    Every section is walked rather than `github/spec-kit`'s alone. Hard-coding
+    the one upstream this tree happens to have today discards which section a
+    path was found under, and a row moved to a different upstream then agrees
+    with a notice that never said so.
+
+    A path is read only from above its section's copyright line: the prose below
+    it names `templates/github-issue-template.md` in order to say it is *not*
+    derived, and a scan of the whole section would read that denial as a claim.
     """
-    text = SPECIFY_NOTICES.read_text(encoding="utf-8")
-    # Only the upstream's own section counts. The prose below the copyright line
-    # names `templates/github-issue-template.md` in order to say it is *not*
-    # derived, and a whole-file scan would read that mention as a claim.
-    _, heading, rest = text.partition("## github/spec-kit")
-    if not heading:
-        return set()   # no section is no claim, and the record's rows then have nothing to meet
-    return {
-        f"specify/{path}"
-        for path in re.findall(r"`(templates/[a-z0-9-]+\.md)`", rest.split("\n    Copyright", 1)[0])
-    }
+    found = {}
+    for section in re.split(r"^## ", SPECIFY_NOTICES.read_text(encoding="utf-8"), flags=re.M)[1:]:
+        heading, _, body = section.partition("\n")
+        covered = body.split("\n    Copyright", 1)
+        if len(covered) == 1:
+            continue   # a section with no copyright line claims nothing; `_noticed` fails on it
+        for path in re.findall(r"`(templates/[a-z0-9-]+\.md)`", covered[0]):
+            found[f"specify/{path}"] = heading.strip()
+    return found
 
 
 def test_every_file_the_record_lists_carries_its_attribution_line() -> None:
@@ -186,6 +210,42 @@ def _permission_block() -> str:
     return "\n".join(("    " + line).rstrip() for line in body[start:]).rstrip()
 
 
+def test_the_specify_notice_and_the_record_name_the_same_upstream() -> None:
+    """`test_the_file_and_the_record_name_the_same_upstream` one tree over.
+
+    The two set checks above compare paths, so a template row reassigned to a
+    different upstream stayed in both and neither fired — the record and the
+    shipped notice disagreed about whose copyright a file carries, silently.
+    That is the failure the skills' equivalent exists for, and the templates are
+    the population where it matters most: the notice is their only declaration.
+    """
+    listed, noticed = _listed_templates(), _noticed_templates()
+    disagree = {
+        path: (noticed[path], listed[path])
+        for path in set(listed) & set(noticed)
+        if noticed[path] != listed[path]
+    }
+
+    assert not disagree, f"notice and record name different upstreams (notice, record): {disagree}"
+
+
+def test_every_attribution_line_names_the_holder_its_notice_names() -> None:
+    """The holder is the fact MIT asks for, and it had two homes and no bridge.
+
+    Checking that the *upstream* has an entry says nothing about the name beside
+    it: a skill could read `© Example Corp.` while the notice covering it read
+    `Copyright GitHub, Inc.`, and every check here passed. A notice that is
+    subtly wrong is worse than a missing one, because it looks discharged."""
+    noticed = {NOTICES: _noticed(NOTICES), SPECIFY_NOTICES: _noticed(SPECIFY_NOTICES)}
+    disagree = {}
+    for name, (repo, holder) in _declared().items():
+        entries = noticed[SPECIFY_NOTICES if name.startswith("specify/") else NOTICES]
+        if repo in entries and _holder(holder) != _holder(entries[repo]):
+            disagree[name] = (holder, entries[repo])
+
+    assert not disagree, f"file and notice name different holders (file, notice): {disagree}"
+
+
 def test_every_upstream_named_in_a_file_has_its_copyright_in_the_same_tree() -> None:
     """The line names a licence; `NOTICES.md` is the licence.
 
@@ -226,7 +286,7 @@ def test_every_template_the_record_lists_is_named_in_the_specify_notice() -> Non
     """The templates' stand-in for an attribution line, checked in the direction
     a rename breaks: the record still lists the file, and the notice that is the
     only thing shipping its provenance no longer names it."""
-    missing = sorted(_listed_templates() - _noticed_templates())
+    missing = sorted(set(_listed_templates()) - set(_noticed_templates()))
 
     assert not missing, (
         f"listed in vendor-upstream-skills but not named in {SPECIFY_NOTICES.name}: {missing}"
@@ -237,7 +297,7 @@ def test_the_specify_notice_names_no_template_the_record_does_not_list() -> None
     """The other direction, which is where this tree differs from the skills: a
     template has no line of its own to drop, so a file that stops being derived
     leaves the notice as the only place still claiming GitHub owns it."""
-    unlisted = sorted(_noticed_templates() - _listed_templates())
+    unlisted = sorted(set(_noticed_templates()) - set(_listed_templates()))
 
     assert not unlisted, (
         f"named in {SPECIFY_NOTICES.name} but vendor-upstream-skills does not list them: {unlisted}"
@@ -252,6 +312,7 @@ def test_every_template_the_record_lists_is_a_file_that_ships() -> None:
     asserting GitHub's copyright over a path that is no longer in the tree, with
     every other check here green."""
     missing = sorted(p for p in _listed_templates() if not (SPECIFY_ROOT.parent / p).exists())
+
 
     assert not missing, f"listed in vendor-upstream-skills but not in the tree: {missing}"
 
