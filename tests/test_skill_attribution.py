@@ -63,8 +63,8 @@ _ROW = re.compile(r"^\|\s*`([a-z0-9./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
 _TEMPLATE_ROW = "specify/templates/"
 
 
-def _declared() -> dict[str, tuple[str, str]]:
-    """Skill name or script path → (upstream, copyright holder) from its own line.
+def _declared() -> dict[str, tuple[str, str, str]]:
+    """Skill name or script path → (upstream, licence, holder) from its own line.
 
     Two positions, because two conventions. A `SKILL.md` ends with the line, and
     matching only the last line is what stops a skill that merely *discusses*
@@ -77,19 +77,19 @@ def _declared() -> dict[str, tuple[str, str]]:
         text = skill_md.read_text(encoding="utf-8").rstrip()
         match = _LINE.match(text.rsplit("\n", 1)[-1])
         if match:
-            found[skill_md.parent.name] = (match.group(1), match.group(3))
+            found[skill_md.parent.name] = match.group(1, 2, 3)
     for script in sorted(SPECIFY_ROOT.glob("scripts/**/*.sh")):
         lines = script.read_text(encoding="utf-8").splitlines()
         match = _LINE.match(lines[1].removeprefix("# ")) if len(lines) > 1 else None
         if match:
             key = script.relative_to(SPECIFY_ROOT.parent).as_posix()
-            found[key] = (match.group(1), match.group(3))
+            found[key] = match.group(1, 2, 3)
     return found
 
 
 def _attributed() -> dict[str, str]:
     """Skill name or script path → the upstream the file's own line names."""
-    return {name: repo for name, (repo, _) in _declared().items()}
+    return {name: repo for name, (repo, _, _holder) in _declared().items()}
 
 
 def _holder(statement: str) -> str:
@@ -215,6 +215,20 @@ def _noticed(notice: Path) -> dict[str, str]:
     return found
 
 
+def _licence_the_notices_carry() -> str:
+    """The licence whose permission text both notice files reproduce.
+
+    Read off `LICENSE`'s first line rather than pinned here, and load-bearing
+    through `test_each_notice_carries_the_permission_text_it_claims_to`: the
+    notices reproduce that file's block and nothing else, so it is the only
+    licence anything in the wheel grants under. A line naming a different one
+    names a licence no notice in its tree carries — and the day a genuinely
+    Apache-2.0 upstream is vendored, the notice needs a second permission block
+    before its files can declare one.
+    """
+    return LICENSE.read_text(encoding="utf-8").splitlines()[0].removesuffix(" License")
+
+
 def _permission_block() -> str:
     """`LICENSE`'s permission notice, indented as a notice file quotes it."""
     body = LICENSE.read_text(encoding="utf-8").splitlines()
@@ -258,6 +272,36 @@ def test_the_specify_notice_and_the_record_name_the_same_upstream() -> None:
     assert not disagree, f"notice and record name different upstreams (notice, record): {disagree}"
 
 
+def test_every_attribution_line_names_the_licence_its_notice_carries() -> None:
+    """`_LINE` required a licence and then threw it away, so a file could ship
+    saying `(Apache-2.0, © GitHub, Inc.)` above a notice reproducing MIT's
+    permission text, with every check green. The record calls the line's three
+    facts source, licence and holder; two of them were being compared."""
+    expected = _licence_the_notices_carry()
+    wrong = {
+        name: licence for name, (_repo, licence, _holder) in _declared().items()
+        if licence != expected
+    }
+
+    assert not wrong, f"name a licence no NOTICES.md in their tree carries (expected {expected}): {wrong}"
+
+
+def test_no_file_is_listed_twice_in_the_record() -> None:
+    """`_listed()` is a dict comprehension over the rows, so a file listed under
+    two upstreams kept whichever row came last. With the correct row second, the
+    record made two contradictory provenance claims and nothing read the first.
+
+    The same defect as the specify notice's duplicate sections, in the other
+    declaration — and a row inserted rather than edited is how a half-finished
+    move between upstreams leaves it."""
+    seen: dict[str, list[str]] = {}
+    for name, upstream in _rows():
+        seen.setdefault(name, []).append(upstream)
+    duplicated = {name: owners for name, owners in seen.items() if len(owners) > 1}
+
+    assert not duplicated, f"listed more than once in vendor-upstream-skills: {duplicated}"
+
+
 def test_every_attribution_line_names_the_holder_its_notice_names() -> None:
     """The holder is the fact MIT asks for, and it had two homes and no bridge.
 
@@ -267,7 +311,7 @@ def test_every_attribution_line_names_the_holder_its_notice_names() -> None:
     subtly wrong is worse than a missing one, because it looks discharged."""
     noticed = {NOTICES: _noticed(NOTICES), SPECIFY_NOTICES: _noticed(SPECIFY_NOTICES)}
     disagree = {}
-    for name, (repo, holder) in _declared().items():
+    for name, (repo, _licence, holder) in _declared().items():
         entries = noticed[SPECIFY_NOTICES if name.startswith("specify/") else NOTICES]
         if repo in entries and _holder(holder) != _holder(entries[repo]):
             disagree[name] = (holder, entries[repo])
