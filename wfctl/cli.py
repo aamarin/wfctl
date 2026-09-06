@@ -3037,11 +3037,11 @@ def tracker_check_cmd(
 def check_body_cmd(
     path: Path = typer.Argument(..., help="The change description to check, as a file"),
 ) -> None:
-    """Check a PR description's drawings against `conversation-response-shape`.
+    """Check a PR description against the two skills that have rules about it.
 
     The cheaper half of the same problem the `Stop` hook covers: a PR body is a
     file on disk before `gh pr create` reads it, so checking it is a script over
-    a file rather than a hook over a response. `opening-a-change` Step 4 already
+    a file rather than a hook over a response. `opening-a-change` Step 5 already
     writes the body to a file and passes the file; this reads that file.
 
     **Why not a flag on `doctor`.** That was the first shape considered, and
@@ -3055,10 +3055,17 @@ def check_body_cmd(
     it out of `verify`, which records that a *branch* is done rather than judging
     a file it is handed.
 
-    Only the drawing rules, because the skill scopes the two surfaces apart
-    (SKILL.md:429): headers are a violation in a reply and *required* in a PR
-    body, while the template names this skill's form-selection table as the
-    single owner of which drawing to use. `wfctl/_shape.py` carries the split.
+    Of `conversation-response-shape`, only the drawing rules, because the skill
+    scopes the two surfaces apart (SKILL.md:429): headers are a violation in a
+    reply and *required* in a PR body, while the template names this skill's
+    form-selection table as the single owner of which drawing to use.
+    `wfctl/_shape.py` carries the split.
+
+    `opening-a-change` adds the second rule — the review panel's reconciled table
+    goes in the body — and `wfctl/_body.py` carries it, a sibling module rather
+    than a third function in `_shape`, whose own first line scopes it to one
+    skill. Both sets are reported together: what the author has in front of them
+    is one file, not one skill's view of it.
 
     Exits 1 when it finds something, so the finding is hard to walk past. It
     gates nothing — nothing runs this but the author.
@@ -3072,12 +3079,12 @@ def check_body_cmd(
         console.print(f"[red]Can't read {path}:[/red] {exc}")
         raise typer.Exit(1)
 
-    from wfctl import _shape
+    from wfctl import _body, _shape
     from rich.markup import escape
 
-    found = _shape.body_findings(body)
+    found = _shape.body_findings(body) + _body.panel_findings(body)
     if not found:
-        console.print(f"[green]✓[/green] {path}: drawings look right", soft_wrap=True)
+        console.print(f"[green]✓[/green] {path}: drawings and panel look right", soft_wrap=True)
         return
     for line in found:
         console.print(f"[yellow]⚠[/yellow] {escape(line)}", soft_wrap=True)

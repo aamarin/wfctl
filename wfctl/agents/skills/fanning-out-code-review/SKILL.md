@@ -100,6 +100,13 @@ reviewer its own worktree lifts the report-only constraint and buys nothing
 back. A reviewer's product is findings, verification stays with the parent
 either way, and the price is an environment per reviewer.
 
+**The trigger you will meet most often is not a sentence.**
+`.agents/skills/opening-a-change/SKILL.md` runs this skill as its Step 1, before
+a PR is opened. That is the path an unattended run takes, where the description
+above matches nothing because nobody said anything (#187) — so this skill starts
+from a step in another file rather than from a phrase, and the reconciled table
+from Step 6 is content for the description that step goes on to write.
+
 A reviewer nobody dispatched still counts. Bot and human comments already on the
 change are panel members you did not pay for; collect them in the same pass.
 

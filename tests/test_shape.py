@@ -363,12 +363,29 @@ def test_check_body_names_the_file_it_cannot_read() -> None:
     assert "body.md" in result.output
 
 
+# The command reports two skills' rules over one file, so a fixture exercising
+# the drawing rules has to satisfy the other one to reach exit 0. Appended rather
+# than folded into ACCEPTED, which is quoted from PR #208 and is evidence about
+# which drawings a reader accepted — editing it would change what it is evidence
+# of. `wfctl/_body.py` owns the panel rule and `tests/test_body.py` tests it.
+_PANEL = """
+
+## Review Panel
+
+| # | Reviewer | Finding | Disposition |
+|---|---|---|---|
+| 1 | r1 | the fence is tabular | applied |
+
+roster: r1 ✓  r2 ✓  r3 ✓
+"""
+
+
 def test_check_body_exits_one_on_a_finding_and_zero_without(tmp_path: Path) -> None:
     """Exit 1 so the finding is hard to walk past. It gates nothing — nothing
     runs this but the author."""
     bad = tmp_path / "bad.md"
-    bad.write_text(REJECTED)
+    bad.write_text(REJECTED + _PANEL)
     good = tmp_path / "good.md"
-    good.write_text(ACCEPTED)
+    good.write_text(ACCEPTED + _PANEL)
     assert runner.invoke(app, ["check-body", str(bad)]).exit_code == 1
     assert runner.invoke(app, ["check-body", str(good)]).exit_code == 0
