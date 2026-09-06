@@ -370,7 +370,7 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
 @app.command("end")
 def end_cmd() -> None:
     """End the current session."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from wfctl import _session
     from wfctl._pipeline import build_report
@@ -405,10 +405,16 @@ def end_cmd() -> None:
         # alone, it last changed then. Not who wrote it or why: a pre-existing
         # summary is as often a handoff written *for* the branch as a stale one
         # left by an earlier session, and nothing here can tell them apart.
-        mtime = datetime.fromtimestamp(summary_path.stat().st_mtime)
+        # UTC, and marked as such, because the reader compares it against the
+        # `# Session Summary: {date}` header inside the file it names — and that
+        # header is UTC. Rendered local, the two disagree by the offset, and west
+        # of UTC an evening write prints a date a full day behind the one in the
+        # file: the "headed with the previous day's date" confusion this line
+        # exists to end.
+        mtime = datetime.fromtimestamp(summary_path.stat().st_mtime, timezone.utc)
         console.print(
             f"  [yellow]⚠[/yellow] kept — this session wrote nothing; "
-            f"last modified {mtime:%Y-%m-%d %H:%M}."
+            f"last modified {mtime:%Y-%m-%dT%H:%M:%SZ}."
         )
 
 
