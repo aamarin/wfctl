@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -714,7 +715,7 @@ _URL = "https://github.com/owner/repo/issues/1"
 
 
 def _stub_gh_for_create(
-    tmp_path: Path, *, projects: str = '{"projects":[{"number":7,"title":"repo"}]}',
+    tmp_path: Path, *, boards: dict[str, int] | None = None,
     create_rc: int = 0, repo_rc: int = 0, list_rc: int = 0, add_rc: int = 0,
 ) -> Path:
     """A `gh` that records argv one token per line and answers the three calls.
@@ -725,9 +726,25 @@ def _stub_gh_for_create(
     `item-add`'s positional — and a joined string cannot tell any of that apart
     from a title that happens to contain the same word.
 
-    `projects` is the `--format json` document the lookup filters; the `*_rc`
-    knobs fail one call each, which is the axis every test below varies.
+    `boards` is the owner's projects as title -> number; the stub answers the
+    lookup by matching `$WFCTL_BOARD` against it, which is the selection the
+    script is responsible for. It does not run the jq program — that is gh's,
+    executed by gh's own embedded gojq, and reproducing it here would have
+    bought fidelity this cannot have while adding `jq` as the one binary the
+    suite needs that `uv run` does not install.
+
+    The `*_rc` knobs fail one call each, which is the axis every test below
+    varies.
     """
+    if boards is None:
+        boards = {"repo": 7}
+    # One `case` arm per board title, which is what the script's jq program
+    # selects on. `printf` with no match prints nothing, which is what
+    # `first(...)` over an empty result does.
+    lookup = "".join(
+        f'    {shlex.quote(title)}) echo "{number}" ;;\n'
+        for title, number in boards.items()
+    )
     calls = tmp_path / "calls"
     fake_gh = tmp_path / "gh"
     fake_gh.write_text(
@@ -737,9 +754,11 @@ def _stub_gh_for_create(
         'case "$1 $2" in\n'
         f'  "issue create") echo "{_URL}"; exit {create_rc} ;;\n'
         f'  "repo view") echo "owner repo"; exit {repo_rc} ;;\n'
-        # The script asks with --jq, so the stub applies it the way gh does.
-        f'  "project list") printf "%s" \'{projects}\' '
-        f'| jq -r "${{@: -1}}"; exit {list_rc} ;;\n'
+        '  "project list")\n'
+        '    case "${WFCTL_BOARD-}" in\n'
+        f'{lookup}'
+        '    esac\n'
+        f'    exit {list_rc} ;;\n'
         f'  "project item-add") exit {add_rc} ;;\n'
         '  *) exit 9 ;;\n'
         'esac\n'
@@ -769,8 +788,7 @@ def _recorded(calls: Path) -> list[list[str]]:
 @pytest.mark.parametrize("kwargs,args,rc,attempted,note", [
     ({}, ("a title", "a body"), 0, True, "✓"),
     ({}, ("a title", "a body", "repo"), 0, True, "✓"),
-    ({"projects": '{"projects":[]}'}, ("a title", "a body"),
-     0, False, "no project titled 'repo'"),
+    ({"boards": {}}, ("a title", "a body"), 0, False, "no project titled 'repo'"),
     ({"repo_rc": 1}, ("a title", "a body"), 1, False, "could not read this repository"),
     ({"list_rc": 1}, ("a title", "a body"), 1, False, "could not read owner's projects"),
     ({"add_rc": 1}, ("a title", "a body"), 1, True, "could not add"),
@@ -836,7 +854,7 @@ def test_create_script_treats_a_lookup_that_prints_nothing_as_no_board(
     with an empty positional — an API error where the honest answer was "this
     repository has no board".
     """
-    calls = _stub_gh_for_create(tmp_path, projects='{"projects":[]}')
+    calls = _stub_gh_for_create(tmp_path, boards={})
     result = _run_create_script(tmp_path, monkeypatch, "a title", "a body")
     assert result.returncode == 0, result.stderr
     assert not [c for c in _recorded(calls) if c[:2] == ["project", "item-add"]]
