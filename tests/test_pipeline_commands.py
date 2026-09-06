@@ -633,9 +633,10 @@ def test_open_tasks_still_route_to_the_step_command(gated: types.SimpleNamespace
 def test_the_sentinel_closes_the_tasks_even_with_a_box_left_open(
     gated: types.SimpleNamespace,
 ) -> None:
-    """#262. `speckit-implement` writes the sentinel on every run, precisely for
-    the story whose boxes were never a reliable signal — so the sentinel beside
-    an open box is the ordinary state, not a corrupt one.
+    """#262. `speckit-implement` writes the sentinel when it reaches step 9b,
+    precisely for the story whose boxes were never a reliable signal — tasks
+    executed outside the skill. So the sentinel beside an open box is the
+    ordinary state, not a corrupt one.
 
     `_infer_steps` reads both routes and reports `in_progress`; the routing path
     read only the boxes, saw work left, and returned `auto: true` for a story
