@@ -57,6 +57,21 @@ pre_create:
 post_create:
   - cd "$WM_WORKTREE_PATH" && wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
 
+  # Tell the tracker work on this issue has begun. A backend with a board moves
+  # the item to its in-progress column; one without simply does not declare the
+  # verb, and the call no-ops with a notice. `pre_create` above already refused a
+  # handle with no issue key, so the mapping is read rather than inferred.
+  #
+  # Second, not first: the verb is defined by `.agents/trackers/<name>.json`, and
+  # the install above is what puts that in a fresh worktree.
+  #
+  # `|| true` for the same reason as the line above it, and it matters more here
+  # — this one reaches the network, and no worktree should fail to come up
+  # because a tracker was unreachable.
+  - |
+    ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
+    cd "$WM_WORKTREE_PATH" && wfctl issue start "$ISSUE" || true
+
 # Further project-specific setup (ports, .env rewrites, db URLs) goes here, as
 # additional entries above. Example — derive a port from the issue number:
 #   - |
@@ -76,6 +91,14 @@ post_create:
 # projects and fast-deletes node_modules. Add that back here if you need it.
 pre_remove:
   - command -v wfctl >/dev/null && wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
+
+  # The counterpart to `issue start`: a branch abandoned rather than merged would
+  # otherwise leave its issue reading in-progress forever. The verb leaves a
+  # closed issue alone, so a worktree removed after the work merged keeps the
+  # column the merge earned it.
+  - |
+    ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
+    cd "$WM_WORKTREE_PATH" && wfctl issue stop "$ISSUE" || true
 
 #-------------------------------------------------------------------------------
 # Files

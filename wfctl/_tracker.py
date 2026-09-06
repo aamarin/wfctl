@@ -32,6 +32,12 @@ ALLOWED = {
     "list": set(), "view": {"id"}, "close": {"id", "comment"},
     "comment": {"id", "body"}, "create": {"title", "body"},
     "label": {"id", "action", "label"},
+    # `start`/`stop` say when work on an issue began and stopped; what a backend
+    # does with that is its own business. A tracker with a board moves a column,
+    # one without it declines the verb and the caller carries on — which is why
+    # the pair is named for the event rather than for the column, and why
+    # neither takes a status to write.
+    "start": {"id"}, "stop": {"id"},
 }
 # The `changes` section (PRs / patchsets) supports a smaller verb set.
 ALLOWED_CHANGES = {"list": set(), "view": {"id"}}

@@ -12,7 +12,7 @@ the session skills work unchanged.
 
 ## The verb contract
 
-The session skills speak six standard verbs. A backend implements the subset it
+The session skills speak eight standard verbs. A backend implements the subset it
 supports — the presence of a verb key is its declaration, so a backend cannot lie
 about what it can do.
 
@@ -24,11 +24,25 @@ about what it can do.
 | `comment` | comment on an issue         | `{id}`, `{body}`                           |
 | `create`  | open a new issue            | `{title}`, `{body}`                        |
 | `label`   | add/remove a label          | `{id}`, `{action}` (add\|remove), `{label}`|
+| `start`   | work on an issue has begun  | `{id}`                                     |
+| `stop`    | work on an issue has stopped| `{id}`                                     |
 
 Each verb maps to an **argv list** (never a shell string). `{name}` placeholders
 are substituted per-token from the CLI options, so free text like a comment body
 is always one inert argument — no shell injection, no quoting to get right.
 Substitution is within-token, so `"--{action}-label"` becomes `--add-label`.
+
+`start` and `stop` are events, not values: they say *when*, and the backend
+decides what that means. wfctl wires them into worktree creation and removal, so
+neither takes a status to write — a board name in the caller would make every
+consumer of this contract know one tracker's column vocabulary. Where the
+tracker has no board at all, leave both out; the caller carries on.
+
+A verb whose backend needs more than one call is still one argv. Point it at a
+script the backend ships beside its config and pass `{id}` as an argument rather
+than building a shell string — the GitHub backend's `start` does exactly that,
+because setting a Projects v2 column takes a query for the item id and then a
+mutation, and `gh` has no by-issue-number form of the write.
 
 ## Optional: `changes` (PRs / patchsets)
 
