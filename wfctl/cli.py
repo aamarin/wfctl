@@ -996,6 +996,13 @@ def spec_root_cmd(
         console.print(f"[green]✓[/green] gitignored it in {target / '.gitignore'}", soft_wrap=True)
 
 
+# The verbs that default their id to the branch's issue. Deliberately not every
+# verb taking `{id}`: `view` and `close` are typed by a person who means a
+# specific issue, and silently substituting the branch's would close the wrong
+# one.
+_BRANCH_SCOPED_VERBS = ("start", "stop")
+
+
 @app.command("issue")
 def issue_cmd(
     verb: str = typer.Argument(
@@ -1022,8 +1029,8 @@ def issue_cmd(
       comment <id> --body TEXT                      add a comment
       create       --title T --body TEXT            open a new issue
       label   <id> --action add|remove --label NAME add/remove a label
-      start   <id>                                  work on it has begun
-      stop    <id>                                  work on it has stopped
+      start   [id]                                  work on it has begun
+      stop    [id]                                  work on it has stopped
 
     \b
     Examples:
@@ -1031,19 +1038,33 @@ def issue_cmd(
       wfctl issue view 71
       wfctl issue close 71 --comment "Done in abc123"
       wfctl issue label 71 --action add --label in-progress
-      wfctl issue start 71
+      wfctl issue start          # the branch's issue
 
     `start` and `stop` report an event, not a value to write: a backend with a
     board moves a column, and one without simply does not declare the verb. They
     are wired into worktree creation and removal, so what they must never do is
-    fail loudly enough to matter — see the hooks in `.workmux.yaml`.
+    fail loudly enough to matter — see the hooks in `.workmux.yaml`. Both take
+    the branch's issue key when no id is given.
 
     Degrades gracefully (exit 0) when no tracker is configured or the active
     backend does not implement the verb.
     """
     from wfctl import _tracker
 
-    agent_dir, repo_root, _, _ = _resolve_context()
+    agent_dir, repo_root, branch, issue = _resolve_context()
+    # `start`/`stop` are wired into worktree create and remove, where the issue
+    # is always the branch's. Taking it from there rather than from the caller
+    # keeps the hook out of the business of parsing a branch name: the key shape
+    # is the tracker's (`key_pattern`), and a hook that re-derives it with its
+    # own regex is a second, hardcoded copy that only a GitHub-shaped repo gets
+    # right. `extract_issue_key` reports a branch carrying no key as "unknown" —
+    # a worktree made outside the naming rule — and there is nothing to report
+    # about an issue that isn't one.
+    if verb in _BRANCH_SCOPED_VERBS and issue_id is None:
+        if issue == "unknown":
+            console.print(f"ℹ No issue key in branch '{branch}' — skipping '{verb}'")
+            raise typer.Exit(0)
+        issue_id = issue
     params = {
         "id": issue_id, "comment": comment, "body": body,
         "title": title, "label": label, "action": action,
@@ -1213,6 +1234,15 @@ _BACKUP_DIR = ".wf-skills-backup"
 # config's `start`/`stop` verbs invoke it by path, so the pair travels together
 # or the verbs are declared and broken.
 _GITHUB_TRACKER_FILES = ("github.json", "github-board.sh")
+
+
+def _tracker_files(name: str) -> tuple[str, ...]:
+    """Every file backend `name` is made of, config first.
+
+    Only the bundled backend has more than one; a hand-authored tracker is its
+    config and nothing else, because nothing else is shipped for it to name.
+    """
+    return _GITHUB_TRACKER_FILES if name == "github" else (f"{name}.json",)
 
 _BASE_LAYER = "base"
 # `tracker` and `spec_root` are bare strings, not installed layers — they hold
@@ -2004,6 +2034,10 @@ def install_skills_cmd(
     # alternative — resolving the backend at dispatch time — would have
     # `_tracker.py` execute argv out of a config file belonging to a different
     # checkout. `spec_root` inherits a path; this would inherit a command.
+    # An inherited tracker fills what is missing; an explicit `--tracker` refreshes
+    # the lot. The difference matters only where a project committed part of a
+    # backend by hand — see the inheritance branch below.
+    tracker_skip_existing = False
     if tracker is None and "tracker" not in manifest:
         main = main_checkout(repo_root)
         inherited = _load_manifest(main) if main is not None else {}
@@ -2021,8 +2055,19 @@ def install_skills_cmd(
             # aborts the whole install on the TTY-less hook this exists to fix,
             # and silently replaces the project's config under --yes.
             if name:
-                if not (repo_root / ".agents" / "trackers" / f"{name}.json").exists():
+                trackers_dir = repo_root / ".agents" / "trackers"
+                # Every file, not just the config. Since a backend can be more
+                # than one file, "already present" has a partial case: a repo
+                # that commits `github.json` and not the script it names would
+                # otherwise inherit a tracker whose `start` runs a path that
+                # never arrives.
+                if any(not (trackers_dir / f).exists() for f in _tracker_files(name)):
                     tracker = name
+                    # Fill the gap without touching what is there. The file a
+                    # project committed is the reason the check above is not a
+                    # plain overwrite, and it is still that reason once one of
+                    # its siblings is missing.
+                    tracker_skip_existing = True
                 # Announced for the same reason the spec-root write below is: a
                 # decision that arrives from another checkout, and that a later
                 # `--tracker none` here cannot durably undo, is not one to make
@@ -2203,6 +2248,8 @@ def install_skills_cmd(
     # config installed without it declares verbs that cannot run.
     if tracker == "github":
         for fname in _GITHUB_TRACKER_FILES:
+            if tracker_skip_existing and (repo_root / ".agents" / "trackers" / fname).exists():
+                continue
             tsrc = bundle_root / "agents" / "trackers" / fname
             if not tsrc.exists():
                 console.print(

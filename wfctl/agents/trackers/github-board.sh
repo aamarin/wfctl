@@ -4,26 +4,42 @@
 # This exists because a board write cannot be one argv, and a tracker verb is
 # one argv. `gh project item-edit` addresses an item by its node id and has no
 # by-issue-number form, so the write is two calls: one query that resolves the
-# item, project, field and option ids together, one mutation that sets the
-# value. The query does all four at once rather than the three `gh project`
-# subcommands the same job takes from the outside.
+# item, project and field ids together with the issue's state and the column it
+# is in now, and one mutation that sets the value.
 #
 # Called as argv tokens from `.agents/trackers/github.json` — never through a
-# shell — so the issue key arrives as `$1` rather than interpolated into a
-# command string. The numeric check below is what makes that true of this file
-# too, since everything under it does interpolate.
+# shell — so the issue key arrives as `$1` rather than inside a command string.
+# The numeric check below is not what makes that true; it is what keeps a
+# hand-typed `wfctl issue start '$(...)'` from reaching `gh` as an issue number
+# and coming back as a confusing API error.
 #
-# Exit 0 when there was nothing to set: an issue on no board, or a board with no
-# such column, is the ordinary state of a repo that keeps a curated board, not a
-# failure. Non-zero is reserved for a call that should have worked and didn't.
+# Requires a `gh` token carrying the `project` scope, which `gh auth login` does
+# not grant by default: `gh auth refresh -s project`. Without it every call here
+# fails with GitHub's scope error, which the hooks swallow — so a board that
+# never moves is the symptom to check this against first.
+#
+# Exit 0 when there was nothing to set: an issue on no board, a board with no
+# such column, or a guard below that declined. Non-zero is reserved for a call
+# that should have worked and didn't.
 set -uo pipefail
 
 issue=${1:-}
 status=${2:-}
-guard=${3:-}
+
+# `--only-if-open-in <column>` is the teardown direction, and it carries both
+# conditions because they answer one question: is this item still where `start`
+# left it? An issue whose work merged is closed, and moving it out of `Done`
+# would undo the one transition the board gets right on its own; an issue whose
+# change is in review has moved on to another column, and dragging it back to a
+# backlog reads as work that never began. The pair is checked from the query
+# already being made, so neither costs a call.
+guard_column=""
+if [[ "${3:-}" == "--only-if-open-in" ]]; then
+  guard_column=${4:-}
+fi
 
 if [[ -z "$issue" || -z "$status" ]]; then
-  echo "usage: github-board.sh <issue-number> <status-name> [--if-open]" >&2
+  echo "usage: github-board.sh <issue> <status> [--only-if-open-in <column>]" >&2
   exit 2
 fi
 
@@ -32,33 +48,29 @@ if [[ ! "$issue" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
-# `--if-open` exists for the teardown direction. A worktree removed after its
-# work merged leaves the issue closed, and moving a closed issue back to a
-# backlog column would undo the one transition the board still gets right.
-#
-# ponytail: an open issue whose PR is already in review reads as not-started
-# after this. Narrow the guard to "open and no linked PR" if that shows up; it
-# costs another call to find out, and a stale `Todo` is cheaper than the column
-# this replaces.
-if [[ "$guard" == "--if-open" ]]; then
-  state=$(gh issue view "$issue" --json state --jq .state 2>/dev/null) || exit 0
-  [[ "$state" == "OPEN" ]] || exit 0
-fi
-
 nwo=$(gh repo view --json owner,name --jq '.owner.login + " " + .name') || exit 1
 read -r owner name <<<"$nwo"
 
 # The status name reaches jq through the environment rather than the filter
 # text: `gh --jq` takes no `--arg`, and splicing a config value into a jq
 # program is the same class of mistake this file avoids with argv.
+#
+# `options != null` rather than `field != null`: a `Status` field that is not a
+# single select still matches the inline fragment's parent and comes back as
+# `{}`, which is not null, and iterating its absent options aborts jq — turning
+# an unusual board into the non-zero exit this file promises not to produce.
 ids=$(WFCTL_BOARD_STATUS="$status" gh api graphql \
   -f owner="$owner" -f repo="$name" -F num="$issue" \
   -f query='query($owner:String!,$repo:String!,$num:Int!){
     repository(owner:$owner,name:$repo){
       issue(number:$num){
+        state
         projectItems(first:10){
           nodes{
             id
+            fieldValueByName(name:"Status"){
+              ... on ProjectV2ItemFieldSingleSelectValue{ name }
+            }
             project{
               id
               field(name:"Status"){
@@ -70,12 +82,15 @@ ids=$(WFCTL_BOARD_STATUS="$status" gh api graphql \
       }
     }
   }' \
-  --jq '.data.repository.issue.projectItems.nodes[]
-        | select(.project.field != null)
+  --jq '.data.repository.issue as $issue
+        | $issue.projectItems.nodes[]
         | . as $node
-        | .project.field.options[]
+        | select($node.project.field.options != null)
+        | $node.project.field.options[]
         | select(.name == env.WFCTL_BOARD_STATUS)
-        | "\($node.id) \($node.project.id) \($node.project.field.id) \(.id)"'
+        | [$issue.state, ($node.fieldValueByName.name // ""),
+           $node.id, $node.project.id, $node.project.field.id, .id]
+        | @tsv'
 ) || exit 1
 
 if [[ -z "$ids" ]]; then
@@ -83,9 +98,15 @@ if [[ -z "$ids" ]]; then
   exit 0
 fi
 
-# First match wins. An issue on two boards is a shape nobody here has, and
-# picking one silently beats writing to both by accident.
-read -r item project field option <<<"$(head -n 1 <<<"$ids")"
+# First match wins, and `read` takes the first line on its own. An issue on two
+# boards is a shape nobody here has, and picking one silently beats writing to
+# both by accident.
+IFS=$'\t' read -r state current item project field option <<<"$ids"
+
+if [[ -n "$guard_column" ]]; then
+  [[ "$state" == "OPEN" ]] || exit 0
+  [[ "$current" == "$guard_column" ]] || exit 0
+fi
 
 gh api graphql -f project="$project" -f item="$item" -f field="$field" -f option="$option" \
   -f query='mutation($project:ID!,$item:ID!,$field:ID!,$option:String!){

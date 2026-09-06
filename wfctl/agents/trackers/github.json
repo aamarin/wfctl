@@ -9,7 +9,8 @@
     "create": ["gh", "issue", "create", "--title", "{title}", "--body", "{body}"],
     "label": ["gh", "issue", "edit", "{id}", "--{action}-label", "{label}"],
     "start": ["bash", ".agents/trackers/github-board.sh", "{id}", "In Progress"],
-    "stop": ["bash", ".agents/trackers/github-board.sh", "{id}", "Todo", "--if-open"]
+    "stop": ["bash", ".agents/trackers/github-board.sh", "{id}", "Todo",
+             "--only-if-open-in", "In Progress"]
   },
   "changes": {
     "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],

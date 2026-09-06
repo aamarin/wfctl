@@ -485,9 +485,14 @@ you use:
 wfctl issue list
 wfctl issue view 71
 wfctl issue close 71 --comment "Done in abc123"
+wfctl issue start                      # the branch's issue; work has begun
 ```
 
-Verbs: `list`, `view`, `close`, `comment`, `create`, `label`. The backend is
+Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `start`, `stop`.
+`start` and `stop` report an event rather than a value — worktree creation and
+removal call them, and a backend with a board moves a column while one without
+declines the verb. Both default to the issue key on the current branch. The
+backend is
 chosen at install time (`install-skills --tracker <name>`) and defined by
 `.agents/trackers/<name>.json` — a map of verb → command. **GitHub ships built
 in**: a repo's first interactive `install-skills` offers to install it, and
@@ -498,6 +503,14 @@ later installs leave the choice and your edits to its config alone — re-copy t
 shipped one with an explicit `--tracker github`. `--tracker none` clears the
 choice entirely, which also re-opens the question on the next interactive
 install.
+
+That last rule is the upgrade path for `start`/`stop`: a repo that installed the
+GitHub backend before they existed keeps the config it has, so the verbs arrive
+only with an explicit `--tracker github`. Until then the calls degrade the way
+any unimplemented verb does — `Tracker 'github' does not support 'start'` — and
+the board simply does not move. GitHub's board write also needs a token carrying
+the `project` scope, which `gh auth login` does not grant by default:
+`gh auth refresh -s project`.
 For anything else — a private
 Jira/Linear CLI — author a config with the `scaffold-tracker` skill and validate
 it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)

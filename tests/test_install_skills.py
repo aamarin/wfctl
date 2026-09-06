@@ -115,6 +115,9 @@ def _add_tracker(bundle: Path, body: str = '{"verbs": {}}\n') -> None:
     tracker_dir = bundle / "agents" / "trackers"
     tracker_dir.mkdir(parents=True, exist_ok=True)
     (tracker_dir / "github.json").write_text(body)
+    # The backend is two files. Omitting the script here would leave every
+    # caller testing a github backend that cannot run its own `start`.
+    (tracker_dir / "github-board.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
 
 
 def test_install_skills_no_tracker_without_a_human(bundle: Path, agent_dir: Path) -> None:
@@ -3197,3 +3200,7 @@ def test_inherited_tracker_leaves_a_committed_config_alone(
     assert manifest["tracker"] == "github"
     # The install ran to completion rather than aborting before the copy loop.
     assert (wt / ".agents" / "skills" / "test-skill" / "SKILL.md").exists()
+    # And the half the project did not commit still arrives: `github.json`
+    # names the script in its `start` argv, so a config kept without it declares
+    # a verb that exits 127.
+    assert (wt / ".agents" / "trackers" / "github-board.sh").exists()
