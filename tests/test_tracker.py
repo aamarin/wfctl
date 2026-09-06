@@ -332,21 +332,117 @@ def test_shipped_github_config_is_valid_and_its_argv_paths_exist() -> None:
                 assert (trackers / Path(token).name).exists(), token
 
 
-def test_board_script_refuses_an_issue_key_that_is_not_a_number() -> None:
-    """The script interpolates its arguments, so it checks the one that varies.
+def test_board_script_refuses_an_issue_key_that_is_not_a_number(tmp_path: Path) -> None:
+    """A key that is not a key stops at the door, before any call is made.
 
-    Everything below the guard reaches a shell — `gh api -f num=$issue`, the jq
-    filter. The argv contract keeps a shell out of `_tracker.dispatch`; this is
-    what keeps one out of the file dispatch hands the value to.
+    Not an injection test — nothing below the guard reaches a shell, and the
+    canary here would not fire even if the guard were deleted. What it pins is
+    that the script answers a bad key itself, with an exit code the hooks treat
+    as nothing-to-do, rather than passing it to `gh` and surfacing an API error
+    from a worktree create.
     """
     script = Path(_tracker.__file__).parent / "agents" / "trackers" / "github-board.sh"
+    canary = tmp_path / "pwned"
     result = subprocess.run(
-        ["bash", str(script), "$(touch /tmp/wfctl-board-pwned)", "In Progress"],
+        ["bash", str(script), f"$(touch {canary})", "In Progress"],
         capture_output=True, text=True,
     )
     assert result.returncode == 2
     assert "is not an issue number" in result.stderr
-    assert not Path("/tmp/wfctl-board-pwned").exists()
+    assert not canary.exists()
+
+
+_BOARD_VERBS = {
+    "verbs": {
+        "start": ["gh", "board", "start", "{id}"],
+        "stop": ["gh", "board", "stop", "{id}"],
+        "view": ["gh", "issue", "view", "{id}"],
+    }
+}
+
+
+def test_start_takes_the_issue_key_off_the_branch(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hooks call `wfctl issue start` bare, so the key has to come from here.
+
+    Deriving it in the hook instead means a regex in a committed `.workmux.yaml`,
+    and the key shape belongs to the tracker — a hardcoded `[0-9]+` is right for
+    GitHub and wrong for every repo whose keys are not numbers.
+    """
+    repo_root = agent_dir.parent
+    # `captured_argv` patches subprocess.run for the whole module, so a real
+    # `git checkout` here would be swallowed by the same fake.
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "71-slug")
+    _configure_tracker(repo_root, "github", _BOARD_VERBS)
+    result = runner.invoke(app, ["issue", "start"])
+    assert result.exit_code == 0
+    assert captured_argv == [["gh", "board", "start", "71"]]
+
+
+def test_start_on_a_branch_with_no_issue_key_reports_and_does_nothing(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worktree made outside the naming rule has no issue to report about.
+
+    Dispatching anyway sends the literal "unknown" to the backend, which reaches
+    the board as an API error from a `workmux add` — a red line during worktree
+    creation, for a worktree that was never going to be on the board.
+    """
+    repo_root = agent_dir.parent
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "spike-no-key")
+    _configure_tracker(repo_root, "github", _BOARD_VERBS)
+    result = runner.invoke(app, ["issue", "start"])
+    assert result.exit_code == 0
+    assert "No issue key in branch" in result.output
+    assert captured_argv == []
+
+
+def test_view_does_not_default_its_id_to_the_branch(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only `start`/`stop` default. A verb a person types means what they typed.
+
+    `close` sharing the default would close the branch's issue on a bare
+    `wfctl issue close`, which is the reason the set is a list and not "any verb
+    taking {id}".
+    """
+    repo_root = agent_dir.parent
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "71-slug")
+    _configure_tracker(repo_root, "github", _BOARD_VERBS)
+    result = runner.invoke(app, ["issue", "view"])
+    assert result.exit_code == 1
+    assert "requires --id" in result.output
+    assert captured_argv == []
+
+
+@pytest.mark.parametrize("config", [
+    Path(__file__).resolve().parent.parent / ".workmux.yaml",
+    Path(_tracker.__file__).parent / "agents" / "configs" / "workmux" / ".workmux.yaml",
+])
+def test_board_hooks_cannot_gate_a_worktree(config: Path) -> None:
+    """Every `issue start`/`stop` hook swallows its own failure.
+
+    The rule is written in both files as prose, and prose is what a later edit
+    reformats away. `workmux add` is how every worktree in this repo is created,
+    including for work answering to no issue and on a machine with no network,
+    and `pre_remove` failing is documented to abort a removal outright — so a
+    hook that can exit non-zero is one that strands a worktree.
+
+    Both copies, because the template is seeded once into other repos and never
+    revisited: a rule that holds here and not there reaches every repo seeded
+    afterwards and none of the ones seeded before.
+    """
+    # Comment lines are skipped, and the rationale above each hook names the
+    # command it explains — so a scan that keeps them counts prose as a hook.
+    hooks = [
+        line for line in config.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+        and ("wfctl issue start" in line or "wfctl issue stop" in line)
+    ]
+    assert len(hooks) == 2, f"expected a start and a stop hook, got {hooks}"
+    for line in hooks:
+        assert line.rstrip().endswith("|| true"), line
 
 
 def test_install_custom_tracker_warns_when_config_absent(

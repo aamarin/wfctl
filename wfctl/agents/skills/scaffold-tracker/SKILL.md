@@ -44,6 +44,11 @@ than building a shell string — the GitHub backend's `start` does exactly that,
 because setting a Projects v2 column takes a query for the item id and then a
 mutation, and `gh` has no by-issue-number form of the write.
 
+`start` and `stop` are also the two verbs whose id defaults to the issue key on
+the current branch, since the worktree hooks that call them have no other issue
+in mind. Nothing else defaults: `wfctl issue close` with no id would close the
+wrong thing.
+
 ## Optional: `changes` (PRs / patchsets)
 
 `wfctl change` lists/views code changes through a **parallel `changes` section**,
