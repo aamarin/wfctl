@@ -20,6 +20,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from tests.test_end_reports_observations import COMPLETION_CLAIMS
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -116,3 +117,23 @@ def test_a_handoff_written_before_the_first_session_is_not_called_stale(
     for claim in AUTHORSHIP_CLAIMS:
         assert claim not in output.lower()
     assert _summary_path(storyctl_dir).read_text() == "# Handoff — read this first\n"
+
+
+def test_the_kept_line_asserts_no_completion_either(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """#70's guarantee covers the whole output, and this is new output.
+
+    `contracts/cli-output.md` states it without qualification — no clause `end`
+    prints asserts a completion. The sibling suite checks that on a run where
+    the file was written, which was the only shape there was; the kept line is a
+    second one, and it carries prose that a later reword could put the word back
+    into.
+    """
+    _run_end()
+
+    output = _run_end()
+
+    assert "kept" in output
+    for claim in COMPLETION_CLAIMS:
+        assert claim not in output.lower()
