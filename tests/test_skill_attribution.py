@@ -241,18 +241,53 @@ def _sections(notice: Path) -> list[tuple[str, dict[str, str] | None]]:
     one, which is the failure this whole file exists to prevent.
     """
     sections: list[tuple[str, dict[str, str] | None]] = []
+    for heading, found in _section_fields(notice):
+        holders, links = found["holder"], found["url"]
+        fields = None if not holders else {
+            "upstream": heading,
+            "url": links[0] if links else "",
+            "licence": _licence_the_notices_carry(),
+            "holder": _holder(holders[0]),
+        }
+        sections.append((heading, fields))
+    return sections
+
+
+# Every field a notice section can state, and the pattern that finds *all* of
+# its claims — never the first. `re.search` collapses a repeated field the way
+# `dict()` collapses a repeated key, and the two are the same defect wearing
+# different clothes: a claim the document makes that nothing ever reads. Two
+# `Copyright` lines in one section assigned it two holders with a green suite.
+_SECTION_FIELDS = {
+    "holder": re.compile(r"^ {4}(Copyright .+)$", re.M),
+    "url": re.compile(r"<(https://\S+?)>"),
+}
+
+
+def _section_fields(notice: Path) -> list[tuple[str, dict[str, list[str]]]]:
+    """Every section heading in `notice` → every claim it makes, per field."""
+    out = []
     for section in re.split(r"^## ", notice.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
-        holder = re.search(r"^ {4}(Copyright .+)$", body, re.M)
-        link = re.search(r"<(https://\S+?)>", body)
-        fields = None if holder is None else {
-            "upstream": heading.strip(),
-            "url": link.group(1) if link else "",
-            "licence": _licence_the_notices_carry(),
-            "holder": _holder(holder.group(1)),
-        }
-        sections.append((heading.strip(), fields))
-    return sections
+        out.append((heading.strip(), {f: p.findall(body) for f, p in _SECTION_FIELDS.items()}))
+    return out
+
+
+def _field_claims(notice: Path) -> list[tuple[str, str]]:
+    """`<heading> <field>` → each value that section states for it, one per claim.
+
+    Flattened into the same (key, value) shape the other sources use, so a field
+    stated twice inside one section is a key claimed twice and fails the check
+    that already exists. The alternative — a second check, for fields, beside
+    the one for headings — is how this file arrived at four checks written one
+    finding at a time.
+    """
+    return [
+        (f"{heading} {field}", value)
+        for heading, found in _section_fields(notice)
+        for field, values in found.items()
+        for value in values
+    ]
 
 
 def _declaration_sources() -> dict[str, list[tuple[str, object]]]:
@@ -271,12 +306,21 @@ def _declaration_sources() -> dict[str, list[tuple[str, object]]]:
     fifth finding arrived after the fourth was fixed: a duplicate heading with
     no copyright was discarded before it could be counted, so a check that had
     just been written against duplicates could not see one.
+
+    The sixth arrived inside a section rather than across them: two `Copyright`
+    lines, of which `re.search` read the first. So the sources include the
+    fields as well as the headings, and the rule is stated without naming a
+    collapsing function — **every claim the document makes is counted exactly
+    once, or the document is wrong.** `dict()` keeping the last and `re.search`
+    keeping the first are one defect: a claim nothing ever reads.
     """
     return {
         "vendor-upstream-skills tables": list(_rows()),
         f"{SPECIFY_NOTICES.name} template claims": list(_template_claims()),
         f"{NOTICES.parent.name}/{NOTICES.name} sections": list(_sections(NOTICES)),
         f"{SPECIFY_NOTICES.name} sections": list(_sections(SPECIFY_NOTICES)),
+        f"{NOTICES.parent.name}/{NOTICES.name} section fields": list(_field_claims(NOTICES)),
+        f"{SPECIFY_NOTICES.name} section fields": list(_field_claims(SPECIFY_NOTICES)),
     }
 
 
