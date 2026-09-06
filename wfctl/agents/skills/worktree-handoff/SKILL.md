@@ -168,6 +168,11 @@ conversation.
 
 ## Red flags
 
+- Doing the work in the checkout you are standing in. This skill's triggers are
+  all phrases a human says, and the failure it was written for is the turn where
+  nobody says one: a session on `main` that identified the next piece of work and
+  offered to take it there (#241). New work gets a worktree before it gets a
+  commit, and the session that spots the work is the one that owes the handoff.
 - Opening with "implement issue #N" on work that needed a spec first. The verb
   in line 1 is the route the child takes when nothing else names one, and by the
   time `/start-session` disagrees the code is written.
