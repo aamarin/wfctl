@@ -59,3 +59,7 @@ deliberate cold pass per the code-review skill instead.
 - Skipping review because "it's simple" or "AI wrote it" (AI-generated code needs *more* scrutiny, not less).
 - Handing the reviewer your chat log instead of just the work product.
 - Proceeding past a BLOCKER, or treating every NIT as mandatory.
+
+---
+
+Derived from [obra/superpowers](https://github.com/obra/superpowers) (MIT, © 2025 Jesse Vincent).
