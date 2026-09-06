@@ -37,9 +37,11 @@ Only skills the installer names in `_MIRRORED_SKILLS` are mirrored into
 reachable, but only when the reader types it.
 
 Mirroring is therefore opt-in per skill and declared outside the skill files,
-which is what lets a vendored skill opt in: a mark inside the file would sit in a
-file the project does not own and the next upstream pull would drop it. See
-`vendor-upstream-skills`.
+which is what lets a derived skill opt in: which layer a file lands in is a fact
+about this project's install and not about the file, so it belongs to the
+installer even for a file the project wrote every line of. The one fact that
+does go inside a derived file is where it came from, and
+`vendor-upstream-skills` puts it there and nowhere else.
 
 ## Owns truth
 

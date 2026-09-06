@@ -29,7 +29,8 @@ def test_every_shipped_skill_declares_only_spec_keys() -> None:
     else's validator run.
 
     `i-have-adhd` is exempt: it is vendored, it carries upstream's
-    `disable-model-invocation`, and `vendor-upstream-skills` forbids editing it.
+    `disable-model-invocation`, and `vendor-upstream-skills` says to layer over
+    it rather than edit it.
     Exempt by name rather than by a pattern, so a second non-conforming skill
     cannot arrive under cover of the same exemption.
 

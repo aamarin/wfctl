@@ -1,15 +1,21 @@
 """A skill taken from another project says so in the file, and the record agrees.
 
-Six superpowers-derived skills shipped in the wheel for eleven releases with no
-copyright notice (#213), because the only thing recording provenance was a table
-in `vendor-upstream-skills` maintained by hand, keyed on a `license:` frontmatter
-key six of the seven do not carry. Nothing could report the table was wrong.
+Six superpowers-derived skills shipped in the wheel from v0.15.0 to v0.17.0 with
+no copyright notice (#213), because the only thing recording provenance was a
+table in `vendor-upstream-skills` maintained by hand, keyed on a `license:`
+frontmatter key six of the seven do not carry. Nothing could report the table
+was wrong.
 
-The two checks below are a pair on purpose. The notice has to be in the file,
+The checks below are a pair on purpose. The notice has to be in the file,
 because `MANIFEST.in` grafts `wfctl/agents` into the wheel and that is the
 artifact the obligation attaches to; the list has to be in the record, because
 that is where a reader looks for which files the project does not own. Either
 one alone goes stale the way the table did.
+
+What the pair cannot do is notice #213 itself. A file arriving with no line
+*and* no row is invisible to both directions — the checks keep two declarations
+honest with each other, and neither is a declaration the arriving file has to
+make. Finding an undeclared one is still a diff against upstream, done by hand.
 """
 from __future__ import annotations
 
@@ -23,6 +29,7 @@ import wfctl
 # `_bundle.BUNDLE_ROOT` at a fixture tree, and this is about what wfctl ships.
 SKILLS_ROOT = Path(wfctl.__file__).parent / "agents" / "skills"
 RECORD = Path(__file__).resolve().parent.parent / "docs" / "architecture" / "vendor-upstream-skills.md"
+NOTICES = SKILLS_ROOT.parent / "NOTICES.md"
 
 # The `©` is part of the pattern rather than checked afterwards: a line naming a
 # source but no copyright holder is not the notice MIT asks for, and treating it
@@ -57,9 +64,9 @@ def test_every_skill_the_record_lists_carries_its_attribution_line() -> None:
 
 
 def test_no_skill_claims_an_upstream_the_record_does_not_list() -> None:
-    """The direction that failed for eleven releases: a derived skill arrives,
-    the table is not touched, and nothing notices. A skill that has genuinely
-    become the project's own drops its line and its row together, never one."""
+    """The direction a half-finished cleanup takes: a skill that has genuinely
+    become the project's own drops its line and its row together, never one, and
+    a line added without the row is a provenance claim the record contradicts."""
     unlisted = sorted(set(_attributed()) - set(_listed()))
 
     assert not unlisted, f"carry an attribution line but vendor-upstream-skills does not list them: {unlisted}"
@@ -78,3 +85,16 @@ def test_the_file_and_the_record_name_the_same_upstream() -> None:
     }
 
     assert not disagree, f"file and record name different upstreams (file, record): {disagree}"
+
+
+def test_every_upstream_named_in_a_skill_has_its_notice_in_the_bundle() -> None:
+    """The line names a licence; `NOTICES.md` is the licence.
+
+    MIT asks for the permission notice and not only the copyright line, and a
+    one-line footer is not one. `NOTICES.md` sits at the top of the `agents`
+    tree, which `MANIFEST.in` grafts whole, so it travels in the wheel with the
+    files it covers — the thing a root-level notice does not do (#213)."""
+    text = NOTICES.read_text(encoding="utf-8")
+    missing = sorted({repo for repo in _attributed().values() if repo not in text})
+
+    assert not missing, f"attributed upstreams with no entry in {NOTICES.name}: {missing}"
