@@ -20,7 +20,7 @@ command those don't cover, or when picking the right one isn't obvious.
 | `wfctl status` | Show pipeline progress inferred from spec artifacts on disk. |
 | `wfctl resume` | Re-infer the pipeline step from the filesystem, write `next-step.md`, print current state. The thing to run after any spec/plan/tasks artifact changes underneath you. |
 | `wfctl next` | Write the next actionable step to `next-step.md` without the full resume output — an automation shortcut. |
-| `wfctl end` | End the current session and write a summary scaffold. |
+| `wfctl end` | End the current session and write a summary scaffold — only if one is not already there; it says which happened and never overwrites. |
 | `wfctl log` | Print the event timeline for the current session. |
 | `wfctl state-dir` | Print the active state directory path (XDG-based, outside the repo — session artifacts never touch git). `--branch <name>` prints another branch's, which need not exist or be checked out. |
 | `wfctl arch-root` | Print the directory this repo's architecture decision records live under. |

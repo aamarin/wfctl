@@ -61,27 +61,35 @@ unfilled is a failed handoff.
    ```
    ✓ Session closed — brainstorm, boundary unanswered, tree clean.
      Summary: /Users/…/state/wfctl/<branch>/session-summary.md
-     ⚠ kept — this session wrote nothing; last modified 2026-09-05 22:14.
+     ⚠ kept — this session wrote nothing; last modified 2026-09-05T22:14:03Z.
    ```
 
-   The state dir is per branch, so this is the normal case on a long-lived branch
-   like `main` and never happens in a fresh worktree. On that line the file is
-   **not** a scaffold: it is either a handoff written for the branch or the last
-   session's prose, and `end` cannot tell which. Read it before step 4 — the
-   `**Step**` / `**Boundary**` / `**Tree**` lines in it belong to whoever wrote
-   it, so replace them with this session's readings from the line above rather
-   than leaving them alone.
+   On that line the file is **not** a scaffold, and `end` cannot tell you which
+   of the two it is:
+
+   - **A handoff**, written *for* this branch by `worktree-handoff` before any
+     session ran on it. Its own first line says so. It uses its own shape, so
+     the `**Step**` / `**Boundary**` / `**Tree**` lines are simply not in it.
+   - **The last session's summary**, carrying those three lines filled with
+     readings that are now hours or days old.
+
+   Both are normal — a fresh worktree gets the first the moment it is created,
+   and a long-lived branch like `main` gets the second on every session after
+   its first. Read the file before step 4 either way, and take the `**Step**` /
+   `**Boundary**` / `**Tree**` values from the `Session closed` line above
+   rather than from the file, which is the one place the two cases need the same
+   thing of you.
 
 4. **Fill in `$(wfctl state-dir)/session-summary.md`** using the scan from step 2.
    Keep it concrete — this is the next session's starting context:
 
    ```markdown
-   # Session Summary: {YYYY-MM-DD} — {branch}
+   # Session Summary: {YYYY-MM-DD, today} — {branch}
 
    **End time:** {timestamp from step 1}
-   **Step**: {left as `wfctl end` wrote it}
-   **Boundary**: {left as `wfctl end` wrote it}
-   **Tree**: {left as `wfctl end` wrote it}
+   **Step**: {from the `Session closed` line — already in the file if `end` wrote it}
+   **Boundary**: {from the `Session closed` line — already in the file if `end` wrote it}
+   **Tree**: {from the `Session closed` line — already in the file if `end` wrote it}
    **Focus:** {one line — what this session was about}
 
    ## What We Accomplished
