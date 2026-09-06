@@ -246,6 +246,12 @@ def test_a_field_is_read_whole_rather_than_until_it_looks_right() -> None:
     exist. `_written` stopped at the first valid link it saw, so a cell holding
     `[what it raised]` beside a real citation passed on the strength of the
     citation. Every question is now asked of the whole field.
+
+    What the narrowing to shipped placeholders gives up, stated rather than
+    discovered later: a field mixing *hand-invented* bracketed text with a link
+    — `[r1 ✓ r2 ✓] per [record](url)` — is not caught, because nothing in it is
+    what the template shipped. That is the cost of not parsing links, and it is
+    the trade `PLACEHOLDERS` is for.
     """
     cited = (
         "## Review Panel\n\n"
@@ -257,7 +263,8 @@ def test_a_field_is_read_whole_rather_than_until_it_looks_right() -> None:
     assert panel_findings(cited)
     assert panel_findings(
         "## Review Panel\n\nAll six passes each. No findings.\n\n"
-        "roster: [r1 ✓ r2 ✓] per [record](https://x)\n"
+        "roster: [r1 ✓  r2 ✓  r3 ✓ — and which, if any, were re-asked] per "
+        "[record](https://x)\n"
     )
 
 
@@ -295,3 +302,71 @@ def test_a_cell_boundary_is_an_unescaped_pipe() -> None:
     )
 
     assert panel_findings(quoted) == []
+
+
+def test_the_placeholder_set_is_what_the_template_actually_ships() -> None:
+    """`PLACEHOLDERS` is held in the module so it stays pure, which makes it a
+    second copy of something on disk — the shape this repo's own AGENTS.md warns
+    about, and the reason `test_shipped_github_config_matches_this_repos_own_copy`
+    exists one directory over. A placeholder added to the template and not here
+    is a field the check would stop seeing, silently.
+    """
+    import re
+
+    from wfctl._body import PLACEHOLDERS
+
+    template = _TEMPLATE.read_text()
+    start = template.index("## Review Panel")
+    section = re.sub(r"<!--.*?-->", "", template[start : template.index("## Checklist")], flags=re.S)
+
+    assert set(re.findall(r"\[[^\]]*\]", section)) == set(PLACEHOLDERS)
+
+
+def test_a_header_is_the_row_a_delimiter_follows() -> None:
+    """A table written with the common `| Reviewer | Finding | Disposition |`
+    header, with no `#` column, had that header counted as a result row — so a
+    section holding nothing but a header read as a panel with one finding and
+    skipped the evidence check entirely. CommonMark says a header is the row a
+    delimiter row follows, and that is now what this reads, so the check and the
+    rendered page agree about which row is which."""
+    header_only = (
+        "## Review Panel\n\n| Reviewer | Finding | Disposition |\n|---|---|---|\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+    with_a_result = (
+        "## Review Panel\n\n| Reviewer | Finding | Disposition |\n|---|---|---|\n"
+        "| r1 | found a bug | applied |\n\nroster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(header_only)
+    assert panel_findings(with_a_result) == []
+
+
+def test_a_code_span_may_be_more_than_one_backtick() -> None:
+    """``[0]`` is a valid span and the single-backtick pattern read it as two
+    empty ones, leaving the brackets exposed and rejecting a finished panel.
+    CommonMark matches equal-length delimiter runs; so does this now."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | the ``[0]`` index is read twice | applied |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(body) == []
+
+
+def test_a_shipped_placeholder_is_caught_however_it_is_wrapped() -> None:
+    """`[what it raised][missing]` renders literally, because `missing` is not a
+    defined label — so the body visibly shows the template's words while the
+    field looked like a reference link. Reported on PR #234 as the fifth
+    markdown construct this module would have had to learn; matching what the
+    template ships needs none of them."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | [what it raised][missing] | applied |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(body)

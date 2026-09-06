@@ -32,32 +32,52 @@ import re
 _HEADING = re.compile(r"^ {0,3}(#{2,6})\s+(.*?)\s*#*\s*$", re.MULTILINE)
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
-# What the template ships in a field nobody answered: a bracketed placeholder,
-# "N/A", "None", "TBD", a dash run. `opening-a-change` Step 4 says placeholders in
-# brackets are replaced, not left, so a field still carrying one is unfilled in
-# exactly the way a blank one is.
+# Equal-length delimiter runs, which is CommonMark's rule. A single-backtick
+# pattern reads ``[0]`` as two empty spans and leaves the brackets exposed.
+_CODE = re.compile(r"(`+)[\s\S]*?\1")
+
+# A cell boundary is an *unescaped* pipe. A row quoting another row — which a
+# disposition explaining a table defect does — writes `\|` inside a code span,
+# and splitting on every pipe tears that span into cells, inventing a
+# cardinality the row never had.
+_CELL = re.compile(r"(?<!\\)\|")
+# A delimiter row: what makes the line above it a header, in CommonMark and
+# therefore on the page. The `#` column is optional and naming it was this
+# module's own guess at the same question.
+_DELIMITER = re.compile(r"^[\s:|-]+$")
+
+# What the template ships in a field nobody answered: "N/A", "None", "TBD", a
+# dash run, or nothing.
 _SHIPPED = re.compile(r"\[[^\]]*\]|n/?a|none|tbd|-+", re.IGNORECASE)
 
 _BRACKETED = re.compile(r"\[[^\]]*\]")
-# Inline `[text](url)` and reference `[text][label]`. A bracketed span that is a
-# link is something the author wrote; reading it as an unanswered field rejects a
-# finished panel for citing its own record.
-_LINK = re.compile(r"\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])")
-# `[label]: https://…` — what makes a bare `[label]` a shortcut link rather than
-# a placeholder. Nothing else can tell those two apart.
-_LINK_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:\s+\S", re.MULTILINE)
+# A bracketed span carrying link syntax — `](` inline, `][` reference. Not a
+# judgement about whether the link resolves: the placeholders below decide that,
+# and this only keeps a citation from reading as an unanswered field.
+_LINKISH = re.compile(r"\]\(|\]\[")
 
-_MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
-# Backticked spans are quoted material, not fields. A finding that names `[0]`
-# or quotes a shipped row is authored content, and reading its brackets as
-# unanswered fields would reject the description for describing accurately.
-_CODE = re.compile(r"`[^`]*`")
-# A cell boundary is an *unescaped* pipe. A row quoting another row — which a
-# disposition explaining a table defect does — writes `\\|` inside a code span,
-# and splitting on every pipe tears that span into cells, inventing a
-# cardinality the row never had and brackets nothing can see are quoted.
-_CELL = re.compile(r"(?<!\\)\|")
+# The exact spans `wfctl/agents/configs/github/.github/pull_request_template.md`
+# ships in its Review Panel section, held here rather than read from disk so this
+# module stays pure. `tests/test_body.py` pins the two together, and would fail
+# if the template grew a placeholder this set does not carry.
+#
+# **These are why this module is not a markdown parser.** Recognising an
+# unanswered field by bracket syntax meant learning inline links, reference
+# links, shortcut links and their definitions — four constructs, four findings,
+# each an approximation that disagreed with the renderer somewhere. Matching what
+# the template actually ships needs none of them.
+PLACEHOLDERS = frozenset(
+    {
+        "[target]",
+        "[n]",
+        "[r1]",
+        "[what it raised]",
+        "[applied / accepted / rejected — with the reason]",
+        "[r1 ✓  r2 ✓  r3 ✓ — and which, if any, were re-asked]",
+    }
+)
 
 _SECTION = "review panel"
 _SUMMARY = "**panel:**"
@@ -68,32 +88,29 @@ _SUMMARY = "**panel:**"
 _RESULT_CELLS = 3
 
 
-def _labels(body: str) -> set[str]:
-    """Link labels the body defines, lowercased."""
-    return {m.group(1).strip().lower() for m in _LINK_DEF.finditer(body)}
+def _unanswered(text: str) -> bool:
+    """Whether the field still holds something the template put there.
 
+    Quoted code is removed first — a disposition naming ``[0]`` or quoting a
+    shipped row is an author writing accurately, and rejecting the description
+    for describing is the failure direction that teaches a reader to ignore the
+    check.
 
-def _delink(text: str, labels: set[str]) -> str:
-    """`text` with markdown links removed, so what is left is prose and fields."""
-    text = _LINK.sub("", text)
-    if not labels:
-        return text
-    return _BRACKETED.sub(
-        lambda m: "" if m.group(0)[1:-1].strip().lower() in labels else m.group(0),
-        text,
-    )
-
-
-def _unanswered(text: str, labels: set[str]) -> bool:
-    """Whether any bracketed field in `text` is still the one the template shipped.
-
-    Quoted code and every markdown link form are removed first, because both are
-    things an author wrote. What is left bracketed is what nobody filled in.
+    Two questions, and neither parses a link. A shipped placeholder anywhere in
+    the field is one, wherever it sits and whatever surrounds it: an author who
+    wrapped `[what it raised]` in reference-link syntax has still not written a
+    finding, and the page still shows the template's words. A field that is
+    *entirely* one bracketed span with no link syntax is the other, which is what
+    reaches a repository whose template is not this one.
     """
-    return bool(_BRACKETED.search(_delink(_CODE.sub("", text), labels)))
+    bare = _CODE.sub("", text)
+    if any(placeholder in bare for placeholder in PLACEHOLDERS):
+        return True
+    stripped = bare.strip()
+    return bool(_BRACKETED.fullmatch(stripped) and not _LINKISH.search(stripped))
 
 
-def _written(text: str, labels: set[str]) -> bool:
+def _written(text: str) -> bool:
     """Whether a field holds something an author put there, in **all** of it.
 
     **The one predicate this module has**, asked of every field it reads — a
@@ -103,9 +120,9 @@ def _written(text: str, labels: set[str]) -> bool:
     Fields differ in what they hold; none of them differs in what it means to be
     filled.
 
-    **No early return, and that is the point.** The sixth finding was this
-    function stopping at the first valid link it saw and never reading the rest,
-    so `[what it raised] see [#234](url)` passed on the strength of its citation.
+    **No early return, and that is the point.** A later finding was this function
+    stopping at the first valid link it saw and never reading the rest, so
+    `[what it raised] see [#234](url)` passed on the strength of its citation.
     That was the third instance of one rule — *any match satisfies* — after a row
     accepted on any filled cell and a row accepted on the cells that happened to
     exist. Every question is asked of the whole field, and nothing here may
@@ -114,9 +131,9 @@ def _written(text: str, labels: set[str]) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    if _unanswered(stripped, labels):
+    if _unanswered(stripped):
         return False
-    return not _SHIPPED.fullmatch(stripped)
+    return not _SHIPPED.fullmatch(_CODE.sub("", stripped).strip())
 
 
 def _blank_fences(text: str) -> str:
@@ -170,22 +187,30 @@ def _section(body: str) -> str | None:
 def _table(section: str) -> tuple[int, list[list[str]]]:
     """The result rows of the disposition table, and how many cells one needs.
 
+    A header is the row a delimiter row follows, which is CommonMark's rule and
+    therefore the renderer's. Recognising it by a `#` first cell instead was this
+    module's own guess at the same question, and a table written with the common
+    `| Reviewer | Finding | Disposition |` header had that header counted as a
+    result — a section holding nothing but a header then read as a panel with
+    one finding.
+
     The width comes from the header where there is one, so a repository whose
     table carries a fifth column has its own shape enforced rather than this
     module's. The leading ordinal is dropped from both: it is an index, and
     reading it as content is how the first version of this check passed the row
     it shipped with, on the strength of its own row number.
     """
+    lines = [
+        line.strip() for line in section.splitlines() if line.strip().startswith("|")
+    ]
     width, rows = _RESULT_CELLS, []
-    for line in section.splitlines():
-        line = line.strip()
-        if not line.startswith("|"):
+    for i, line in enumerate(lines):
+        if _DELIMITER.fullmatch(line):
             continue
         cells = [c.strip().replace("\\|", "|") for c in _CELL.split(line.strip("|"))]
-        if all(set(c) <= set("-: ") for c in cells):  # the |---|---| separator
-            continue
-        if cells[:1] == ["#"]:  # the header row the template ships
-            width = max(len(cells) - 1, 1)
+        following = lines[i + 1] if i + 1 < len(lines) else ""
+        if _DELIMITER.fullmatch(following):  # the row above a delimiter is a header
+            width = max(len(cells) - 1, 1) if cells[:1] == ["#"] else len(cells)
             continue
         if len(cells) > 1 and cells[0].isdigit():
             cells = cells[1:]
@@ -202,7 +227,7 @@ def _roster(section: str) -> str | None:
     return None
 
 
-def _evidence(section: str, labels: set[str]) -> bool:
+def _evidence(section: str) -> bool:
     """Whether the section says anything beyond its roster and its summary.
 
     Only reachable when the panel reported no findings, where there is no table
@@ -225,7 +250,7 @@ def _evidence(section: str, labels: set[str]) -> bool:
         low = stripped.lower()
         if low.startswith("roster:") or low.startswith(_SUMMARY):
             continue
-        if _written(stripped, labels):
+        if _written(stripped):
             return True
     return False
 
@@ -253,12 +278,11 @@ def panel_findings(body: str) -> list[str]:
             "Append the section, whether or not the template carries one."
         ]
 
-    labels = _labels(body)
     out = []
     for line in section.splitlines():
         if not line.strip().lower().startswith(_SUMMARY):
             continue
-        if _unanswered(line, labels):
+        if _unanswered(line):
             out.append(
                 "opening-a-change Step 1 — the Review Panel summary still carries "
                 f"placeholders: {line.strip()!r}. The count of reviewers and "
@@ -274,7 +298,7 @@ def panel_findings(body: str) -> list[str]:
                 f"{width}. A row without its disposition records a finding "
                 "nobody said what they did about."
             )
-        elif not all(_written(cell, labels) for cell in row):
+        elif not all(_written(cell) for cell in row):
             out.append(
                 "opening-a-change Step 1 — a Review Panel row still carries what "
                 f"it shipped with: {' | '.join(row)!r}. Every cell of a result "
@@ -282,7 +306,7 @@ def panel_findings(body: str) -> list[str]:
                 "an otherwise untouched row renders as a reviewed finding."
             )
 
-    if not rows and not _evidence(section, labels):
+    if not rows and not _evidence(section):
         out.append(
             "opening-a-change Step 1 — the Review Panel reports no findings and "
             "shows no evidence. 'No findings' is a result only when it says which "
@@ -291,7 +315,7 @@ def panel_findings(body: str) -> list[str]:
         )
 
     roster = _roster(section)
-    if roster is None or not _written(roster, labels):
+    if roster is None or not _written(roster):
         out.append(
             "opening-a-change Step 1 — the '## Review Panel' section carries no "
             "roster. It is the only thing telling a reviewer that found nothing "
