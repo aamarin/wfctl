@@ -90,7 +90,7 @@ ids=$(WFCTL_BOARD_STATUS="$status" gh api graphql \
         | select(.name == env.WFCTL_BOARD_STATUS)
         | [$issue.state, ($node.fieldValueByName.name // ""),
            $node.id, $node.project.id, $node.project.field.id, .id]
-        | @tsv'
+        | join("\u001f")'
 ) || exit 1
 
 if [[ -z "$ids" ]]; then
@@ -98,10 +98,19 @@ if [[ -z "$ids" ]]; then
   exit 0
 fi
 
+# Unit separator, not a tab. An item on the board with no `Status` set yet — the
+# state 21 items on this project were in before it was reconciled by hand, and
+# the exact population this script exists to move — makes the second field
+# empty. Bash treats tab as IFS *whitespace* and folds a run of it into one
+# separator, so `read` would drop that empty field and shift every id one place
+# left: the mutation then gets an option id where a project id belongs and
+# GitHub answers `Could not resolve to a node with the global id`. A
+# non-whitespace IFS character separates exactly once and preserves the gap.
+#
 # First match wins, and `read` takes the first line on its own. An issue on two
 # boards is a shape nobody here has, and picking one silently beats writing to
 # both by accident.
-IFS=$'\t' read -r state current item project field option <<<"$ids"
+IFS=$'\x1f' read -r state current item project field option <<<"$ids"
 
 if [[ -n "$guard_column" ]]; then
   [[ "$state" == "OPEN" ]] || exit 0
