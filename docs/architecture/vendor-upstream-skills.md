@@ -153,12 +153,20 @@ fails on any gap between them — a listed file with no line, a line no row
 lists, a row naming an upstream the line does not, or an attributed upstream
 with no entry in `NOTICES.md`, or a notice that names one upstream twice.
 
-Every one of those reads a list of claims before anything collapses it into a
-mapping, and **the list is what the document says, not what the parser could
-read.** A `## <upstream>` heading whose copyright line is missing is still a
-claim that upstream is named; discarding it turns a malformed declaration into
-an absent one, which is how a duplicate hid from the check written against
-duplicates. Enumerate, then filter — in that order, in every reader here.
+Every one of those reads a list of claims before anything collapses it, and two
+rules govern that list. **It is what the document says, not what the parser
+could read** — a `## <upstream>` heading whose copyright line is missing is
+still a claim that upstream is named, and discarding it turns a malformed
+declaration into an absent one. And **every claim it holds is counted exactly
+once, or the document is wrong** — a mapping keeping the last of two and a
+search keeping the first are the same defect, a claim nothing ever reads.
+
+Six review findings were that one defect, at four levels: a field of the
+attribution line, a claim in a mapping, what the enumeration was allowed to
+hold, and a field repeated inside a single notice section. Each fix aimed at the
+level it was found at produced the next report one level in, which is why the
+rule is written here as a property of the reader rather than as a list of the
+places it has been violated.
 
 The templates are the one case where the notice
 stands in for the line, so the same pair runs between the template rows and
