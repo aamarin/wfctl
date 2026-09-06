@@ -258,3 +258,7 @@ Check if `.specify/extensions.yml` exists in the project root.
     ```
 
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
+
+---
+
+Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).

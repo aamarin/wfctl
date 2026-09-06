@@ -287,3 +287,7 @@ Success criteria must be:
 - "Database can handle 1000 TPS" (implementation detail, use user-facing metric)
 - "React components render efficiently" (framework-specific)
 - "Redis cache hit rate above 80%" (technology-specific)
+
+---
+
+Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).

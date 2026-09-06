@@ -286,3 +286,7 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
 ## Context
 
 $ARGUMENTS
+
+---
+
+Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).

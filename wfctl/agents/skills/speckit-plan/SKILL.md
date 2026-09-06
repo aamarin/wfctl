@@ -150,3 +150,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 - Use absolute paths for filesystem operations; use project-relative paths for references in documentation
 - ERROR on gate failures or unresolved clarifications
 - After writing all output artifacts, invoke `speckit-orchestrate`.
+
+---
+
+Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).

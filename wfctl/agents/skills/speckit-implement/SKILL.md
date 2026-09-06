@@ -240,3 +240,7 @@ Note: This command assumes a complete task breakdown exists in tasks.md. If task
         ```
 
     - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
+
+---
+
+Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
