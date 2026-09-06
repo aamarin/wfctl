@@ -133,8 +133,12 @@ The ruff rule set is deliberately narrow — `E4`, `E7`, `E9`, `F`. `I`, `UP`,
 `PL` and `RUF` are each defensible and each their own reviewable diff (#14). Do
 not enable them as a drive-by.
 
-mypy runs with `disallow_untyped_defs` but **not** `strict`; the 26 findings
-strict adds are one shape and tracked separately. Annotate new functions.
+mypy runs with `disallow_untyped_defs` but **not** `strict`. What strict adds
+here is two shapes: `type-arg`, on annotations that say `dict` where they mean
+`dict[str, str]`, and `no-any-return`, where a function declares a return type
+and hands back whatever `json.loads` produced. Neither is tracked as an issue,
+and no number is written down here on purpose — `uv run mypy --strict wfctl/`
+is the count, and it drifts with every file added. Annotate new functions.
 
 Comments inform the next reader of the file; they do not narrate the change to a
 reviewer. If a comment only makes sense beside the diff, it belongs in the commit
