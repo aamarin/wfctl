@@ -12,9 +12,13 @@ the session skills work unchanged.
 
 ## The verb contract
 
-The session skills speak eight standard verbs. A backend implements the subset it
-supports — the presence of a verb key is its declaration, so a backend cannot lie
-about what it can do.
+The session skills speak the standard verbs below. A backend implements the
+subset it supports — the presence of a verb key is its declaration, so a backend
+cannot lie about what it can do.
+
+The table is the list. Nothing here or in the steps restates how many there are:
+a count written beside a table is a second copy of it, and the copy is what goes
+stale — which it did, one release after `start` and `stop` were added.
 
 | Verb      | Meaning                     | Params available for `{...}` substitution |
 |-----------|-----------------------------|-------------------------------------------|
@@ -102,8 +106,14 @@ numeric tracker; an invalid or missing value falls back to `\d+`.
 1. **Ask for the tracker name** (lowercase, e.g. `jira`, `linear`). The file will
    be `.agents/trackers/<name>.json`.
 
-2. **Ask which of the six verbs this backend supports.** Only include verbs the
-   backend can actually do — omit the rest; `wfctl issue` skips unsupported verbs.
+2. **Ask which of the verbs in the table above this backend supports** — every
+   row, not the ones that look familiar. Only include verbs the backend can
+   actually do; omit the rest, and `wfctl issue` skips what is unsupported.
+
+   `start` and `stop` are the two most often skipped, because they are the two
+   that describe an event rather than an operation the tracker's CLI names. Ask
+   for them anyway: a backend that leaves them out gets worktree hooks that
+   no-op, on a tracker that may well have had a board all along.
 
 3. **For each supported verb, ask for the concrete command** as an argv list,
    using the `{...}` placeholders from the table above where the backend needs

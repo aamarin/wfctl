@@ -353,6 +353,23 @@ def test_board_script_refuses_an_issue_key_that_is_not_a_number(tmp_path: Path) 
     assert not canary.exists()
 
 
+def test_scaffold_skill_documents_every_verb_the_contract_allows() -> None:
+    """The skill is where a backend author learns what to implement.
+
+    A verb added to `ALLOWED` and not to the skill is a verb no hand-authored
+    backend will ever declare — which is how `start`/`stop` reached the contract
+    while the scaffold step still asked about six. Checked against `ALLOWED`
+    rather than against a count, because a count beside a list is a second copy
+    of the list and the copy is what goes stale.
+    """
+    skill = (
+        Path(_tracker.__file__).parent
+        / "agents" / "skills" / "scaffold-tracker" / "SKILL.md"
+    ).read_text()
+    missing = [verb for verb in _tracker.ALLOWED if f"`{verb}`" not in skill]
+    assert missing == [], f"scaffold-tracker documents no {missing}"
+
+
 def test_stop_is_silent_while_another_worktree_holds_the_same_issue(
     agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
