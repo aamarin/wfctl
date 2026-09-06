@@ -1,6 +1,8 @@
 # Third-party notices — the speckit runtime
 
-wfctl is MIT-licensed; see `LICENSE` at the root of the distribution. The
+wfctl is MIT-licensed; see the `LICENSE` shipped in the wfctl package — not
+whatever `LICENSE` sits at the root of the repository you are reading this in,
+which is yours. The
 speckit runtime — the scripts under `scripts/bash/` and every template beside
 this file but one — is derived from `github/spec-kit`, and that upstream's
 notice is reproduced here, which is what MIT asks for beyond the copyright line
@@ -11,11 +13,6 @@ and cannot: a template is copied verbatim to become the reader's own document �
 `create-new-feature.sh` runs `cp` on `spec-template.md` to make `spec.md` — so a
 line in a template would land in every spec, plan and task list the runtime
 generates, asserting GitHub's copyright over the reader's own writing.
-
-This file sits in `templates/` rather than at the top of the tree because
-`templates/` is an install target. `install-skills` mirrors it to a project's
-`.specify/templates/`, so a notice one directory up would ship in the wheel and
-never reach a repository wfctl installed the derived templates into.
 
 This file travels into projects wfctl installs, so every path in it is written
 relative to `.specify/`. In wfctl's own repository they sit under
@@ -35,19 +32,22 @@ and this file against each other.
     Copyright GitHub, Inc.
 
 `templates/github-issue-template.md` is wfctl's own and is deliberately absent:
-it describes `/speckit.decompose`, a command spec-kit does not have, and scores
-nothing against any upstream template.
+it scores 0% against every upstream template, including
+`templates/commands/taskstoissues.md`, the nearest thing upstream has to
+`/speckit.decompose`.
 
 `update-agent-context.sh` and `agent-file-template.md` are derived from paths
 that no longer exist upstream. Both were removed in `github/spec-kit@fc3d124`;
-against the commit before it they are 82% and 100% upstream.
+measured against its parent `518dc9d`, and before the attribution comment above
+was added to the script, they are 82% and 100% upstream. Every other file here
+is measured against `main`.
 
 ## The permission notice
 
 `github/spec-kit`'s licence is the MIT licence, and its text below the
 copyright line is byte-identical to wfctl's own `LICENSE`. It is reproduced
 once; it applies to the copyright holder named above, and to wfctl's own
-copyright as stated in `LICENSE`.
+copyright as stated in wfctl's `LICENSE`.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal

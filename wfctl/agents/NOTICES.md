@@ -35,7 +35,7 @@ other by `tests/test_skill_attribution.py`.
 <https://github.com/github/spec-kit> — `speckit-analyze`, `speckit-checklist`,
 `speckit-clarify`, `speckit-constitution`, `speckit-implement`, `speckit-plan`,
 `speckit-specify`, `speckit-tasks`. The rest of that upstream is under
-`specify/`, whose notice travels with it in `specify/templates/NOTICES.md`.
+`specify/`, whose notice travels with it in `../specify/templates/NOTICES.md`.
 
     Copyright GitHub, Inc.
 
