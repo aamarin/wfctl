@@ -64,17 +64,23 @@ def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> b
     return uses_me
 
 
-def validate_config(config: dict) -> list[str]:
+def validate_config(config: object) -> list[str]:
     """Return a list of problems with a tracker config; empty list means valid.
 
     A malformed config doesn't crash ``wfctl issue`` — the loader treats it as
     "no config" and every verb silently no-ops. This surfaces the problems
-    instead. Checks what the /scaffold-tracker skill documents: a non-empty
-    ``verbs`` map, an optional ``changes`` map, known verb names, argv as
-    non-empty string lists, only allowed placeholders (``{me}`` allowed
-    everywhere), a compilable ``key_pattern``, and that ``{me}`` is only used
-    when ``identity`` is set.
+    instead. Checks what the /scaffold-tracker skill documents: a top-level
+    JSON object, a non-empty ``verbs`` map, an optional ``changes`` map, known
+    verb names, argv as non-empty string lists, only allowed placeholders
+    (``{me}`` allowed everywhere), a compilable ``key_pattern``, and that
+    ``{me}`` is only used when ``identity`` is set.
     """
+    if not isinstance(config, dict):
+        # Every "fix it with tracker-check" message leads here, so the one
+        # document shape that reaches this function without being a mapping has
+        # to come back as a finding rather than an AttributeError.
+        return ["config must be a JSON object"]
+
     errs: list[str] = []
     kp = config.get("key_pattern")
     if kp is not None:
@@ -120,9 +126,15 @@ def _load_tracker_config(repo_root: Path, name: str) -> dict | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text())
+        config = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return None
+    # A parse that succeeded says the file is JSON, not that it is a config.
+    # A verb map written without its enclosing object parses fine and arrives
+    # as a list, which every caller then calls `.get` on. Deciding it here is
+    # what makes the `dict | None` above true for the two callers rather than
+    # once per caller.
+    return config if isinstance(config, dict) else None
 
 
 def load_key_pattern(repo_root: Path) -> str:

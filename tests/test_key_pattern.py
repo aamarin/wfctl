@@ -82,6 +82,21 @@ def test_load_non_string_falls_back(tmp_path: Path, pattern: object) -> None:
     assert load_key_pattern(tmp_path) == DEFAULT_KEY_PATTERN
 
 
+def test_load_non_object_config_falls_back(tmp_path: Path) -> None:
+    """A config document that is not an object degrades instead of raising.
+
+    The guard above reads `key_pattern` off the config, which assumes the
+    config is a mapping. A file holding a bare list satisfied the parse and
+    then raised AttributeError on `.get` — the same broken promise one level up.
+    """
+    tdir = tmp_path / ".agents" / "trackers"
+    tdir.mkdir(parents=True)
+    (tdir / "custom.json").write_text(json.dumps([{"key_pattern": r"[A-Z]+-\d+"}]))
+    (tmp_path / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "custom"}))
+
+    assert load_key_pattern(tmp_path) == DEFAULT_KEY_PATTERN
+
+
 # --- resolve_spec_dir end-to-end ----------------------------------------------
 
 def test_resolve_spec_dir_custom_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
