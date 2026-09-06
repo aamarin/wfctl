@@ -145,4 +145,4 @@ If yes, send.
 
 ---
 
-Vendored from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT).
+Derived from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT, © 2026 Ayoub Ghriss).

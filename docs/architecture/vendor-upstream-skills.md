@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Upstream skills are vendored and layered, never forked
+# Upstream skills are attributed, and layered rather than forked
 
 ## Context
 
@@ -14,30 +14,70 @@ conflict, because the edit was never expressed as a difference from anything.
 The behaviour then regresses at an unrelated moment, and nothing in the diff
 that caused it mentions the skill.
 
+Invisible provenance also costs something before any pull happens. `MANIFEST.in`
+grafts `wfctl/agents` into the wheel, so every release distributes these files;
+a file that does not say where it came from ships a derivative work under the
+project's own `LICENSE`.
+
 ## Decision
 
-Vendored skills are taken unmodified. To change how one behaves, add a skill
+A skill taken from another project carries an attribution line as the last line
+of its `SKILL.md`, naming the source repository, upstream's licence, and
+upstream's copyright holder:
+
+```
+Derived from [obra/superpowers](https://github.com/obra/superpowers) (MIT, © 2025 Jesse Vincent).
+```
+
+That line is what identifies an upstream-derived skill. It replaces the earlier
+rule, which read the presence of a `license:` frontmatter key: six of the seven
+skills below carry no such key, so the rule matched one file, and the table
+stayed at one entry while six more arrived unnoticed (#213).
+
+Derived today:
+
+| Skill | Upstream |
+| --- | --- |
+| `brainstorming` | `obra/superpowers` |
+| `finishing-a-development-branch` | `obra/superpowers` |
+| `i-have-adhd` | `ayghri/i-have-adhd` |
+| `receiving-code-review` | `obra/superpowers` |
+| `requesting-code-review` | `obra/superpowers` |
+| `using-superpowers` | `obra/superpowers` |
+| `verification-before-completion` | `obra/superpowers` |
+
+Line and table are both required, and `test_skill_attribution.py` fails in
+either direction — a listed skill with no line, a line no row lists, or a row
+naming an upstream the line does not. The line has to be in the file because the
+notice has to travel inside the wheel with the thing it covers, which a root
+`NOTICE` would not do. The table has to be in the record because that is where a
+reader looks for which files the project does not own, and it is what
+`knowledge-placement` means by a fact belonging to the record governing a class
+of files rather than to one file.
+
+Keeping the annotation out of the file used to be the answer to *an upstream
+pull would drop it*. The check is the better answer: a pull that drops the line
+fails the test rather than passing silently.
+
+Prefer layering to editing. To change how a derived skill behaves, add a skill
 that layers over it rather than editing it — `conversation-response-shape` is
 the worked example, layering ordering rules on top of `i-have-adhd`'s brevity
-rules without touching the vendored file.
+rules without touching the file underneath.
 
-Vendored today:
-
-| Skill | Identified by |
-| --- | --- |
-| `i-have-adhd` | `license:` in its frontmatter — the only skill carrying one |
-
-That list lives in this record rather than in each vendored skill's own
-frontmatter, which is where a fact about one file would normally go. A vendored
-file's contents are not the project's to add to, and an upstream pull would drop
-the annotation. See `knowledge-placement` for the rule this is the exception to.
+Six of the seven above were edited in place before this record existed, and they
+stay that way (#213). Attribution is owed on a rewritten derivative work exactly
+as on an untouched copy, so the line does not depend on how far a file has
+drifted — and a file carrying one is not evidence that editing it was fine.
 
 ## Owns truth
 
-Upstream owns the vendored file's contents. The project owns the layer above it.
+Upstream owns the derived file's copyright, whatever the local edits. The
+project owns the layer above it, and the attribution line is the file's own
+statement of the first fact.
 
-The project cannot own the file itself: it does not control the next version,
-and a local edit to a file that gets replaced is a change with no durable home.
+The project cannot own an untouched vendored file's contents: it does not
+control the next version, and a local edit to a file that gets replaced is a
+change with no durable home.
 
 ## Considered
 
@@ -47,13 +87,24 @@ and a local edit to a file that gets replaced is a change with no durable home.
   silently wrong or fails loudly, and installation gains a merge step.
 - Reimplement rather than vendor — loses upstream fixes, and the reimplementation
   drifts from the thing it was copied from.
+- A root `NOTICE` file instead of in-file lines — one place to maintain, but
+  today's packaging ships no root file into the wheel, so the notice would sit
+  in the repository and not in the artifact it is owed on.
+- Sort the derived skills by how far they have drifted and attribute only the
+  close ones — drift is evidence of derivation, not a threshold for it.
 
 ## Consequences
 
-Changing a vendored skill's behaviour costs a whole new skill file. That
+Changing a derived skill's behaviour costs a whole new skill file. That
 friction is intended: it makes the change visible in the tree, and it survives
 the next pull.
+
+A skill arriving from upstream without its line fails the suite, which is the
+part the `license:` rule could not do.
 
 ## Log
 
 - 2026-08-28  accepted    — relocated from `AGENTS.md`
+- 2026-09-05  amended     — identification moved from the `license:` frontmatter
+  key to an attribution line in the file, six superpowers-derived skills added
+  to the table, and `i-have-adhd`'s source named (#213)

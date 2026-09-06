@@ -107,9 +107,9 @@ def test_the_panel_skill_names_every_skill_it_layers_over() -> None:
     Drop one and the panel quietly becomes a second account of what that skill
     owns — the reviewer hand-off, the rubric, or verify-before-implementing —
     which is the duplication `knowledge-placement` and #50 are about. Not
-    `vendor-upstream-skills`: that record names `i-have-adhd` alone, identified
-    by the `license:` key none of these three carry, so citing it here would
-    assert something the record does not say.
+    `vendor-upstream-skills`: it lists two of the three as superpowers-derived
+    and not the third, so it explains why two of them are layered over rather
+    than edited — not why the panel defers to all three.
     """
     named = set(_REFERENCE.findall(_SKILL.read_text()))
     for skill in ("requesting-code-review", "code-review", "receiving-code-review"):
