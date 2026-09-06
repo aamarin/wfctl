@@ -1763,24 +1763,44 @@ def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
     return lines
 
 
+# What `.gitignore` reads as syntax rather than as characters in a name. A
+# directory containing any of them cannot be named by a literal pattern: git
+# takes `trees[1]/` as the character class `[1]`, so it ignores `trees1/` and
+# leaves the real `trees[1]/` tracked — the exact failure of writing a rule that
+# matches nothing, arrived at through the pattern language instead of through
+# the path.
+#
+# Escaping them instead was the alternative. Rejected: it is a fourth encoder in
+# a change whose defects have all been encoders, and it would still leave the
+# leading `!` and `#` cases, which are position-dependent rather than
+# character-dependent.
+_GITIGNORE_METACHARACTERS = "*?[]\\"
+
+
 def _gitignorable(value: str) -> bool:
-    """Can a repo's own `.gitignore` express `value` at all?
+    """Can a repo's own `.gitignore` name this directory literally?
 
     The precondition `_ensure_gitignored` cannot check for itself: it asks git
     whether a path is already ignored, and git answers non-zero — "not ignored,
     write it" — for every path it could not evaluate. So an unusable value is
     not refused there, it is written.
 
+    Two ways a value fails. It can name somewhere the file cannot reach:
     workmux documents `worktree_dir` as taking an absolute path, `~`, or a
-    `{project}` token it expands itself. None of the three survives as a
-    gitignore pattern: `~/x/` matches nothing, a leading `/` is re-anchored to
-    the repo root and silently means a different directory, and gitignore has no
-    brace expansion. `spec-root` already refuses an absolute path one screen up
-    for the same reason.
+    `{project}` token it expands itself, and none survives — `~/x/` matches
+    nothing, a leading `/` is re-anchored to the repo root and silently means a
+    different directory, and gitignore has no brace expansion. `spec-root`
+    already refuses an absolute path one screen up for the same reason.
+
+    Or it can be a name the pattern language reads as a pattern. Those are the
+    metacharacters above, plus `!` and `#`, which are syntax only in the first
+    column, plus a trailing space, which git strips unless it is escaped.
     """
     return not (
-        value.startswith(("/", "~"))
+        value.startswith(("/", "~", "!", "#"))
+        or value != value.rstrip()
         or "{" in value
+        or any(c in value for c in _GITIGNORE_METACHARACTERS)
         or ".." in Path(value).parts
     )
 
@@ -3009,13 +3029,15 @@ def install_config_cmd(
         # the repo lives: restoring the template's `wt` relocates all of them and
         # leaves the directory they are actually in untracked, which is #35's own
         # symptom produced by the command that exists to prevent it.
-        kept = _workmux.worktree_dir(prior) if prior else None
+        kept = _workmux.worktree_dir_line(prior) if prior else None
         patched = _workmux.patch_seed(
-            wf.read_text(), agent=chosen, project=proj, worktree_dir=kept
+            wf.read_text(), agent=chosen, project=proj, worktree_dir_line=kept
         )
         wf.write_text(patched)
         if kept:
-            console.print(f"[dim]ℹ kept worktree_dir: {escape(kept)}[/dim]", soft_wrap=True)
+            console.print(
+                f"[dim]ℹ kept {escape(kept.strip())}[/dim]", soft_wrap=True
+            )
 
         # Gitignore what the config we just wrote declares, not a literal beside
         # it. Read after the write so the two cannot disagree — a second copy of

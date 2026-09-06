@@ -42,8 +42,16 @@ _WINDOW_PREFIX_LINE = re.compile(r"^\s*#?\s*window_prefix:")
 # `wt          # worktrees land in ...` needs; `[^\s#]` first means a key with
 # only a comment after it (`worktree_dir:   # TBD`) matches nothing rather than
 # yielding `#`, which git would write into `.gitignore` as a comment line.
+#
+# The single-quoted form carries YAML's own escape — `''` is one apostrophe — so
+# it is spelled out rather than stopped at the first quote, which read
+# `'team''s trees'` as `team`. The double-quoted form admits no backslash at
+# all: its escapes are a grammar, not a substitution, and a line scanner that
+# guessed at `\u` would be the same bug one notation further out. The plain
+# alternative excludes both quote characters so a declined quoted scalar falls
+# through to no match rather than being read as the plain text `"a\tb"`.
 _WORKTREE_DIR_LINE = re.compile(
-    r"""^worktree_dir:[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s#]\S*))"""
+    r"""^worktree_dir:[ \t]*(?:'((?:[^']|'')*)'|"([^"\\]*)"|([^\s#'"]\S*))"""
 )
 _EMPTY_PRE_REMOVE_LINE = re.compile(r"^pre_remove:\s*\[\]\s*$")
 
@@ -81,17 +89,6 @@ _COMMENTED_AGENT = (
 )
 
 
-def _yaml_scalar(value: str) -> str:
-    """`value` as a YAML scalar, quoted only when writing it bare would change it.
-
-    Quoting everything would rewrite the ordinary `wt` as `'wt'` on every
-    re-seed — a diff in a committed file saying nothing happened.
-    """
-    if value.strip() == value and not any(c in value for c in " '\"#:"):
-        return value
-    return "'" + value.replace("'", "''") + "'"
-
-
 def tmux_safe(name: str) -> str:
     """Rewrite the characters tmux would rewrite itself, so the written name
     matches the session tmux actually creates."""
@@ -99,7 +96,7 @@ def tmux_safe(name: str) -> str:
 
 
 def patch_seed(
-    text: str, *, agent: str | None, project: str, worktree_dir: str | None = None
+    text: str, *, agent: str | None, project: str, worktree_dir_line: str | None = None
 ) -> str:
     """Fill `window_prefix`, `agent` and `worktree_dir` in a freshly copied template.
 
@@ -110,9 +107,11 @@ def patch_seed(
     on a file wfctl is about to hand to the repo, and inventing keys in it is a
     worse failure than not substituting one.
 
-    `worktree_dir` is a value carried in, not derived — the directory the repo
-    already declared, so a re-seed does not relocate every worktree in it. None
-    leaves the template's own value, which is the fresh-repo case.
+    `worktree_dir_line` is a line carried in, not a value re-written — the
+    directory the repo already declared, so a re-seed does not relocate every
+    worktree in it. It is substituted verbatim for the reason
+    `worktree_dir_line` gives. None leaves the template's own value, which is
+    the fresh-repo case.
     """
     escaped = project.replace("'", "''")  # YAML single-quote escaping
     prefix_done = False
@@ -130,18 +129,35 @@ def patch_seed(
             out.append(f"agent: {agent}\n" if agent else _COMMENTED_AGENT)
             agent_done = True
         elif (
-            worktree_dir is not None
+            worktree_dir_line is not None
             and not worktree_dir_done
             and _WORKTREE_DIR_LINE.match(line)
         ):
-            # The template's trailing comment goes with the line it annotates:
-            # it reads "worktrees land in ./wt/<handle>", which a carried value
-            # makes false.
-            out.append(f"worktree_dir: {_yaml_scalar(worktree_dir)}\n")
+            # The whole line, so the template's trailing comment goes with the
+            # value it annotates — it reads "worktrees land in ./wt/<handle>",
+            # which a carried value makes false.
+            out.append(worktree_dir_line)
             worktree_dir_done = True
         else:
             out.append(line)
     return "".join(out)
+
+
+def worktree_dir_line(text: str) -> str | None:
+    """The `worktree_dir:` line exactly as written, or None when there is none.
+
+    What `patch_seed` carries across a re-seed, in place of a value it would
+    have to write back out. Re-serializing means owning YAML's quoting rules in
+    the emit direction as well as the read direction, and the emit side is the
+    one with no test that can catch it being wrong: a value written as
+    `!trees` reads back as a tag, `*trees` as an alias, and both look fine in
+    the file. Copying the bytes the repo already had removes that direction
+    entirely — there is nothing to encode, so there is nothing to encode wrongly.
+    """
+    for line in text.splitlines(keepends=True):
+        if _WORKTREE_DIR_LINE.match(line):
+            return line if line.endswith("\n") else line + "\n"
+    return None
 
 
 def worktree_dir(text: str) -> str | None:
@@ -158,10 +174,13 @@ def worktree_dir(text: str) -> str | None:
     for line in text.splitlines():
         m = _WORKTREE_DIR_LINE.match(line)
         if m:
-            # One of the three alternatives matched; an empty quoted value
-            # (`worktree_dir: ''`) leaves all of them falsey and is the same
-            # answer as an absent key — the config names no directory.
-            return next((g for g in m.groups() if g), None)
+            single, double, plain = m.groups()
+            if single:
+                return single.replace("''", "'")
+            # An empty quoted value (`worktree_dir: ''`) leaves every group
+            # falsey and is the same answer as an absent key — the config names
+            # no directory.
+            return double or plain or None
     return None
 
 
