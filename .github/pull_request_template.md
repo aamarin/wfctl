@@ -137,6 +137,24 @@ Proof belongs here rather than in Before / After: that section explains the
 change, this one shows it working. A screenshot or a GIF counts.
 -->
 
+## Review Panel
+<!--
+The reconciled disposition table from `fanning-out-code-review`: every finding
+from every reviewer, what was done about it, and why. The roster line goes with
+it — a reviewer that returned nothing and a reviewer that found nothing are the
+same silence, and only the roster tells them apart.
+
+A panel that found nothing still fills this in: who reviewed, what each checked,
+no findings. An empty section here and a panel that never ran read identically,
+and the second is what this section exists to make visible.
+-->
+
+| # | Reviewer | Finding | Disposition |
+|---|---|---|---|
+|   |          |         |             |
+
+roster:
+
 ## Checklist
 
 - [ ] My code follows the project's style guidelines
