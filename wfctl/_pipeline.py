@@ -77,20 +77,26 @@ def _has_open_checkboxes(text: str) -> bool:
     return bool(re.search(r"\[ \]", text))
 
 
-def _tasks_open(spec_dir: Path) -> bool:
-    """Whether implementation is still open, by the two routes `implement` reads
-    as finished: every box ticked, or the checklist that says so over one left
-    open.
+def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
+    """Whether the tasks are still open, by the two routes `implement` reads as
+    finished: every box ticked, or the sentinel that says so over one left open.
 
-    A function rather than a local, because three callers need this answer and a
-    local reaches only the two inside `_infer_steps`. `next_step_content` spelled
-    it with the boxes alone and routed a story whose definition of done had not
-    passed straight back to `/speckit.implement` with `auto: true` (#262) — the
-    sentinel exists precisely for the story whose boxes are not a reliable
-    signal, so dropping it inverts the case it was written for.
+    Only the tasks. A caller asking whether *implementation* is finished wants
+    this and `_verification_block` — a definition of done gets the last word over
+    both routes here (#69), and a caller that negates this alone has skipped it.
+
+    A function rather than a local, because a local answers the reads inside
+    `_infer_steps` and cannot reach `next_step_content`, which spelled the
+    predicate with the boxes alone and routed a story whose definition of done
+    had not passed straight back to `/speckit.implement` with `auto: true`
+    (#262). The sentinel exists precisely for the story whose boxes are not a
+    reliable signal, so dropping it inverts the case it was written for.
+
+    Takes the text rather than reading it, so a caller that already holds it
+    decides from one read. `_infer_steps` reads `tasks.md` for its own tally,
+    and a second read inside here let the tally and this answer come from two
+    versions of a file an implementing agent may be rewriting.
     """
-    tasks_md = spec_dir / "tasks.md"
-    tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
     return _has_open_checkboxes(tasks_text) and not _file_exists(
         spec_dir / "checklists" / "implement-complete.md"
     )
@@ -245,7 +251,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
-    tasks_open = _tasks_open(spec_dir)
+    tasks_open = _tasks_open(tasks_text, spec_dir)
 
     spec_md = spec_dir / "spec.md"
     spec_text = ""
@@ -500,7 +506,8 @@ def next_step_content(
     the work itself is what remains.
     """
     if step == "implement" and repo_root is not None and spec_dir is not None:
-        if _file_exists(spec_dir / "tasks.md") and not _tasks_open(spec_dir):
+        tasks_md = spec_dir / "tasks.md"
+        if _file_exists(tasks_md) and not _tasks_open(tasks_md.read_text(), spec_dir):
             if _verification_block(repo_root):
                 return "wfctl verify", False
     return _STEPS.get(step, ("", False))
