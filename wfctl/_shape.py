@@ -50,6 +50,7 @@ a reader who reads it as a budget will disable it.
 from __future__ import annotations
 
 import re
+from itertools import groupby
 
 # Fenced blocks and table rows are drawings, not voice. Both are stripped before
 # anything is scanned and before the words are counted: rule 6 exempts "a
@@ -244,11 +245,8 @@ def body_findings(body: str) -> list[str]:
     """
     out = []
     for opened, block in _split_fences(body)[1]:
-        run = longest = 0
-        for line in block:
-            run = run + 1 if _HAND_ALIGNED.search(line) else 0
-            longest = max(longest, run)
-        if longest < _ALIGNED_RUN:
+        aligned = groupby(block, lambda line: bool(_HAND_ALIGNED.search(line)))
+        if max((len(list(g)) for k, g in aligned if k), default=0) < _ALIGNED_RUN:
             continue
         sentences = [line for line in block if _SENTENCE.search(line)]
         if not sentences:

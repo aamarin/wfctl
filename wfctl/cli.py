@@ -3830,14 +3830,10 @@ def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool
     from rich.markup import escape
 
     actual = _settings.managed_command(settings, event)
-    if actual == MANAGED_HOOKS.get(event):
+    if actual == MANAGED_HOOKS[event]:
         return False
 
-    state = (
-        _HOOK_GONE.get(event, "is gone")
-        if actual is None
-        else "is behind this wfctl"
-    )
+    state = _HOOK_GONE[event] if actual is None else "is behind this wfctl"
     # soft_wrap and the break placed by hand: rich would otherwise
     # re-wrap at the terminal edge and split the settings path across
     # two lines, which both reads badly and makes assertions on these

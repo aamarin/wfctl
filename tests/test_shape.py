@@ -175,12 +175,6 @@ def _run(transcript: Path) -> str:
     ).output
 
 
-def test_the_hook_reports_what_the_last_reply_broke(tmp_path: Path) -> None:
-    path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
-    out = json.loads(_run(path))
-    assert "counted lead-in" in out["hookSpecificOutput"]["additionalContext"]
-
-
 def test_the_finding_reaches_the_model_not_the_terminal(tmp_path: Path) -> None:
     """`systemMessage` is not wired for `Stop` in the Claude Code this was built
     against: across seven runs in one session the hook produced a finding twice
@@ -191,6 +185,7 @@ def test_the_finding_reaches_the_model_not_the_terminal(tmp_path: Path) -> None:
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
     out = json.loads(_run(path))
     assert out["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "counted lead-in" in out["hookSpecificOutput"]["additionalContext"]
     assert out["hookSpecificOutput"]["additionalContext"] == out["systemMessage"]
 
 
