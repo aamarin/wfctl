@@ -1534,7 +1534,12 @@ def _merge_hooks(
     # on the second. Either way uninstall leaves an empty `{}` behind.
     created = {
         rel: next(
-            (p["created"] for (path_, _), p in prior.items() if path_ == rel),
+            # `.get`, not `[...]`: the manifest is on disk, gitignored and
+            # hand-editable, and an install that raises on a record missing a key
+            # is a crash where the honest answer is "then wfctl did not create
+            # this file". False is also the safe side of the guess — it costs an
+            # empty `{}` left behind, where True costs a consumer's file.
+            (p.get("created", False) for (path_, _), p in prior.items() if path_ == rel),
             not ((repo_root / rel).exists() or (repo_root / rel).is_symlink()),
         )
         for rel, _, _ in targets
@@ -2898,7 +2903,10 @@ def check_body_cmd(
     gates nothing — nothing runs this but the author.
     """
     try:
-        body = path.read_text()
+        # Explicit, not the platform default: wfctl's own descriptions are
+        # written UTF-8 and a locale that is not would decide this differently on
+        # two machines reading the same file.
+        body = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         console.print(f"[red]Can't read {path}:[/red] {exc}")
         raise typer.Exit(1)
@@ -3140,7 +3148,7 @@ def hook_response_shape_cmd() -> None:
         )
         print(json.dumps({
             "hookSpecificOutput": {
-                "hookEventName": "Stop",
+                "hookEventName": STOP_EVENT,
                 "additionalContext": message,
             },
             "systemMessage": message,

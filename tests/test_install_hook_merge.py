@@ -563,3 +563,34 @@ def test_doctor_reports_a_managed_event_the_recorded_install_never_had(
 
     result = runner.invoke(app, ["doctor"])
     assert "managed Stop hook" in result.output, result.output
+
+
+def test_a_manifest_record_without_created_does_not_crash_the_install(
+    agent_dir: Path,
+) -> None:
+    """The manifest is gitignored and hand-editable, so a record can arrive
+    without every key an install expects. Reading `created` as a subscript turned
+    that into a crash on the install path — and the safe answer when it is absent
+    is that wfctl did not create the file, since that costs an empty `{}` left
+    behind where the other guess costs a consumer's file."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}) + "\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for record in manifest["claude"]["merged"]:
+        del record["created"]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    after = json.loads(manifest_path.read_text())
+    assert all(r["created"] is False for r in after["claude"]["merged"]), after
+
+    # And the consumer's file survives, which is what the safe side buys.
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert settings_path.exists()
