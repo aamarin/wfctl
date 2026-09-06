@@ -47,18 +47,17 @@ def _section(body: str) -> str | None:
     return None
 
 
-def _is_filled(section: str) -> bool:
-    """Whether anything in the section was written rather than shipped.
+def _rows(section: str) -> list[list[str]]:
+    """The result rows of the disposition table, cells stripped and the leading
+    ordinal dropped.
 
-    Table rows only, and the roster line. Prose around them is not the test: the
-    section is a table by construction, and a sentence saying the panel ran is
-    the claim this check exists to stop standing in for the table.
+    The ordinal is not content. Reading it as content is how the first version of
+    this check passed the row it shipped with, on the strength of its own row
+    number. Header and separator rows are not results and are excluded.
     """
+    out = []
     for line in section.splitlines():
         line = line.strip()
-        if line.lower().startswith("roster:"):
-            if not _UNFILLED.match(line.split(":", 1)[1].strip()):
-                return True
         if not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]
@@ -66,29 +65,40 @@ def _is_filled(section: str) -> bool:
             continue
         if cells[:1] == ["#"]:  # the header row the template ships
             continue
-        # The leading ordinal is not content. Without this the shipped row
-        # `| 1 | [r1] | … |` reads as filled on the strength of its own row
-        # number, and the check passes the exact body it exists to catch.
         if len(cells) > 1 and cells[0].isdigit():
             cells = cells[1:]
-        if any(not _UNFILLED.match(c) for c in cells):
-            return True
-    return False
+        out.append(cells)
+    return out
+
+
+def _roster(section: str) -> str | None:
+    """What follows `roster:`, or None where the section has no such line."""
+    for line in section.splitlines():
+        line = line.strip()
+        if line.lower().startswith("roster:"):
+            return line.split(":", 1)[1].strip()
+    return None
 
 
 def panel_findings(body: str) -> list[str]:
     """What the body says about the review panel, and whether it says anything.
 
-    Two findings, not one, because the fixes differ: a body with no section at
-    all is a template that predates this rule — `install-config` is seed-once, so
-    most repositories have one — and the repair is to append the section. A
-    section left as shipped is a panel that did not run, and the repair is to run
-    it.
+    Three findings, not one, because the repairs differ. A body with no section
+    at all is a template that predates this rule — `install-config` is seed-once,
+    so most repositories have one — and the repair is to append the section. A
+    row still carrying placeholders, or a missing roster, is a panel that did not
+    finish, and the repair is to finish it.
 
-    An unfilled section is the case worth the code. It renders on github.com as a
-    well-formed table with a placeholder row, which reads as *answered, and the
-    answer was nothing* rather than as untouched — the indistinguishability the
-    section was added to remove, arriving through the section itself.
+    **Every cell of a result row, not any one of them.** Accepting a row on the
+    strength of a single replaced cell passes a table where the reviewer id was
+    filled in and the finding and its disposition are still template text — which
+    reads on github.com as a reviewed change, and is the failure this whole
+    change exists to stop, arriving one layer up from where it was caught.
+
+    Rows may legitimately be absent: a panel that found nothing has none to
+    write. The roster may not, because it is the only thing separating a reviewer
+    that found nothing from a reviewer that returned nothing, which is the
+    distinction `fanning-out-code-review` Step 3 is built around.
     """
     section = _section(body)
     if section is None:
@@ -98,11 +108,23 @@ def panel_findings(body: str) -> list[str]:
             "without it reads exactly like a change three reviewers passed. "
             "Append the section, whether or not the template carries one."
         ]
-    if not _is_filled(section):
-        return [
-            "opening-a-change Step 1 — the '## Review Panel' section is still as "
-            "shipped: no finding rows and no roster. A panel that found nothing "
-            "is written down as one — who reviewed, what each checked — because "
-            "an empty section and a panel that never ran read identically."
-        ]
-    return []
+
+    out = []
+    for row in _rows(section):
+        if any(_UNFILLED.match(cell) for cell in row):
+            out.append(
+                "opening-a-change Step 1 — a Review Panel row still carries what "
+                f"it shipped with: {' | '.join(row)!r}. Every cell of a result "
+                "row is filled, or the row is not a result: one replaced cell in "
+                "an otherwise untouched row renders as a reviewed finding."
+            )
+
+    roster = _roster(section)
+    if roster is None or _UNFILLED.match(roster):
+        out.append(
+            "opening-a-change Step 1 — the '## Review Panel' section carries no "
+            "roster. A panel that found nothing is still written down as one — "
+            "who reviewed, what each checked — because an empty section and a "
+            "panel that never ran read identically."
+        )
+    return out
