@@ -67,11 +67,15 @@ files = ["wfctl"]
 # it mostly means "nothing was checked".
 disallow_untyped_defs = true
 
-# Not `strict`, deliberately. It reports 26 findings, all of one shape:
-# bare `dict`/`tuple` wanting parameters, and json.loads() returning Any. The
-# fix is ~30 lines of `dict[str, Any]` and `cast(...)` around JSON blobs whose
-# shape is genuinely dynamic — noise that buys no safety. Revisit if the
-# manifest and session payloads ever get real TypedDicts.
+# Not `strict`, deliberately. It reports two shapes: bare `dict`/`tuple`
+# wanting parameters, and json.loads() returning Any where a type is declared.
+# The fix is `dict[str, Any]` and `cast(...)` around JSON blobs whose shape is
+# genuinely dynamic — noise that buys no safety. Revisit if the manifest and
+# session payloads ever get real TypedDicts.
+#
+# No count here on purpose: `uv run mypy --strict wfctl/` is the count, and the
+# number that used to sit in this comment had drifted with nothing watching it.
+# AGENTS.md carries the same rationale for a reader who is not in this file.
 
 # Tests are not checked: they are full of intentionally malformed fixtures.
 [[tool.mypy.overrides]]
