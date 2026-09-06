@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
 # Common functions for the speckit runtime scripts.
 #
 # ADAPTED FOR wfctl: branch → spec-dir resolution is delegated to

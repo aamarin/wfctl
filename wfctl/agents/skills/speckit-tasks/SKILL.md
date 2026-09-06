@@ -249,3 +249,7 @@ parallelization waves.
 - Each phase MUST end with a validation/checkpoint task (type-check, tests pass, etc.)
 - This task is a validation gate for decompose/implementation planning
 - Mark it clearly: `T0NN Validate <phase> with <command> — merge gate`
+
+---
+
+Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
