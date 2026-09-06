@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -414,6 +415,51 @@ def test_view_does_not_default_its_id_to_the_branch(
     assert result.exit_code == 1
     assert "requires --id" in result.output
     assert captured_argv == []
+
+
+def test_board_script_survives_an_item_whose_status_is_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An item on the board with no `Status` value must still be movable.
+
+    That row comes back with an empty second field, and it is the population the
+    script exists to move: 21 items on this project were in exactly that state
+    before the board was reconciled by hand. Parsed on a tab — IFS whitespace,
+    which bash folds a run of into one separator — the empty field vanishes and
+    every id shifts one place left, so the mutation is sent an option id where a
+    project id belongs. GitHub answers `Could not resolve to a node with the
+    global id`, the hook swallows it, and the item silently does not move.
+
+    The stub stands in for `gh` so the row can be forced; what is pinned is that
+    each id arrives in the argument named for it.
+    """
+    calls = tmp_path / "calls"
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$*" >> "{calls}"\n'
+        'case "$*" in\n'
+        '  *"repo view"*) echo "owner repo" ;;\n'
+        '  *mutation*) : ;;\n'
+        # state, an unset column, then the four ids.
+        '  *) printf "OPEN\\x1f\\x1fPVTI_item\\x1fPVT_proj\\x1fPVTSSF_field\\x1fopt123\\n" ;;\n'
+        'esac\n'
+    )
+    fake_gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    script = Path(_tracker.__file__).parent / "agents" / "trackers" / "github-board.sh"
+    result = subprocess.run(
+        ["bash", str(script), "175", "In Progress"], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+    mutation = [ln for ln in calls.read_text().splitlines() if "mutation" in ln]
+    assert len(mutation) == 1, calls.read_text()
+    assert "project=PVT_proj" in mutation[0]
+    assert "item=PVTI_item" in mutation[0]
+    assert "field=PVTSSF_field" in mutation[0]
+    assert "option=opt123" in mutation[0]
 
 
 @pytest.mark.parametrize("config", [
