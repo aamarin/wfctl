@@ -203,17 +203,41 @@ def in_force(records: list[Record]) -> list[Record]:
 
 
 def decision_text(record: Record) -> str:
-    """The first paragraph of a record's `## Decision` section, or "".
+    """A record's `## Decision` as the projection prints it, or "".
 
-    The projection shows what was decided, not the record. First paragraph and
-    not the whole section because the template asks for "one or two sentences"
-    and a record that writes more has its reasoning under `Context` and
-    `Considered` — printing all of it at session start buries the ten records
-    around it.
+    The first paragraph, plus — when that paragraph ends in a colon — the
+    verbatim block it points at. A colon is a promise the paragraph does not
+    keep alone: `knowledge-placement` announces a scope mapping and
+    `no-hardcoded-agent` an expansion, and each puts the thing announced in a
+    drawing below rather than in the sentence (#226). Not the whole section:
+    projecting that takes `arch context` from 52 lines to 245 and buries the
+    records around each one.
 
-    Fenced examples are skipped, via the same scanner `_log_bounds` uses: a
-    record documenting the record format contains a fenced `## Decision`, and
-    projecting that example would put template text in the contract.
+    The colon is the signal and the following block is not. `layer-model` opens
+    with a constraint that stands on its own and follows it with a four-row
+    table, so "paragraph followed by a block" is a heuristic with a false
+    positive in the corpus it ships against.
+
+    A record whose lead paragraph is grammatical but incomplete is out of reach
+    here, and stays that way. `install-modes` names three modes without saying
+    which three; `vendor-upstream-skills` leads with a terminology note and puts
+    the attribution rule below it. Nothing in the artifact separates those from
+    a record whose lead sentence genuinely is the decision, and
+    `a-rule-is-expressed-as-a-check` decides that case: a rule whose violation is
+    invisible in what the work already produces stays prose.
+
+    The paragraph stops at a blank line, a heading, or a fence delimiter, the
+    last so that a Decision opening on a code example does not project the
+    example as the decision. That stop reads the raw line and does not go
+    through `_unfenced`, which answers a different question — whether a line
+    sits inside a fence, not whether the paragraph ended at one. The heading
+    scan above is what needs `_unfenced`: a record documenting the record format
+    carries a fenced `## Decision` example, and matching it would project
+    template text as the contract.
+
+    A carried block is separated from the paragraph by a blank line, which the
+    caller splits on to decide what to re-wrap. That is safe to split on because
+    the paragraph is joined with `" "` and can never contain one itself.
 
     Reads `record.body` — `parse_record` already read the file, and a second
     read here would be a second copy of its unreadable-file policy.
@@ -227,17 +251,20 @@ def decision_text(record: Record) -> str:
     for i, stripped in _unfenced(lines):
         if stripped.lower() != "## decision":
             continue
-        after = dropwhile(lambda ln: not ln.strip(), lines[i + 1 :])
-        # Stops at a fence as well as a heading: a record whose Decision opens
-        # with a code example would otherwise project the example as the
-        # decision, which is the same failure `_unfenced` prevents one line up.
-        para = takewhile(
+        after = list(dropwhile(lambda ln: not ln.strip(), lines[i + 1 :]))
+        para = list(takewhile(
             lambda ln: ln.strip()
             and not ln.startswith("#")
             and ln.strip()[:3] not in ("```", "~~~"),
             after,
-        )
-        return " ".join(ln.strip() for ln in para)
+        ))
+        text = " ".join(ln.strip() for ln in para)
+        if not text.endswith(":"):
+            return text
+        block = _pointed_at(after[len(para) :])
+        if not block:
+            return text
+        return text + "\n\n" + "\n".join(block)
     return ""
 
 
@@ -248,6 +275,56 @@ def excluded_by_status(records: list[Record]) -> Counter[str]:
     reads as a decision nobody made.
     """
     return Counter(r.status for r in records if not r.in_force)
+
+
+def _pointed_at(lines: list[str]) -> list[str]:
+    """The block a dangling colon points at, given the lines below a paragraph.
+
+    Verbatim and unjoined, fence delimiters kept. `knowledge-placement`'s
+    mapping is aligned columns, so reflowing it into the sentence is the same
+    loss as dropping it, and the fence is what tells the printer not to.
+
+    A fence, a table or a list — the three shapes a colon conventionally points
+    at — and nothing else. Prose after a colon is ordinary English: "decided by
+    scope, then by what is constrained: the exception is ownership" reads as one
+    sentence continued, and carrying it would both project a paragraph the colon
+    never promised and leave the colon check with almost no way to fail.
+
+    The list branch is here for the check's sake more than the projection's.
+    Nothing in the corpus uses that shape today, but records lean on lists
+    heavily, and without the branch a well-formed record turns the corpus test
+    red and its author has to reword prose to satisfy the tool — which is the
+    objection #226 raised against repairing the records instead of the code.
+
+    Empty otherwise, and that is the finding: the paragraph still ends in a
+    colon, so the corpus check fires rather than inventing a block. A list
+    broken by a blank line stops at the blank, and an indented code block or a
+    blockquote carries nothing at all; both would be reported against the record
+    rather than silently half-projected.
+    """
+    rest = list(dropwhile(lambda ln: not ln.strip(), lines))
+    if not rest:
+        return []
+    fence = rest[0].strip()[:3]
+    if fence in ("```", "~~~"):
+        body = list(takewhile(lambda ln: not ln.strip().startswith(fence), rest[1:]))
+        if len(body) == len(rest) - 1:
+            # No closer anywhere below. Carrying to end of file would project
+            # `## Considered` and `## Log` as the decision — the 245-line
+            # outcome this function rejects — off one missing backtick. Nothing
+            # else would catch it, since the projected text then ends in a
+            # fence rather than a colon.
+            return []
+        return [rest[0], *body, fence]
+    marker = rest[0].lstrip()
+    ordered = marker.split(" ", 1)[0]
+    if (
+        marker[:1] == "|"
+        or marker[:2] in ("- ", "* ")
+        or (ordered[:-1].isdigit() and ordered[-1:] in (".", ")"))
+    ):
+        return list(takewhile(lambda ln: ln.strip(), rest))
+    return []
 
 
 def _unfenced(lines: list[str]) -> Iterator[tuple[int, str]]:

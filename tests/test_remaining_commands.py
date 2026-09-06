@@ -455,6 +455,26 @@ def test_arch_context_lists_only_accepted_records(
     assert "The way it used to work." not in result.output
 
 
+def test_arch_context_prints_a_carried_block_without_reflowing_it(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The half of #226 that lives in the printer, which nothing else reaches:
+    every other check is against `_arch.decision_text`, so swapping the block
+    back to `textwrap.fill` reflows the drawing the change exists to carry and
+    the suite stays green. Pinned below the block's own width because rich
+    re-wraps at the terminal edge unless told not to, and one tmux split is
+    already inside that range."""
+    root = _arch_root(agent_dir, monkeypatch)
+    monkeypatch.setenv("COLUMNS", "40")
+    _record(root, "mapped", "accepted",
+            "Placement is decided by scope:\n\n"
+            "```\na fact about one file        → that file\n```")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "  a fact about one file        → that file" in out
+
+
 def test_arch_context_counts_what_it_left_out(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
