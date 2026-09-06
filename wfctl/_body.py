@@ -49,6 +49,15 @@ _LINK = re.compile(r"\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])")
 _LINK_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:\s+\S", re.MULTILINE)
 
 _MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
+# Backticked spans are quoted material, not fields. A finding that names `[0]`
+# or quotes a shipped row is authored content, and reading its brackets as
+# unanswered fields would reject the description for describing accurately.
+_CODE = re.compile(r"`[^`]*`")
+# A cell boundary is an *unescaped* pipe. A row quoting another row — which a
+# disposition explaining a table defect does — writes `\\|` inside a code span,
+# and splitting on every pipe tears that span into cells, inventing a
+# cardinality the row never had and brackets nothing can see are quoted.
+_CELL = re.compile(r"(?<!\\)\|")
 
 _SECTION = "review panel"
 _SUMMARY = "**panel:**"
@@ -75,23 +84,38 @@ def _delink(text: str, labels: set[str]) -> str:
     )
 
 
+def _unanswered(text: str, labels: set[str]) -> bool:
+    """Whether any bracketed field in `text` is still the one the template shipped.
+
+    Quoted code and every markdown link form are removed first, because both are
+    things an author wrote. What is left bracketed is what nobody filled in.
+    """
+    return bool(_BRACKETED.search(_delink(_CODE.sub("", text), labels)))
+
+
 def _written(text: str, labels: set[str]) -> bool:
-    """Whether a field holds something an author put there.
+    """Whether a field holds something an author put there, in **all** of it.
 
     **The one predicate this module has**, asked of every field it reads — a
-    table cell, the roster, a line of evidence. Four of the findings on PR #234
-    were one defect: each field had grown its own answer to this question, and
-    every field with a weaker answer was another way to look reviewed without
-    being reviewed. A cell test that rejected `N/A` sat beside an evidence test
-    that accepted it, and beside a summary test that read links differently from
-    both. Fields differ in what they hold; none of them differs in what it means
-    to be filled.
+    table cell, the roster, a line of evidence. Five findings on PR #234 were one
+    defect: each field had grown its own answer to this question, and every field
+    with a weaker answer was another way to look reviewed without being reviewed.
+    Fields differ in what they hold; none of them differs in what it means to be
+    filled.
+
+    **No early return, and that is the point.** The sixth finding was this
+    function stopping at the first valid link it saw and never reading the rest,
+    so `[what it raised] see [#234](url)` passed on the strength of its citation.
+    That was the third instance of one rule — *any match satisfies* — after a row
+    accepted on any filled cell and a row accepted on the cells that happened to
+    exist. Every question is asked of the whole field, and nothing here may
+    return on the first thing that looks right.
     """
     stripped = text.strip()
     if not stripped:
         return False
-    if _delink(stripped, labels) != stripped:  # it carried a link
-        return True
+    if _unanswered(stripped, labels):
+        return False
     return not _SHIPPED.fullmatch(stripped)
 
 
@@ -157,7 +181,7 @@ def _table(section: str) -> tuple[int, list[list[str]]]:
         line = line.strip()
         if not line.startswith("|"):
             continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = [c.strip().replace("\\|", "|") for c in _CELL.split(line.strip("|"))]
         if all(set(c) <= set("-: ") for c in cells):  # the |---|---| separator
             continue
         if cells[:1] == ["#"]:  # the header row the template ships
@@ -234,7 +258,7 @@ def panel_findings(body: str) -> list[str]:
     for line in section.splitlines():
         if not line.strip().lower().startswith(_SUMMARY):
             continue
-        if _BRACKETED.search(_delink(line, labels)):
+        if _unanswered(line, labels):
             out.append(
                 "opening-a-change Step 1 — the Review Panel summary still carries "
                 f"placeholders: {line.strip()!r}. The count of reviewers and "

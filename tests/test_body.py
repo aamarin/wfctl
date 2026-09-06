@@ -238,3 +238,60 @@ def test_reference_style_links_are_prose_not_placeholders() -> None:
 
     assert panel_findings(ref + "\n[panel]: https://example.com\n") == []
     assert panel_findings(f"## Review Panel\n\n**Panel:** [target] — [n]\n\n{table}")
+
+
+def test_a_field_is_read_whole_rather_than_until_it_looks_right() -> None:
+    """The third instance of one rule — *any match satisfies* — after a row
+    accepted on any filled cell and a row accepted on the cells that happened to
+    exist. `_written` stopped at the first valid link it saw, so a cell holding
+    `[what it raised]` beside a real citation passed on the strength of the
+    citation. Every question is now asked of the whole field.
+    """
+    cited = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | [what it raised] see [#234](https://x) | applied |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(cited)
+    assert panel_findings(
+        "## Review Panel\n\nAll six passes each. No findings.\n\n"
+        "roster: [r1 ✓ r2 ✓] per [record](https://x)\n"
+    )
+
+
+def test_quoted_brackets_are_not_unanswered_fields() -> None:
+    """The false-rejection half of the same change, and the direction that costs
+    more: a finding naming `[0]`, or quoting the shipped row it is about, is an
+    author writing accurately. Rejecting the description for describing is how a
+    check teaches its reader to stop looking at it."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | the `[0]` index is read twice | applied — see [#234](https://x) |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(body) == []
+
+
+def test_a_cell_boundary_is_an_unescaped_pipe() -> None:
+    """A disposition explaining a table defect quotes a table row, and writes
+    `\\|` inside a code span to do it. Splitting on every pipe tore that span
+    into cells — inventing a cardinality the row never had, and exposing
+    brackets that were quoted rather than unfilled.
+
+    Found by running the check over this PR's own body, which is also how the
+    reverse was found: a row with *unescaped* pipes inside a code span really is
+    broken, because GitHub splits the cell before it reads the span. The check
+    agreeing with the renderer is the point.
+    """
+    quoted = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | codex | a row read as filled | applied — `\\| 1 \\| r1 \\|` exited 0 |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(quoted) == []
