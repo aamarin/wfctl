@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 import wfctl._tracker as _tracker
-from wfctl.cli import app
+from wfctl.cli import _GITHUB_TRACKER_FILES, app
 
 runner = CliRunner()
 
@@ -298,7 +298,8 @@ def _add_tracker_and_runtime(bundle: Path) -> None:
     trackers = bundle / "agents" / "trackers"
     trackers.mkdir(parents=True)
     (trackers / "github.json").write_text(json.dumps(_GITHUB_VERBS))
-    (trackers / "github-board.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
+    for script in _GITHUB_TRACKER_FILES[1:]:
+        (trackers / script).write_text("#!/usr/bin/env bash\nexit 0\n")
     # Speckit runtime — installed as a repo-level managed mirror alongside skills.
     scripts = bundle / "specify" / "scripts" / "bash"
     scripts.mkdir(parents=True)
@@ -335,16 +336,23 @@ def test_install_tracker_github_copies_config_and_sets_manifest(
 def test_install_tracker_github_copies_the_script_its_verbs_invoke(
     bundle: Path, agent_dir: Path
 ) -> None:
-    """A board write is two API calls, so `start`/`stop` invoke a script by path.
+    """A board write is two API calls, so three verbs invoke a script by path.
 
-    Installing the config without it is the failure this guards: the verbs are
+    Installing the config without them is the failure this guards: the verbs are
     declared, `tracker-check` passes, and every call dies on a missing file.
+    Asserted over `_GITHUB_TRACKER_FILES` rather than over names written here,
+    because a second copy of that tuple is what goes stale — `create` joined
+    `start`/`stop` in naming a script and this test would not have noticed.
     """
     repo_root = agent_dir.parent
     _add_tracker_and_runtime(bundle)
     result = runner.invoke(app, ["install-skills", "--tracker", "github"])
     assert result.exit_code == 0
-    assert (repo_root / ".agents" / "trackers" / "github-board.sh").exists()
+    missing = [
+        f for f in _GITHUB_TRACKER_FILES
+        if not (repo_root / ".agents" / "trackers" / f).exists()
+    ]
+    assert missing == []
 
 
 def test_shipped_github_config_is_valid_and_its_argv_paths_exist() -> None:
@@ -698,3 +706,147 @@ def test_branch_issue_parser_uses_configured_key_pattern(
                          ("251-slug", "unknown")]:
         monkeypatch.setenv("WFCTL_BRANCH", branch)
         assert _resolve_context()[3] == want
+
+
+_CALL = "===CALL==="
+
+
+def _stub_gh_for_create(
+    tmp_path: Path, projects: str, create_rc: int = 0
+) -> Path:
+    """A `gh` that records argv one token per line and answers the two lookups.
+
+    Tokens are recorded one per line rather than as `"$*"` because what these
+    tests are about is whether `--project` reached `gh issue create` *as its own
+    argument*, and a joined string cannot tell that apart from a title that
+    happens to contain the word.
+
+    ``projects`` is what `gh project list` prints — the count the script
+    branches on — or ``"FAIL"`` to make that call exit non-zero, which is what a
+    token without the `project` scope does.
+    """
+    calls = tmp_path / "calls"
+    fake_gh = tmp_path / "gh"
+    listing = "exit 1" if projects == "FAIL" else f'echo "{projects}"'
+    fake_gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "{_CALL}" >> "{calls}"\n'
+        f'printf "%s\\n" "$@" >> "{calls}"\n'
+        'case "$1 $2" in\n'
+        '  "repo view") echo "owner" ;;\n'
+        f'  "project list") {listing} ;;\n'
+        '  *) echo "https://github.com/owner/repo/issues/1"; '
+        f'exit {create_rc} ;;\n'
+        'esac\n'
+    )
+    fake_gh.chmod(0o755)
+    return calls
+
+
+def _run_create_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str
+) -> subprocess.CompletedProcess:
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    script = (
+        Path(_tracker.__file__).parent
+        / "agents" / "trackers" / "github-issue-create.sh"
+    )
+    return subprocess.run(
+        ["bash", str(script), *args], capture_output=True, text=True
+    )
+
+
+def _recorded(calls: Path) -> list[list[str]]:
+    blocks = calls.read_text().split(f"{_CALL}\n")
+    return [b.splitlines() for b in blocks if b.strip()]
+
+
+@pytest.mark.parametrize("board,projects,on_board,note", [
+    ("wfctl", "1", True, ""),
+    ("wfctl", "0", False, "no project titled 'wfctl'"),
+    ("wfctl", "FAIL", False, "could not read owner's projects"),
+    ("", "0", False, ""),
+])
+def test_create_script_files_the_issue_whether_or_not_a_board_takes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    board: str, projects: str, on_board: bool, note: str,
+) -> None:
+    """One table for every answer the board lookup can give.
+
+    The rows that matter are the last three. `gh issue create --project`
+    resolves the board before creating anything and exits non-zero when the
+    title matches nothing, so shipping a config that names *this* project would
+    have left every other repository unable to file an issue at all — the fix
+    for #232 breaking the thing it was fixing. The lookup is what buys the
+    distinction, and the third row is why it is a lookup rather than a match on
+    gh's error text: a token missing the `project` scope must not read as a
+    repository that has no board.
+
+    The issue is filed in all four. Nothing here is allowed to cost a filing.
+    """
+    calls = _stub_gh_for_create(tmp_path, projects)
+    result = _run_create_script(
+        tmp_path, monkeypatch, "a title", "a body", board
+    )
+    assert result.returncode == 0, result.stderr
+
+    created = [c for c in _recorded(calls) if c[:2] == ["issue", "create"]]
+    assert len(created) == 1, _recorded(calls)
+    assert ("--project" in created[0]) is on_board
+    assert note in result.stdout
+
+
+def test_create_script_skips_the_lookup_when_no_board_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backend with no board pays for no calls and says nothing about one.
+
+    The empty third argument is how a repository declines the board half while
+    keeping the verb, and it has to be free: `wfctl issue create` runs where a
+    person is waiting, and a lookup that cannot succeed is latency plus a line
+    of output explaining an absence nobody asked about.
+    """
+    calls = _stub_gh_for_create(tmp_path, "0")
+    result = _run_create_script(tmp_path, monkeypatch, "a title", "a body", "")
+    assert result.returncode == 0, result.stderr
+    assert [c[:2] for c in _recorded(calls)] == [["issue", "create"]]
+    assert "board" not in result.stdout
+
+
+def test_create_script_fails_when_a_board_that_exists_refuses_the_issue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The observable half of #232 — a failed board add is not swallowed.
+
+    #232's finding is an asymmetry: a pull request's project membership is a
+    step that can be observed as unfinished, and an issue's was not observable
+    at any point. Reporting success after the board refused the item would
+    recreate exactly that, one layer down.
+    """
+    calls = _stub_gh_for_create(tmp_path, "1", create_rc=1)
+    result = _run_create_script(
+        tmp_path, monkeypatch, "a title", "a body", "wfctl"
+    )
+    assert result.returncode == 1
+    created = [c for c in _recorded(calls) if c[:2] == ["issue", "create"]]
+    assert "--project" in created[0]
+
+
+def test_create_script_passes_a_title_to_gh_inert(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An issue title is free text an agent wrote, and it reaches `gh` as argv.
+
+    The board script guards a key it can validate; a title has no shape to
+    check, so the only thing standing between `$(...)` in a title and a shell is
+    that nothing here builds a command string. This is the canary for that —
+    delete the quoting and it fires.
+    """
+    calls = _stub_gh_for_create(tmp_path, "1")
+    canary = tmp_path / "pwned"
+    title = f"$(touch {canary}) `touch {canary}`"
+    result = _run_create_script(tmp_path, monkeypatch, title, "a body", "wfctl")
+    assert result.returncode == 0, result.stderr
+    assert not canary.exists()
+    created = [c for c in _recorded(calls) if c[:2] == ["issue", "create"]][0]
+    assert created[created.index("--title") + 1] == title
