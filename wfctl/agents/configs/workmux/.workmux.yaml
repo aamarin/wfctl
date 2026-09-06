@@ -60,8 +60,14 @@ post_create:
   # Tell the tracker work on this issue has begun. A backend with a board moves
   # the item to its in-progress column; one without simply does not declare the
   # verb, and the call no-ops with a notice. No issue number here: the key comes
-  # off the branch under the tracker's own `key_pattern`, so this line is right
-  # for a Jira- or Linear-shaped repo as it stands.
+  # off the branch under the tracker's own `key_pattern`, so nothing in this
+  # line has to know what a key looks like.
+  #
+  # That is not the same as this file working for a non-numeric tracker. The
+  # `pre_create` gate above still refuses a handle that does not start with
+  # digits, so a repo whose keys are `PROJ-123` cannot create the branch whose
+  # name this verb would read. Relax that gate to the tracker's own pattern
+  # before pointing a Jira- or Linear-shaped repo at this template.
   #
   # Second, not first: the verb is defined by `.agents/trackers/<name>.json`, and
   # the install above is what puts that in a fresh worktree.

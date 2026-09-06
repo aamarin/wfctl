@@ -55,6 +55,12 @@ read -r owner name <<<"$nwo"
 # text: `gh --jq` takes no `--arg`, and splicing a config value into a jq
 # program is the same class of mistake this file avoids with argv.
 #
+# `first:100` is the connection's own ceiling — 101 is refused with
+# EXCESSIVE_PAGINATION — and it is asked for in one page rather than cursored.
+# An issue on 101 boards would have its 101st silently missed; cursoring for
+# that costs `pageInfo`, an `$endCursor` variable and a `--paginate` loop in a
+# file whose whole point is that a board write stays two calls.
+#
 # `options != null` rather than `field != null`: a `Status` field that is not a
 # single select still matches the inline fragment's parent and comes back as
 # `{}`, which is not null, and iterating its absent options aborts jq — turning
@@ -65,7 +71,7 @@ ids=$(WFCTL_BOARD_STATUS="$status" gh api graphql \
     repository(owner:$owner,name:$repo){
       issue(number:$num){
         state
-        projectItems(first:10){
+        projectItems(first:100){
           nodes{
             id
             fieldValueByName(name:"Status"){
