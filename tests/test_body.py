@@ -62,6 +62,34 @@ def test_n_a_does_not_satisfy_the_section() -> None:
     assert panel_findings("## Review Panel\n\nN/A\n\n## Checklist\n")
 
 
+def test_a_row_with_one_cell_replaced_is_still_unfilled() -> None:
+    """Reported by the Codex reviewer on PR #234 and reproduced before it was
+    believed: with `any`, replacing `[r1]` alone made the row read as filled
+    while the finding and its disposition were still template text, and
+    `check-body` exited 0 on it. A half-filled table renders on github.com as a
+    reviewed change, which is #187's own failure arriving one layer up from
+    where this check was written to catch it."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | [what it raised] | [applied — with the reason] |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(body)
+
+
+def test_a_panel_that_found_nothing_needs_no_rows_but_needs_a_roster() -> None:
+    """Zero findings is a valid result, so requiring a result row would force a
+    fake one. The roster is what cannot be dropped: it is the only thing telling
+    a reviewer that found nothing from a reviewer that returned nothing, which
+    is the distinction `fanning-out-code-review` Step 3 exists for."""
+    checked = "## Review Panel\n\nWhole rubric each, no findings.\n\n"
+
+    assert panel_findings(checked + "roster: r1 ✓  r2 ✓  r3 ✓\n") == []
+    assert panel_findings(checked)
+
+
 def test_a_reconciled_table_passes() -> None:
     """The check has to be quiet on the thing it is asking for, or the author
     learns to ignore it."""
