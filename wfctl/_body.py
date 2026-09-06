@@ -79,6 +79,24 @@ PLACEHOLDERS = frozenset(
     }
 )
 
+# A link reference definition. Machinery that supports a link elsewhere, never
+# an account of what a reviewer checked.
+_LINK_DEF = re.compile(r"^ {0,3}\[[^\]]+\]:\s+\S")
+_PUNCT = re.compile(r"[^a-z ]+")
+
+# The two vocabularies this module reads and does not invent. `PLACEHOLDERS` is
+# the template's; these are `fanning-out-code-review`'s, quoted from the skill
+# and pinned to it by test.
+#
+# **Why a list and not a judgement.** The skill names states that are *authored
+# and still failures* — a roster recording a reviewer that never reported, a
+# verdict standing in for a report. `_written` cannot express those: it asks
+# whether someone put text there, and both of these are text someone put there.
+# Reading the skill's own words is the only way to see them that does not become
+# a matcher guessing at synonyms, which is the repair #187 rejected.
+FAILURE_MARKERS = frozenset({"MISSING"})
+BARE_VERDICTS = frozenset({"looks good"})
+
 _SECTION = "review panel"
 _SUMMARY = "**panel:**"
 
@@ -184,38 +202,52 @@ def _section(body: str) -> str | None:
     return None
 
 
-def _table(section: str) -> tuple[int, list[list[str]]]:
-    """The result rows of the disposition table, and how many cells one needs.
+def _table(section: str) -> tuple[int, bool, list[list[str]]]:
+    """The disposition table's rows, its width, and whether it has an ordinal
+    column.
 
     A header is the row a delimiter row follows, which is CommonMark's rule and
     therefore the renderer's. Recognising it by a `#` first cell instead was this
-    module's own guess at the same question, and a table written with the common
+    module's own guess at the same question, and a table using the common
     `| Reviewer | Finding | Disposition |` header had that header counted as a
-    result — a section holding nothing but a header then read as a panel with
-    one finding.
+    result.
 
-    The width comes from the header where there is one, so a repository whose
-    table carries a fifth column has its own shape enforced rather than this
-    module's. The leading ordinal is dropped from both: it is an index, and
-    reading it as content is how the first version of this check passed the row
-    it shipped with, on the strength of its own row number.
+    Rows come back as they are written. Dropping the ordinal here is what let
+    `| r1 | found bug | applied |` satisfy a four-column header — subtracting the
+    `#` column from the width while the row had never carried one, so a row that
+    renders with an empty Disposition passed. Whether a row has an ordinal is a
+    fact about that row, and only the caller sees both it and the header.
     """
     lines = [
         line.strip() for line in section.splitlines() if line.strip().startswith("|")
     ]
-    width, rows = _RESULT_CELLS, []
+    width, ordinal, rows = _RESULT_CELLS, False, []
     for i, line in enumerate(lines):
         if _DELIMITER.fullmatch(line):
             continue
         cells = [c.strip().replace("\\|", "|") for c in _CELL.split(line.strip("|"))]
         following = lines[i + 1] if i + 1 < len(lines) else ""
         if _DELIMITER.fullmatch(following):  # the row above a delimiter is a header
-            width = max(len(cells) - 1, 1) if cells[:1] == ["#"] else len(cells)
+            width, ordinal = len(cells), cells[:1] == ["#"]
             continue
-        if len(cells) > 1 and cells[0].isdigit():
-            cells = cells[1:]
         rows.append(cells)
-    return width, rows
+    return width, ordinal, rows
+
+
+def _result(row: list[str], width: int, ordinal: bool) -> tuple[list[str], int]:
+    """A row's cells and how many it needs, once its ordinal is accounted for.
+
+    The ordinal is an index rather than content — reading it as content is how
+    the first version of this check passed the row it shipped with. It is dropped
+    only when the row actually carries one: a table that declares the column and
+    a row that omitted it are not the same row one cell shorter, they are a row
+    that renders with its last cell empty.
+    """
+    if ordinal and row and row[0].isdigit():
+        return row[1:], width - 1
+    if not ordinal and len(row) > 1 and row[0].isdigit():
+        return row[1:], width  # no header to declare the column; infer it
+    return row, width
 
 
 def _roster(section: str) -> str | None:
@@ -236,19 +268,28 @@ def _evidence(section: str) -> bool:
     'looks good' is a missing report wearing a verdict."* A roster alone is that
     bare verdict, and it is the cheapest body a skipped panel can produce.
 
-    A heading is structure rather than evidence, and `N/A` is the answer Step 4
-    forbids here by name — both were accepted while this asked only whether a
-    line existed, which is the question `_written` exists so that nothing asks.
+    Three things are not evidence: a heading, which is structure; a link
+    reference definition, which is machinery supporting a link elsewhere; and the
+    bare verdicts the skill names, which are authored text that the skill itself
+    calls a missing report.
 
-    Presence, never content — no check can tell a true account of six passes
-    from a fabricated one. What it removes is the one-line fake.
+    **What this cannot claim.** Presence, never content — no check reads a
+    paragraph and knows whether six passes truly ran. `a-rule-is-expressed-as-a-
+    check` says a rule whose violation is not visible in the artifact stays prose,
+    and *did the reviewer really look* is that rule. What is visible is an empty
+    section, machinery standing in for prose, and the exact verdict the skill
+    quotes — and that is the whole of what is claimed here.
     """
     for line in section.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("|") or _MD_HEADING.match(line):
             continue
+        if _LINK_DEF.match(line):
+            continue
         low = stripped.lower()
         if low.startswith("roster:") or low.startswith(_SUMMARY):
+            continue
+        if _PUNCT.sub("", low).strip() in BARE_VERDICTS:
             continue
         if _written(stripped):
             return True
@@ -289,13 +330,14 @@ def panel_findings(body: str) -> list[str]:
                 "findings is the line a reader checks the table against."
             )
 
-    width, rows = _table(section)
-    for row in rows:
-        if len(row) < width:
+    width, ordinal, raw_rows = _table(section)
+    rows = [_result(row, width, ordinal) for row in raw_rows]
+    for row, required in rows:
+        if len(row) < required:
             out.append(
                 "opening-a-change Step 1 — a Review Panel row is missing cells: "
                 f"{' | '.join(row)!r} has {len(row)} where the table takes "
-                f"{width}. A row without its disposition records a finding "
+                f"{required}. A row without its disposition records a finding "
                 "nobody said what they did about."
             )
         elif not all(_written(cell) for cell in row):
@@ -321,5 +363,13 @@ def panel_findings(body: str) -> list[str]:
             "roster. It is the only thing telling a reviewer that found nothing "
             "from a reviewer that returned nothing, which is the distinction "
             "fanning-out-code-review Step 3 is built around."
+        )
+    elif [m for m in FAILURE_MARKERS if m in roster]:
+        out.append(
+            f"opening-a-change Step 1 — the roster records {sorted(m for m in FAILURE_MARKERS if m in roster)}: "
+            f"{roster!r}. fanning-out-code-review Step 3 calls that a failure "
+            "rather than a pass — ask that reviewer again for its findings. A "
+            "panel reported as incomplete is the silent reviewer this check "
+            "exists to expose, written down and shipped anyway."
         )
     return out

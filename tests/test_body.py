@@ -370,3 +370,75 @@ def test_a_shipped_placeholder_is_caught_however_it_is_wrapped() -> None:
     )
 
     assert panel_findings(body)
+
+
+def test_the_named_states_are_the_skills_own_words() -> None:
+    """`FAILURE_MARKERS` and `BARE_VERDICTS` are quoted from
+    `fanning-out-code-review`, and holding them here makes them a second copy —
+    same shape as `PLACEHOLDERS` and the template. A marker renamed in the skill
+    and not here is a failure state the check would stop seeing, silently.
+
+    They exist because `_written` cannot express them: it asks whether an author
+    put text there, and a roster recording `MISSING` and a verdict standing in
+    for a report are both text an author put there.
+    """
+    from importlib.resources import files
+
+    from wfctl._body import BARE_VERDICTS, FAILURE_MARKERS
+
+    skill = (
+        Path(str(files("wfctl")))
+        / "agents/skills/fanning-out-code-review/SKILL.md"
+    ).read_text()
+
+    for marker in FAILURE_MARKERS:
+        assert marker in skill, marker
+    for verdict in BARE_VERDICTS:
+        assert verdict in skill.lower(), verdict
+
+
+def test_a_roster_that_records_a_missing_reviewer_is_not_a_pass() -> None:
+    """`fanning-out-code-review` Step 3 says `MISSING` is a failure, not a pass.
+    A roster naming one is the silent reviewer this whole change exists to
+    expose — written down honestly, and shipped anyway because the check only
+    asked whether the roster held text."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | applied |\n\n"
+        "roster: r1 ✓  r2 MISSING  r3 ✓\n"
+    )
+
+    assert panel_findings(body)
+
+
+def test_a_bare_verdict_is_not_evidence() -> None:
+    """The skill's own example — *"A bare 'looks good' is a missing report
+    wearing a verdict."* A link reference definition is the other thing that is
+    text without being an account: machinery supporting a link elsewhere."""
+    verdict = "## Review Panel\n\nLooks good.\n\nroster: r1 ✓  r2 ✓\n"
+    machinery = "## Review Panel\n\nroster: r1 ✓  r2 ✓\n\n[panel]: https://example.com\n"
+
+    assert panel_findings(verdict)
+    assert panel_findings(machinery)
+
+
+def test_a_row_that_omitted_the_ordinal_renders_a_cell_short() -> None:
+    """With the shipped four-column header, `| r1 | found bug | applied |` has
+    no ordinal — so it renders with an empty Disposition. Subtracting the `#`
+    column from the width while the row never carried one made three cells
+    enough, and a visibly broken row passed. Whether a row has an ordinal is a
+    fact about that row, not about the header that declares the column."""
+    short = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| r1 | found bug | applied |\n\nroster: r1 ✓  r2 ✓\n"
+    )
+    whole = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found bug | applied |\n\nroster: r1 ✓  r2 ✓\n"
+    )
+
+    assert panel_findings(short)
+    assert panel_findings(whole) == []

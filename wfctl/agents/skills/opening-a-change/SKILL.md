@@ -62,9 +62,12 @@ update when this skill does. This is the one section the skill supplies rather
 than reads, and it is not the red flag below about editing the template: the
 template file is untouched, and what is written is content this step produced.
 
-Findings you apply change the branch. Re-run the verification and push again
-before Step 5 — a PR is opened from what is on the remote, and a recorded verdict
-binds to the tree it ran against, which your fix has moved.
+Findings you apply change the branch. **Commit them**, re-run the verification,
+and push again before Step 5 — `git push` moves commits and not a working tree,
+so an uncommitted fix leaves the PR opening from the commit that still has the
+defect while the description says it was applied. A recorded verdict binds to the
+tree it ran against, which your fix has moved, so the verification is re-run
+after the commit rather than before it.
 
 ## Step 2: Find the template
 

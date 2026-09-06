@@ -78,7 +78,7 @@ def test_the_in_file_step_references_point_at_the_step_they_name() -> None:
 
     assert f"attribute Step {sidebar} cannot set" in text
     assert f"The sidebar is Step {sidebar}" in text
-    assert f"push again\nbefore Step {open_it}" in text
+    assert f"push again before Step {open_it}" in text
 
 
 def test_the_template_gives_the_panel_a_section() -> None:
