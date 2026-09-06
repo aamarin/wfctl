@@ -1249,6 +1249,33 @@ def test_the_prune_doctor_advises_names_the_layer_it_has_to_reach(
     assert "wfctl install-skills --agent claude --prune" in out
 
 
+def test_the_prune_doctor_advises_keeps_the_source_the_layer_was_installed_from(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`--from` is one-shot, so a repair that omits it does not fail — it
+    succeeds, reinstalls the running release over the branch under test, and
+    reports the layer green.
+
+    That is the repair destroying the thing it was called to check, and
+    `/start-session` runs this line unattended. The stale-skills repair carries
+    `--from` for exactly this reason; this one is the same command.
+
+    Quoted, because a source under a directory holding a space printed as two
+    arguments and the second was rejected.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named source"))
+    runner.invoke(app, ["install-skills", "--from", str(source), "--yes"])
+    (source / "agents" / "commands" / "test-cmd.md").rename(
+        source / "agents" / "commands" / "speckit.test-cmd.md"
+    )
+    runner.invoke(app, ["install-skills", "--from", str(source), "--yes"])
+
+    out = runner.invoke(app, ["doctor"]).output
+
+    assert "no longer shipped" in out, "fixture must produce a flagged path"
+    assert f"--from '{source}' --prune" in out
+
+
 def test_doctor_is_silent_when_every_installed_path_is_still_recorded(
     agent_dir: Path,
 ) -> None:

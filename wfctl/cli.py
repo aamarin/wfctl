@@ -3715,18 +3715,27 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     )
     for path in abandoned:
         console.print(f"    {escape(path)}", soft_wrap=True)
-    # One repair per layer, because `install-skills` diffs only the layers the
-    # run installs: a bare `--prune` against a flagged `.claude/` path is a
-    # no-op, and doctor would print it again on every run afterwards. A proven
-    # mirror is not on record at all, so no `--prune` can reach it — that one is
-    # still a hand-delete, and saying otherwise sends the reader to a command
-    # that removes what the manifest lists.
-    for flag in sorted({_agent_flag(layer) for layer in flagged.values()}):
+    # One repair per layer, and the whole invocation rather than the verb: the
+    # printed line is what the reader runs, and `/start-session` runs it
+    # unattended. `install-skills` diffs only the layers the run installs, so a
+    # bare `--prune` against a flagged `.claude/` path is a no-op that doctor
+    # then reports again forever; and `--from` is one-shot, so omitting a
+    # recorded source repairs the drift by reinstalling the release over the
+    # branch that produced it. The stale-skills repair below already carries
+    # both for these reasons — this line is the same command and had neither.
+    #
+    # quote() before escape(), as there: the line is copied into a shell, and a
+    # source path holding a space printed as two arguments.
+    import shlex
+
+    for layer in sorted(set(flagged.values())):
+        source = manifest[layer].get("source")
+        frm = f" --from {escape(shlex.quote(source))}" if source else ""
         # soft_wrap for the same reason the path lines have it: this is a line
         # the reader pastes, and a wrapped one pastes as two broken commands.
         console.print(
             f"    Remove the recorded one(s) with "
-            f"`wfctl install-skills{flag} --prune`.",
+            f"`wfctl install-skills{_agent_flag(layer)}{frm} --prune`.",
             soft_wrap=True,
         )
     if proven:
