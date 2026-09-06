@@ -33,7 +33,27 @@ Pick up there. Two notes on running it from here:
 - Its Step 1 still applies in full. A description written against a failing suite
   describes something that does not work yet.
 
-## Step 1: Find the template
+## Step 1: Run the review panel
+
+The panel is `.agents/skills/fanning-out-code-review/SKILL.md`. Run it over this
+branch's diff, whole and unmodified, before the template is opened.
+
+It is a step here rather than a phrase in that skill's description because a
+description is matched against what a reader said, and in an unattended run
+nobody says anything. The moment a panel is most worth running — a change about
+to be opened — is the moment there is no reader to type "review this", so the
+discovery mechanism that works for a human is the one that cannot fire here.
+
+**Its reconciled disposition table is content for the body, not a side effect.**
+It goes in the description under the section the template gives it. That is the
+whole of what makes a skipped panel visible: a body carrying no panel was read by
+nobody, and a body carrying no panel is also what a clean pass looks like. The
+two are told apart in the description or not at all.
+
+Findings you apply change the branch. Push again before Step 5 — a PR is opened
+from what is on the remote, not from what is in your tree.
+
+## Step 2: Find the template
 
 It is a file in the repository:
 
@@ -75,7 +95,7 @@ that is actually installed.
 If several templates match, ask which one this change is; a repository with a
 `PULL_REQUEST_TEMPLATE/` directory has deliberately made that a choice.
 
-## Step 2: If there is no template
+## Step 3: If there is no template
 
 State the shape you are using rather than refusing or improvising:
 
@@ -88,7 +108,7 @@ How it was tested · Issue links.
 Then fill those four. `wfctl install-config github` seeds a real template — say
 so once, and do not block on it.
 
-## Step 3: Fill every section
+## Step 4: Fill every section
 
 - **Every section the template has, in its order.** A section you have nothing
   for gets "None" or "N/A" — never silent deletion, which reads as an answer.
@@ -106,12 +126,12 @@ so once, and do not block on it.
   sentence describing a string is longer than the string and less certain.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
-  attribute Step 5 cannot set: it lives in the body or nowhere, and it is what
+  attribute Step 6 cannot set: it lives in the body or nowhere, and it is what
   links the change to its issue in the tracker's own panel. Where the template
   has a section for it, that section's rules govern the details and this bullet
   stops here.
 
-## Step 4: Open it
+## Step 5: Open it
 
 Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
@@ -133,12 +153,12 @@ It exits 1 when it finds something and gates nothing; the point is that the file
 exists before `gh` reads it, so the check is available at all. Outside a wfctl
 repo, or with no `wfctl` on `PATH`, skip it — the rule is in the skill either way.
 
-The body only. The sidebar is Step 5 and is deliberately not a flag on this
+The body only. The sidebar is Step 6 and is deliberately not a flag on this
 command: a flag dropped from an invocation cannot be observed as missing, and
 this step reports done the moment the PR exists. A step can be observed as
 unfinished. That is the whole reason the two are separate.
 
-## Step 5: Fill the sidebar
+## Step 6: Fill the sidebar
 
 `gh` sets no attribute on its own. A body can be perfect and the change still be
 absent from every board, filter and milestone the issue it closes already sits
@@ -240,6 +260,13 @@ attributes.
 
 ## Red flags
 
+- "The reviewers had nothing, so there is nothing to write." A panel that ran and
+  found nothing is a result and is recorded as one — who reviewed, what each
+  checked, no findings. Left out, it is indistinguishable in the body from a panel
+  that never ran, which is the failure the step exists to prevent.
+- Running the panel after the PR is open, because the diff is easier to point at
+  there. The findings then arrive against a change reviewers have already been
+  asked to read, and the body they read says nothing was found.
 - Composing a summary first and checking the template afterwards. By then the
   body exists and the template becomes something to reconcile against rather
   than the thing being filled.
