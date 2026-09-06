@@ -122,6 +122,11 @@ memory of it — load them before doing anything else.
    - `session-summary.md` — the last session's handoff (accomplishments,
      decisions, and **Next Session TODO**). This is the primary context after a
      `/clear`; read it fully. If absent, this is the first session on the branch.
+   - `events.jsonl` — one line per wfctl event on this branch. Step 9 needs one
+     fact out of it: whether any line carries `"event": "end"`. Only `wfctl end`
+     writes that, so it is the mark that a session has finished here before —
+     which is what separates a branch someone handed work to from one someone is
+     coming back to.
 
 5. **Surface work done on this branch** so you can see where things stand:
    ```bash
@@ -171,34 +176,49 @@ memory of it — load them before doing anything else.
 9. **Answer the question, or ask it — step 4 already decided which.**
 
    The question is "what are we working on today?", and the only thing that can
-   answer it before the user speaks is the `session-summary.md` step 4 read. So
+   answer it before the user speaks is what step 4 read out of the state dir. So
    this step is a branch on what step 4 found, not a fresh judgment:
 
    | Step 4 found | This step |
    |---|---|
-   | a summary naming a first action | **Do not ask.** Quote the line that names it, say in one line what you are doing, and begin. |
-   | no summary, or one naming no next action | Ask: "What are we working on today?" |
+   | a summary naming a first action, and **no** `end` event | **Do not ask.** Quote the line that names it, say in one line what you are doing, and leave this skill — the work happens in the session that follows, not inside step 9. |
+   | a summary, and an `end` event — a session has finished here before | Ask: "What are we working on today?", offering the summary's top **Next Session TODO** item as the default. |
+   | no summary, one whose next action is still `(fill in)`, or one naming no next action | Ask: "What are we working on today?" |
 
-   **The gate is the quote.** If you cannot copy a literal sentence out of
-   `session-summary.md` saying what to do first, you are in the second row. An
-   inference about what the branch is probably for is not an answer, and acting
-   on one is how the second row's protection is lost. Quoting is also what makes
-   the branch visible from outside — step 8 reports which row this session took,
-   so a wrong turn is a mismatch someone can point at rather than a matter of
-   tone.
+   **The `end` event is what keeps an attended session safe.** `wfctl end` writes
+   a `session-summary.md` on every `/end-session` and its template requires a
+   filled `Next Session TODO`, so on any branch that has run a session before —
+   `main` most of all — a quotable first action is the *steady state*, not a
+   signal. Row one without this column hands every returning session an
+   instruction it never asked for, which trades this step's defect for a worse
+   one. The event is the narrow question actually worth asking: has anyone
+   worked here yet?
 
-   **Do not try to tell a handoff from a previous session's summary.** Both
-   answer the question, so both are the first row. The discrimination is not
-   available anyway: `workmux` runs `wfctl start` in `post_create`, so a handoff
-   lands *after* the branch's first start event and every obvious test of which
-   came first classifies it backwards (#239).
+   **The gate on the summary is the quote.** If you cannot copy a literal
+   sentence out of `session-summary.md` saying what to do first, you are in the
+   last row. An inference about what the branch is probably for is not an answer,
+   and acting on one is how the last row's protection is lost. Quoting is also
+   what makes the branch visible from outside — step 8 reports which row this
+   session took, so a wrong turn is a mismatch someone can point at rather than a
+   matter of tone.
+
+   **Do not try to tell a handoff from a previous session's summary by reading
+   the file.** Provenance is not recoverable from its content or its timestamps:
+   `worktree-handoff` copies a handoff in around the moment the pane comes up, so
+   which of the two landed first is a race, and a kept file and a freshly written
+   one are the same bytes on disk (#239). The rows above never ask. They ask
+   whether anyone has finished a session here, which `events.jsonl` records
+   directly.
 
    **The first row is not a permission question.** Beginning implementation is
    local and reversible — edit files, commit, write the summary. What the summary
    answers is *what* to work on; it is not authority for anything past that. Push,
-   comment, open a change, merge are asked for when you reach them, unless the
-   summary said in its own words to carry through.
+   comment, open a change, merge are asked for when you reach them, and no line in
+   a file in the state dir changes that.
 
-   The second row stays a real question. A session started with no summary has
-   genuinely not been told what to do, and guessing there trades this defect for
-   a worse one.
+   **Two limits, stated rather than discovered.** A handoff delivered only
+   as the pane's first turn, with no copy in the state dir, leaves step 4 nothing
+   to read and lands in the last row — the file is the gate, and
+   `worktree-handoff` requires both destinations for this reason. And a branch
+   that has ended a session once is in row two from then on, even unattended;
+   lifting that needs a signal for *attended* itself, which is #127's.

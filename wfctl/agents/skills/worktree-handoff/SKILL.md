@@ -141,9 +141,10 @@ not `.agents/skills/end-session`'s template: that template is what a session
 writes about a session it just finished, and this is a handoff about a session
 that has not started. The filename is the interface; the prose is yours.
 
-Say so in the handoff's first line — the child otherwise reads a
-`session-summary.md` as evidence of a previous session on its own branch, and
-there wasn't one.
+Say so in the handoff's first line. Not for the routing — `start-session` step 9
+settles that from `events.jsonl`, and never from what the file claims to be — but
+for the report: step 8 prints this file under "last session's focus", and a
+handoff filed under that heading invents a session that never happened.
 
 Order matters: `wm add` first. Resolving the state dir creates it, and a branch
 whose `pre_create` hook rejected the name should not leave one behind.
