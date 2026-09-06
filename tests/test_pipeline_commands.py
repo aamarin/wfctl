@@ -47,7 +47,7 @@ _EXPECTED_STEPS = [
     ("plan",       "/speckit.plan",       True),
     ("tasks",      "/speckit.tasks",      True),
     ("analyze",    "/speckit.analyze",    False),
-    ("decompose",  "/speckit.decompose",  False),
+    ("decompose",  "/speckit.decompose",  True),
     ("implement",  "/speckit.implement",  True),
 ]
 

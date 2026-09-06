@@ -27,7 +27,7 @@ _STEPS: dict[str, tuple[str, bool]] = {
     "plan":       ("/speckit.plan",       True),
     "tasks":      ("/speckit.tasks",      True),
     "analyze":    ("/speckit.analyze",    False),
-    "decompose":  ("/speckit.decompose",  False),
+    "decompose":  ("/speckit.decompose",  True),
     "implement":  ("/speckit.implement",  True),
 }
 
@@ -148,6 +148,55 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     return sum(1 for row in rows if not keyed(row))
 
 
+def _tasks_open(spec_dir: Path) -> bool:
+    """Whether implementation is still open, by the two routes `implement` reads
+    as finished: every box ticked, or the checklist that says so over one left open.
+
+    One spelling, because `decompose` and `implement` both ask it and two would
+    drift apart without either one looking wrong.
+    """
+    tasks_md = spec_dir / "tasks.md"
+    tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
+    return _has_open_checkboxes(tasks_text) and not _file_exists(
+        spec_dir / "checklists" / "implement-complete.md"
+    )
+
+
+def _decompose_block(spec_dir: Path, repo_root: Path) -> str | None:
+    """What the delivery plan still promises and has not delivered, or None.
+
+    Writing the plan is not the whole step — `speckit-delivery-plan`'s own
+    checklist requires the issues it groups to exist. Read from the file's text
+    rather than from the tracker: `status` runs on every session start, and a
+    pipeline read that costs a network round-trip is one nobody makes.
+
+    Three shapes return None and each is a deliberate degrade, argued at
+    `_unkeyed_issues`: no plan yet, no tracker to hold a key, no Issue Grouping
+    Map. The tracker case is the load-bearing one — a repo that said
+    `"tracker": null` creates no issues, and gating on a key it can never gain
+    would strand the pipeline at decompose for the life of the repo.
+
+    Shaped like `_verification_block` and called from the same two places for the
+    same reason: `_infer_steps` needs it to pick a state name, `next_step_content`
+    needs it to pick the `auto` flag, and carrying one answer between them would
+    have to travel through a signature ~30 call sites pass neither half of.
+    """
+    delivery_md = spec_dir / "delivery.md"
+    if not _file_exists(delivery_md):
+        return None
+    pattern = _tracker.configured_key_pattern(repo_root)
+    if not pattern:
+        return None
+    unkeyed = _unkeyed_issues(delivery_md.read_text(), pattern)
+    if not unkeyed:
+        return None
+    # What was read, not what it implies. The rows are the whole evidence:
+    # "issues not created" is a claim about the tracker, and it is the wrong one
+    # for a plan whose issues exist and whose table was never filled back in.
+    plural = "" if unkeyed == 1 else "s"
+    return f"{unkeyed} issue row{plural} without a key"
+
+
 def _verification_block(repo_root: Path) -> str | None:
     """Why `implement` cannot be complete, or None if nothing blocks it.
 
@@ -226,13 +275,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
-    # Whether implementation is still open, by the two routes `implement` reads
-    # as finished: every box ticked, or the checklist that says so over one left
-    # open. Bound once because `decompose` now needs the same answer, and two
-    # spellings of "the work is done" drift apart without either one looking wrong.
-    tasks_open = _has_open_checkboxes(tasks_text) and not _file_exists(
-        spec_dir / "checklists" / "implement-complete.md"
-    )
+    # Bound once here and read by both the decompose and implement arms below;
+    # `next_step_content` asks the same question through the same helper.
+    tasks_open = _tasks_open(spec_dir)
 
     spec_md = spec_dir / "spec.md"
     spec_text = ""
@@ -325,39 +370,18 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             )
 
         elif name == "decompose":
-            delivery_md = spec_dir / "delivery.md"
-            if _file_exists(delivery_md):
+            if _file_exists(spec_dir / "delivery.md"):
                 state = "done"
-                # Writing the plan is not the whole step —
-                # `speckit-delivery-plan`'s own checklist requires the issues it
-                # groups to exist. Read from the file's text rather than from the
-                # tracker: `status` runs on every session start, and a pipeline
-                # read that costs a network round-trip is one nobody makes.
-                #
-                # No tracker means no key to wait for. That repo said so
-                # deliberately (`"tracker": null`), nothing there creates an
-                # issue, and gating on a key it can never gain would strand the
-                # pipeline at decompose for the life of the repo.
-                pattern = _tracker.configured_key_pattern(repo_root)
-                unkeyed = (
-                    _unkeyed_issues(delivery_md.read_text(), pattern) if pattern else None
-                )
-                if unkeyed:
-                    # What was read, not what it implies. The rows are the whole
-                    # evidence: "issues not created" is a claim about the tracker,
-                    # and it is the wrong one for a plan whose issues exist and
-                    # whose table was never filled back in.
-                    plural = "" if unkeyed == 1 else "s"
-                    decompose_reason = f"{unkeyed} issue row{plural} without a key"
-                    # Blocking only while the work is still open. Past that the
-                    # reader is being sent to `/speckit.decompose`, which does not
-                    # backfill a table, for a story that has already shipped — and
-                    # no route to `/end-session` exists while a step blocks. The
-                    # annotation still says what is missing; it just stops
-                    # standing in the way. Clarify's `skipped` arm above declines
-                    # the same trap in the same terms.
-                    if tasks_open:
-                        state = "in_progress"
+                decompose_reason = _decompose_block(spec_dir, repo_root)
+                # Blocking only while the work is still open. Past that the
+                # reader is being sent to `/speckit.decompose`, which does not
+                # backfill a table, for a story that has already shipped — and
+                # no route to `/end-session` exists while a step blocks. The
+                # annotation still says what is missing; it just stops standing
+                # in the way. Clarify's `skipped` arm above declines the same
+                # trap in the same terms.
+                if decompose_reason and tasks_open:
+                    state = "in_progress"
             elif tasks_text and not tasks_open:
                 state = "skipped"
             else:
@@ -485,6 +509,12 @@ def next_step_content(
     `/speckit.implement` — re-running implement there does nothing, because there
     is no task left to do. Tasks still open route to the step command as before:
     the work itself is what remains.
+
+    `decompose` overrides the flag alone and keeps its command. Its two states
+    want the same instruction — write the plan, or fill the table it already
+    holds — and only one of them may be taken without a human, because creating
+    the issues is outward-facing. The command is the table's own rather than a
+    literal, so the two branches cannot come to name different things.
     """
     if step == "implement" and repo_root is not None and spec_dir is not None:
         tasks_md = spec_dir / "tasks.md"
@@ -492,6 +522,13 @@ def next_step_content(
         if tasks_text and not _has_open_checkboxes(tasks_text):
             if _verification_block(repo_root):
                 return "wfctl verify", False
+    if step == "decompose" and repo_root is not None and spec_dir is not None:
+        # `_infer_steps` already holds this state at `in_progress`, and that is
+        # not the halt: `speckit-orchestrate` reads `auto` off the payload and
+        # never reads `state`, so a `true` here emits EXECUTE_COMMAND for a plan
+        # whose issues nobody has created (#240).
+        if _tasks_open(spec_dir) and _decompose_block(spec_dir, repo_root):
+            return _STEPS[step][0], False
     return _STEPS.get(step, ("", False))
 
 

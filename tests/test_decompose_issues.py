@@ -261,3 +261,42 @@ def test_a_key_pattern_that_opens_with_an_inline_flag_does_not_crash_status(
 
     mixed = _feature(spec_tree, _delivery("proj-4", "_(TBD)_", "PROJ-6"))
     assert _states(mixed, tmp_path)["decompose"] == "in_progress"
+
+
+def test_a_half_decomposed_feature_does_not_advance_unattended(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """#240. The route above is not the halt: `speckit-orchestrate` reads `auto`
+    off the payload and never reads `state`.
+
+    Before decompose advanced without a prompt, `auto` was `false` on every
+    branch of this step and the command was the only answer worth pinning. It is
+    now `true` for a plan that has yet to be written, so the flag is what
+    separates "run decompose again" from "stop and ask" — and re-running
+    `/speckit.decompose` does not backfill a table anyway.
+    """
+    _use_tracker(tmp_path)
+    feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
+    assert build_report(feature, tmp_path, tmp_path).auto is False
+
+
+def test_a_feature_with_no_delivery_plan_yet_advances_unattended(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The positive half, and the only branch of decompose that returns `auto: true`.
+
+    Writing the plan is the step's own work, and nothing about it needs a human
+    — which is what #8 established and what left the table's `False` encoding a
+    reason that had already been removed. Asserting the negative case alone would
+    pass against a `decompose` arm hardcoded to `False`, undoing the flip
+    entirely; 87d9205 is that mutation surviving the suite one step later.
+    """
+    _use_tracker(tmp_path)
+    feature = spec_tree(
+        "design.md", "plan.md", "checklists/analysis-report.md",
+        content={"spec.md": CLEAN_SPEC, "tasks.md": "- [ ] T001 open\n"},
+    )
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.current, report.next_command, report.auto) == (
+        "decompose", "/speckit.decompose", True,
+    )
