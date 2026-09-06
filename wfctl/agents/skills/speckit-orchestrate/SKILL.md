@@ -60,6 +60,12 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    `null` there is the resolver saying no feature claims this branch. Do not go
    looking for one, and do not re-run `status` for it.
 
+   It has one remedy, and it is a command rather than a search: a sub-issue of
+   an epic is claimed by that epic's Issue Grouping Map, which
+   `/speckit.decompose` writes. Until the epic has decomposed, nothing claims
+   the branch and `null` is the correct answer — say that, rather than treating
+   it as a lookup that failed.
+
    A resolved dir whose key is not this branch's is now one thing only: an epic
    whose grouping map names this issue. That is a claim somebody wrote, so its
    task counts are the epic's and the scope below is yours to apply.
@@ -73,12 +79,12 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
      "120-spec-dir-ancestor-is-foreign" vs "120"   → differ   ✗ wrong: every
                                                                 own feature
-                                                                reads inherited
+                                                                reads claimed
      "120" vs "120"                                → same     ✓ owned
    ```
 
    Same key means the branch owns the feature — stop here, the steps below are
-   not for it. Different keys mean it inherited one, and then:
+   not for it. Different keys mean an epic claimed it, and then:
    - Its `delivery.md` row for this issue key carries the `Tasks` range. That is
      this sub-issue's scope; spec/plan/tasks/decompose are done at the epic
      level.

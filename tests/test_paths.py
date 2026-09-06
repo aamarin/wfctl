@@ -163,13 +163,21 @@ def _delivery_map(*rows: str) -> str:
     )
 
 
-def _stacked_repo(repo_root: Path) -> Path:
+_CLAIMS_OTHERS = object()
+
+
+def _stacked_repo(repo_root: Path, delivery: object = _CLAIMS_OTHERS) -> Path:
     """#120's shape: branch `567-…` stacked on a sibling of a *finished* feature.
 
     `562-transaction-balance` is decomposed — its delivery.md claims 575 and 576,
     never 567 — and its tasks.md is complete. Its planning branch is an ancestor
     of `567-…` because worktrees branch off the branch below them in the stack.
     A finished foreign feature is what makes the failure say "ship it".
+
+    `delivery` is the one axis worth varying: str writes that text, bytes write
+    those bytes, None writes no delivery.md at all. One builder rather than two
+    keeps the tree that reads as "#120's shape" from drifting between the test
+    that names it and the one that sweeps it.
     """
     import subprocess
 
@@ -183,9 +191,14 @@ def _stacked_repo(repo_root: Path) -> Path:
     foreign = repo_root / "specs" / "562-transaction-balance"
     foreign.mkdir(parents=True)
     (foreign / "tasks.md").write_text("- [x] T001 done\n")
-    (foreign / "delivery.md").write_text(
-        _delivery_map("**#575** — the invariant", "**#576** — entry form")
-    )
+    if delivery is _CLAIMS_OTHERS:
+        (foreign / "delivery.md").write_text(
+            _delivery_map("**#575** — the invariant", "**#576** — entry form")
+        )
+    elif isinstance(delivery, bytes):
+        (foreign / "delivery.md").write_bytes(delivery)
+    elif delivery is not None:
+        (foreign / "delivery.md").write_text(str(delivery))
     git("add", "specs")
     git("commit", "-m", "spec")
     git("checkout", "-b", "576-transaction-entry-form")
@@ -194,13 +207,10 @@ def _stacked_repo(repo_root: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    "ancestor_delivery",
+    "delivery",
     [
         pytest.param(None, id="never-decomposed"),
-        pytest.param(
-            _delivery_map("**#575** — the invariant", "**#576** — entry form"),
-            id="decomposed-claiming-other-issues",
-        ),
+        pytest.param(_CLAIMS_OTHERS, id="decomposed-claiming-other-issues"),
         pytest.param(
             "## Issue Grouping Map\n\n| Issue | Number |\n|---|---|\n| Wave 0 | 575 |\n",
             id="map-the-parser-cannot-read",
@@ -209,43 +219,26 @@ def _stacked_repo(repo_root: Path) -> Path:
     ],
 )
 def test_resolve_spec_dir_never_inherits_from_an_ancestor(
-    repo_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    ancestor_delivery: str | bytes | None,
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch, delivery: object
 ) -> None:
     """#120 and #263, as one constraint: ancestry never claims a branch.
 
     Each case is a foreign feature whose planning branch is an ancestor of a
     branch with no artifacts of its own, and they differ only in what the
-    ancestor's delivery.md says — nothing, a map claiming other issues, a map
-    in a shape the parser has not met, bytes that are not UTF-8. Inheriting any
-    of them counted a finished feature's 46/46 as this story's and told a
-    session with no work done to open a PR.
+    ancestor's delivery.md says. Inheriting any of them counted a finished
+    feature's 46/46 as this story's and told a session with no work done to open
+    a PR.
 
-    They are one test because resolution no longer reads any of it: the four
-    cases reached four branches of the ancestor guard, and there is no guard
-    left to branch. Kept as four trees rather than one because what fails if
-    ancestry comes back is a class, and a class needs its cases.
+    They pin different strengths, which is why all four are kept. Only
+    `never-decomposed` failed against the code before #263 — the other three
+    were already skipped by the guard #120 added, so they catch a restoration
+    that is *less* careful than the leg that was deleted. And they are not idle
+    in the meantime: the claimant scan reads every delivery.md under the spec
+    root, so the last three still reach the parser through that leg, and
+    `delivery-md-not-utf8` is what keeps an undecodable file from raising
+    `UnicodeDecodeError` out of `resolve_spec_dir` itself.
     """
-    import subprocess
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo_root), *args], check=True, capture_output=True
-        )
-
-    _init_commit(repo_root)
-    git("checkout", "-b", "562-transaction-balance")
-    foreign = repo_root / "specs" / "562-transaction-balance"
-    foreign.mkdir(parents=True)
-    (foreign / "tasks.md").write_text("- [x] T001 done\n")
-    if isinstance(ancestor_delivery, bytes):
-        (foreign / "delivery.md").write_bytes(ancestor_delivery)
-    elif ancestor_delivery is not None:
-        (foreign / "delivery.md").write_text(ancestor_delivery)
-    git("add", "specs")
-    git("commit", "-m", "spec")
-    git("checkout", "-b", "567-readers-to-chart-accounts")
+    _stacked_repo(repo_root, delivery)
     monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
 
     assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) is None
@@ -322,9 +315,12 @@ def test_resolve_spec_dir_refuses_a_key_two_features_both_claim(
 def test_delivery_issue_keys_separates_no_map_from_an_unreadable_one(
     tmp_path: Path
 ) -> None:
-    """The distinction the ancestor guard turns on. Collapsed to one empty set,
-    a decomposed feature nobody can parse becomes indistinguishable from an epic
-    that has not decomposed — and only the second is safe to inherit."""
+    """Two answers that mean different things: a feature nobody has decomposed
+    said nothing, and one whose map nobody can parse left a question open. No
+    caller separates them today — `resolve_spec_dir` asks only whether a key is
+    claimed, and neither claims — so this is where the contract is pinned rather
+    than at a call site, which is what an un-underscored name promises
+    (`the-underscore-is-the-module-contract`)."""
     absent = tmp_path / "no-delivery"
     absent.mkdir()
     assert delivery_issue_keys(absent, r"\d+") is None
@@ -379,10 +375,11 @@ def test_delivery_issue_keys_fails_closed_on_a_delivery_md_it_cannot_decode(
 
     `UnicodeDecodeError` is a ValueError, not an OSError, so uncaught it left
     `status`, `resume` and `feature-paths` raising over one unreadable file
-    nobody had asked about. Caught alongside a missing file it returns None —
-    the *inheritable* answer — so an ancestor whose delivery.md is not UTF-8
-    gets handed back, which is #120 again. The file is present; it is the
-    unanswered question, not the absent one.
+    nobody had asked about — and the claimant scan reads every delivery.md under
+    the spec root, so one such file anywhere reaches every caller. Caught
+    alongside a missing file it would answer None, which says the feature made
+    no claim; the file is present, so it is the unanswered question, not the
+    absent one.
     """
     (tmp_path / "delivery.md").write_bytes(b"\xff\xfe## Issue Grouping Map\n")
 
@@ -392,18 +389,20 @@ def test_delivery_issue_keys_fails_closed_on_a_delivery_md_it_cannot_decode(
 def test_delivery_issue_keys_returns_none_when_there_is_no_delivery_md(
     tmp_path: Path
 ) -> None:
-    """The other side of that split. A feature with no delivery.md has not been
-    decomposed and is still inheritable, so this one case must stay None while
-    every other read failure fails closed."""
+    """The other side of that split, and the only case that reaches None: a
+    feature with no delivery.md has not been decomposed, so it made no claim.
+    Every read failure answers with the empty set instead, because a file that
+    exists and cannot be read is not the same as one that was never written."""
     assert delivery_issue_keys(tmp_path, r"\d+") is None
 
 
 def test_delivery_issue_keys_reads_a_heading_that_carries_a_suffix(
     tmp_path: Path
 ) -> None:
-    """A map claiming nothing is one the ancestor walk still inherits, so a
-    heading the exact-line match missed — `## Issue Grouping Map (revised)` —
-    would have let #120 back in through a typo."""
+    """A heading the exact-line match missed — `## Issue Grouping Map (revised)`
+    — reads as a map claiming nothing, so every sub-issue the map names loses
+    its only route to its epic. A typo turning a decomposed feature back into an
+    unresolved one."""
     (tmp_path / "delivery.md").write_text(
         _delivery_map("#575").replace("## Issue Grouping Map", "## Issue Grouping Map (revised)")
     )

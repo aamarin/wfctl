@@ -89,6 +89,12 @@ to unresolved rather than to the epic. That is the convention being retired, not
 a regression left unnoticed: the epic claims its children by decomposing, and
 until it has, no artifact says the child is one of them.
 
+Unresolved is not a dead end. `feature-paths` turns it into
+`<spec root>/<branch>`, so the child starts a spec dir of its own and the next
+speckit step writes there — where before it wrote into the epic's. The epic
+reclaims it whenever it decomposes, since the grouping map resolves ahead of
+either.
+
 Measured before deciding: no branch in this repo resolves through the ancestor
 leg — 0 of 18 local branches — and 18 of 23 features on `specs-trunk` carry a
 `delivery.md`, which is the claim that replaces it.

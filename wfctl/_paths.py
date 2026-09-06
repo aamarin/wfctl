@@ -363,8 +363,8 @@ def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
     `[#45](https://…)` and `aamarin/wfctl#24` all appear in the two spec roots
     this was measured against, and the first is the shape in #120's own repro.
     Generous here is safe in a way it is not inside the row — an unread row is a
-    silent claim dropped, and a dropped claim is what makes a foreign feature
-    look inheritable.
+    silent claim dropped, and a dropped claim costs the sub-issue it named its
+    only route to its epic.
 
     `pattern` must compile; unlike `extract_issue_key` this does not degrade a
     bad one. `_tracker.load_key_pattern` is the only supported source and it
@@ -378,12 +378,10 @@ def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
         # The file is there and cannot be read — not UTF-8 (UnicodeDecodeError is
         # a ValueError), unreadable permissions, a directory wearing the name.
         # That is the unanswered question, not the absent one, so it takes the
-        # empty set and fails closed. Splitting these two excepts is the whole
-        # point: catching them together returns None for both, and None is the
-        # inheritable answer — which hands a foreign feature back exactly the way
-        # #120 did, on any repo with one unreadable file under the spec root.
-        # Caught rather than raised because a file nobody asked about must not
-        # take `status`, `resume` and `feature-paths` down with it.
+        # empty set. Caught rather than raised because the claimant scan reads
+        # every delivery.md under the spec root: one unreadable file would
+        # otherwise take `status`, `resume` and `feature-paths` down over a
+        # feature nobody asked about.
         return set()
     heading = _GROUPING_HEADING.search(text)
     if heading is None:
@@ -475,8 +473,6 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
         ]
         if len(claimants) == 1:
             return claimants[0]
-        if claimants:
-            return None
 
     return None
 
