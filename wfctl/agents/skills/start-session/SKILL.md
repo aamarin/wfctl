@@ -170,8 +170,11 @@ memory of it — load them before doing anything else.
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
    - **Alignment**: aligned, or the likely-done / untracked items from step 7
-   - **Next**: the first action, quoted from `session-summary.md` — or, when
-     there is no line to quote, that you are asking instead
+   - **Next**: which row of step 9 this session takes, and its evidence — the
+     first action quoted from `session-summary.md`, or that you are asking and
+     why (a session has finished here before, or there is no line to quote).
+     Naming the row is the point: rows two and three both ask, and a report that
+     says only "asking" cannot show which one happened.
 
 9. **Answer the question, or ask it — step 4 already decided which.**
 

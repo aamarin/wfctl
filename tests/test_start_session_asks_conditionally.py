@@ -26,6 +26,7 @@ _SKILL = Path(str(files("wfctl"))) / "agents" / "skills" / "start-session" / "SK
 # once already (8 → 9, `2fdbcdc`), and a renumber should fail as a named missing
 # heading rather than as a bare ValueError out of a helper.
 _STEP_NINE_HEADING = "**Answer the question, or ask it"
+_STEP_EIGHT_HEADING = "Report status to the user:"
 
 
 def _step_nine() -> str:
@@ -93,10 +94,15 @@ def test_step_eight_reports_which_row_step_nine_took() -> None:
     step 9 and every other test here slices below it, so without this a later
     edit can delete the evidence and leave the rationale green."""
     text = _SKILL.read_text()
-    step_eight = text[text.index("\n8. ") : text.index(_STEP_NINE_HEADING)]
+    if _STEP_EIGHT_HEADING not in text:
+        pytest.fail(f"start-session no longer has a step headed {_STEP_EIGHT_HEADING!r}")
+    step_eight = text[text.index(_STEP_EIGHT_HEADING) : text.index(_STEP_NINE_HEADING)]
     assert "**Next**" in step_eight
     assert "session-summary.md" in step_eight
-    assert "asking" in step_eight
+    # Not just that it says "asking": the report has to separate the two rows
+    # that ask, or it cannot show which of the three step 9 took.
+    assert "which row of step 9" in step_eight
+    assert "rows two and three both ask" in step_eight
 
 
 def test_worktree_handoff_asks_for_a_line_step_nine_can_quote() -> None:
