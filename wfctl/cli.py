@@ -1322,6 +1322,18 @@ _MIRRORED_SKILLS = frozenset({
     # skill has to be discoverable.
     "opening-a-change",
     "receiving-code-review",
+    # The one gate `speckit-orchestrate` opens with names `/start-session` as
+    # its remedy, and the flag on that wrapper governs the Skill tool rather
+    # than the filesystem: an agent reaching for `Skill(start-session)` is
+    # refused, an agent that reads the wrapper's body follows its pointer and
+    # runs the workflow whole. Both happened on 2026-09-06 (#204). Mirroring
+    # does not make a refused route work — it removes the fork, so the outcome
+    # stops depending on which way the agent reached.
+    #
+    # The wrapper carried an `allowed-tools:` pre-approval that suppression
+    # would have dropped; it lives on the SKILL.md now, which is the only layer
+    # that ever read it unstripped anyway.
+    "start-session",
     "using-superpowers",
     "verification-before-completion",
     "worktree-handoff",
