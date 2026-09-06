@@ -18,6 +18,12 @@ other by `tests/test_skill_attribution.py`.
 
     Copyright (c) 2025 Jesse Vincent
 
+## addyosmani/agent-skills
+
+<https://github.com/addyosmani/agent-skills> — `idea-refine`.
+
+    Copyright (c) 2025 Addy Osmani
+
 ## ayghri/i-have-adhd
 
 <https://github.com/ayghri/i-have-adhd> — `i-have-adhd`.
@@ -28,7 +34,7 @@ other by `tests/test_skill_attribution.py`.
 
 Both upstream licences are the MIT licence, and their text below the copyright
 line is byte-identical to wfctl's own `LICENSE`. It is reproduced once rather
-than three times; it applies to each copyright holder named above, and to
+than four times; it applies to each copyright holder named above, and to
 wfctl's own copyright as stated in `LICENSE`.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
