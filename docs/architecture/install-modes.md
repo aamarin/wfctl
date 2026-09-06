@@ -24,8 +24,8 @@ the skill it re-anchors moves, so a seed that never touches the file again
 strands that hook at whatever shipped the day it landed.
 
 The unit of ownership is what differs. For a mirror or a seed the whole file
-belongs to one party. Here the file belongs to the consumer and a single entry
-inside it belongs to wfctl.
+belongs to one party. Here the file belongs to the consumer and one entry per
+event wfctl manages belongs to wfctl.
 
 ## Decision
 
@@ -35,7 +35,7 @@ Three install modes, chosen per path rather than per run.
 | --- | --- | --- | --- | --- |
 | managed mirror | `install-skills` | the whole file | rewrites from source, tracked by content hash in `.wf-skills-manifest.json` | yes, `uninstall` |
 | seed-once | `install-config` | nothing, after the write | writes only if absent, then never touches the file again | no |
-| merge | `install-skills --agent claude` | one entry | replaces its own entry, leaves every other byte | yes, `uninstall` |
+| merge | `install-skills --agent claude` | one entry per managed event | replaces its own entries, leaves every other byte | yes, `uninstall` |
 
 A merged entry is recognised by what it runs. Every managed hook's command starts
 `wfctl hook `, so the installer finds its own rows by reading the file rather than
@@ -124,3 +124,6 @@ command that fetches it.
 - 2026-08-28  accepted    — relocated from `AGENTS.md`
 - 2026-09-01  amended     — third mode, merge (#85); the deferral recorded under
   Considered is resolved by owning an entry rather than a file
+- 2026-09-05  amended     — merge owns one entry per event, not one entry (#212
+  added a `Stop` hook beside the `UserPromptSubmit` one in the same file). No
+  change to the mode: ownership was already drawn at the command entry.

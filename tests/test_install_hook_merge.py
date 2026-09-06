@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import HOOK_COMMAND, app
+from wfctl.cli import HOOK_COMMAND, STOP_HOOK_COMMAND, app
 
 runner = CliRunner()
 
@@ -87,7 +87,10 @@ def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path)
         "hooks": {
             "UserPromptSubmit": [
                 {"hooks": [{"type": "command", "command": HOOK_COMMAND}]}
-            ]
+            ],
+            "Stop": [
+                {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]}
+            ],
         }
     }
 
@@ -218,7 +221,13 @@ def test_doctor_names_which_way_the_managed_hook_drifted(
 def test_uninstall_prunes_the_group_when_wfctls_entry_was_alone(agent_dir: Path) -> None:
     """wfctl's entry was the only content — install created the file, so an
     uninstall that empties it deletes it rather than leaving a `{}` scaffold
-    wfctl invented (data-model.md's `created` field)."""
+    wfctl invented (data-model.md's `created` field).
+
+    Two managed events share this one file since #212, and that is the failure
+    this now catches: sampling `created` per target rather than per pass, the
+    second event sees the file the first one just created, records `created:
+    False`, and uninstall — which unlinks only when the record clearing the last
+    entry says the file is wfctl's — leaves the `{}` behind."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert _settings_path(repo_root).exists()
@@ -452,3 +461,15 @@ def test_a_broken_symlink_at_the_settings_path_is_still_the_consumers(
 
     runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
     assert settings_path.is_symlink(), "uninstall removed the consumer's symlink"
+
+
+def test_the_stop_entry_cannot_block_a_stop_when_wfctl_cannot_run_it() -> None:
+    """A non-zero exit means the opposite thing on `Stop` than on
+    `UserPromptSubmit`: it blocks the stop, so the agent is told to keep going
+    and stops again. A wfctl older than the settings file — or gone from PATH
+    without `uninstall-skills` — would answer with a usage banner and exit 2, and
+    turn that into a loop at the end of every turn.
+
+    Pinned rather than left to the reader of the string, because the `|| true`
+    looks like sloppiness until you know which event it is on."""
+    assert STOP_HOOK_COMMAND.endswith("|| true")
