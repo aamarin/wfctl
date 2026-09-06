@@ -129,7 +129,7 @@ def load_key_pattern(repo_root: Path) -> str:
     """Return the active tracker's issue-key regex, or the default.
 
     Degrades to DEFAULT_KEY_PATTERN when no tracker is configured, its config is
-    missing/invalid, the field is absent, or the value won't compile — key
+    missing/invalid, the field is absent, isn't a string, or won't compile — key
     resolution must never fail because a tracker step couldn't run.
     """
     from wfctl._paths import DEFAULT_KEY_PATTERN
@@ -139,7 +139,10 @@ def load_key_pattern(repo_root: Path) -> str:
         return DEFAULT_KEY_PATTERN
     config = _load_tracker_config(repo_root, name)
     pattern = (config or {}).get("key_pattern")
-    if not pattern:
+    # A config is JSON, so this is whatever the author typed. `re.compile`
+    # answers a non-string with TypeError, not re.error, so the type is checked
+    # here rather than caught below — the same shape `validate_config` reports.
+    if not isinstance(pattern, str) or not pattern:
         return DEFAULT_KEY_PATTERN
     try:
         re.compile(pattern)

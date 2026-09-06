@@ -10,7 +10,7 @@ from wfctl._paths import DEFAULT_KEY_PATTERN, extract_issue_key, resolve_spec_di
 from wfctl._tracker import load_key_pattern
 
 
-def _configure_key_pattern(repo_root: Path, pattern: str) -> None:
+def _configure_key_pattern(repo_root: Path, pattern: object) -> None:
     tdir = repo_root / ".agents" / "trackers"
     tdir.mkdir(parents=True, exist_ok=True)
     (tdir / "custom.json").write_text(json.dumps({"key_pattern": pattern, "verbs": {}}))
@@ -67,6 +67,18 @@ def test_load_configured(tmp_path: Path) -> None:
 
 def test_load_uncompilable_falls_back(tmp_path: Path) -> None:
     _configure_key_pattern(tmp_path, r"[unterminated")
+    assert load_key_pattern(tmp_path) == DEFAULT_KEY_PATTERN
+
+
+@pytest.mark.parametrize("pattern", [123, ["a"], {"x": 1}, True])
+def test_load_non_string_falls_back(tmp_path: Path, pattern: object) -> None:
+    """A non-string key_pattern degrades like every other bad value.
+
+    re.compile raises TypeError rather than re.error for these, which the
+    `except re.error` alone never caught: the whole call raised and the
+    docstring's promise that key resolution never fails was false (#249).
+    """
+    _configure_key_pattern(tmp_path, pattern)
     assert load_key_pattern(tmp_path) == DEFAULT_KEY_PATTERN
 
 
