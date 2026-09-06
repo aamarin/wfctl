@@ -12,8 +12,8 @@ discover a skill that lives only in `.agents/skills/` — the wrapper is the rou
 in.
 
 `_MIRRORED_SKILLS` builds a second route for Claude: a named skill is copied to
-`.claude/skills/<name>`, where it is discovered without being told. Ten skills
-are mirrored, and seven of them also shipped a wrapper under the same name.
+`.claude/skills/<name>`, where it is discovered without being told. Eleven skills
+are mirrored, and eight of them also shipped a wrapper under the same name.
 
 That is one `/name` claiming two files. Claude Code's documentation says the
 skill wins; a session on 2026-09-04 got the wrapper instead, whose
@@ -81,8 +81,16 @@ Membership decides reachability; the file decides invocability.
   rule keeps its colliding file and reports `skills current`, so the repair runs
   only when someone reinstalls for another reason. Measured, not inferred.
 - A suppressed wrapper must carry nothing its skill does not. Suppression drops
-  the whole file, so a key like the `allowed-tools` on `start-session.md` would
+  the whole file, so a key like the `allowed-tools` on `end-session.md` would
   be revoked on the mirroring layer alone by the act of mirroring its skill.
+  The remedy is to move the key onto the SKILL.md, which is where #204 put
+  `start-session`'s — and moving it widens the key rather than relocating it,
+  because a mirrored skill is reachable by the model and a wrapper is not.
+  For `start-session` that hands a model-initiated invocation the
+  `Bash(wfctl install-skills*)` pre-approval a human used to have to ask for.
+  Sanctioned rather than incidental: AGENTS.md § Safety already decided that
+  `/start-session` refreshes a stale mirror unattended, and the overwritten
+  originals are backed up. It is a consequence to state, not a cost to hide.
 - `conversation-response-shape` becomes reachable by the model on the Claude
   layer, which its own frontmatter comment has argued for since #99 and the
   colliding wrapper was intermittently denying.
@@ -92,3 +100,4 @@ Membership decides reachability; the file decides invocability.
 ## Log
 
 - 2026-09-04  proposed    — #170; the wrapper's flag refused the skill it points at, for whichever session lost the tie
+- 2026-09-06  amended     — #204; `start-session` mirrored, the eighth wrapper suppressed. First time the `allowed-tools` consequence above was paid rather than predicted.
