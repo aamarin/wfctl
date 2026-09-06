@@ -2955,9 +2955,6 @@ def install_config_cmd(
     if name == "workmux":
         from wfctl import _workmux
 
-        # Worktrees live in ./wt inside the repo — keep git from tracking them.
-        _ensure_gitignored(repo_root, "wt/")
-
         # Resolve here, substitute in _workmux. The module takes plain values and
         # never touches git or the manifest, which is what keeps its tests
         # fixture-free — see wfctl/_workmux.py.
@@ -2981,6 +2978,23 @@ def install_config_cmd(
         wf = repo_root / ".workmux.yaml"
         patched = _workmux.patch_seed(wf.read_text(), agent=chosen, project=proj)
         wf.write_text(patched)
+
+        # Gitignore what the config we just wrote declares, not a literal beside
+        # it. Read after the write so the two cannot disagree — a second copy of
+        # `wt` here is exactly the shadowing #35 is about.
+        wt = _workmux.worktree_dir(patched)
+        if wt:
+            _ensure_gitignored(repo_root, f"{wt}/")
+        else:
+            # Loud, not a fallback. Guessing `wt/` writes an ignore for a
+            # directory nothing uses and leaves the real one tracked — the
+            # silent half of the same failure.
+            console.print(
+                "[yellow]⚠[/yellow] .workmux.yaml declares no worktree_dir — "
+                "nothing gitignored.\n"
+                "  Add the key, then ignore that directory by hand.",
+                soft_wrap=True,
+            )
 
         # Watch for the surviving placeholder, not for a missing key: if the
         # template renames `window_prefix` upstream, a key check passes at exactly
