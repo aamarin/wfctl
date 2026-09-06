@@ -21,7 +21,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
    │ _pipeline 442   _arch 359   _archive 339   _guard 286        │      ┊
    │ _verify 245     _tracker 227   _workmux 191   _settings 173  │      ┊
-   │ _shape 238      _session 102   _bundle 92                    │      ┊
+   │ _shape 238      _session 102   _bundle 92    _body 108       │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -194,7 +194,7 @@ red rather than stale.
 
 ```layers
 surface     cli
-domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle
+domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body
 resolution  _paths _manifest
 durability  _io
 ```

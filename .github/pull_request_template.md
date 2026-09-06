@@ -140,20 +140,21 @@ change, this one shows it working. A screenshot or a GIF counts.
 ## Review Panel
 <!--
 The reconciled disposition table from `fanning-out-code-review`: every finding
-from every reviewer, what was done about it, and why. The roster line goes with
-it — a reviewer that returned nothing and a reviewer that found nothing are the
-same silence, and only the roster tells them apart.
+from every reviewer, what was done about it, and why, plus the roster.
 
-A panel that found nothing still fills this in: who reviewed, what each checked,
-no findings. An empty section here and a panel that never ran read identically,
-and the second is what this section exists to make visible.
+A panel that found nothing fills this in too — who reviewed, what each checked,
+no findings. There is no "N/A" here: nothing to report means the panel has not
+run yet, and the roster is what tells a reviewer who returned nothing from a
+reviewer who found nothing.
 -->
+
+**Panel:** [target] — [n] reviewers, [n] findings
 
 | # | Reviewer | Finding | Disposition |
 |---|---|---|---|
-|   |          |         |             |
+| 1 | [r1] | [what it raised] | [applied / accepted / rejected — with the reason] |
 
-roster:
+roster: [r1 ✓  r2 ✓  r3 ✓ — and which, if any, were re-asked]
 
 ## Checklist
 
@@ -166,6 +167,7 @@ roster:
 - [ ] Any dependent changes have been merged and published
 - [ ] Every fully completed issue is under `Closes` with a closing keyword, not only `Related`
 - [ ] Anything this change turned up in passing is named under Additional Context, with whether it was filed
+- [ ] A review panel ran over this diff and its disposition table is under Review Panel
 
 ## Documentation
 

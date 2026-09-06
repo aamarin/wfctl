@@ -22,7 +22,7 @@ _SKILL = (
 )
 
 # The one fenced block that finds templates. Keyed on the content rather than on
-# "the first bash fence": Step 4's `gh pr create` is also a bash fence, and an
+# "the first bash fence": Step 5's `gh pr create` is also a bash fence, and an
 # edit reordering the sections must not silently retarget this test.
 _FENCE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 

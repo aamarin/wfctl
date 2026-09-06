@@ -44,14 +44,27 @@ nobody says anything. The moment a panel is most worth running — a change abou
 to be opened — is the moment there is no reader to type "review this", so the
 discovery mechanism that works for a human is the one that cannot fire here.
 
-**Its reconciled disposition table is content for the body, not a side effect.**
-It goes in the description under the section the template gives it. That is the
-whole of what makes a skipped panel visible: a body carrying no panel was read by
-nobody, and a body carrying no panel is also what a clean pass looks like. The
-two are told apart in the description or not at all.
+Every change, including the one that looks too small to need it. That is stated
+rather than left to judgment on purpose: a panel skipped because this particular
+diff seemed trivial is a decision made silently, per run, by the only party with
+an interest in the answer — which is the shape of the defect this step exists to
+remove, not an exception to it.
 
-Findings you apply change the branch. Push again before Step 5 — a PR is opened
-from what is on the remote, not from what is in your tree.
+**Its reconciled disposition table is content for the body, not a side effect.**
+That is the whole of what makes a skipped panel visible: a body carrying no panel
+was read by nobody, and a body carrying no panel is also what a clean pass looks
+like. The two are told apart in the description or not at all.
+
+Where the template has a section for it, the table goes there. **Where it has
+none, append one under a `## Review Panel` heading of your own** — most
+repositories are this case, because the template is seeded once and does not
+update when this skill does. This is the one section the skill supplies rather
+than reads, and it is not the red flag below about editing the template: the
+template file is untouched, and what is written is content this step produced.
+
+Findings you apply change the branch. Re-run the verification and push again
+before Step 5 — a PR is opened from what is on the remote, and a recorded verdict
+binds to the tree it ran against, which your fix has moved.
 
 ## Step 2: Find the template
 
@@ -102,7 +115,7 @@ State the shape you are using rather than refusing or improvising:
 ```
 No change-description template in this repo. Using the default shape:
 Summary (context, then the drawing, then what / why / impact) · What changed ·
-How it was tested · Issue links.
+How it was tested · Review panel · Issue links.
 ```
 
 Then fill those four. `wfctl install-config github` seeds a real template — say
@@ -112,6 +125,9 @@ so once, and do not block on it.
 
 - **Every section the template has, in its order.** A section you have nothing
   for gets "None" or "N/A" — never silent deletion, which reads as an answer.
+  **Review Panel is the exception, and takes no "N/A".** Having nothing to put
+  there does not mean the section does not apply; it means Step 1 has not run
+  yet, and "N/A" is how that becomes invisible while satisfying this bullet.
 - **Answer the comment blocks; then delete them.** They are instructions to the
   author, not part of the description. Placeholders in brackets are replaced,
   not left.
@@ -148,6 +164,10 @@ header is tabular content, and tabular content goes in a table. That combination
 is the one the reader rejected on #208 — the fix was replacing the fence with a
 markdown table, and the accepted drawings in the same body are hand-aligned too,
 which is why alignment alone is not the finding.
+
+It reads the Review Panel section too, and reports a section that is absent or
+still carrying the placeholders it shipped with — the rule from Step 1, on the
+artifact where breaking it is visible.
 
 It exits 1 when it finds something and gates nothing; the point is that the file
 exists before `gh` reads it, so the check is available at all. Outside a wfctl

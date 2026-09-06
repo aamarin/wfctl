@@ -176,6 +176,18 @@ def test_the_change_description_skill_defers_to_the_finishing_skill() -> None:
     assert "finishing-a-development-branch" in set(_REFERENCE.findall(skill))
 
 
+def test_the_change_description_skill_names_the_review_panel() -> None:
+    """By path, not by phrase. A skill is otherwise discovered by matching its
+    description against what a reader typed, and an unattended run types nothing
+    — so the panel never started and the change reached a PR reporting success
+    (#187). This one reference is the whole of the replacement, and dropping it
+    restores the defect without failing anything else here.
+    """
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+
+    assert "fanning-out-code-review" in _REFERENCE.findall(skill)
+
+
 def test_the_change_description_skill_does_not_restate_the_template() -> None:
     """The skill says to go read the project's template; it must not carry the
     sections itself.
