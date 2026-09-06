@@ -184,6 +184,28 @@ def _manifest_root(base: Path, key: str) -> Path | None:
     return declared if declared.is_absolute() else (base / declared).resolve()
 
 
+def worktree_branches(repo_root: Path) -> list[str]:
+    """Branch names checked out across every worktree of this repo.
+
+    Detached worktrees contribute nothing — `--porcelain` prints `detached`
+    instead of a `branch` line — and a repo git cannot answer for returns an
+    empty list. Both degrade the same way: a caller asking "is anyone else on
+    this issue" gets "no", which is the answer that lets the caller act, and the
+    callers here are hooks that must not become gates.
+    """
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return []
+    return [
+        line.split(" ", 1)[1].removeprefix("refs/heads/")
+        for line in result.stdout.splitlines()
+        if line.startswith("branch ")
+    ]
+
+
 def main_checkout(repo_root: Path) -> Path | None:
     """The project's main checkout as seen from `repo_root`, or None.
 

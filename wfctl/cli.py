@@ -26,6 +26,7 @@ from wfctl._paths import (
     arch_root,
     is_in_tree,
     extract_issue_key,
+    worktree_branches,
     get_repo_root,
     main_checkout,
     project_name,
@@ -1003,6 +1004,22 @@ def spec_root_cmd(
 _BRANCH_SCOPED_VERBS = ("start", "stop")
 
 
+def _issue_worked_elsewhere(repo_root: Path, branch: str, issue: str) -> bool:
+    """Is `issue` checked out in some worktree other than `branch`'s?
+
+    Read under the tracker's own key shape, so two handles for one issue —
+    `175-fix-a` and `175-fix-b` — resolve to the same key and count as one piece
+    of work in two places.
+    """
+    from wfctl import _tracker
+
+    pattern = _tracker.load_key_pattern(repo_root)
+    return any(
+        other != branch and extract_issue_key(other, pattern) == issue
+        for other in worktree_branches(repo_root)
+    )
+
+
 @app.command("issue")
 def issue_cmd(
     verb: str = typer.Argument(
@@ -1063,6 +1080,21 @@ def issue_cmd(
     if verb in _BRANCH_SCOPED_VERBS and issue_id is None:
         if issue == "unknown":
             console.print(f"ℹ No issue key in branch '{branch}' — skipping '{verb}'")
+            raise typer.Exit(0)
+        # These verbs report a fact about the *issue*, so wfctl owes the backend
+        # a fact that is true of the issue rather than of whoever called. One
+        # worktree stopping is not the issue stopping while another is still
+        # checked out on it, and a backend told otherwise has no way to know —
+        # it is handed an issue key and nothing about the tree it came from.
+        #
+        # Only on the branch-derived path. `wfctl issue stop 175` typed by hand
+        # is a person asserting the thing directly, and second-guessing that
+        # would make the explicit form the unreliable one.
+        if verb == "stop" and _issue_worked_elsewhere(repo_root, branch, issue):
+            console.print(
+                f"ℹ #{issue} is still checked out in another worktree — "
+                "leaving its status alone"
+            )
             raise typer.Exit(0)
         issue_id = issue
     params = {

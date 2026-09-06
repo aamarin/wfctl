@@ -353,6 +353,61 @@ def test_board_script_refuses_an_issue_key_that_is_not_a_number(tmp_path: Path) 
     assert not canary.exists()
 
 
+def test_stop_is_silent_while_another_worktree_holds_the_same_issue(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One worktree stopping is not the issue stopping.
+
+    Two handles may carry one issue key — `175-fix-a` and `175-fix-b` both
+    resolve to 175 — and removing either fires `pre_remove`. The backend is
+    handed a key and nothing about the tree it came from, so it cannot tell that
+    work is still live somewhere; wfctl can, and owes it a fact about the issue
+    rather than about the caller.
+    """
+    repo_root = agent_dir.parent
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "175-fix-a")
+    monkeypatch.setattr(
+        "wfctl.cli.worktree_branches", lambda _: ["main", "175-fix-a", "175-fix-b"]
+    )
+    _configure_tracker(repo_root, "github", _BOARD_VERBS)
+    result = runner.invoke(app, ["issue", "stop"])
+    assert result.exit_code == 0
+    assert "still checked out in another worktree" in result.output
+    assert captured_argv == []
+
+
+def test_stop_fires_when_it_is_the_last_worktree_on_the_issue(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard must not make `stop` unreachable — that is the ordinary case."""
+    repo_root = agent_dir.parent
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "175-fix-a")
+    monkeypatch.setattr(
+        "wfctl.cli.worktree_branches", lambda _: ["main", "175-fix-a", "42-other"]
+    )
+    _configure_tracker(repo_root, "github", _BOARD_VERBS)
+    assert runner.invoke(app, ["issue", "stop"]).exit_code == 0
+    assert captured_argv == [["gh", "board", "stop", "175"]]
+
+
+def test_an_explicit_id_is_not_second_guessed(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`wfctl issue stop 175` is a person asserting it; the guard is for hooks.
+
+    Applying it to the typed form would make the explicit command the one that
+    silently does nothing.
+    """
+    repo_root = agent_dir.parent
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "175-fix-a")
+    monkeypatch.setattr(
+        "wfctl.cli.worktree_branches", lambda _: ["175-fix-a", "175-fix-b"]
+    )
+    _configure_tracker(repo_root, "github", _BOARD_VERBS)
+    assert runner.invoke(app, ["issue", "stop", "175"]).exit_code == 0
+    assert captured_argv == [["gh", "board", "stop", "175"]]
+
+
 _BOARD_VERBS = {
     "verbs": {
         "start": ["gh", "board", "start", "{id}"],
