@@ -442,3 +442,69 @@ def test_a_row_that_omitted_the_ordinal_renders_a_cell_short() -> None:
 
     assert panel_findings(short)
     assert panel_findings(whole) == []
+
+
+def test_a_table_is_its_delimiter_row_not_its_leading_pipes() -> None:
+    """`Reviewer | Finding | Disposition` over `--- | --- | ---` is valid GFM and
+    renders as a table. Collecting lines that start with `|` saw none of it, so a
+    table of nothing but shipped placeholders passed — and its header text
+    reached `_evidence` as an account of what a reviewer checked."""
+    placeholders = (
+        "## Review Panel\n\nReviewer | Finding | Disposition\n--- | --- | ---\n"
+        "[r1] | [what it raised] | [applied / accepted / rejected — with the reason]\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+    filled = (
+        "## Review Panel\n\nReviewer | Finding | Disposition\n--- | --- | ---\n"
+        "r1 | found a bug | applied\n\nroster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(placeholders)
+    assert panel_findings(filled) == []
+
+
+def test_a_tables_own_lines_are_never_evidence() -> None:
+    """The other half of the same defect: with no rows collected, the header and
+    delimiter were the only prose left in the section, so `_evidence` read the
+    column names as an account of what was checked. A table's lines come back
+    from `_table` so this can exclude them."""
+    header_only = (
+        "## Review Panel\n\nReviewer | Finding | Disposition\n--- | --- | ---\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(header_only)
+
+
+def test_a_code_span_needs_two_complete_runs_of_the_same_length() -> None:
+    """`` `[what it raised]`` `` is one backtick against two, which CommonMark
+    does not close — the page renders the shipped text literally. The
+    backreference alone let the closing run match the prefix of a longer one, so
+    the placeholder was stripped and the panel passed while the reader could see
+    the template's words."""
+    unequal = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | `[what it raised]`` | applied |\n\nroster: r1 ✓  r2 ✓\n"
+    )
+    equal = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | the ``[0]`` index | applied |\n\nroster: r1 ✓  r2 ✓\n"
+    )
+
+    assert panel_findings(unequal)
+    assert panel_findings(equal) == []
+
+
+def test_a_thematic_break_is_not_a_delimiter_row() -> None:
+    """A delimiter row carries a pipe and a dash. Without the pipe requirement a
+    `---` under a paragraph reads as a table delimiter, which would make the
+    paragraph above it a header and swallow the prose after it — a valid
+    no-findings panel rejected for using a horizontal rule."""
+    body = (
+        "## Review Panel\n\nAll six passes each, over both template copies.\n\n"
+        "---\n\nNo findings.\n\nroster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(body) == []

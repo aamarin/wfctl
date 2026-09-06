@@ -34,9 +34,12 @@ _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
-# Equal-length delimiter runs, which is CommonMark's rule. A single-backtick
-# pattern reads ``[0]`` as two empty spans and leaves the brackets exposed.
-_CODE = re.compile(r"(`+)[\s\S]*?\1")
+# Equal-length delimiter runs, and *complete* ones: the lookarounds keep the
+# opening run from backtracking and keep a closing run from matching the prefix
+# of a longer one. Without them `` `[what it raised]`` `` — one backtick against
+# two, which CommonMark does not close — had its placeholder stripped anyway,
+# while the page rendered the shipped text literally.
+_CODE = re.compile(r"(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)")
 
 # A cell boundary is an *unescaped* pipe. A row quoting another row — which a
 # disposition explaining a table defect does — writes `\|` inside a code span,
@@ -45,8 +48,9 @@ _CODE = re.compile(r"(`+)[\s\S]*?\1")
 _CELL = re.compile(r"(?<!\\)\|")
 # A delimiter row: what makes the line above it a header, in CommonMark and
 # therefore on the page. The `#` column is optional and naming it was this
-# module's own guess at the same question.
-_DELIMITER = re.compile(r"^[\s:|-]+$")
+# module's own guess at the same question. It must carry a pipe and a dash, so a
+# thematic break `---` under a paragraph is not read as a table.
+_DELIMITER = re.compile(r"^(?=[^|]*\|)(?=[^-]*-)[\s:|-]+$")
 
 # What the template ships in a field nobody answered: "N/A", "None", "TBD", a
 # dash run, or nothing.
@@ -202,36 +206,48 @@ def _section(body: str) -> str | None:
     return None
 
 
-def _table(section: str) -> tuple[int, bool, list[list[str]]]:
-    """The disposition table's rows, its width, and whether it has an ordinal
-    column.
+def _cells(line: str) -> list[str]:
+    """A row's cells. The leading and trailing pipes are optional in GFM, which
+    `.strip("|")` handles for either form, and a boundary is an unescaped pipe —
+    a row quoting another row writes `\\|` inside a code span."""
+    return [c.strip().replace("\\|", "|") for c in _CELL.split(line.strip().strip("|"))]
 
-    A header is the row a delimiter row follows, which is CommonMark's rule and
-    therefore the renderer's. Recognising it by a `#` first cell instead was this
-    module's own guess at the same question, and a table using the common
-    `| Reviewer | Finding | Disposition |` header had that header counted as a
-    result.
 
-    Rows come back as they are written. Dropping the ordinal here is what let
-    `| r1 | found bug | applied |` satisfy a four-column header — subtracting the
-    `#` column from the width while the row had never carried one, so a row that
-    renders with an empty Disposition passed. Whether a row has an ordinal is a
-    fact about that row, and only the caller sees both it and the header.
+def _table(section: str) -> tuple[list[tuple[list[str], int, bool]], set[int]]:
+    """The disposition table's rows with the shape each is measured against, and
+    which lines of the section the tables occupy.
+
+    **A table is a delimiter row and the line above it**, which is GFM's rule.
+    Collecting lines that start with `|` instead was this module's guess at the
+    same question, and it saw nothing at all in a table written
+    `Reviewer | Finding | Disposition` — valid markdown, rendering as a table,
+    whose rows then reached `_evidence` as prose.
+
+    The line span comes back with the rows so `_evidence` can exclude it. A
+    header read as an account of what a reviewer checked is the same defect the
+    row parsing has, one function over.
     """
-    lines = [
-        line.strip() for line in section.splitlines() if line.strip().startswith("|")
-    ]
-    width, ordinal, rows = _RESULT_CELLS, False, []
+    lines = section.splitlines()
+    rows: list[tuple[list[str], int, bool]] = []
+    used: set[int] = set()
     for i, line in enumerate(lines):
-        if _DELIMITER.fullmatch(line):
+        if i == 0 or not _DELIMITER.fullmatch(line.strip()):
             continue
-        cells = [c.strip().replace("\\|", "|") for c in _CELL.split(line.strip("|"))]
-        following = lines[i + 1] if i + 1 < len(lines) else ""
-        if _DELIMITER.fullmatch(following):  # the row above a delimiter is a header
-            width, ordinal = len(cells), cells[:1] == ["#"]
+        header_line = lines[i - 1]
+        if not header_line.strip() or "|" not in header_line:
             continue
-        rows.append(cells)
-    return width, ordinal, rows
+        header = _cells(header_line)
+        width, ordinal = len(header), header[:1] == ["#"]
+        used.update({i - 1, i})
+        for j in range(i + 1, len(lines)):
+            following = lines[j]
+            if not following.strip() or "|" not in following:
+                break
+            if _MD_HEADING.match(following) or _DELIMITER.fullmatch(following.strip()):
+                break
+            rows.append((_cells(following), width, ordinal))
+            used.add(j)
+    return rows, used
 
 
 def _result(row: list[str], width: int, ordinal: bool) -> tuple[list[str], int]:
@@ -259,7 +275,7 @@ def _roster(section: str) -> str | None:
     return None
 
 
-def _evidence(section: str) -> bool:
+def _evidence(section: str, in_table: set[int]) -> bool:
     """Whether the section says anything beyond its roster and its summary.
 
     Only reachable when the panel reported no findings, where there is no table
@@ -268,10 +284,12 @@ def _evidence(section: str) -> bool:
     'looks good' is a missing report wearing a verdict."* A roster alone is that
     bare verdict, and it is the cheapest body a skipped panel can produce.
 
-    Three things are not evidence: a heading, which is structure; a link
-    reference definition, which is machinery supporting a link elsewhere; and the
-    bare verdicts the skill names, which are authored text that the skill itself
-    calls a missing report.
+    Four things are not evidence: a heading, which is structure; any line the
+    table occupies, header included — a table written without leading pipes had
+    its header counted as prose, so a section holding nothing but placeholders
+    passed; a link reference definition, which is machinery supporting a link
+    elsewhere; and the bare verdicts the skill names, which are authored text
+    that the skill itself calls a missing report.
 
     **What this cannot claim.** Presence, never content — no check reads a
     paragraph and knows whether six passes truly ran. `a-rule-is-expressed-as-a-
@@ -280,9 +298,9 @@ def _evidence(section: str) -> bool:
     section, machinery standing in for prose, and the exact verdict the skill
     quotes — and that is the whole of what is claimed here.
     """
-    for line in section.splitlines():
+    for n, line in enumerate(section.splitlines()):
         stripped = line.strip()
-        if not stripped or stripped.startswith("|") or _MD_HEADING.match(line):
+        if not stripped or n in in_table or _MD_HEADING.match(line):
             continue
         if _LINK_DEF.match(line):
             continue
@@ -330,8 +348,8 @@ def panel_findings(body: str) -> list[str]:
                 "findings is the line a reader checks the table against."
             )
 
-    width, ordinal, raw_rows = _table(section)
-    rows = [_result(row, width, ordinal) for row in raw_rows]
+    raw_rows, in_table = _table(section)
+    rows = [_result(cells, width, ordinal) for cells, width, ordinal in raw_rows]
     for row, required in rows:
         if len(row) < required:
             out.append(
@@ -348,7 +366,7 @@ def panel_findings(body: str) -> list[str]:
                 "an otherwise untouched row renders as a reviewed finding."
             )
 
-    if not rows and not _evidence(section):
+    if not rows and not _evidence(section, in_table):
         out.append(
             "opening-a-change Step 1 — the Review Panel reports no findings and "
             "shows no evidence. 'No findings' is a result only when it says which "
