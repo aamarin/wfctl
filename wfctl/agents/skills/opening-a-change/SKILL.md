@@ -104,12 +104,12 @@ so once, and do not block on it.
 - **Render literal output where the template asks for a before/after.** The CLI
   line as it printed, the record as it is shaped, the error as it read. A
   sentence describing a string is longer than the string and less certain.
-- **Name the issue with a closing keyword.** `Closes #N` — the phrasing the
-  forge parses, not the issue number written into a sentence. It is what fills
-  the Development panel, what closes the issue on merge, and the only one of the
-  sidebar's fields that no Step 5 flag can set: it lives in the body or nowhere.
-  A change that closes nothing links its source issue instead, without the
-  keyword.
+- **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
+  Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
+  attribute Step 5 cannot set: it lives in the body or nowhere, and it is what
+  links the change to its issue in the tracker's own panel. Where the template
+  has a section for it, that section's rules govern the details and this bullet
+  stops here.
 
 ## Step 4: Open it
 
@@ -147,12 +147,10 @@ that set, never swapped in for it.
 
 **An empty field on the issue is not an answer to copy.** An unassigned issue is
 not a decision that the PR has no owner, so that case is `--add-assignee @me`.
-Nor is a bare one: an issue filed with no label and no board was triaged by
-nobody, and copying that faithfully produces a PR the read-back below reports as
-unfinished — correctly, because it is as unfindable as one where the flags were
-dropped. Set the label the change's own subject earns and the board the project
-runs on, and say in the description that you decided those rather than copied
-them.
+An issue bare in every field is the same shape — triaged by nobody rather than
+triaged to nothing — and copying it faithfully produces exactly the unfindable
+change this step exists to prevent. Treat it as the no-issue case below: decide
+the triage rather than inherit it.
 
 **A change that closes nothing still has a source.** Read the set off the issue
 it is filed under — the one in `Related` naming the work this belongs to. Falling
@@ -183,32 +181,37 @@ item's content carries a `ProjectV2ItemStatusChangedEvent` timeline, and the las
 one per item is the status it held.
 
 **Reviewers are the one field with nothing to copy from.** An issue has no
-reviewers; a change does, and `gh pr create` requests none. Some review bots
-subscribe themselves on open and some wait to be asked, and once either has
-reported it shows up in the same list — so a merged PR's reviewers are not
-evidence of who will read this one. Look at an open PR nobody has touched to see
-who arrived unasked, then request only the readers this project relies on and is
-missing:
+reviewers; a change does, and `gh pr create` requests none. Who a repository
+wants reading its changes it has already recorded somewhere — a `CODEOWNERS`
+entry, a review bot the org installed, a line in the contributing guide — and
+those arrive on their own. Request whoever that leaves out, and nobody the
+project has stopped using: a reader dropped for cost is not restored because the
+flag still accepts the name.
 
 ```bash
-gh pr view <pr> --json reviewRequests,latestReviews   # who arrived unasked
-gh pr edit <pr> --add-reviewer <login>                # only who is missing
+gh pr edit <pr> --add-reviewer <login>     # "@copilot" for Copilot
 ```
 
-A reviewer the project has stopped using does not become one again because the
-flag still accepts it. Which readers a repository wants is a decision it has
-already made somewhere — a subscribed bot, a `CODEOWNERS` entry, a line in its
-contributing guide — and this step requests what is missing from that set rather
-than everyone the forge offers.
+`--add-reviewer` takes a user or team login, and a review bot installed as a
+GitHub App is neither — it subscribes itself and cannot be requested by name. On
+a repository whose readers are all of that kind, an empty reviewer field is the
+finished state, and the way to know which kind you have is to look at a PR you
+did not touch.
 
-Then read it back, against the issue rather than against your intent:
+Then read it back — the whole sidebar, not the part that was copied:
 
 ```bash
-gh pr view <pr> --json labels,assignees,milestone,projectItems,reviewRequests
+gh pr view <pr> --json labels,assignees,milestone,projectItems     # copied
+gh pr view <pr> --json closingIssuesReferences,reviewRequests,latestReviews
 ```
 
-The step is done when that output carries the issue's set. An empty sidebar here
-is this step unfinished, not a PR that happens to have no attributes.
+The copied set is done when it matches the issue's. The other two are not
+copied, so that sentence does not reach them: an empty `closingIssuesReferences`
+means the body never named the issue in the form the tracker parses, and an
+empty `reviewRequests` means nothing on its own — it is the *pending* list and
+it clears the moment a reviewer submits, which is why `latestReviews` is read
+beside it. An empty sidebar here is this step unfinished, not a PR that happens
+to have no attributes.
 
 ## Red flags
 
