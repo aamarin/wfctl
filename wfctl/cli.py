@@ -1153,6 +1153,7 @@ _CONFIG_SOURCES = {
 # time any skill gains a digest.
 SETTINGS_PATH = ".claude/settings.json"
 SETTINGS_EVENT = "UserPromptSubmit"
+STOP_EVENT = "Stop"
 
 # The hooks `wfctl hook` can run. These names are an interface: they are what a
 # consumer's settings.json invokes, so renaming one breaks every settings file
@@ -1161,8 +1162,26 @@ SETTINGS_EVENT = "UserPromptSubmit"
 # on are the same fact, and 1200 lines apart they drift.
 _USER_PROMPT = "user-prompt"
 _WORKTREE_GUARD = "worktree-guard"
+_RESPONSE_SHAPE = "response-shape"
 
 HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
+# `|| true`, unlike the `UserPromptSubmit` entry, because the events differ in
+# what a non-zero exit means. On `Stop` it *blocks the stop*: the agent is told
+# to keep going and stops again, so a wfctl that cannot run this — one older than
+# the settings file, or uninstalled from PATH without `uninstall-skills` — turns
+# a usage banner into a loop at the end of every turn.
+#
+# Nothing is lost by swallowing it. This hook warns and never blocks, so it has
+# no non-zero exit of its own to report; every one it could produce is a version
+# mismatch or a bug, and neither is worth a per-turn error on work that was fine.
+STOP_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_RESPONSE_SHAPE} 2>/dev/null || true"
+
+# Event → the command this wfctl installs for it. One map rather than a pair of
+# constants because three separate places have to agree on it: the merge, the
+# uninstall record it writes, and `doctor`'s freshness check. The two entries are
+# opposite halves of the same skill — `UserPromptSubmit` re-anchors the rules
+# before a reply is written, `Stop` looks at what was actually written (#212).
+MANAGED_HOOKS = {SETTINGS_EVENT: HOOK_COMMAND, STOP_EVENT: STOP_HOOK_COMMAND}
 
 _BACKUP_DIR = ".wf-skills-backup"
 
@@ -1488,13 +1507,24 @@ def _merge_hooks(
     records: list[dict] = []
     written: list[str] = []
     problems: list[str] = []
-    for rel, event in [(SETTINGS_PATH, SETTINGS_EVENT)] if agent == "claude" else []:
+    targets = (
+        [(SETTINGS_PATH, e, c) for e, c in MANAGED_HOOKS.items()]
+        if agent == "claude"
+        else []
+    )
+    # `or is_symlink`, because `exists()` follows the link: a symlink whose
+    # target does not exist yet read as "nothing here", and wfctl recorded a
+    # file it had created. Uninstall deletes what it created — which would be
+    # the consumer's symlink, not the settings inside it.
+    #
+    # Sampled once for the whole pass, not per target. Two events share one file,
+    # so the second pass would otherwise see the file the first pass just created
+    # and record `created: False` for it — and uninstall, which unlinks only when
+    # the last record it clears says `created`, would leave an empty `{}` behind.
+    existed = {rel: (repo_root / rel).exists() or (repo_root / rel).is_symlink()
+               for rel, _, _ in targets}
+    for rel, event, command in targets:
         path = repo_root / rel
-        # `or is_symlink`, because `exists()` follows the link: a symlink whose
-        # target does not exist yet read as "nothing here", and wfctl recorded a
-        # file it had created. Uninstall deletes what it created — which would be
-        # the consumer's symlink, not the settings inside it.
-        existed = path.exists() or path.is_symlink()
         # A pass that cannot finish must still hand back the record it was given.
         # The manifest layer is rewritten whole on every install, so a record not
         # re-emitted here is not stale — it is gone, and with it wfctl's claim on
@@ -1506,7 +1536,7 @@ def _merge_hooks(
             records.extend([keep] if keep else [])
             continue
         try:
-            changed = _settings.merge_hook(settings, event, HOOK_COMMAND)
+            changed = _settings.merge_hook(settings, event, command)
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
             records.extend([keep] if keep else [])
@@ -1522,7 +1552,10 @@ def _merge_hooks(
                 problems.append(f"{rel}: {exc}")
                 records.extend([keep] if keep else [])
                 continue
-            written.append(rel)
+            # By file, not by entry: two events share `.claude/settings.json`, and
+            # the block this feeds is about the file staying the consumer's.
+            if rel not in written:
+                written.append(rel)
         # `created` is what lets uninstall leave no trace: a file wfctl brought
         # into existence and then emptied is deleted, while one the consumer
         # already had keeps whatever else is in it.
@@ -1531,9 +1564,9 @@ def _merge_hooks(
         # the second install sees the file wfctl itself created on the first and
         # would otherwise conclude the consumer owns it — and leave an empty
         # `{}` behind on uninstall.
-        created = (keep or {}).get("created", not existed)
+        created = (keep or {}).get("created", not existed[rel])
         records.append(
-            {"path": rel, "event": event, "command": HOOK_COMMAND, "created": created}
+            {"path": rel, "event": event, "command": command, "created": created}
         )
     return records, written, problems
 
@@ -2392,7 +2425,7 @@ def install_skills_cmd(
         # one file in the install that stays the consumer's, and reading as a
         # third count would bury exactly the thing worth noticing.
         console.print(
-            f"\n[green]✓[/green] Merged the managed hook into {merged_rel}\n"
+            f"\n[green]✓[/green] Merged wfctl's managed hooks into {merged_rel}\n"
             "  Your own hooks, permissions and settings are still there — "
             "`wfctl uninstall-skills`\n  removes just wfctl's entry. The rewrite "
             "reflows the file once; later installs\n  leave it closed.",
@@ -2874,6 +2907,123 @@ def hook_user_prompt_cmd() -> None:
     (`research.md`'s command-name decision).
     """
     _hook_user_prompt()
+
+
+def _last_exchange(transcript: Path) -> tuple[str, str]:
+    """`(prompt, terminal reply)` — the last user turn and what it drew.
+
+    Reconstructed from the agent's JSONL transcript, which is the only place the
+    finished reply exists: `Stop` hands over a path, not the text.
+
+    A turn is a user message that is not a tool result, then everything up to the
+    next one. The reply is reset on every message carrying a `tool_use`, so what
+    survives is the text written *after* the last tool call — the terminal reply,
+    which is the one the reader actually receives. Narration between two tool
+    calls is not it and would otherwise dominate the word count.
+
+    ponytail: reads the whole file. A session's transcript is a few megabytes and
+    this runs once per turn; seek to the tail if that stops being true.
+    """
+    prompt = ""
+    reply: list[str] = []
+    with transcript.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            # Every field defensively, for `hook_worktree_guard_cmd`'s reason: a
+            # transcript written by a newer agent than this wfctl knows about must
+            # degrade to "no finding", never to a traceback at the end of a turn
+            # that was otherwise fine.
+            if not isinstance(record, dict):
+                continue
+            message = record.get("message")
+            if not isinstance(message, dict):
+                continue
+            blocks = message.get("content")
+            kinds = (
+                {b.get("type") for b in blocks if isinstance(b, dict)}
+                if isinstance(blocks, list)
+                else set()
+            )
+            if record.get("type") == "user" and "tool_result" not in kinds:
+                prompt, reply = _message_text(message), []
+            elif record.get("type") == "assistant":
+                text = _message_text(message)
+                if text.strip():
+                    reply.append(text)
+                if "tool_use" in kinds:
+                    reply = []
+    return prompt, "\n".join(reply).strip()
+
+
+def _message_text(message: dict) -> str:
+    """The human-readable text of one transcript message.
+
+    Two shapes, because a user prompt is stored as a bare string and an
+    assistant reply as a list of blocks. Blocks that are not text — tool calls,
+    thinking, images — contribute nothing, which is what makes the word count a
+    count of what the reader read.
+    """
+    blocks = message.get("content")
+    if isinstance(blocks, str):
+        return blocks
+    if not isinstance(blocks, list):
+        return ""
+    return "\n".join(
+        b["text"]
+        for b in blocks
+        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+    )
+
+
+@hook_app.command(_RESPONSE_SHAPE)
+def hook_response_shape_cmd() -> None:
+    """Stop. Report what the finished reply broke in `conversation-response-shape`.
+
+    The half of that skill nothing had: every other layer — this repo's
+    `UserPromptSubmit` hook, the rule in `SKILL.md`, the pre-send check — fires
+    before the reply exists, so drift was visible only to the reader noticing.
+    See `wfctl/_reply.py` for what is and is not checkable, and #212 for the
+    session where all three layers fired and all three lost.
+
+    **Warns, never blocks.** Exit 0 with a `systemMessage`, not exit 2. Over the
+    twenty terminal replies of the transcript this was tuned on, half carry a
+    finding — a gate at that rate stops being read, and one of the ten is an
+    options list the reader's own instructions ask for. The check cannot tell
+    that one from the rest, so it says what it saw and leaves the call to them.
+
+    Silent when it finds nothing, which is most turns and the only behaviour
+    that keeps the loud ones worth reading.
+    """
+    from wfctl import _reply
+
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    path = payload.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return
+    try:
+        prompt, reply = _last_exchange(Path(path).expanduser())
+    except OSError:
+        # Same posture as `_hook_user_prompt`: this runs at the end of every turn,
+        # and a transcript that has moved or cannot be read is not a thing to
+        # report on work that was otherwise fine.
+        return
+    if not reply:
+        return
+
+    found = _reply.findings(reply, prompt)
+    if found:
+        print(json.dumps({
+            "systemMessage": "conversation-response-shape, on the reply above:\n"
+            + "\n".join(f"  • {line}" for line in found)
+        }))
 
 
 @hook_app.command(_WORKTREE_GUARD)
@@ -3530,15 +3680,16 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
                 continue
 
             actual = _settings.managed_command(settings, event)
-            if actual == HOOK_COMMAND:
+            if actual == MANAGED_HOOKS.get(event):
                 continue
 
             drift = True
-            state = (
-                "is gone — the skills it re-anchors decay again mid-session"
-                if actual is None
-                else "is behind this wfctl"
-            )
+            gone = {
+                SETTINGS_EVENT: "is gone — the skills it re-anchors decay again "
+                                "mid-session",
+                STOP_EVENT: "is gone — nothing looks at a reply once it is written",
+            }.get(event, "is gone")
+            state = gone if actual is None else "is behind this wfctl"
             # soft_wrap and the break placed by hand: rich would otherwise
             # re-wrap at the terminal edge and split the settings path across
             # two lines, which both reads badly and makes assertions on these
