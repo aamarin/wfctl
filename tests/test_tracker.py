@@ -26,7 +26,7 @@ _GITHUB_VERBS = {
 }
 
 
-def _configure_tracker(repo_root: Path, name: str, config: dict) -> None:
+def _configure_tracker(repo_root: Path, name: str, config: object) -> None:
     """Write a tracker config + point the manifest at it."""
     tdir = repo_root / ".agents" / "trackers"
     tdir.mkdir(parents=True, exist_ok=True)
@@ -91,6 +91,22 @@ def test_no_tracker_configured_skips(agent_dir: Path, captured_argv: list) -> No
 def test_missing_config_file_degrades(agent_dir: Path, captured_argv: list) -> None:
     repo_root = agent_dir.parent
     (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "jira"}))
+    result = runner.invoke(app, ["issue", "view", "1"])
+    assert result.exit_code == 0
+    assert "missing or invalid" in result.output
+    assert captured_argv == []
+
+
+def test_non_object_config_degrades(agent_dir: Path, captured_argv: list) -> None:
+    """A config whose top level is not an object degrades like a missing one.
+
+    `json.loads` returns whatever the document is, so a file holding a list —
+    the verb map written without its enclosing object — reached `.get()` and
+    raised AttributeError out of dispatch, past the guard that only asked
+    whether parsing failed.
+    """
+    repo_root = agent_dir.parent
+    _configure_tracker(repo_root, "jira", [{"list": ["jira", "ls"]}])
     result = runner.invoke(app, ["issue", "view", "1"])
     assert result.exit_code == 0
     assert "missing or invalid" in result.output
@@ -230,6 +246,20 @@ def test_tracker_check_reports_bad_key_pattern(agent_dir: Path) -> None:
     result = runner.invoke(app, ["tracker-check", "jp"])
     assert result.exit_code == 1
     assert "key_pattern" in result.output
+
+
+def test_tracker_check_reports_a_non_object_document(agent_dir: Path) -> None:
+    """The command that diagnoses a bad config must survive the worst one.
+
+    Every message about a broken tracker sends the reader here, so a document
+    shape that crashes this command leaves them with a traceback and no next
+    step. A top-level list did exactly that.
+    """
+    repo_root = agent_dir.parent
+    _configure_tracker(repo_root, "jp", [{"list": ["jp", "ls"]}])
+    result = runner.invoke(app, ["tracker-check", "jp"])
+    assert result.exit_code == 1
+    assert "object" in result.output
 
 
 def test_tracker_check_accepts_identity_me_and_changes(agent_dir: Path) -> None:
