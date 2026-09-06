@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from collections.abc import Iterable
@@ -2716,6 +2717,16 @@ def install_skills_cmd(
         )
         for a in opt_in:
             console.print(f"[dim]  {a.ljust(width)}  wfctl install-skills --agent {a}[/dim]")
+        # `--agent` fixes the worktree the reader is standing in. `post_create`
+        # reads the variable, and nothing else carries the choice across a
+        # `workmux add` — so the flag alone teaches the hand-carried
+        # `WFCTL_AGENT=claude workmux add …` prefix rather than the setting that
+        # removes it (#178).
+        console.print(
+            "\n[dim]Set WFCTL_AGENT to that name in your shell profile and "
+            "`workmux add` installs\nit in every new worktree too — nothing else "
+            "carries the choice across one.[/dim]"
+        )
 
 
 @app.command("uninstall-skills")
@@ -4363,8 +4374,9 @@ def doctor_cmd() -> None:
     Two of the checks below are freshness (the tool version, the content hash);
     the rest are integrity (the teardown hook, the spec-root move, the definition
     of done, the record set, abandoned entries and managed hooks) — `npm
-    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap` is in
-    neither, because it never becomes a finding. Named rather than counted: a
+    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap` and the
+    missing-agent-layer notice are in neither, because neither ever becomes a
+    finding. Named rather than counted: a
     numeral here has gone stale three times, and one that has to agree with the
     list beside it is a second place to be wrong.
 
@@ -4544,6 +4556,29 @@ def doctor_cmd() -> None:
         # advice then reports the same drift on every later session, each time
         # re-running the same incomplete fix.
         console.print(f"    update: wfctl install-skills{_agent_flag(agent)}")
+
+    # Last, and dim: not a finding. `no-hardcoded-agent` is right that an unset
+    # agent is the normal state, and the exit code stays out of it. What that
+    # record's "Silence here is intended" governs is the flag; #178 is the
+    # report, where a session start read this command, saw green, and hit a
+    # `.claude/` path nothing had installed.
+    #
+    # No repair line, unlike every finding above. `/start-session` runs what
+    # doctor prints, unattended — so a command here would install one developer's
+    # agent into a repo that chose another, which is the record's whole subject.
+    # The variable is a setting the reader applies, not a line to be executed.
+    #
+    # Silent when the environment already names an agent that installs nothing:
+    # `--agent codex` writes no manifest entry by design, so gating on a recorded
+    # layer alone would tell a Codex developer, on every session start forever, to
+    # install a layer no `--agent` value can produce.
+    chose_a_layerless_agent = _AGENT_TARGETS.get(os.environ.get("WFCTL_AGENT", "")) == []
+    if not _agent_keys(manifest) and not chose_a_layerless_agent:
+        console.print(
+            "[dim]ℹ no agent layer — .agents/ only, which every\n"
+            "  agent reads. Set WFCTL_AGENT to your agent's name\n"
+            "  to install its own paths in new worktrees too.[/dim]"
+        )
 
     raise typer.Exit(exit_code)
 

@@ -371,6 +371,20 @@ $ wfctl install-config workmux
 ✗ Would overwrite existing file(s): .workmux.yaml. Pass --force to overwrite (git is your undo).
 ```
 
+The seeded `post_create` hook reinstalls skills into each new worktree, and names
+no agent for the same reason the `agent:` key does not — it reads
+**`WFCTL_AGENT`** from your environment instead. Set it once, in your shell
+profile:
+
+```bash
+export WFCTL_AGENT=claude
+```
+
+Unset is a legitimate state: the worktree gets the agent-agnostic `.agents/`
+layer only, which every agent reads. It is also the state a worktree comes up in
+when you never set the variable, so `wfctl doctor` names it — dim, not a finding,
+and the exit code stays 0.
+
 (**workmux** runs each branch as an isolated git worktree + tmux session, so
 agents work in parallel without stepping on each other. The seeded config makes
 new worktrees come up ready.)
@@ -663,6 +677,7 @@ Run `wfctl <command> --help` for all options.
 | `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
 | `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
+| `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it only to know whether an absent agent layer was a choice. Unset installs the `.agents/` layer alone |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
 
 ## Development

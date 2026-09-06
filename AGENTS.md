@@ -98,6 +98,13 @@ no `/start-session` to run.
 The handle has to start with the issue number. `pre_create` rejects anything
 else, because wfctl derives both the spec dir and the state dir from it.
 
+That is not the only way a worktree comes up short of skills, and the other way
+is quieter. `post_create` passes `--agent` only when `WFCTL_AGENT` is set
+(`no-hardcoded-agent` — a committed hook may not name one), so with it unset the
+worktree gets `.agents/` and no `.claude/`, and the hook still exits 0. Set
+`WFCTL_AGENT=claude` in your shell profile once; `wfctl doctor` says which layers
+a worktree actually has, and is what `/start-session` runs.
+
 ## Architectural constraints
 
 Not here. `wfctl arch context` prints the in-force set; the records live in

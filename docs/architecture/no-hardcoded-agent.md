@@ -70,6 +70,11 @@ A command that would take an agent and finds none omits the flag and runs with
 whatever default it has. Silence here is intended: an unset agent is the normal
 state, not a misconfiguration.
 
+That sentence governs the *flag*, not the report. `doctor` names an absent agent
+layer (#178) without calling it wrong — dim, no repair line, exit code untouched
+— and the flag is still omitted, no agent inferred, and none named by anything
+wfctl prints.
+
 The sole-agent mirror rests on a premise worth watching:
 `.wf-skills-manifest.json` is gitignored (`cli.py:832`), so "one agent layer
 installed" is the seeding developer's state, not the repo's. Mirroring it writes
@@ -82,3 +87,4 @@ true, this record is what has to change first.
 
 - 2026-08-28  accepted    — relocated from `AGENTS.md`
 - 2026-08-29  amended     — states the sole-agent mirror the code has always done, and the gitignored-manifest premise it rests on
+- 2026-09-06  amended     — separates "no error" from "no mention"; `doctor` names an absent agent layer without it becoming a finding (#178)
