@@ -99,6 +99,41 @@ def test_a_worktree_dir_git_cannot_ignore_is_reported(bundle: Path, agent_dir: P
     assert not (repo_root / ".gitignore").exists()
 
 
+def test_a_worktree_dir_the_pattern_language_would_read_is_reported(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """`.gitignore` is a pattern language, not a list of paths.
+
+    Verified against real git: a repo holding `trees[1]/` in `.gitignore` still
+    reports the `trees[1]/` directory untracked, because `[1]` is a character
+    class and the rule written was `trees1/`. A rule that matches nothing, with
+    the real directory left tracked — reached through the pattern syntax rather
+    than through the path, and the same failure either way.
+    """
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text("worktree_dir: 'trees[1]'\nagent: claude\n")
+    result = _install(bundle, "--force")
+    assert result.exit_code == 0
+    assert "nothing gitignored" in result.output
+    assert not (repo_root / ".gitignore").exists()
+    assert "worktree_dir: 'trees[1]'" in (repo_root / ".workmux.yaml").read_text(), (
+        "refusing to ignore it is not a reason to drop it from the config"
+    )
+
+
+def test_a_quoted_value_survives_the_round_trip(bundle: Path, agent_dir: Path) -> None:
+    """Read, carried, and read again — the three points the value passes
+    through. `'team''s trees'` truncated at the first read to `team`, ignored
+    `team/`, and the next re-seed wrote the truncation back as the setting."""
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text(
+        "worktree_dir: 'team''s trees'\nagent: claude\n"
+    )
+    _install(bundle, "--force")
+    assert "worktree_dir: 'team''s trees'" in (repo_root / ".workmux.yaml").read_text()
+    assert "team's trees/" in (repo_root / ".gitignore").read_text().splitlines()
+
+
 def test_no_worktree_dir_says_so_rather_than_guessing(bundle: Path, agent_dir: Path) -> None:
     """A silent `wt/` fallback ignores a directory nothing uses and leaves the
     real one tracked — the same failure, minus the evidence."""

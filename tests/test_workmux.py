@@ -135,6 +135,21 @@ def test_a_key_with_only_a_comment_after_it_names_nothing() -> None:
     assert _workmux.worktree_dir("worktree_dir: ''\n") is None
 
 
+def test_worktree_dir_reads_yamls_own_quote_escape() -> None:
+    """`''` inside a single-quoted scalar is one apostrophe, not the end of it.
+    Stopping at the first quote read `'team''s trees'` as `team`, so `team/`
+    got ignored and the real directory stayed tracked — and the next re-seed
+    carried the truncated value back into the config."""
+    assert _workmux.worktree_dir("worktree_dir: 'team''s trees'\n") == "team's trees"
+
+
+def test_a_backslash_in_a_double_quoted_value_is_not_guessed_at() -> None:
+    """Double-quoted YAML escapes are a grammar, not a substitution. A line
+    scanner that read `\\u0041` as a character would be this same bug one
+    notation further out, so the form is declined instead."""
+    assert _workmux.worktree_dir('worktree_dir: "a\\tb"\n') is None
+
+
 def test_worktree_dir_keeps_a_hash_that_is_not_a_comment() -> None:
     """YAML starts a comment only after whitespace, so `wt#2` is a directory
     name and truncating it would ignore the wrong one."""
@@ -167,31 +182,44 @@ def test_a_declared_worktree_dir_survives_the_patch() -> None:
     """`--force` re-seeds from the template, and this key says where every
     worktree in the repo already lives. Resetting it to `wt` relocates all of
     them and leaves the real directory untracked (#35)."""
-    out = _workmux.patch_seed(TEMPLATE, agent="bob", project="p", worktree_dir="trees")
+    out = _workmux.patch_seed(
+        TEMPLATE, agent="bob", project="p", worktree_dir_line="worktree_dir: trees\n"
+    )
     assert "worktree_dir: trees\n" in out
     assert "worktree_dir: wt" not in out
 
 
-def test_no_carried_value_leaves_the_template_alone() -> None:
+def test_no_carried_line_leaves_the_template_alone() -> None:
     """The fresh-repo case: nothing was declared, so the template's own value
     stands rather than being rewritten to itself."""
-    out = _workmux.patch_seed(TEMPLATE, agent="bob", project="p", worktree_dir=None)
+    out = _workmux.patch_seed(TEMPLATE, agent="bob", project="p", worktree_dir_line=None)
     assert "worktree_dir: wt" in out
 
 
-def test_a_carried_value_needing_quotes_gets_them() -> None:
-    """Written back bare, `my trees` is a different value when read again —
-    and this module is the thing that reads it."""
-    out = _workmux.patch_seed(TEMPLATE, agent=None, project="p", worktree_dir="my trees")
-    assert "worktree_dir: 'my trees'\n" in out
-    assert _workmux.worktree_dir(out) == "my trees"
+def test_a_carried_line_is_copied_not_re_written() -> None:
+    """A YAML indicator survives only if nothing re-serializes it. Written back
+    as a bare value, `'!trees'` becomes `!trees` — a tag, not the directory —
+    and `*x`, `&x`, `[x]` fail the same way. Copying the bytes removes the emit
+    direction rather than encoding it correctly."""
+    out = _workmux.patch_seed(
+        TEMPLATE, agent=None, project="p", worktree_dir_line="worktree_dir: '!trees'\n"
+    )
+    assert "worktree_dir: '!trees'\n" in out
+    assert "worktree_dir: wt" not in out
+    assert _workmux.worktree_dir(out) == "!trees"
 
 
-def test_an_ordinary_carried_value_is_not_quoted() -> None:
-    """Quoting unconditionally rewrites `wt` as `'wt'` on every re-seed — a diff
-    in a committed file reporting a change that did not happen."""
-    out = _workmux.patch_seed(TEMPLATE, agent=None, project="p", worktree_dir="wt")
-    assert "worktree_dir: wt\n" in out
+def test_a_carried_line_keeps_its_own_comment() -> None:
+    """The repo's line arrives whole. Rebuilding it from the value would drop
+    whatever the repo wrote beside it, which is theirs and not the template's."""
+    line = "worktree_dir: trees   # ours, not the default\n"
+    out = _workmux.patch_seed(TEMPLATE, agent=None, project="p", worktree_dir_line=line)
+    assert line in out
+
+
+def test_worktree_dir_line_is_none_when_the_key_is_absent() -> None:
+    """The fresh-repo case: nothing to carry, so the template's own line stands."""
+    assert _workmux.worktree_dir_line("agent: claude\n") is None
 
 
 # --- unsubstituted_placeholder ---------------------------------------------
