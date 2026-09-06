@@ -70,17 +70,22 @@ def _init_commit(repo_root: Path) -> None:
     )
 
 
-def test_resolve_spec_dir_falls_back_to_epic_planning_branch(
+def test_resolve_spec_dir_does_not_inherit_an_undecomposed_ancestor(
     repo_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Child issue worktree branched off the epic's planning branch (which
-    carries specs/{feature}/) should resolve to that spec dir, even though the
-    child branch's own issue number has no matching specs/ entry."""
+    """#263: this tree used to resolve to the ancestor, and it is the tree the
+    bug was reported on — a worktree cut with the wrong `--base` reported three
+    of another feature's steps as done and handed the agent `/speckit.analyze`
+    on a pipeline it had not entered.
+
+    It is also, byte for byte, the epic-planning-branch convention the ancestor
+    walk was written for. The two are indistinguishable from the tree, which is
+    why `a-branch-is-claimed-not-inherited` retired the walk rather than
+    narrowing it: nothing an implementation can read separates a base that was
+    chosen from one that was mistyped."""
     import subprocess
 
     _init_commit(repo_root)
-    # The epic's planning branch carries specs/{feature}/ — that unmerged spec
-    # commit is what marks it as a live parent rather than finished history.
     subprocess.run(
         ["git", "-C", str(repo_root), "checkout", "-b", "330-epic-not-yet-decomposed"],
         check=True, capture_output=True,
@@ -99,8 +104,7 @@ def test_resolve_spec_dir_falls_back_to_epic_planning_branch(
     )
     monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
 
-    result = resolve_spec_dir("464-period-nav-pill", repo_root)
-    assert result == specs
+    assert resolve_spec_dir("464-period-nav-pill", repo_root) is None
 
 
 def test_resolve_spec_dir_ignores_unrelated_branches(
@@ -139,38 +143,6 @@ def test_resolve_spec_dir_ignores_unrelated_branches(
 
     result = resolve_spec_dir("464-no-relation", repo_root)
     assert result is None
-
-
-def test_resolve_spec_dir_ignores_merged_sibling_branch(
-    repo_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A finished feature branch, merged into the trunk, is an ancestor of every
-    branch cut afterward — and its specs/ dir is still in the tree. Inheriting it
-    would report a completed story's pipeline on an unrelated new branch."""
-    import subprocess
-
-    def git(*args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
-
-    _init_commit(repo_root)
-    trunk = git("branch", "--show-current")
-
-    git("checkout", "-b", "install-config-workmux")
-    specs = repo_root / "specs" / "install-config-workmux"
-    specs.mkdir(parents=True)
-    (specs / "tasks.md").write_text("x")
-    git("add", "specs")
-    git("commit", "-m", "spec")
-
-    git("checkout", trunk)
-    git("merge", "--no-ff", "-m", "merge", "install-config-workmux")
-    git("checkout", "-b", "005-brand-new")
-    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
-
-    assert resolve_spec_dir("005-brand-new", repo_root) is None
 
 
 def _delivery_map(*rows: str) -> str:
@@ -221,41 +193,40 @@ def _stacked_repo(repo_root: Path) -> Path:
     return foreign
 
 
-def test_resolve_spec_dir_skips_ancestor_that_claims_other_issues(
-    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "ancestor_delivery",
+    [
+        pytest.param(None, id="never-decomposed"),
+        pytest.param(
+            _delivery_map("**#575** — the invariant", "**#576** — entry form"),
+            id="decomposed-claiming-other-issues",
+        ),
+        pytest.param(
+            "## Issue Grouping Map\n\n| Issue | Number |\n|---|---|\n| Wave 0 | 575 |\n",
+            id="map-the-parser-cannot-read",
+        ),
+        pytest.param(b"\xff\xfe## Issue Grouping Map\n", id="delivery-md-not-utf8"),
+    ],
+)
+def test_resolve_spec_dir_never_inherits_from_an_ancestor(
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ancestor_delivery: str | bytes | None,
 ) -> None:
-    """#120: the ancestor of a stacked branch is a sibling sub-issue of a
-    different feature. Returning it counted that feature's 46/46 as this
-    story's and told a session with no work done to open a PR. Unresolved is
-    the loud failure and the one to prefer."""
-    _stacked_repo(repo_root)
-    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    """#120 and #263, as one constraint: ancestry never claims a branch.
 
-    assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) is None
+    Each case is a foreign feature whose planning branch is an ancestor of a
+    branch with no artifacts of its own, and they differ only in what the
+    ancestor's delivery.md says — nothing, a map claiming other issues, a map
+    in a shape the parser has not met, bytes that are not UTF-8. Inheriting any
+    of them counted a finished feature's 46/46 as this story's and told a
+    session with no work done to open a PR.
 
-
-def test_resolve_spec_dir_prefers_the_feature_whose_delivery_claims_the_key(
-    repo_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The sub-issue's real feature is found by key, not by name or ancestry —
-    neither of which relates `567-…` to `555-taxonomy-redesign`. It wins over
-    the ancestor walk, so the foreign feature is never even reached."""
-    _stacked_repo(repo_root)
-    real = repo_root / "specs" / "555-taxonomy-redesign"
-    real.mkdir(parents=True)
-    (real / "delivery.md").write_text(_delivery_map("#566", "#567"))
-    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
-
-    assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) == real
-
-
-def test_resolve_spec_dir_skips_an_ancestor_whose_delivery_md_cannot_be_decoded(
-    repo_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The end-to-end of the decode split, because the unit test above cannot
-    show what it costs. A foreign ancestor whose delivery.md is not UTF-8 was
-    inherited — its 46/46 counted as this story's — for the same reason the
-    unparsed map was: the read failure produced the inheritable answer."""
+    They are one test because resolution no longer reads any of it: the four
+    cases reached four branches of the ancestor guard, and there is no guard
+    left to branch. Kept as four trees rather than one because what fails if
+    ancestry comes back is a class, and a class needs its cases.
+    """
     import subprocess
 
     def git(*args: str) -> None:
@@ -268,13 +239,67 @@ def test_resolve_spec_dir_skips_an_ancestor_whose_delivery_md_cannot_be_decoded(
     foreign = repo_root / "specs" / "562-transaction-balance"
     foreign.mkdir(parents=True)
     (foreign / "tasks.md").write_text("- [x] T001 done\n")
-    (foreign / "delivery.md").write_bytes(b"\xff\xfe## Issue Grouping Map\n")
+    if isinstance(ancestor_delivery, bytes):
+        (foreign / "delivery.md").write_bytes(ancestor_delivery)
+    elif ancestor_delivery is not None:
+        (foreign / "delivery.md").write_text(ancestor_delivery)
     git("add", "specs")
     git("commit", "-m", "spec")
     git("checkout", "-b", "567-readers-to-chart-accounts")
     monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
 
     assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) is None
+
+
+def test_resolve_spec_dir_ignores_a_merged_sibling_feature(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merged feature branch is an ancestor of every branch cut after it, and
+    its specs/ dir is still in the tree — so this was the shape that made plain
+    ancestry hand a brand-new branch a completed story's pipeline. It resolves
+    to nothing now for the same reason every ancestor does, but the tree is kept
+    because it is the one a reader expects ancestry to reach."""
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    _init_commit(repo_root)
+    trunk = git("branch", "--show-current")
+
+    git("checkout", "-b", "install-config-workmux")
+    specs = repo_root / "specs" / "install-config-workmux"
+    specs.mkdir(parents=True)
+    (specs / "tasks.md").write_text("x")
+    git("add", "specs")
+    git("commit", "-m", "spec")
+
+    git("checkout", trunk)
+    git("merge", "--no-ff", "-m", "merge", "install-config-workmux")
+    git("checkout", "-b", "005-brand-new")
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+
+    assert resolve_spec_dir("005-brand-new", repo_root) is None
+
+
+def test_resolve_spec_dir_prefers_the_feature_whose_delivery_claims_the_key(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sub-issue's real feature is found by the key its delivery.md claims.
+    Neither the branch name nor ancestry relates `567-…` to
+    `555-taxonomy-redesign`, and the ancestor it does have carries a different
+    feature — so this pins that a claim reaches across a stack, which is the
+    resolution left standing once ancestry stopped being one."""
+    _stacked_repo(repo_root)
+    real = repo_root / "specs" / "555-taxonomy-redesign"
+    real.mkdir(parents=True)
+    (real / "delivery.md").write_text(_delivery_map("#566", "#567"))
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+
+    assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) == real
 
 
 def test_resolve_spec_dir_refuses_a_key_two_features_both_claim(
@@ -292,68 +317,6 @@ def test_resolve_spec_dir_refuses_a_key_two_features_both_claim(
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
 
     assert resolve_spec_dir("544-account-tiers", repo_root) is None
-
-
-def test_resolve_spec_dir_still_inherits_an_epic_that_claims_nothing(
-    repo_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The other half of #120: an epic whose delivery.md carries no Issue
-    Grouping Map claims no issues at all. That is silence, not a denial —
-    reading it as a denial would delete the case the ancestor walk exists for.
-    The no-delivery.md-at-all shape is `…falls_back_to_epic_planning_branch`;
-    this one pins the heading-absent path through the parser."""
-    import subprocess
-
-    _init_commit(repo_root)
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo_root), *args], check=True, capture_output=True
-        )
-
-    git("checkout", "-b", "330-epic-not-yet-decomposed")
-    epic = repo_root / "specs" / "330-epic-not-yet-decomposed"
-    epic.mkdir(parents=True)
-    (epic / "tasks.md").write_text("x")
-    (epic / "delivery.md").write_text("# Delivery Plan\n\nNo grouping yet.\n")
-    git("add", "specs")
-    git("commit", "-m", "spec")
-    git("checkout", "-b", "464-period-nav-pill")
-    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
-
-    assert resolve_spec_dir("464-period-nav-pill", repo_root) == epic
-
-
-def test_resolve_spec_dir_skips_an_ancestor_whose_map_it_cannot_read(
-    repo_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A map present but unparsed is a question that went unanswered, and the
-    only safe answer is "not yours". Reading it as "claims nothing, therefore
-    not decomposed, therefore inherit" is #120 arriving through a delivery.md
-    format the parser has not met — two of 45 real files are in that state."""
-    import subprocess
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo_root), *args], check=True, capture_output=True
-        )
-
-    _init_commit(repo_root)
-    git("checkout", "-b", "562-transaction-balance")
-    foreign = repo_root / "specs" / "562-transaction-balance"
-    foreign.mkdir(parents=True)
-    (foreign / "tasks.md").write_text("- [x] T001 done\n")
-    # Keys in a second column — the shape `001-add-session-mgmt` really uses.
-    (foreign / "delivery.md").write_text(
-        "## Issue Grouping Map\n\n| Issue | Number |\n|---|---|\n| Wave 0 | 575 |\n"
-    )
-    git("add", "specs")
-    git("commit", "-m", "spec")
-    git("checkout", "-b", "567-readers-to-chart-accounts")
-    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
-
-    assert delivery_issue_keys(foreign, r"\d+") == set()
-    assert resolve_spec_dir("567-readers-to-chart-accounts", repo_root) is None
 
 
 def test_delivery_issue_keys_separates_no_map_from_an_unreadable_one(

@@ -20,9 +20,9 @@ _REPO_ROOT_OVERRIDE = "WFCTL_REPO_ROOT"
 DEFAULT_KEY_PATTERN = r"\d+"
 
 # Prefix, not a whole line: a heading that deviates from the template
-# ("Issue Grouping Map (revised)") would otherwise read as claiming no
-# issues at all, and a feature that claims nothing is one the ancestor walk
-# still inherits — which is #120 arriving through a typo.
+# ("Issue Grouping Map (revised)") would otherwise read as claiming no issues at
+# all, so every sub-issue the map names loses its only route to the epic — a
+# typo turning a decomposed feature back into an unresolved one.
 _GROUPING_HEADING = re.compile(r"^#+[ \t]*Issue Grouping Map", re.M)
 
 
@@ -96,73 +96,6 @@ def _trunk_branch(repo_root: Path) -> str | None:
         ).returncode == 0:
             return name
     return None
-
-
-def _ancestor_branches(branch: str, repo_root: Path) -> list[str]:
-    """Local branches other than `branch` that are git ancestors of it, nearest first.
-
-    Covers the "epic planning branch as worktree base" convention: a child issue's
-    worktree branches off its parent epic's planning branch (which carries
-    specs/{feature}/), rather than off the target branch directly.
-
-    Once a parent epic merges, its spec dir lives on the trunk and ancestry stops
-    identifying it; the delivery.md "Issue Grouping Map" leg of `resolve_spec_dir`
-    is what resolves a sub-issue's spec dir from that point on.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
-            capture_output=True, text=True, check=True, cwd=repo_root,
-        )
-    except subprocess.CalledProcessError:
-        return []
-
-    def commits_ahead(candidate: str) -> int | None:
-        is_ancestor = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", candidate, branch],
-            cwd=repo_root, capture_output=True,
-        )
-        if is_ancestor.returncode != 0:
-            return None
-        count = subprocess.run(
-            ["git", "rev-list", "--count", f"{candidate}..{branch}"],
-            capture_output=True, text=True, check=True, cwd=repo_root,
-        )
-        return int(count.stdout.strip())
-
-    trunk = _trunk_branch(repo_root)
-
-    def carries_own_work(candidate: str) -> bool:
-        """Does `candidate` hold commits the trunk doesn't?
-
-        Every branch descends from the trunk, so plain ancestry makes every
-        *merged* branch an ancestor of every branch cut after it — and a merged
-        feature branch still has its `specs/<its-name>/` in the tree, so the
-        exact-name match in `resolve_spec_dir` hits it and hands back a finished
-        story's pipeline. Nearest-first ranking doesn't save us: the trunk has no
-        `specs/<trunk>` to match, so the walk sails past it into the merged
-        siblings behind it.
-
-        Carrying unmerged commits is what separates a live parent epic (it holds
-        its own spec commit) from a merged or empty sibling (it holds nothing the
-        trunk lacks). Robust to the trunk advancing, unlike comparing tips.
-        """
-        if trunk is None:
-            return True
-        r = subprocess.run(
-            ["git", "rev-list", "--count", f"{trunk}..{candidate}"],
-            cwd=repo_root, capture_output=True, text=True,
-        )
-        return r.returncode == 0 and r.stdout.strip() not in ("", "0")
-
-    candidates = [
-        b for b in result.stdout.split() if b and b != branch and carries_own_work(b)
-    ]
-    ranked = sorted(
-        ((b, ahead) for b in candidates if (ahead := commits_ahead(b)) is not None),
-        key=lambda pair: pair[1],
-    )
-    return [b for b, _ in ranked]
 
 
 def _manifest_root(base: Path, key: str) -> Path | None:
@@ -409,11 +342,15 @@ def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
 
     None means the feature makes no claim at all — no delivery.md, or one with
     no grouping map. An empty *set* means the opposite: a map is there and no
-    row in it could be read. Callers must not collapse the two. A feature that
-    has not been decomposed says nothing about who owns it and is still
-    inheritable; a map nobody can parse is a question that went unanswered, and
-    answering it "yes, inherit" is how #120 gets back in. Failing closed on the
-    second costs an unresolved spec dir, which is the loud failure.
+    row in it could be read.
+
+    No caller separates the two today. `resolve_spec_dir`'s only consumer asks
+    whether a key is claimed, and neither answer claims anything, so both mean
+    "not yours" — which is the whole answer now that inheriting an ancestor is
+    gone (`a-branch-is-claimed-not-inherited`). The distinction is kept rather
+    than collapsed because it is the difference between a question nobody asked
+    and one that went unanswered, and a later caller that acts on a claim's
+    absence needs to know which it has.
 
     Rows are read from the first run of table lines under the heading, and only
     the leading key of the first cell. The wider scan `speckit-orchestrate` did
@@ -477,33 +414,21 @@ def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
 def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     """Return spec dir: {spec root}/{branch-prefix}-* → None if not found.
 
-    When `branch` has no match of its own, two fallbacks, in this order:
+    When `branch` has no match of its own, one fallback: the feature whose
+    delivery.md names this branch's issue key. A decomposed epic records which
+    sub-issue owns which task range, and the key is the only thing that survives
+    the sub-issue being named nothing like its parent.
 
-    First the feature whose delivery.md names this branch's issue key. That is
-    the answer whenever it exists — a decomposed epic records which sub-issue
-    owns which task range, and the key is the only thing that survives the
-    sub-issue being named nothing like its parent.
+    Nothing else claims a branch. Git ancestry used to, for worktrees cut from a
+    parent epic's planning branch, and `a-branch-is-claimed-not-inherited`
+    retired it: a base records where a worktree came from, which is the same
+    fact whether the epic was chosen or mistyped, so it cannot answer which
+    feature owns the branch. Unresolved is the loud failure; a foreign feature's
+    finished pipeline is the quiet one (#120, #263).
 
-    Then the same name lookup against ancestor branches, nearest first, which
-    handles worktrees branched off a parent epic's planning branch instead of
-    the target branch. An ancestor carrying a grouping map is a decomposed
-    feature that had its chance to name this branch and did not — a sibling
-    sub-issue of a foreign feature, which is the stacked-branch shape of #120,
-    where a finished neighbour's `tasks.md` was counted as this story's and
-    `status` said "open PR" on work that had not begun. Skip it: no spec dir is
-    the loud, obviously wrong failure, and a foreign one is the quiet plausible
-    one. Only a feature with no map at all is inherited, which is the epic that
-    has not decomposed yet.
-
-    That leaves one shape of #120 standing: a foreign ancestor that never
-    decomposed has no map to contradict, and is inherited. Nothing in
-    `delivery.md` can decide that case, and widening the fallback is the
-    direction the bug came from — so it stays open rather than guessed at.
-
-    A branch with no parseable issue key loses that inheritance too, since no
+    A branch with no parseable issue key resolves only by its own name, since no
     map can name a key it does not have. wfctl's own worktrees always carry one
-    (`pre_create` enforces it) but the repos wfctl installs into need not, and
-    for them this is the loud failure replacing a guess, not a regression.
+    (`pre_create` enforces it) but the repos wfctl installs into need not.
 
     Searches one root only, the one `spec_root` resolves. No second look under
     `repo_root/specs` when a root is configured: falling back would let one
@@ -552,18 +477,6 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
             return claimants[0]
         if claimants:
             return None
-
-    for ancestor in _ancestor_branches(branch, repo_root):
-        found = match(ancestor)
-        if found is None:
-            continue
-        # `is not None`, not truthiness: a decomposed feature whose map could
-        # not be read yields an empty set, and it is the one case that must not
-        # be inherited. Reaching here at all means the leg above already failed
-        # to find this key, so any map present is a map that does not name us.
-        if delivery_issue_keys(found, pattern) is not None:
-            continue
-        return found
 
     return None
 
