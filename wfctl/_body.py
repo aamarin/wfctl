@@ -33,16 +33,22 @@ _HEADING = re.compile(r"^ {0,3}(#{2,6})\s+(.*?)\s*#*\s*$", re.MULTILINE)
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
-# A cell holding only a bracketed placeholder, "N/A", "None", "TBD" or nothing.
-# The bracket form is the template's own convention for an unanswered field —
-# `opening-a-change` Step 4 says placeholders in brackets are replaced, not left
-# — so a body still carrying them is unfilled in exactly the way a blank one is.
-_UNFILLED = re.compile(r"^(?:\[[^\]]*\]|n/?a|none|tbd|-+|)$", re.IGNORECASE)
+# What the template ships in a field nobody answered: a bracketed placeholder,
+# "N/A", "None", "TBD", a dash run. `opening-a-change` Step 4 says placeholders in
+# brackets are replaced, not left, so a field still carrying one is unfilled in
+# exactly the way a blank one is.
+_SHIPPED = re.compile(r"\[[^\]]*\]|n/?a|none|tbd|-+", re.IGNORECASE)
 
-# A bracketed span that is not a markdown link. `[target]` is an unfilled field;
-# `[the record](url)` is prose, and treating the second as the first would reject
-# a finished summary for citing something.
-_PLACEHOLDER = re.compile(r"\[[^\]]*\](?!\()")
+_BRACKETED = re.compile(r"\[[^\]]*\]")
+# Inline `[text](url)` and reference `[text][label]`. A bracketed span that is a
+# link is something the author wrote; reading it as an unanswered field rejects a
+# finished panel for citing its own record.
+_LINK = re.compile(r"\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])")
+# `[label]: https://…` — what makes a bare `[label]` a shortcut link rather than
+# a placeholder. Nothing else can tell those two apart.
+_LINK_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:\s+\S", re.MULTILINE)
+
+_MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
 _SECTION = "review panel"
 _SUMMARY = "**panel:**"
@@ -51,6 +57,42 @@ _SUMMARY = "**panel:**"
 # measure against — three is what a result row means, not a column count this
 # module prefers.
 _RESULT_CELLS = 3
+
+
+def _labels(body: str) -> set[str]:
+    """Link labels the body defines, lowercased."""
+    return {m.group(1).strip().lower() for m in _LINK_DEF.finditer(body)}
+
+
+def _delink(text: str, labels: set[str]) -> str:
+    """`text` with markdown links removed, so what is left is prose and fields."""
+    text = _LINK.sub("", text)
+    if not labels:
+        return text
+    return _BRACKETED.sub(
+        lambda m: "" if m.group(0)[1:-1].strip().lower() in labels else m.group(0),
+        text,
+    )
+
+
+def _written(text: str, labels: set[str]) -> bool:
+    """Whether a field holds something an author put there.
+
+    **The one predicate this module has**, asked of every field it reads — a
+    table cell, the roster, a line of evidence. Four of the findings on PR #234
+    were one defect: each field had grown its own answer to this question, and
+    every field with a weaker answer was another way to look reviewed without
+    being reviewed. A cell test that rejected `N/A` sat beside an evidence test
+    that accepted it, and beside a summary test that read links differently from
+    both. Fields differ in what they hold; none of them differs in what it means
+    to be filled.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _delink(stripped, labels) != stripped:  # it carried a link
+        return True
+    return not _SHIPPED.fullmatch(stripped)
 
 
 def _blank_fences(text: str) -> str:
@@ -136,7 +178,7 @@ def _roster(section: str) -> str | None:
     return None
 
 
-def _evidence(section: str) -> bool:
+def _evidence(section: str, labels: set[str]) -> bool:
     """Whether the section says anything beyond its roster and its summary.
 
     Only reachable when the panel reported no findings, where there is no table
@@ -145,16 +187,22 @@ def _evidence(section: str) -> bool:
     'looks good' is a missing report wearing a verdict."* A roster alone is that
     bare verdict, and it is the cheapest body a skipped panel can produce.
 
+    A heading is structure rather than evidence, and `N/A` is the answer Step 4
+    forbids here by name — both were accepted while this asked only whether a
+    line existed, which is the question `_written` exists so that nothing asks.
+
     Presence, never content — no check can tell a true account of six passes
     from a fabricated one. What it removes is the one-line fake.
     """
     for line in section.splitlines():
-        line = line.strip()
-        if not line or line.startswith("|"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("|") or _MD_HEADING.match(line):
             continue
-        if line.lower().startswith("roster:") or line.lower().startswith(_SUMMARY):
+        low = stripped.lower()
+        if low.startswith("roster:") or low.startswith(_SUMMARY):
             continue
-        return True
+        if _written(stripped, labels):
+            return True
     return False
 
 
@@ -166,6 +214,11 @@ def panel_findings(body: str) -> list[str]:
     this rule — `install-config` is seed-once, so most repositories have one —
     and the repair is to append the section. Everything after that is a panel
     that did not finish, and the repair is to finish it.
+
+    Every field is read through `_written`, and the summary through the same
+    link handling, so a new field added here inherits both rather than growing a
+    fourth answer to what "filled" means. That is what the reviewers on #234
+    were finding, once per field, until the fields stopped disagreeing.
     """
     section = _section(body)
     if section is None:
@@ -176,9 +229,12 @@ def panel_findings(body: str) -> list[str]:
             "Append the section, whether or not the template carries one."
         ]
 
+    labels = _labels(body)
     out = []
     for line in section.splitlines():
-        if line.strip().lower().startswith(_SUMMARY) and _PLACEHOLDER.search(line):
+        if not line.strip().lower().startswith(_SUMMARY):
+            continue
+        if _BRACKETED.search(_delink(line, labels)):
             out.append(
                 "opening-a-change Step 1 — the Review Panel summary still carries "
                 f"placeholders: {line.strip()!r}. The count of reviewers and "
@@ -194,7 +250,7 @@ def panel_findings(body: str) -> list[str]:
                 f"{width}. A row without its disposition records a finding "
                 "nobody said what they did about."
             )
-        elif any(_UNFILLED.match(cell) for cell in row):
+        elif not all(_written(cell, labels) for cell in row):
             out.append(
                 "opening-a-change Step 1 — a Review Panel row still carries what "
                 f"it shipped with: {' | '.join(row)!r}. Every cell of a result "
@@ -202,7 +258,7 @@ def panel_findings(body: str) -> list[str]:
                 "an otherwise untouched row renders as a reviewed finding."
             )
 
-    if not rows and not _evidence(section):
+    if not rows and not _evidence(section, labels):
         out.append(
             "opening-a-change Step 1 — the Review Panel reports no findings and "
             "shows no evidence. 'No findings' is a result only when it says which "
@@ -211,7 +267,7 @@ def panel_findings(body: str) -> list[str]:
         )
 
     roster = _roster(section)
-    if roster is None or _UNFILLED.match(roster):
+    if roster is None or not _written(roster, labels):
         out.append(
             "opening-a-change Step 1 — the '## Review Panel' section carries no "
             "roster. It is the only thing telling a reviewer that found nothing "
