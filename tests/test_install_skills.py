@@ -285,6 +285,7 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "i-have-adhd",
     "opening-a-change",
     "receiving-code-review",
+    "start-session",
     "verification-before-completion",
     "worktree-handoff",
 })
@@ -327,10 +328,13 @@ def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
 
     Suppression drops the whole file, so anything the wrapper carries beyond
     "read the skill" is dropped with it — silently, and only on the mirroring
-    layer. `start-session.md` and `end-session.md` are the live examples: both
-    carry an `allowed-tools:` pre-approval their SKILL.md files do not, so adding
-    either name to `_MIRRORED_SKILLS` would revoke it on the Claude layer with the
-    suite still green.
+    layer. `end-session.md` is the live example: it carries an `allowed-tools:`
+    pre-approval its SKILL.md does not, so adding that name to `_MIRRORED_SKILLS`
+    would revoke it on the Claude layer with the suite still green.
+
+    `start-session.md` was the other, and #204 mirrored it — by moving the key
+    onto the SKILL.md first, which is what this test asks for. It is the worked
+    example of paying the price rather than exempting the name.
 
     `description` and `disable-model-invocation` are the two keys a pointer needs
     — one to be findable, one to say a human types it — and neither survives into

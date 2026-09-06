@@ -103,6 +103,44 @@ def test_the_level_2_gate_names_the_record_skill() -> None:
     assert "architecture-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:
+    """`speckit-orchestrate` opens by halting on a branch with no session, and
+    the only thing it offers is `/start-session`. The wrapper behind that name
+    carries `disable-model-invocation`, so an unattended run that reaches for
+    the Skill tool is refused and stops at a gate it was meant to clear — three
+    worktrees did on 2026-09-06 (#204). A fourth read the wrapper as a file,
+    followed its pointer and ran the workflow, which is why the claim is
+    route-dependence rather than impossibility.
+
+    Both halves asserted. Membership alone stays green if the gate is reworded
+    to name `wfctl start` — the shortcut PR #194 rejected — and the gate text
+    alone stays green if the name drops out of the mirror, which is the state
+    this test was written in.
+
+    The `disable-model-invocation` check is the third way to lose it silently:
+    the mirror puts the skill on the discovery path, and that key on the skill
+    would refuse it there too, leaving no route at all.
+    """
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    gate = (_AGENTS / "skills" / "speckit-orchestrate" / "SKILL.md").read_text()
+    # The `Display:` line, not the step — four paragraphs of prose below it argue
+    # for `/start-session` over `wfctl start`, and a search over the whole step
+    # reads that argument as the remedy it is arguing about.
+    displayed = re.findall(r"^\s*- Display: \"(.*)\"$", gate, re.MULTILINE)
+    assert any("/start-session" in d for d in displayed), displayed
+    assert "start-session" in _MIRRORED_SKILLS
+
+    skill = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
+    front = _arch._frontmatter(skill)
+    assert "disable-model-invocation" not in front
+    # Suppression drops the wrapper whole, and the pre-approval it used to carry
+    # only ever ran on the layer being suppressed. It moved here; nothing else
+    # would notice it leaving.
+    assert "allowed-tools" in front
+
+
 def test_the_record_template_carries_every_section_a_record_needs() -> None:
     """`Owns truth` is the field this feature exists to capture, and the
     template is where the agent gets it from — a template missing it produces
