@@ -630,6 +630,26 @@ def test_open_tasks_still_route_to_the_step_command(gated: types.SimpleNamespace
     assert "auto: true" in (gated.agent_dir / "next-step.md").read_text()
 
 
+def test_the_sentinel_closes_the_tasks_even_with_a_box_left_open(
+    gated: types.SimpleNamespace,
+) -> None:
+    """#262. `speckit-implement` writes the sentinel on every run, precisely for
+    the story whose boxes were never a reliable signal — so the sentinel beside
+    an open box is the ordinary state, not a corrupt one.
+
+    `_infer_steps` reads both routes and reports `in_progress`; the routing path
+    read only the boxes, saw work left, and returned `auto: true` for a story
+    whose definition of done has not passed. `state` is what the two disagreed
+    about, so an assertion on it passes against the defect — the flag is the
+    whole test.
+    """
+    gated.make_spec_artifact("tasks", "- [x] T001 done\n- [ ] T002 open\n")
+    (gated.spec_dir / "checklists" / "implement-complete.md").write_text("done\n")
+    result = runner.invoke(app, ["next"])
+    assert "wfctl verify" in result.output
+    assert "auto: false" in (gated.agent_dir / "next-step.md").read_text()
+
+
 def test_a_verified_story_reports_complete_rather_than_a_next_step(
     gated: types.SimpleNamespace,
 ) -> None:
