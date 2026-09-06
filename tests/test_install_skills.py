@@ -1516,6 +1516,30 @@ def test_install_summary_reports_per_layer_counts(agent_dir: Path) -> None:
     assert "1 command" in layers["claude"]
 
 
+def test_a_file_beside_the_skills_is_not_counted_as_one(
+    agent_dir: Path, repo_root: Path, bundle: Path
+) -> None:
+    """`NOTICES.md` has to sit inside `agents/skills` to reach an installed
+    project — `install-skills` mirrors that directory and nothing above it — and
+    the loop that copies it plans every direct child under the source
+    directory's kind. So the notice was installed correctly and counted as a
+    skill, and a bare install reported one more skill than there are skill
+    directories (#216).
+
+    The count is what a reader checks the install against, and it is the only
+    thing here that was wrong: the file lands either way."""
+    (bundle / "agents" / "skills" / "NOTICES.md").write_text("# Third-party notices\n")
+
+    result = runner.invoke(app, ["install-skills"])
+
+    assert result.exit_code == 0
+    counts = _summary_layers(result.output)["base"]
+    installed = repo_root / ".agents" / "skills"
+    assert (installed / "NOTICES.md").exists(), "the notice still has to be installed"
+    assert "1 skill" in counts and "2 skill" not in counts, counts
+    assert "1 notice" in counts, counts
+
+
 def test_bare_install_prints_agent_optin_hint(agent_dir: Path) -> None:
     """After a base-only install, name every agent that has a layer and
     the command to add it. Derived from _AGENT_TARGETS so an agent added later

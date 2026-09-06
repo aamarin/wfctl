@@ -1641,15 +1641,23 @@ def _unmerge_hooks(
     return len(changed), problems
 
 
-def _kind_of(src_rel: str) -> str:
+def _kind_of(src_rel: str, item: Path | None = None) -> str:
     """What an item is, for the install summary — 'skill', 'command', 'runtime'.
 
     Derived from the source directory, so a new target picks up a sensible label
     without a second lookup table to keep in sync.
+
+    A skill is a directory. `agents/skills` also holds `NOTICES.md`, which has to
+    sit beside the skills it covers to reach an installed project at all — and
+    counting it as one made a bare install report 34 skills over 33 directories
+    (#216). It counts as a `notice` rather than falling through to `runtime`,
+    which is the specify tree's label and would have moved the miscount rather
+    than fixed it. What is installed does not change; only the line that counts it.
     """
-    return {"skills": "skill", "commands": "command"}.get(
-        src_rel.rsplit("/", 1)[-1], "runtime"
-    )
+    label = {"skills": "skill", "commands": "command"}.get(src_rel.rsplit("/", 1)[-1], "runtime")
+    if label == "skill" and item is not None and not item.is_dir():
+        return "notice"
+    return label
 
 
 def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
@@ -2155,7 +2163,7 @@ def install_skills_cmd(
                 continue
             dest = dst / item.name
             rel_dest = str(dest.relative_to(repo_root))
-            plan.append((layer, kind, rel_dest, dest, item))
+            plan.append((layer, _kind_of(src_rel, item), rel_dest, dest, item))
             gitignore_targets.append(rel_dest)
             if dest.exists() and rel_dest not in prior_items:
                 foreign_overwrites.append((layer, rel_dest))
