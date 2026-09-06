@@ -47,9 +47,14 @@ def test_the_gate_sends_the_reader_to_start_session_not_wfctl_start() -> None:
     A gate that names it trades one silent omission for another: the skills
     mirror is not refreshed, the architecture contract is not loaded, and the
     handoff is not read — and the user never learns any of that was skipped.
+
+    The `Display:` line, not the step. Four paragraphs below it argue for
+    `/start-session` over `wfctl start` by name, so a search over the whole step
+    passes on the argument while the remedy itself says the other thing — which
+    is what a mutation of the line demonstrated under #204.
     """
-    first = _first_step()
-    assert "/start-session" in first
+    displayed = re.findall(r"^\s*- Display: \"(.*)\"$", _first_step(), re.MULTILINE)
+    assert any("/start-session" in d for d in displayed), displayed
 
 
 def test_no_shipped_skill_cites_an_orchestrate_step_by_number() -> None:

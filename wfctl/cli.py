@@ -1330,9 +1330,12 @@ _MIRRORED_SKILLS = frozenset({
     # does not make a refused route work — it removes the fork, so the outcome
     # stops depending on which way the agent reached.
     #
-    # The wrapper carried an `allowed-tools:` pre-approval that suppression
-    # would have dropped; it lives on the SKILL.md now, which is the only layer
-    # that ever read it unstripped anyway.
+    # Its `allowed-tools:` sits on the SKILL.md rather than the wrapper, because
+    # suppression drops a wrapper whole and `.claude/commands/` was the only
+    # place that key was ever read unstripped. On a skill the same grant reaches
+    # a model-initiated invocation, `Bash(wfctl install-skills*)` included —
+    # sanctioned by the Safety section of this repo's AGENTS.md, which already
+    # has `/start-session` refreshing a stale mirror unattended.
     "start-session",
     "using-superpowers",
     "verification-before-completion",
