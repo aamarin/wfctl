@@ -473,3 +473,93 @@ def test_the_stop_entry_cannot_block_a_stop_when_wfctl_cannot_run_it() -> None:
     Pinned rather than left to the reader of the string, because the `|| true`
     looks like sloppiness until you know which event it is on."""
     assert STOP_HOOK_COMMAND.endswith("|| true")
+
+
+def test_uninstall_prunes_the_file_after_an_upgrade_added_a_second_event(
+    agent_dir: Path,
+) -> None:
+    """The sequence every existing consumer takes: installed when wfctl managed
+    one event, re-installed once it managed two. `created` answers "did wfctl
+    bring this file into existence", which is a fact about the *file* — sampled
+    per entry, the `Stop` record written on the upgrade says `False`, and
+    uninstall, which unlinks on the record that empties the file, leaves the `{}`
+    behind. The test above installs once and cannot see it."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    # Roll the install back to what the previous wfctl left: one entry, one
+    # record. Editing the manifest rather than pinning a released wfctl, because
+    # what is under test is how *this* install reads a record it did not write.
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["hooks"]["Stop"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claude"]["merged"] = [
+        r for r in manifest["claude"]["merged"] if r["event"] != "Stop"
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+
+    assert not settings_path.exists(), settings_path.read_text()
+
+
+def test_uninstall_counts_settings_files_not_managed_entries(agent_dir: Path) -> None:
+    """Two events share one file. Counting records reported "2 settings file(s)"
+    where there is one — the same bug the install summary was deduped for, on the
+    half that did not get the pass."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    # Pre-existing content, so uninstall reports the file rather than deleting it.
+    settings_path.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}) + "\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "from 1 settings file(s)" in result.output, result.output
+
+
+def test_doctor_names_what_a_missing_stop_hook_costs(agent_dir: Path) -> None:
+    """Each event loses something different, and "the managed hook is gone" tells
+    the reader neither. Pinned per event because two assertions matching only the
+    shared prefix leave the branch that picks between them uncovered."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["hooks"]["Stop"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert "nothing looks at a reply once it is written" in result.output
+    assert "decay again mid-session" not in result.output
+
+
+def test_doctor_reports_a_managed_event_the_recorded_install_never_had(
+    agent_dir: Path,
+) -> None:
+    """A repo installed when wfctl managed one event has no `Stop` record, so a
+    record-driven check would never look for the entry — and the bundle hash
+    cannot see it either, since the hook adds nothing under `wfctl/agents/`. The
+    feature would ship to nobody who already had wfctl."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["hooks"]["Stop"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claude"]["merged"] = [
+        r for r in manifest["claude"]["merged"] if r["event"] != "Stop"
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert "managed Stop hook" in result.output, result.output

@@ -111,8 +111,21 @@ Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
 
 ```bash
+wfctl check-body <path>                                   # then read what it says
 gh pr create --title "<subject>" --body-file <path>
 ```
+
+`check-body` reads the drawings against `conversation-response-shape`, which the
+template above names as the owner of which drawing to use. It knows one thing and
+says so: a fenced block with columns aligned by hand *and* a cell that outgrew its
+header is tabular content, and tabular content goes in a table. That combination
+is the one the reader rejected on #208 — the fix was replacing the fence with a
+markdown table, and the accepted drawings in the same body are hand-aligned too,
+which is why alignment alone is not the finding.
+
+It exits 1 when it finds something and gates nothing; the point is that the file
+exists before `gh` reads it, so the check is available at all. Outside a wfctl
+repo, or with no `wfctl` on `PATH`, skip it — the rule is in the skill either way.
 
 The body only. The sidebar is Step 5 and is deliberately not a flag on this
 command: a flag dropped from an invocation cannot be observed as missing, and
