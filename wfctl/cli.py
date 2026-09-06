@@ -2883,6 +2883,17 @@ def check_body_cmd(
     a file rather than a hook over a response. `opening-a-change` Step 4 already
     writes the body to a file and passes the file; this reads that file.
 
+    **Why not a flag on `doctor`.** That was the first shape considered, and
+    `doctor`'s own contract rules it out twice. It says what stays out of it is
+    "anything whose answer depends on where the user is in their work" — a PR
+    body exists only while a change is being opened, which is the definition of
+    that. And it runs unprompted at every session start with no argument and one
+    exit code for the whole repo; a check that needs a file named on the command
+    line has nowhere to be handed one, and folding a per-file verdict into that
+    exit code costs the signal `doctor` exists to carry. The same reasoning keeps
+    it out of `verify`, which records that a *branch* is done rather than judging
+    a file it is handed.
+
     Only the drawing rules, because the skill scopes the two surfaces apart
     (SKILL.md:429): headers are a violation in a reply and *required* in a PR
     body, while the template names this skill's form-selection table as the
@@ -2963,6 +2974,29 @@ def hook_user_prompt_cmd() -> None:
     (`research.md`'s command-name decision).
     """
     _hook_user_prompt()
+
+
+# What the `Stop` hook sends back. The finding leads and the instruction follows,
+# and that order is the whole design.
+#
+# An instruction on its own is the fourth reminder in a stack of three that
+# already lost, which is #212. What makes this one different is that it arrives
+# knowing what was broken — so it is a correction rather than a re-statement, and
+# it is the half that changes every turn rather than scrolling past unread.
+#
+# The instruction is there because re-reading the skill in full demonstrably
+# works and demonstrably decays: in the session this was built in, invoking it
+# took the reply from a finding on four turns out of four to none on the two that
+# followed, and the drift returned two turns after that. A pointer alone would
+# have to be believed; a pointer under a finding has just been shown to be right.
+_SHAPE_REPORT = """Your last reply broke conversation-response-shape:
+
+{findings}
+
+Re-read the skill in full before the next reply — the every-turn digest is 500
+characters and this is what it does not carry. Run `/conversation-response-shape`
+if you can; otherwise read `.agents/skills/conversation-response-shape/SKILL.md`,
+including the seven-question pre-send check at the end."""
 
 
 def _last_exchange(transcript: Path) -> tuple[str, str]:
@@ -3056,11 +3090,20 @@ def hook_response_shape_cmd() -> None:
     See `wfctl/_shape.py` for what is and is not checkable, and #212 for the
     session where all three layers fired and all three lost.
 
-    **Warns, never blocks.** Exit 0 with a `systemMessage`, not exit 2. Over the
-    twenty terminal replies of the transcript this was tuned on, half carry a
-    finding — a gate at that rate stops being read, and one of the ten is an
-    options list the reader's own instructions ask for. The check cannot tell
-    that one from the rest, so it says what it saw and leaves the call to them.
+    **Warns, never blocks.** Exit 0, never exit 2 — blocking a stop tells the
+    agent to keep going and stop again. Over the twenty terminal replies this was
+    tuned on, half carry a finding; a gate at that rate stops being read, and one
+    of the ten is an options list the reader's own instructions ask for. The
+    check cannot tell that one from the rest, so it says what it saw.
+
+    **It reports to the model, not to the terminal.** `systemMessage` is the
+    obvious channel and it is not wired for this event — measured, not assumed:
+    across seven `Stop` runs in one session the hook produced a finding twice and
+    neither reached the reader, while the runs that printed nothing were correctly
+    silent. `hookSpecificOutput.additionalContext` is the channel that works, and
+    it is the better one anyway: it reaches the agent that wrote the reply, in
+    time to shape the next one. `systemMessage` is emitted beside it so a version
+    that wires it up costs no change here.
 
     Silent when it finds nothing, which is most turns and the only behaviour
     that keeps the loud ones worth reading.
@@ -3073,24 +3116,39 @@ def hook_response_shape_cmd() -> None:
         return
     if not isinstance(payload, dict):
         return
+
+    # `last_assistant_message` is the finished reply, handed over so a hook does
+    # not have to parse the transcript for it. Preferred when present and fallen
+    # back on when it is not, because the prompt still has to come from the
+    # transcript — the depth gate needs the words that were asked, and no field
+    # carries those.
+    reply = payload.get("last_assistant_message")
     path = payload.get("transcript_path")
     if not isinstance(path, str) or not path:
         return
     try:
-        prompt, reply = _last_exchange(Path(path).expanduser())
+        prompt, walked = _last_exchange(Path(path).expanduser())
     except OSError:
         # Same posture as `_hook_user_prompt`: this runs at the end of every turn,
         # and a transcript that has moved or cannot be read is not a thing to
         # report on work that was otherwise fine.
         return
+    if not isinstance(reply, str) or not reply.strip():
+        reply = walked
     if not reply:
         return
 
     found = _shape.findings(reply, prompt)
     if found:
+        message = _SHAPE_REPORT.format(
+            findings="\n".join(f"  - {line}" for line in found)
+        )
         print(json.dumps({
-            "systemMessage": "conversation-response-shape, on the reply above:\n"
-            + "\n".join(f"  • {line}" for line in found)
+            "hookSpecificOutput": {
+                "hookEventName": "Stop",
+                "additionalContext": message,
+            },
+            "systemMessage": message,
         }))
 
 

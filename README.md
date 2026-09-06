@@ -454,7 +454,10 @@ the text is written, one after:
 | `UserPromptSubmit` | `wfctl hook user-prompt` | prints the `digest.md` of each skill the manifest records as installed, so a skill loaded at session start is re-anchored on later turns instead of decaying as the context fills |
 | `Stop` | `wfctl hook response-shape` | reads the finished reply back out of the transcript and warns when it broke a `conversation-response-shape` rule a machine can see — a markdown header, a counted lead-in, length nothing asked for |
 
-The `Stop` entry warns and never blocks: it exits 0 with a `systemMessage`, and
+The `Stop` entry warns and never blocks. It reports to the agent that wrote the
+reply rather than to your terminal — `systemMessage` is the obvious channel and
+is not wired for this event, so the finding rides
+`hookSpecificOutput.additionalContext` and lands in the next turn's context. It
 carries `|| true` because a non-zero exit on that event tells the agent to keep
 going rather than stopping, so an older `wfctl` on `PATH` would loop at the end
 of every turn instead of printing once. The same rules over a PR description are
