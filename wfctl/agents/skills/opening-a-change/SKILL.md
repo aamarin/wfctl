@@ -118,7 +118,7 @@ Summary (context, then the drawing, then what / why / impact) · What changed ·
 How it was tested · Review panel · Issue links.
 ```
 
-Then fill those four. `wfctl install-config github` seeds a real template — say
+Then fill those five. `wfctl install-config github` seeds a real template — say
 so once, and do not block on it.
 
 ## Step 4: Fill every section
