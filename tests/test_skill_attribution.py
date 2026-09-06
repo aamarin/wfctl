@@ -139,15 +139,27 @@ def _noticed_templates() -> dict[str, str]:
     it names `templates/github-issue-template.md` in order to say it is *not*
     derived, and a scan of the whole section would read that denial as a claim.
     """
-    found = {}
+    return dict(_template_claims())
+
+
+def _template_claims() -> list[tuple[str, str]]:
+    """Every (template path, upstream) claim the specify notice makes, in order.
+
+    A list and not a dict, because a path can appear under two headings — while
+    it is being moved between upstreams, most plausibly — and collapsing that to
+    a mapping keeps whichever came last. The notice then ships attributing one
+    file to two owners with every check green, so the duplicate has to survive
+    as far as the check that looks for it.
+    """
+    claims = []
     for section in re.split(r"^## ", SPECIFY_NOTICES.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
         covered = body.split("\n    Copyright", 1)
         if len(covered) == 1:
             continue   # a section with no copyright line claims nothing; `_noticed` fails on it
         for path in re.findall(r"`(templates/[a-z0-9-]+\.md)`", covered[0]):
-            found[f"specify/{path}"] = heading.strip()
-    return found
+            claims.append((f"specify/{path}", heading.strip()))
+    return claims
 
 
 def test_every_file_the_record_lists_carries_its_attribution_line() -> None:
@@ -208,6 +220,23 @@ def _permission_block() -> str:
     body = LICENSE.read_text(encoding="utf-8").splitlines()
     start = next(i for i, line in enumerate(body) if line.startswith("Permission is hereby"))
     return "\n".join(("    " + line).rstrip() for line in body[start:]).rstrip()
+
+
+def test_no_template_is_claimed_by_two_upstreams_in_the_specify_notice() -> None:
+    """A file has one owner, and the notice is the templates' only declaration.
+
+    The three checks around this one all read the notice as a mapping, so a
+    template listed under two `##` sections collapsed to whichever came last —
+    and where the record named that one, every check passed while the shipped
+    file said a template belonged to two projects at once. The half-finished
+    move that produces it is the same shape as the half-finished cleanup
+    `test_no_file_claims_an_upstream_the_record_does_not_list` exists for."""
+    seen: dict[str, list[str]] = {}
+    for path, upstream in _template_claims():
+        seen.setdefault(path, []).append(upstream)
+    duplicated = {path: owners for path, owners in seen.items() if len(owners) > 1}
+
+    assert not duplicated, f"claimed by more than one upstream in {SPECIFY_NOTICES.name}: {duplicated}"
 
 
 def test_the_specify_notice_and_the_record_name_the_same_upstream() -> None:
