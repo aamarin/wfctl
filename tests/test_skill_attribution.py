@@ -30,13 +30,16 @@ import re
 from pathlib import Path
 
 import wfctl
+from wfctl import cli
 
 # Resolved from the installed package for the same reason as
 # `test_skill_frontmatter`: conftest's autouse `bundle` fixture repoints
 # `_bundle.BUNDLE_ROOT` at a fixture tree, and this is about what wfctl ships.
 SKILLS_ROOT = Path(wfctl.__file__).parent / "agents" / "skills"
 SPECIFY_ROOT = Path(wfctl.__file__).parent / "specify"
-RECORD = Path(__file__).resolve().parent.parent / "docs" / "architecture" / "vendor-upstream-skills.md"
+REPO = Path(__file__).resolve().parent.parent
+RECORD = REPO / "docs" / "architecture" / "vendor-upstream-skills.md"
+LICENSE = REPO / "LICENSE"
 NOTICES = SKILLS_ROOT.parent / "NOTICES.md"
 # The specify tree's notice sits in `templates/` rather than at its root because
 # that is the deepest directory `install-skills` mirrors into a project — see
@@ -48,7 +51,7 @@ SPECIFY_NOTICES = SPECIFY_ROOT / "templates" / "NOTICES.md"
 # a line naming a source but no copyright holder is not the notice MIT asks for,
 # and one naming neither licence nor holder is not what the record says the line
 # carries. A half-written line has to fail as an absent one, not pass as a whole.
-_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), [^)]*©[^)]*\)\.$")
+_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), [^)]*© *[^)\s][^)]*\)\.$")
 # Padding-tolerant: a table reformatted with aligned columns would otherwise
 # match no row at all, and an empty `_listed()` reads as "nothing is declared"
 # — which passes the direction that matters if a line went missing too.
@@ -83,22 +86,23 @@ def _attributed() -> dict[str, str]:
     return found
 
 
+def _rows() -> list[tuple[str, str]]:
+    """Every (name, upstream) pair in the record's tables, parsed once.
+
+    Both filters below read this rather than the file, so a change to `_ROW`
+    cannot move one of them and leave the other matching the old shape.
+    """
+    return _ROW.findall(RECORD.read_text(encoding="utf-8"))
+
+
 def _listed() -> dict[str, str]:
-    """Skill name or file path → the upstream the record's tables name."""
-    return {
-        name: upstream
-        for name, upstream in _ROW.findall(RECORD.read_text(encoding="utf-8"))
-        if not name.startswith(_TEMPLATE_ROW)
-    }
+    """Skill name or script path → the upstream the record's tables name."""
+    return {name: upstream for name, upstream in _rows() if not name.startswith(_TEMPLATE_ROW)}
 
 
 def _listed_templates() -> set[str]:
     """The template paths the record's second table names."""
-    return {
-        name
-        for name, _ in _ROW.findall(RECORD.read_text(encoding="utf-8"))
-        if name.startswith(_TEMPLATE_ROW)
-    }
+    return {name for name, _ in _rows() if name.startswith(_TEMPLATE_ROW)}
 
 
 def _noticed_templates() -> set[str]:
@@ -155,27 +159,67 @@ def test_the_file_and_the_record_name_the_same_upstream() -> None:
     assert not disagree, f"file and record name different upstreams (file, record): {disagree}"
 
 
-def test_every_upstream_named_in_a_file_has_its_notice_in_the_same_tree() -> None:
+def _noticed(notice: Path) -> dict[str, str]:
+    """Upstream → the copyright line that upstream's section in `notice` carries.
+
+    Sectioned on the `## <upstream>` heading and read down to the next one,
+    rather than searched for the upstream's name anywhere in the file. The name
+    is *also* in the section's own URL, so a whole-file search reports an
+    upstream as noticed when its heading and link survive an edit that deleted
+    the copyright line beneath them — which is the one line the section exists
+    to carry. Proven by mutation: deleting `Copyright GitHub, Inc.` from
+    `wfctl/agents/NOTICES.md` passed every check this file had.
+    """
+    found = {}
+    for section in re.split(r"^## ", notice.read_text(encoding="utf-8"), flags=re.M)[1:]:
+        heading, _, body = section.partition("\n")
+        holder = re.search(r"^ {4}(Copyright .+)$", body, re.M)
+        if holder:
+            found[heading.strip()] = holder.group(1)
+    return found
+
+
+def _permission_block() -> str:
+    """`LICENSE`'s permission notice, indented as a notice file quotes it."""
+    body = LICENSE.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(body) if line.startswith("Permission is hereby"))
+    return "\n".join(("    " + line).rstrip() for line in body[start:]).rstrip()
+
+
+def test_every_upstream_named_in_a_file_has_its_copyright_in_the_same_tree() -> None:
     """The line names a licence; `NOTICES.md` is the licence.
 
-    MIT asks for the permission notice and not only the copyright line, and a
-    one-line footer is not one. `MANIFEST.in` grafts `wfctl/agents` and
-    `wfctl/specify` as two separate trees, so each carries its own notice and the
-    text travels in the wheel with the files it covers — the thing a root-level
-    notice does not do (#213). Checked per tree rather than against both texts
-    joined: `github/spec-kit` is named in each, and a union would let one tree
-    ship derived files whose licence is only in the other."""
-    texts = {
-        NOTICES: NOTICES.read_text(encoding="utf-8"),
-        SPECIFY_NOTICES: SPECIFY_NOTICES.read_text(encoding="utf-8"),
-    }
+    `MANIFEST.in` grafts `wfctl/agents` and `wfctl/specify` as two separate
+    trees, so each carries its own notice and the text travels in the wheel with
+    the files it covers — the thing a root-level notice does not do (#213).
+    Checked per tree rather than against both texts joined: `github/spec-kit` is
+    named in each, and a union would let one tree ship derived files whose
+    licence is only in the other."""
+    noticed = {NOTICES: _noticed(NOTICES), SPECIFY_NOTICES: _noticed(SPECIFY_NOTICES)}
     missing = sorted(
         f"{name} → {repo}"
         for name, repo in _attributed().items()
-        if repo not in texts[SPECIFY_NOTICES if name.startswith("specify/") else NOTICES]
+        if repo not in noticed[SPECIFY_NOTICES if name.startswith("specify/") else NOTICES]
     )
 
-    assert not missing, f"attributed upstreams with no entry in their tree's NOTICES.md: {missing}"
+    assert not missing, f"attributed upstreams with no copyright line in their tree's NOTICES.md: {missing}"
+
+
+def test_each_notice_carries_the_permission_text_it_claims_to() -> None:
+    """MIT asks for the permission notice and not only the copyright line, and
+    both files say in their own prose that they reproduce it byte-for-byte from
+    `LICENSE`. Nothing held them to that: a notice could lose the whole block
+    and every other check here still passed. Compared against `LICENSE` rather
+    than against a copy pinned here, because generating it from `LICENSE` is
+    what the record requires — #213's hand-typed draft corrupted the warranty
+    sentence, and a notice that is subtly wrong looks discharged."""
+    permission = _permission_block()
+    missing = sorted(
+        notice.name for notice in (NOTICES, SPECIFY_NOTICES)
+        if permission not in notice.read_text(encoding="utf-8")
+    )
+
+    assert not missing, f"notice files not carrying LICENSE's permission text verbatim: {missing}"
 
 
 def test_every_template_the_record_lists_is_named_in_the_specify_notice() -> None:
@@ -200,15 +244,33 @@ def test_the_specify_notice_names_no_template_the_record_does_not_list() -> None
     )
 
 
-def test_every_derived_template_that_ships_reaches_a_project() -> None:
+def test_every_template_the_record_lists_is_a_file_that_ships() -> None:
+    """The templates are the one population whose declarations are both
+    documents. A skill or a script that is deleted or renamed drops out of
+    `_attributed()` and the record's row fails immediately; a template has no
+    line of its own to lose, so the record and the shipped notice would go on
+    asserting GitHub's copyright over a path that is no longer in the tree, with
+    every other check here green."""
+    missing = sorted(p for p in _listed_templates() if not (SPECIFY_ROOT.parent / p).exists())
+
+    assert not missing, f"listed in vendor-upstream-skills but not in the tree: {missing}"
+
+
+def test_the_specify_notice_is_where_install_skills_will_carry_it() -> None:
     """`wfctl/agents/NOTICES.md` ships in the wheel and stops there — a top-level
     file in a grafted tree belongs to no install layer (#213). The specify tree's
-    copy is inside `templates/`, which `install-skills` mirrors, so it makes the
-    trip the templates make. This asserts the placement rather than the file's
-    existence: moved to the tree root it would still ship, still pass every
-    check above, and arrive nowhere."""
+    copy is inside `templates/` so it makes the trip the templates make.
+
+    That only holds while `templates/` is still mirrored, which is why the
+    install target is asserted and not just the path: narrow `_RUNTIME_TARGETS`
+    to a list of named templates, or drop the entry, and the notice quietly
+    stops reaching any project while a check on two paths stays green."""
     assert SPECIFY_NOTICES.exists(), f"{SPECIFY_NOTICES} is missing"
     assert not (SPECIFY_ROOT / "NOTICES.md").exists(), (
         "a notice at the top of wfctl/specify/ ships in the wheel and reaches no project; "
         "install-skills mirrors specify/scripts and specify/templates and nothing above them"
+    )
+    assert ("specify/templates", ".specify/templates") in cli._RUNTIME_TARGETS, (
+        "the notice's placement depends on this directory being mirrored whole; "
+        f"_RUNTIME_TARGETS is now {cli._RUNTIME_TARGETS}"
     )

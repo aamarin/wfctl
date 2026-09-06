@@ -6,7 +6,8 @@ status: accepted
 
 ## Context
 
-Some skills wfctl ships come from outside the project. Editing one in place is
+Some of what wfctl ships comes from outside the project — skills, and the shell
+scripts and templates the speckit runtime is built from. Editing one in place is
 invisible in a way a normal edit is not: the file reads as the project's own,
 the suite passes, and the next upstream pull reverts the change without a
 conflict, because the edit was never expressed as a difference from anything.
@@ -36,6 +37,13 @@ Derived from [obra/superpowers](https://github.com/obra/superpowers) (MIT, © 20
 In a `SKILL.md` it is the last line. In a shell script it is a `#` comment on
 the line after the shebang, where a reader of a script looks — same sentence,
 same three facts.
+
+`metadata.author: 'github-spec-kit'` survives in seven of the eight `speckit-*`
+skills and is not a second identifier: no check reads it, it names no licence
+and no holder, and `speckit-specify` is 59% upstream without it — which is why
+identification moved into the file's own text and not into another key. It is a
+true statement about those seven and deleting it would edit seven derived files
+for tidiness.
 
 That line is what identifies an upstream-derived file. It replaces the earlier
 rule, which read the presence of a `license:` frontmatter key: six of the seven
@@ -93,16 +101,26 @@ spec, plan and task list the runtime generates. Their notice is
 | `specify/templates/tasks-template.md` | `github/spec-kit` |
 
 `specify/templates/github-issue-template.md` is the one file in that tree the
-project owns: it describes `/speckit.decompose`, which spec-kit has no
-counterpart for.
+project owns. It describes `/speckit.decompose`; upstream's nearest counterpart
+is `templates/commands/taskstoissues.md`, and it scores 11% against it — the
+shared `## User Input` stanza and nothing else.
+
+**Neither table is yet the whole answer, and says so rather than letting silence
+imply one.** The eight `speckit.*` command wrappers under
+`wfctl/agents/commands/` are 40–73% `github/spec-kit` and are **not** listed
+above: their attribution is #229. Until it lands, absence from these tables
+means "not yet recorded" for those eight and "wfctl's own" for everything else.
+A record that omits a known exception is read as denying it — which is #213's
+own lesson, and the reason this paragraph outlived the exception it was first
+written for.
 
 A skill added later is declared when it is added, by whoever adds it: a file
 taken from elsewhere gets its line and its row in the same change that brings it
 in, and its upstream gets an entry in `NOTICES.md` if it has none. There is no
 later pass that sweeps for missed ones — #213 is what that pass costs when it is
-deferred, and #216 and #218 are what it missed. The check below holds the three
-together from then on; what it cannot do is notice a file that arrived declaring
-nothing.
+deferred, and #216, #218 and #229 are what it had missed by then. The check
+below holds the three together from then on; what it cannot do is notice a file
+that arrived declaring nothing.
 
 The upstream licence text itself lives in a `NOTICES.md` per grafted tree, one
 entry per upstream: `wfctl/agents/NOTICES.md` and
@@ -118,13 +136,24 @@ so a notice at the top of `wfctl/specify/` would ship in the wheel and never
 arrive in a repository wfctl installed the derived templates into. The scripts
 need no such reach: their line travels inside them.
 
+`wfctl/agents/NOTICES.md` has exactly the flaw that placement was rejected for —
+`install-skills` mirrors `agents/skills` and `agents/commands`, so a file at the
+top of that tree reaches the wheel and no project. That is accepted rather than
+overlooked: every file it covers is a skill carrying its own line, so an
+installed tree still says where each file came from, and only the permission
+text stays behind. The templates had no such fallback, which is what made the
+placement load-bearing there and not here.
+
 Line, table and notice are all three required, and `test_skill_attribution.py`
 fails on any gap between them — a listed file with no line, a line no row
 lists, a row naming an upstream the line does not, or an attributed upstream
 with no entry in `NOTICES.md`. The templates are the one case where the notice
 stands in for the line, so the same pair runs between the template rows and
 `wfctl/specify/templates/NOTICES.md` instead: a row that file does not name, or
-a file it names with no row, fails the same way.
+a file it names with no row, fails the same way. A listed template is also
+checked against the tree, which the line does for a skill or a script for free —
+delete one and its key leaves `_attributed()`, while a template's two
+declarations are both documents and would go on naming a path that had gone.
 
 `knowledge-placement` rules out a fact with two homes, and this is the exception
 it names, not a breach of it: the line and the row are not the same fact. The
@@ -144,9 +173,11 @@ rules without touching the file underneath.
 Most of the files above were edited in place before this record existed, and
 they stay that way (#213, #216). Attribution is owed on a rewritten derivative
 work exactly as on an untouched copy, so the line does not depend on how far a
-file has drifted — `specify/scripts/bash/common.sh` is 20% upstream and
-`specify/templates/constitution-template.md` is all of it, and both are listed.
-A file carrying a line is not evidence that editing it was fine.
+file has drifted. Against `github/spec-kit@main`, and measured before this
+record's own attribution lines were added to them,
+`specify/scripts/bash/common.sh` is a fifth upstream and
+`specify/templates/constitution-template.md` is all of it; both are listed. A
+file carrying a line is not evidence that editing it was fine.
 
 ## Owns truth
 
@@ -171,10 +202,9 @@ change with no durable home.
   in the repository and not in the artifact it is owed on.
 - Sort the derived skills by how far they have drifted and attribute only the
   close ones — drift is evidence of derivation, not a threshold for it.
-- An attribution line in the templates, as the skills carry one — the templates
-  are copied verbatim to become a project's `spec.md`, `plan.md` and
-  `tasks.md`, so the line would arrive as a copyright claim on writing GitHub
-  had no hand in.
+- An attribution line in the templates, as the skills carry one — rejected for
+  the reason stated in the Decision above: `cp` puts a template's text into the
+  reader's own document.
 - `wfctl/specify/NOTICES.md`, at the top of the tree, mirroring
   `wfctl/agents/NOTICES.md` — symmetrical, and out of reach: the install
   targets are `specify/scripts` and `specify/templates`, so it would ship in
@@ -188,9 +218,9 @@ the next pull.
 
 A derived file arriving from upstream without its line *and* without its row
 still arrives unnoticed — that is #213's own failure and the checks do not
-close it. What they close is the drift between the two declarations, which is what let the
-table read as authoritative while naming one file out of seven. Finding an
-undeclared arrival is a diff against upstream, done by hand.
+close it. What they close is the drift between the two declarations, which is
+what let the table read as authoritative while naming one file out of seven.
+Finding an undeclared arrival is a diff against upstream, done by hand.
 
 ## Log
 
@@ -200,5 +230,6 @@ undeclared arrival is a diff against upstream, done by hand.
   to the table, and `i-have-adhd`'s source named (#213)
 - 2026-09-06  amended     — the eight `speckit-*` skills and eleven files under
   `wfctl/specify/` added, with `wfctl/specify/templates/NOTICES.md` as the
-  second tree's notice and the templates covered by it rather than by a line
-  (#216)
+  second tree's notice and the templates covered by it rather than by a line;
+  the `speckit.*` command wrappers named as the surface still undeclared (#216,
+  #229)
