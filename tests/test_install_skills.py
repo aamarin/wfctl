@@ -3297,6 +3297,38 @@ def test_a_bare_install_says_nothing_about_a_backend_it_cannot_fill(
     assert json.loads(manifest_path.read_text())["tracker"] == "acme"
 
 
+def test_a_bare_install_does_not_write_through_a_dangling_backend_symlink(
+    bundle: Path, agent_dir: Path, tmp_path: Path
+) -> None:
+    """A broken link in the backend is a placement, not a gap to fill.
+
+    `Path.exists()` follows symlinks, so a dangling one reads as absent and the
+    fill plans a copy. `shutil.copy2` then follows the link the other way and
+    creates its target — for an absolute link, a file written outside the
+    repository, with no foreign-overwrite prompt (the destination "does not
+    exist") and no backup. Both halves are silent, and the fill is what puts
+    `.agents/trackers/` on the unattended `--yes` path in the first place.
+    """
+    repo_root = agent_dir.parent
+    _add_tracker(bundle)
+    assert runner.invoke(app, ["install-skills", "--tracker", "github"]).exit_code == 0
+    outside = tmp_path / "outside" / "gone.sh"
+    outside.parent.mkdir(parents=True)
+    link = repo_root / ".agents" / "trackers" / "github-issue-create.sh"
+    link.unlink()
+    link.symlink_to(outside)
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert not outside.exists(), "the install wrote through the link"
+    assert link.is_symlink(), "the link itself was replaced"
+    # And it stays on record. The same `exists()` in the #209 carry-forward drops
+    # a dangling link, after which the orphan check calls a path wfctl still
+    # ships "no longer shipped" and offers `--prune` — which deletes the link.
+    assert "no longer shipped" not in result.output, result.output
+
+
 def test_a_bare_install_leaves_a_hand_edited_backend_file_alone(
     bundle: Path, agent_dir: Path
 ) -> None:
