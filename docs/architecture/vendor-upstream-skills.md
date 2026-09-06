@@ -46,14 +46,22 @@ Derived today:
 | `using-superpowers` | `obra/superpowers` |
 | `verification-before-completion` | `obra/superpowers` |
 
-Line and table are both required, and `test_skill_attribution.py` fails in
-either direction — a listed skill with no line, a line no row lists, or a row
-naming an upstream the line does not. The line has to be in the file because the
-notice has to travel inside the wheel with the thing it covers, which a root
-`NOTICE` would not do. The table has to be in the record because that is where a
-reader looks for which files the project does not own, and it is what
-`knowledge-placement` means by a fact belonging to the record governing a class
-of files rather than to one file.
+The upstream licence text itself lives in `wfctl/agents/NOTICES.md`, one entry
+per upstream. MIT asks for the permission notice and not only the copyright
+line, and a footer is not one; `MANIFEST.in` grafts `wfctl/agents` whole, so a
+notice at the top of that tree ships with the files it covers, which a root
+`NOTICE` would not.
+
+Line, table and notice are all three required, and `test_skill_attribution.py`
+fails on any gap between them — a listed skill with no line, a line no row
+lists, a row naming an upstream the line does not, or an attributed upstream
+with no entry in `NOTICES.md`.
+
+`knowledge-placement` rules out a fact with two homes, and this is the exception
+it names, not a breach of it: the line and the row are not the same fact. The
+line says where *this file* came from, and it has to be in the file because that
+is what ships. The row says which files the project does not own, which is a
+fact about the class and belongs to the record governing it.
 
 Keeping the annotation out of the file used to be the answer to *an upstream
 pull would drop it*. The check is the better answer: a pull that drops the line
@@ -99,8 +107,11 @@ Changing a derived skill's behaviour costs a whole new skill file. That
 friction is intended: it makes the change visible in the tree, and it survives
 the next pull.
 
-A skill arriving from upstream without its line fails the suite, which is the
-part the `license:` rule could not do.
+A skill arriving from upstream without its line *and* without its row still
+arrives unnoticed — that is #213's own failure and the checks do not close it.
+What they close is the drift between the two declarations, which is what let the
+table read as authoritative while naming one file out of seven. Finding an
+undeclared arrival is a diff against upstream, done by hand.
 
 ## Log
 

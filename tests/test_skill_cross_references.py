@@ -130,7 +130,8 @@ def test_the_change_description_skill_defers_to_the_finishing_skill() -> None:
     """`opening-a-change` layers a description step over the integration
     decision rather than owning it.
 
-    `vendor-upstream-skills` forbids editing the vendored skill, so the whole
+    `vendor-upstream-skills` says to layer over the derived skill rather than
+    edit it, so the whole
     layering depends on this one reference. Drop it and the new skill quietly
     becomes a second, competing account of how a branch gets integrated — the
     duplication the record exists to prevent, one skill over.

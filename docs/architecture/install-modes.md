@@ -60,8 +60,8 @@ frontmatter — a skill's `description:` is written to tell a model *when to loa
 it and ends by naming the slash command that activates it, which is noise once
 the skill is already loaded, and a new frontmatter key would fail every shipped
 skill against the fixed set `test_skill_frontmatter.py` enforces. A sibling file
-also keeps a vendored skill eligible: `vendor-upstream-skills` forbids editing
-one, but adding a file beside it is not an edit.
+also keeps a derived skill eligible: `vendor-upstream-skills` says to layer
+over one rather than edit it, and adding a file beside it is not an edit.
 
 ## Owns truth
 
