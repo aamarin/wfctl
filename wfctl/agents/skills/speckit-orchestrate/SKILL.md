@@ -43,34 +43,29 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
    `resolve_spec_dir` does the `delivery.md` key scan itself since #120: exact
    branch dir, then key glob, then the feature whose Issue Grouping Map names
-   this branch's issue key, then ancestor branches. This step no longer
-   hand-rolls that search.
+   this branch's issue key. That is the whole list — ancestry was a fourth leg
+   until #263 and is not one now (`a-branch-is-claimed-not-inherited`), because
+   where a worktree was cut from is the same fact whether the base was chosen or
+   mistyped. This step no longer hand-rolls that search.
 
    **The failure mode to watch is a false positive, not a false negative.** This
    step used to warn that resolution "can report 'no spec dir found' and default
    to `brainstorm`" — loud, obviously wrong, harmless. What actually bit was the
-   opposite: on a stacked branch the ancestor leg returned a *different*
-   feature's dir, and `wfctl status` reported that feature's `46/46 done — open
-   PR` on work that had not begun. Quiet, plausible, and it says ship it. The
-   ancestor leg now skips any ancestor that carries a grouping map, since a
-   decomposed feature that had its chance to name this branch and did not is a
-   foreign one.
+   opposite: the ancestor leg returned a *different* feature's dir, and `wfctl
+   status` reported that feature's `46/46 done — open PR` on work that had not
+   begun. Quiet, plausible, and it says ship it.
 
    Which means: **`(no spec dir found)` is now an answer, not a gap to close by
    guessing.** Read `spec_dir` off the payload the gate above already fetched —
    `null` there is the resolver saying no feature claims this branch. Do not go
    looking for one, and do not re-run `status` for it.
 
-   **One shape survives**, so do not read a resolved dir as proof either: an
-   ancestor feature that never decomposed has no map to contradict, and is still
-   inherited. If `spec_dir` names a feature whose `delivery.md` has no Issue
-   Grouping Map and whose key is not this branch's, you are looking at that
-   residual — say so rather than reporting its task counts as this story's.
-
-   What is still yours, when the branch inherited `spec_dir` rather than owning
-   it. **Compare the two issue keys, never a key against a directory name.**
-   Take the leading key off `spec_dir`'s basename and the leading key off the
-   branch, and compare those:
+   A resolved dir whose key is not this branch's is now one thing only: an epic
+   whose grouping map names this issue. That is a claim somebody wrote, so its
+   task counts are the epic's and the scope below is yours to apply.
+   **Compare the two issue keys, never a key against a directory name.** Take
+   the leading key off `spec_dir`'s basename and the leading key off the branch,
+   and compare those:
 
    ```
    branch 120-spec-dir-ancestor-is-foreign
