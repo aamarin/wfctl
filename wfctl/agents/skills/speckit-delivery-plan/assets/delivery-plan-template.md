@@ -27,8 +27,10 @@ The **Issue** column must lead with the tracker's native key exactly as returned
 — no other format. GitHub: `#251`. Other trackers (per their `key_pattern` in
 `.agents/trackers/<name>.json`): e.g. `PROJ-123`, no `#` prefix. Tooling that
 reconciles pipeline state against this table (e.g. an epic sub-issue resolving
-its inherited spec dir) regex-matches on this key, so a consistent leading
-position matters more than the label that follows it.
+the spec dir this row claims for it) regex-matches on this key, so a consistent
+leading position matters more than the label that follows it. Since #263 this
+table is the *only* thing that hands a sub-issue its epic's spec dir — a row the
+parser cannot read leaves that branch unresolved.
 
 | Issue | Tasks | Title | Estimate | Closes With |
 |-------|-------|-------|----------|-------------|
