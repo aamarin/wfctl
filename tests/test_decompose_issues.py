@@ -239,3 +239,25 @@ def test_a_story_that_already_shipped_is_not_sent_back_to_decompose(
     assert _states(feature, tmp_path)["decompose"] == "done"
     assert _annotation(feature, tmp_path, "decompose") == "3 issue rows without a key"
     assert (report.current, report.next_command) == (None, None)
+
+
+def test_a_key_pattern_that_opens_with_an_inline_flag_does_not_crash_status(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """`(?i)PROJ-\\d+` — a valid pattern that `wfctl status` used to die on.
+
+    `load_key_pattern` accepts it, because it compiles on its own. Wrapping it as
+    `#?(?:...)` to make the `#` optional then raises "global flags not at the
+    start of the expression", and nothing catches it: `status` and `resume` exit
+    on a traceback for every feature that has a delivery plan, rather than
+    reporting a wrong state. So the `#` comes off the cell, never around the
+    pattern — which also keeps the flag doing its job, matched here by the
+    lowercase `proj-4`.
+    """
+    _use_tracker(tmp_path, r"(?i)PROJ-\d+")
+
+    keyed = _feature(spec_tree, _delivery("proj-4", "PROJ-5", "PROJ-6"))
+    assert _states(keyed, tmp_path)["decompose"] == "done"
+
+    mixed = _feature(spec_tree, _delivery("proj-4", "_(TBD)_", "PROJ-6"))
+    assert _states(mixed, tmp_path)["decompose"] == "in_progress"

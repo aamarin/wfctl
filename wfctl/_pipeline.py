@@ -126,15 +126,26 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     if not rows:
         return None
 
-    # Anchored, and `#?` because GitHub keys are written `#251` in prose while a
-    # `PROJ-123` never takes one — the same expression `speckit-orchestrate`
-    # builds. Anchoring is the half that matters: searching the cell, `_(TBD)_
-    # (Issue 1)` satisfies the default `\d+` on the `1`, and the placeholder
-    # reads as a created issue. The template mandates the key *lead* the cell, so
-    # matching from the front is reading the contract rather than tightening it.
-    key = re.compile(rf"#?(?:{key_pattern})")
+    # Anchored. Searching the cell, `_(TBD)_ (Issue 1)` satisfies the default
+    # `\d+` on the `1` and the placeholder reads as a created issue; the template
+    # mandates the key *lead* the cell, so matching from the front is reading the
+    # contract rather than tightening it.
+    #
+    # Compiled exactly as configured, with the optional `#` taken off the cell
+    # instead of wrapped around the pattern. `speckit-orchestrate` spells this
+    # `#?{key_pattern}`, and building that here is what a repo cannot survive: a
+    # pattern opening with an inline flag — `(?i)PROJ-\d+` — compiles alone, so
+    # `load_key_pattern` hands it over, and then dies as `#?(?:…)` on "global
+    # flags not at the start". Not a misread state; `wfctl status` exits on a
+    # traceback for every feature that has a delivery plan.
+    key = re.compile(key_pattern)
 
-    return sum(1 for row in rows if not key.match(row.split("|")[1].strip()))
+    def keyed(row: str) -> bool:
+        # GitHub keys are written `#251` in prose; a `PROJ-123` never takes one.
+        cell = row.split("|")[1].strip().removeprefix("#")
+        return key.match(cell) is not None
+
+    return sum(1 for row in rows if not keyed(row))
 
 
 def _verification_block(repo_root: Path) -> str | None:
