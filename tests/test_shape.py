@@ -148,7 +148,54 @@ def _run(transcript: Path) -> str:
 
 def test_the_hook_reports_what_the_last_reply_broke(tmp_path: Path) -> None:
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
-    assert "counted lead-in" in json.loads(_run(path))["systemMessage"]
+    out = json.loads(_run(path))
+    assert "counted lead-in" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_the_finding_reaches_the_model_not_the_terminal(tmp_path: Path) -> None:
+    """`systemMessage` is not wired for `Stop` in the Claude Code this was built
+    against: across seven runs in one session the hook produced a finding twice
+    and neither reached the reader. `additionalContext` is the channel that
+    works, and it reaches the agent that wrote the reply, in time to shape the
+    next one. Both are emitted, so a version that wires the other up costs no
+    change — but the model-facing one is the load-bearing key."""
+    path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
+    out = json.loads(_run(path))
+    assert out["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert out["hookSpecificOutput"]["additionalContext"] == out["systemMessage"]
+
+
+def test_the_report_carries_the_finding_before_the_instruction(tmp_path: Path) -> None:
+    """An instruction to re-read the skill is, on its own, the fourth reminder in
+    a stack of three that already lost — which is #212. The finding is what makes
+    it a correction instead, so it goes first and the pointer follows it."""
+    path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
+    message = json.loads(_run(path))["systemMessage"]
+    assert message.index("counted lead-in") < message.index("Re-read the skill")
+    assert "/conversation-response-shape" in message
+
+
+def test_the_handed_over_reply_is_preferred_to_the_walked_one(tmp_path: Path) -> None:
+    """`Stop` now hands the finished reply over as `last_assistant_message`, so
+    the transcript walk is a fallback rather than the only source. The walk stays
+    because the depth gate needs the prompt, and no field carries that."""
+    path = _transcript(tmp_path, [_user(BARE), _assistant("Filed #213.")])
+    result = runner.invoke(app, ["hook", "response-shape"], input=json.dumps({
+        "transcript_path": str(path),
+        "last_assistant_message": "Three things worth flagging:",
+    }))
+    assert "counted lead-in" in json.loads(result.output)["systemMessage"]
+
+
+def test_a_handed_over_reply_that_is_empty_falls_back_to_the_walk(tmp_path: Path) -> None:
+    """An older Claude Code sends no such field, and a newer one can send an
+    empty string. Neither is evidence that the reply was empty."""
+    path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
+    for handed in ("", "   ", None, 7):
+        result = runner.invoke(app, ["hook", "response-shape"], input=json.dumps({
+            "transcript_path": str(path), "last_assistant_message": handed,
+        }))
+        assert "counted lead-in" in result.output, handed
 
 
 def test_the_hook_says_nothing_when_the_reply_is_clean(tmp_path: Path) -> None:
