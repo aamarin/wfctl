@@ -417,6 +417,77 @@ def test_view_does_not_default_its_id_to_the_branch(
     assert captured_argv == []
 
 
+def _stub_gh(tmp_path: Path, state: str, current: str) -> Path:
+    """A `gh` that answers the query with one row and records the mutation.
+
+    The row is emitted with the same unit separator the script splits on, so an
+    empty `current` reaches the parse as an empty field rather than a missing
+    one — which is the shape a tab folded away.
+    """
+    calls = tmp_path / "calls"
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$*" >> "{calls}"\n'
+        'case "$*" in\n'
+        '  *"repo view"*) echo "owner repo" ;;\n'
+        '  *mutation*) : ;;\n'
+        f'  *) printf "{state}\\x1f{current}\\x1fPVTI_item\\x1fPVT_proj'
+        '\\x1fPVTSSF_field\\x1fopt123\\n" ;;\n'
+        'esac\n'
+    )
+    fake_gh.chmod(0o755)
+    return calls
+
+
+def _run_board_script(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                      *args: str) -> list[str]:
+    """Run the shipped script against the stub; return the mutation calls."""
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    script = Path(_tracker.__file__).parent / "agents" / "trackers" / "github-board.sh"
+    result = subprocess.run(
+        ["bash", str(script), *args], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    calls = tmp_path / "calls"
+    return [ln for ln in calls.read_text().splitlines() if "mutation" in ln]
+
+
+@pytest.mark.parametrize("state,current,guard,writes", [
+    ("OPEN", "Todo", (), True),
+    ("OPEN", "", (), True),
+    ("OPEN", "Code Review", (), True),
+    ("CLOSED", "Done", (), False),
+    ("CLOSED", "In Progress", ("--only-from", "In Progress"), False),
+    ("OPEN", "In Progress", ("--only-from", "In Progress"), True),
+    ("OPEN", "Code Review", ("--only-from", "In Progress"), False),
+    ("OPEN", "", ("--only-from", "In Progress"), False),
+])
+def test_board_script_write_preconditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    state: str, current: str, guard: tuple, writes: bool
+) -> None:
+    """One table for every precondition on the write, rather than one per verb.
+
+    The rows without a guard are `start`, the rows with one are `stop`. Reviewers
+    found the same structural weakness three times from different angles — the
+    script fetches an issue's state and its current column, and each verb was
+    consulting whichever half its own flag named. `stop` ignoring the column let
+    it drag a card out of `Code Review`; `start` ignoring the state let a
+    worktree for a closed issue move its card out of `Done`, which `stop` then
+    declined to undo because the issue was closed.
+
+    Both are gone because the closed rule stopped being a caller's flag. Keeping
+    the whole table in one place is what makes the next one visible as a missing
+    row rather than as a fourth report.
+    """
+    _stub_gh(tmp_path, state, current)
+    mutation = _run_board_script(
+        tmp_path, monkeypatch, "175", "In Progress" if not guard else "Todo", *guard
+    )
+    assert bool(mutation) is writes
+
+
 def test_board_script_survives_an_item_whose_status_is_unset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

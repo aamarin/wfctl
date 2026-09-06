@@ -10,7 +10,7 @@
     "label": ["gh", "issue", "edit", "{id}", "--{action}-label", "{label}"],
     "start": ["bash", ".agents/trackers/github-board.sh", "{id}", "In Progress"],
     "stop": ["bash", ".agents/trackers/github-board.sh", "{id}", "Todo",
-             "--only-if-open-in", "In Progress"]
+             "--only-from", "In Progress"]
   },
   "changes": {
     "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],

@@ -19,27 +19,24 @@
 # never moves is the symptom to check this against first.
 #
 # Exit 0 when there was nothing to set: an issue on no board, a board with no
-# such column, or a guard below that declined. Non-zero is reserved for a call
-# that should have worked and didn't.
+# such column, an issue already closed, or a guard below that declined. Non-zero
+# is reserved for a call that should have worked and didn't.
 set -uo pipefail
 
 issue=${1:-}
 status=${2:-}
 
-# `--only-if-open-in <column>` is the teardown direction, and it carries both
-# conditions because they answer one question: is this item still where `start`
-# left it? An issue whose work merged is closed, and moving it out of `Done`
-# would undo the one transition the board gets right on its own; an issue whose
-# change is in review has moved on to another column, and dragging it back to a
-# backlog reads as work that never began. The pair is checked from the query
-# already being made, so neither costs a call.
+# `--only-from <column>` is the teardown direction's extra condition: `stop`
+# writes only over the column `start` set, because an issue whose change is in
+# review has moved on and dragging it back to a backlog reads as work that never
+# began. It is *not* where the closed-issue rule lives — see the write below.
 guard_column=""
-if [[ "${3:-}" == "--only-if-open-in" ]]; then
+if [[ "${3:-}" == "--only-from" ]]; then
   guard_column=${4:-}
 fi
 
 if [[ -z "$issue" || -z "$status" ]]; then
-  echo "usage: github-board.sh <issue> <status> [--only-if-open-in <column>]" >&2
+  echo "usage: github-board.sh <issue> <status> [--only-from <column>]" >&2
   exit 2
 fi
 
@@ -118,9 +115,22 @@ fi
 # both by accident.
 IFS=$'\x1f' read -r state current item project field option <<<"$ids"
 
-if [[ -n "$guard_column" ]]; then
-  [[ "$state" == "OPEN" ]] || exit 0
-  [[ "$current" == "$guard_column" ]] || exit 0
+# A closed issue is never written to, by any verb. This was a per-verb flag
+# once, and being a flag is what made it wrong: `stop` opted in, `start` did
+# not, and a worktree created for a closed issue moved its card out of `Done` —
+# which `stop` then declined to undo, because the issue was closed. The board
+# was left permanently wrong by two rules that each looked right alone.
+#
+# So it is a property of the write rather than of a caller. Closing an issue is
+# the one transition the board gets right without wfctl's help, and nothing here
+# has better information than that.
+if [[ "$state" != "OPEN" ]]; then
+  echo "ℹ #$issue is closed — leaving its column alone"
+  exit 0
+fi
+
+if [[ -n "$guard_column" && "$current" != "$guard_column" ]]; then
+  exit 0
 fi
 
 gh api graphql -f project="$project" -f item="$item" -f field="$field" -f option="$option" \
