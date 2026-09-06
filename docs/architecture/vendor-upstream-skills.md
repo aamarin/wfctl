@@ -46,6 +46,7 @@ Derived today:
 | `brainstorming` | `obra/superpowers` |
 | `finishing-a-development-branch` | `obra/superpowers` |
 | `i-have-adhd` | `ayghri/i-have-adhd` |
+| `idea-refine` | `addyosmani/agent-skills` |
 | `receiving-code-review` | `obra/superpowers` |
 | `requesting-code-review` | `obra/superpowers` |
 | `using-superpowers` | `obra/superpowers` |
