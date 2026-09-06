@@ -75,6 +75,64 @@ def _has_open_checkboxes(text: str) -> bool:
     return bool(re.search(r"\[ \]", text))
 
 
+# The Issue Grouping Map, and the `|---|---|` line markdown puts under every
+# table header. Rows are read by position — the lines after that separator —
+# rather than by matching header labels: the header cell reads "Issue" and
+# carries no key, so a label-driven scan counts the header as a row that failed.
+_ISSUE_MAP_SECTION = re.compile(
+    r"^#{1,6}[ \t]+Issue Grouping Map\b(?P<body>.*?)(?=^#{1,6}[ \t]|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+_TABLE_SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
+
+
+def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
+    """How many rows of a delivery plan promise an issue that does not exist yet.
+
+    The Issue Grouping Map is authored with placeholder keys and filled in once
+    the issues are created, because creating them is outward-facing and waits for
+    a human. An unkeyed row is therefore a legitimate mid-decompose state; what
+    was wrong was reading it as a finished one (#8).
+
+    None means there is nothing here to judge — no map, or a map with no rows. A
+    delivery plan predating the table is not evidence that issues are missing, so
+    it goes on reading `done`.
+
+    The key is looked for in the `Issue` cell alone, never across the whole row.
+    `speckit-orchestrate` searches whole rows, but it is matching one key it
+    already holds; here the `Closes With` cell carries `PR #4`, which would
+    answer for the `_(TBD)_` beside it and hand back the state this exists to catch.
+    """
+    section = _ISSUE_MAP_SECTION.search(text)
+    if section is None:
+        return None
+
+    rows: list[str] = []
+    past_separator = False
+    for line in (ln.strip() for ln in section.group("body").splitlines()):
+        if _TABLE_SEPARATOR.match(line):
+            past_separator = True
+        elif not past_separator:
+            continue
+        elif line.startswith("|"):
+            rows.append(line)
+        else:
+            break
+
+    if not rows:
+        return None
+
+    try:
+        key = re.compile(key_pattern)
+    except re.error:
+        # `load_key_pattern` degrades an uncompilable pattern to the default, so
+        # this is only reachable via a caller passing its own. Unjudgeable rather
+        # than unkeyed — the same answer as a file with no map.
+        return None
+
+    return sum(1 for row in rows if not key.search(row.split("|")[1]))
+
+
 def _verification_block(repo_root: Path) -> str | None:
     """Why `implement` cannot be complete, or None if nothing blocks it.
 
@@ -147,6 +205,8 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     live git state from. It was carried unused for a while after the design doc
     moved into the spec dir; #69 gave it a job again.
     """
+    from wfctl import _tracker  # lazy: avoids an import cycle at module load
+
     if spec_dir is None:
         return [_PipelineStep(name, "pending", None) for name in _STEP_NAMES]
 
@@ -172,6 +232,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     steps: list[_PipelineStep] = []
     cascade = False
     implement_reason: str | None = None
+    decompose_reason: str | None = None
 
     for name in _STEP_NAMES:
         if cascade:
@@ -243,8 +304,22 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             )
 
         elif name == "decompose":
-            if _file_exists(spec_dir / "delivery.md"):
-                state = "done"
+            delivery_md = spec_dir / "delivery.md"
+            if _file_exists(delivery_md):
+                # Writing the plan is not the whole step —
+                # `speckit-delivery-plan`'s own checklist requires the issues it
+                # groups to exist. Read from the file's text rather than from the
+                # tracker: `status` runs on every session start, and a pipeline
+                # read that costs a network round-trip is one nobody makes.
+                unkeyed = _unkeyed_issues(
+                    delivery_md.read_text(), _tracker.load_key_pattern(repo_root)
+                )
+                if unkeyed:
+                    state = "in_progress"
+                    plural = "" if unkeyed == 1 else "s"
+                    decompose_reason = f"plan written, {unkeyed} issue{plural} not created"
+                else:
+                    state = "done"
             elif tasks_text and not _has_open_checkboxes(tasks_text):
                 state = "skipped"
             else:
@@ -269,7 +344,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             state = "pending"
 
         annotation: str | None = None
-        if name == "implement" and tasks_text:
+        if name == "decompose":
+            annotation = decompose_reason
+        elif name == "implement" and tasks_text:
             done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
             total = done + len(re.findall(r"\[ \]", tasks_text))
             annotation = f"{done}/{total} done"
