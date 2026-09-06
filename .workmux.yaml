@@ -80,6 +80,22 @@ post_create:
   # earns its place at session start, where a record exists.
   - cd "$WM_WORKTREE_PATH" && uv run wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true
 
+  # Nothing else sets the board's `In Progress` column, so a board that carries
+  # priority and epic correctly still cannot say what is being worked on. This
+  # is the moment work actually starts, and `pre_create` above has already
+  # refused a handle without an issue key — so the mapping is read here, not
+  # guessed. Runs after install-skills because the verb it calls is defined by
+  # `.agents/trackers/github.json`, which that step is what puts in the worktree.
+  #
+  # `|| true` is the load-bearing part. Every worktree in this repo is created
+  # through here, including for work that answers to no issue and on a machine
+  # with no network, and the verb no-ops anyway on a tracker with no board. A
+  # board one column stale is a smaller failure than a worktree that will not
+  # come up.
+  - |
+    ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
+    cd "$WM_WORKTREE_PATH" && uv run wfctl issue start "$ISSUE" || true
+
 pre_remove:
   # Gitignored artifacts are invisible to every git-based check: a worktree
   # holding only `specs/` reads *clean*, so workmux removes it without complaint
@@ -110,6 +126,17 @@ pre_remove:
     else
       echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"
     fi
+
+  # The other half of the transition above: a branch torn down without merging
+  # would otherwise leave its issue reading `In Progress` for good. Runs *after*
+  # the archive hook, because that one can refuse the removal — moving the column
+  # first would report the work stopped on a worktree that is still there.
+  #
+  # `stop` declines to touch a closed issue, so the ordinary case (work merged,
+  # `Closes #N` fired, worktree removed) leaves `Done` alone.
+  - |
+    ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
+    cd "$WM_WORKTREE_PATH" && uv run wfctl issue stop "$ISSUE" || true
 
 #-------------------------------------------------------------------------------
 # Files

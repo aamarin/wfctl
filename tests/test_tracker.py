@@ -267,6 +267,7 @@ def _add_tracker_and_runtime(bundle: Path) -> None:
     trackers = bundle / "agents" / "trackers"
     trackers.mkdir(parents=True)
     (trackers / "github.json").write_text(json.dumps(_GITHUB_VERBS))
+    (trackers / "github-board.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
     # Speckit runtime — installed as a repo-level managed mirror alongside skills.
     scripts = bundle / "specify" / "scripts" / "bash"
     scripts.mkdir(parents=True)
@@ -298,6 +299,54 @@ def test_install_tracker_github_copies_config_and_sets_manifest(
     assert (repo_root / ".agents" / "trackers" / "github.json").exists()
     manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
     assert manifest["tracker"] == "github"
+
+
+def test_install_tracker_github_copies_the_script_its_verbs_invoke(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """A board write is two API calls, so `start`/`stop` invoke a script by path.
+
+    Installing the config without it is the failure this guards: the verbs are
+    declared, `tracker-check` passes, and every call dies on a missing file.
+    """
+    repo_root = agent_dir.parent
+    _add_tracker_and_runtime(bundle)
+    result = runner.invoke(app, ["install-skills", "--tracker", "github"])
+    assert result.exit_code == 0
+    assert (repo_root / ".agents" / "trackers" / "github-board.sh").exists()
+
+
+def test_shipped_github_config_is_valid_and_its_argv_paths_exist() -> None:
+    """The config wfctl ships validates, and every file it names is shipped too.
+
+    Two things drift apart on their own: a verb added to `github.json` without
+    `ALLOWED` learning it, and an argv naming a helper that never entered the
+    bundle. Both read as fine in a diff.
+    """
+    trackers = Path(_tracker.__file__).parent / "agents" / "trackers"
+    config = json.loads((trackers / "github.json").read_text())
+    assert _tracker.validate_config(config) == []
+    for argv in config["verbs"].values():
+        for token in argv:
+            if token.startswith(".agents/trackers/"):
+                assert (trackers / Path(token).name).exists(), token
+
+
+def test_board_script_refuses_an_issue_key_that_is_not_a_number() -> None:
+    """The script interpolates its arguments, so it checks the one that varies.
+
+    Everything below the guard reaches a shell — `gh api -f num=$issue`, the jq
+    filter. The argv contract keeps a shell out of `_tracker.dispatch`; this is
+    what keeps one out of the file dispatch hands the value to.
+    """
+    script = Path(_tracker.__file__).parent / "agents" / "trackers" / "github-board.sh"
+    result = subprocess.run(
+        ["bash", str(script), "$(touch /tmp/wfctl-board-pwned)", "In Progress"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 2
+    assert "is not an issue number" in result.stderr
+    assert not Path("/tmp/wfctl-board-pwned").exists()
 
 
 def test_install_custom_tracker_warns_when_config_absent(

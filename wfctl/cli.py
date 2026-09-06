@@ -998,8 +998,12 @@ def spec_root_cmd(
 
 @app.command("issue")
 def issue_cmd(
-    verb: str = typer.Argument(..., help="list | view | close | comment | create | label"),
-    issue_id: str = typer.Argument(None, help="Issue ID (view / close / comment / label)"),
+    verb: str = typer.Argument(
+        ..., help="list | view | close | comment | create | label | start | stop"
+    ),
+    issue_id: str = typer.Argument(
+        None, help="Issue ID (view / close / comment / label / start / stop)"
+    ),
     comment: str = typer.Option(None, "--comment", help="Comment text (close)"),
     body: str = typer.Option(None, "--body", help="Body text (comment / create)"),
     title: str = typer.Option(None, "--title", help="Title (create)"),
@@ -1018,6 +1022,8 @@ def issue_cmd(
       comment <id> --body TEXT                      add a comment
       create       --title T --body TEXT            open a new issue
       label   <id> --action add|remove --label NAME add/remove a label
+      start   <id>                                  work on it has begun
+      stop    <id>                                  work on it has stopped
 
     \b
     Examples:
@@ -1025,6 +1031,12 @@ def issue_cmd(
       wfctl issue view 71
       wfctl issue close 71 --comment "Done in abc123"
       wfctl issue label 71 --action add --label in-progress
+      wfctl issue start 71
+
+    `start` and `stop` report an event, not a value to write: a backend with a
+    board moves a column, and one without simply does not declare the verb. They
+    are wired into worktree creation and removal, so what they must never do is
+    fail loudly enough to matter — see the hooks in `.workmux.yaml`.
 
     Degrades gracefully (exit 0) when no tracker is configured or the active
     backend does not implement the verb.
@@ -1196,6 +1208,11 @@ _HOOK_GONE = {
 }
 
 _BACKUP_DIR = ".wf-skills-backup"
+
+# What `--tracker github` installs. The script is not an optional extra: the
+# config's `start`/`stop` verbs invoke it by path, so the pair travels together
+# or the verbs are declared and broken.
+_GITHUB_TRACKER_FILES = ("github.json", "github-board.sh")
 
 _BASE_LAYER = "base"
 # `tracker` and `spec_root` are bare strings, not installed layers — they hold
@@ -2172,21 +2189,25 @@ def install_skills_cmd(
                     if extra_dest.exists() and extra_rel not in prior_items:
                         foreign_overwrites.append((agent, extra_rel))
 
-    # 'github' is the only tracker the bundle ships; copy just its config.
+    # 'github' is the only tracker the bundle ships; copy the files it is made
+    # of. More than the config, because a board write is two API calls and a
+    # verb is one argv — `github.json` points `start`/`stop` at the script, so a
+    # config installed without it declares verbs that cannot run.
     if tracker == "github":
-        tsrc = bundle_root / "agents" / "trackers" / "github.json"
-        if tsrc.exists():
-            tdest = repo_root / ".agents" / "trackers" / "github.json"
+        for fname in _GITHUB_TRACKER_FILES:
+            tsrc = bundle_root / "agents" / "trackers" / fname
+            if not tsrc.exists():
+                console.print(
+                    f"[yellow]⚠[/yellow] --tracker github, but "
+                    f"agents/trackers/{fname} is missing from "
+                    f"{origin_label} — nothing installed for it"
+                )
+                continue
+            tdest = repo_root / ".agents" / "trackers" / fname
             trel = str(tdest.relative_to(repo_root))
             plan.append((_BASE_LAYER, "tracker", trel, tdest, tsrc))
             if tdest.exists() and trel not in prior_items:
                 foreign_overwrites.append((_BASE_LAYER, trel))
-        else:
-            console.print(
-                "[yellow]⚠[/yellow] --tracker github, but "
-                "agents/trackers/github.json is missing from "
-                f"{origin_label} — nothing installed for it"
-            )
 
     if foreign_overwrites and not yes:
         console.print(
