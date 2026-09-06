@@ -83,7 +83,8 @@ def test_a_panel_that_found_nothing_needs_no_rows_but_needs_a_roster() -> None:
     """Zero findings is a valid result, so requiring a result row would force a
     fake one. The roster is what cannot be dropped: it is the only thing telling
     a reviewer that found nothing from a reviewer that returned nothing, which
-    is the distinction `fanning-out-code-review` Step 3 exists for."""
+    is the distinction `fanning-out-code-review` Step 3 exists for. What such a
+    body must also carry is the account of what was checked — see below."""
     checked = "## Review Panel\n\nWhole rubric each, no findings.\n\n"
 
     assert panel_findings(checked + "roster: r1 ✓  r2 ✓  r3 ✓\n") == []
@@ -105,3 +106,84 @@ def test_the_sections_own_comment_block_is_not_an_answer() -> None:
     )
 
     assert panel_findings(body)
+
+
+def test_a_row_missing_its_last_cell_is_not_a_result() -> None:
+    """Reported on PR #234 and reproduced: `| 1 | r1 | found bug |` renders as a
+    finding nobody said what they did about, and the cell-by-cell check saw only
+    the cells that were there and called them all filled. Cardinality is read
+    before content, and from the header where there is one, so a table with a
+    fifth column has its own shape enforced rather than this module's."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found bug |\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(body)
+
+
+def test_a_fenced_example_is_not_the_section() -> None:
+    """Reported on PR #234 and reproduced both ways: a body quoting the section
+    in a fence — this PR's own body does — passed with no panel anywhere in it,
+    and a quoted example above a real panel would have hidden the real one,
+    because `_section` returns the first heading it finds."""
+    quoted = (
+        "## Summary\n\nLike this:\n\n```\n## Review Panel\n\n"
+        "roster: r1 ✓  r2 ✓  r3 ✓\n```\n"
+    )
+
+    assert panel_findings(quoted)
+
+
+def test_the_section_survives_headings_nested_under_it() -> None:
+    """A template organising the section with `### Findings` and `### Roster`
+    had its table and roster fall outside the section and be reported missing —
+    a valid body rejected, which is the failure direction that teaches an author
+    to ignore the check. The section ends at a heading of its own level or
+    higher, never at one nested under it."""
+    body = (
+        "## Review Panel\n\n### Findings\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | applied |\n\n"
+        "### Roster\n\nroster: r1 ✓  r2 ✓  r3 ✓\n\n## Checklist\n"
+    )
+
+    assert panel_findings(body) == []
+
+
+def test_a_placeholder_summary_line_is_a_finding() -> None:
+    """The shipped `**Panel:** [target] — [n] reviewers, [n] findings` is the
+    line a reader checks the table's length against, and it was the one part of
+    the section nothing looked at. Bracketed spans that are markdown links are
+    not placeholders — rejecting a finished summary for citing something is the
+    same false rejection as the nested-heading case."""
+    filled_row = (
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | applied |\n\nroster: r1 ✓  r2 ✓  r3 ✓\n"
+    )
+
+    assert panel_findings(f"## Review Panel\n\n**Panel:** [target] — [n] findings\n\n{filled_row}")
+    assert (
+        panel_findings(
+            f"## Review Panel\n\n**Panel:** [#234](http://x) — 3 reviewers, 1 finding\n\n{filled_row}"
+        )
+        == []
+    )
+
+
+def test_a_roster_with_no_evidence_behind_it_is_not_a_no_findings_panel() -> None:
+    """The cheapest body a skipped panel can produce, reported on PR #234 after
+    the previous round explicitly allowed zero rows. `fanning-out-code-review`
+    Step 3: "No findings" is a valid result only when it says which passes ran
+    and what was checked in each. Presence of that account is checkable;
+    truthfulness is not, and this check claims only the first."""
+    bare = "## Review Panel\n\n**Panel:** wfctl — 3 reviewers, 0 findings\n\nroster: r1 ✓  r2 ✓\n"
+    with_evidence = (
+        "## Review Panel\n\nAll six passes each, over the renumbered steps and "
+        "both template copies. No findings.\n\nroster: r1 ✓  r2 ✓\n"
+    )
+
+    assert panel_findings(bare)
+    assert panel_findings(with_evidence) == []
