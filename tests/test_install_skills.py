@@ -741,6 +741,88 @@ def test_doctor_with_nothing_installed(agent_dir: Path) -> None:
     assert "Nothing installed" in result.output
 
 
+# --- doctor and install-skills: the agent layer that was never installed (#178)
+#
+# `no-hardcoded-agent` keeps the flag omitted when `WFCTL_AGENT` is unset, and
+# that is right. What these hold is the reporting: a base-only tree is named,
+# naming it never becomes a finding, and it is not said to someone who already
+# chose.
+# ---------------------------------------------------------------------------
+
+def test_doctor_names_a_missing_agent_layer_without_failing(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A base-only tree is reported, and still exits 0.
+
+    #178: a worktree came up with `.agents/` and no `.claude/`, `post_create`
+    exited 0, and the session's first command failed on a path nothing had
+    installed. `doctor` — the one command a session start always reads — had said
+    green over that exact tree. It says so now; it does not call it wrong,
+    because `no-hardcoded-agent` makes an unset agent the normal state.
+
+    The variable is cleared rather than assumed: it gates the notice, so a
+    developer with it exported would otherwise see this pass or fail on their
+    own shell rather than on the code.
+    """
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    runner.invoke(app, ["install-skills"])
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "no agent layer" in result.output
+    assert "WFCTL_AGENT" in result.output, "the flag alone is the workaround, not the fix"
+
+
+def test_doctor_is_silent_once_an_agent_layer_is_installed(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The notice is about an absent layer, not about every run.
+
+    Left unguarded it would fire on a repo that installed `.claude/` and then ran
+    a bare refresh — telling a developer who already made the choice to make it,
+    on every session start, forever.
+
+    The layer is asserted present first. Without that the test passes when the
+    install fails outright: an empty manifest sends doctor down its `Nothing
+    installed` early return, whose output does not carry the string either.
+    """
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert (agent_dir.parent / ".claude").is_dir()
+    assert "no agent layer" not in runner.invoke(app, ["doctor"]).output
+
+
+def test_doctor_is_silent_for_an_agent_that_installs_nothing(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex is a choice, and it records no layer — so the layer cannot be the gate.
+
+    `_AGENT_TARGETS['codex']` is empty by design and `install-skills` writes no
+    manifest entry for a layer with no items, so a guard reading only the
+    manifest tells a Codex developer to install a layer that no `--agent` value
+    can produce, at every session start, forever. What separates them from a
+    developer who never chose is the environment, which `no-hardcoded-agent`
+    already makes authoritative.
+    """
+    monkeypatch.setenv("WFCTL_AGENT", "codex")
+    runner.invoke(app, ["install-skills", "--agent", "codex"])
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "no agent layer" not in result.output
+
+
+def test_base_only_install_names_the_variable_not_just_the_flag(agent_dir: Path) -> None:
+    """The base-only hint has always named `--agent`; #178 is the half it missed.
+
+    `--agent` fixes the worktree the developer is standing in. `WFCTL_AGENT` is
+    what `post_create` reads, so it is the only one that fixes the next worktree
+    too — and the hand-carried `WFCTL_AGENT=claude workmux add …` prefix is what
+    its absence had people typing.
+    """
+    out = runner.invoke(app, ["install-skills"]).output
+    assert "WFCTL_AGENT" in out
+    assert "workmux add" in out
+
+
 # --- doctor's four staleness states (data-model.md §3) ---
 #
 # All four turn on one comparison: the `content_hash` on record against the
