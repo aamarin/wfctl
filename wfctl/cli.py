@@ -370,6 +370,8 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
 @app.command("end")
 def end_cmd() -> None:
     """End the current session."""
+    from datetime import datetime
+
     from wfctl import _session
     from wfctl._pipeline import build_report
 
@@ -381,7 +383,7 @@ def end_cmd() -> None:
 
     spec_dir = resolve_spec_dir(branch, repo_root)
     observed = _observe(repo_root, build_report(spec_dir, repo_root, agent_dir))
-    summary_path = _session.end(agent_dir, branch, observed)
+    summary_path, summary_written = _session.end(agent_dir, branch, observed)
 
     # "closed", not "ended and complete". Every clause names something read a
     # moment ago; none of them concludes the work is done, because `end` has no
@@ -394,6 +396,20 @@ def end_cmd() -> None:
     # console width — which turns the only machine-readable thing `end` prints
     # into two lines that no longer name a file.
     console.print(f"  Summary: {summary_path}", soft_wrap=True)
+    if not summary_written:
+        # A second line rather than a suffix on the one above: that line is the
+        # only path `end` prints, and anything appended after it lands inside
+        # what a reader takes to be the path.
+        #
+        # Says only what is observable — a file was here, this run left it
+        # alone, it last changed then. Not who wrote it or why: a pre-existing
+        # summary is as often a handoff written *for* the branch as a stale one
+        # left by an earlier session, and nothing here can tell them apart.
+        mtime = datetime.fromtimestamp(summary_path.stat().st_mtime)
+        console.print(
+            f"  [yellow]⚠[/yellow] kept — this session wrote nothing; "
+            f"last modified {mtime:%Y-%m-%d %H:%M}."
+        )
 
 
 @app.command("log")
