@@ -165,6 +165,40 @@ memory of it — load them before doing anything else.
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
    - **Alignment**: aligned, or the likely-done / untracked items from step 7
+   - **Next**: the first action, quoted from `session-summary.md` — or, when
+     there is no line to quote, that you are asking instead
 
-9. Ask: "What are we working on today?" — defaulting to the top item from the last
-   session's Next Session TODO if there was one.
+9. **Answer the question, or ask it — step 4 already decided which.**
+
+   The question is "what are we working on today?", and the only thing that can
+   answer it before the user speaks is the `session-summary.md` step 4 read. So
+   this step is a branch on what step 4 found, not a fresh judgment:
+
+   | Step 4 found | This step |
+   |---|---|
+   | a summary naming a first action | **Do not ask.** Quote the line that names it, say in one line what you are doing, and begin. |
+   | no summary, or one naming no next action | Ask: "What are we working on today?" |
+
+   **The gate is the quote.** If you cannot copy a literal sentence out of
+   `session-summary.md` saying what to do first, you are in the second row. An
+   inference about what the branch is probably for is not an answer, and acting
+   on one is how the second row's protection is lost. Quoting is also what makes
+   the branch visible from outside — step 8 reports which row this session took,
+   so a wrong turn is a mismatch someone can point at rather than a matter of
+   tone.
+
+   **Do not try to tell a handoff from a previous session's summary.** Both
+   answer the question, so both are the first row. The discrimination is not
+   available anyway: `workmux` runs `wfctl start` in `post_create`, so a handoff
+   lands *after* the branch's first start event and every obvious test of which
+   came first classifies it backwards (#239).
+
+   **The first row is not a permission question.** Beginning implementation is
+   local and reversible — edit files, commit, write the summary. What the summary
+   answers is *what* to work on; it is not authority for anything past that. Push,
+   comment, open a change, merge are asked for when you reach them, unless the
+   summary said in its own words to carry through.
+
+   The second row stays a real question. A session started with no summary has
+   genuinely not been told what to do, and guessing there trades this defect for
+   a worse one.

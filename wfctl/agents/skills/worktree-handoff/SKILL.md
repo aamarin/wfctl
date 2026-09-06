@@ -148,11 +148,14 @@ there wasn't one.
 Order matters: `wm add` first. Resolving the state dir creates it, and a branch
 whose `pre_create` hook rejected the name should not leave one behind.
 
-One thing landing here does *not* give the reader: `start-session` step 9 offers
-the top item of a **Next Session TODO** as the default answer to "what are we
-working on today?", and a handoff has no such list — its answer lives in section
-2, after `/start-session`. Say that first action plainly enough to be the
-default. Do not add a TODO section to get one; it would be a second copy of the
+`start-session` step 9 reads this file to decide whether to ask the reader what
+to work on, and it proceeds only on a **sentence it can quote** naming the first
+action. Section 2 is where that sentence lives. "Plainly enough to be the
+default" was the old wording and it did not work — three of three panes stated
+the action back verbatim and asked anyway (#244); a line that reads as
+description rather than instruction is a line step 9 will not quote. Write it as
+the imperative it is: `Start with <the command>`, not "the work here concerns
+<x>". Do not add a TODO section to get one; it would be a second copy of the
 route, and `.agents/skills/end-session` owns that heading.
 
 ## Step 4: Confirm it landed
