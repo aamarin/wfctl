@@ -84,8 +84,8 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
     )
 
 
-def end(agent_dir: Path, branch: str, observed: Observations) -> Path:
-    """Write session-summary.md if absent; return its path.
+def end(agent_dir: Path, branch: str, observed: Observations) -> tuple[Path, bool]:
+    """Write session-summary.md if absent; return its path and whether it wrote.
 
     The observations are passed in rather than taken here: the caller has
     already built the report, and a second inference is a second chance to
@@ -93,10 +93,19 @@ def end(agent_dir: Path, branch: str, observed: Observations) -> Path:
 
     Written once. A second `end` must not overwrite prose a human or agent
     filled in between the two.
+
+    The flag is returned because only this function knows which of the two
+    happened, and the caller reports it. Whether the file was written is not
+    re-derivable afterwards: the kept file and a freshly written one are both
+    just a `session-summary.md` sitting there, and the mtime cannot separate
+    them either — `worktree-handoff` copies a handoff in after the branch's
+    first `start` event, so "older than the session" classifies a handoff as
+    stale (#239).
     """
     summary_file = agent_dir / "session-summary.md"
-    if not summary_file.exists():
+    written = not summary_file.exists()
+    if written:
         write_md_atomic(summary_file, _render_session_summary(branch, observed))
 
     append_event(agent_dir, "end", step=observed.step)
-    return summary_file
+    return summary_file, written

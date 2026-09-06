@@ -55,6 +55,23 @@ unfilled is a failed handoff.
    `**Step**`, `**Boundary**` and `**Tree**` — leave those lines alone. They are
    what `wfctl` could see; the prose below them is what only you know.
 
+   **It writes only when the file is absent.** A summary already there survives
+   untouched, and `end` says so:
+
+   ```
+   ✓ Session closed — brainstorm, boundary unanswered, tree clean.
+     Summary: /Users/…/state/wfctl/<branch>/session-summary.md
+     ⚠ kept — this session wrote nothing; last modified 2026-09-05 22:14.
+   ```
+
+   The state dir is per branch, so this is the normal case on a long-lived branch
+   like `main` and never happens in a fresh worktree. On that line the file is
+   **not** a scaffold: it is either a handoff written for the branch or the last
+   session's prose, and `end` cannot tell which. Read it before step 4 — the
+   `**Step**` / `**Boundary**` / `**Tree**` lines in it belong to whoever wrote
+   it, so replace them with this session's readings from the line above rather
+   than leaving them alone.
+
 4. **Fill in `$(wfctl state-dir)/session-summary.md`** using the scan from step 2.
    Keep it concrete — this is the next session's starting context:
 
