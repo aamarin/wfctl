@@ -66,6 +66,39 @@ def test_gitignores_the_directory_the_config_names(bundle: Path, agent_dir: Path
     assert "wt/" not in lines
 
 
+def test_a_repos_own_worktree_dir_survives_a_reseed(bundle: Path, agent_dir: Path) -> None:
+    """#35's actual symptom, and the one a template-only fix leaves standing.
+
+    `--force` re-seeds from the bundle. Before this, that reset `worktree_dir`
+    to the template's `wt` and gitignored `wt/`, so a repo whose worktrees lived
+    in `trees/` had them relocated by a command it ran for the agent key, and
+    the directory they were really in stayed tracked.
+    """
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text("worktree_dir: trees\nagent: claude\n")
+    result = _install(bundle, "--force")
+    assert result.exit_code == 0
+    assert "worktree_dir: trees" in (repo_root / ".workmux.yaml").read_text()
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert "trees/" in lines
+    assert "wt/" not in lines
+
+
+def test_a_worktree_dir_git_cannot_ignore_is_reported(bundle: Path, agent_dir: Path) -> None:
+    """workmux documents absolute paths, `~` and `{project}` as legal here, and
+    none survives as a gitignore pattern. `check-ignore` cannot evaluate them, so
+    `_ensure_gitignored` reads its own non-zero exit as "write it" and lands a
+    line matching nothing while the real directory stays tracked."""
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text(
+        "worktree_dir: ~/.workmux/{project}\nagent: claude\n"
+    )
+    result = _install(bundle, "--force")
+    assert result.exit_code == 0
+    assert "nothing gitignored" in result.output
+    assert not (repo_root / ".gitignore").exists()
+
+
 def test_no_worktree_dir_says_so_rather_than_guessing(bundle: Path, agent_dir: Path) -> None:
     """A silent `wt/` fallback ignores a directory nothing uses and leaves the
     real one tracked — the same failure, minus the evidence."""

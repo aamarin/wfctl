@@ -1763,6 +1763,28 @@ def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
     return lines
 
 
+def _gitignorable(value: str) -> bool:
+    """Can a repo's own `.gitignore` express `value` at all?
+
+    The precondition `_ensure_gitignored` cannot check for itself: it asks git
+    whether a path is already ignored, and git answers non-zero — "not ignored,
+    write it" — for every path it could not evaluate. So an unusable value is
+    not refused there, it is written.
+
+    workmux documents `worktree_dir` as taking an absolute path, `~`, or a
+    `{project}` token it expands itself. None of the three survives as a
+    gitignore pattern: `~/x/` matches nothing, a leading `/` is re-anchored to
+    the repo root and silently means a different directory, and gitignore has no
+    brace expansion. `spec-root` already refuses an absolute path one screen up
+    for the same reason.
+    """
+    return not (
+        value.startswith(("/", "~"))
+        or "{" in value
+        or ".." in Path(value).parts
+    )
+
+
 def _ensure_gitignored(repo_root: Path, line: str) -> bool:
     """Ignore `line` via .gitignore unless git already ignores it.
 
@@ -2948,11 +2970,18 @@ def install_config_cmd(
         )
         raise typer.Exit(1)
 
+    # Read before the copy, which is what destroys it. The values carried across
+    # a re-seed live in this text and nowhere else once `shutil.copy2` has run.
+    wf = repo_root / ".workmux.yaml"
+    prior = wf.read_text() if name == "workmux" and wf.exists() else None
+
     for item, dest in plan:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(item, dest)
 
     if name == "workmux":
+        from rich.markup import escape
+
         from wfctl import _workmux
 
         # Resolve here, substitute in _workmux. The module takes plain values and
@@ -2975,24 +3004,40 @@ def install_config_cmd(
                 soft_wrap=True,
             )
 
-        wf = repo_root / ".workmux.yaml"
-        patched = _workmux.patch_seed(wf.read_text(), agent=chosen, project=proj)
+        # Carried across a re-seed, like `agent:` and `window_prefix:` above.
+        # `--force` overwrites this file, and this key is where every worktree in
+        # the repo lives: restoring the template's `wt` relocates all of them and
+        # leaves the directory they are actually in untracked, which is #35's own
+        # symptom produced by the command that exists to prevent it.
+        kept = _workmux.worktree_dir(prior) if prior else None
+        patched = _workmux.patch_seed(
+            wf.read_text(), agent=chosen, project=proj, worktree_dir=kept
+        )
         wf.write_text(patched)
+        if kept:
+            console.print(f"[dim]ℹ kept worktree_dir: {escape(kept)}[/dim]", soft_wrap=True)
 
         # Gitignore what the config we just wrote declares, not a literal beside
         # it. Read after the write so the two cannot disagree — a second copy of
         # `wt` here is exactly the shadowing #35 is about.
-        wt = _workmux.worktree_dir(patched)
-        if wt:
-            _ensure_gitignored(repo_root, f"{wt}/")
+        declared = _workmux.worktree_dir(patched)
+        if declared and _gitignorable(declared):
+            _ensure_gitignored(repo_root, f"{declared.rstrip('/')}/")
+        elif declared:
+            # Loud, not a fallback, and for the same reason as the branch below:
+            # an ignore that matches nothing leaves the real directory tracked
+            # while looking like it was handled.
+            console.print(
+                f"[yellow]⚠[/yellow] worktree_dir: {escape(declared)} — outside this "
+                "repo or not a literal path, so nothing gitignored.\n"
+                "  workmux resolves it; .gitignore cannot.",
+                soft_wrap=True,
+            )
         else:
-            # Loud, not a fallback. Guessing `wt/` writes an ignore for a
-            # directory nothing uses and leaves the real one tracked — the
-            # silent half of the same failure.
             console.print(
                 "[yellow]⚠[/yellow] .workmux.yaml declares no worktree_dir — "
                 "nothing gitignored.\n"
-                "  Add the key, then ignore that directory by hand.",
+                "  Set the key, then ignore that directory by hand.",
                 soft_wrap=True,
             )
 
