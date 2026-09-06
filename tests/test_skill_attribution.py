@@ -51,7 +51,9 @@ SPECIFY_NOTICES = SPECIFY_ROOT / "templates" / "NOTICES.md"
 # a line naming a source but no copyright holder is not the notice MIT asks for,
 # and one naming neither licence nor holder is not what the record says the line
 # carries. A half-written line has to fail as an absent one, not pass as a whole.
-_LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), ([^)]*© *[^)\s][^)]*)\)\.$")
+_LINE = re.compile(
+    r"^Derived from \[([^\]]+)\]\((https://\S+)\) \(([^),]+), ([^)]*© *[^)\s][^)]*)\)\.$"
+)
 # Padding-tolerant: a table reformatted with aligned columns would otherwise
 # match no row at all, and an empty `_listed()` reads as "nothing is declared"
 # — which passes the direction that matters if a line went missing too.
@@ -63,8 +65,17 @@ _ROW = re.compile(r"^\|\s*`([a-z0-9./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
 _TEMPLATE_ROW = "specify/templates/"
 
 
-def _declared() -> dict[str, tuple[str, str, str]]:
-    """Skill name or script path → (upstream, licence, holder) from its own line.
+def _declared() -> dict[str, dict[str, str]]:
+    """Skill name or script path → every fact its own attribution line states.
+
+    A mapping and not a tuple, and every group kept rather than the one a caller
+    happens to want. Three findings on this branch were the same defect: the
+    pattern required a field, the parser discarded it, and the field could then
+    say anything — a wrong holder, a wrong licence, and a link to a repository
+    the label did not name all shipped with a green suite. What closes that is
+    comparing the whole declaration against the whole notice entry, so a field
+    added to `_LINE` later is compared without anyone remembering to write a
+    check for it.
 
     Two positions, because two conventions. A `SKILL.md` ends with the line, and
     matching only the last line is what stops a skill that merely *discusses*
@@ -77,19 +88,24 @@ def _declared() -> dict[str, tuple[str, str, str]]:
         text = skill_md.read_text(encoding="utf-8").rstrip()
         match = _LINE.match(text.rsplit("\n", 1)[-1])
         if match:
-            found[skill_md.parent.name] = match.group(1, 2, 3)
+            found[skill_md.parent.name] = _fields(match)
     for script in sorted(SPECIFY_ROOT.glob("scripts/**/*.sh")):
         lines = script.read_text(encoding="utf-8").splitlines()
         match = _LINE.match(lines[1].removeprefix("# ")) if len(lines) > 1 else None
         if match:
-            key = script.relative_to(SPECIFY_ROOT.parent).as_posix()
-            found[key] = match.group(1, 2, 3)
+            found[script.relative_to(SPECIFY_ROOT.parent).as_posix()] = _fields(match)
     return found
 
 
 def _attributed() -> dict[str, str]:
     """Skill name or script path → the upstream the file's own line names."""
-    return {name: repo for name, (repo, _, _holder) in _declared().items()}
+    return {name: fields["upstream"] for name, fields in _declared().items()}
+
+
+def _fields(match: re.Match[str]) -> dict[str, str]:
+    """One attribution line's four facts, named and normalised for comparison."""
+    upstream, url, licence, holder = match.groups()
+    return {"upstream": upstream, "url": url, "licence": licence, "holder": _holder(holder)}
 
 
 def _holder(statement: str) -> str:
@@ -195,8 +211,8 @@ def test_the_file_and_the_record_name_the_same_upstream() -> None:
     assert not disagree, f"file and record name different upstreams (file, record): {disagree}"
 
 
-def _noticed(notice: Path) -> dict[str, str]:
-    """Upstream → the copyright line that upstream's section in `notice` carries.
+def _noticed(notice: Path) -> dict[str, dict[str, str]]:
+    """Upstream → the same four facts, as that upstream's section in `notice` states them.
 
     Sectioned on the `## <upstream>` heading and read down to the next one,
     rather than searched for the upstream's name anywhere in the file. The name
@@ -210,8 +226,14 @@ def _noticed(notice: Path) -> dict[str, str]:
     for section in re.split(r"^## ", notice.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
         holder = re.search(r"^ {4}(Copyright .+)$", body, re.M)
+        link = re.search(r"<(https://\S+?)>", body)
         if holder:
-            found[heading.strip()] = holder.group(1)
+            found[heading.strip()] = {
+                "upstream": heading.strip(),
+                "url": link.group(1) if link else "",
+                "licence": _licence_the_notices_carry(),
+                "holder": _holder(holder.group(1)),
+            }
     return found
 
 
@@ -272,19 +294,6 @@ def test_the_specify_notice_and_the_record_name_the_same_upstream() -> None:
     assert not disagree, f"notice and record name different upstreams (notice, record): {disagree}"
 
 
-def test_every_attribution_line_names_the_licence_its_notice_carries() -> None:
-    """`_LINE` required a licence and then threw it away, so a file could ship
-    saying `(Apache-2.0, © GitHub, Inc.)` above a notice reproducing MIT's
-    permission text, with every check green. The record calls the line's three
-    facts source, licence and holder; two of them were being compared."""
-    expected = _licence_the_notices_carry()
-    wrong = {
-        name: licence for name, (_repo, licence, _holder) in _declared().items()
-        if licence != expected
-    }
-
-    assert not wrong, f"name a licence no NOTICES.md in their tree carries (expected {expected}): {wrong}"
-
 
 def test_no_file_is_listed_twice_in_the_record() -> None:
     """`_listed()` is a dict comprehension over the rows, so a file listed under
@@ -302,21 +311,31 @@ def test_no_file_is_listed_twice_in_the_record() -> None:
     assert not duplicated, f"listed more than once in vendor-upstream-skills: {duplicated}"
 
 
-def test_every_attribution_line_names_the_holder_its_notice_names() -> None:
-    """The holder is the fact MIT asks for, and it had two homes and no bridge.
 
-    Checking that the *upstream* has an entry says nothing about the name beside
-    it: a skill could read `© Example Corp.` while the notice covering it read
-    `Copyright GitHub, Inc.`, and every check here passed. A notice that is
-    subtly wrong is worse than a missing one, because it looks discharged."""
+def test_every_attribution_line_agrees_with_its_notice_entry() -> None:
+    """The line and the notice state the same four facts; they have to match on
+    all four, not on whichever one a check was written for.
+
+    This replaces a check per field, and the reason is three findings of one
+    shape on this branch. `_LINE` required an upstream, a URL, a licence and a
+    holder; the parser kept one of them, so a file could name the right
+    repository at the wrong link, under the wrong licence, owned by the wrong
+    person, and stay green until someone wrote a fourth check. Comparing the
+    declarations whole means a field added to `_LINE` is compared the day it is
+    added — the failure mode was never the individual field, it was that
+    verifying one required remembering to."""
     noticed = {NOTICES: _noticed(NOTICES), SPECIFY_NOTICES: _noticed(SPECIFY_NOTICES)}
     disagree = {}
-    for name, (repo, _licence, holder) in _declared().items():
+    for name, declared in _declared().items():
         entries = noticed[SPECIFY_NOTICES if name.startswith("specify/") else NOTICES]
-        if repo in entries and _holder(holder) != _holder(entries[repo]):
-            disagree[name] = (holder, entries[repo])
+        entry = entries.get(declared["upstream"])
+        if entry is None:
+            continue   # `…has_its_copyright_in_the_same_tree` owns the absent case
+        differing = {k: (v, entry[k]) for k, v in declared.items() if v != entry[k]}
+        if differing:
+            disagree[name] = differing
 
-    assert not disagree, f"file and notice name different holders (file, notice): {disagree}"
+    assert not disagree, f"file and notice disagree (file, notice): {disagree}"
 
 
 def test_every_upstream_named_in_a_file_has_its_copyright_in_the_same_tree() -> None:
