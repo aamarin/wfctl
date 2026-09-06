@@ -77,6 +77,25 @@ def _has_open_checkboxes(text: str) -> bool:
     return bool(re.search(r"\[ \]", text))
 
 
+def _tasks_open(spec_dir: Path) -> bool:
+    """Whether implementation is still open, by the two routes `implement` reads
+    as finished: every box ticked, or the checklist that says so over one left
+    open.
+
+    A function rather than a local, because three callers need this answer and a
+    local reaches only the two inside `_infer_steps`. `next_step_content` spelled
+    it with the boxes alone and routed a story whose definition of done had not
+    passed straight back to `/speckit.implement` with `auto: true` (#262) — the
+    sentinel exists precisely for the story whose boxes are not a reliable
+    signal, so dropping it inverts the case it was written for.
+    """
+    tasks_md = spec_dir / "tasks.md"
+    tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
+    return _has_open_checkboxes(tasks_text) and not _file_exists(
+        spec_dir / "checklists" / "implement-complete.md"
+    )
+
+
 # The Issue Grouping Map, and the `|---|---|` line markdown puts under every
 # table header. Rows are read by position — the lines after that separator, and
 # the first cell of each — rather than by matching header labels. Both halves of
@@ -226,13 +245,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
-    # Whether implementation is still open, by the two routes `implement` reads
-    # as finished: every box ticked, or the checklist that says so over one left
-    # open. Bound once because `decompose` now needs the same answer, and two
-    # spellings of "the work is done" drift apart without either one looking wrong.
-    tasks_open = _has_open_checkboxes(tasks_text) and not _file_exists(
-        spec_dir / "checklists" / "implement-complete.md"
-    )
+    tasks_open = _tasks_open(spec_dir)
 
     spec_md = spec_dir / "spec.md"
     spec_text = ""
@@ -487,9 +500,7 @@ def next_step_content(
     the work itself is what remains.
     """
     if step == "implement" and repo_root is not None and spec_dir is not None:
-        tasks_md = spec_dir / "tasks.md"
-        tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
-        if tasks_text and not _has_open_checkboxes(tasks_text):
+        if _file_exists(spec_dir / "tasks.md") and not _tasks_open(spec_dir):
             if _verification_block(repo_root):
                 return "wfctl verify", False
     return _STEPS.get(step, ("", False))
