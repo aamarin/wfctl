@@ -1770,39 +1770,58 @@ def _format_summary(summary: dict[str, dict[str, int]]) -> list[str]:
 # matches nothing, arrived at through the pattern language instead of through
 # the path.
 #
-# Escaping them instead was the alternative. Rejected: it is a fourth encoder in
+# Escaping them instead was the alternative. Rejected: it is another encoder in
 # a change whose defects have all been encoders, and it would still leave the
 # leading `!` and `#` cases, which are position-dependent rather than
 # character-dependent.
 _GITIGNORE_METACHARACTERS = "*?[]\\"
 
 
-def _gitignorable(value: str) -> bool:
-    """Can a repo's own `.gitignore` name this directory literally?
+def _ignore_pattern(value: str) -> str | None:
+    """The `.gitignore` line that ignores `value`, or None when there is none.
 
-    The precondition `_ensure_gitignored` cannot check for itself: it asks git
-    whether a path is already ignored, and git answers non-zero — "not ignored,
-    write it" — for every path it could not evaluate. So an unusable value is
-    not refused there, it is written.
+    Deciding and writing are one step here, and that is the point. They were two
+    before — a predicate that said "no syntax in this" and a caller that wrote
+    `f"{value}/"` — and every spelling git treats differently from a path
+    library fell through the gap between them. `./wt` passed the check and then
+    matched nothing, because gitignore compares patterns literally and
+    normalises none of them: no `.` segments collapsed, no doubled separators
+    folded. `wt//x` and `wt/./x` are the same hole. A canonical form computed
+    once, used both to judge and to write, has no gap to fall through.
 
-    Two ways a value fails. It can name somewhere the file cannot reach:
-    workmux documents `worktree_dir` as taking an absolute path, `~`, or a
-    `{project}` token it expands itself, and none survives — `~/x/` matches
+    Two ways a value has no pattern. It can name somewhere the file cannot
+    reach: workmux documents `worktree_dir` as taking an absolute path, `~`, or
+    a `{project}` token it expands itself, and none survives — `~/x/` matches
     nothing, a leading `/` is re-anchored to the repo root and silently means a
     different directory, and gitignore has no brace expansion. `spec-root`
-    already refuses an absolute path one screen up for the same reason.
+    already refuses an absolute path one screen up for the same reason. `..`
+    leaves the checkout, and unlike `.` it cannot be folded away without
+    resolving against the filesystem.
 
-    Or it can be a name the pattern language reads as a pattern. Those are the
+    Or it can be a name the pattern language reads as a pattern: the
     metacharacters above, plus `!` and `#`, which are syntax only in the first
-    column, plus a trailing space, which git strips unless it is escaped.
+    column, plus a trailing space, which git strips unless it is escaped. Those
+    are judged against the canonical form rather than the input, since that is
+    the string that would actually be written.
     """
-    return not (
-        value.startswith(("/", "~", "!", "#"))
-        or value != value.rstrip()
-        or "{" in value
-        or any(c in value for c in _GITIGNORE_METACHARACTERS)
-        or ".." in Path(value).parts
-    )
+    if value.startswith(("/", "~")) or "{" in value:
+        return None
+
+    # `.` segments and empty ones (a doubled or trailing separator) carry no
+    # meaning in a path and none in a pattern either — git simply fails to match
+    # rather than folding them, so they are folded here.
+    parts = [seg for seg in value.split("/") if seg not in ("", ".")]
+    if not parts or ".." in parts:
+        return None
+
+    pattern = "/".join(parts)
+    if (
+        pattern.startswith(("!", "#"))
+        or pattern != pattern.rstrip()
+        or any(c in pattern for c in _GITIGNORE_METACHARACTERS)
+    ):
+        return None
+    return f"{pattern}/"
 
 
 def _ensure_gitignored(repo_root: Path, line: str) -> bool:
@@ -3043,8 +3062,9 @@ def install_config_cmd(
         # it. Read after the write so the two cannot disagree — a second copy of
         # `wt` here is exactly the shadowing #35 is about.
         declared = _workmux.worktree_dir(patched)
-        if declared and _gitignorable(declared):
-            _ensure_gitignored(repo_root, f"{declared.rstrip('/')}/")
+        pattern = _ignore_pattern(declared) if declared else None
+        if pattern:
+            _ensure_gitignored(repo_root, pattern)
         elif declared:
             # Loud, not a fallback, and for the same reason as the branch below:
             # an ignore that matches nothing leaves the real directory tracked

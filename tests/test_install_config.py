@@ -134,6 +134,35 @@ def test_a_quoted_value_survives_the_round_trip(bundle: Path, agent_dir: Path) -
     assert "team's trees/" in (repo_root / ".gitignore").read_text().splitlines()
 
 
+@pytest.mark.parametrize("declared", ["./wt", "wt//", ".//wt", "wt/./"])
+def test_a_dot_segment_does_not_reach_the_ignore_rule(
+    bundle: Path, agent_dir: Path, declared: str
+) -> None:
+    """Git normalises nothing in a pattern, so every spelling of `wt` has to be
+    normalised before it is written.
+
+    Verified against real git: `./wt/` in a `.gitignore` leaves `wt/` untracked,
+    and `check-ignore` then exits 1 — "not ignored" — so a second re-seed
+    appends the same dead rule again. The check and the write are now one
+    canonical form rather than two readings of the input.
+    """
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text(f"worktree_dir: '{declared}'\nagent: claude\n")
+    result = _install(bundle, "--force")
+    assert result.exit_code == 0
+    assert (repo_root / ".gitignore").read_text().splitlines() == ["wt/"]
+
+
+def test_the_ignore_rule_is_not_appended_twice(bundle: Path, agent_dir: Path) -> None:
+    """A rule git cannot match is a rule `check-ignore` reports as absent, so
+    the un-normalised form grew a duplicate line on every re-seed."""
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text("worktree_dir: './wt'\nagent: claude\n")
+    _install(bundle, "--force")
+    _install(bundle, "--force")
+    assert (repo_root / ".gitignore").read_text().splitlines().count("wt/") == 1
+
+
 def test_no_worktree_dir_says_so_rather_than_guessing(bundle: Path, agent_dir: Path) -> None:
     """A silent `wt/` fallback ignores a directory nothing uses and leaves the
     real one tracked — the same failure, minus the evidence."""
