@@ -51,6 +51,31 @@ def test_gitignore_no_duplicate_when_present(bundle: Path, agent_dir: Path) -> N
     assert (repo_root / ".gitignore").read_text().splitlines().count("wt/") == 1
 
 
+def test_gitignores_the_directory_the_config_names(bundle: Path, agent_dir: Path) -> None:
+    """The negative case, and the one #35 is about.
+
+    Asserting the default still lands proves nothing here — `wt/` is what the
+    bug produces. A config declaring anything else must be what gets ignored,
+    and the literal must not appear beside it.
+    """
+    repo_root = agent_dir.parent
+    result = _install(bundle, yaml="worktree_dir: trees\nagent: claude\n")
+    assert result.exit_code == 0
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert "trees/" in lines
+    assert "wt/" not in lines
+
+
+def test_no_worktree_dir_says_so_rather_than_guessing(bundle: Path, agent_dir: Path) -> None:
+    """A silent `wt/` fallback ignores a directory nothing uses and leaves the
+    real one tracked — the same failure, minus the evidence."""
+    repo_root = agent_dir.parent
+    result = _install(bundle, yaml="agent: claude\n")
+    assert result.exit_code == 0
+    assert "no worktree_dir" in result.output
+    assert not (repo_root / ".gitignore").exists()
+
+
 def test_refuses_existing_without_force(bundle: Path, agent_dir: Path) -> None:
     repo_root = agent_dir.parent
     (repo_root / ".workmux.yaml").write_text("mine: true\n")

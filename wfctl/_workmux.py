@@ -30,6 +30,12 @@ PROJECT_PLACEHOLDER = "<project>"
 _TMUX_UNSAFE = re.compile(r"[.:]")
 
 _WINDOW_PREFIX_LINE = re.compile(r"^\s*#?\s*window_prefix:")
+
+# Column 0 and no leading `#`, matching how `patch_seed` finds `agent:`: a
+# commented key is not a setting. `\S+` stops at the whitespace a YAML trailing
+# comment needs, so the template's `wt          # worktrees land in ...` yields
+# `wt`.
+_WORKTREE_DIR_LINE = re.compile(r"^worktree_dir:\s*(\S+)")
 _EMPTY_PRE_REMOVE_LINE = re.compile(r"^pre_remove:\s*\[\]\s*$")
 
 # The command was renamed in #27; `archive-story` survives as a hidden alias.
@@ -99,6 +105,24 @@ def patch_seed(text: str, *, agent: str | None, project: str) -> str:
         else:
             out.append(line)
     return "".join(out)
+
+
+def worktree_dir(text: str) -> str | None:
+    """Where this config puts worktrees, or None when it does not say.
+
+    The one reader of that value. `install-config` used to gitignore a literal
+    `wt/` beside the template that declares the key, so the two could disagree
+    the moment either moved — the shape #35 is about.
+
+    None rather than a `"wt"` fallback: a default returned here is
+    indistinguishable at the call site from a value the config actually
+    declared, and re-instates the hardcode one layer down.
+    """
+    for line in text.splitlines():
+        m = _WORKTREE_DIR_LINE.match(line)
+        if m:
+            return m.group(1).strip("\"'")
+    return None
 
 
 def unsubstituted_placeholder(text: str) -> bool:

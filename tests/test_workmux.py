@@ -96,6 +96,35 @@ def test_absent_keys_are_left_alone_not_appended() -> None:
     assert out == "worktree_dir: wt\n"
 
 
+# --- worktree_dir ----------------------------------------------------------
+
+def test_worktree_dir_reads_the_template_shape() -> None:
+    """The shipped template puts a trailing comment on the same line, so a
+    naive rest-of-line read returns `wt          # worktrees land in ...` and
+    gitignores a directory named after the comment."""
+    assert _workmux.worktree_dir(
+        "worktree_dir: wt          # worktrees land in ./wt/<handle>\n"
+    ) == "wt"
+
+
+def test_worktree_dir_reads_a_quoted_value() -> None:
+    """YAML lets the value be quoted, and the quotes are not part of the path."""
+    assert _workmux.worktree_dir("worktree_dir: 'trees'\n") == "trees"
+    assert _workmux.worktree_dir('worktree_dir: "trees"\n') == "trees"
+
+
+def test_a_commented_worktree_dir_is_not_a_setting() -> None:
+    """Same rule `patch_seed` applies to `agent:`: column 0, no leading `#`.
+    Reading a commented key would ignore a directory the repo opted out of."""
+    assert _workmux.worktree_dir("# worktree_dir: wt\n") is None
+
+
+def test_worktree_dir_absent_is_none_not_a_default() -> None:
+    """A `"wt"` fallback here is indistinguishable at the call site from a
+    declared value, which re-instates the hardcode one layer down."""
+    assert _workmux.worktree_dir("agent: claude\n") is None
+
+
 # --- unsubstituted_placeholder ---------------------------------------------
 
 def test_placeholder_check_watches_the_symptom() -> None:
