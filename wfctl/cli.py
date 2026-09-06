@@ -1294,10 +1294,12 @@ _HOOK_GONE = {
 
 _BACKUP_DIR = ".wf-skills-backup"
 
-# What `--tracker github` installs. The script is not an optional extra: the
-# config's `start`/`stop` verbs invoke it by path, so the pair travels together
-# or the verbs are declared and broken.
-_GITHUB_TRACKER_FILES = ("github.json", "github-board.sh")
+# What `--tracker github` installs. The scripts are not optional extras: the
+# config's `start`/`stop` and `create` verbs invoke them by path, so the set
+# travels together or those verbs are declared and broken.
+_GITHUB_TRACKER_FILES = (
+    "github.json", "github-board.sh", "github-issue-create.sh",
+)
 
 
 def _tracker_files(name: str) -> tuple[str, ...]:
@@ -2369,8 +2371,8 @@ def install_skills_cmd(
 
     # 'github' is the only tracker the bundle ships; copy the files it is made
     # of. More than the config, because a board write is two API calls and a
-    # verb is one argv — `github.json` points `start`/`stop` at the script, so a
-    # config installed without it declares verbs that cannot run.
+    # verb is one argv — `github.json` points `start`/`stop` and `create` at
+    # scripts, so a config installed without them declares verbs that cannot run.
     if tracker == "github":
         for fname in _GITHUB_TRACKER_FILES:
             if tracker_skip_existing and (repo_root / ".agents" / "trackers" / fname).exists():
