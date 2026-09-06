@@ -187,3 +187,54 @@ def test_a_roster_with_no_evidence_behind_it_is_not_a_no_findings_panel() -> Non
 
     assert panel_findings(bare)
     assert panel_findings(with_evidence) == []
+
+
+def test_every_field_answers_to_one_notion_of_filled() -> None:
+    """The shape behind four separate findings on PR #234, pinned as one test.
+
+    Each field had grown its own answer to "did the author write this" — cells
+    rejected `N/A`, the evidence line accepted it, the summary read links
+    differently from both — so every field with the weaker answer was another
+    way to look reviewed without being reviewed, reported once per field. The
+    same value now means the same thing wherever it lands, and a field added
+    later inherits that rather than deciding again.
+    """
+    filled_table = (
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | applied |\n\n"
+    )
+
+    # `N/A` is unfilled in a cell, in the roster, and as evidence alike.
+    assert panel_findings(f"## Review Panel\n\n{filled_table}roster: N/A\n")
+    assert panel_findings("## Review Panel\n\nN/A\n\nroster: r1 ✓  r2 ✓\n")
+    assert panel_findings(
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | N/A |\n\nroster: r1 ✓  r2 ✓\n"
+    )
+
+
+def test_a_heading_is_structure_rather_than_evidence() -> None:
+    """`### Findings` under an otherwise empty section satisfied the evidence
+    check while saying nothing about which passes ran — reported on PR #234
+    after the previous round added the check but asked only whether a line
+    existed."""
+    body = "## Review Panel\n\n### Findings\n\nroster: r1 ✓  r2 ✓  r3 ✓\n"
+
+    assert panel_findings(body)
+
+
+def test_reference_style_links_are_prose_not_placeholders() -> None:
+    """`[review record][panel]` is a link, and the exemption written for inline
+    `[x](url)` did not reach it — so a finished summary citing its own record
+    was rejected. A bare `[label]` is a link only where the body defines that
+    label, which is the one thing separating a shortcut link from a field nobody
+    filled in."""
+    table = (
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | applied |\n\nroster: r1 ✓  r2 ✓\n"
+    )
+    ref = f"## Review Panel\n\n**Panel:** [review record][panel] — 3 reviewers\n\n{table}"
+
+    assert panel_findings(ref + "\n[panel]: https://example.com\n") == []
+    assert panel_findings(f"## Review Panel\n\n**Panel:** [target] — [n]\n\n{table}")
