@@ -3251,7 +3251,6 @@ def test_a_bare_install_delivers_a_backend_file_the_repo_is_missing(
     `/start-session` runs the bare form, so this is the path the fix has to work
     on; one that needs a flag has not fixed it.
     """
-    import json
     repo_root = agent_dir.parent
     _add_tracker(bundle)
     assert runner.invoke(app, ["install-skills", "--tracker", "github"]).exit_code == 0
@@ -3267,6 +3266,35 @@ def test_a_bare_install_delivers_a_backend_file_the_repo_is_missing(
         ["base"]["items"]
     }
     assert ".agents/trackers/github-issue-create.sh" in recorded
+
+
+def test_a_bare_install_says_nothing_about_a_backend_it_cannot_fill(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """A recorded custom tracker does not turn every later install into a nag.
+
+    The fill names `github` rather than whatever the manifest records, because
+    the bundle ships nothing else to fill from. A wider gate would set `tracker`
+    and install nothing — and further down a set `tracker` means "the caller
+    selected this", which prints `selected tracker '<name>' but no config found`
+    on a run that selected nothing. `/start-session` runs the bare form, so that
+    is once per session start with no repair the fill can perform.
+    """
+    repo_root = agent_dir.parent
+    _add_tracker(bundle)
+    assert runner.invoke(app, ["install-skills", "--yes"]).exit_code == 0
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["tracker"] = "acme"
+    manifest_path.write_text(json.dumps(manifest))
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "selected tracker" not in result.output, result.output
+    # And the choice survives the run that said nothing about it — the fill
+    # declining to act is not the same as clearing the key.
+    assert json.loads(manifest_path.read_text())["tracker"] == "acme"
 
 
 def test_a_bare_install_leaves_a_hand_edited_backend_file_alone(
