@@ -50,19 +50,22 @@ equal access to the same prose.
 
 ## Decision
 
-A rule wfctl ships is expressed as a check, or it is a comment. Stating a rule
-correctly and delivering it reliably, with nothing observing it afterwards, is
-not a partial implementation of the rule — it is the rule's absence, documented.
-
-Whether a check is possible is settled by one question, asked of the rule rather
-than of the tooling:
+A rule wfctl ships is expressed as a check, or it is a comment — and which of
+the two it is turns on one question, asked of the rule rather than of the
+tooling: is a violation of it visible in an artifact the work already produces?
+Where the answer is yes, shipping the rule as prose alone is the gap this record
+names; where it is no, the rule stays prose delivered at the moment it binds, and
+that is not a defect.
 
 ```
    is a violation visible in an artifact
    the work already produces?
      │
      ├─ yes ──►  the rule is expressed as a check over that artifact.
-     │           Not shipping one is the gap this record names.
+     │           Stating it correctly and delivering it reliably, with
+     │           nothing observing what was written, is not a partial
+     │           implementation of the rule — it is the rule's absence,
+     │           documented.
      │
      └─ no ───►  the rule stays prose, delivered at the moment it binds.
                  Not a defect, and not a candidate for a check that
@@ -122,9 +125,12 @@ volunteers it.
   re-derive from the artifact themselves — and a judge asked whether a rule was
   followed re-opens the self-report problem one participant over.
 - **Keep the claim in epic #221.** Where it lives today, and the right place for
-  collecting instances. Rejected as the durable form only: an epic is read when
-  someone goes looking, while `arch context` runs at the start of every session
-  and `install-skills` carries records into every repo that installs one.
+  collecting instances. Rejected as the durable form only: an epic is read by
+  someone who has already gone looking for it, and `arch context` runs at the
+  start of every session in this repo — which is where all four re-derivations
+  happened. Records are not carried to another repo by `install-skills`, which
+  copies skills and commands; a consuming repo gets the projection mechanism and
+  writes its own records into it.
 
 ## Consequences
 
