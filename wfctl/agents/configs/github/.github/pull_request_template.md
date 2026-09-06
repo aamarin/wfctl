@@ -147,6 +147,7 @@ change, this one shows it working. A screenshot or a GIF counts.
 - [ ] New and existing tests pass locally with my changes
 - [ ] Any dependent changes have been merged and published
 - [ ] Every fully completed issue is under `Closes` with a closing keyword, not only `Related`
+- [ ] Anything this change turned up in passing is named under Additional Context, with whether it was filed
 
 ## Documentation
 
@@ -160,5 +161,19 @@ change, this one shows it working. A screenshot or a GIF counts.
 constraints against another PR. -->
 
 ## Additional Context
-<!-- Anything else a reviewer should know: open questions, follow-ups you are
-deliberately leaving, concerns you could not resolve. -->
+<!--
+Anything else a reviewer should know: open questions, follow-ups you are
+deliberately leaving, concerns you could not resolve.
+
+Then the other half, which is not about this change at all: what did working on
+it turn up? A defect noticed in passing, a claim in the issue that proved wrong,
+a reference that 404s, a second instance of the bug somewhere else. Name each
+one and say whether it was filed. An unfiled finding lives only in a session
+transcript that is discarded, and a filed one outlives this PR — nobody searches
+merged bodies.
+
+Where a finding is a measurement, write the measurement and the conclusion as
+two things. "Nothing else scores above 1%" is a number; "nothing else is
+derived" is a claim about the world that the number does not establish, and the
+second is where a correct measurement goes wrong.
+-->
