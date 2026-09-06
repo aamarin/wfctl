@@ -170,9 +170,10 @@ def _template_claims() -> list[tuple[str, str]]:
     claims = []
     for section in re.split(r"^## ", SPECIFY_NOTICES.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
+        # Bounded at the copyright line where there is one — the prose below it
+        # names a template in order to deny it. An unbounded section is read
+        # whole rather than skipped: enumerate before filtering, per `_sections`.
         covered = body.split("\n    Copyright", 1)
-        if len(covered) == 1:
-            continue   # a section with no copyright line claims nothing; `_noticed` fails on it
         for path in re.findall(r"`(templates/[a-z0-9-]+\.md)`", covered[0]):
             claims.append((f"specify/{path}", heading.strip()))
     return claims
@@ -222,24 +223,36 @@ def _noticed(notice: Path) -> dict[str, dict[str, str]]:
     to carry. Proven by mutation: deleting `Copyright GitHub, Inc.` from
     `wfctl/agents/NOTICES.md` passed every check this file had.
     """
-    return dict(_sections(notice))
+    return {name: fields for name, fields in _sections(notice) if fields is not None}
 
 
-def _sections(notice: Path) -> list[tuple[str, dict[str, str]]]:
-    """Every `## <upstream>` section in `notice` that states a copyright, in order."""
-    claims = []
+def _sections(notice: Path) -> list[tuple[str, dict[str, str] | None]]:
+    """Every `## <upstream>` section in `notice`, in order, read or not.
+
+    A section whose copyright line is missing yields `None` rather than being
+    dropped. Filtering it here is what let a duplicate heading hide: the second
+    `## github/spec-kit` carried a conflicting URL and no copyright, so the
+    parser discarded it and the uniqueness check counted one heading where the
+    document had two.
+
+    That is the general rule, and it outlives this instance — **enumerate before
+    filtering.** A claim the parser cannot read is not a claim the document did
+    not make, and dropping it converts a malformed declaration into an absent
+    one, which is the failure this whole file exists to prevent.
+    """
+    sections: list[tuple[str, dict[str, str] | None]] = []
     for section in re.split(r"^## ", notice.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
         holder = re.search(r"^ {4}(Copyright .+)$", body, re.M)
         link = re.search(r"<(https://\S+?)>", body)
-        if holder:
-            claims.append((heading.strip(), {
-                "upstream": heading.strip(),
-                "url": link.group(1) if link else "",
-                "licence": _licence_the_notices_carry(),
-                "holder": _holder(holder.group(1)),
-            }))
-    return claims
+        fields = None if holder is None else {
+            "upstream": heading.strip(),
+            "url": link.group(1) if link else "",
+            "licence": _licence_the_notices_carry(),
+            "holder": _holder(holder.group(1)),
+        }
+        sections.append((heading.strip(), fields))
+    return sections
 
 
 def _declaration_sources() -> dict[str, list[tuple[str, object]]]:
@@ -247,10 +260,17 @@ def _declaration_sources() -> dict[str, list[tuple[str, object]]]:
 
     Each one is a place a declaration is collapsed with `dict()`, and `dict()`
     is last-write-wins: a key claimed twice keeps the later claim and the
-    earlier is never read again. Four findings on this branch were that, in
+    earlier is never read again. Five findings on this branch were that, in
     three of these four places, reported one place at a time. Enumerating the
     sources is what makes the fourth place fail without anyone noticing it was
     the fourth.
+
+    Each source lists what its document *claims*, not what the parser could
+    read — `_sections` yields a heading whose copyright line is missing, and
+    `_template_claims` a section it could not bound. Filtering first is how the
+    fifth finding arrived after the fourth was fixed: a duplicate heading with
+    no copyright was discarded before it could be counted, so a check that had
+    just been written against duplicates could not see one.
     """
     return {
         "vendor-upstream-skills tables": list(_rows()),

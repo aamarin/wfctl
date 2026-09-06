@@ -151,8 +151,16 @@ and arrives nowhere.
 Line, table and notice are all three required, and `test_skill_attribution.py`
 fails on any gap between them — a listed file with no line, a line no row
 lists, a row naming an upstream the line does not, or an attributed upstream
-with no entry in `NOTICES.md`, or a notice that names one upstream twice. The
-templates are the one case where the notice
+with no entry in `NOTICES.md`, or a notice that names one upstream twice.
+
+Every one of those reads a list of claims before anything collapses it into a
+mapping, and **the list is what the document says, not what the parser could
+read.** A `## <upstream>` heading whose copyright line is missing is still a
+claim that upstream is named; discarding it turns a malformed declaration into
+an absent one, which is how a duplicate hid from the check written against
+duplicates. Enumerate, then filter — in that order, in every reader here.
+
+The templates are the one case where the notice
 stands in for the line, so the same pair runs between the template rows and
 `wfctl/specify/templates/NOTICES.md` instead: a row that file does not name, or
 a file it names with no row, fails the same way. A listed template is also
