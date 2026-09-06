@@ -111,6 +111,35 @@ def test_a_fenced_block_does_not_count_toward_the_length_signal() -> None:
     assert not _shape.findings("done.\n```\n" + "code " * 400 + "\n```\n", BARE)
 
 
+def test_a_quoted_fence_inside_a_wider_one_is_still_inside_it() -> None:
+    """A fence closes only on the same character, no shorter, with no info string
+    — CommonMark's rule. Splitting on the marker instead treats the quoted
+    ```-block's opening as the close, and every heading and counted lead-in in
+    the quotation then reports as a violation of the rule being quoted. This
+    repo's own skills are written this way."""
+    quoting = (
+        "Here is what the rule forbids:\n"
+        "````\n"
+        "```\n"
+        "### Findings\n"
+        "Three things worth flagging:\n"
+        "```\n"
+        "````\n"
+        "That is the whole rule.\n"
+    )
+    assert not _shape.findings(quoting, BARE)
+
+
+def test_depth_is_asked_for_in_whatever_form_the_word_takes() -> None:
+    """`detail` matched only its bare singular while every neighbour matched a
+    stem, so "give me a detailed response" read as a prompt that asked for
+    nothing — a false positive on an explicit request, which is the error this
+    list is deliberately over-broad to avoid."""
+    for asked in ("give me a detailed response", "provide all details",
+                  "elaborate on this", "elaborating is fine"):
+        assert not _shape.findings("word " * 300, asked), asked
+
+
 def test_an_unclosed_fence_drops_its_tail_rather_than_scanning_it() -> None:
     """A reply cut off mid-block leaves one fence marker. Matching pairs would
     match nothing and scan the code as prose."""

@@ -57,7 +57,7 @@ import re
 # form-selection table makes a markdown table the drawing it asks for most often
 # — counting its rows made a third of the length findings fire on the shape the
 # rule recommends.
-_FENCE = re.compile(r"^\s*(```|~~~)", re.MULTILINE)
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _TABLE_ROW = re.compile(r"^\s*\|")
 
 # Every level, not just `##`/`###`. The rule is "a reply is not a document — no
@@ -102,7 +102,7 @@ _QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S+")
 # be what licenses length.
 _ASKED_FOR_DEPTH = re.compile(
     r"\b(thoughts|why|explain|compare|comparison|tradeoffs?|options|opinion"
-    r"|walk me|analys\w+|analyz\w+|detail|elaborate|summar\w+|review"
+    r"|walk me|analys\w+|analyz\w+|detail\w*|elaborat\w+|summar\w+|review"
     r"|more questions|deep\w*|research|assess\w*|evaluat\w+)\b",
     re.IGNORECASE,
 )
@@ -131,17 +131,56 @@ _SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
 _ALIGNED_RUN = 3
 
 
-def _prose(text: str) -> list[str]:
-    """`text` as lines, with fenced blocks and table rows removed.
+def _split_fences(text: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
+    """`(the lines outside any fenced block, the blocks)`.
 
-    Split on the fence markers, keep every fourth piece — `re.split` with one
-    capturing group yields text, marker, text, marker, so the pieces outside a
-    block land four apart. Preferred over matching fence pairs because an
-    unclosed fence, which is what a reply cut off mid-block leaves, then drops
-    its tail rather than matching nothing and scanning the code as prose.
+    Blocks are `(line number of the opening fence, the lines inside it)`.
+
+    A fence closes only on the same character, at least as long, and carrying no
+    info string — CommonMark's rule, and the reason this is a walk rather than a
+    split on the marker. A reply that quotes a ```-block inside a ````-fence is
+    ordinary here (this repo's own skills are full of them), and a split treats
+    the inner marker as the close, then scans the rest of the quoted example as
+    the author's own prose. Every heading and counted lead-in in the quotation
+    then reports as a violation of the rule it is quoting.
+
+    An unclosed fence — what a reply cut off mid-block leaves — takes its tail
+    with it: the lines after it are inside a block that never ends, which is what
+    they look like, and scanning them as prose is the failure above by another
+    route.
     """
-    outside = "".join(_FENCE.split(text)[::4])
-    return [line for line in outside.splitlines() if not _TABLE_ROW.match(line)]
+    outside: list[str] = []
+    blocks: list[tuple[int, list[str]]] = []
+    marker: str | None = None
+    current: list[str] = []
+    opened = 0
+    for number, line in enumerate(text.splitlines(), 1):
+        fence = _FENCE.match(line)
+        if marker is None:
+            if fence:
+                marker, current, opened = fence.group(1), [], number
+            else:
+                outside.append(line)
+            continue
+        # Closing: same character, no shorter, and nothing after it. An info
+        # string means this is another opening, which inside a block is content.
+        if (
+            fence
+            and fence.group(1)[0] == marker[0]
+            and len(fence.group(1)) >= len(marker)
+            and not fence.group(2).strip()
+        ):
+            blocks.append((opened, current))
+            marker = None
+            continue
+        current.append(line)
+    return outside, blocks
+
+
+def _prose(text: str) -> list[str]:
+    """`text` as lines, with fenced blocks and table rows removed."""
+    outside, _ = _split_fences(text)
+    return [line for line in outside if not _TABLE_ROW.match(line)]
 
 
 def findings(reply: str, prompt: str) -> list[str]:
@@ -182,24 +221,6 @@ def findings(reply: str, prompt: str) -> list[str]:
     return out
 
 
-def _fences(text: str) -> list[tuple[int, list[str]]]:
-    """Each fenced block as `(line number of its opening fence, its lines)`."""
-    blocks: list[tuple[int, list[str]]] = []
-    current: list[str] | None = None
-    opened = 0
-    for number, line in enumerate(text.splitlines(), 1):
-        if line.lstrip().startswith(("```", "~~~")):
-            if current is None:
-                current, opened = [], number
-            else:
-                blocks.append((opened, current))
-                current = None
-            continue
-        if current is not None:
-            current.append(line)
-    return blocks
-
-
 def body_findings(body: str) -> list[str]:
     """What a PR description's drawings break. One rule, and only one.
 
@@ -222,7 +243,7 @@ def body_findings(body: str) -> list[str]:
     exist. Width was not what broke it; the sentence was.
     """
     out = []
-    for opened, block in _fences(body):
+    for opened, block in _split_fences(body)[1]:
         run = longest = 0
         for line in block:
             run = run + 1 if _HAND_ALIGNED.search(line) else 0
