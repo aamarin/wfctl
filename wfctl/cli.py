@@ -2162,9 +2162,9 @@ def install_skills_cmd(
     # alternative — resolving the backend at dispatch time — would have
     # `_tracker.py` execute argv out of a config file belonging to a different
     # checkout. `spec_root` inherits a path; this would inherit a command.
-    # An inherited tracker fills what is missing; an explicit `--tracker` refreshes
+    # A recorded tracker fills what is missing; an explicit `--tracker` refreshes
     # the lot. The difference matters only where a project committed part of a
-    # backend by hand — see the inheritance branch below.
+    # backend by hand — see the fill branch below.
     tracker_skip_existing = False
     if tracker is None and "tracker" not in manifest:
         main = main_checkout(repo_root)
@@ -2174,28 +2174,7 @@ def install_skills_cmd(
             # Recorded even when it is None: a decline is a decision, and
             # recording it is what closes the question here too.
             manifest["tracker"] = name
-            # `tracker` is not the choice — it is "the caller selected one on
-            # this run", and it is what plans a copy of the backend's config
-            # below. Set it only when this checkout has no config to copy over:
-            # `.agents/trackers/` is deliberately not gitignored, so a project
-            # that commits its backend has the file already, and planning a write
-            # over it classifies a tracked file as a foreign overwrite — which
-            # aborts the whole install on the TTY-less hook this exists to fix,
-            # and silently replaces the project's config under --yes.
             if name:
-                trackers_dir = repo_root / ".agents" / "trackers"
-                # Every file, not just the config. Since a backend can be more
-                # than one file, "already present" has a partial case: a repo
-                # that commits `github.json` and not the script it names would
-                # otherwise inherit a tracker whose `start` runs a path that
-                # never arrives.
-                if any(not (trackers_dir / f).exists() for f in _tracker_files(name)):
-                    tracker = name
-                    # Fill the gap without touching what is there. The file a
-                    # project committed is the reason the check above is not a
-                    # plain overwrite, and it is still that reason once one of
-                    # its siblings is missing.
-                    tracker_skip_existing = True
                 # Announced for the same reason the spec-root write below is: a
                 # decision that arrives from another checkout, and that a later
                 # `--tracker none` here cannot durably undo, is not one to make
@@ -2205,6 +2184,39 @@ def install_skills_cmd(
                     f"{escape(str(main))}[/dim]",
                     soft_wrap=True,
                 )
+
+    # `tracker` is not the choice — it is "this run installs the backend", and it
+    # is what plans the copy below. A run that named no tracker sets it here when
+    # the recorded backend is missing a file, which is the only way a change to a
+    # backend reaches a repo that already installed one: the copy is gated on this
+    # variable, and `/start-session` runs the bare form (#260).
+    #
+    # Missing files only. `.agents/trackers/` is deliberately not gitignored, so a
+    # project can commit and hand-edit its backend, and planning a write over that
+    # classifies a tracked file as a foreign overwrite — which aborts the whole
+    # install on the TTY-less hook this exists to serve, and replaces the
+    # project's config under --yes.
+    #
+    # Every file, not just the config. Since a backend can be more than one file,
+    # "already present" has a partial case: a repo holding `github.json` and not
+    # the script it names has a tracker whose `start` runs a path that never
+    # arrives.
+    #
+    # The ceiling that buys: a backend file that changed *in place* still does not
+    # reach a repo that has one. Refreshing by presence alone cannot be the fix —
+    # the copy loop takes no backup for a path already on record (it carries the
+    # prior pointer forward, assuming its own output), so a project's edit to an
+    # installed config would go with no way back. Telling a stale copy from an
+    # edited one needs a per-file hash the manifest does not record; until it
+    # does, an in-place change travels by `--tracker <name>`.
+    if tracker is None and (recorded := manifest.get("tracker")):
+        trackers_dir = repo_root / ".agents" / "trackers"
+        if any(not (trackers_dir / f).exists() for f in _tracker_files(recorded)):
+            tracker = recorded
+            # Fill the gap without touching what is there. The file a project
+            # committed is the reason the check above is not a plain overwrite,
+            # and it is still that reason once one of its siblings is missing.
+            tracker_skip_existing = True
 
     # First install in a repo that has never chosen a tracker: ask, since the
     # right backend differs per repo. Non-interactive runs (piped, CI, --yes)

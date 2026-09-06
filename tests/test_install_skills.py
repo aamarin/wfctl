@@ -3236,6 +3236,65 @@ def test_install_skills_inherits_the_tracker_from_the_main_checkout(
     assert (wt / ".agents" / "trackers" / "github.json").exists() is installs
 
 
+def test_a_bare_install_delivers_a_backend_file_the_repo_is_missing(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """A new file in a tracker backend reaches a repo that already installed one.
+
+    #260: the copy loop ran only when the run itself selected a tracker, and the
+    branch that notices a missing file was gated on the manifest having no
+    tracker key — so every repo that had ever installed one fell between the two.
+    A backend gaining a file (`github-issue-create.sh`, #232) reached only the
+    worktree that happened to run the explicit `--tracker` form, and `doctor`
+    reported green in the ones it had not.
+
+    `/start-session` runs the bare form, so this is the path the fix has to work
+    on; one that needs a flag has not fixed it.
+    """
+    import json
+    repo_root = agent_dir.parent
+    _add_tracker(bundle)
+    assert runner.invoke(app, ["install-skills", "--tracker", "github"]).exit_code == 0
+    (repo_root / ".agents" / "trackers" / "github-issue-create.sh").unlink()
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert (repo_root / ".agents" / "trackers" / "github-issue-create.sh").exists()
+    recorded = {
+        i["path"]
+        for i in json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+        ["base"]["items"]
+    }
+    assert ".agents/trackers/github-issue-create.sh" in recorded
+
+
+def test_a_bare_install_leaves_a_hand_edited_backend_file_alone(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Filling one missing file does not rewrite the ones already there.
+
+    The fill above is what makes `--yes` reach `.agents/trackers/` at all, and
+    that directory is not gitignored — a project may commit and hand-edit its
+    backend. Copying the whole set would replace that edit with the bundle's
+    stock file and report success, which is the trade #260 refused: delivery is
+    worth having, silently overwriting someone's config is not.
+    """
+    repo_root = agent_dir.parent
+    _add_tracker(bundle)
+    assert runner.invoke(app, ["install-skills", "--tracker", "github"]).exit_code == 0
+    config = repo_root / ".agents" / "trackers" / "github.json"
+    mine = '{"verbs": {"list": ["gh", "issue", "list", "--limit", "99"]}}\n'
+    config.write_text(mine)
+    (repo_root / ".agents" / "trackers" / "github-issue-create.sh").unlink()
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert config.read_text() == mine
+    assert (repo_root / ".agents" / "trackers" / "github-issue-create.sh").exists()
+
+
 def test_a_later_bare_install_keeps_the_backend_on_record(
     bundle: Path, agent_dir: Path
 ) -> None:
