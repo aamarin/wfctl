@@ -52,6 +52,21 @@ Derived today:
 | `using-superpowers` | `obra/superpowers` |
 | `verification-before-completion` | `obra/superpowers` |
 
+The table is not yet the whole answer, and says so rather than letting silence
+imply one. The `speckit-*` skills and everything under `wfctl/specify/` are
+derived from `github/spec-kit` and are **not** listed above: their attribution is
+#216, and until it lands, absence from this table means "not yet recorded" for
+those and "wfctl's own" for everything else. A record that omits a known
+exception is read as denying it.
+
+A skill added later is declared when it is added, by whoever adds it: a file
+taken from elsewhere gets its line and its row in the same change that brings it
+in, and its upstream gets an entry in `NOTICES.md` if it has none. There is no
+later pass that sweeps for missed ones — #213 is what that pass costs when it is
+deferred, and #216 and #218 are what it missed. The check below holds the three
+together from then on; what it cannot do is notice a file that arrived declaring
+nothing.
+
 The upstream licence text itself lives in `wfctl/agents/NOTICES.md`, one entry
 per upstream. MIT asks for the permission notice and not only the copyright
 line, and a footer is not one; `MANIFEST.in` grafts `wfctl/agents` whole, so a
