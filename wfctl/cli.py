@@ -2047,7 +2047,9 @@ def install_skills_cmd(
         None,
         "--tracker",
         help="Issue-tracker backend: 'github' (ships), 'none' to clear, or a "
-        "custom name whose .agents/trackers/<name>.json you author. Omit to leave unchanged.",
+        "custom name whose .agents/trackers/<name>.json you author. Omit to keep "
+        "the recorded choice and your edits to its config; a bare install still "
+        "delivers a file of that backend the repo is missing.",
     ),
     # `from` is a keyword, so the parameter cannot carry the flag's name. The
     # option string is what the user types and what `doctor`'s remedy prints.
@@ -2191,16 +2193,20 @@ def install_skills_cmd(
     # backend reaches a repo that already installed one: the copy is gated on this
     # variable, and `/start-session` runs the bare form (#260).
     #
+    # `github` by name, matching the copy loop, rather than whatever is recorded.
+    # For a hand-authored backend there is nothing in the bundle to fill from, so
+    # a wider gate would set `tracker` and install nothing — and a set `tracker`
+    # is read further down as "the caller selected this", which prints `selected
+    # tracker '<name>' but no config found` on a run that selected nothing. Once
+    # per session start, forever, with no repair the fill can perform.
+    #
     # Missing files only. `.agents/trackers/` is deliberately not gitignored, so a
     # project can commit and hand-edit its backend, and planning a write over that
     # classifies a tracked file as a foreign overwrite — which aborts the whole
     # install on the TTY-less hook this exists to serve, and replaces the
-    # project's config under --yes.
-    #
-    # Every file, not just the config. Since a backend can be more than one file,
-    # "already present" has a partial case: a repo holding `github.json` and not
-    # the script it names has a tracker whose `start` runs a path that never
-    # arrives.
+    # project's config under --yes. Every file, not just the config: a repo
+    # holding `github.json` and not the script it names has a tracker whose
+    # `start` runs a path that never arrives.
     #
     # The ceiling that buys: a backend file that changed *in place* still does not
     # reach a repo that has one. Refreshing by presence alone cannot be the fix —
@@ -2209,13 +2215,10 @@ def install_skills_cmd(
     # installed config would go with no way back. Telling a stale copy from an
     # edited one needs a per-file hash the manifest does not record; until it
     # does, an in-place change travels by `--tracker <name>`.
-    if tracker is None and (recorded := manifest.get("tracker")):
+    if tracker is None and manifest.get("tracker") == "github":
         trackers_dir = repo_root / ".agents" / "trackers"
-        if any(not (trackers_dir / f).exists() for f in _tracker_files(recorded)):
-            tracker = recorded
-            # Fill the gap without touching what is there. The file a project
-            # committed is the reason the check above is not a plain overwrite,
-            # and it is still that reason once one of its siblings is missing.
+        if any(not (trackers_dir / f).exists() for f in _tracker_files("github")):
+            tracker = "github"
             tracker_skip_existing = True
 
     # First install in a repo that has never chosen a tracker: ask, since the
@@ -2392,9 +2395,12 @@ def install_skills_cmd(
                 continue
             tsrc = bundle_root / "agents" / "trackers" / fname
             if not tsrc.exists():
+                # Names the backend, not the flag: since #260 this loop also runs
+                # on a bare install filling a gap, where "--tracker github" would
+                # quote an argument nobody passed.
                 console.print(
-                    f"[yellow]⚠[/yellow] --tracker github, but "
-                    f"agents/trackers/{fname} is missing from "
+                    f"[yellow]⚠[/yellow] the github backend needs "
+                    f"agents/trackers/{fname}, which is missing from "
                     f"{origin_label} — nothing installed for it"
                 )
                 continue
@@ -2532,8 +2538,8 @@ def install_skills_cmd(
             cfg = repo_root / ".agents" / "trackers" / f"{tracker}.json"
             if not cfg.exists():
                 console.print(
-                    f"[yellow]⚠[/yellow] selected tracker '{tracker}' but no "
-                    f".agents/trackers/{tracker}.json found — author it with /scaffold-tracker"
+                    f"[yellow]⚠[/yellow] selected tracker '{escape(tracker)}' but no "
+                    f".agents/trackers/{escape(tracker)}.json found — author it with /scaffold-tracker"
                 )
 
     # The active backend's files stay on record on a run that did not name a

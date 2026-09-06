@@ -520,13 +520,21 @@ shipped one with an explicit `--tracker github`. `--tracker none` clears the
 choice entirely, which also re-opens the question on the next interactive
 install.
 
-That last rule is the upgrade path for `start`/`stop`: a repo that installed the
-GitHub backend before they existed keeps the config it has, so the verbs arrive
-only with an explicit `--tracker github`. Until then the calls degrade the way
-any unimplemented verb does — `Tracker 'github' does not support 'start'` — and
-the board simply does not move. GitHub's board write also needs a token carrying
-the `project` scope, which `gh auth login` does not grant by default:
-`gh auth refresh -s project`.
+One exception, and it is the difference between a file that is *missing* and one
+that is *stale*: a later install does copy a file of the recorded backend the
+repo does not have. Since the backend is more than its config — `github.json`
+points verbs at scripts beside it — a repo left holding half of it declares verbs
+that cannot run, and every install said the tree was current. A file already
+there is never rewritten, so a config you edited survives.
+
+That is the upgrade path for a backend that *grows* a file. A backend file that
+changed in place is the other half and still needs the explicit `--tracker
+github`, which is how `start`/`stop` reach a repo that installed the GitHub
+backend before they existed: the config it has keeps naming the verbs it knew.
+Until then the calls degrade the way any unimplemented verb does — `Tracker
+'github' does not support 'start'` — and the board simply does not move.
+GitHub's board write also needs a token carrying the `project` scope, which
+`gh auth login` does not grant by default: `gh auth refresh -s project`.
 For anything else — a private
 Jira/Linear CLI — author a config with the `scaffold-tracker` skill and validate
 it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)
