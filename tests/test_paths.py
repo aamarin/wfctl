@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from wfctl._paths import (
     resolve_agent_dir,
     resolve_branch,
     resolve_spec_dir,
+    worktree_branches,
 )
 
 
@@ -849,3 +851,27 @@ def test_issue_key_match_with_no_matching_directory_is_none(
     (specs / "42-notes.md").write_text("stray")
 
     assert resolve_spec_dir("42-renamed", tmp_path) is None
+
+
+def test_worktree_branches_drops_a_worktree_whose_directory_is_gone(
+    agent_dir: Path, tmp_path: Path
+) -> None:
+    """A deleted directory leaves the branch in `worktree list`, marked prunable.
+
+    Reading the `branch` line alone reports a checkout that is not there, and the
+    caller — `wfctl issue stop`, asking whether anyone else holds this issue —
+    then gets a yes that never becomes a no, so the board sticks on `In Progress`
+    for good. Whole records rather than matching lines is what sees the marker.
+    """
+    import subprocess
+
+    repo_root = agent_dir.parent
+    ghost = tmp_path / "ghost-worktree"
+    subprocess.run(
+        ["git", "-C", str(repo_root), "worktree", "add", "-b", "42-ghost", str(ghost)],
+        check=True, capture_output=True,
+    )
+    assert "42-ghost" in worktree_branches(repo_root)
+
+    shutil.rmtree(ghost)
+    assert "42-ghost" not in worktree_branches(repo_root)

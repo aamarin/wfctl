@@ -187,11 +187,19 @@ def _manifest_root(base: Path, key: str) -> Path | None:
 def worktree_branches(repo_root: Path) -> list[str]:
     """Branch names checked out across every worktree of this repo.
 
+    Parsed as whole records rather than by scanning for `branch` lines, because
+    a record says more than which branch it holds. A worktree whose directory
+    was deleted outside `git worktree remove` keeps its entry and its branch,
+    with `prunable` alongside — reading the branch alone reports a checkout that
+    is not there, and a caller asking "is anyone else on this issue" then gets a
+    yes that never becomes a no.
+
     Detached worktrees contribute nothing — `--porcelain` prints `detached`
     instead of a `branch` line — and a repo git cannot answer for returns an
-    empty list. Both degrade the same way: a caller asking "is anyone else on
-    this issue" gets "no", which is the answer that lets the caller act, and the
-    callers here are hooks that must not become gates.
+    empty list. Both degrade the same way, to "nobody else", which is the answer
+    that lets a caller act; the callers here are hooks that must not become
+    gates. `prunable` degrades that way too, which is why it is dropped rather
+    than counted.
     """
     result = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
@@ -199,11 +207,19 @@ def worktree_branches(repo_root: Path) -> list[str]:
     )
     if result.returncode != 0:
         return []
-    return [
-        line.split(" ", 1)[1].removeprefix("refs/heads/")
-        for line in result.stdout.splitlines()
-        if line.startswith("branch ")
-    ]
+    branches = []
+    for record in result.stdout.split("\n\n"):
+        fields = {}
+        for line in record.splitlines():
+            if line:
+                key, _, value = line.partition(" ")
+                fields[key] = value
+        if "prunable" in fields:
+            continue
+        ref = fields.get("branch")
+        if ref:
+            branches.append(ref.removeprefix("refs/heads/"))
+    return branches
 
 
 def main_checkout(repo_root: Path) -> Path | None:
