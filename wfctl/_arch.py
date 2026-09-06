@@ -280,7 +280,7 @@ def excluded_by_status(records: list[Record]) -> Counter[str]:
 def _pointed_at(lines: list[str]) -> list[str]:
     """The block a dangling colon points at, given the lines below a paragraph.
 
-    Verbatim and unjoined, fence delimiters kept. `knowledge-placement`'s
+    Verbatim and unjoined, fence delimiters kept whole. `knowledge-placement`'s
     mapping is aligned columns, so reflowing it into the sentence is the same
     loss as dropping it, and the fence is what tells the printer not to.
 
@@ -305,8 +305,16 @@ def _pointed_at(lines: list[str]) -> list[str]:
     rest = list(dropwhile(lambda ln: not ln.strip(), lines))
     if not rest:
         return []
-    fence = rest[0].strip()[:3]
-    if fence in ("```", "~~~"):
+    opener = rest[0].strip()
+    marker = opener[:1]
+    run = len(opener) - len(opener.lstrip(marker)) if marker in ("`", "~") else 0
+    if run >= 3:
+        # The whole delimiter run, not its first three characters. `_unfenced`
+        # can truncate because it only ever asks "am I inside a fence"; here the
+        # delimiter is re-emitted as output, so a ```` opener closed with ```
+        # would project a malformed pair — and a nested ``` would end the block
+        # early, losing everything under it.
+        fence = marker * run
         body = list(takewhile(lambda ln: not ln.strip().startswith(fence), rest[1:]))
         if len(body) == len(rest) - 1:
             # No closer anywhere below. Carrying to end of file would project
