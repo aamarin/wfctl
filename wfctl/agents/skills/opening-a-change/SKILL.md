@@ -219,12 +219,24 @@ gh pr view <pr> --json closingIssuesReferences,reviewRequests,latestReviews
 ```
 
 The copied set is done when it matches the issue's. The other two are not
-copied, so that sentence does not reach them: an empty `closingIssuesReferences`
-means the body never named the issue in the form the tracker parses, and an
-empty `reviewRequests` means nothing on its own — it is the *pending* list and
-it clears the moment a reviewer submits, which is why `latestReviews` is read
-beside it. An empty sidebar here is this step unfinished, not a PR that happens
-to have no attributes.
+copied, so that sentence does not reach them.
+
+**Reviewers: every login you requested appears in one of the two lists.**
+`reviewRequests` is the *pending* list and clears the moment a reviewer submits,
+so a name missing from it is either done or was never asked; `latestReviews`
+tells them apart. Neither list being empty is the check — a bot that reviews
+every PR fills `latestReviews` whether your own request landed or not, so the
+comparison is against the names you chose, not against zero.
+
+**The linked issue: `closingIssuesReferences` answers only for a GitHub
+tracker.** It holds GitHub issue links, so a repository tracking work in Jira or
+Gerrit reports it empty for a body that named its issue correctly, and reading
+that as unfinished fails the change for doing the right thing. Where the tracker
+is something else, the keyword is verified by reading the body — the tracker's
+own link, if it draws one, is not this field.
+
+An empty sidebar here is this step unfinished, not a PR that happens to have no
+attributes.
 
 ## Red flags
 
