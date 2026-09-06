@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import _MIRRORED_SKILLS, _recorded_items, app
+from wfctl.cli import _GITHUB_TRACKER_FILES, _MIRRORED_SKILLS, _recorded_items, app
 
 runner = CliRunner()
 
@@ -115,9 +115,13 @@ def _add_tracker(bundle: Path, body: str = '{"verbs": {}}\n') -> None:
     tracker_dir = bundle / "agents" / "trackers"
     tracker_dir.mkdir(parents=True, exist_ok=True)
     (tracker_dir / "github.json").write_text(body)
-    # The backend is two files. Omitting the script here would leave every
-    # caller testing a github backend that cannot run its own `start`.
-    (tracker_dir / "github-board.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
+    # Omitting a script here leaves every caller testing a github backend that
+    # cannot run the verbs naming it — and worse, testing the missing-from-bundle
+    # branch while believing it tested the copy. Read off `_GITHUB_TRACKER_FILES`
+    # rather than named, because this fixture is the second copy of that tuple
+    # and it went stale the first time a verb grew a script.
+    for script in (f for f in _GITHUB_TRACKER_FILES if f.endswith(".sh")):
+        (tracker_dir / script).write_text("#!/usr/bin/env bash\nexit 0\n")
 
 
 def test_install_skills_no_tracker_without_a_human(bundle: Path, agent_dir: Path) -> None:

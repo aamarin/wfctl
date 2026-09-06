@@ -268,7 +268,7 @@ def _add_tracker_and_runtime(bundle: Path) -> None:
     trackers = bundle / "agents" / "trackers"
     trackers.mkdir(parents=True)
     (trackers / "github.json").write_text(json.dumps(_GITHUB_VERBS))
-    for script in _GITHUB_TRACKER_FILES[1:]:
+    for script in (f for f in _GITHUB_TRACKER_FILES if f.endswith(".sh")):
         (trackers / script).write_text("#!/usr/bin/env bash\nexit 0\n")
     # Speckit runtime — installed as a repo-level managed mirror alongside skills.
     scripts = bundle / "specify" / "scripts" / "bash"
@@ -678,35 +678,40 @@ def test_branch_issue_parser_uses_configured_key_pattern(
         assert _resolve_context()[3] == want
 
 
+
 _CALL = "===CALL==="
+_URL = "https://github.com/owner/repo/issues/1"
 
 
 def _stub_gh_for_create(
-    tmp_path: Path, projects: str, create_rc: int = 0
+    tmp_path: Path, *, projects: str = '{"projects":[{"number":7,"title":"repo"}]}',
+    create_rc: int = 0, repo_rc: int = 0, list_rc: int = 0, add_rc: int = 0,
 ) -> Path:
-    """A `gh` that records argv one token per line and answers the two lookups.
+    """A `gh` that records argv one token per line and answers the three calls.
 
     Tokens are recorded one per line rather than as `"$*"` because what these
-    tests are about is whether `--project` reached `gh issue create` *as its own
-    argument*, and a joined string cannot tell that apart from a title that
-    happens to contain the word.
+    tests are about is which argument a value arrived in — whether `--project`
+    reached `gh` as its own argument, whether the board number went to
+    `item-add`'s positional — and a joined string cannot tell any of that apart
+    from a title that happens to contain the same word.
 
-    ``projects`` is what `gh project list` prints — the count the script
-    branches on — or ``"FAIL"`` to make that call exit non-zero, which is what a
-    token without the `project` scope does.
+    `projects` is the `--format json` document the lookup filters; the `*_rc`
+    knobs fail one call each, which is the axis every test below varies.
     """
     calls = tmp_path / "calls"
     fake_gh = tmp_path / "gh"
-    listing = "exit 1" if projects == "FAIL" else f'echo "{projects}"'
     fake_gh.write_text(
         "#!/usr/bin/env bash\n"
         f'printf "%s\\n" "{_CALL}" >> "{calls}"\n'
         f'printf "%s\\n" "$@" >> "{calls}"\n'
         'case "$1 $2" in\n'
-        '  "repo view") echo "owner" ;;\n'
-        f'  "project list") {listing} ;;\n'
-        '  *) echo "https://github.com/owner/repo/issues/1"; '
-        f'exit {create_rc} ;;\n'
+        f'  "issue create") echo "{_URL}"; exit {create_rc} ;;\n'
+        f'  "repo view") echo "owner repo"; exit {repo_rc} ;;\n'
+        # The script asks with --jq, so the stub applies it the way gh does.
+        f'  "project list") printf "%s" \'{projects}\' '
+        f'| jq -r "${{@: -1}}"; exit {list_rc} ;;\n'
+        f'  "project item-add") exit {add_rc} ;;\n'
+        '  *) exit 9 ;;\n'
         'esac\n'
     )
     fake_gh.chmod(0o755)
@@ -731,75 +736,90 @@ def _recorded(calls: Path) -> list[list[str]]:
     return [b.splitlines() for b in blocks if b.strip()]
 
 
-@pytest.mark.parametrize("board,projects,on_board,note", [
-    ("wfctl", "1", True, ""),
-    ("wfctl", "0", False, "no project titled 'wfctl'"),
-    ("wfctl", "FAIL", False, "could not read owner's projects"),
-    ("", "0", False, ""),
+@pytest.mark.parametrize("kwargs,args,rc,attempted,note", [
+    ({}, ("a title", "a body"), 0, True, "✓"),
+    ({}, ("a title", "a body", "repo"), 0, True, "✓"),
+    ({"projects": '{"projects":[]}'}, ("a title", "a body"),
+     0, False, "no project titled 'repo'"),
+    ({"repo_rc": 1}, ("a title", "a body"), 1, False, "could not read this repository"),
+    ({"list_rc": 1}, ("a title", "a body"), 1, False, "could not read owner's projects"),
+    ({"add_rc": 1}, ("a title", "a body"), 1, True, "could not add"),
 ])
-def test_create_script_files_the_issue_whether_or_not_a_board_takes_it(
+def test_create_script_files_the_issue_before_anything_about_a_board_can_fail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-    board: str, projects: str, on_board: bool, note: str,
+    kwargs: dict, args: tuple, rc: int, attempted: bool, note: str,
 ) -> None:
-    """One table for every answer the board lookup can give.
+    """One table for every way the board half can end, and one invariant across it.
 
-    The rows that matter are the last three. `gh issue create --project`
-    resolves the board before creating anything and exits non-zero when the
-    title matches nothing, so shipping a config that names *this* project would
-    have left every other repository unable to file an issue at all — the fix
-    for #232 breaking the thing it was fixing. The lookup is what buys the
-    distinction, and the third row is why it is a lookup rather than a match on
-    gh's error text: a token missing the `project` scope must not read as a
-    repository that has no board.
+    The invariant is the issue: filed in every row, and its URL on stdout before
+    any board call is made. `gh issue create --project` cannot hold that — it
+    adds the item after the create mutation, so a board that resolves and then
+    refuses leaves the issue filed with its URL never printed and the command
+    exiting non-zero. An agent reading that as "nothing happened" refiles, and
+    the repository gains a duplicate plus an orphan off the board: #232 caused by
+    the fix for #232.
 
-    The issue is filed in all four. Nothing here is allowed to cost a filing.
+    The rows that end non-zero are the second half of the same point. A board
+    that was *named* and could not be confirmed is a step observably unfinished,
+    which is the asymmetry #232 measured; only a board that demonstrably does not
+    exist is an ordinary outcome, because that is what every repository without
+    one looks like.
     """
-    calls = _stub_gh_for_create(tmp_path, projects)
-    result = _run_create_script(
-        tmp_path, monkeypatch, "a title", "a body", board
-    )
-    assert result.returncode == 0, result.stderr
+    calls = _stub_gh_for_create(tmp_path, **kwargs)
+    result = _run_create_script(tmp_path, monkeypatch, *args)
 
-    created = [c for c in _recorded(calls) if c[:2] == ["issue", "create"]]
-    assert len(created) == 1, _recorded(calls)
-    assert ("--project" in created[0]) is on_board
-    assert note in result.stdout
+    assert result.returncode == rc, result.stderr
+    recorded = _recorded(calls)
+    assert [c[:2] for c in recorded][0] == ["issue", "create"]
+    assert result.stdout.splitlines()[0] == _URL
+    assert any(c[:2] == ["project", "item-add"] for c in recorded) is attempted
+    assert note in (result.stdout + result.stderr)
 
 
-def test_create_script_skips_the_lookup_when_no_board_is_named(
+def test_create_script_defaults_the_board_to_the_repository_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A backend with no board pays for no calls and says nothing about one.
+    """The shipped config names no board, so the default cannot be a literal.
 
-    The empty third argument is how a repository declines the board half while
-    keeping the verb, and it has to be free: `wfctl issue create` runs where a
-    person is waiting, and a lookup that cannot succeed is latency plus a line
-    of output explaining an absence nobody asked about.
+    A literal would name *this* project inside every repository that installs the
+    backend, and the lookup is owner-scoped — so a sibling repository under the
+    same owner would silently file its issues onto this board rather than none.
+    The stub's repo is `repo` and its board is titled `repo`; nothing in the argv
+    says so.
     """
-    calls = _stub_gh_for_create(tmp_path, "0")
-    result = _run_create_script(tmp_path, monkeypatch, "a title", "a body", "")
+    calls = _stub_gh_for_create(tmp_path)
+    result = _run_create_script(tmp_path, monkeypatch, "a title", "a body")
     assert result.returncode == 0, result.stderr
-    assert [c[:2] for c in _recorded(calls)] == [["issue", "create"]]
-    assert "board" not in result.stdout
+    add = [c for c in _recorded(calls) if c[:2] == ["project", "item-add"]][0]
+    assert add[2] == "7"
+    assert add[add.index("--url") + 1] == _URL
 
 
-def test_create_script_fails_when_a_board_that_exists_refuses_the_issue(
+def test_create_script_treats_a_lookup_that_prints_nothing_as_no_board(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The observable half of #232 — a failed board add is not swallowed.
+    """An empty answer must not reach `item-add` as a project number.
 
-    #232's finding is an asymmetry: a pull request's project membership is a
-    step that can be observed as unfinished, and an issue's was not observable
-    at any point. Reporting success after the board refused the item would
-    recreate exactly that, one layer down.
+    `first(...)` over no match prints nothing, and so would a `--format json`
+    shape that moved under us. Guarded on the value being numeric rather than
+    non-empty, because the failure of the looser guard is a call to `item-add`
+    with an empty positional — an API error where the honest answer was "this
+    repository has no board".
     """
-    calls = _stub_gh_for_create(tmp_path, "1", create_rc=1)
-    result = _run_create_script(
-        tmp_path, monkeypatch, "a title", "a body", "wfctl"
-    )
+    calls = _stub_gh_for_create(tmp_path, projects='{"projects":[]}')
+    result = _run_create_script(tmp_path, monkeypatch, "a title", "a body")
+    assert result.returncode == 0, result.stderr
+    assert not [c for c in _recorded(calls) if c[:2] == ["project", "item-add"]]
+
+
+def test_create_script_files_nothing_further_when_the_filing_itself_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No issue means no board call — the one failure that is not a board failure."""
+    calls = _stub_gh_for_create(tmp_path, create_rc=1)
+    result = _run_create_script(tmp_path, monkeypatch, "a title", "a body")
     assert result.returncode == 1
-    created = [c for c in _recorded(calls) if c[:2] == ["issue", "create"]]
-    assert "--project" in created[0]
+    assert [c[:2] for c in _recorded(calls)] == [["issue", "create"]]
 
 
 def test_create_script_passes_a_title_to_gh_inert(
@@ -812,11 +832,31 @@ def test_create_script_passes_a_title_to_gh_inert(
     that nothing here builds a command string. This is the canary for that —
     delete the quoting and it fires.
     """
-    calls = _stub_gh_for_create(tmp_path, "1")
+    calls = _stub_gh_for_create(tmp_path)
     canary = tmp_path / "pwned"
     title = f"$(touch {canary}) `touch {canary}`"
-    result = _run_create_script(tmp_path, monkeypatch, title, "a body", "wfctl")
+    result = _run_create_script(tmp_path, monkeypatch, title, "a body")
     assert result.returncode == 0, result.stderr
     assert not canary.exists()
     created = [c for c in _recorded(calls) if c[:2] == ["issue", "create"]][0]
     assert created[created.index("--title") + 1] == title
+
+
+def test_every_shipped_tracker_script_is_named_by_a_verb() -> None:
+    """The config is the only thing that makes a shipped script reachable.
+
+    `test_shipped_github_config_is_valid_and_its_argv_paths_exist` checks the
+    other direction — that a path named by a verb exists — and passes just as
+    well when `create` is reverted to a bare `gh issue create`, which un-fixes
+    #232 while leaving the whole suite green. Checked against
+    `_GITHUB_TRACKER_FILES` so that shipping a script no verb invokes is the same
+    failure as invoking a script nothing ships.
+    """
+    trackers = Path(_tracker.__file__).parent / "agents" / "trackers"
+    config = json.loads((trackers / "github.json").read_text())
+    named = {tok for argv in config["verbs"].values() for tok in argv}
+    missing = [
+        f for f in _GITHUB_TRACKER_FILES
+        if f.endswith(".sh") and f".agents/trackers/{f}" not in named
+    ]
+    assert missing == []
