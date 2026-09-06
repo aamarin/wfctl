@@ -1183,6 +1183,13 @@ STOP_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_RESPONSE_SHAPE} 2>/dev/null ||
 # before a reply is written, `Stop` looks at what was actually written (#212).
 MANAGED_HOOKS = {SETTINGS_EVENT: HOOK_COMMAND, STOP_EVENT: STOP_HOOK_COMMAND}
 
+# What `doctor` says a missing entry costs. Per event, because the two lose
+# different things and "the managed hook is gone" tells the reader neither.
+_HOOK_GONE = {
+    SETTINGS_EVENT: "is gone — the skills it re-anchors decay again mid-session",
+    STOP_EVENT: "is gone — nothing looks at a reply once it is written",
+}
+
 _BACKUP_DIR = ".wf-skills-backup"
 
 _BASE_LAYER = "base"
@@ -1517,12 +1524,21 @@ def _merge_hooks(
     # file it had created. Uninstall deletes what it created — which would be
     # the consumer's symlink, not the settings inside it.
     #
-    # Sampled once for the whole pass, not per target. Two events share one file,
-    # so the second pass would otherwise see the file the first pass just created
-    # and record `created: False` for it — and uninstall, which unlinks only when
-    # the last record it clears says `created`, would leave an empty `{}` behind.
-    existed = {rel: (repo_root / rel).exists() or (repo_root / rel).is_symlink()
-               for rel, _, _ in targets}
+    # Per file, not per target, and taken from any prior record for that file
+    # before the disk is consulted. `created` answers "did wfctl bring this file
+    # into existence", which is a fact about the file; two events share one, and
+    # uninstall unlinks only when the record that empties the file says `created`.
+    # Sampling it per target gets that record wrong twice — within one pass, where
+    # the second event sees the file the first just made, and across an upgrade,
+    # where a repo installed when wfctl managed one event records `created: False`
+    # on the second. Either way uninstall leaves an empty `{}` behind.
+    created = {
+        rel: next(
+            (p["created"] for (path_, _), p in prior.items() if path_ == rel),
+            not ((repo_root / rel).exists() or (repo_root / rel).is_symlink()),
+        )
+        for rel, _, _ in targets
+    }
     for rel, event, command in targets:
         path = repo_root / rel
         # A pass that cannot finish must still hand back the record it was given.
@@ -1558,15 +1574,10 @@ def _merge_hooks(
                 written.append(rel)
         # `created` is what lets uninstall leave no trace: a file wfctl brought
         # into existence and then emptied is deleted, while one the consumer
-        # already had keeps whatever else is in it.
-        #
-        # Carried forward from the prior record rather than re-derived, because
-        # the second install sees the file wfctl itself created on the first and
-        # would otherwise conclude the consumer owns it — and leave an empty
-        # `{}` behind on uninstall.
-        created = (keep or {}).get("created", not existed[rel])
+        # already had keeps whatever else is in it. Derived above, per file.
         records.append(
-            {"path": rel, "event": event, "command": command, "created": created}
+            {"path": rel, "event": event, "command": command,
+             "created": created[rel]}
         )
     return records, written, problems
 
@@ -1582,7 +1593,7 @@ def _unmerge_hooks(
     the record naming it is deleted moments later. Reported rather than raised,
     so a broken settings file cannot block the rest of the uninstall.
     """
-    changed_files = 0
+    changed: set[str] = set()
     problems: list[str] = []
     for record in records:
         path = repo_root / record["path"]
@@ -1598,8 +1609,11 @@ def _unmerge_hooks(
             path.unlink()
         else:
             _write_settings(path, settings)
-        changed_files += 1
-    return changed_files, problems
+        # By file, not by record — `_merge_hooks` counts `written` the same way
+        # and for the same reason: two managed events share one settings file,
+        # and the summary this feeds says "settings file(s)".
+        changed.add(record["path"])
+    return len(changed), problems
 
 
 def _kind_of(src_rel: str) -> str:
@@ -2427,7 +2441,7 @@ def install_skills_cmd(
         console.print(
             f"\n[green]✓[/green] Merged wfctl's managed hooks into {merged_rel}\n"
             "  Your own hooks, permissions and settings are still there — "
-            "`wfctl uninstall-skills`\n  removes just wfctl's entry. The rewrite "
+            "`wfctl uninstall-skills`\n  removes just wfctl's own entries. The rewrite "
             "reflows the file once; later installs\n  leave it closed.",
             soft_wrap=True,
         )
@@ -2853,6 +2867,43 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+@app.command("check-body")
+def check_body_cmd(
+    path: Path = typer.Argument(..., help="The change description to check, as a file"),
+) -> None:
+    """Check a PR description's drawings against `conversation-response-shape`.
+
+    The cheaper half of the same problem the `Stop` hook covers: a PR body is a
+    file on disk before `gh pr create` reads it, so checking it is a script over
+    a file rather than a hook over a response. `opening-a-change` Step 4 already
+    writes the body to a file and passes the file; this reads that file.
+
+    Only the drawing rules, because the skill scopes the two surfaces apart
+    (SKILL.md:429): headers are a violation in a reply and *required* in a PR
+    body, while the template names this skill's form-selection table as the
+    single owner of which drawing to use. `wfctl/_shape.py` carries the split.
+
+    Exits 1 when it finds something, so the finding is hard to walk past. It
+    gates nothing — nothing runs this but the author.
+    """
+    try:
+        body = path.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        console.print(f"[red]Can't read {path}:[/red] {exc}")
+        raise typer.Exit(1)
+
+    from wfctl import _shape
+    from rich.markup import escape
+
+    found = _shape.body_findings(body)
+    if not found:
+        console.print(f"[green]✓[/green] {path}: drawings look right", soft_wrap=True)
+        return
+    for line in found:
+        console.print(f"[yellow]⚠[/yellow] {escape(line)}", soft_wrap=True)
+    raise typer.Exit(1)
+
+
 def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
     """The worktree `cwd` is in, and every worktree root git knows about.
 
@@ -2947,6 +2998,18 @@ def _last_exchange(transcript: Path) -> tuple[str, str]:
                 if isinstance(blocks, list)
                 else set()
             )
+            # A `tool_result` is not the only `user` record the reader did not
+            # type. `isMeta` marks an injected skill body, a slash-command
+            # expansion or an `[Image: …]` stub; `promptSource: "system"` marks a
+            # subagent completion or a usage-limit notice. Roughly a quarter of
+            # turn boundaries are one of those, and taking one as the prompt
+            # judges the reply against text nobody wrote — in both directions,
+            # since an injected `SKILL.md` asks for everything and an image stub
+            # asks for nothing. Skipped rather than reset: they arrive after a
+            # tool call, which has already cleared the reply, and leaving `prompt`
+            # alone is what keeps the reader's own words in scope.
+            if record.get("isMeta") or record.get("promptSource") == "system":
+                continue
             if record.get("type") == "user" and "tool_result" not in kinds:
                 prompt, reply = _message_text(message), []
             elif record.get("type") == "assistant":
@@ -2985,7 +3048,7 @@ def hook_response_shape_cmd() -> None:
     The half of that skill nothing had: every other layer — this repo's
     `UserPromptSubmit` hook, the rule in `SKILL.md`, the pre-send check — fires
     before the reply exists, so drift was visible only to the reader noticing.
-    See `wfctl/_reply.py` for what is and is not checkable, and #212 for the
+    See `wfctl/_shape.py` for what is and is not checkable, and #212 for the
     session where all three layers fired and all three lost.
 
     **Warns, never blocks.** Exit 0 with a `systemMessage`, not exit 2. Over the
@@ -2997,7 +3060,7 @@ def hook_response_shape_cmd() -> None:
     Silent when it finds nothing, which is most turns and the only behaviour
     that keeps the loud ones worth reading.
     """
-    from wfctl import _reply
+    from wfctl import _shape
 
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -3018,7 +3081,7 @@ def hook_response_shape_cmd() -> None:
     if not reply:
         return
 
-    found = _reply.findings(reply, prompt)
+    found = _shape.findings(reply, prompt)
     if found:
         print(json.dumps({
             "systemMessage": "conversation-response-shape, on the reply above:\n"
@@ -3664,43 +3727,62 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     Silent when the hook is current, unlike the checks below. This check has no
     healthy state worth a line: the file is the consumer's, and a report that
     names it on every clean run trains them to skim the run that doesn't.
+
+    The events come from `MANAGED_HOOKS` and the *files* come from the manifest.
+    Driving both off the record would mean a repo installed when wfctl managed
+    one event never hears about the second: its record names no `Stop` entry, so
+    nothing looks for one, and the bundle hash cannot see it either because the
+    hook adds nothing under `wfctl/agents/`. The feature would ship to nobody who
+    already had wfctl. The record still says which file and which layer, which is
+    what the repair command needs.
     """
     from rich.markup import escape
 
     drift = False
     for layer in _layer_keys(manifest):
-        for record in manifest[layer].get("merged", []):
-            rel, event = record["path"], record["event"]
+        paths = dict.fromkeys(
+            record["path"] for record in manifest[layer].get("merged", [])
+        )
+        for rel in paths:
+            # Read once per file, not once per event: an unparseable settings
+            # file is one problem however many entries wfctl keeps in it.
             settings, problem = _read_settings(repo_root / rel)
             if settings is None:
                 console.print(
                     f"[yellow]⚠[/yellow] {escape(rel)}: {escape(problem or '')} — "
-                    "can't tell whether the managed hook is current"
+                    "can't tell whether the managed hooks are current"
                 )
                 continue
 
-            actual = _settings.managed_command(settings, event)
-            if actual == MANAGED_HOOKS.get(event):
-                continue
-
-            drift = True
-            gone = {
-                SETTINGS_EVENT: "is gone — the skills it re-anchors decay again "
-                                "mid-session",
-                STOP_EVENT: "is gone — nothing looks at a reply once it is written",
-            }.get(event, "is gone")
-            state = gone if actual is None else "is behind this wfctl"
-            # soft_wrap and the break placed by hand: rich would otherwise
-            # re-wrap at the terminal edge and split the settings path across
-            # two lines, which both reads badly and makes assertions on these
-            # strings depend on the terminal running them.
-            console.print(
-                f"[cyan]⬆[/cyan] {layer}: managed {event} hook in "
-                f"{escape(rel)}\n  {state}",
-                soft_wrap=True,
-            )
-            console.print(f"    fix: wfctl install-skills --agent {layer}")
+            for event in MANAGED_HOOKS:
+                drift = _report_hook_drift(settings, layer, rel, event) or drift
     return drift
+
+
+def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool:
+    """Print what one managed entry got wrong, if anything. True when it drifted."""
+    from rich.markup import escape
+
+    actual = _settings.managed_command(settings, event)
+    if actual == MANAGED_HOOKS.get(event):
+        return False
+
+    state = (
+        _HOOK_GONE.get(event, "is gone")
+        if actual is None
+        else "is behind this wfctl"
+    )
+    # soft_wrap and the break placed by hand: rich would otherwise
+    # re-wrap at the terminal edge and split the settings path across
+    # two lines, which both reads badly and makes assertions on these
+    # strings depend on the terminal running them.
+    console.print(
+        f"[cyan]⬆[/cyan] {layer}: managed {event} hook in "
+        f"{escape(rel)}\n  {state}",
+        soft_wrap=True,
+    )
+    console.print(f"    fix: wfctl install-skills --agent {layer}")
+    return True
 
 
 def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:

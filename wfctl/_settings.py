@@ -3,10 +3,10 @@
 The merge install mode's pure half — see `docs/architecture/install-modes.md`
 for why the mode exists.
 
-Ownership is per-entry, and the marker is the command itself: every managed hook
-runs `wfctl hook user-prompt`, so the installer finds its own rows by prefix
-instead of by a sidecar list that can go stale against the file. A consumer who
-deletes the entry by hand leaves nothing behind to resurrect.
+Ownership is per-entry, and the marker is the command itself: every managed
+hook's command starts `wfctl hook `, so the installer finds its own rows by
+prefix instead of by a sidecar list that can go stale against the file. A
+consumer who deletes the entry by hand leaves nothing behind to resurrect.
 
 Same constraint as `_workmux`: pure functions over already-parsed data, no
 `wfctl.*` imports and no I/O. The caller reads, decides, and writes. That is what

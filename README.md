@@ -154,7 +154,8 @@ it and only the implementation ships. This repo does the latter.
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
-| `hook`           | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`) — not for interactive use |
+| `hook`           | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`, `response-shape`) — not for interactive use |
+| `check-body`     | Check a PR description's drawings against `conversation-response-shape` |
 | `doctor`         | Check the installed skills against the ones this wfctl ships            |
 
 `wfctl --version` prints the installed package version and exits.
@@ -443,15 +444,25 @@ way, using the merge mode described below.
 
 ### The merge install mode
 
-`install-skills --agent claude` adds one entry to `.claude/settings.json` and
-edits nothing else in it. The entry runs `wfctl hook user-prompt`, which prints
-the `digest.md` of each skill the manifest records as installed, so a skill
-loaded at session start is re-anchored on later turns instead of decaying as the
-context fills.
+`install-skills --agent claude` adds two entries to `.claude/settings.json` and
+edits nothing else in it. They are the two halves of the same skill — one before
+the text is written, one after:
+
+| Event | Command | What it does |
+|---|---|---|
+| `UserPromptSubmit` | `wfctl hook user-prompt` | prints the `digest.md` of each skill the manifest records as installed, so a skill loaded at session start is re-anchored on later turns instead of decaying as the context fills |
+| `Stop` | `wfctl hook response-shape` | reads the finished reply back out of the transcript and warns when it broke a `conversation-response-shape` rule a machine can see — a markdown header, a counted lead-in, length nothing asked for |
+
+The `Stop` entry warns and never blocks: it exits 0 with a `systemMessage`, and
+carries `|| true` because a non-zero exit on that event tells the agent to keep
+going rather than stopping, so an older `wfctl` on `PATH` would loop at the end
+of every turn instead of printing once. The same rules over a PR description are
+`wfctl check-body <file>`, which is a command rather than a hook because a
+description is a file on disk before `gh pr create` reads it.
 
 Your own permissions, hooks and settings are left alone; `uninstall-skills`
-removes just wfctl's entry, and `doctor` reports it when it goes missing or falls
-behind. The first install that adds the entry reflows the file (key order, array
+removes just wfctl's own entries, and `doctor` reports one when it goes missing
+or falls behind. The first install that adds the entry reflows the file (key order, array
 layout and indent width are lost to the JSON round-trip; the trailing newline,
 the file mode and any non-ASCII survive). Later installs leave it closed.
 
