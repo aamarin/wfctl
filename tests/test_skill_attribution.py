@@ -40,7 +40,7 @@ SPECIFY_ROOT = Path(wfctl.__file__).parent / "specify"
 REPO = Path(__file__).resolve().parent.parent
 RECORD = REPO / "docs" / "architecture" / "vendor-upstream-skills.md"
 LICENSE = REPO / "LICENSE"
-NOTICES = SKILLS_ROOT.parent / "NOTICES.md"
+NOTICES = SKILLS_ROOT / "NOTICES.md"
 # The specify tree's notice sits in `templates/` rather than at its root because
 # that is the deepest directory `install-skills` mirrors into a project — see
 # `vendor-upstream-skills`. A check that looked for it one level up would pass
@@ -222,19 +222,42 @@ def _noticed(notice: Path) -> dict[str, dict[str, str]]:
     to carry. Proven by mutation: deleting `Copyright GitHub, Inc.` from
     `wfctl/agents/NOTICES.md` passed every check this file had.
     """
-    found = {}
+    return dict(_sections(notice))
+
+
+def _sections(notice: Path) -> list[tuple[str, dict[str, str]]]:
+    """Every `## <upstream>` section in `notice` that states a copyright, in order."""
+    claims = []
     for section in re.split(r"^## ", notice.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
         holder = re.search(r"^ {4}(Copyright .+)$", body, re.M)
         link = re.search(r"<(https://\S+?)>", body)
         if holder:
-            found[heading.strip()] = {
+            claims.append((heading.strip(), {
                 "upstream": heading.strip(),
                 "url": link.group(1) if link else "",
                 "licence": _licence_the_notices_carry(),
                 "holder": _holder(holder.group(1)),
-            }
-    return found
+            }))
+    return claims
+
+
+def _declaration_sources() -> dict[str, list[tuple[str, object]]]:
+    """Every list of claims this file later reads as a mapping.
+
+    Each one is a place a declaration is collapsed with `dict()`, and `dict()`
+    is last-write-wins: a key claimed twice keeps the later claim and the
+    earlier is never read again. Four findings on this branch were that, in
+    three of these four places, reported one place at a time. Enumerating the
+    sources is what makes the fourth place fail without anyone noticing it was
+    the fourth.
+    """
+    return {
+        "vendor-upstream-skills tables": list(_rows()),
+        f"{SPECIFY_NOTICES.name} template claims": list(_template_claims()),
+        f"{NOTICES.parent.name}/{NOTICES.name} sections": list(_sections(NOTICES)),
+        f"{SPECIFY_NOTICES.name} sections": list(_sections(SPECIFY_NOTICES)),
+    }
 
 
 def _licence_the_notices_carry() -> str:
@@ -258,22 +281,6 @@ def _permission_block() -> str:
     return "\n".join(("    " + line).rstrip() for line in body[start:]).rstrip()
 
 
-def test_no_template_is_claimed_by_two_upstreams_in_the_specify_notice() -> None:
-    """A file has one owner, and the notice is the templates' only declaration.
-
-    The three checks around this one all read the notice as a mapping, so a
-    template listed under two `##` sections collapsed to whichever came last —
-    and where the record named that one, every check passed while the shipped
-    file said a template belonged to two projects at once. The half-finished
-    move that produces it is the same shape as the half-finished cleanup
-    `test_no_file_claims_an_upstream_the_record_does_not_list` exists for."""
-    seen: dict[str, list[str]] = {}
-    for path, upstream in _template_claims():
-        seen.setdefault(path, []).append(upstream)
-    duplicated = {path: owners for path, owners in seen.items() if len(owners) > 1}
-
-    assert not duplicated, f"claimed by more than one upstream in {SPECIFY_NOTICES.name}: {duplicated}"
-
 
 def test_the_specify_notice_and_the_record_name_the_same_upstream() -> None:
     """`test_the_file_and_the_record_name_the_same_upstream` one tree over.
@@ -295,21 +302,30 @@ def test_the_specify_notice_and_the_record_name_the_same_upstream() -> None:
 
 
 
-def test_no_file_is_listed_twice_in_the_record() -> None:
-    """`_listed()` is a dict comprehension over the rows, so a file listed under
-    two upstreams kept whichever row came last. With the correct row second, the
-    record made two contradictory provenance claims and nothing read the first.
 
-    The same defect as the specify notice's duplicate sections, in the other
-    declaration — and a row inserted rather than edited is how a half-finished
-    move between upstreams leaves it."""
-    seen: dict[str, list[str]] = {}
-    for name, upstream in _rows():
-        seen.setdefault(name, []).append(upstream)
-    duplicated = {name: owners for name, owners in seen.items() if len(owners) > 1}
+def test_no_declaration_claims_the_same_key_twice() -> None:
+    """Nothing here may say two things about one file and have the first ignored.
 
-    assert not duplicated, f"listed more than once in vendor-upstream-skills: {duplicated}"
+    Every declaration in this change becomes a mapping, and a mapping keeps the
+    later of two claims silently. That produced four findings — a template under
+    two notice sections, a file listed twice in the record, a duplicated
+    `## <upstream>` heading — each reported separately, each looking like its
+    own oversight. They are one failure mode: *last write wins, silently*.
 
+    So the check is over the enumerated sources rather than over the instance
+    someone found. A fifth place that collapses a list into a dict is a fifth
+    entry in `_declaration_sources`, and it fails from the day it is added
+    instead of the day a reviewer happens to aim at it."""
+    duplicated = {}
+    for source, claims in _declaration_sources().items():
+        seen: dict[str, list[object]] = {}
+        for key, value in claims:
+            seen.setdefault(key, []).append(value)
+        repeated = {key: len(values) for key, values in seen.items() if len(values) > 1}
+        if repeated:
+            duplicated[source] = repeated
+
+    assert not duplicated, f"claimed more than once (source → key → times): {duplicated}"
 
 
 def test_every_attribution_line_agrees_with_its_notice_entry() -> None:
@@ -409,21 +425,29 @@ def test_every_template_the_record_lists_is_a_file_that_ships() -> None:
     assert not missing, f"listed in vendor-upstream-skills but not in the tree: {missing}"
 
 
-def test_the_specify_notice_is_where_install_skills_will_carry_it() -> None:
-    """`wfctl/agents/NOTICES.md` ships in the wheel and stops there — a top-level
-    file in a grafted tree belongs to no install layer (#213). The specify tree's
-    copy is inside `templates/` so it makes the trip the templates make.
+def test_both_notices_sit_where_install_skills_will_carry_them() -> None:
+    """MIT asks for the permission notice, and a footer is not one — so it has to
+    reach the repository the files are installed into, not only the wheel.
 
-    That only holds while `templates/` is still mirrored, which is why the
-    install target is asserted and not just the path: narrow `_RUNTIME_TARGETS`
-    to a list of named templates, or drop the entry, and the notice quietly
-    stops reaching any project while a check on two paths stays green."""
-    assert SPECIFY_NOTICES.exists(), f"{SPECIFY_NOTICES} is missing"
-    assert not (SPECIFY_ROOT / "NOTICES.md").exists(), (
-        "a notice at the top of wfctl/specify/ ships in the wheel and reaches no project; "
-        "install-skills mirrors specify/scripts and specify/templates and nothing above them"
-    )
-    assert ("specify/templates", ".specify/templates") in cli._RUNTIME_TARGETS, (
-        "the notice's placement depends on this directory being mirrored whole; "
-        f"_RUNTIME_TARGETS is now {cli._RUNTIME_TARGETS}"
-    )
+    `wfctl/agents/NOTICES.md` sat at the top of its tree and reached neither.
+    #213 accepted that on the grounds that every skill carries its own line, and
+    this branch repeated the argument before a reviewer pointed out what both
+    notice files say in their own prose: the line is a *copyright* notice, and
+    MIT requires the permission notice as well. A project that installed the
+    skills received fifteen derived files and no permission text.
+
+    Both notices now sit inside a mirrored directory. The install targets are
+    asserted, not just the paths: a notice one level up would still ship in the
+    wheel, still pass every other check here, and arrive nowhere."""
+    for notice, stale, target in (
+        (NOTICES, SKILLS_ROOT.parent / "NOTICES.md", ("agents/skills", ".agents/skills")),
+        (SPECIFY_NOTICES, SPECIFY_ROOT / "NOTICES.md", ("specify/templates", ".specify/templates")),
+    ):
+        assert notice.exists(), f"{notice} is missing"
+        assert not stale.exists(), (
+            f"{stale} ships in the wheel and reaches no project; install-skills mirrors "
+            f"{target[0]} and nothing above it"
+        )
+        assert target in cli._BASE_TARGETS + cli._RUNTIME_TARGETS, (
+            f"{notice.name}'s placement depends on {target[0]} being mirrored whole"
+        )

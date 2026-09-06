@@ -123,31 +123,36 @@ below holds the three together from then on; what it cannot do is notice a file
 that arrived declaring nothing.
 
 The upstream licence text itself lives in a `NOTICES.md` per grafted tree, one
-entry per upstream: `wfctl/agents/NOTICES.md` and
+entry per upstream: `wfctl/agents/skills/NOTICES.md` and
 `wfctl/specify/templates/NOTICES.md`. MIT asks for the permission notice and not
 only the copyright line, and a footer is not one; `MANIFEST.in` grafts
 `wfctl/agents` and `wfctl/specify` whole, so a notice inside a tree ships with
 the files it covers, which a root `NOTICE` would not.
 
-The specify tree's copy sits one level down, in `templates/`, because that is
-where the files it covers can be reached from. `install-skills` mirrors
-`specify/scripts` and `specify/templates` into a project and nothing above them,
-so a notice at the top of `wfctl/specify/` would ship in the wheel and never
-arrive in a repository wfctl installed the derived templates into. The scripts
-need no such reach: their line travels inside them.
+Both copies sit one level down from their graft, because that is where the
+files they cover can be reached from. `install-skills` mirrors `agents/skills`,
+`agents/commands`, `specify/scripts` and `specify/templates` into a project and
+nothing above them.
 
-`wfctl/agents/NOTICES.md` has exactly the flaw that placement was rejected for —
-`install-skills` mirrors `agents/skills` and `agents/commands`, so a file at the
-top of that tree reaches the wheel and no project. That is accepted rather than
-overlooked: every file it covers is a skill carrying its own line, so an
-installed tree still says where each file came from, and only the permission
-text stays behind. The templates had no such fallback, which is what made the
-placement load-bearing there and not here.
+`wfctl/agents/NOTICES.md` had that flaw and was moved beside the skills for the
+same reason (#216). #213 accepted it on the grounds that every file it covers
+carries its own line, and this record repeated the argument once before a
+reviewer weighed it against what the notice files say themselves: the line is a
+*copyright* notice, and MIT asks for the permission notice as well — "a footer
+is not one" is this record's own sentence, three paragraphs up. A project that
+ran `install-skills` received fifteen derived skills and no permission text at
+all, which is the obligation undischarged exactly where the files are read.
+
+So the rule is one rule and not a placement per tree: **a notice lives inside a
+directory `install-skills` mirrors.** `agents/skills` and `specify/templates`
+are those directories; a notice at the top of either graft ships in the wheel
+and arrives nowhere.
 
 Line, table and notice are all three required, and `test_skill_attribution.py`
 fails on any gap between them — a listed file with no line, a line no row
 lists, a row naming an upstream the line does not, or an attributed upstream
-with no entry in `NOTICES.md`. The templates are the one case where the notice
+with no entry in `NOTICES.md`, or a notice that names one upstream twice. The
+templates are the one case where the notice
 stands in for the line, so the same pair runs between the template rows and
 `wfctl/specify/templates/NOTICES.md` instead: a row that file does not name, or
 a file it names with no row, fails the same way. A listed template is also
@@ -205,10 +210,11 @@ change with no durable home.
 - An attribution line in the templates, as the skills carry one — rejected for
   the reason stated in the Decision above: `cp` puts a template's text into the
   reader's own document.
-- `wfctl/specify/NOTICES.md`, at the top of the tree, mirroring
-  `wfctl/agents/NOTICES.md` — symmetrical, and out of reach: the install
-  targets are `specify/scripts` and `specify/templates`, so it would ship in
-  the wheel and never reach a project.
+- A notice at the top of each graft, which is where `wfctl/agents/NOTICES.md`
+  began — symmetrical, and out of reach of every project: the install targets
+  are one level down, so such a file ships in the wheel and arrives nowhere.
+  Rejected for the specify tree first, then for the agents tree once the same
+  argument was applied to it rather than waived (#216).
 
 ## Consequences
 
@@ -231,5 +237,6 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
 - 2026-09-06  amended     — the eight `speckit-*` skills and eleven files under
   `wfctl/specify/` added, with `wfctl/specify/templates/NOTICES.md` as the
   second tree's notice and the templates covered by it rather than by a line;
-  the `speckit.*` command wrappers named as the surface still undeclared (#216,
-  #229)
+  `wfctl/agents/NOTICES.md` moved beside the skills so the permission notice
+  reaches an installed project rather than only the wheel; the `speckit.*`
+  command wrappers named as the surface still undeclared (#216, #229)

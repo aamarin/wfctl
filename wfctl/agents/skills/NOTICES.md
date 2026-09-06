@@ -1,14 +1,21 @@
 # Third-party notices
 
-wfctl is MIT-licensed; see `LICENSE` at the root of the distribution. Some of
-the skills under `skills/` are derived from other MIT-licensed projects, and
-each such file names its upstream on its own last line. Those upstreams'
+wfctl is MIT-licensed; see the `LICENSE` shipped in the wfctl package — not
+whatever `LICENSE` sits at the root of the repository you are reading this in,
+which is yours. Some of the skills beside this file are derived from other
+MIT-licensed projects, and each such file names its upstream on its own last
+line. Those upstreams'
 notices are reproduced here, which is what MIT asks for beyond the copyright
 line itself.
 
-`vendor-upstream-skills` in `docs/architecture/` lists which skill came from
-which upstream; that list and the lines in the files are checked against each
-other by `tests/test_skill_attribution.py`.
+This file sits beside the skills it covers rather than one directory up,
+because `install-skills` mirrors this directory into a project and nothing above
+it. A notice at the top of the tree ships in the wheel and reaches no repository
+the skills are installed into — which is where they are actually read.
+
+`vendor-upstream-skills` in wfctl's own `docs/architecture/` lists which skill
+came from which upstream; that list and the lines in the files are checked
+against each other by `tests/test_skill_attribution.py`.
 
 ## obra/superpowers
 
@@ -35,7 +42,8 @@ other by `tests/test_skill_attribution.py`.
 <https://github.com/github/spec-kit> — `speckit-analyze`, `speckit-checklist`,
 `speckit-clarify`, `speckit-constitution`, `speckit-implement`, `speckit-plan`,
 `speckit-specify`, `speckit-tasks`. The rest of that upstream is under
-`specify/`, whose notice travels with it in `../specify/templates/NOTICES.md`.
+`specify/`, whose notice travels with it in `.specify/templates/NOTICES.md`
+once installed, and `wfctl/specify/templates/NOTICES.md` in wfctl's own tree.
 
     Copyright GitHub, Inc.
 
