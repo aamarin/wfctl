@@ -202,6 +202,10 @@ Before marking decompose complete:
 - [ ] Issue count equals PR count — one issue per PR, no exceptions
 - [ ] Every task assigned to exactly one wave
 - [ ] GitHub issues created and numbered
+- [ ] Each created key written back into the Issue Grouping Map's `Issue`
+      column, replacing the placeholder it was drafted with — `wfctl status`
+      reads decompose as unfinished while any row still lacks a key, and
+      re-running this skill is not what fills them in
 - [ ] Each issue's `Closes` line references exactly one PR
 - [ ] Sub-feature issues linked to parent epic issue (if L-size split)
 
