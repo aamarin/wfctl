@@ -91,9 +91,28 @@ until it has, no artifact says the child is one of them.
 
 Unresolved is not a dead end. `feature-paths` turns it into
 `<spec root>/<branch>`, so the child starts a spec dir of its own and the next
-speckit step writes there — where before it wrote into the epic's. The epic
-reclaims it whenever it decomposes, since the grouping map resolves ahead of
-either.
+speckit step writes there — where before it wrote into the epic's.
+
+What the epic does *not* get back is a child that has since started work. A
+claim resolves only for a branch with no directory of its own: the name legs run
+first, so once `<spec root>/<branch>` exists it wins, and a grouping map naming
+that key afterwards does not move the branch. That ordering is deliberate and
+predates this decision. A branch holding its own `spec.md` has artifacts
+somebody wrote, and redirecting it onto the epic's task range would abandon them
+— the loud version of the quiet failure this record exists to stop.
+
+So the two orderings answer different questions, and both answers are the branch
+being told the truth about where its own work is:
+
+```
+child has no dir of its own    →  the epic's claim resolves it
+child has started its own dir  →  its own dir wins, permanently
+```
+
+Nothing tells anyone the two now disagree about who owns the key. That is a real
+gap and it is not this decision's to close: it is visible in artifacts — a
+directory and a map row, both on disk — so by `a-rule-is-expressed-as-a-check`
+it belongs to `doctor` as a check rather than here as a caveat (#271).
 
 Measured before deciding: no branch in this repo resolves through the ancestor
 leg — 0 of 18 local branches — and 18 of 23 features on `specs-trunk` carry a
@@ -102,3 +121,5 @@ leg — 0 of 18 local branches — and 18 of 23 features on `specs-trunk` carry 
 ## Log
 
 - 2026-09-06  proposed    — #263; the leg's convention and its bug are the same tree
+- 2026-09-06  proposed    — Consequences corrected on #269: the epic does not
+  reclaim a child that has started its own dir, and the record had promised it would
