@@ -790,14 +790,24 @@ def arch_context_cmd() -> None:
             console.print(escape(record.slug))
             decision = _arch.decision_text(record)
             if decision:
+                paragraph, _, block = decision.partition("\n\n")
                 # Wrapped here rather than left to rich, which re-wraps at the
                 # terminal edge and drops the indent on continuation lines — the
                 # second line of one decision then lines up with the next slug.
                 # break_on_hyphens=False keeps "re-derivation" in one piece.
                 console.print(escape(textwrap.fill(
-                    decision, 74, initial_indent="  ", subsequent_indent="  ",
+                    paragraph, 74, initial_indent="  ", subsequent_indent="  ",
                     break_on_hyphens=False,
                 )))
+                if block:
+                    # What a dangling colon points at is a drawing or a table
+                    # (#226), and reflowing it loses the alignment that is its
+                    # content. soft_wrap is the half that is easy to miss: the
+                    # paragraph above dodges rich by arriving pre-filled, and
+                    # without this the block is re-wrapped at the terminal edge
+                    # instead — below about 78 columns, which is one tmux split.
+                    console.print()
+                    console.print(escape(textwrap.indent(block, "  ")), soft_wrap=True)
             console.print()
     else:
         console.print("# Architectural contract — no accepted decisions\n")

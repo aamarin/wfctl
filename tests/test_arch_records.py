@@ -506,3 +506,137 @@ def test_a_fenced_decision_heading_is_not_the_decision(tmp_path: Path) -> None:
     text = _arch.decision_text(_arch.parse_record(path))
 
     assert text == "Records are MADR-simple with an added ownership field."
+
+
+# --- the dangling colon (#226) ----------------------------------------------
+
+
+def test_a_decision_ending_in_a_colon_carries_the_block_it_points_at(tmp_path: Path) -> None:
+    """A projected decision that ends in `:` promises content, and before #226
+    the promise went unkept: `knowledge-placement` announced a scope mapping and
+    printed none of it. The colon is the whole signal — see the sibling test for
+    why a following block alone is not."""
+    path = _write(tmp_path, "carries", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nThe agent is taken from the environment:\n\n"
+        "```\n${WFCTL_AGENT:+--agent \"$WFCTL_AGENT\"}\n```\n\nAnd then prose.\n"
+    ))
+
+    text = _arch.decision_text(_arch.parse_record(path))
+
+    assert text == (
+        "The agent is taken from the environment:\n\n"
+        "```\n${WFCTL_AGENT:+--agent \"$WFCTL_AGENT\"}\n```"
+    )
+
+
+def test_a_decision_that_stands_on_its_own_leaves_the_block_below_it(tmp_path: Path) -> None:
+    """`layer-model` opens with a self-contained constraint and follows it with a
+    four-row table. It projects correctly today, which is why "first paragraph
+    followed by a block" is the wrong signal and the colon is the right one — the
+    heuristic would have a false positive on the day it shipped."""
+    path = _write(tmp_path, "stands", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nEvery dotted directory at the repo root is generated.\n\n"
+        "| Path | Owner |\n| --- | --- |\n| `.agents/` | the installer |\n"
+    ))
+
+    assert _arch.decision_text(_arch.parse_record(path)) == (
+        "Every dotted directory at the repo root is generated."
+    )
+
+
+def test_a_colon_pointing_at_prose_carries_nothing(tmp_path: Path) -> None:
+    """The colon check would be untriggerable if any following block counted.
+    Stripping `knowledge-placement`'s drawing left its next paragraph one line
+    below the colon, an earlier draft carried that, and the corpus check went
+    green over a record whose mapping was gone. A colon followed by a sentence
+    is one sentence continued; only a drawing or a table is content the
+    paragraph could not hold."""
+    path = _write(tmp_path, "prose", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nPlacement is decided by what is constrained:\n\n"
+        "The exception is ownership.\n"
+    ))
+
+    assert _arch.decision_text(_arch.parse_record(path)) == (
+        "Placement is decided by what is constrained:"
+    )
+
+
+def test_a_decision_ending_in_a_colon_carries_a_table_too(tmp_path: Path) -> None:
+    """Fences and tables are the two shapes a record uses for content a sentence
+    cannot hold — `no-hardcoded-agent` has both. A fence-only rule would leave a
+    future record's table dangling, and the corpus check would report it as a
+    defect in the record rather than the gap here that it is."""
+    path = _write(tmp_path, "tabled", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nThe agent key is filled only from a real choice:\n\n"
+        "| Known | Written |\n| --- | --- |\n| `--agent` passed | that agent |\n"
+        "\nCommented out is the fallback.\n"
+    ))
+
+    assert _arch.decision_text(_arch.parse_record(path)) == (
+        "The agent key is filled only from a real choice:\n\n"
+        "| Known | Written |\n| --- | --- |\n| `--agent` passed | that agent |"
+    )
+
+
+def test_a_decision_ending_in_a_colon_carries_a_list(tmp_path: Path) -> None:
+    """The third shape a colon points at, and the one with no corpus instance.
+    Without the branch a record writing `three parts:` over a numbered list is
+    well-formed markdown that turns the corpus check red, and its author's only
+    remedy is to reword prose for the tool — what #226 rejected option (d)
+    for."""
+    path = _write(tmp_path, "listed", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nThe rule has two parts:\n\n1. members\n2. modules\n"
+    ))
+
+    assert _arch.decision_text(_arch.parse_record(path)) == (
+        "The rule has two parts:\n\n1. members\n2. modules"
+    )
+
+
+def test_an_unclosed_fence_carries_nothing_rather_than_the_rest_of_the_record(
+    tmp_path: Path,
+) -> None:
+    """One missing backtick used to project `## Considered` and `## Log` as the
+    decision — the whole-section outcome `decision_text` rejects option (c) for,
+    reachable from a typo and caught by nothing, since the projected text then
+    ended in a fence rather than a colon. Carrying nothing leaves the colon
+    dangling, which the corpus check does see."""
+    path = _write(tmp_path, "unclosed", RECORD.format(status="accepted") + (
+        "\n## Decision\n\nLike so:\n\n```\na -> b\n\n## Considered\n\n- lots\n"
+    ))
+
+    assert _arch.decision_text(_arch.parse_record(path)) == "Like so:"
+
+
+def test_no_in_force_record_projects_a_decision_ending_in_a_colon() -> None:
+    """The half of #226's rule that is checkable at all. `arch context` is the one
+    channel a decision reaches a session through before the mistake rather than
+    after, and a record that projects a colon there has told the reader something
+    follows when nothing does.
+
+    Deliberately not checked, and not a gap to close later: a record that buries
+    its decision below a *grammatical* first paragraph — `install-modes` names
+    three modes and never says which three, `vendor-upstream-skills` projects a
+    terminology note above the rule. Nothing in the artifact distinguishes those
+    from a record whose lead sentence genuinely is the decision, and
+    `a-rule-is-expressed-as-a-check` decides that case: a rule whose violation is
+    invisible in what the work already produces stays prose."""
+    root = Path(__file__).resolve().parent.parent / "docs" / "architecture"
+    in_force = _arch.in_force(_arch.load_records(root))
+
+    # `load_records` returns [] for a directory that is not there, so without
+    # this the assertion below passes hardest when it is reading nothing at all.
+    assert in_force, f"no accepted records loaded from {root}"
+    # The other half of the same problem: `dangling == []` is equally satisfied
+    # by a `decision_text` that returns "" for every record. One record's
+    # carried block, asserted positively, is what separates the two.
+    projected = {r.slug: _arch.decision_text(r) for r in in_force}
+    assert "→ docs/architecture/" in projected["knowledge-placement"]
+
+    dangling = [slug for slug, text in projected.items() if text.endswith(":")]
+
+    assert dangling == [], (
+        f"{dangling} project a decision ending in ':' with nothing below it. "
+        "A colon in a Decision's lead paragraph has to point at a fence, a "
+        "table or a list — see `_arch._pointed_at` for what is carried."
+    )
