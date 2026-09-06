@@ -3126,6 +3126,42 @@ def test_install_skills_inherits_the_tracker_from_the_main_checkout(
     assert (wt / ".agents" / "trackers" / "github.json").exists() is installs
 
 
+def test_a_later_bare_install_keeps_the_backend_on_record(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The tracker's files survive installs that do not name a tracker.
+
+    The copy loop runs only on a run that selected one, so without the carry
+    forward every later `install-skills` drops the backend from the record and
+    then diffs it as dropped upstream — and `--prune` acts on that. Two files
+    make it a break rather than a mess: `github.json` names `github-board.sh` in
+    its `start` argv, so losing half the pair leaves a config pointing at a path
+    that is gone.
+
+    The deselect at the end is the other half of the same rule: this must keep
+    the record alive, not make it permanent.
+    """
+    import json
+    repo_root = agent_dir.parent
+    _add_tracker(bundle)
+    assert runner.invoke(app, ["install-skills", "--tracker", "github"]).exit_code == 0
+
+    result = runner.invoke(app, ["install-skills"])
+    assert result.exit_code == 0
+    assert "no longer shipped" not in result.output, result.output
+    recorded = {
+        i["path"]
+        for i in json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+        ["base"]["items"]
+    }
+    assert ".agents/trackers/github.json" in recorded
+    assert ".agents/trackers/github-board.sh" in recorded
+
+    deselected = runner.invoke(app, ["install-skills", "--tracker", "none"])
+    assert "no longer shipped" in deselected.output
+    assert "github-board.sh" in deselected.output
+
+
 def test_inherited_tracker_leaves_a_committed_config_alone(
     bundle: Path, agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

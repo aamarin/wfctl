@@ -2388,6 +2388,39 @@ def install_skills_cmd(
                     f".agents/trackers/{tracker}.json found — author it with /scaffold-tracker"
                 )
 
+    # The active backend's files stay on record on a run that did not name a
+    # tracker. The copy loop above runs only when this run selected one, so
+    # without this every later bare install drops them from the record and then
+    # diffs them as dropped upstream — which `--prune` acts on. That mis-read is
+    # #209 and predates a two-file backend.
+    #
+    # Carried rather than merely un-diffed: silencing the orphan report alone
+    # loses the record, and an unrecorded file is one a genuine `--tracker none`
+    # can no longer clean up. Only paths a previous install actually recorded are
+    # carried, so a config the project committed itself is still none of wfctl's
+    # business.
+    #
+    # A second file is what makes it urgent rather than untidy. `github.json`
+    # names `github-board.sh` in its `start` argv, and a project that commits the
+    # config leaves only the script on record — so a prune takes the half wfctl
+    # owns and leaves a committed config pointing at a path that is gone: exit
+    # 127 inside a hook that swallows it, where losing the whole backend is the
+    # designed no-op with a message.
+    active_tracker = manifest.get("tracker")
+    if active_tracker:
+        already = {i["path"] for i in items.get(_BASE_LAYER, ())}
+        for name in _tracker_files(active_tracker):
+            backend_rel = f".agents/trackers/{name}"
+            prior = prior_items.get(backend_rel)
+            if (
+                backend_rel not in already
+                and prior is not None
+                and (repo_root / backend_rel).exists()
+            ):
+                items.setdefault(_BASE_LAYER, []).append(
+                    {k: v for k, v in prior.items() if k != "orphaned"}
+                )
+
     # Paths a previous install recorded under a layer this install rewrote, and
     # that this install did not write. What makes removal defensible here and
     # nowhere else is that the evidence is wfctl's own record: the manifest says
