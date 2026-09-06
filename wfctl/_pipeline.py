@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from wfctl import _tracker
+
 
 # step → (slash command that advances it, whether speckit-orchestrate may proceed
 # without pausing). One table rather than three keyed by the same names: a step
@@ -76,12 +78,14 @@ def _has_open_checkboxes(text: str) -> bool:
 
 
 # The Issue Grouping Map, and the `|---|---|` line markdown puts under every
-# table header. Rows are read by position — the lines after that separator —
-# rather than by matching header labels: the header cell reads "Issue" and
-# carries no key, so a label-driven scan counts the header as a row that failed.
+# table header. Rows are read by position — the lines after that separator, and
+# the first cell of each — rather than by matching header labels. Both halves of
+# that are the template's contract (`delivery-plan-template.md`): it fixes
+# `Issue` as the leading column, and a label-driven scan would count the header
+# row itself, whose `Issue` cell carries no key, as a row that failed.
 _ISSUE_MAP_SECTION = re.compile(
     r"^#{1,6}[ \t]+Issue Grouping Map\b(?P<body>.*?)(?=^#{1,6}[ \t]|\Z)",
-    re.MULTILINE | re.DOTALL,
+    re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
 _TABLE_SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
 
@@ -122,15 +126,15 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     if not rows:
         return None
 
-    try:
-        key = re.compile(key_pattern)
-    except re.error:
-        # `load_key_pattern` degrades an uncompilable pattern to the default, so
-        # this is only reachable via a caller passing its own. Unjudgeable rather
-        # than unkeyed — the same answer as a file with no map.
-        return None
+    # Anchored, and `#?` because GitHub keys are written `#251` in prose while a
+    # `PROJ-123` never takes one — the same expression `speckit-orchestrate`
+    # builds. Anchoring is the half that matters: searching the cell, `_(TBD)_
+    # (Issue 1)` satisfies the default `\d+` on the `1`, and the placeholder
+    # reads as a created issue. The template mandates the key *lead* the cell, so
+    # matching from the front is reading the contract rather than tightening it.
+    key = re.compile(rf"#?(?:{key_pattern})")
 
-    return sum(1 for row in rows if not key.search(row.split("|")[1]))
+    return sum(1 for row in rows if not key.match(row.split("|")[1].strip()))
 
 
 def _verification_block(repo_root: Path) -> str | None:
@@ -205,13 +209,19 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     live git state from. It was carried unused for a while after the design doc
     moved into the spec dir; #69 gave it a job again.
     """
-    from wfctl import _tracker  # lazy: avoids an import cycle at module load
-
     if spec_dir is None:
         return [_PipelineStep(name, "pending", None) for name in _STEP_NAMES]
 
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
+
+    # Whether implementation is still open, by the two routes `implement` reads
+    # as finished: every box ticked, or the checklist that says so over one left
+    # open. Bound once because `decompose` now needs the same answer, and two
+    # spellings of "the work is done" drift apart without either one looking wrong.
+    tasks_open = _has_open_checkboxes(tasks_text) and not _file_exists(
+        spec_dir / "checklists" / "implement-complete.md"
+    )
 
     spec_md = spec_dir / "spec.md"
     spec_text = ""
@@ -306,21 +316,38 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         elif name == "decompose":
             delivery_md = spec_dir / "delivery.md"
             if _file_exists(delivery_md):
+                state = "done"
                 # Writing the plan is not the whole step —
                 # `speckit-delivery-plan`'s own checklist requires the issues it
                 # groups to exist. Read from the file's text rather than from the
                 # tracker: `status` runs on every session start, and a pipeline
                 # read that costs a network round-trip is one nobody makes.
-                unkeyed = _unkeyed_issues(
-                    delivery_md.read_text(), _tracker.load_key_pattern(repo_root)
+                #
+                # No tracker means no key to wait for. That repo said so
+                # deliberately (`"tracker": null`), nothing there creates an
+                # issue, and gating on a key it can never gain would strand the
+                # pipeline at decompose for the life of the repo.
+                pattern = _tracker.configured_key_pattern(repo_root)
+                unkeyed = (
+                    _unkeyed_issues(delivery_md.read_text(), pattern) if pattern else None
                 )
                 if unkeyed:
-                    state = "in_progress"
+                    # What was read, not what it implies. The rows are the whole
+                    # evidence: "issues not created" is a claim about the tracker,
+                    # and it is the wrong one for a plan whose issues exist and
+                    # whose table was never filled back in.
                     plural = "" if unkeyed == 1 else "s"
-                    decompose_reason = f"plan written, {unkeyed} issue{plural} not created"
-                else:
-                    state = "done"
-            elif tasks_text and not _has_open_checkboxes(tasks_text):
+                    decompose_reason = f"{unkeyed} issue row{plural} without a key"
+                    # Blocking only while the work is still open. Past that the
+                    # reader is being sent to `/speckit.decompose`, which does not
+                    # backfill a table, for a story that has already shipped — and
+                    # no route to `/end-session` exists while a step blocks. The
+                    # annotation still says what is missing; it just stops
+                    # standing in the way. Clarify's `skipped` arm above declines
+                    # the same trap in the same terms.
+                    if tasks_open:
+                        state = "in_progress"
+            elif tasks_text and not tasks_open:
                 state = "skipped"
             else:
                 state = "pending"
@@ -328,9 +355,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         elif name == "implement":
             if not tasks_text:
                 state = "pending"
-            elif _has_open_checkboxes(tasks_text) and not _file_exists(
-                spec_dir / "checklists" / "implement-complete.md"
-            ):
+            elif tasks_open:
                 state = "in_progress"
             else:
                 # Tasks read complete. Before #69 that was the whole check, and

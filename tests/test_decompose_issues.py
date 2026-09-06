@@ -9,6 +9,10 @@ against PRs with no issue to close.
 
 Observed on PFMS `490-budget-actuals-wiring`: three `_(TBD)_` rows, `decompose ●`,
 `implement ▶ 0/42 done`. The fixtures below are that file's shape.
+
+Every test configures a tracker first. That is the precondition, not fixture
+noise — a repo that declined one has no key to wait for, and the last test here
+is the one that pins it.
 """
 from __future__ import annotations
 
@@ -19,9 +23,12 @@ from pathlib import Path
 from tests.conftest import CLEAN_SPEC
 from wfctl._pipeline import _infer_steps, build_report
 
-# The two halves of the PFMS file. The `PR Decomposition` table comes first in
-# every delivery plan and its rows carry `#1`, `#2`, `#3` — a scan that finds the
-# Issue Grouping Map by "the first table" reads those and sees three keyed rows.
+# The two halves of the PFMS file. Two shapes are deliberate. The `PR
+# Decomposition` table comes first in every delivery plan and its rows carry
+# `#1`, `#2`, `#3` — a scan that finds the Issue Grouping Map by "the first
+# table" reads those and sees three keyed rows. And the template puts prose
+# between the heading and the table, which is the shape the parser meets most
+# often and the one a heading-then-table fixture would never exercise.
 _HEADER = """# Delivery Plan: Budget Actuals Wiring (490)
 
 ## PR Decomposition
@@ -33,6 +40,9 @@ _HEADER = """# Delivery Plan: Budget Actuals Wiring (490)
 | #3 | T029-T042 | `wiring.py` (created) | S | #2 merged |
 
 ## Issue Grouping Map
+
+The **Issue** column must lead with the tracker's native key exactly as returned
+— no other format. GitHub: `#251`.
 
 | Issue | Tasks | Title | Estimate | Closes With |
 |-------|-------|-------|----------|-------------|
@@ -52,7 +62,18 @@ def _delivery(*issue_cells: str) -> str:
     return _HEADER + rows + _TRAILER
 
 
-def _feature(spec_tree: Callable[..., Path], delivery: str) -> Path:
+def _use_tracker(repo_root: Path, pattern: str | None = None) -> None:
+    """Give the repo a tracker, optionally one whose keys are not GitHub's."""
+    config: dict[str, object] = {"verbs": {"list": ["gh", "issue", "list"]}}
+    if pattern is not None:
+        config["key_pattern"] = pattern
+    trackers = repo_root / ".agents" / "trackers"
+    trackers.mkdir(parents=True, exist_ok=True)
+    (trackers / "custom.json").write_text(json.dumps(config))
+    (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "custom"}))
+
+
+def _feature(spec_tree: Callable[..., Path], delivery: str, tasks: str = "- [ ] T001 open\n") -> Path:
     """A feature staged all the way up to decompose, holding `delivery`.
 
     Every upstream artifact, not just the one under test: `_infer_steps`
@@ -61,11 +82,7 @@ def _feature(spec_tree: Callable[..., Path], delivery: str) -> Path:
     """
     return spec_tree(
         "design.md", "plan.md", "checklists/analysis-report.md",
-        content={
-            "spec.md": CLEAN_SPEC,
-            "tasks.md": "- [ ] T001 open\n",
-            "delivery.md": delivery,
-        },
+        content={"spec.md": CLEAN_SPEC, "tasks.md": tasks, "delivery.md": delivery},
     )
 
 
@@ -77,17 +94,11 @@ def _annotation(spec_dir: Path, repo_root: Path, step: str) -> str | None:
     return next(s.annotation for s in _infer_steps(spec_dir, repo_root) if s.name == step)
 
 
-def _use_tracker_pattern(repo_root: Path, pattern: str) -> None:
-    trackers = repo_root / ".agents" / "trackers"
-    trackers.mkdir(parents=True, exist_ok=True)
-    (trackers / "custom.json").write_text(json.dumps({"key_pattern": pattern, "verbs": {}}))
-    (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "custom"}))
-
-
 def test_a_plan_whose_issues_all_carry_a_key_is_done(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
     """The state the old check got right, pinned so the new one cannot lose it."""
+    _use_tracker(tmp_path)
     feature = _feature(spec_tree, _delivery("#251", "#252", "#253"))
     assert _states(feature, tmp_path)["decompose"] == "done"
 
@@ -101,21 +112,43 @@ def test_a_plan_whose_issues_were_never_created_is_still_in_progress(
     is why the check reads the `Issue` cell and not the row — searching the whole
     row finds those and calls the file complete.
     """
+    _use_tracker(tmp_path)
     feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
     assert _states(feature, tmp_path)["decompose"] == "in_progress"
 
 
-def test_the_step_says_how_many_issues_are_missing(
+def test_a_placeholder_that_happens_to_contain_a_digit_is_not_a_key(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """`_(TBD)_ (Issue 1)` — the defect surviving inside the fix, found in review.
+
+    No skill defines how a placeholder is spelled, and the template's own row
+    label is `(Issue A)`, one keystroke from `(Issue 1)`. Searching the cell, the
+    default `\\d+` matched that `1` and the row read as a created issue: the exact
+    state this check exists to catch, in a form the first three tests miss.
+    The key must therefore *lead* the cell, which is what the template mandates.
+    """
+    _use_tracker(tmp_path)
+    feature = _feature(spec_tree, _delivery("_(TBD)_ (Issue 1)", "TBD #", "{issue-key} (Issue C)"))
+    assert _states(feature, tmp_path)["decompose"] == "in_progress"
+    assert _annotation(feature, tmp_path, "decompose") == "3 issue rows without a key"
+
+
+def test_the_step_says_how_many_rows_are_missing_a_key(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
     """`in_progress` alone does not say what is undone, and the count is the work.
 
-    Without it the reader is told decompose is unfinished by a step whose file is
-    on disk — the annotation is the only place that distinguishes "half done"
-    from "not started".
+    The wording is what was read rather than what it implies: the rows are the
+    whole evidence, and "issues not created" would be a claim about a tracker
+    this check never contacts.
     """
-    feature = _feature(spec_tree, _delivery("#251", "_(TBD)_", "_(TBD)_"))
-    assert _annotation(feature, tmp_path, "decompose") == "plan written, 2 issues not created"
+    _use_tracker(tmp_path)
+    two = _feature(spec_tree, _delivery("#251", "_(TBD)_", "_(TBD)_"))
+    assert _annotation(two, tmp_path, "decompose") == "2 issue rows without a key"
+
+    one = _feature(spec_tree, _delivery("#251", "#252", "_(TBD)_"))
+    assert _annotation(one, tmp_path, "decompose") == "1 issue row without a key"
 
 
 def test_a_plan_with_no_issue_grouping_map_is_left_alone(
@@ -127,6 +160,7 @@ def test_a_plan_with_no_issue_grouping_map_is_left_alone(
     to read, and inventing a verdict from that would block every plan written
     before the format existed.
     """
+    _use_tracker(tmp_path)
     feature = _feature(spec_tree, "# Delivery Plan\n\nOne PR, one issue.\n")
     assert _states(feature, tmp_path)["decompose"] == "done"
 
@@ -138,14 +172,33 @@ def test_the_key_shape_comes_from_the_tracker_not_from_github(
 
     Under a Jira-shaped `key_pattern`, `PROJ-4` is a created issue and `#251` is
     not one — the reverse of the default's answer for the same two files.
+    `spec_tree` builds one directory, so the second plan replaces the first;
+    each assertion reads the state its own line just wrote.
     """
-    _use_tracker_pattern(tmp_path, r"[A-Z]+-\d+")
+    _use_tracker(tmp_path, r"[A-Z]+-\d+")
 
     keyed = _feature(spec_tree, _delivery("PROJ-4", "PROJ-5", "PROJ-6"))
     assert _states(keyed, tmp_path)["decompose"] == "done"
 
     numeric = _feature(spec_tree, _delivery("#251", "#252", "#253"))
     assert _states(numeric, tmp_path)["decompose"] == "in_progress"
+
+
+def test_a_repo_with_no_tracker_is_never_waiting_for_a_key(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Declining a tracker is a recorded choice (`"tracker": null`), not an omission.
+
+    Nothing in such a repo creates an issue, so a placeholder there can never
+    gain a key. Gating on one strands the pipeline at decompose for the life of
+    the repo — `load_key_pattern` hands back GitHub's `\\d+` regardless, which is
+    why this reads the choice itself rather than the pattern.
+    """
+    (tmp_path / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": None}))
+    feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
+
+    assert _states(feature, tmp_path)["decompose"] == "done"
+    assert _annotation(feature, tmp_path, "decompose") is None
 
 
 def test_a_half_decomposed_feature_is_not_routed_to_implement(
@@ -157,6 +210,32 @@ def test_a_half_decomposed_feature_is_not_routed_to_implement(
     reading `in_progress` is what keeps `next_command` off `/speckit.implement`
     — which #148 made an unattended run take without a human in between.
     """
+    _use_tracker(tmp_path)
     feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
     report = build_report(feature, tmp_path, tmp_path)
     assert (report.current, report.next_command) == ("decompose", "/speckit.decompose")
+
+
+def test_a_story_that_already_shipped_is_not_sent_back_to_decompose(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The trap the gate opened, found in review: a finished story that cannot finish.
+
+    With every task ticked, `implement` reads `done` and decompose was still
+    blocking — so `current` stayed `decompose`, `next` pointed at a command that
+    does not backfill a table, and `/end-session` was unreachable. The likeliest
+    way to reach it is an upgrade: a feature shipped long ago whose map nobody
+    filled in. The annotation survives, because the rows really are unkeyed; only
+    the blocking stops.
+    """
+    _use_tracker(tmp_path)
+    feature = _feature(
+        spec_tree,
+        _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"),
+        tasks="- [x] T001 done\n",
+    )
+    report = build_report(feature, tmp_path, tmp_path)
+
+    assert _states(feature, tmp_path)["decompose"] == "done"
+    assert _annotation(feature, tmp_path, "decompose") == "3 issue rows without a key"
+    assert (report.current, report.next_command) == (None, None)

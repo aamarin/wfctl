@@ -142,6 +142,20 @@ def load_key_pattern(repo_root: Path) -> str:
     return pattern
 
 
+def configured_key_pattern(repo_root: Path) -> str | None:
+    """The active tracker's issue-key regex, or None when the repo has no tracker.
+
+    `load_key_pattern` answers a neighbouring question and must not be used for
+    this one: it degrades to the GitHub-shaped default so that resolving a key
+    never fails. A caller deciding whether keys are *expected to appear* needs
+    the case that hides behind — a repo that declined a tracker creates no
+    issues, so a check that waits for keys there waits forever.
+    """
+    if not load_manifest(repo_root).get("tracker"):
+        return None
+    return load_key_pattern(repo_root)
+
+
 def _substitute(token: str, params: dict) -> str:
     """Replace every {name} in one argv token from params; missing -> _MissingParam."""
     def repl(m: re.Match) -> str:
