@@ -132,12 +132,13 @@ def test_the_design_record_skill_asks_git_whether_the_record_landed() -> None:
     it is invisible: the file is on disk, the session reports success, and the
     reviewer sees nothing.
 
-    Pinned as the literal command because the near-misses are what break it. A
-    path comparison against the repository root, or a `.gitignore` read, both
-    pass for a second checkout of the same repository on a branch that never
-    merges — the case this question exists to reject."""
+    Pinned as the command rather than as any line of git, because the near-miss
+    an agent reaches for is `git ls-files --error-unmatch` and it is wrong twice:
+    it reads the index, so a record staged and never committed passes, and it
+    exits 128 for a path outside the repository and for no repository at all
+    alike — the failure and its exemption sharing one exit code."""
     skill = (_AGENTS / "skills" / "software-design-decisions" / "SKILL.md").read_text()
-    assert "git ls-files --error-unmatch" in skill
+    assert "wfctl arch check" in skill
 
 
 def test_brainstorm_orders_the_records_before_the_one_pager() -> None:
@@ -155,9 +156,11 @@ def test_brainstorm_orders_the_records_before_the_one_pager() -> None:
     command = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text()
     assert "`software-design-decisions`" in command
     assert "## Software design decisions" in command
-    records, refine = (command.index("software-design-decisions"),
-                       command.index("invoke the `idea-refine` skill"))
-    assert records < refine, "records are written before the one-pager lists them"
+    handoff = "invoke the `idea-refine` skill"
+    assert handoff in command, "the sentence this test orders against was reworded"
+    assert command.index("software-design-decisions") < command.index(handoff), (
+        "records are written before the one-pager lists them"
+    )
 
 
 def test_brainstorm_allows_the_commands_its_records_need() -> None:
@@ -167,7 +170,7 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     """
     front = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text().split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
-    for needed in ("git ls-files", "git add", "git commit", "wfctl arch-root"):
+    for needed in ("wfctl arch check", "git add", "git commit", "wfctl arch-root"):
         assert f"Bash({needed}*)" in allowed, needed
 
 

@@ -69,36 +69,32 @@ here or in the record.
 `Direct baseline` and `Diagram` are the two an agent drops first, and the two
 the format exists for. Fill them from the template rather than from memory.
 
-## Ask git whether the record is really there
+## Ask whether the record is really there
 
-Write the file, commit it, then ask:
+Write the file, commit it — staging the record's path only, never `git add -A`,
+which sweeps whatever else the design session left dirty into a docs commit —
+then:
 
 ```bash
-git ls-files --error-unmatch <path to the record>
+wfctl arch check <path to the record>
 ```
 
-Exit 0 and the record is in this working tree's index, which is the whole
-property: a reviewer opening the branch reads it beside the code. Any other exit
-and it is not, and the record has to move before the design continues.
+Exit 0 and a reviewer opening the change reads it beside the code, which is the
+whole property. Exit 1 names which of the three ways it failed: written outside
+this working tree, ignored by git, or never reached a commit. The record moves,
+or the commit is repeated, before the design continues.
 
-One question rather than three, and the three it replaces are the ones to resist
-reaching for. Comparing the record's path against the repository root, reading
-`.gitignore`, deciding whether the directory "looks committed" — each is a proxy
-that has to be interpreted, and interpreting `git check-ignore` as proof a path
-is untracked is a mistake with a body count in this repository's history. The
-question above needs no interpretation, because being in the wrong repository
-fails it for the same reason being uncommitted does: this tree does not track the
-file.
+Do not substitute a line of git for the command. `git ls-files --error-unmatch`
+is the one that gets reached for and it answers a different question twice over
+— it reads the index, so a record staged and never committed passes it, and it
+exits 128 both for a path outside the repository and for no repository at all,
+which is the exemption below and its opposite sharing one exit code.
 
-That covers the case a path comparison is worst at. A second checkout of the
-*same* repository, on a branch that never merges, passes every test built from
-paths — it is inside a git repository, it is not ignored, a commit there
-succeeds and reports success — and the record still reaches no pull request.
-`git ls-files` rejects it because that checkout is not this one.
+**A project with no git at all is not a failure.** The command says so and exits
+0. There is no review to reach, so write the record and continue.
 
-**A project with no git at all is not a failure.** There is no review to reach,
-so write the record, say in one line that this project has no branch to carry it,
-and continue. Refusing there would protect nothing.
+`docs/architecture/design/121-visibility-is-asked-of-git.md` carries why this is
+one command rather than three path comparisons.
 
 ## Escalation
 
@@ -143,6 +139,6 @@ The template's frontmatter carries the status values and who may move them.
       not have is never one.
 - [ ] `status` is `proposed`, and `Log` has a dated line saying why it was
       written.
-- [ ] The record is committed, and `git ls-files --error-unmatch` on its path
-      exits 0. A record nobody can open is the failure this format exists to
-      prevent, and it is the last thing to check rather than the first.
+- [ ] `wfctl arch check` on the record's path exits 0. A record nobody can open
+      is the failure this format exists to prevent, and it is the last thing to
+      check rather than the first.
