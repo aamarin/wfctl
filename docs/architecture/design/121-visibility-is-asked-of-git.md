@@ -2,7 +2,7 @@
 status: proposed
 ---
 
-# Whether a record reached the reviewer is asked of git, once, after it is written
+# Whether a record reached the reviewer is one command, asked after it is committed
 
 ## Context
 
@@ -11,39 +11,46 @@ enforced that. `arch_root` is overridable — `WFCTL_ARCH_DIR`, then this repo's
 manifest, then the main checkout's — so a record can be written to a directory
 the branch does not carry, and the session reports success either way.
 
-The pressure is that every property available *before* the write is a proxy.
-Where the directory sits, whether an ignore rule matches it, whether it looks
-committed: each has to be interpreted, and each can be true while the reviewer
-still sees nothing.
+The pressure is that the question has three independent ways to fail and they do
+not share an answer. A record can be outside this working tree, inside it and
+ignored, or tracked and never committed. Each is silent, and a check that covers
+two of the three is the same defect narrowed.
 
 `a-rule-is-expressed-as-a-check` constrains the form and is not restated here.
 
 ## Verified
 
-- `git ls-files --error-unmatch docs/architecture/design/122-a-record-persists-no-routing-state.md`
-  exits 0 in this worktree.
-- The same command on a file inside `~/Development/wfctl-specs` exits 128 —
-  that directory is a checkout of this same repository, on `specs-trunk`.
-- `git -C ~/Development/wfctl-specs rev-parse --show-toplevel` prints that
-  directory, and `remote -v` prints this repository's URL. It is a git
-  repository, its files are not ignored, and 46 of its feature directories have
-  never been committed.
-- `git diff --name-only origin/main...HEAD` printed nothing on this branch
-  before its first commit, so a diff-membership question is empty for a branch
-  that has not committed yet.
-- `wfctl arch-root` already prints `⚠ Root is outside the working tree` under
-  `WFCTL_ARCH_DIR` pointing elsewhere. The warning is on the resolver and not on
-  the record, so it fires whether or not one is being written and says nothing
-  about whether one landed. It is the reason the decision adds a check rather
-  than a second warning.
+- `wfctl/_paths.py:283` `touched_on_this_branch` answers "does the change under
+  review add or modify anything under `path`", returning `None` when git cannot
+  answer. `wfctl/cli.py:992` already asks it of a level-2 declaration, for the
+  same reason this record exists.
+- `_trunk_branch` (`wfctl/_paths.py:84`) falls back to a local `main`, `master`
+  or `dev` when the remote publishes no `origin/HEAD`, and
+  `touched_on_this_branch` reads `git status --porcelain` before any diff. A
+  branch with no remote and no commits of its own is answered by both.
+- `git ls-files --error-unmatch` on a file staged and never committed exits 0.
+  Reproduced in a scratch repository; `git cat-file -e HEAD:<path>` exits 128 on
+  the same file.
+- The same command exits 128 both for a path outside the repository and for a
+  directory in no repository at all. Reproduced against
+  `~/Development/wfctl-specs` and against a plain directory.
+- `~/Development/wfctl-specs` is a checkout of this repository on `specs-trunk`,
+  carrying 46 feature directories that have never been committed.
+- `wfctl arch-root` already prints `⚠ Root is outside the working tree` under an
+  override. The warning is on the resolver, so it fires whether or not a record
+  is being written and says nothing about whether one landed.
+- `wfctl/cli.py:302` already claims "#121 item 3 guarantees every such record
+  lands in the branch diff" while excluding `design/` from the level-2 gate.
+  That comment shipped before anything guaranteed it.
 
 ## Assumed
 
-- Skill prose is enough to make the check run. Falsified by a session that
-  writes a record and does not run it; no test can see that from outside.
-- Committing a record mid-design is acceptable in a consumer repo. Falsified by
-  a repo whose hooks reject a docs-only commit, or that forbids commits before
-  a review.
+- Skill prose is enough to make the command run. Falsified by a session that
+  writes a record and never calls it; no test can see that from outside.
+- Committing a record before the design is approved is acceptable. Records land
+  `proposed` and are superseded rather than deleted, so a rejected direction
+  leaves an argument rather than a claim. Falsified by a repo that treats any
+  commit as a claim about direction.
 
 ## Direct baseline
 
@@ -53,82 +60,105 @@ command, all before the record is written, all in the skill's prose.
 
 ## Decision
 
-The skill writes the record, commits it, then runs
-`git ls-files --error-unmatch <path>`. Exit 0 is the answer; any other exit
-means the record has to move before the design continues. A project with no git
-gets the record and a line saying there is no branch to carry it.
+`wfctl arch check <path>` answers the question, and the skill calls it after
+writing and committing the record. The command asks the three failures
+separately: outside this working tree, not part of the change under review, or
+never reached a commit. A directory in no git repository at all exits 0 with a
+line saying there is no review to reach.
+
+It wraps `touched_on_this_branch` rather than reimplementing it. The one thing it
+adds is the commit test, which that function does not carry and should not: its
+existing caller writes a declaration and asks immediately, where uncommitted is
+the expected state.
 
 ## Diagram
 
 ```
           baseline                          decision
 
-stable    ┌──────────────┐                  ┌──────────────┐
-          │ arch_root    │                  │ arch_root    │
-          │ resolution   │                  │ resolution   │
-          └──────────────┘                  └──────────────┘
-                 │ reads                           │ reads
-════ tool / agent ═══════════════════════════════════════════════
-                 ▼                                 ▼
-volatile  ┌──────────────┐                  ┌──────────────┐
-          │ path compare │                  │ write record │
-          │ ignore check │                  └──────────────┘
-          └──────────────┘                         │ commits
-                 │ permits                         ▼
-                 ▼                          ┌──────────────┐
-          ┌──────────────┐                  │ git ls-files │
-          │ write record │                  └──────────────┘
-          └──────────────┘
+stable    ┌────────────────┐                ┌────────────────────┐
+          │ arch_root      │                │ arch_root          │
+          │ resolution     │                │ resolution         │
+          └────────────────┘                └────────────────────┘
+                 │ reads                      ▲ reads
+════ tool / agent ═══════════════════════════ │ ═══════════════════
+                 ▼                            │
+volatile  ┌────────────────┐                ┌─┴──────────────────┐
+          │ path compare   │                │ wfctl arch check   │
+          │ ignore check   │                │  in tree?          │
+          └────────────────┘                │  on this branch?   │
+                 │ permits                  │  in HEAD?          │
+                 ▼                          └────────────────────┘
+          ┌────────────────┐                         ▲ calls
+          │ write record   │                ┌────────┴───────────┐
+          └────────────────┘                │ write, then commit │
+                                            └────────────────────┘
 ```
 
-Both sides read the same resolved root across the same boundary, which is
-already in force — the tool resolves, the agent acts. They differ in what the
-agent asks and when. The baseline asks three questions about a path before the
-file exists, and each answer is a prediction. The decision asks one question
-about the file after it exists, and the answer is the property itself.
+The boundary is the same one and it is already in force: the tool resolves, the
+agent acts. The two sides differ in which of them holds the question. The
+baseline leaves it in prose on the agent's side, where three proxies have to be
+interpreted before the file exists. The decision moves it across to the tool,
+where it is asked of the file after it exists — and the arrow reverses, because
+the agent now calls the tool rather than reading a value out of it.
 
 ## Considered
 
 - A path comparison plus an ignore check, before the write (the baseline) — it
   passes for a second checkout of the same repository on a branch that never
-  merges, which is the exact shape this repository already has. Reading
+  merges, which is the exact shape this repository has. Reading
   `git check-ignore` as proof a path is untracked is also a mistake with a cost
   already paid here.
+- `git ls-files --error-unmatch` in the skill's prose, with no command — the
+  first shape of this decision, and rejected by a review panel that found it
+  wrong twice. It reads the index, so a staged record passes; and its 128 covers
+  both a path outside the repository and no repository at all, so the exemption
+  for a project without git could fire for the failure it exempts nothing from.
 - `wfctl start` refusing to begin a session — sound, and it buys failure at turn
   zero instead of after the design. Lost on the same predicate as the baseline:
-  before the record exists there is nothing to ask git about, so it can only
-  check a proxy. Recorded as dropped in
-  `declarations/121-level3-records-in-pr.md`.
+  before the record exists there is nothing to ask git about. Recorded as dropped
+  in `declarations/121-level3-records-in-pr.md`.
 - A `PreToolUse` hook blocking the write — enforces rather than instructs, which
   is the one thing prose cannot do. Lost on reach: hooks land in one agent's
   config, and `no-hardcoded-agent` is in force because wfctl ships to more than
-  one.
-- Asking whether the record is in the branch's diff against its base — the same
-  question, one indirection worse. It needs the base branch, a remote, and a
-  branch that is not the base, and it answers empty for a branch with no commits
-  of its own.
+  one. It remains the only mechanism that would close the gap named in `Assumed`.
 
 ## Consequences
 
-The check cannot be skipped by accident, because it runs on the artifact rather
-than on the intent — but it can be skipped by an agent that does not run it, and
-nothing downstream would say so. It also moves a commit earlier than the code it
-explains, so a branch carries a docs commit before its first implementation
-commit. That ordering is the record being written against the implementation
-rather than after it, which is the intent.
+Two answers to this question no longer ship. The cost is a command whose name
+invites the schema validation #121 puts out of scope — `arch check` reads a
+record's *placement* and never its contents, and widening it is where that line
+gets crossed.
+
+The check runs on the artifact rather than on the intent, so it cannot be
+satisfied by an agent that meant well. It can still be skipped by one that does
+not call it, and nothing downstream would say so.
+
+A record is now committed before the design it argues for is approved. That
+ordering is deliberate — the record is what the implementation is written
+against — and it means a branch carries a docs commit before its first
+implementation commit.
 
 ## Verification
 
-`test_the_design_record_skill_asks_git_whether_the_record_landed` pins the
-literal command in the skill. `test_brainstorm_orders_the_records_before_the_one_pager`
-pins that records precede the one-pager that lists them, and
-`test_brainstorm_allows_the_commands_its_records_need` pins the `allowed-tools`
-entries without which the prose reads correctly and cannot run.
+`tests/test_arch_check.py` covers the four states, two of them written as the
+mistakes the rejected command makes: a staged record fails, a record in a second
+checkout fails, a directory with no repository passes.
 
-The check itself is demonstrated by this record: it was written, committed, and
-`git ls-files --error-unmatch` on this path exits 0.
+`test_the_design_record_skill_asks_git_whether_the_record_landed` pins that the
+skill names the command rather than any line of git.
+`test_brainstorm_orders_the_records_before_the_one_pager` and
+`test_brainstorm_allows_the_commands_its_records_need` pin the order and the
+`allowed-tools` entries without which the prose reads correctly and cannot run.
+
+The check is demonstrated by this record: `wfctl arch check` on this path exits
+0, and did so only after the file was committed.
 
 ## Log
 
 - 2026-09-07  proposed  — written while deciding it, as the first exercise of
   the path #121 builds.
+- 2026-09-07  revised   — a review panel found the first version's check wrong
+  in both directions and named an existing function that already answered it.
+  The decision now wraps that function; `Considered` carries the rejected shape
+  rather than the corrected argument replacing it.

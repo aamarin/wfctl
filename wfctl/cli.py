@@ -1002,6 +1002,83 @@ def arch_none_cmd(
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
+@arch_app.command("check")
+def arch_check_cmd(
+    record: Path = typer.Argument(..., help="Path to the record to check."),
+) -> None:
+    """Is this record committed where the change under review will carry it?
+
+    The one question a level-3 record's format depends on and cannot ask for
+    itself. `arch_root` is overridable, so a record can be written where the
+    branch does not carry it, and every way that fails is silent: the file is on
+    disk, the session reports success, and the reviewer is shown nothing.
+
+    A command rather than a line of git in the skill, because a skill's reader is
+    an agent and the near-misses read as equivalent to the real thing. `git
+    ls-files --error-unmatch` is the one that gets written, and it is two of them
+    at once: it answers about the index, so a record staged and never committed
+    passes, and it exits 128 both for a path outside the repository and for no
+    repository at all, so the exemption cannot be told from the failure it is an
+    exemption from. Both halves are answered separately below.
+
+    `touched_on_this_branch` is not restated here for the same reason: `arch none`
+    already asks it of a declaration, and a second copy is the one that falls
+    behind.
+    """
+    import subprocess
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        # Not the failure. There is no review to reach, so a record written here
+        # is not a record written wrong — and refusing would block the one case
+        # the skill is told to proceed through.
+        console.print(
+            "[yellow]ℹ[/yellow] No git repository here, so no change carries this "
+            "record and no\n  reviewer is waiting for it. Not a failure.",
+            soft_wrap=True,
+        )
+        return
+
+    record = record.resolve()
+    location = _arch_location(record, repo_root)
+    if not is_in_tree(record, repo_root):
+        console.print(
+            f"[yellow]⚠[/yellow] {location} is outside this working tree. A second "
+            "checkout of\n  this same repository is the case that looks most like a "
+            "pass and is not one:\n  its own commits reach no branch this change is "
+            "opened from.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    if touched_on_this_branch(repo_root, record) is not True:
+        console.print(
+            f"[yellow]⚠[/yellow] {location} is not part of the change under review — "
+            "git is\n  ignoring it, or nothing on this branch touches it. No reviewer "
+            "will see it.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    # Committed-ness is its own axis, and the check above does not carry it:
+    # `git status --porcelain` reports a staged file, so a commit that failed —
+    # a hook, a missing identity, a rejected signature — leaves the record
+    # looking like part of the change while HEAD has never held it.
+    if subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{record.relative_to(repo_root.resolve())}"],
+        cwd=repo_root, capture_output=True,
+    ).returncode != 0:
+        console.print(
+            f"[yellow]⚠[/yellow] {location} is written but never reached a commit. "
+            "`git push`\n  moves commits, so the change would open without it.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓[/green] {location} is committed on this branch")
+
+
 @app.command("arch-root")
 def arch_root_cmd() -> None:
     """Show where this repo's architecture records live.
