@@ -20,7 +20,7 @@ two of the three is the same defect narrowed.
 
 ## Verified
 
-- `wfctl/_paths.py:283` `touched_on_this_branch` answers "does the change under
+- `wfctl/_paths.py:284` `touched_on_this_branch` answers "does the change under
   review add or modify anything under `path`", returning `None` when git cannot
   answer. `wfctl/cli.py:992` already asks it of a level-2 declaration, for the
   same reason this record exists.
@@ -29,17 +29,25 @@ two of the three is the same defect narrowed.
   `touched_on_this_branch` reads `git status --porcelain` before any diff. A
   branch with no remote and no commits of its own is answered by both.
 - `git ls-files --error-unmatch` on a file staged and never committed exits 0.
-  Reproduced in a scratch repository; `git cat-file -e HEAD:<path>` exits 128 on
-  the same file.
-- The same command exits 128 both for a path outside the repository and for a
-  directory in no repository at all. Reproduced against
-  `~/Development/wfctl-specs` and against a plain directory.
+  Reproduced in a scratch repository.
+- `git cat-file -e HEAD:<path>` on a file committed and then edited exits 0. It
+  answers about the path, not about what the tree holds. `git diff --quiet HEAD
+  -- <path>` exits non-zero for both that state and the staged one, and 0 only
+  when HEAD holds exactly what the tree holds.
+- `git rev-parse --show-toplevel` prints `not a git repository (or any of the
+  parent directories)` where there is no repository, `not a git repository:
+  /nonexistent` for a `.git` file naming a gitdir that is gone, and `this
+  operation must be run in a work tree` in a bare repo. Only the first is the
+  absence of a repository; the substring `not a git repository` matches two of
+  the three.
+- `touched_on_this_branch` returns False for a record committed on the trunk
+  itself, because `trunk...HEAD` is empty there. Reproduced.
 - `~/Development/wfctl-specs` is a checkout of this repository on `specs-trunk`,
   carrying 46 feature directories that have never been committed.
 - `wfctl arch-root` already prints `⚠ Root is outside the working tree` under an
   override. The warning is on the resolver, so it fires whether or not a record
   is being written and says nothing about whether one landed.
-- `wfctl/cli.py:302` already claims "#121 item 3 guarantees every such record
+- `wfctl/cli.py:303` already claims "#121 item 3 guarantees every such record
   lands in the branch diff" while excluding `design/` from the level-2 gate.
   That comment shipped before anything guaranteed it.
 
@@ -61,15 +69,27 @@ command, all before the record is written, all in the skill's prose.
 ## Decision
 
 `wfctl arch check <path>` answers the question, and the skill calls it after
-writing and committing the record. The command asks the three failures
-separately: outside this working tree, not part of the change under review, or
-never reached a commit. A directory in no git repository at all exits 0 with a
-line saying there is no review to reach.
+writing and committing the record. It refuses on one thing only — the record is
+outside this working tree, or is not committed as it stands — and reports the
+rest.
 
-It wraps `touched_on_this_branch` rather than reimplementing it. The one thing it
-adds is the commit test, which that function does not carry and should not: its
-existing caller writes a declaration and asks immediately, where uncommitted is
-the expected state.
+Two questions in the order a reviewer meets them. Is the file committed and
+unmodified here, which is the property itself: `git diff --quiet HEAD -- <path>`,
+zero only when HEAD holds exactly what the tree holds. Then, for the report
+rather than the verdict, does the change under review add it —
+`touched_on_this_branch`, its three states honoured as three, per the rule
+`design_gate`'s caller already states: refuse only on evidence.
+
+A project with no git at all exits 0 and is told so. A repository git cannot
+read — a broken gitdir, a bare repo, `safe.directory` refusing the tree — is
+refused, with git's own sentence repeated. Telling those apart is the command's
+work rather than the reader's, and it is why the exemption keys on git's
+parenthetical rather than on the sentence containing it.
+
+It wraps `touched_on_this_branch` rather than reimplementing it. What it adds is
+the committed-as-it-stands test, which that function does not carry and should
+not: its existing caller writes a declaration and asks immediately, where
+uncommitted is the expected state.
 
 ## Diagram
 
@@ -114,6 +134,11 @@ the agent now calls the tool rather than reading a value out of it.
   wrong twice. It reads the index, so a staged record passes; and its 128 covers
   both a path outside the repository and no repository at all, so the exemption
   for a project without git could fire for the failure it exempts nothing from.
+- `git cat-file -e HEAD:<path>` inside the command — the second shape, and the
+  fix for the first. It answers about the path rather than about the tree, so a
+  record committed once and edited since passed while `touched_on_this_branch`
+  returned True *because* the file was dirty. The two checks cancelled, which is
+  the failure a second reviewer is for.
 - `wfctl start` refusing to begin a session — sound, and it buys failure at turn
   zero instead of after the design. Lost on the same predicate as the baseline:
   before the record exists there is nothing to ask git about. Recorded as dropped
@@ -129,6 +154,10 @@ Two answers to this question no longer ship. The cost is a command whose name
 invites the schema validation #121 puts out of scope — `arch check` reads a
 record's *placement* and never its contents, and widening it is where that line
 gets crossed.
+
+The exemption for a project without git keys on an English sentence git prints.
+A translated git costs a false refusal, never a false pass, which is the
+direction chosen deliberately: an unrecognised message is refused.
 
 The check runs on the artifact rather than on the intent, so it cannot be
 satisfied by an agent that meant well. It can still be skipped by one that does
@@ -162,3 +191,9 @@ The check is demonstrated by this record: `wfctl arch check` on this path exits
   in both directions and named an existing function that already answered it.
   The decision now wraps that function; `Considered` carries the rejected shape
   rather than the corrected argument replacing it.
+- 2026-09-07  revised   — a second panel, run over the first revision because
+  that commit had never been reviewed, found the replacement wrong in three more
+  states: a record edited after its commit, a repository git cannot read, and a
+  branch that is itself the trunk. Each is now a test. Three shapes of this check
+  have been wrong in three different directions, which is the argument for it
+  being a command at all.

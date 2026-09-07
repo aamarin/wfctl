@@ -80,18 +80,21 @@ wfctl arch check <path to the record>
 ```
 
 Exit 0 and a reviewer opening the change reads it beside the code, which is the
-whole property. Exit 1 names which of the three ways it failed: written outside
-this working tree, ignored by git, or never reached a commit. The record moves,
-or the commit is repeated, before the design continues.
+whole property. Exit 1 says which way it failed — written outside this working
+tree, or not committed as it stands — and the record moves, or the commit is
+repeated, before the design continues.
 
-Do not substitute a line of git for the command. `git ls-files --error-unmatch`
-is the one that gets reached for and it answers a different question twice over
-— it reads the index, so a record staged and never committed passes it, and it
-exits 128 both for a path outside the repository and for no repository at all,
-which is the exemption below and its opposite sharing one exit code.
+Do not substitute a line of git for the command. Three have been tried in its
+place and each was wrong in its own direction: `git ls-files --error-unmatch`
+reads the index, so a staged record passes; `git cat-file -e HEAD:<path>` reads
+the path, so a record edited after its commit passes; and both exit 128 for a
+path outside the repository and for no repository at all alike, which is a
+failure and its own exemption sharing one code.
 
 **A project with no git at all is not a failure.** The command says so and exits
-0. There is no review to reach, so write the record and continue.
+0. There is no review to reach, so write the record and continue. A repository
+git cannot read is the opposite and is refused — the command tells them apart so
+that the reader does not have to.
 
 `docs/architecture/design/121-visibility-is-asked-of-git.md` carries why this is
 one command rather than three path comparisons.

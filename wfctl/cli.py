@@ -1006,7 +1006,7 @@ def arch_none_cmd(
 def arch_check_cmd(
     record: Path = typer.Argument(..., help="Path to the record to check."),
 ) -> None:
-    """Is this record committed where the change under review will carry it?
+    """Will a reviewer opening this branch read this record?
 
     The one question a level-3 record's format depends on and cannot ask for
     itself. `arch_root` is overridable, so a record can be written where the
@@ -1014,34 +1014,62 @@ def arch_check_cmd(
     disk, the session reports success, and the reviewer is shown nothing.
 
     A command rather than a line of git in the skill, because a skill's reader is
-    an agent and the near-misses read as equivalent to the real thing. `git
-    ls-files --error-unmatch` is the one that gets written, and it is two of them
-    at once: it answers about the index, so a record staged and never committed
-    passes, and it exits 128 both for a path outside the repository and for no
-    repository at all, so the exemption cannot be told from the failure it is an
-    exemption from. Both halves are answered separately below.
+    an agent and the near-misses read as equivalent to the real thing. Three of
+    them have already been written here and each was wrong in its own direction:
+    `git ls-files --error-unmatch` answers about the index, so a staged record
+    passes; `git cat-file -e HEAD:<path>` answers about the path, so a record
+    committed once and edited since passes; and both exit 128 for a path outside
+    the repository and for no repository at all alike, which is a failure and its
+    own exemption sharing one code.
 
-    `touched_on_this_branch` is not restated here for the same reason: `arch none`
-    already asks it of a declaration, and a second copy is the one that falls
-    behind.
+    Two questions, in the order a reviewer meets them. Is the file committed and
+    unmodified in this working tree — the property itself, and the only one this
+    command refuses on. Then, for the report rather than the verdict, does the
+    change under review add it: `touched_on_this_branch`, three states honoured
+    as three, per the rule `design_gate`'s caller states — refuse only on
+    evidence. A branch that is itself the trunk, and a repo whose trunk git
+    cannot find, both answer "no" to a question that had no answer, and neither
+    is a record written wrong.
     """
     import subprocess
 
-    try:
-        repo_root = get_repo_root()
-    except SystemExit:
-        # Not the failure. There is no review to reach, so a record written here
-        # is not a record written wrong — and refusing would block the one case
-        # the skill is told to proceed through.
+    probe = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+    )
+    if probe.returncode != 0:
+        # Classified, never collapsed. `get_repo_root` raises one SystemExit for
+        # every failure of this command, and catching that is how the exemption
+        # below came to cover a bare repo, a `.git` file pointing nowhere, and
+        # `safe.directory` refusing the tree — each of them a real repository
+        # where the check would silently become a no-op. Only git saying there is
+        # no repository is the exemption; anything else it says is repeated and
+        # refused.
+        # The parenthetical, not the sentence it sits in. `not a git repository`
+        # alone also matches `fatal: not a git repository: /nonexistent` — a
+        # `.git` file pointing at a gitdir that is gone, which is a broken
+        # repository and not the absence of one. Git prints the walk it did
+        # only when it really walked to the root and found nothing. English,
+        # and knowingly: an unrecognised message is refused rather than
+        # exempted, so a translated git costs a false refusal and never a
+        # false pass.
+        if "(or any of the parent directories)" in probe.stderr:
+            console.print(
+                "[yellow]ℹ[/yellow] No git repository here, so no change carries "
+                "this record and no\n  reviewer is waiting for it. Not a failure.",
+                soft_wrap=True,
+            )
+            return
         console.print(
-            "[yellow]ℹ[/yellow] No git repository here, so no change carries this "
-            "record and no\n  reviewer is waiting for it. Not a failure.",
+            "[yellow]⚠[/yellow] git cannot read this tree, so whether a reviewer "
+            f"would see the\n  record is unknown:\n\n  {probe.stderr.strip()}",
             soft_wrap=True,
         )
-        return
+        raise typer.Exit(1)
 
+    repo_root = Path(probe.stdout.strip())
     record = record.resolve()
     location = _arch_location(record, repo_root)
+
     if not is_in_tree(record, repo_root):
         console.print(
             f"[yellow]⚠[/yellow] {location} is outside this working tree. A second "
@@ -1052,31 +1080,36 @@ def arch_check_cmd(
         )
         raise typer.Exit(1)
 
-    if touched_on_this_branch(repo_root, record) is not True:
-        console.print(
-            f"[yellow]⚠[/yellow] {location} is not part of the change under review — "
-            "git is\n  ignoring it, or nothing on this branch touches it. No reviewer "
-            "will see it.",
-            soft_wrap=True,
-        )
+    relative = record.relative_to(repo_root.resolve())
+    if not record.exists():
+        console.print(f"[yellow]⚠[/yellow] {location} does not exist.")
         raise typer.Exit(1)
-
-    # Committed-ness is its own axis, and the check above does not carry it:
-    # `git status --porcelain` reports a staged file, so a commit that failed —
-    # a hook, a missing identity, a rejected signature — leaves the record
-    # looking like part of the change while HEAD has never held it.
+    # `diff --quiet` against HEAD rather than either half separately: it is zero
+    # only when HEAD holds this path and holds exactly what the tree holds. A
+    # record never committed differs from an empty HEAD entry, and one edited
+    # since differs from the entry it has — the two states the commands named in
+    # the docstring each pass one of.
     if subprocess.run(
-        ["git", "cat-file", "-e", f"HEAD:{record.relative_to(repo_root.resolve())}"],
-        cwd=repo_root, capture_output=True,
+        ["git", "diff", "--quiet", "HEAD", "--", str(relative)], cwd=repo_root
     ).returncode != 0:
         console.print(
-            f"[yellow]⚠[/yellow] {location} is written but never reached a commit. "
-            "`git push`\n  moves commits, so the change would open without it.",
+            f"[yellow]⚠[/yellow] {location} is not committed as it stands — never "
+            "committed, or\n  written to since. `git push` moves commits, so the "
+            "change would open\n  without what is on disk here.",
             soft_wrap=True,
         )
         raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] {location} is committed on this branch")
+    landed = touched_on_this_branch(repo_root, record)
+    if landed is True:
+        console.print(f"[green]✓[/green] {location} is committed, and this change adds it")
+        return
+    console.print(
+        f"[green]✓[/green] {location} is committed and a reviewer of this branch "
+        "reads it.\n  Git cannot place it in a change under review — this branch may "
+        "be the trunk,\n  or the record may predate it.",
+        soft_wrap=True,
+    )
 
 
 @app.command("arch-root")
