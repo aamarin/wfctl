@@ -21,7 +21,7 @@ from wfctl import _tracker
 # returned "", which `next_cmd` treats as a finished pipeline, so a step with no
 # command announced "story complete" with half the pipeline unrun.
 _STEPS: dict[str, tuple[str, bool]] = {
-    "brainstorm": ("/speckit.brainstorm", False),
+    "brainstorm": ("/speckit.brainstorm", True),
     "specify":    ("/speckit.specify",    True),
     "clarify":    ("/speckit.clarify",    False),
     "plan":       ("/speckit.plan",       True),

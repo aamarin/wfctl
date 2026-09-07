@@ -228,6 +228,6 @@ def test_resume_says_the_mode_on_its_own_line(
     output = runner.invoke(app, ["resume"]).output
 
     assert "auto-approve" in output
-    assert "(auto: false)" in output
+    assert "(auto: true)" in output
     mode_line = next(line for line in output.splitlines() if "auto-approve" in line)
     assert "(auto:" not in mode_line

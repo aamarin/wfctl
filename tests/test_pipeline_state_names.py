@@ -170,12 +170,17 @@ def test_the_json_view_carries_the_auto_flag(
     field that vanished from both sides passed. The skill would have gone on
     reading a key that was no longer there.
     """
-    assert json.loads(runner.invoke(app, ["status", "--json"]).output)["auto"] is False
+    assert json.loads(runner.invoke(app, ["status", "--json"]).output)["auto"] is True
 
-    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    # A marked spec, because `clarify` is the earliest step the table still flags
+    # `False` once `brainstorm` advances (#283) — and a payload asserted at one
+    # value twice cannot show the field is read rather than emitted.
+    storyctl_dir.make_spec_artifact(
+        "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+    )
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
-    assert (payload["next_command"], payload["auto"]) == ("/speckit.plan", True)
+    assert (payload["next_command"], payload["auto"]) == ("/speckit.clarify", False)
 
 
 def test_the_json_view_names_the_feature_it_counted(
@@ -271,9 +276,15 @@ def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
     hand and checking the field exists tests the dataclass, not the defect.
     """
     brainstorm = build_report(spec_tree(), tmp_path, tmp_path)
-    assert (brainstorm.current, brainstorm.auto) == ("brainstorm", False)
+    assert (brainstorm.current, brainstorm.auto) == ("brainstorm", True)
 
     # `spec_tree` builds into one directory, so the second call adds to the
     # first — an empty feature has to be asserted before anything is written.
-    plan = build_report(spec_tree(content={"spec.md": CLEAN_SPEC}), tmp_path, tmp_path)
-    assert (plan.current, plan.auto) == ("plan", True)
+    # A marked spec, so the step that comes back is one the table flags `False`:
+    # two reports that agree on the value cannot show the flag was read at all.
+    marked = build_report(
+        spec_tree(content={"spec.md": "# Spec\n\n[NEEDS CLARIFICATION: which?]\n"}),
+        tmp_path,
+        tmp_path,
+    )
+    assert (marked.current, marked.auto) == ("clarify", False)
