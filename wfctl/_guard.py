@@ -158,6 +158,13 @@ _WRITE_REDIRECT = re.compile(r"(?<![=<>!-])>>?+\s*+(?!&[\d-]|/dev/null(?:\s|$))"
 # Absolute paths, stopping at whitespace and the shell metacharacters that
 # cannot appear unescaped inside one. Deliberately greedy about `-` and `.` so
 # `/…/wt/129-cross-worktree-guard/wfctl/_guard.py` arrives whole.
+#
+# The leading `/` is load-bearing outside this module: `_hook` returns 0 without
+# calling `refusal()` at all when a command contains no `/`, which is only sound
+# while no refusal can be reached without one. Teaching `refusal()` to judge a
+# `/`-free command — the relative-path gap in the docstring above, #137 — means
+# revisiting that early-out in the same change, and nothing here will fail if it
+# is not. `test_a_slash_free_command_can_never_be_refused` is what holds it.
 _ABS_PATH = re.compile(r"/[^\s'\"`;|&<>()]+")
 
 

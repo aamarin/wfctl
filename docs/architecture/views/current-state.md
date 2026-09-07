@@ -145,6 +145,32 @@ Undecided. Unlike the three above, this one has no record: it was found during
 review of this view rather than in the pass that produced it, and #149 phase 1
 does not pre-decide what phase 2 moves.
 
+### The surface band split, because importing it got expensive
+
+```
+   wfctl (console script)
+     └─► _entry        argv dispatch, and nothing else
+           ├─► _hook   one path: stdin, git, exit code       ~34 ms
+           └─► cli     every other path: typer + rich        ~82 ms
+```
+
+`cli` is surface and always was. `_entry` and `_hook` are surface too, and they
+exist because one caller could not afford to enter the band through `cli`:
+`hook worktree-guard` runs before every Bash call an agent issues, and reaching
+it through `cli` cost `typer` (47.5 ms) and `rich.console` (26.7 ms), neither of
+which that path uses (#135).
+
+So this is a band with two doors rather than a new band. The decision still
+lives in `_guard`, one band down, and both doors reach it the same way — which
+is what makes the split safe to have: `_entry` holds no policy, and `_hook` holds
+no policy either beyond which fields of a payload it will trust.
+
+**What this costs.** `cli` is no longer the only surface module, so "does `wfctl
+--help` list it?" stops working as the band's membership test — it lists neither
+of these. The test that still holds is the band's description rather than its
+proxy: both parse input, both decide an exit code, and neither answers a question
+about wfctl's subject.
+
 ## Two things the drawing cannot show
 
 **`_pipeline`'s public entry point is dead.** `infer_pipeline` (line 354) has
@@ -193,7 +219,7 @@ red rather than stale.
   test *and* a section admitting what the test cannot reach.
 
 ```layers
-surface     cli
+surface     cli _entry _hook
 domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body
 resolution  _paths _manifest
 durability  _io
