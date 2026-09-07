@@ -10,7 +10,16 @@ Help turn ideas into fully formed designs and specs through natural collaborativ
 Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
 
 <HARD-GATE>
-Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
+Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until the design has been presented and approved. This applies to EVERY project regardless of perceived simplicity.
+
+Who approves, and when, is the one thing `wfctl status --json`'s `auto_approve` moves. It never moves *whether* a design exists.
+
+- `auto_approve: false` — the default. The user approves, in this session, before you descend.
+- `auto_approve: true` — you answer each gate into the record and descend. The approval happens at the PR, on the same artifacts.
+
+**This is not permission to skip design.** A pass that decides for itself documents *more* than one that asks: every gate still gets answered out loud, into the record, because those answers are what generate the level-3 requirements. A record whose `Considered` is empty has skipped the gate more quietly, not passed it. `wfctl`'s design gate refuses a design step that produced no record, in both modes.
+
+An agent never writes `approved`. Records land `proposed` and stay there until a human moves them — that rule is what makes "come back and change this later" real rather than a re-litigation.
 </HARD-GATE>
 
 ## Anti-Pattern: "This Is Too Simple To Need A Design"
@@ -23,11 +32,11 @@ You MUST create a task for each of these items and complete them in order:
 
 1. **Explore project context** — check files, docs, recent commits
 2. **Offer the visual companion just-in-time** — NOT upfront. The first time a question would genuinely be clearer shown than described, offer it then (its own message); on approval its browser tab opens for you. If no visual question ever arises, never offer it. See the Visual Companion section below.
-3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
+3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria. Under `auto_approve`, answer them yourself from the codebase and the tracker, and write each answer and its basis into the design — an unanswered question decided silently is the failure this step exists to prevent, and it does not become acceptable because nobody was there to ask.
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
-5. **Present design** — one level at a time per the `design-levels` skill (behavior → architecture → design), in sections scaled to their complexity, get user approval after each level before descending
+5. **Present design** — one level at a time per the `design-levels` skill (behavior → architecture → design), in sections scaled to their complexity, get user approval after each level before descending. Under `auto_approve`, state each gate's answer into the record instead and descend without stopping.
 6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-7. **User reviews the design** — ask user to review it before it is written
+7. **User reviews the design** — ask user to review it before it is written. Under `auto_approve`, skip the wait: the review happens at the PR, against the same document.
 8. **Hand off the approved design** — carry it in context to `idea-refine`, which sharpens it and performs the single write to `specs/<branch>/design.md`. Do not write that file here.
 9. **Transition to implementation** — invoke writing-plans skill to create implementation plan
 
@@ -123,6 +132,8 @@ After the self-review loop passes, ask the user to review the design before it i
 > "Here is the final design. Please review it and let me know if you want any changes — once you approve, `idea-refine` sharpens it and saves it, and we move on to the implementation plan."
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
+
+Under `auto_approve: true` this gate does not wait. Say which mode you are in, in one line, and hand off — the reviewer meets the same document in the PR, which is the trade the mode exists to offer. Do not paraphrase that as approval you were given.
 
 **Implementation:**
 

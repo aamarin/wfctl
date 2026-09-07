@@ -12,7 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
-from wfctl._io import append_event, write_md_atomic
+from wfctl._io import append_event, write_json_atomic, write_md_atomic
+
+# The one per-feature setting, and the only file in the state dir that holds a
+# choice rather than a reading. `verify.json` is the shape it copies: named,
+# JSON, one writer, one reader, and its name spelled in the module that means
+# something by it rather than in `_io`.
+MODE_NAME = "mode.json"
 
 
 class Observations(NamedTuple):
@@ -56,6 +62,44 @@ def session_started(agent_dir: Path) -> bool:
         except json.JSONDecodeError:
             continue
     return False
+
+
+def auto_approve(agent_dir: Path) -> bool:
+    """Whether this feature's design gates may be answered without a human.
+
+    The one value here that is not re-derived, and the module docstring's
+    carve-out is why: no artifact implies it, so there is nothing to recompute it
+    from and nothing for it to go stale against. `current.json` rotted because
+    every field on it had a live answer elsewhere; this has none.
+
+    Absent, malformed or unreadable reads as `False`, never as granted. The
+    conservative direction is the whole point — a state dir that lost this file
+    must fall back to stopping for a human, not to running without one.
+    """
+    path = agent_dir / MODE_NAME
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return data.get("auto_approve") is True
+
+
+def grant_auto_approve(agent_dir: Path, granted: bool) -> None:
+    """Record the mode, and record that it was granted.
+
+    Two writes for two questions. The file answers "what mode is this feature in
+    now", which is what every later report reads. The event answers "when was
+    autonomy granted", which the file cannot: it holds one value and is
+    overwritten, so a grant leaves no trace in it.
+
+    That second question exists because the setter is not necessarily a person.
+    `/start-session` runs `wfctl start` on every worktree spin-up and handoff and
+    its allowlist admits any flag, so an agent can grant itself the mode. Nothing
+    available here prevents that — the event is what makes it visible afterwards,
+    beside the `start` and `resume` lines that say what the session did next.
+    """
+    write_json_atomic(agent_dir / MODE_NAME, {"auto_approve": granted})
+    append_event(agent_dir, "mode", auto_approve=granted)
 
 
 def _render_session_summary(branch: str, observed: Observations) -> str:
