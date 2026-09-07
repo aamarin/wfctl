@@ -128,17 +128,49 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
     return agent_dir, repo_root, branch, issue
 
 
+# What an auto-approving run means, in the words `status` and `resume` both
+# print. One string because a mode described two ways is a mode a reader has to
+# reconcile, and the thing being described is where an approval happens.
+_AUTO_APPROVE_NOTICE = (
+    "[yellow]auto-approve[/yellow] — design gates answered into the record, "
+    "approval moves to the PR"
+)
+
+
 @app.command("start")
 def start_cmd(
-    force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded")
+    force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded"),
+    # Tri-state, and `None` is the value that matters: neither flag given means
+    # leave the mode as it is. A plain `bool` would default to False and so
+    # revoke the mode on every later `wfctl start` — which `/start-session` runs
+    # on each handoff, silently ending an overnight run at its first one.
+    auto_approve: bool = typer.Option(
+        None, "--auto-approve/--no-auto-approve",
+        help="Answer this feature's design gates into the record and descend, "
+             "instead of stopping for approval in the session. "
+             "--no-auto-approve hands the gates back to a human.",
+    ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
+    from wfctl._session import grant_auto_approve
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
+
+    # Before the early return, not after. `start` is idempotent about the session
+    # and must not be about the flag: `/start-session` opens the session on a
+    # worktree's first turn, so by the time anyone types `--auto-approve` the
+    # session is already recorded, and a grant swallowed by the guard below would
+    # print "Already initialized" over a flag that did nothing.
+    if auto_approve is not None and auto_approve != report.auto_approve:
+        grant_auto_approve(agent_dir, auto_approve)
+        console.print(
+            f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
+            else "[green]✓[/green] auto-approve off — design gates stop for a human"
+        )
 
     if report.session_started and not force:
         console.print("ℹ Already initialized (use --force to reset)")
@@ -182,11 +214,18 @@ def status_cmd(
             "current": report.current,
             "next_command": report.next_command,
             "auto": report.auto,
+            # Always present, in both modes. The console below prints a line only
+            # when the mode is on, because absence is the default there and a
+            # notice about the ordinary case is noise; a reader that branches on
+            # a key cannot tell an absent key from a false one.
+            "auto_approve": report.auto_approve,
             "steps": report.steps,
         })
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
+    if report.auto_approve:
+        console.print(_AUTO_APPROVE_NOTICE)
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
         console.print("[dim](no spec dir found)[/dim]")
@@ -325,6 +364,14 @@ def resume_cmd() -> None:
     else:
         next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
+
+    # Its own line, never a second item inside `(auto: …)`. The two answer
+    # different questions — `auto` is whether this step advances unprompted,
+    # `auto-approve` is whether the design gates need a human — and #127 says
+    # they will be read as one axis unless the difference is what the output
+    # shows.
+    if report.auto_approve:
+        console.print(_AUTO_APPROVE_NOTICE)
 
     # `bool` because the log has carried a Boolean here since `next` wrote the
     # first one, and `auto` is None at story complete. Two shapes for one

@@ -46,6 +46,19 @@ A question asked at level 2 is answered at level 2, not with code.
 An unnamed gate is an intention, and intentions are what momentum skips. Each
 level has one question that has to be answered out loud before descending.
 
+**Who hears the answer is set per feature; that a gate is answered is not.**
+`wfctl status --json` carries `auto_approve`:
+
+| | The gate | Descending |
+|---|---|---|
+| `false` (default) | answered out loud, to the reader | after they approve |
+| `true` | answered into the record, in the same words | immediately |
+
+The rendered forms below are not optional under `auto_approve` — they are how
+the answer is written down, and a gate answered in prose because nobody was
+reading is a gate that was skipped. The one thing the mode removes is the wait.
+A pass nobody watched is the pass whose record gets read hardest.
+
 ### 1. Behavior — the walkthrough
 
 Enumerate the reachable states. Read each string **in that state**, and ask
@@ -282,6 +295,9 @@ Before `design.md` is written:
 - [ ] Every level-3 choice that weighed credible alternatives left a record under
       `<arch-root>/design/`, and `design.md` points at it instead of restating it.
 - [ ] `design.md` holds behavior and structure, and no level-4 code.
+- [ ] Under `auto_approve`, every gate was answered in its rendered form and no
+      record carries an empty `Considered` — the mode moved the approval, and
+      an unwritten alternative is a decision nobody can reverse.
 - [ ] Each gate's answer was rendered in its form — literal strings for level 1,
       a boundary sketch for level 2, a two-column split for level 3 — not a
       paragraph, and not a table chosen by default.

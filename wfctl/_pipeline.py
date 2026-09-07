@@ -533,6 +533,15 @@ class PipelineReport:
     next_command: str | None
     auto: bool | None
     session_started: bool
+    # The one field here nothing infers — a human's answer to "may the design
+    # gates be answered without me", read back rather than recomputed. Defaulted
+    # because it is the only field whose absence has a correct value: a report
+    # built without it is a report about a feature nobody granted anything to.
+    #
+    # Outside the pairing below on purpose. `auto` is None at story complete
+    # because there is no step left to run; the mode is still true of a finished
+    # story, which ran under one.
+    auto_approve: bool = False
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
@@ -551,7 +560,7 @@ class PipelineReport:
 
 def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> PipelineReport:
     """The one inference. Every view of pipeline state is a rendering of this."""
-    from wfctl._session import session_started
+    from wfctl._session import auto_approve, session_started
 
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
@@ -570,4 +579,5 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         next_command=command or None,
         auto=auto if command else None,
         session_started=session_started(agent_dir),
+        auto_approve=auto_approve(agent_dir),
     )
