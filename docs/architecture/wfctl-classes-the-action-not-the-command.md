@@ -97,8 +97,13 @@ makes relaxing the first two rows safe rather than reckless.
 
 ## Consequences
 
-#240 is unblocked: `decompose` creates issues, which this record places in row
-two, and row two now has a stated default rather than an absent one.
+#240 is **not** unblocked by this, and saying otherwise was the first thing the
+review panel caught. #280 — filed the same day — separates the two halves:
+`decompose` writes to the tracker, which this record places in row two and gives
+a stated default of *refused*, but what #240 needs is the per-feature grant that
+relaxes that row, and this record deliberately builds no grant. #280 asks that
+the classification be *"carried in rather than re-derived"*, which is the part
+this record supplies.
 
 `end-session`'s prompts become a stated defect instead of an accident — it gates
 row one and omits row two — but this record does not change them. That is its
@@ -109,6 +114,12 @@ asks whether a violation is visible in an artifact the work already produces,
 and for "pushed without asking" it is not: the push looks identical either way.
 The reporting constraint above is what makes it visible, and it is prose until
 something reads it.
+
+Nothing consults this record mechanically, and while it is `proposed` nothing
+can: `arch context` projects `accepted` records only, so the classes reach a
+reader through the file and not through the contract. That is the state #122
+exists to move, and it is why the delivery column above says prose rather than
+naming a lookup that does not exist.
 
 ## Log
 
