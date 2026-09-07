@@ -1,0 +1,7 @@
+# Worktrees are checkouts of this repo — linting them reports every finding
+# once per active worktree, against files no edit here would reach.
+wt/
+
+# Originals install-skills copied aside before overwriting. Kept for recovery,
+# not maintained.
+.wf-skills-backup/

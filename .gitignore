@@ -25,3 +25,9 @@ wt/
 # macOS writes this into any directory Finder opens; untracked files count
 # toward `wfctl verify`'s dirty-tree check, so it blocks every verification.
 .DS_Store
+
+# claudelint's toolchain. The linter checks the Claude Code files this repo
+# ships (.agents/, .claude/, CLAUDE.md); its npm install and result cache are
+# tooling, not project source, and a Python package publishes neither.
+node_modules/
+.claudelint-cache/

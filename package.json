@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "lint:claude": "r=0; claudelint check-all || r=1; claudelint validate-skills --path wfctl/agents || r=1; exit $r"
+  },
+  "devDependencies": {
+    "claude-code-lint": "^0.8.0"
+  }
+}
