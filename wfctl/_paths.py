@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 from wfctl._manifest import load_manifest
 
@@ -475,6 +476,62 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
             return claimants[0]
 
     return None
+
+
+class ClaimConflict(NamedTuple):
+    """One issue key that more than one feature under the spec root claims.
+
+    Two lists rather than one, because the two kinds of claim are not
+    interchangeable: a directory carrying the key in its own name beats any
+    number of grouping map rows naming it, so which list a claimant is in is
+    what decides the answer. Collapsed into one list, a report could name the
+    claimants and not which of them resolution returns.
+    """
+    key: str
+    own: list[Path]
+    mapped: list[Path]
+
+
+def claim_conflicts(repo_root: Path) -> list[ClaimConflict]:
+    """Every issue key claimed by more than one feature under the spec root.
+
+    A directory claims the key its own name carries; a delivery.md claims every
+    key its Issue Grouping Map names. Both are on disk and neither needs a
+    branch to be read, which is why the disagreement is reportable at all —
+    `resolve_spec_dir` is asked about one branch and never sees the claims that
+    do not bear on it, so the resolver cannot be the thing that notices.
+
+    A feature claiming its own key twice — a directory named `100-epic` whose
+    map also lists `#100` — is one claimant, not two. The map row is redundant
+    there, not a disagreement, and reporting it would fire on the ordinary case.
+
+    Reads artifacts only, and answers nothing `resolve_spec_dir` answers: a
+    conflict here does not change which directory a branch resolves to
+    (`a-branch-is-claimed-not-inherited`).
+    """
+    root = spec_root(repo_root)
+    if not root.is_dir():
+        return []
+
+    from wfctl import _tracker  # lazy: avoids import cycle at module load
+
+    pattern = _tracker.load_key_pattern(repo_root)
+
+    own: dict[str, list[Path]] = {}
+    mapped: dict[str, list[Path]] = {}
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        key = extract_issue_key(d.name, pattern)
+        if key != "unknown":
+            own.setdefault(key, []).append(d)
+        for claimed in delivery_issue_keys(d, pattern) or ():
+            if claimed != key:
+                mapped.setdefault(claimed, []).append(d)
+
+    return [
+        ClaimConflict(k, own.get(k, []), mapped.get(k, []))
+        for k in sorted(own.keys() | mapped.keys())
+        if len(own.get(k, [])) + len(mapped.get(k, [])) > 1
+    ]
 
 
 def project_name(repo_root: Path) -> str:

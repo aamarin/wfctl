@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -3445,3 +3446,61 @@ def test_inherited_tracker_leaves_a_committed_config_alone(
     # names the script in its `start` argv, so a config kept without it declares
     # a verb that exits 127.
     assert (wt / ".agents" / "trackers" / "github-board.sh").exists()
+
+
+# --- doctor: a key two features both claim (#271)
+#
+# The scan itself is covered in `test_paths.py`. What these hold is that doctor
+# carries it — that a collision reaches the exit code, and that the ordinary
+# repo is not told anything.
+# ---------------------------------------------------------------------------
+
+def test_doctor_reports_a_key_an_own_dir_and_a_map_row_both_claim(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Named claimants and a stated winner, before the manifest gate.
+
+    Ahead of the gate deliberately: a repo can decompose an epic onto a
+    sub-issue that grew its own directory without ever having installed skills,
+    so gating this on a manifest would hide it in exactly the repos wfctl only
+    supplies the pipeline to.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    specs = repo_root / "specs"
+    (specs / "200-child").mkdir(parents=True)
+    (specs / "200-child" / "spec.md").write_text("# the child's own work\n")
+    (specs / "100-parent").mkdir(parents=True)
+    (specs / "100-parent" / "delivery.md").write_text(
+        "## Issue Grouping Map\n\n| Issue | Tasks |\n|---|---|\n| **#200** — the child | T001 |\n"
+    )
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "issue 200 is claimed by 2 features" in result.output
+    assert str(specs / "200-child") in result.output
+    assert str(specs / "100-parent") in result.output
+    assert f"Resolution returns {specs / '200-child'}." in result.output
+
+
+def test_doctor_says_nothing_about_a_key_only_one_feature_claims(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo with one claimant per key is left alone and keeps its exit code.
+
+    The pairing that matters: a check firing on the ordinary repo is noise, and
+    noise is how the run carrying a real collision gets skimmed past.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    specs = repo_root / "specs"
+    (specs / "100-epic").mkdir(parents=True)
+    (specs / "100-epic" / "delivery.md").write_text(
+        "## Issue Grouping Map\n\n| Issue | Tasks |\n|---|---|\n| **#200** — a child | T001 |\n"
+    )
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "claimed by" not in result.output

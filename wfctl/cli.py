@@ -25,6 +25,7 @@ from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
     arch_root,
+    claim_conflicts,
     is_in_tree,
     extract_issue_key,
     worktree_branches,
@@ -4136,6 +4137,48 @@ def _check_arch_records(repo_root: Path) -> bool:
     return any(f.level == "error" for f in findings)
 
 
+def _check_double_claimed_keys(repo_root: Path) -> bool:
+    """Report an issue key that two features both claim.
+
+    Resolution is not in question and does not move: a branch's own directory
+    beats an epic's grouping map row naming its key, which is
+    `a-branch-is-claimed-not-inherited` in force. What is missing is that the
+    losing claim is never mentioned. Decompose an epic onto a sub-issue that
+    already grew its own spec dir and the sub-issue stays on a pipeline of its
+    own, with nothing anywhere saying the map row was read and set aside.
+
+    Reads two artifacts the work already produces — a directory name and a table
+    row — so the rule is checkable rather than a caveat somebody has to have
+    read (`a-rule-is-expressed-as-a-check`).
+
+    Reports only. True while the collision stands; clearing it means dropping
+    one of the two claims, which is a decision about who owns the work and not
+    one a check can make.
+    """
+    conflicts = claim_conflicts(repo_root)
+    for c in conflicts:
+        claimants = len(c.own) + len(c.mapped)
+        console.print(
+            f"[yellow]⚠[/yellow] issue {c.key} is claimed by {claimants} features:"
+        )
+        # soft_wrap: an out-of-tree spec root prints absolute, and a path rich
+        # folded at the terminal width reads as two paths and pastes broken.
+        for d in c.own:
+            console.print(f"    {d} — its own directory", soft_wrap=True)
+        for d in c.mapped:
+            console.print(f"    {d} — a row in its Issue Grouping Map", soft_wrap=True)
+        if len(c.own) == 1:
+            console.print(f"  Resolution returns {c.own[0]}.", soft_wrap=True)
+        elif c.own:
+            # Which of them depends on the branch: an exact directory-name match
+            # is tried before the key glob, so naming a winner here would be a
+            # guess dressed as the answer.
+            console.print("  Resolution returns one of the directories above, chosen by branch name.")
+        else:
+            console.print("  Resolution returns nothing while both rows stand.")
+    return bool(conflicts)
+
+
 def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     """Report a managed hook that is missing, or behind what this wfctl installs.
 
@@ -4454,6 +4497,7 @@ def doctor_cmd() -> None:
     if any([
         _check_workmux_hook(repo_root),
         _check_spec_root_migration(repo_root),
+        _check_double_claimed_keys(repo_root),
         _check_verify_config(repo_root),
         _check_arch_records(repo_root),
     ]):
