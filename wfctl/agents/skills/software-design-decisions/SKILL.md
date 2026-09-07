@@ -60,40 +60,28 @@ Copy `design-record-template.md` from this skill's directory and fill it in. The
 template carries the field guidance and the placement rule; do not restate them
 here or in the record.
 
-Two of its sections are the reason the format exists, and both are the ones an
-agent drops first.
-
-**`Direct baseline` is mandatory and is never "none".** The smallest
-implementation that introduces no new abstraction always exists, and the record
-is the comparison against it. A baseline written as a sentence of hand-waving
-justifies a decision rather than making one. When the baseline won, that is the
-decision — record it as one.
-
-**`Diagram` is two graphs, not one.** Baseline and decision, same components in
-each, and one paragraph naming what they differ by. That difference is the
-argument the rest of the record cites. Two identical graphs say nothing, which
-is why a record whose baseline won draws the strongest alternative it beat
-rather than drawing itself twice.
+`Direct baseline` and `Diagram` are the two an agent drops first, and the two
+the format exists for. Fill them from the template rather than from memory.
 
 ## Escalation
 
-A level-3 record draws only dividers already in force. **A divider appearing for
-the first time means the decision was level 2** — stop, route it up, and write a
-record with `.agents/skills/architecture-decisions` instead.
+The template's `Diagram` section carries the tell: a divider appearing there for
+the first time means the decision was level 2. Read it before starting, not
+while filling the field in — by then the record is written.
 
-This is the one check that cannot be deferred to review. A level-2 decision
-filed as level 3 reads as settled, is not in force, and is not projected by
-`wfctl arch context` — so it binds nothing while looking like it does.
+Route such a decision up and write it with
+`.agents/skills/architecture-decisions` instead. A level-2 decision filed as
+level 3 reads as settled, is not in force, and is not projected by `wfctl arch
+context` — so it binds nothing while looking like it does, which is worse than
+never having written it.
 
-## Status
+## An approved record is not renamed, and its body is not edited
 
-`proposed` → `approved` → `superseded` | `rejected`. Only a human moves a record
-past `proposed`; write `proposed` and leave it there.
-
-An approved record is not renamed and its body is not edited, for
-`architecture-decisions`' reason and not a new one: the filename is the slug
+For `architecture-decisions`' reason and not a new one: the filename is the slug
 inbound `supersedes` fields name, and a body edited afterwards makes the record
 agree with the present. A changed decision is a new record naming the old one.
+
+The template's frontmatter carries the status values and who may move them.
 
 ## Common Rationalizations
 

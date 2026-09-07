@@ -127,6 +127,21 @@ def test_the_level_3_gate_names_the_design_record_skill() -> None:
     assert "software-design-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_design_record_skill_is_model_invocable() -> None:
+    """It ships no command wrapper, so the mirror is the only route in.
+
+    Same shape as `test_the_panel_skill_is_model_invocable`, and the same
+    reason: the trigger is a structural choice just settled in conversation,
+    which is a moment nobody types a command. Without membership the skill is
+    reachable only by an agent already reading `design-levels` as text — the
+    template's own defect (#198) moved one hop along the chain that fixed it.
+    """
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert not (_AGENTS / "commands" / "software-design-decisions.md").exists()
+    assert "software-design-decisions" in _MIRRORED_SKILLS
+
+
 def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:
     """`speckit-orchestrate` halts a branch with no session and offers only
     `/start-session`. The wrapper behind that name carries
