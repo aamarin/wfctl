@@ -156,9 +156,16 @@ Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
 
 ```bash
-wfctl check-body <path>                                   # then read what it says
-gh pr create --title "<subject>" --body-file <path>
+wfctl check-body /tmp/pr-body.md                          # then read what it says
+gh pr create --title "<subject>" --body-file /tmp/pr-body.md
 ```
+
+**Outside the repository, and the path above is not decoration.** A description
+written into the worktree is an untracked file, so the tree it describes stops
+being clean the moment it exists — and the verification finding below then reports
+`tree has uncommitted changes` about the description itself, on a branch that
+verified clean a second earlier. Any path outside the checkout works; a scratch
+directory the harness already gives you is the natural one.
 
 `check-body` reads the drawings against `conversation-response-shape`, which the
 template above names as the owner of which drawing to use. It knows one thing and
