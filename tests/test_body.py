@@ -440,6 +440,10 @@ def test_each_failure_marker_carries_its_own_remedy() -> None:
 
     assert FAILURE_MARKERS["RUNNING"] in finding
     assert FAILURE_MARKERS["MISSING"] not in finding
+    # The skill calls only MISSING a failure and RUNNING "not a result", so a
+    # RUNNING-only body is refused without the reviewer being called failed.
+    # Twice now the shared sentence has drifted back into saying it was.
+    assert "failure" not in finding
 
 
 def test_both_markers_at_once_stay_attached_to_their_reviewers() -> None:
