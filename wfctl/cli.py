@@ -32,6 +32,7 @@ from wfctl._paths import (
     get_repo_root,
     main_checkout,
     project_name,
+    records_on_this_branch,
     resolve_agent_dir,
     resolve_branch,
     resolve_spec_dir,
@@ -145,7 +146,7 @@ def start_cmd(
     # leave the mode as it is. A plain `bool` would default to False and so
     # revoke the mode on every later `wfctl start` — which `/start-session` runs
     # on each handoff, silently ending an overnight run at its first one.
-    auto_approve: bool = typer.Option(
+    auto_approve: bool | None = typer.Option(
         None, "--auto-approve/--no-auto-approve",
         help="Answer this feature's design gates into the record and descend, "
              "instead of stopping for approval in the session. "
@@ -166,7 +167,13 @@ def start_cmd(
     # worktree's first turn, so by the time anyone types `--auto-approve` the
     # session is already recorded, and a grant swallowed by the guard below would
     # print "Already initialized" over a flag that did nothing.
-    if auto_approve is not None and auto_approve != report.auto_approve:
+    # Answered whenever it is asked, not only when it changes something.
+    # Deduplicating on the current value saves one atomic write and costs the
+    # line that says the flag took — so a human who typed it deliberately on a
+    # feature already in the mode would read "Already initialized" and nothing
+    # else, which is the same refusal-that-reads-as-success the placement above
+    # exists to prevent.
+    if auto_approve is not None:
         grant_auto_approve(agent_dir, auto_approve)
         console.print(
             f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
@@ -227,6 +234,18 @@ def status_cmd(
     console.print(f"[bold]#{issue}  {branch}[/bold]")
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
+        # #127 scope item 5, and provisional by the issue's own instruction — it
+        # names the PR body, a `doctor` check and this line as candidates and
+        # says the choice wants one round of real use first. A run nobody watched
+        # has to make what it decided hard to scroll past, and the records are
+        # already in the branch diff; what is missing is anyone knowing to look.
+        #
+        # ponytail: names the records, checks nothing. The upgrade path is
+        # `check-body`, which already reads a PR description before `gh pr
+        # create` sees it and could refuse one that omits them — a rule expressed
+        # as a check rather than as a line someone has to read.
+        for slug in records_on_this_branch(repo_root, arch_root(repo_root)):
+            console.print(f"[dim]  record:[/dim] {slug}")
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
         console.print("[dim](no spec dir found)[/dim]")
@@ -483,6 +502,10 @@ def log_cmd() -> None:
         "resume": "cyan",
         "next": "yellow",
         "issue": "green",
+        # The one line here whose whole purpose is being noticed: a grant of
+        # autonomy, which nothing prevents and only this log records. Rendering
+        # it in the default colour puts it below every routine event beside it.
+        "mode": "magenta",
     }
 
     import json as _json

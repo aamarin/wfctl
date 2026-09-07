@@ -16,7 +16,7 @@ command those don't cover, or when picking the right one isn't obvious.
 
 | Command | What it does |
 |---------|--------------|
-| `wfctl start` | Initialize agent session context for the current worktree. Idempotent; pass `--force` to overwrite existing state. |
+| `wfctl start` | Initialize agent session context for the current worktree. Idempotent; pass `--force` to overwrite existing state. `--auto-approve` / `--no-auto-approve` sets where this feature's design approval happens — in the session, or at the PR — and is the one thing here `start` writes rather than marks. |
 | `wfctl status` | Show pipeline progress inferred from spec artifacts on disk. |
 | `wfctl resume` | Re-infer the pipeline step from the filesystem, write `next-step.md`, print current state. The thing to run after any spec/plan/tasks artifact changes underneath you. |
 | `wfctl next` | Write the next actionable step to `next-step.md` without the full resume output — an automation shortcut. |
@@ -30,9 +30,10 @@ command those don't cover, or when picking the right one isn't obvious.
 ## Where state lives
 
 The state dir (`wfctl state-dir`) is an XDG path outside the repo, not
-inside it. It holds `events.jsonl`, `next-step.md` and the session
-summaries — the history of what happened and the prose a session left
-behind, which is everything about a session that cannot be recomputed.
+inside it. It holds `events.jsonl`, `next-step.md`, the session
+summaries and `mode.json` — the history of what happened, the prose a
+session left behind, and the one choice someone made about this feature.
+All of it is what cannot be recomputed.
 
 Where the feature stands is not in there. The pipeline step, the next
 command, the issue and the branch are derived from artifacts on every

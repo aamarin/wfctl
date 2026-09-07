@@ -560,7 +560,11 @@ class PipelineReport:
 
 def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> PipelineReport:
     """The one inference. Every view of pipeline state is a rendering of this."""
-    from wfctl._session import auto_approve, session_started
+    # Aliased: the report field and the reader are the same word, and
+    # `auto_approve=auto_approve(agent_dir)` two lines down reads as a
+    # self-reference rather than a call.
+    from wfctl._session import auto_approve as read_auto_approve
+    from wfctl._session import session_started
 
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
@@ -579,5 +583,5 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         next_command=command or None,
         auto=auto if command else None,
         session_started=session_started(agent_dir),
-        auto_approve=auto_approve(agent_dir),
+        auto_approve=read_auto_approve(agent_dir),
     )

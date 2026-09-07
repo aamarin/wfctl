@@ -75,13 +75,22 @@ def auto_approve(agent_dir: Path) -> bool:
     Absent, malformed or unreadable reads as `False`, never as granted. The
     conservative direction is the whole point — a state dir that lost this file
     must fall back to stopping for a human, not to running without one.
+
+    Three ways to be unreadable, and the shape is the one that bites. `ValueError`
+    rather than `JSONDecodeError` because an invalid UTF-8 byte raises
+    `UnicodeDecodeError`, which is a `ValueError` and not an `OSError`; and
+    `isinstance` because `null`, `3` and `[]` all parse successfully and have no
+    `.get`. Every caller reaches this through `build_report`, so an uncaught
+    raise here is not a bad read of one field — it is `status`, `start`, `resume`
+    and `end` all failing for that branch until someone deletes the file by hand.
+    `_verify.load_record` guards the same way for the same reason.
     """
     path = agent_dir / MODE_NAME
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return False
-    return data.get("auto_approve") is True
+    return isinstance(data, dict) and data.get("auto_approve") is True
 
 
 def grant_auto_approve(agent_dir: Path, granted: bool) -> None:

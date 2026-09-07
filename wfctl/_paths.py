@@ -329,6 +329,47 @@ def touched_on_this_branch(
     return None if committed is None else bool(committed)
 
 
+def records_on_this_branch(repo_root: Path, arch: Path) -> list[str]:
+    """The record slugs this branch adds or modifies, uncommitted work included.
+
+    A sibling of `touched_on_this_branch` rather than a widening of it, because
+    the two answer different questions and only one of them gates. That one
+    returns three states so a gate with no evidence does not refuse; this one is
+    a listing, where "cannot tell" and "nothing" are the same empty line and no
+    caller can act differently on them. Widening the gate's return to carry names
+    would make every caller of a refusal handle a list.
+
+    Slugs rather than paths: a record's identity *is* its slug
+    (`architecture-decisions`), and a reader scanning a PR for what a run decided
+    is matching names, not directories.
+    """
+    if not is_in_tree(arch, repo_root):
+        return []
+
+    def names(*args: str) -> list[str]:
+        r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
+        if r.returncode != 0:
+            return []
+        # `status --porcelain` prefixes each line with a two-column code; `diff
+        # --name-only` does not. Splitting on whitespace from the right leaves
+        # the path in both, and a record path never contains one.
+        return [line.split()[-1] for line in r.stdout.splitlines() if line.strip()]
+
+    spec = str(arch)
+    # `-uall`, unlike `touched_on_this_branch`'s bare `--porcelain`. Git collapses
+    # an untracked *directory* to one entry, so the first record written into a
+    # repo that has none reports `docs/architecture/` and no filename — which a
+    # caller asking "did anything change" can still read as yes, and a caller
+    # asking "which records" reads as none.
+    found = names("status", "--porcelain", "-uall", "--", spec)
+    trunk = _trunk_branch(repo_root)
+    if trunk is not None:
+        found += names("diff", "--name-only", f"{trunk}...HEAD", "--", spec)
+
+    slugs = {Path(p).stem for p in found if p.endswith(".md")}
+    return sorted(slugs)
+
+
 def is_in_tree(root: Path, repo_root: Path) -> bool:
     """Would a file under `root` be committed with the code in `repo_root`?
 
