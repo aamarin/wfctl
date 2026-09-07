@@ -3583,3 +3583,35 @@ def test_doctor_names_no_winner_for_a_spec_dir_named_the_bare_key(
     assert "ℹ issue 200 is claimed by 2 features" in result.output
     assert "depends on the branch name" in result.output
     assert "Resolution returns /" not in result.output
+
+
+def test_doctor_survives_an_in_repo_specs_dir_it_cannot_list(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same `is_dir()`-then-`iterdir()` shape as the double-claim scan, in the
+    check beside it.
+
+    `is_dir()` answers whether the path is a directory, not whether this user can
+    list it, so a `specs/` at mode 000 passed the guard and raised — out of the
+    first command `/start-session` runs, before doctor reported anything. Found
+    while fixing the same shape in the new scan; the two are one line apart in
+    the run and were one line apart in the defect.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    in_repo = repo_root / "specs"
+    in_repo.mkdir()
+    elsewhere = repo_root / "elsewhere"
+    elsewhere.mkdir()
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        json.dumps({"spec_root": str(elsewhere)})
+    )
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    in_repo.chmod(0o000)
+    try:
+        result = runner.invoke(app, ["doctor"])
+    finally:
+        # Restored so the tmp_path teardown can remove it.
+        in_repo.chmod(0o755)
+
+    assert result.exception is None
+    assert "Permission denied" not in result.output
