@@ -87,10 +87,23 @@ memory of it — load them before doing anything else.
    There are two repairs and the notice names only one of them. Setting
    `WFCTL_AGENT` in a shell profile fixes the *next* worktree; it installs
    nothing into this one, and doctor goes on printing the notice until something
-   does. What fixes this one is `wfctl install-skills --prune --yes --agent
-   "$WFCTL_AGENT"` — run it only when that variable is already set, because the
-   environment naming the agent is the sanctioned source under
-   `no-hardcoded-agent` and a name you picked yourself is not.
+   does. What fixes this one is:
+
+   ```bash
+   wfctl install-skills --prune --yes --agent "$WFCTL_AGENT"
+   ```
+
+   Run it only when that variable is already set — the environment naming the
+   agent is the sanctioned source under `no-hardcoded-agent`, and a name you
+   picked yourself is not.
+
+   **Append `--from <path>` when `.wf-skills-manifest.json` records a `source`
+   for the *base* layer.** Installing an agent layer rewrites base as well,
+   asked for or not, so the bare form reinstalls the release over the checkout
+   being tested, drops the recorded source on its way out, and leaves doctor
+   reporting green against a bundle nobody chose. That is the hazard three
+   paragraphs up, met from the side where it is hardest to see: base was
+   *current*, so doctor printed no repair line for you to copy the flag from.
 
    So with `WFCTL_AGENT` unset there is nothing here for you to run: the profile
    is the user's to edit, like the tool upgrade two paragraphs down — surface it,
