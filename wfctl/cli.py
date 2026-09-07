@@ -275,41 +275,6 @@ def verify_cmd() -> None:
     raise typer.Exit(_verify.perform(agent_dir, repo_root))
 
 
-def _refuse_unless_boundary_answered(
-    spec_dir: Path | None, step_name: str, repo_root: Path
-) -> None:
-    """Exit 1 when the design step is being left with the boundary unanswered.
-
-    Called by every command that writes `next-step.md`, not just `next`:
-    `speckit-orchestrate` advances the pipeline with `wfctl resume`, so gating
-    only `next` would leave the orchestrated path — the one that actually runs —
-    walking straight past the check. `start` is deliberately not gated: it opens
-    the session that has to run `arch none` to answer.
-
-    Before the file is written, never after. `next-step.md` is what the agent
-    reads next, so a refusal that still wrote it would be a message nothing acts
-    on.
-    """
-    from wfctl._pipeline import DESIGN_GATE_REFUSAL, design_gate
-
-    arch = arch_root(repo_root)
-    # `is False` — never a falsy check. `touched_on_this_branch` returns None
-    # when git cannot answer (no trunk, or a root outside the tree), and that
-    # case proceeds along with a real True: the gate refuses only on evidence.
-    # `design/` is excluded, not counted. It holds level-3 records, which govern
-    # one feature and say nothing about ownership — the question this gate asks.
-    # Counting them would let a change that genuinely moves a boundary satisfy
-    # the gate with a record whose own format forbids it from drawing one, and
-    # #121 item 3 guarantees every such record lands in the branch diff.
-    if design_gate(
-        spec_dir,
-        step_name,
-        lambda: touched_on_this_branch(repo_root, arch, exclude=arch / "design") is False,
-    ):
-        console.print(DESIGN_GATE_REFUSAL.format(location=_arch_location(arch, repo_root)))
-        raise typer.Exit(1)
-
-
 @app.command("next")
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
@@ -326,9 +291,6 @@ def next_cmd() -> None:
     spec_dir = resolve_spec_dir(branch, repo_root)
     steps = _infer_steps(spec_dir, repo_root)
     step_name = _current_step_name(steps)
-
-    # With no spec dir there is no design.md either, so the gate cannot fire.
-    _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
     # No special case for a missing spec dir. It used to force `/speckit.specify`,
     # from when an absent design read as "skipped" and specify was the honest
@@ -367,12 +329,6 @@ def resume_cmd() -> None:
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
     step_name = report.current or "complete"
-
-    # Gated before anything is written. Refusing afterwards left `next-step.md`
-    # deliberately stale while the event log said the session had advanced, so
-    # the two disagreed about where it was — after a command that reported
-    # failure.
-    _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
 
     command, auto = report.next_command, report.auto
 

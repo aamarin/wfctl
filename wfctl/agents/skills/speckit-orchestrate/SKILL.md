@@ -98,14 +98,17 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 2. Run `wfctl status` and display the output so the user can see the updated pipeline position.
 
-3. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
-   here if the boundary question went unanswered — none of which the read below
-   does.
+3. Run `wfctl resume`. It re-infers the step and records the advance — neither
+   of which the read below does.
 
-   **If it exits non-zero, display its output and stop.** Step 4 is a read, and
-   a read is not gated: `wfctl status --json` answers with the step the refusal
-   was issued about, and `auto` on that step is `true`, so continuing emits
-   `EXECUTE_COMMAND` for the command `resume` just refused to write.
+   **If it exits non-zero, display its output and stop.** A read that follows a
+   command which failed is a read of a state nobody established.
+
+   You are not compensating for a gate here. A step whose evidence does not
+   satisfy it reports that in the payload step 4 reads — the reason lands on the
+   step, and `next_command` names what unblocks it rather than what the gate
+   would refuse. `resume` and `status` are two renderings of one inference, so
+   there is no answer step 3 has that step 4 lacks.
 
 4. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
