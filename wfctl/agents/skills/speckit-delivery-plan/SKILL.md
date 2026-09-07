@@ -213,17 +213,17 @@ Before marking decompose complete:
 
 ## When to Load References
 
-**Load `references/pr-boundary-criteria.md` when:**
+**Load [references/pr-boundary-criteria.md](references/pr-boundary-criteria.md) when:**
 - Feature has 8+ files touched and the split decision is non-obvious
 - Two user stories share a file but could potentially be separate PRs
 - You need a worked example of the 4-signal framework
 
-**Load `references/issue-grouping-patterns.md` when:**
+**Load [references/issue-grouping-patterns.md](references/issue-grouping-patterns.md) when:**
 - Unsure whether to use single-issue, sub-feature split, phase-grouped, or hierarchical pattern
 - Multi-PR feature where parent/child relationships need clarification
 - Feature has user stories that don't map cleanly to tasks
 
-**Load `references/agent-fanning-guide.md` when:**
+**Load [references/agent-fanning-guide.md](references/agent-fanning-guide.md) when:**
 - Feature is M or larger and real parallelism is available
 - You need copy-paste agent prompts for Wave 2+ fanning
 - Coordinating 3+ parallel agents across shared type boundaries
