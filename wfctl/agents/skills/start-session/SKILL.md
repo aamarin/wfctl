@@ -69,11 +69,23 @@ memory of it — load them before doing anything else.
    a bare `install-skills --prune` diffs only the base layer and silently leaves
    a `.claude/` path where it found it.
 
-   It reaches only paths still on record. Doctor's dim `ℹ` block is the other
-   thing entirely: paths in wfctl's destinations that it cannot show are its
-   own, which is what a skill you placed there yourself looks like. **Delete
-   nothing on the strength of that block** — it does not affect the exit code,
-   and its own line says wfctl is leaving the path alone.
+   It reaches only paths still on record. Doctor's dim `ℹ` lines are the other
+   thing entirely, and since #178 there are two of them. Not reaching the exit
+   code is all they share — what to do about them is opposite, so tell them
+   apart by their first words.
+
+   `ℹ … not on record under a directory wfctl installs into` lists paths in
+   wfctl's destinations that it cannot show are its own, which is what a skill
+   you placed there yourself looks like. **Delete nothing on the strength of
+   that block** — its own line says wfctl is leaving the path alone.
+
+   `ℹ no agent layer — .agents/ only` is the one to act on: this worktree got
+   the base layer and none of your agent's own paths, because `WFCTL_AGENT` was
+   unset when it was created. Set it in your shell profile. Doctor prints no
+   repair command beside it on purpose — this step runs what doctor prints,
+   unattended, and installing one developer's agent into a repo that chose
+   another is what `no-hardcoded-agent` forbids. So it is a setting you apply
+   and carry to step 8, not a line to execute.
 
    `--yes` is what keeps this non-interactive, and it is not free: it skips the
    prompt that would otherwise list pre-existing files being overwritten — files
@@ -160,10 +172,14 @@ memory of it — load them before doing anything else.
 
 8. Report status to the user:
    - **Freshness**: skills you refreshed in step 2 and what changed, plus
-     everything `wfctl doctor` still reports — it checks more than skills and
-     still exits 1 on any of them. Omit only when doctor is green and nothing was
-     refreshed; a silent refresh is how a mirror goes stale again without anyone
-     noticing it had been wrong
+     everything `wfctl doctor` still reports — its findings, which exit 1, *and*
+     its dim `ℹ` lines, which do not. Omit only when doctor printed nothing but
+     ✓ and nothing was refreshed. The exit code is not the test and has not been
+     since #178: a run with every layer ✓ and exit 0 still tells a developer to
+     set `WFCTL_AGENT`, and omitting on green drops the one line that asked them
+     to act. Carry the unknown-paths block across as the non-finding it is, so
+     repeating it here does not read as licence to delete. A silent refresh is
+     how a mirror goes stale again without anyone noticing it had been wrong
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
