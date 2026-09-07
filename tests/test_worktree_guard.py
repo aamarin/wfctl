@@ -299,6 +299,19 @@ def test_a_command_naming_no_worktree_is_never_examined() -> None:
     assert not refuses("uv run ruff check wfctl/")
 
 
+def test_a_slash_free_command_can_never_be_refused() -> None:
+    """`_hook` skips this function entirely for a command with no "/" in it.
+
+    That early-out is what removes two git subprocesses from the majority of
+    Bash calls (#135), and it is sound only while every refusal needs a `/` —
+    `_ABS_PATH` is anchored on one. The cases above all contain a `/`, so none
+    of them pins it: this is the one that fails if `refusal()` ever learns to
+    judge a relative path without the early-out being revisited.
+    """
+    for command in ("rm -rf ..", "ls", "uv run pytest", "cd ..", "make clean"):
+        assert not refuses(command), command
+
+
 def test_no_worktree_information_means_no_refusal() -> None:
     """`git` failing must not block work — a guard is not a gate on git working."""
     assert _guard.refusal(f"rm -rf {OTHER}", "", []) is None
