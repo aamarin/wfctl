@@ -3943,7 +3943,16 @@ def _check_spec_root_migration(repo_root: Path) -> bool:
     # warning tells the user to move specs from a directory to itself.
     if root.resolve() == in_repo.resolve():
         return False
-    stranded = sorted(p for p in in_repo.iterdir() if p.is_dir())
+    try:
+        stranded = sorted(p for p in in_repo.iterdir() if p.is_dir())
+    except OSError:
+        # `is_dir()` above answers whether the path is a directory, not whether
+        # this user can list it, so a `specs/` at mode 000 passes the guard and
+        # raises here — a traceback out of the first command `/start-session`
+        # runs, before doctor has reported anything at all. Silent rather than a
+        # warning: a directory that cannot be listed is not evidence that
+        # anything is stranded in it, and this check has nothing else to say.
+        return False
     if not stranded:
         return False
 
