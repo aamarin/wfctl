@@ -23,6 +23,15 @@ import pytest
 # documentation.
 os.environ["NO_COLOR"] = "1"
 
+# NO_COLOR is not sufficient on its own: it suppresses *color*, and bold and dim
+# are not color. Rich keeps emitting `\x1b[1m` and `\x1b[2m` whenever it believes
+# it is writing to a terminal, and FORCE_COLOR is what settles that belief before
+# any tty check runs (`Console.is_terminal`). Claude Code exports FORCE_COLOR=3,
+# so on that machine 30 tests failed on a clean tree — every one of them
+# asserting on a line styled bold or dim, while the green `✓` lines NO_COLOR
+# already handled kept passing. Popping it is what makes the two agree.
+os.environ.pop("FORCE_COLOR", None)
+
 
 def init_git(path: Path) -> Path:
     """An initialized git repo at `path`, with a committer identity and no commits.
