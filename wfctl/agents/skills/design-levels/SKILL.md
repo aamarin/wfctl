@@ -141,6 +141,15 @@ read as settled fact are routinely wrong.
 Both would otherwise have surfaced during implementation, after the contracts
 were written against them.
 
+**When the structure was chosen against a credible alternative, the choice is
+written as a record too, not only as a section.** Use
+`.agents/skills/software-design-decisions`, which carries the template the record
+is shaped by and the rule for when the choice was really a level-2 one. The
+checked/assumed split stays in `design.md`; the record carries only the claims
+its own decision rests on, because `design.md` is gitignored and a reviewer
+reading the PR never opens it. A structural choice with no credible alternative
+earns no record, and saying so is the answer.
+
 ### 4. Implementation — covered by the existing verification skills
 
 Use the `verification-before-completion` skill and the `code-review` skill.
@@ -248,8 +257,9 @@ the claims in `design.md`, the decision in a record.
   still binding two features later, and has to be somewhere that is still read.
 - Level 3 → `design.md`, then expanded by `speckit.plan` Phase 1 into
   `data-model.md` and `contracts/`. A structural choice that weighed credible
-  alternatives also leaves one record under `<arch-root>/design/`, for level 2's
-  reason and not a new one: `specs/` is gitignored and `spec_root` resolves
+  alternatives also leaves one record under `<arch-root>/design/`, written with
+  `.agents/skills/software-design-decisions`, for level 2's reason and not a new
+  one: `specs/` is gitignored and `spec_root` resolves
   outside the tree, so a reviewer reading the PR never sees `design.md`. The
   two-column split stays there; the record carries only the claims its own
   decision rests on, and `design.md` points at it rather than holding a second

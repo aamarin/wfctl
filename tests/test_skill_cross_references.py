@@ -103,6 +103,30 @@ def test_the_level_2_gate_names_the_record_skill() -> None:
     assert "architecture-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_design_record_template_ships_beside_its_skill() -> None:
+    """The level-3 counterpart of the ADR pair, and the half that shipped alone.
+
+    The template was grafted and installed for a release with no `SKILL.md`
+    beside it, so nothing referenced it and no agent reached it (#198). The
+    directory is the failure mode: a template packaged without the file that
+    tells anyone to open it looks identical to a working skill on disk."""
+    skill = _AGENTS / "skills" / "software-design-decisions"
+    assert (skill / "SKILL.md").exists()
+    assert (skill / "design-record-template.md").exists()
+
+
+def test_the_level_3_gate_names_the_design_record_skill() -> None:
+    """Same shape as the level-2 gate, and for the same reason: the reference is
+    the only thing that turns a level-3 answer into a record.
+
+    `test_every_referenced_skill_ships` cannot stand in for this. It checks that
+    a referenced skill exists; a skill nothing references is exactly what it
+    cannot see, which is how the template shipped unreachable in the first
+    place."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    assert "software-design-decisions" in set(_REFERENCE.findall(gate))
+
+
 def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:
     """`speckit-orchestrate` halts a branch with no session and offers only
     `/start-session`. The wrapper behind that name carries
