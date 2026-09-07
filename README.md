@@ -111,6 +111,13 @@ design in one pass, and each has a gate that has to be answered out loud. Level
 invalidates a boundary drawn above it, the rule is to go back up, not to work
 around it in the spec.
 
+Stopping at each level is right for work you want to be in the room for and
+costly for the rest. `wfctl start --auto-approve` moves the approval for one
+feature to the PR: the gates are still answered and the records still written —
+more of them, not fewer — and a reviewer reads them at review time instead.
+`wfctl status` says which mode a feature is in and names the records the run
+wrote.
+
 ### What lands in your repo
 
 After `install-skills` (and optionally `install-config`):
@@ -136,7 +143,7 @@ it and only the implementation ships. This repo does the latter.
 
 | Command          | Description                                                              |
 |------------------|--------------------------------------------------------------------------|
-| `start`          | Initialize agent session context (idempotent)                            |
+| `start`          | Initialize agent session context (idempotent); `--auto-approve` moves this feature's design approval to the PR |
 | `status`         | Show pipeline progress inferred from spec artifacts                      |
 | `resume`         | Re-infer step from filesystem, write `next-step.md`, print current state |
 | `next`           | Write next actionable step to `next-step.md` (automation shortcut)       |

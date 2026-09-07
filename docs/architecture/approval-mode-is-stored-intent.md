@@ -178,6 +178,18 @@ and by #127, in both modes.
   one grammar — and then again, decisively, on the permission finding: a new verb
   is no less reachable by an agent than `start` is, so it buys a verb and nothing
   else.
+- **Teaching the mode by editing `brainstorming` and `idea-refine`.** The direct
+  reading of #127 scope items 3 and 4, and it was written that way first. Both
+  files are upstream-derived, and `vendor-upstream-skills` (accepted) says
+  *"Prefer layering to editing"* and *"A file carrying a line is not evidence
+  that editing it was fine"* — the prior in-place edits it lists predate the
+  record and are grandfathered, not precedent. The failure it describes is this
+  feature's exactly: the next upstream pull reverts the branch with no conflict,
+  the attribution test still passes because it checks the line and not the
+  divergence, and unattended runs quietly resume stopping while `design-levels`
+  keeps telling them to descend. So the whole branch lives in
+  `speckit.brainstorm.md` and `design-levels`, both wfctl's own, and the derived
+  files stay unedited and unconditional beneath it.
 - **Moving the tracker's board transition here too.** Considered because it looks
   like the same kind of per-feature setup and is not. `.workmux.yaml`'s
   `post_create` already runs `wfctl issue start`, paired with `wfctl issue stop`
@@ -208,6 +220,22 @@ early return, or `wfctl start --auto-approve` on a running session would report
 `speckit.brainstorm.md` must gain `Bash(wfctl status*)`. Its `allowed-tools` line
 does not carry it today, so the one command that has to read the mode cannot ask
 for it, and the omission fails silently — the skill simply never sees a switch.
+
+The mode is advisory prose, so the skill files are the implementation and every
+pause has to be found rather than compiled. Four of them sit in the derived
+files: `brainstorming`'s HARD-GATE, its one-question-at-a-time step, its
+per-level approval and the `dot` flow that draws it, and — the one that would
+otherwise strand the whole mode — `idea-refine`'s *"Only save if they confirm"*,
+which guards the single write of `design.md`. A run that descends every gate and
+stops there has done all the work and produced none of the artifact the reviewer
+was going to read.
+
+`design-levels` reads the mode itself rather than taking it from its caller. It
+is description-triggered and fires outside `/speckit.brainstorm`, so a mode
+passed down the wrapper would be absent exactly when the wrapper was not
+involved; and every inconclusive read — key absent, command failing, no wfctl —
+resolves to attended, because the mode is what removes a human and a read that
+cannot establish it has to leave one in.
 
 ## Log
 

@@ -20,10 +20,34 @@ Read which mode this feature is in before the first gate:
 wfctl status --json      # read `auto_approve`
 ```
 
-`false` is the default and today's behaviour: every gate stops for a human.
-`true` means the gates are answered into the record instead, and the approval
-happens at the PR. Both skills below branch on it, and neither one waives a
-record — an auto-approving pass documents more than an attended one, not less.
+`false` is the default and today's behaviour: every pause below happens as
+written. Treat any other answer — the key absent, the command failing, an older
+wfctl — as `false`; the mode is the thing that removes a human, so an
+inconclusive read has to leave one in.
+
+`true` moves where the approval happens, and this command is where that override
+is stated. `brainstorming` and `idea-refine` are upstream-derived and stay
+unedited (`vendor-upstream-skills`, accepted: *"Prefer layering to editing"*), so
+they still read as unconditional and this file is the layer above them. Four
+pauses, all of them theirs, none of them wrong to have been written that way:
+
+| Where it pauses | Under `auto_approve: true` |
+|---|---|
+| `brainstorming`'s HARD-GATE — no implementation "until the user has approved it" | The design is still presented, at every level, and still not skipped. What changes is who approves: each gate's answer goes into its record and the reviewer approves at the PR. Descending is not "taking implementation action" — the HARD-GATE's subject is code, and it still binds. |
+| Step 3, one clarifying question at a time | Answer them yourself from the codebase and the tracker, and write each answer *and its basis* into the design. A question decided silently is the failure this step exists to prevent, and nobody being there to ask does not make it acceptable. |
+| Step 5, approval after each level, and the two human diamonds in the `dot` flow | State the gate's answer in the form `design-levels` gives it, into the record, and descend. The flow's diamonds resolve to "yes" — they are not skipped. |
+| Step 7 and the User Review Gate; `idea-refine`'s "Only save if they confirm" | Do not wait. Say which mode you are in, in one line, and write `design.md`. This is the pause that would otherwise strand the whole mode: an auto-approving run that stops here has done all the work and produced none of the artifact the reviewer was going to read. |
+
+**None of this waives a record.** An auto-approving pass documents more than an
+attended one, not less — every gate is still answered out loud, in its rendered
+form, because those answers are what generate the level-3 requirements. A record
+whose `Considered` is empty has skipped its gate more quietly, not passed it.
+`wfctl`'s design gate refuses a design step that produced no record, in both
+modes, and it is unchanged.
+
+**Records land `proposed`.** An agent never writes `approved` — that transition
+is a human's, and it is what makes "come back and change this later" real rather
+than a re-litigation. Do not paraphrase the mode as approval you were given.
 
 Create the destination directory:
 

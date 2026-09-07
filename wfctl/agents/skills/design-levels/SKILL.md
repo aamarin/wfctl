@@ -47,15 +47,38 @@ An unnamed gate is an intention, and intentions are what momentum skips. Each
 level has one question that has to be answered out loud before descending.
 
 **Who hears the answer is set per feature; that a gate is answered is not.**
-`wfctl status --json` carries `auto_approve`:
+Read the mode before the first gate, and read it here rather than assuming the
+caller passed it on — this skill is description-triggered and fires outside
+`/speckit.brainstorm` as often as inside it:
+
+```bash
+wfctl status --json      # read `auto_approve`
+```
 
 | | The gate | Descending |
 |---|---|---|
-| `false` (default) | answered out loud, to the reader | after they approve |
+| `false` — the default, and what any inconclusive read means | answered out loud, to the reader | after they approve |
 | `true` | answered into the record, in the same words | immediately |
 
+The key absent, the command failing, no wfctl on PATH: all of them are `false`.
+The mode is the thing that removes a human from the loop, so a read that cannot
+establish it has to leave one in.
+
+**Where the answer lands does not change with the mode; only whether anyone is
+waiting.** Attended, a level-1 walkthrough survives in a transcript someone read.
+Unattended there is no such transcript, so an answer left unwritten is simply
+gone — and level 1 is the level that generates the level-3 requirements. Each
+gate's answer goes where *Where the levels land* below already sends it:
+
+| Level | The answer is written to |
+|---|---|
+| 1 behavior | the behavior sections of `design.md` |
+| 2 architecture | one record per ownership decision under `wfctl arch-root` — or the declared absence of one |
+| 3 design | `design.md`, plus a record under `<arch-root>/design/` when credible alternatives were weighed |
+| 4 implementation | unchanged — the verification skills own it |
+
 The rendered forms below are not optional under `auto_approve` — they are how
-the answer is written down, and a gate answered in prose because nobody was
+the answer is written down, and a gate answered in loose prose because nobody was
 reading is a gate that was skipped. The one thing the mode removes is the wait.
 A pass nobody watched is the pass whose record gets read hardest.
 

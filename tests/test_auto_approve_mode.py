@@ -47,11 +47,27 @@ def test_a_feature_nobody_granted_anything_to_reports_attended(
 def test_the_flag_grants_the_mode_and_the_payload_carries_it(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """Scope item 2: a run whose mode is invisible is a run you cannot trust."""
-    runner.invoke(app, ["start", "--auto-approve"])
+    """Scope item 2: a run whose mode is invisible is a run you cannot trust.
+
+    Scope item 5 rides on the same line and is provisional — the issue names the
+    PR body, a `doctor` check and this output as candidates and says the choice
+    wants one round of real use. What it has to achieve is that the records an
+    auto-approving run wrote are hard to scroll past; naming them where the mode
+    is announced is the cheapest thing that does.
+    """
+    result = runner.invoke(app, ["start", "--auto-approve"])
+    assert result.exit_code == 0
+    assert "auto-approve" in result.output
 
     assert _payload()["auto_approve"] is True
-    assert "auto-approve" in runner.invoke(app, ["status"]).output
+
+    (storyctl_dir.repo_root / "docs" / "architecture").mkdir(parents=True)
+    (storyctl_dir.repo_root / "docs" / "architecture" / "who-owns-the-clock.md").write_text(
+        "---\nstatus: proposed\n---\n"
+    )
+    console = runner.invoke(app, ["status"]).output
+    assert "auto-approve" in console
+    assert "who-owns-the-clock" in console
 
 
 def test_granting_the_mode_on_a_running_session_is_not_swallowed(
@@ -96,11 +112,37 @@ def test_the_mode_can_be_handed_back_to_a_human(
     An agent may raise the bar and never lower it, so revoking has to be
     reachable — a mode that could only ever be granted would make the rule
     one-way in the wrong direction.
+
+    Both the payload and the line, because they fail separately: a payload-only
+    assertion passes over a revocation that reports nothing, which is what a
+    person who typed the flag would be reading.
+    """
+    granted = runner.invoke(app, ["start", "--auto-approve"])
+    assert "auto-approve" in granted.output
+
+    revoked = runner.invoke(app, ["start", "--no-auto-approve"])
+    assert revoked.exit_code == 0
+    assert "auto-approve off" in revoked.output
+    assert _payload()["auto_approve"] is False
+
+
+def test_re_affirming_the_mode_still_answers(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The flag answers whenever it is asked, not only when it changes something.
+
+    Deduplicating the write on the current value saved one `os.replace` and cost
+    the line that says the flag took: a person passing `--auto-approve` on a
+    feature already in the mode would read "Already initialized" and nothing
+    else — the same refusal-that-reads-as-success the write's placement above
+    `start`'s early return exists to prevent.
     """
     runner.invoke(app, ["start", "--auto-approve"])
-    runner.invoke(app, ["start", "--no-auto-approve"])
+    again = runner.invoke(app, ["start", "--auto-approve"])
 
-    assert _payload()["auto_approve"] is False
+    assert again.exit_code == 0
+    assert "auto-approve" in again.output
+    assert _payload()["auto_approve"] is True
 
 
 def test_each_grant_leaves_a_line_in_the_event_log(
@@ -124,18 +166,33 @@ def test_each_grant_leaves_a_line_in_the_event_log(
 def test_a_lost_or_damaged_mode_file_reads_as_attended(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """The direction the failure has to fall.
+    """The direction the failure has to fall, across every shape of damage.
 
-    A truncated write or a hand-edited file must leave the design gates
-    stopping for a human. Reading a damaged file as a grant would let a
-    corrupted byte hand an agent the authority the flag exists to gate.
+    A truncated write or a hand-edited file must leave the design gates stopping
+    for a human. Reading a damaged file as a grant would let a corrupted byte
+    hand an agent the authority the flag exists to gate.
+
+    The shapes matter more than the count, and the first version of this test
+    caught none of the ones that bit. `null`, `3` and `[]` all parse, so a guard
+    written against `JSONDecodeError` alone lets them reach `.get`; an invalid
+    UTF-8 byte raises `UnicodeDecodeError`, which is not an `OSError`. Every one
+    of those reaches `build_report`, so the failure is not a wrong field — it is
+    `status`, `start`, `resume` and `end` all raising for that branch.
     """
-    runner.invoke(app, ["start", "--auto-approve"])
+    mode_file = storyctl_dir.agent_dir / _session.MODE_NAME
+    for body in ("{not json", "null", "true", "3", "[]", '"granted"', "{}"):
+        runner.invoke(app, ["start", "--auto-approve"])
+        mode_file.write_text(body)
+        result = runner.invoke(app, ["status", "--json"])
+        assert result.exit_code == 0, f"{body!r} raised: {result.output}"
+        assert json.loads(result.output)["auto_approve"] is False, body
 
-    (storyctl_dir.agent_dir / _session.MODE_NAME).write_text("{not json")
+    runner.invoke(app, ["start", "--auto-approve"])
+    mode_file.write_bytes(b'{"auto_approve": "\xff"}')
+    assert runner.invoke(app, ["status", "--json"]).exit_code == 0
     assert _payload()["auto_approve"] is False
 
-    (storyctl_dir.agent_dir / _session.MODE_NAME).unlink()
+    mode_file.unlink()
     assert _payload()["auto_approve"] is False
 
 
