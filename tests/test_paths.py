@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from wfctl._paths import (
+    claim_conflicts,
     delivery_issue_keys,
     project_name,
     resolve_agent_dir,
@@ -865,3 +866,77 @@ def test_worktree_branches_drops_a_worktree_whose_directory_is_gone(
 
     shutil.rmtree(ghost)
     assert "42-ghost" not in worktree_branches(repo_root)
+
+
+def test_claim_conflicts_names_an_own_dir_and_a_map_row_that_claim_one_key(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shape #271 was filed for, and the one resolution answers silently.
+
+    `test_resolve_spec_dir_keeps_a_branchs_own_dir_over_a_later_epic_claim` pins
+    that the child's directory wins. Nothing pinned that anyone is told the
+    epic's map row was read and set aside, which is how a decomposed epic leaves
+    its sub-issue on a separate pipeline with no explanation.
+    """
+    specs = repo_root / "specs"
+    own = specs / "200-child"
+    own.mkdir(parents=True)
+    (own / "spec.md").write_text("# the child's own work\n")
+    epic = specs / "100-parent"
+    epic.mkdir(parents=True)
+    (epic / "delivery.md").write_text(_delivery_map("**#200** — the child"))
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    assert claim_conflicts(repo_root) == [("200", [own], [epic])]
+
+
+def test_claim_conflicts_names_two_map_rows_that_claim_one_key(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second shape, where resolution returns nothing at all.
+
+    `test_resolve_spec_dir_refuses_a_key_two_features_both_claim` pins the
+    refusal. Unresolved is loud in the sense that the pipeline stops, and silent
+    about *why* — the two rows that caused it are never named, so the person
+    holding the branch has nowhere to look.
+    """
+    _init_commit(repo_root)
+    specs = repo_root / "specs"
+    for name in ("539-coa-taxonomy", "543-chart-consolidation"):
+        (specs / name).mkdir(parents=True)
+        (specs / name / "delivery.md").write_text(_delivery_map("#544"))
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    conflict, = claim_conflicts(repo_root)
+    assert conflict.key == "544"
+    assert conflict.own == []
+    assert conflict.mapped == [specs / "539-coa-taxonomy", specs / "543-chart-consolidation"]
+
+
+def test_claim_conflicts_is_silent_for_an_epic_that_lists_its_own_key(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A grouping map that names the epic itself alongside its children is the
+    ordinary shape, not a disagreement — one feature claiming one key twice. A
+    check that fires here fires on most decomposed epics, and a report on the
+    ordinary case is how a real collision gets scrolled past."""
+    specs = repo_root / "specs"
+    epic = specs / "100-epic"
+    epic.mkdir(parents=True)
+    (epic / "delivery.md").write_text(_delivery_map("**#100** — the epic", "**#200** — a child"))
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    assert claim_conflicts(repo_root) == []
+
+
+def test_claim_conflicts_reads_a_missing_spec_root_without_raising(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo that has installed wfctl and not yet run the pipeline has no spec
+    root on disk. `doctor` runs this check before the manifest gate, so the
+    absent directory is the first thing it meets in a fresh repo — iterdir on it
+    would take the whole command down."""
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(repo_root / "nowhere"))
+
+    assert claim_conflicts(repo_root) == []
+
