@@ -3290,6 +3290,32 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+def _verification_finding() -> list[str]:
+    """Why `wfctl verify` has not passed against this tree, as a finding. Or none.
+
+    The third source `check-body` composes, and the only one that reads the
+    repository rather than the file it was handed. `_shape` and `_body` stay pure
+    string functions because of it: the state lives here, in the command's own
+    module, and neither of them learns what a git repository is.
+
+    Empty is the common answer and covers three unrelated silences — no
+    repository, a repository that declares no definition of done, and a run that
+    passed. The middle one is `wfctl-runs-the-verification`'s own degrade clause
+    and is what keeps a copy edit openable in a repo that checks nothing.
+    """
+    from wfctl._pipeline import verification_block
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        # `opening-a-change` Step 5 already says to skip this command outside a
+        # wfctl repo. Someone runs it there anyway, and a body that is fine is
+        # not the place to report that git is missing.
+        return []
+    reason = verification_block(repo_root)
+    return [] if reason is None else [f"verification: {reason}"]
+
+
 @app.command("check-body")
 def check_body_cmd(
     path: Path = typer.Argument(..., help="The change description to check, as a file"),
@@ -3312,6 +3338,23 @@ def check_body_cmd(
     it out of `verify`, which records that a *branch* is done rather than judging
     a file it is handed.
 
+    **Why it reads the branch anyway, since #236.** That paragraph rules out
+    putting a *file* verdict inside `verify`. It says nothing against reading
+    `verify`'s record here, and the reason to is that this command is the only
+    check on the road every change takes. `wfctl verify` had exactly one caller —
+    `speckit-implement` step 9c — which runs only when the pipeline runs, and
+    `design-levels` sends bug fixes and copy edits around the pipeline. So the
+    changes nothing verified were precisely the ones with no spec, and the
+    agent's own account of its work was the only record of them. Opening a change
+    is what those still do.
+
+    That makes it a check rather than prose, which
+    `a-rule-is-expressed-as-a-check` decides the same way it decided the panel
+    table above: a missing verification record is visible in an artifact the work
+    already produces. Naming `wfctl verify` in a skill's Definition of Done was
+    the cheaper repair and is the shape that already failed — every handoff
+    listed four commands and this was in none of them.
+
     Of `conversation-response-shape`, only the drawing rules, because the skill
     scopes the two surfaces apart (SKILL.md:429): headers are a violation in a
     reply and *required* in a PR body, while the template names this skill's
@@ -3325,7 +3368,11 @@ def check_body_cmd(
     is one file, not one skill's view of it.
 
     Exits 1 when it finds something, so the finding is hard to walk past. It
-    gates nothing — nothing runs this but the author.
+    gates nothing — nothing runs this but the author. That is what keeps the
+    verification finding from making a record mandatory: a copy edit whose author
+    reads the line and opens the change anyway is the intended path, not a
+    defect. A repository declaring no definition of done never sees the line at
+    all.
     """
     try:
         # Explicit, not the platform default: wfctl's own descriptions are
@@ -3339,7 +3386,7 @@ def check_body_cmd(
     from wfctl import _body, _shape
     from rich.markup import escape
 
-    found = _shape.body_findings(body) + _body.panel_findings(body)
+    found = _shape.body_findings(body) + _body.panel_findings(body) + _verification_finding()
     if not found:
         console.print(f"[green]✓[/green] {path}: drawings and panel look right", soft_wrap=True)
         return

@@ -172,6 +172,28 @@ It reads the Review Panel section too, and reports a section that is absent or
 still carrying the placeholders it shipped with — the rule from Step 1, on the
 artifact where breaking it is visible.
 
+**Its third finding is not about the file.** A `verification:` line says the
+repository declares a definition of done and no record of it passing covers this
+tree — never run, failed, left inconclusive, or taken against a commit the branch
+has since moved off:
+
+```
+verification: unverified — run `wfctl verify`
+verification: failed — 1 of 3 at a1b2c3d: pytest -q
+verification: stale — verified at a1b2c3d, HEAD is e4f5a6b
+```
+
+Run `wfctl verify`, then read the body check again. It is not a gate and there is
+no flag to silence it: a change that should ship unverified ships unverified, and
+the line is the record that it did. A repository that declares no definition of
+done never prints it.
+
+This is the only check on the road every change takes, which is why it is here.
+`wfctl verify` was called from one place — `speckit-implement` step 9c — and that
+runs only when the pipeline runs, so the bug fixes and copy edits `design-levels`
+sends around the pipeline were certified by nothing but the agent that wrote them
+(#236).
+
 It exits 1 when it finds something and gates nothing; the point is that the file
 exists before `gh` reads it, so the check is available at all. Outside a wfctl
 repo, or with no `wfctl` on `PATH`, skip it — the rule is in the skill either way.

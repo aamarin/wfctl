@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from wfctl import _shape
@@ -380,9 +381,20 @@ roster: r1 ✓  r2 ✓  r3 ✓
 """
 
 
-def test_check_body_exits_one_on_a_finding_and_zero_without(tmp_path: Path) -> None:
+def test_check_body_exits_one_on_a_finding_and_zero_without(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Exit 1 so the finding is hard to walk past. It gates nothing — nothing
-    runs this but the author."""
+    runs this but the author.
+
+    `WFCTL_REPO_ROOT` points at a directory with no `wfctl.json`, which silences
+    the verification finding the command also reports (#236). Without it these
+    two assertions read the repository they run in, and the drawing rules under
+    test here would be decided by whether someone had run `wfctl verify` on the
+    branch — the machine-dependence `NO_COLOR` is pinned against, arriving by a
+    different door.
+    """
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(tmp_path))
     bad = tmp_path / "bad.md"
     bad.write_text(REJECTED + _PANEL)
     good = tmp_path / "good.md"

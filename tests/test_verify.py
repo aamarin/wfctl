@@ -15,8 +15,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from wfctl import _verify
+from wfctl.cli import app
+
+runner = CliRunner()
 
 
 def _write_config(root: Path, payload: str) -> None:
@@ -432,3 +436,126 @@ def test_a_tree_that_changes_mid_run_is_inconclusive(
     rec = _verify.load_record(verify_repo)
     assert rec is not None and rec["inconclusive"] is True
     assert "inconclusive" in capsys.readouterr().out
+
+
+# --- check-body: the definition of done off the pipeline (#236) --------------
+
+# A description with nothing wrong with it, so what these assert is the
+# verification finding alone. `_shape` and `_body` own the other two sources and
+# have their own suites; a body that tripped either would make an exit code here
+# unreadable.
+_CLEAN_BODY = """# Pull Request
+
+## Summary
+
+**Context:** A tool that tracks where a feature sits in a pipeline.
+
+**What:** A definition of done that reaches changes with no spec.
+**Why:** Nothing ran it off the pipeline.
+**Impact:** A one-off change stops being certified by the agent that made it.
+
+## Review Panel
+
+**Panel:** the diff — 3 reviewers, 1 finding
+
+| # | Reviewer | Finding | Disposition |
+|---|---|---|---|
+| 1 | r1 | the fence is tabular | applied |
+
+roster: r1 ✓  r2 ✓  r3 ✓
+"""
+
+
+def _ignore_state_dir(root: Path) -> None:
+    """Keep the state dir out of `git status --porcelain`.
+
+    `verify_repo` puts it under the repository root, where a real one never sits
+    — `.agents/` is gitignored and the XDG dir is outside the tree entirely. Left
+    tracked, the record `perform` writes is itself an untracked file, so a run
+    reports the tree dirty because it ran, and nothing downstream can ever read
+    clean.
+    """
+    (root / ".gitignore").write_text(".wfctl-state/\n")
+
+
+def _body_file(root: Path) -> str:
+    """Written *outside* the repository, which is also where one really lives.
+
+    `opening-a-change` Step 5 writes the body to a file and hands the path over;
+    an agent puts that in a scratchpad. Inside the repo it is an uncommitted file,
+    so the description under test would itself be the reason the tree reads dirty
+    — a check reporting on the artifact it was handed.
+    """
+    path = root.parent / f"{root.name}-body.md"
+    path.write_text(_CLEAN_BODY)
+    return str(path)
+
+
+def test_check_body_reports_a_definition_of_done_that_never_ran(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """#236, and the case that had no coverage anywhere.
+
+    `wfctl verify` had one caller — `speckit-implement` step 9c — which runs only
+    when the pipeline runs, and `design-levels` sends bug fixes and copy edits
+    around the pipeline. There is no spec dir here and no `implement` step for
+    `status` to annotate, so before this the branch could be opened as a change
+    with nothing having consulted the record at all.
+    """
+    ok = _script(repo_root, "ok.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [ok]}))
+    result = runner.invoke(app, ["check-body", _body_file(repo_root)])
+    assert result.exit_code == 1
+    assert "verification: unverified" in result.output
+
+
+def test_check_body_is_silent_when_the_repository_declares_no_definition_of_done(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """The degrade clause of `wfctl-runs-the-verification`, reaching this command.
+
+    It is what keeps a copy edit openable: a repo that declares no checks sees no
+    change at all. Making a record mandatory for every change would be a worse
+    failure than the one #236 names.
+    """
+    result = runner.invoke(app, ["check-body", _body_file(repo_root)])
+    assert result.exit_code == 0
+    assert "verification" not in result.output
+
+
+def test_check_body_goes_quiet_once_the_definition_of_done_has_passed(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """The finding clears by running the checks, not by editing the description.
+
+    That is the whole difference between this and naming `wfctl verify` in a
+    skill's prose — the shape that already failed, because a rule whose violation
+    is invisible in the artifacts is a comment (`a-rule-is-expressed-as-a-check`).
+    """
+    ok = _script(repo_root, "ok.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [ok]}))
+    _ignore_state_dir(repo_root)
+    _commit(repo_root)
+    assert _verify.perform(verify_repo, repo_root) == 0
+    result = runner.invoke(app, ["check-body", _body_file(repo_root)])
+    assert result.exit_code == 0, result.output
+
+
+def test_check_body_reports_a_record_the_branch_has_moved_off(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """A record naming a commit that is no longer HEAD certifies a tree nobody is
+    proposing. `verification_block` already drew that line for the `implement`
+    step; asserting it here is what says the *same* answer reaches a change with
+    no spec, rather than a second, looser one written for this path.
+    """
+    ok = _script(repo_root, "ok.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [ok]}))
+    _ignore_state_dir(repo_root)
+    _commit(repo_root)
+    assert _verify.perform(verify_repo, repo_root) == 0
+    (repo_root / "later.txt").write_text("a change made after the run\n")
+    _commit(repo_root)
+    result = runner.invoke(app, ["check-body", _body_file(repo_root)])
+    assert result.exit_code == 1
+    assert "verification: stale" in result.output
