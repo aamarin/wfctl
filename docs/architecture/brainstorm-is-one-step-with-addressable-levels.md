@@ -14,7 +14,7 @@ status: proposed
    ──────                        ─────────────
    brainstorm                    level 1  behavior        gate
      /speckit.brainstorm    ───► level 2  architecture    gate — writes a record
-     auto: False                 level 3  design          gate — writes a record
+     auto: True                  level 3  design          gate — writes a record
                                  level 4  implementation  gate
 ```
 

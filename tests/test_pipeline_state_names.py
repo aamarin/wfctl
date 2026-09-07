@@ -172,9 +172,9 @@ def test_the_json_view_carries_the_auto_flag(
     """
     assert json.loads(runner.invoke(app, ["status", "--json"]).output)["auto"] is True
 
-    # A marked spec, because `clarify` is the earliest step the table still flags
-    # `False` once `brainstorm` advances (#283) — and a payload asserted at one
-    # value twice cannot show the field is read rather than emitted.
+    # A marked spec, because `clarify` is the earliest step the table flags
+    # `False` — a payload asserted at one value twice cannot show the field is
+    # read rather than emitted.
     storyctl_dir.make_spec_artifact(
         "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
     )

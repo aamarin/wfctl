@@ -355,10 +355,10 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     the suite green. Both values, because a flag hardcoded either way passes a
     test that only checks the other.
 
-    The empty feature is `brainstorm` and it advances (#283): entering the design
-    step is what the flag governs, and `design.md` is written into the working
-    tree. The pause that matters sits one step later and is `design_gate`'s, not
-    the table's — `test_resume_is_gated_too` is where that half is pinned.
+    An empty feature is `brainstorm`, and it advances: what the flag governs is
+    entering the design step, whose output lands in the working tree. The pause
+    that matters sits one step later and belongs to `design_gate` rather than to
+    the table — `test_resume_is_gated_too` is where that half is pinned.
     """
     _arch_root(storyctl_dir, monkeypatch)
     runner.invoke(app, ["start"])
@@ -368,10 +368,8 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     assert "step: brainstorm" in advances.output
     assert "auto: true" in advances.output
 
-    storyctl_dir.make_spec_artifact("brainstorm")
-    runner.invoke(app, ["arch", "none", "--reason", "no new state"])
-    # Markers are clarify's own job, and clarify is a step the table still flags
-    # `False` — the flip left no `False` earlier in the pipeline to read here.
+    # A marked spec, which is clarify's own job — and clarify is the earliest
+    # step the table flags `False`, so the second read disagrees with the first.
     storyctl_dir.make_spec_artifact("specify", "# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
 
     stops = runner.invoke(app, ["resume"])

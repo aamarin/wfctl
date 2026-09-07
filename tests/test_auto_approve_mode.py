@@ -223,11 +223,17 @@ def test_resume_says_the_mode_on_its_own_line(
     `resume` already prints `(auto: …)` for whether this step advances
     unprompted. Folding the mode into that parenthetical is what the issue says
     will make the two read as one axis.
+
+    The step is `clarify`, so the two values disagree. On a step both of them
+    call `true` a `resume` that printed the mode into the `(auto: …)` slot — the
+    fold this test forbids — reads identical to one that did not.
     """
     runner.invoke(app, ["start", "--auto-approve"])
+    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
+
     output = runner.invoke(app, ["resume"]).output
 
     assert "auto-approve" in output
-    assert "(auto: true)" in output
+    assert "(auto: false)" in output
     mode_line = next(line for line in output.splitlines() if "auto-approve" in line)
     assert "(auto:" not in mode_line
