@@ -1,3 +1,8 @@
 {
-  "extends": "claudelint:recommended"
+  "extends": "claudelint:recommended",
+  "_comment": "Both rules below were evaluated against this tree and disagreed with, not deferred. skill-body-missing-usage-section matches a level-2 heading against seven literal strings; this repo names its instructions 'Execution Steps', 'The verb contract', 'Step 1 - ...', and agent-brief is flagged for saying 'When to Use' rather than 'How to Use'. It never reads what sits under a heading, so an empty '## Usage' passes it and 32 working skills do not. skill-body-word-count still catches a genuinely empty body. skill-arguments-without-hint matches /\\$ARGUMENTS|\\$\\d+/, so conversation-response-shape trips it on a dollar amount in a worked example; the other eight are speckit skills whose $ARGUMENTS block is inherited from the upstream command template and is substituted in commands/, never in the skill the command delegates to. An argument-hint there would document an argument the skill never receives.",
+  "rules": {
+    "skill-body-missing-usage-section": "off",
+    "skill-arguments-without-hint": "off"
+  }
 }
