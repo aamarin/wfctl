@@ -900,7 +900,6 @@ def test_claim_conflicts_names_two_map_rows_that_claim_one_key(
     about *why* — the two rows that caused it are never named, so the person
     holding the branch has nowhere to look.
     """
-    _init_commit(repo_root)
     specs = repo_root / "specs"
     for name in ("539-coa-taxonomy", "543-chart-consolidation"):
         (specs / name).mkdir(parents=True)
@@ -939,4 +938,3 @@ def test_claim_conflicts_reads_a_missing_spec_root_without_raising(
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(repo_root / "nowhere"))
 
     assert claim_conflicts(repo_root) == []
-

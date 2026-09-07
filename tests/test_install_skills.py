@@ -3477,8 +3477,11 @@ def test_doctor_reports_a_key_an_own_dir_and_a_map_row_both_claim(
 
     result = runner.invoke(app, ["doctor"])
 
-    assert result.exit_code == 1
-    assert "issue 200 is claimed by 2 features" in result.output
+    # Named, not a finding: the shape includes a decomposed epic's finished
+    # past, which has no clearing path, so holding it against the exit code
+    # would fail the definition of done forever on any repo that has one.
+    assert result.exit_code == 0
+    assert "ℹ issue 200 is claimed by 2 features" in result.output
     assert str(specs / "200-child") in result.output
     assert str(specs / "100-parent") in result.output
     assert f"Resolution returns {specs / '200-child'}." in result.output
@@ -3504,3 +3507,79 @@ def test_doctor_says_nothing_about_a_key_only_one_feature_claims(
 
     assert result.exit_code == 0
     assert "claimed by" not in result.output
+
+
+def test_doctor_names_no_winner_for_a_key_two_grouping_maps_claim(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second shape of #271, rendered.
+
+    `resolve_spec_dir` refuses a key two maps claim, and the refusal is the part
+    the branch already sees — the pipeline stops. What it does not see is the
+    two rows that stopped it, which is the whole reason a person cannot fix it.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    specs = repo_root / "specs"
+    for name in ("539-coa-taxonomy", "543-chart-consolidation"):
+        (specs / name).mkdir(parents=True)
+        (specs / name / "delivery.md").write_text(
+            "## Issue Grouping Map\n\n| Issue | Tasks |\n|---|---|\n| **#544** — a child | T001 |\n"
+        )
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "ℹ issue 544 is claimed by 2 features" in result.output
+    assert "Resolution returns nothing" in result.output
+    assert "Resolution returns /" not in result.output
+
+
+def test_doctor_names_no_winner_when_two_directories_carry_one_key(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two features that reused a key, which is what wfctl's own spec root holds.
+
+    Neither existing branch is hurt — each resolves to its own directory by
+    exact name. A third branch carrying the key gets whichever sorts first, and
+    on the real spec root that is the directory belonging to the *other* issue.
+    Naming a winner here would be naming one of two arbitrary answers.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    specs = repo_root / "specs"
+    for name in ("11-agent-artifact-layout", "11-gitignore-glob-dedup"):
+        (specs / name).mkdir(parents=True)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "ℹ issue 11 is claimed by 2 features" in result.output
+    assert "depends on the branch name" in result.output
+
+
+def test_doctor_names_no_winner_for_a_spec_dir_named_the_bare_key(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory named the bare key is reached by that branch and no other.
+
+    `extract_issue_key` accepts a key with no slug and resolution's glob
+    (`{key}[-_]*`) requires a separator, so `specs/200` wins for branch `200`
+    and loses to the epic for branch `200-child`. The report named it the winner
+    outright, which told the second branch the opposite of what it gets.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    specs = repo_root / "specs"
+    (specs / "200").mkdir(parents=True)
+    (specs / "100-parent").mkdir(parents=True)
+    (specs / "100-parent" / "delivery.md").write_text(
+        "## Issue Grouping Map\n\n| Issue | Tasks |\n|---|---|\n| **#200** — the child | T001 |\n"
+    )
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "ℹ issue 200 is claimed by 2 features" in result.output
+    assert "depends on the branch name" in result.output
+    assert "Resolution returns /" not in result.output

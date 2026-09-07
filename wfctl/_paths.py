@@ -527,11 +527,17 @@ def claim_conflicts(repo_root: Path) -> list[ClaimConflict]:
             if claimed != key:
                 mapped.setdefault(claimed, []).append(d)
 
-    return [
+    # Numeric keys sort as numbers, everything else after them alphabetically.
+    # A plain string sort files issue 100 ahead of issue 9, and the reader is
+    # scanning this list for a key they already have in mind.
+    def order(k: str) -> tuple[int, int, str]:
+        return (0, int(k), "") if k.isdigit() else (1, 0, k)
+
+    conflicts = [
         ClaimConflict(k, own.get(k, []), mapped.get(k, []))
-        for k in sorted(own.keys() | mapped.keys())
-        if len(own.get(k, [])) + len(mapped.get(k, [])) > 1
+        for k in sorted(own.keys() | mapped.keys(), key=order)
     ]
+    return [c for c in conflicts if len(c.own) + len(c.mapped) > 1]
 
 
 def project_name(repo_root: Path) -> str:
