@@ -45,9 +45,15 @@ performs it, and how often a class fires decides how it is delivered:
 
 | Class | What it reaches | Delivery |
 |---|---|---|
-| local and reversible — edit files, commit, write the summary | this worktree only; `git reset` undoes it | prose. It fires many times an hour, and a gate that frequent is answered reflexively rather than read |
+| local and reversible — edit files, commit, write the summary | this machine only, and only what this branch owns: the worktree, its spec dir, its state dir. Nobody is notified, and the actor can undo it alone | prose. It fires many times an hour, and a gate that frequent is answered reflexively rather than read |
 | outward-facing — push, comment on an issue, open one, add a label | people who are notified, and deleting it later does not un-notify them | prose, plus a check wherever one is cheap |
 | irreversible — merge, close an issue, force-push, delete a branch or worktree | history, and work that is not this agent's | always the human. No switch, not configurable |
+
+"Reversible" is not "revertable by git". `session-summary.md` and the spec dir
+both sit outside the worktree — `wfctl state-dir` and `wfctl feature-paths`
+print where — so `git reset` reaches neither, and both are still row one: no
+watcher learns of the write, and whoever made it can overwrite it. The test is
+who has to be involved to undo it, not which tool does the undoing.
 
 Two constraints travel with all three. Granted authority is bounded by the
 branch: nothing on `main`, under any switch. And the agent reports what it did
