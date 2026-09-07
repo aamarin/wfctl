@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Comprehensive adversarial code review across six lenses — correctness, security, architecture, readability, performance, and over-engineering. Reviews any target (working changes, a specific commit, a commit range, or a PR) with fresh context and severity-classified findings (BLOCKER / WARNING / NIT). Use before merging, after a feature or bug fix, when asked to "review this commit / PR / diff", or to check code another agent produced. For acting on review feedback you *received*, use receiving-code-review instead.
+description: Comprehensive adversarial code review across six lenses — correctness, security, architecture, readability, performance, and over-engineering. Reviews any target (working changes, a specific commit, a commit range, or a PR) with fresh context and severity-classified findings (BLOCKER / WARNING / NIT). Use before merging, after a feature or bug fix, when asked to "review this commit / PR / diff", or to check code another agent produced. For acting on review feedback already *received*, use receiving-code-review instead.
 ---
 
 # Code Review

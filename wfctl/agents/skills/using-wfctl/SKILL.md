@@ -1,6 +1,6 @@
 ---
 name: using-wfctl
-description: Reference for wfctl, the session/pipeline state CLI these skills are built on. Use when you need to call wfctl directly, or aren't sure which subcommand fits — session lifecycle, pipeline status, or installing/removing wf-skills itself.
+description: Reference for wfctl, the session/pipeline state CLI these skills are built on. Use when calling wfctl directly, or when it is unclear which subcommand fits — session lifecycle, pipeline status, or installing/removing wf-skills itself.
 compatibility: 'Requires wfctl to be installed'
 ---
 

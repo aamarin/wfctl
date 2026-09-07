@@ -1,6 +1,6 @@
 ---
 name: speckit-delivery-plan
-description: Delivery decomposition skill for the speckit workflow. Use when you have a complete tasks.md and need to decide PR boundaries, group tasks into GitHub issues, and map parallelization waves before creating issues. Enforces the canonical workflow with decompose as the default terminus.
+description: Delivery decomposition skill for the speckit workflow. Use when a complete tasks.md exists and the next step is deciding PR boundaries, grouping tasks into GitHub issues, and mapping parallelization waves before creating issues. Enforces the canonical workflow with decompose as the default terminus.
 ---
 
 # Speckit Delivery Plan

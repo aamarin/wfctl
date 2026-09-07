@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
+description: Use when implementation is complete, all tests pass, and the work needs an integration decision - guides completion of development work by presenting structured options for merge, PR, or cleanup
 ---
 
 # Finishing a Development Branch
@@ -129,7 +129,7 @@ git push -u origin <feature-branch>
 
 #### Option 3: Keep As-Is
 
-Report: "Keeping branch <name>. Worktree preserved at <path>."
+Report: `Keeping branch <name>. Worktree preserved at <path>.`
 
 **Don't cleanup worktree.**
 

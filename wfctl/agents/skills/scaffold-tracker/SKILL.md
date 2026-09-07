@@ -1,6 +1,6 @@
 ---
 name: scaffold-tracker
-description: Author a new issue-tracker backend for `wfctl issue` by generating a `.agents/trackers/<name>.json` verb→command map. Use when a repo uses a tracker other than GitHub (e.g. a private Jira CLI) and needs the session skills to reconcile against it.
+description: Author a new issue-tracker backend for `wfctl issue` by generating a `.agents/trackers/NAME.json` verb→command map. Use when a repo uses a tracker other than GitHub (e.g. a private Jira CLI) and needs the session skills to reconcile against it.
 ---
 
 # Scaffold an issue-tracker backend

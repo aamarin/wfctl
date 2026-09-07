@@ -47,9 +47,10 @@ Derived from the three prompts that worked, not invented. Sections 1, 2, 3, 6,
 have no content — an empty "Boundaries: none" teaches the reader to skim the
 heading next time.
 
-1. **One line: what to build.** `Implement issue #N — <the thing, in a
-   sentence>.` Not a summary of the issue; the sentence the issue would have
-   opened with if it had been written after the fact.
+1. **One line: what to build.**
+   `Implement issue #N — <the thing, in a sentence>.`
+   Not a summary of the issue; the sentence the issue would have opened with if
+   it had been written after the fact.
 
 2. **Where to start, and how to read it.** Open with `Run /start-session before
    you touch anything`, and say why on the same line — an agent already holding a
@@ -158,7 +159,7 @@ default" was the old wording and it did not work — three of three panes stated
 the action back verbatim and asked anyway (#244); a line that reads as
 description rather than instruction is a line step 9 will not quote. Write it as
 the imperative it is: `Start with <the command>`, not "the work here concerns
-<x>". Do not add a TODO section to get one; it would be a second copy of the
+`<x>`". Do not add a TODO section to get one; it would be a second copy of the
 route, and `.agents/skills/end-session` owns that heading.
 
 ## Step 4: Confirm it landed

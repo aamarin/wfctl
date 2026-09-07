@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: Proactively request review of your OWN work before problems compound — dispatch a fresh-context reviewer after a task, before a merge, after a complex bug fix, or when stuck. This is the trigger and hand-off; the reviewer runs the code-review skill. For reviewing a diff yourself, use code-review. For acting on feedback you received, use receiving-code-review.
+description: Proactively request review of your OWN work before problems compound — dispatch a fresh-context reviewer after a task, before a merge, after a complex bug fix, or when stuck. This is the trigger and hand-off; the reviewer runs the code-review skill. For reviewing a diff yourself, use code-review. For acting on feedback already received, use receiving-code-review.
 ---
 
 # Requesting Code Review
