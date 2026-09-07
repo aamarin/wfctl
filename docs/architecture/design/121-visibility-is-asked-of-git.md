@@ -31,6 +31,11 @@ still sees nothing.
 - `git diff --name-only origin/main...HEAD` printed nothing on this branch
   before its first commit, so a diff-membership question is empty for a branch
   that has not committed yet.
+- `wfctl arch-root` already prints `⚠ Root is outside the working tree` under
+  `WFCTL_ARCH_DIR` pointing elsewhere. The warning is on the resolver and not on
+  the record, so it fires whether or not one is being written and says nothing
+  about whether one landed. It is the reason the decision adds a check rather
+  than a second warning.
 
 ## Assumed
 
