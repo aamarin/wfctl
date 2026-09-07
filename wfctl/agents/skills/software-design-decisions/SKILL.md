@@ -38,6 +38,12 @@ missing record.
 belongs in `.agents/skills/architecture-decisions`. See *Escalation* below —
 the tell is in the diagram, not in how large the change feels.
 
+The template's own opening comment reads the other way — "whether or not it
+draws a line" — and this skill governs where that conflicts. Read it as lowering
+the bar for a level-3 record, not as admitting boundary decisions into one: a
+binding decision filed under `design/` is invisible to `wfctl arch context`,
+which is the outcome both readings agree is wrong.
+
 ## Where records live
 
 ```bash
