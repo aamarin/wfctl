@@ -52,7 +52,21 @@ _SKILL = _AGENTS / "skills" / "conversation-response-shape" / "SKILL.md"
 #
 # The ceiling now equals the file exactly. That is deliberate — the next line
 # added to `SKILL.md` has to argue for itself here rather than land in slack.
-_LINE_CEILING = 483
+#
+# 490 is that argument, and the second disclosed exception. Seven lines: one
+# table row under rule 3, and a six-line paragraph lifting rule 2's
+# two-sentence cap when the reader asked for plain words.
+#
+# Not a seventh rule, which is why it ships without an example of its own —
+# the table row carries the form and rule 2's paragraph carries only where its
+# cap stops applying. The sentence above still governs the seventh rule.
+#
+# What the seven buy is a contradiction, not an addition. Rule 3 granted a
+# request for a simple explanation full depth; rule 2 forbade plain language
+# past two sentences. A reply that satisfied such a reader had to break rule 2
+# to do it, so the file taught the wrong thing at the moment it was most likely
+# to be reached for.
+_LINE_CEILING = 490
 
 
 def test_the_first_three_rules_keep_their_numbers() -> None:
