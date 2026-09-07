@@ -559,3 +559,54 @@ def test_check_body_reports_a_record_the_branch_has_moved_off(
     result = runner.invoke(app, ["check-body", _body_file(repo_root)])
     assert result.exit_code == 1
     assert "verification: stale" in result.output
+
+
+def test_check_body_stays_quiet_outside_a_git_repository(
+    verify_repo: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`opening-a-change` Step 5 says to skip this command outside a wfctl repo.
+
+    Someone runs it there anyway, and a description that is fine is not the place
+    to report that git is missing. `get_repo_root` raises `SystemExit`, which an
+    `except Exception` would not catch — the same trap
+    `test_a_non_git_checkout_still_exits_zero` was written for.
+    """
+    ok = _script(repo_root, "ok.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [ok]}))
+    body = _body_file(repo_root)
+    assert "verification" in runner.invoke(app, ["check-body", body]).output
+
+    monkeypatch.delenv("WFCTL_REPO_ROOT")
+
+    def not_a_repo() -> Path:
+        raise SystemExit("wfctl: not a git repository")
+
+    monkeypatch.setattr("wfctl.cli.get_repo_root", not_a_repo)
+    result = runner.invoke(app, ["check-body", body])
+    assert result.exit_code == 0
+    assert "verification" not in result.output
+
+
+def test_a_description_written_into_the_worktree_is_what_reads_dirty(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """Why `opening-a-change` Step 5 names a path outside the repository.
+
+    An untracked file is uncommitted work to `code_identity`, and a description
+    is a file. Written into the tree it describes, it makes that tree dirty by
+    existing, so the finding reports the artifact it was handed — on a branch
+    that verified clean a second earlier. Found by a reviewer following Step 5
+    literally, which named no location before this.
+    """
+    ok = _script(repo_root, "ok.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [ok]}))
+    _ignore_state_dir(repo_root)
+    _commit(repo_root)
+    assert _verify.perform(verify_repo, repo_root) == 0
+    assert runner.invoke(app, ["check-body", _body_file(repo_root)]).exit_code == 0
+
+    inside = repo_root / "pr-body.md"
+    inside.write_text(_CLEAN_BODY)
+    result = runner.invoke(app, ["check-body", str(inside)])
+    assert result.exit_code == 1
+    assert "tree has uncommitted changes" in result.output
