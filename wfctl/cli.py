@@ -1522,6 +1522,13 @@ _MIRRORED_SKILLS = frozenset({
     # skill has to be discoverable.
     "opening-a-change",
     "receiving-code-review",
+    # No wrapper under `agents/commands/`, so the mirror is the only route: a
+    # skill absent from both is reachable only by an agent already reading
+    # `design-levels` as text, which is the shape of #198 one hop down the
+    # pointer chain that issue was filed to build. Its description triggers on a
+    # structural choice just settled in conversation — a moment nobody types a
+    # command, the same reason `fanning-out-code-review` is here (#124).
+    "software-design-decisions",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather
     # than the filesystem: an agent reaching for `Skill(start-session)` is
