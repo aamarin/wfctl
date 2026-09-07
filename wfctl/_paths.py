@@ -517,9 +517,22 @@ def claim_conflicts(repo_root: Path) -> list[ClaimConflict]:
 
     pattern = _tracker.load_key_pattern(repo_root)
 
+    try:
+        features = sorted(p for p in root.iterdir() if p.is_dir())
+    except OSError:
+        # A configured root is an arbitrary path off this machine — an external
+        # directory whose permissions have nothing to do with the repo, unlike
+        # the in-repo `specs/` the migration check reads. `is_dir()` passes on
+        # one this user cannot list, and the raise lands in `doctor` before it
+        # has reported the layer checks that come after. Silent rather than a
+        # warning because a root that cannot be read stops `status` and
+        # `feature-paths` outright: by the time this would say so, it has been
+        # said louder.
+        return []
+
     own: dict[str, list[Path]] = {}
     mapped: dict[str, list[Path]] = {}
-    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+    for d in features:
         key = extract_issue_key(d.name, pattern)
         if key != "unknown":
             own.setdefault(key, []).append(d)

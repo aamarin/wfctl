@@ -938,3 +938,21 @@ def test_claim_conflicts_reads_a_missing_spec_root_without_raising(
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(repo_root / "nowhere"))
 
     assert claim_conflicts(repo_root) == []
+
+
+def test_claim_conflicts_reads_an_unlistable_spec_root_without_raising(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured root is an arbitrary path off this machine, and its
+    permissions have nothing to do with the repo — `is_dir()` passes on a
+    directory this user cannot list. `doctor` runs this scan before the layer
+    checks, so the raise took the rest of the report with it (#274)."""
+    root = repo_root / "unlistable"
+    root.mkdir()
+    root.chmod(0o000)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(root))
+    try:
+        assert claim_conflicts(repo_root) == []
+    finally:
+        # Restored so the tmp_path teardown can remove it.
+        root.chmod(0o755)
