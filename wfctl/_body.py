@@ -393,13 +393,16 @@ def panel_findings(body: str) -> list[str]:
     elif matched := sorted(m for m in FAILURE_MARKERS if m in roster):
         out.append(
             f"opening-a-change Step 1 — the roster records {matched}: "
-            f"{roster!r}. fanning-out-code-review Step 3 calls each of those a "
-            "failure rather than a pass — "
+            # "does not let stand as a pass", never "is a failure": Step 3
+            # calls only MISSING a failure, and a check that calls a slow
+            # reviewer failed is the conflation this module exists to end.
+            f"{roster!r}. fanning-out-code-review Step 3 does not let that "
+            "stand as a pass — "
             # Labelled, not just joined. Two remedies in a row read as one
             # sequence for one reviewer, which hands a RUNNING reviewer the
             # MISSING answer — the conflation the mapping was introduced to end.
             + "; ".join(f"{m} → {FAILURE_MARKERS[m]}" for m in matched)
-            + ". A description written around one of them is a panel that had "
+            + ". A description written around that is a panel that had "
             "not finished, shipped as one that did."
         )
     return out
