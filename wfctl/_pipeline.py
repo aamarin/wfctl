@@ -82,7 +82,7 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     finished: every box ticked, or the sentinel that says so over one left open.
 
     Only the tasks. A caller asking whether *implementation* is finished wants
-    this and `_verification_block` — a definition of done gets the last word over
+    this and `verification_block` — a definition of done gets the last word over
     both routes here (#69), and a caller that negates this alone has skipped it.
 
     A function rather than a local, because a local answers the reads inside
@@ -173,7 +173,7 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     return sum(1 for row in rows if not keyed(row))
 
 
-def _verification_block(repo_root: Path) -> str | None:
+def verification_block(repo_root: Path) -> str | None:
     """Why `implement` cannot be complete, or None if nothing blocks it.
 
     Returns the *first* matching reason, in the order below. Where two hold at
@@ -184,6 +184,12 @@ def _verification_block(repo_root: Path) -> str | None:
     A repository with no definition of done is never blocked — that is the whole
     degrade path (FR-002), and it must cost nothing, so the config read happens
     before anything touches git.
+
+    Public because the `implement` step is not the only place this answer is
+    wanted. It is the only place that *has* one: a change `design-levels` sends
+    around the pipeline reaches no `implement` step, so until #236 nothing asked
+    this question about it. Takes `repo_root` alone and resolves the branch
+    itself, which is what lets a caller with no spec dir call it at all.
     """
     from wfctl import _verify
     from wfctl._paths import resolve_agent_dir, resolve_branch
@@ -391,7 +397,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 # Tasks read complete. Before #69 that was the whole check, and
                 # both routes to it are written by the agent doing the work.
                 # A configured definition of done gets the last word.
-                blocked = _verification_block(repo_root)
+                blocked = verification_block(repo_root)
                 state = "in_progress" if blocked else "done"
                 implement_reason = blocked
 
@@ -508,7 +514,7 @@ def next_step_content(
     if step == "implement" and repo_root is not None and spec_dir is not None:
         tasks_md = spec_dir / "tasks.md"
         if _file_exists(tasks_md) and not _tasks_open(tasks_md.read_text(), spec_dir):
-            if _verification_block(repo_root):
+            if verification_block(repo_root):
                 return "wfctl verify", False
     return _STEPS.get(step, ("", False))
 
