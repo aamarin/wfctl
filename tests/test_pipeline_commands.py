@@ -41,7 +41,7 @@ _COMMANDS = Path(str(files("wfctl"))) / "agents" / "commands"
 # is self-consistent. Order is part of it: `_STEP_NAMES` is the sequence the
 # pipeline advances through, so a reordered table reroutes the workflow.
 _EXPECTED_STEPS = [
-    ("brainstorm", "/speckit.brainstorm", False),
+    ("brainstorm", "/speckit.brainstorm", True),
     ("specify",    "/speckit.specify",    True),
     ("clarify",    "/speckit.clarify",    False),
     ("plan",       "/speckit.plan",       True),
@@ -354,23 +354,31 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     `resume` could have written the wrong flag — or stopped writing one — with
     the suite green. Both values, because a flag hardcoded either way passes a
     test that only checks the other.
+
+    The empty feature is `brainstorm` and it advances (#283): entering the design
+    step is what the flag governs, and `design.md` is written into the working
+    tree. The pause that matters sits one step later and is `design_gate`'s, not
+    the table's — `test_resume_is_gated_too` is where that half is pinned.
     """
     _arch_root(storyctl_dir, monkeypatch)
     runner.invoke(app, ["start"])
 
-    stops = runner.invoke(app, ["resume"])
+    advances = runner.invoke(app, ["resume"])
 
-    assert "step: brainstorm" in stops.output
-    assert "auto: false" in stops.output
+    assert "step: brainstorm" in advances.output
+    assert "auto: true" in advances.output
 
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["arch", "none", "--reason", "no new state"])
+    # Markers are clarify's own job, and clarify is a step the table still flags
+    # `False` — the flip left no `False` earlier in the pipeline to read here.
+    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
 
-    advances = runner.invoke(app, ["resume"])
+    stops = runner.invoke(app, ["resume"])
 
-    assert "/speckit.specify" in advances.output
-    assert "auto: true" in advances.output
-    assert "auto: true" in (storyctl_dir.agent_dir / "next-step.md").read_text()
+    assert "/speckit.clarify" in stops.output
+    assert "auto: false" in stops.output
+    assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
 
 
 def test_a_declaration_git_will_not_carry_is_refused(
