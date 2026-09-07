@@ -98,7 +98,15 @@ _PUNCT = re.compile(r"[^a-z ]+")
 # whether someone put text there, and both of these are text someone put there.
 # Reading the skill's own words is the only way to see them that does not become
 # a matcher guessing at synonyms, which is the repair #187 rejected.
-FAILURE_MARKERS = frozenset({"MISSING"})
+# Each marker carries its own remedy: `RUNNING` is a reviewer nobody has heard
+# back from, so "ask it again" — the answer `MISSING` takes — sends the agent
+# after a reviewer that is working fine and puts the roster back where it was.
+# The remedies are this module's own sentences and are not pinned anywhere; only
+# the keys are the skill's words, and only the keys the test above reads.
+FAILURE_MARKERS = {
+    "MISSING": "ask that reviewer again for its findings",
+    "RUNNING": "wait for it to come back, then read the roster again",
+}
 BARE_VERDICTS = frozenset({"looks good"})
 
 _SECTION = "review panel"
@@ -382,12 +390,16 @@ def panel_findings(body: str) -> list[str]:
             "from a reviewer that returned nothing, which is the distinction "
             "fanning-out-code-review Step 3 is built around."
         )
-    elif [m for m in FAILURE_MARKERS if m in roster]:
+    elif matched := sorted(m for m in FAILURE_MARKERS if m in roster):
         out.append(
-            f"opening-a-change Step 1 — the roster records {sorted(m for m in FAILURE_MARKERS if m in roster)}: "
-            f"{roster!r}. fanning-out-code-review Step 3 calls that a failure "
-            "rather than a pass — ask that reviewer again for its findings. A "
-            "panel reported as incomplete is the silent reviewer this check "
-            "exists to expose, written down and shipped anyway."
+            f"opening-a-change Step 1 — the roster records {matched}: "
+            f"{roster!r}. fanning-out-code-review Step 3 calls each of those a "
+            "failure rather than a pass — "
+            # Labelled, not just joined. Two remedies in a row read as one
+            # sequence for one reviewer, which hands a RUNNING reviewer the
+            # MISSING answer — the conflation the mapping was introduced to end.
+            + "; ".join(f"{m} → {FAILURE_MARKERS[m]}" for m in matched)
+            + ". A description written around one of them is a panel that had "
+            "not finished, shipped as one that did."
         )
     return out

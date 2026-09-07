@@ -56,10 +56,17 @@ def _run(shell: str, bin_dir: Path) -> list[str]:
 
 
 def _fixture(feature_dir: Path) -> Path:
-    """One reviewer that reported, one that wrote an empty file, one that never
-    wrote at all — the last two are the cases an agent reads as a clean pass —
-    plus a `wfctl` stub printing the assignment the real one prints. Returns the
-    directory to put on `PATH`."""
+    """One reviewer that reported, one that came back having written an empty
+    file, and one still running — plus a `wfctl` stub printing the assignment
+    the real one prints. Returns the directory to put on `PATH`.
+
+    The three reviewers are the three states the loop can print, so one fixture
+    exercises all of them. `r3` is absent from the fence's `RETURNED` list and
+    writes nothing, which is what makes it a running reviewer rather than a dead
+    one — the distinction #173 is about. Both halves are load-bearing, and
+    `test_a_report_on_disk_outranks_an_incomplete_returned_list` is what holds
+    them apart.
+    """
     reviews = feature_dir / "reviews"
     reviews.mkdir(parents=True)
     (reviews / "r1.md").write_text("BLOCKER cli.py:L1 — …\n")
@@ -73,20 +80,44 @@ def _fixture(feature_dir: Path) -> Path:
     return bin_dir
 
 
-def test_the_roster_check_names_the_reviewers_that_did_not_report(
-    tmp_path: Path,
-) -> None:
-    """An absent file and an empty one both have to read as MISSING.
+def test_the_roster_check_tells_the_three_states_apart(tmp_path: Path) -> None:
+    """One word per state, and the two that mean *nothing on disk* differ.
 
     A reviewer that returns nothing is indistinguishable from one that found
     nothing, and in the run this skill was written from, the agent asserted the
-    second. Checking the disk is what makes the two distinguishable at all, so a
-    check that passes an empty report gives the assertion back its cover.
+    second — so an empty report still has to read as MISSING. #173 is the other
+    half: on that same first run three reports landed across three minutes with
+    the largest last, a roster read in that window said two of three, and the
+    session was told to re-dispatch a reviewer that was working. `r2` came back
+    empty and `r3` has not come back, and the loop is only useful if it says so
+    in different words — both are non-empty output, so a check counting lines
+    would pass the bug this asserts against.
     """
     bin_dir = _fixture(tmp_path)
 
     assert _run("sh", bin_dir) == [
-        "reported", "r1", "MISSING", "r2", "MISSING", "r3",
+        "reported", "r1", "MISSING", "r2", "RUNNING", "r3",
+    ]
+
+
+def test_a_report_on_disk_outranks_an_incomplete_returned_list(
+    tmp_path: Path,
+) -> None:
+    """`RETURNED` answers one question — has this reviewer stopped — and it is
+    asked only about a reviewer that wrote nothing.
+
+    A panel where every reviewer reported is the one an agent is likeliest to
+    hand a half-updated `RETURNED`, and nesting the two tests the other way
+    round reads that as a reviewer still running. `RUNNING` is a failure marker
+    in `_body.py`, so the description is then blocked over a report sitting on
+    disk — the check contradicting its own "against the disk, not against what
+    you remember receiving".
+    """
+    bin_dir = _fixture(tmp_path)
+    (tmp_path / "reviews" / "r3.md").write_text("BLOCKER cli.py:L9 — …\n")
+
+    assert _run("sh", bin_dir) == [
+        "reported", "r1", "MISSING", "r2", "reported", "r3",
     ]
 
 
