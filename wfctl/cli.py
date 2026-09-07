@@ -4137,8 +4137,8 @@ def _check_arch_records(repo_root: Path) -> bool:
     return any(f.level == "error" for f in findings)
 
 
-def _check_double_claimed_keys(repo_root: Path) -> bool:
-    """Report an issue key that two features both claim.
+def _report_double_claimed_keys(repo_root: Path) -> None:
+    """Name an issue key that two features both claim.
 
     Resolution is not in question and does not move: a branch's own directory
     beats an epic's grouping map row naming its key, which is
@@ -4147,36 +4147,53 @@ def _check_double_claimed_keys(repo_root: Path) -> bool:
     already grew its own spec dir and the sub-issue stays on a pipeline of its
     own, with nothing anywhere saying the map row was read and set aside.
 
-    Reads two artifacts the work already produces — a directory name and a table
-    row — so the rule is checkable rather than a caveat somebody has to have
-    read (`a-rule-is-expressed-as-a-check`).
+    Both claims are artifacts the work already produces — a directory name and a
+    table row — readable without a branch, which is what makes this a check
+    rather than a caveat somebody has to have read
+    (`a-rule-is-expressed-as-a-check`).
 
-    Reports only. True while the collision stands; clearing it means dropping
-    one of the two claims, which is a decision about who owns the work and not
-    one a check can make.
+    Names, never a finding: no `⚠`, and no contribution to the exit code. A
+    collision has no clearing path, so the first one a spec root accumulates is
+    permanent — and the shape it fires on includes the finished past, where a
+    decomposed epic's sub-issues legitimately grew directories of their own.
+    wfctl's own spec root holds three. Held against the exit code, this check
+    would turn the definition of done red forever on the repo that ships it,
+    which is the cost `doctor_cmd`'s docstring names for anything admitted here.
     """
+    from rich.markup import escape
+
     conflicts = claim_conflicts(repo_root)
     for c in conflicts:
-        claimants = len(c.own) + len(c.mapped)
         console.print(
-            f"[yellow]⚠[/yellow] issue {c.key} is claimed by {claimants} features:"
+            f"[dim]ℹ[/dim] issue {escape(c.key)} is claimed by "
+            f"{len(c.own) + len(c.mapped)} features:"
         )
-        # soft_wrap: an out-of-tree spec root prints absolute, and a path rich
-        # folded at the terminal width reads as two paths and pastes broken.
+        # escape() and soft_wrap on every path line, for two different failures:
+        # a bracketed directory name parses as a rich style tag, so `[wip]-42`
+        # prints as `-42` and `[/x]` raises outright; and a path rich folded at
+        # the terminal width reads as two paths and pastes broken.
         for d in c.own:
-            console.print(f"    {d} — its own directory", soft_wrap=True)
+            console.print(f"    {escape(str(d))} — its own directory", soft_wrap=True)
         for d in c.mapped:
-            console.print(f"    {d} — a row in its Issue Grouping Map", soft_wrap=True)
-        if len(c.own) == 1:
-            console.print(f"  Resolution returns {c.own[0]}.", soft_wrap=True)
+            console.print(
+                f"    {escape(str(d))} — a row in its Issue Grouping Map", soft_wrap=True
+            )
+        # A named winner only where it holds for every branch carrying the key.
+        # `extract_issue_key` accepts a key with no slug, and resolution's glob
+        # (`{key}[-_]*`) does not, so a directory named the bare key is reached
+        # by the branch of that exact name and by no other — naming it the
+        # winner tells a branch called `200-child` the opposite of what it gets.
+        if len(c.own) == 1 and c.own[0].name != c.key:
+            console.print(f"  Resolution returns {escape(str(c.own[0]))}.", soft_wrap=True)
         elif c.own:
-            # Which of them depends on the branch: an exact directory-name match
-            # is tried before the key glob, so naming a winner here would be a
-            # guess dressed as the answer.
-            console.print("  Resolution returns one of the directories above, chosen by branch name.")
+            console.print("  Which one resolution returns depends on the branch name.")
         else:
-            console.print("  Resolution returns nothing while both rows stand.")
-    return bool(conflicts)
+            console.print("  Resolution returns nothing while more than one row claims the key.")
+    if conflicts:
+        # Once, not per collision: the repair is the same one every time, and a
+        # spec root that accumulated several would otherwise spend more of the
+        # session-start report on restating it than on the keys themselves.
+        console.print("  Settle one by renaming a directory, or dropping a grouping-map row.")
 
 
 def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
@@ -4459,9 +4476,9 @@ def doctor_cmd() -> None:
     Two of the checks below are freshness (the tool version, the content hash);
     the rest are integrity (the teardown hook, the spec-root move, the definition
     of done, the record set, abandoned entries and managed hooks) — `npm
-    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap` and the
-    missing-agent-layer notice are in neither, because neither ever becomes a
-    finding. Named rather than counted: a
+    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap`, the
+    double-claimed-key report and the missing-agent-layer notice are in neither,
+    because none of them ever becomes a finding. Named rather than counted: a
     numeral here has gone stale three times, and one that has to agree with the
     list beside it is a second place to be wrong.
 
@@ -4490,22 +4507,24 @@ def doctor_cmd() -> None:
     # Before the manifest gate below: a repo can have a .workmux.yaml, a recorded
     # spec_root, a wfctl.json or a set of architecture records without having
     # installed skills. Each is drift a repo can carry with nothing pinned, so
-    # each is reported either way.
+    # each is reported either way. The double-claim report below the list is
+    # pre-gate for the same reason — an epic can be decomposed in a repo wfctl
+    # only supplies the pipeline to.
     #
     # A list, not `a or b`: `or` short-circuits, so the first check finding drift
     # would suppress the second and a run would report one problem at a time.
     if any([
         _check_workmux_hook(repo_root),
         _check_spec_root_migration(repo_root),
-        _check_double_claimed_keys(repo_root),
         _check_verify_config(repo_root),
         _check_arch_records(repo_root),
     ]):
         exit_code = 1
 
-    # Not in the list above, and deliberately: this one warns without ever
-    # becoming a finding, so it has no bearing on the exit code to contribute.
+    # Not in the list above, and deliberately: these warn without ever
+    # becoming a finding, so they have no bearing on the exit code to contribute.
     _warn_missing_bootstrap(repo_root)
+    _report_double_claimed_keys(repo_root)
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
