@@ -121,26 +121,80 @@ Asked again, that reviewer produced the only confirmed correctness defect in the
 change.
 
 So the roster is checked against the disk, not against what you remember
-receiving:
+receiving — and against the dispatch, so a reviewer still working does not read
+as one that died:
 
 ```bash
 eval "$(wfctl feature-paths)"
 REVIEWS="$FEATURE_DIR/reviews"
-for id in r1 r2 r3; do
-  if [ -s "$REVIEWS/$id.md" ]; then echo "reported  $id"; else echo "MISSING   $id"; fi
+RETURNED="r1 r2"        # of the roster below, the ones you watched finish
+for id in r1 r2 r3; do    # the roster you dispatched
+  if [ -s "$REVIEWS/$id.md" ]; then echo "reported  $id"; else
+    case " $RETURNED " in
+      *" $id "*) echo "MISSING   $id" ;;
+      *) echo "RUNNING   $id" ;;
+    esac
+  fi
 done
 ```
 
-The id list is **the roster you dispatched**, substituted like the path above —
-not a glob over the directory. `for id in "$REVIEWS"/*.md` checks the reports
-that exist, which is the one question this step is not asking: a reviewer that
-never wrote a file leaves nothing for a glob to find, and the loop reports three
-of three from a panel of four.
+Both lists are **yours to substitute**, like the path above, and neither is a
+glob over the directory. `for id in "$REVIEWS"/*.md` checks the reports that
+exist, which is the one question this step is not asking: a reviewer that never
+wrote a file leaves nothing for a glob to find, and the loop reports three of
+three from a panel of four.
+
+The roster stays a literal list in the `for`, and `RETURNED` is read through a
+quoted expansion. `for id in $RETURNED` looks like the same thing and is not:
+zsh does not split an unquoted parameter into words, so the loop would run once
+over the whole string as a single id and report one reviewer nobody dispatched.
+
+`RETURNED` is what the dispatch told you, not what the reviewer told you. A
+reviewer's own "I already reported" is the recollection this step exists to
+disbelieve; that its run ended is an observation nobody has to trust.
+
+**The disk is asked first; `RETURNED` only breaks the tie.** A report on disk is
+a report whatever anyone remembers, so a reviewer left out of `RETURNED` by
+mistake still reads as `reported`. Memory is consulted about a reviewer that has
+written nothing and about nothing else, which is the one question it can answer.
+Nested the other way round, a real report reads as `RUNNING` and `check-body`
+then blocks a description over findings sitting on disk.
+
+`RETURNED` is the only line here asserting something about *now*, so re-read it
+each time you re-read the roster. A stale one still fabricates a `MISSING` —
+narrower than before, because only a reviewer with nothing on disk can be got
+wrong, but the same defect this step is about.
+
+Three words, three states, and only one of them is a failure:
+
+```
+   reported   a file on disk with something in it
+   RUNNING    dispatched, not back yet   →  not a result. Read the roster again.
+   MISSING    back, and wrote nothing    →  a failure, not a pass
+```
+
+Reading the roster before every reviewer is back is not a mistake — the
+`RUNNING` line is what makes it safe. A `MISSING` written on that reading is a
+defect fabricated out of a slow reviewer: it spends that reviewer's work twice
+and puts an untrue sentence in a description (#173).
 
 `MISSING` is a **failure, not a pass.** Ask that reviewer again for its findings
 in the format `code-review` specifies. If a reviewer insists it already
 reported, the report is the evidence and its recollection is not — ask again
-anyway.
+anyway. A `MISSING` that survives the re-ask is a reviewer that did not run:
+dispatch a replacement under the same id.
+
+`RUNNING` has no repair of its own, which is what makes it safe to read and
+useless to sit on. A reviewer you have decided is not coming back is one you add
+to `RETURNED` anyway: it becomes `MISSING`, which does have a repair. That is
+the only way out of a roster that would otherwise wait for it forever.
+
+Neither word may reach the description Step 6 writes — `wfctl check-body`
+rejects both, because a panel recorded as finished while a reviewer is still
+running is the same untrue sentence as one recorded around a reviewer that never
+spoke. That check reads the roster line for the words themselves, so record a
+re-ask by its outcome rather than its history: `r2 ✓ (re-asked once)`, never
+`r2 was MISSING at first read`.
 
 "No findings" is a valid result only when it says **which passes ran and what
 was checked in each**. A bare "looks good" is a missing report wearing a verdict.

@@ -412,6 +412,52 @@ def test_a_roster_that_records_a_missing_reviewer_is_not_a_pass() -> None:
     assert panel_findings(body)
 
 
+def _panel(roster: str) -> str:
+    """A Review Panel section that is complete but for its roster line."""
+    body = (
+        "## Review Panel\n\n"
+        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
+        "| 1 | r1 | found a bug | applied |\n\n"
+        f"roster: {roster}\n"
+    )
+    return " ".join(panel_findings(body))
+
+
+def test_each_failure_marker_carries_its_own_remedy() -> None:
+    """`MISSING` and `RUNNING` need opposite responses, so a finding naming the
+    wrong one sends the agent after a reviewer that is working fine.
+
+    A description written while a reviewer is still out is a panel reported as
+    finished before it was — observed 2026-09-06, a session drafting a body
+    around a panel section it then had to reopen — so `RUNNING` is a failure
+    here and honest in the roster itself. Asserting the *remedy* rather than
+    that a finding exists is what separates the two markers: both produce a
+    finding, and for a while both produced the same sentence.
+    """
+    from wfctl._body import FAILURE_MARKERS
+
+    finding = _panel("r1 ✓  r2 RUNNING")
+
+    assert FAILURE_MARKERS["RUNNING"] in finding
+    assert FAILURE_MARKERS["MISSING"] not in finding
+
+
+def test_both_markers_at_once_stay_attached_to_their_reviewers() -> None:
+    """The case that degraded silently: two remedies joined by `; ` and neither
+    labelled, which reads as one sequence for one reviewer.
+
+    Both clauses start with a pronoun, so the joined form told the reader to ask
+    a running reviewer again and then wait for it — the conflation the mapping
+    replaced, reintroduced by how it was rendered.
+    """
+    from wfctl._body import FAILURE_MARKERS
+
+    finding = _panel("r1 ✓  r2 MISSING  r3 RUNNING")
+
+    for marker, remedy in FAILURE_MARKERS.items():
+        assert f"{marker} → {remedy}" in finding
+
+
 def test_a_bare_verdict_is_not_evidence() -> None:
     """The skill's own example — *"A bare 'looks good' is a missing report
     wearing a verdict."* A link reference definition is the other thing that is
