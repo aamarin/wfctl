@@ -156,16 +156,28 @@ Write the body to a file and pass the file. `--body` on a shell line mangles
 newlines, backticks and anything a diagram needs:
 
 ```bash
-wfctl check-body /tmp/pr-body.md                          # then read what it says
-gh pr create --title "<subject>" --body-file /tmp/pr-body.md
+BODY="/tmp/pr-body-$(git branch --show-current).md"       # write the description here
+wfctl check-body "$BODY"                                  # then read what it says
+gh pr create --title "<subject>" --body-file "$BODY"
 ```
 
-**Outside the repository, and the path above is not decoration.** A description
-written into the worktree is an untracked file, so the tree it describes stops
-being clean the moment it exists — and the verification finding below then reports
-`tree has uncommitted changes` about the description itself, on a branch that
-verified clean a second earlier. Any path outside the checkout works; a scratch
-directory the harness already gives you is the natural one.
+**Outside the repository, and the path is not decoration.** A description written
+into the worktree is an untracked file, so the tree it describes stops being clean
+the moment it exists — and the verification finding below then reports `tree has
+uncommitted changes` about the description itself, on a branch that verified clean
+a second earlier.
+
+**The branch is in the filename for the same kind of reason.** Two worktrees
+cannot be on one branch, so this collides with nobody; a fixed `/tmp/pr-body.md`
+is one file every concurrent session writes, and the damage lands in the gap
+between the two commands above — yours is checked, theirs overwrites it, and `gh`
+uploads a description nothing validated and nobody wrote for this change. Rebuild
+the path in each command rather than carrying `$BODY` between them: a shell does
+not outlive the command it ran, and an empty `$BODY` sends `gh` at the current
+directory.
+
+A scratch directory your harness already gives you is better than either, being
+unique per session without deriving anything. Use it where you have one.
 
 `check-body` reads the drawings against `conversation-response-shape`, which the
 template above names as the owner of which drawing to use. It knows one thing and
