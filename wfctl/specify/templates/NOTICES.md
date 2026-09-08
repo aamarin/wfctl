@@ -10,7 +10,8 @@ itself.
 
 Each script names its upstream on its own second line. The templates do not,
 and cannot: a template is copied verbatim to become the reader's own document —
-`speckit-specify` copies `spec-template.md` to make `spec.md` — so a line in a
+`scripts/bash/setup-plan.sh` runs `cp` on `plan-template.md` to make `plan.md`,
+and the skills that read the others write from their structure — so a line in a
 template would land in every spec, plan and task list the runtime generates,
 asserting GitHub's copyright over the reader's own writing.
 
@@ -31,6 +32,12 @@ and this file against each other.
     Copyright GitHub, Inc.
 
 Every file above is measured against upstream `main`.
+
+**If you can still see any of the four paths below under `.specify/`, that is a
+stale install, not a file this notice forgot.** They are removed by
+`wfctl install-skills --prune`, and until they are, an upstream file sits in
+your repository with nothing naming where it came from — this notice is the
+only place the templates were ever attributed.
 
 Four files this notice used to name are no longer shipped:
 `scripts/bash/create-new-feature.sh`, `scripts/bash/update-agent-context.sh`

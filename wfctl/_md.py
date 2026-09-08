@@ -20,7 +20,8 @@ them would have the other two building it back from a lossy view.
 from __future__ import annotations
 
 import re
-from typing import Iterable, Iterator, NamedTuple
+from collections.abc import Iterable, Iterator
+from typing import NamedTuple
 
 # Up to three leading spaces, which is markdown's own limit: at four the line is
 # an indented code block and opens nothing. The info string is captured because
@@ -58,9 +59,9 @@ def walk_lines(lines: Iterable[str]) -> Iterator[Line]:
 
     The primitive, because a caller holding `splitlines(keepends=True)` has line
     endings inside each string and rejoining them to re-split loses the mapping
-    between a `Line.number` and that caller's own list index — the failure
-    `_arch._log_bounds` caught, where every index past the first fence was off by
-    the number of lines before it.
+    between a `Line.number` and that caller's own list index. Every index past
+    the first fence comes back short by the number of lines before it, which
+    `test_supersession_appends_inside_the_log_section` is what catches.
 
     Trailing newlines are harmless to the fence match: `.` does not cross one and
     `$` sits before it, so ``` and ```` compare the same either way.

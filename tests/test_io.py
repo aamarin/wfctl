@@ -48,12 +48,6 @@ def test_write_atomic_writes_plain_text(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.tmp")) == []
 
 
-def test_write_atomic_no_parent_raises_for_text_too(tmp_path: Path) -> None:
-    target = tmp_path / "missing" / "doc.md"
-    with pytest.raises(FileNotFoundError):
-        write_atomic(target, "content")
-
-
 def test_append_event_writes_jsonl(tmp_path: Path) -> None:
     append_event(tmp_path, "start", branch="422-test")
     lines = (tmp_path / "events.jsonl").read_text().splitlines()

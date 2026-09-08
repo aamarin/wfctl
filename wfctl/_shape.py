@@ -139,6 +139,19 @@ def _blocks(text: str) -> list[tuple[int, list[str]]]:
     Grouping is `_md.walk`'s `opened` field and nothing else — the boundaries
     were decided by the walk, so this cannot disagree with `_prose` about where
     a block starts.
+
+    **An unclosed fence is a block here, and `_split_fences` dropped it.** That
+    is a deliberate change, not a side effect of the walk: the old pair
+    disagreed with itself, since `_prose` already treated the tail as inside a
+    fence while `blocks` acted as though the fence had never opened. A truncated
+    PR body is one a reader can still be told about, and telling them nothing
+    because the block has no closing line is the reading that has to argue for
+    itself.
+
+    What it costs is that `body_findings` can now fire on the tail of a body cut
+    off mid-block. That is the same finding it would have made had the author
+    typed the closing line, which is the test for whether a change like this is
+    a fix or a regression.
     """
     blocks: dict[int, list[str]] = {}
     for line in _md.walk(text):
@@ -152,7 +165,7 @@ def _prose(text: str) -> list[str]:
 
     The fence delimiters go too. `_md.walk` reports them as outside — they are
     the boundary, and `_arch` prints one — but to a prose scan a bare ``` is
-    neither prose nor a heading, and counting it inflated the word count.
+    neither prose nor a heading, so this filters `fence` alongside `inside`.
     """
     return [
         line.text
