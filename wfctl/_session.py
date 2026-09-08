@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
-from wfctl._io import append_event, write_json_atomic, write_md_atomic
+from wfctl._io import append_event, write_atomic
 
 # The one per-feature setting, and the only file in the state dir that holds a
 # choice rather than a reading. `verify.json` is the shape it copies: named,
@@ -107,7 +107,7 @@ def grant_auto_approve(agent_dir: Path, granted: bool) -> None:
     available here prevents that — the event is what makes it visible afterwards,
     beside the `start` and `resume` lines that say what the session did next.
     """
-    write_json_atomic(agent_dir / MODE_NAME, {"auto_approve": granted})
+    write_atomic(agent_dir / MODE_NAME, json.dumps({"auto_approve": granted}, indent=2))
     append_event(agent_dir, "mode", auto_approve=granted)
 
 
@@ -158,7 +158,7 @@ def end(agent_dir: Path, branch: str, observed: Observations) -> tuple[Path, boo
     summary_file = agent_dir / "session-summary.md"
     written = not summary_file.exists()
     if written:
-        write_md_atomic(summary_file, _render_session_summary(branch, observed))
+        write_atomic(summary_file, _render_session_summary(branch, observed))
 
     append_event(agent_dir, "end", step=observed.step)
     return summary_file, written

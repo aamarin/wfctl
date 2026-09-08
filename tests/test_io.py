@@ -7,51 +7,51 @@ from unittest.mock import patch
 
 import pytest
 
-from wfctl._io import append_event, write_json_atomic, write_md_atomic
+from wfctl._io import append_event, write_atomic
 
 
-def test_write_json_atomic_writes_valid_json(tmp_path: Path) -> None:
+def test_write_atomic_writes_valid_json(tmp_path: Path) -> None:
     target = tmp_path / "data.json"
     data = {"key": "value", "n": 42}
-    write_json_atomic(target, data)
+    write_atomic(target, json.dumps(data, indent=2))
     assert target.exists()
     assert json.loads(target.read_text()) == data
     assert list(tmp_path.glob("*.tmp")) == []
 
 
-def test_write_json_atomic_no_parent_raises(tmp_path: Path) -> None:
+def test_write_atomic_no_parent_raises(tmp_path: Path) -> None:
     target = tmp_path / "nonexistent" / "data.json"
     with pytest.raises(FileNotFoundError):
-        write_json_atomic(target, {"x": 1})
+        write_atomic(target, json.dumps({"x": 1}, indent=2))
     # No partial file left behind
     assert not target.exists()
 
 
-def test_write_json_atomic_target_unchanged_on_failure(tmp_path: Path) -> None:
+def test_write_atomic_target_unchanged_on_failure(tmp_path: Path) -> None:
     target = tmp_path / "data.json"
     original = {"original": True}
-    write_json_atomic(target, original)
+    write_atomic(target, json.dumps(original, indent=2))
 
     # Simulate os.replace failing mid-write
     with patch("os.replace", side_effect=OSError("simulated failure")):
         with pytest.raises(OSError):
-            write_json_atomic(target, {"corrupted": True})
+            write_atomic(target, json.dumps({"corrupted": True}, indent=2))
 
     assert json.loads(target.read_text()) == original
     assert list(tmp_path.glob("*.tmp")) == []
 
 
-def test_write_md_atomic_writes_content(tmp_path: Path) -> None:
+def test_write_atomic_writes_plain_text(tmp_path: Path) -> None:
     target = tmp_path / "doc.md"
-    write_md_atomic(target, "# Hello\n")
+    write_atomic(target, "# Hello\n")
     assert target.read_text() == "# Hello\n"
     assert list(tmp_path.glob("*.tmp")) == []
 
 
-def test_write_md_atomic_no_parent_raises(tmp_path: Path) -> None:
+def test_write_atomic_no_parent_raises_for_text_too(tmp_path: Path) -> None:
     target = tmp_path / "missing" / "doc.md"
     with pytest.raises(FileNotFoundError):
-        write_md_atomic(target, "content")
+        write_atomic(target, "content")
 
 
 def test_append_event_writes_jsonl(tmp_path: Path) -> None:
