@@ -260,3 +260,54 @@ def dispatch(
 
     append_event(agent_dir, event, verb=verb, tracker=name)
     return 0
+
+
+def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str | None]:
+    """The labels on one issue, through the backend's own `view` verb.
+
+    Returns `(labels, detail)`. `labels` is None when there is no answer:
+    `detail` then says why the read failed, or is None when nothing was asked —
+    no tracker configured, or one that declines `view`. A caller gating on a
+    label must keep those apart. "Nobody answered" is the ordinary state of a
+    repo with no tracker (FR-012); "the answer did not arrive" decides a whole
+    run and is reported as its own event (FR-015).
+
+    Reads the header `gh` prints above the `--` separator, never the whole
+    output. Searching the body would let an issue *about* a label grant that
+    label — and #280's own body names `authority:notify` several times, so this
+    is the shape that would have failed on the first issue it was pointed at.
+
+    A backend whose `view` prints no `labels:` header reads as no labels, which
+    resolves to refused. That is the safe direction and the one this cannot get
+    wrong on a tracker nobody has taught it to read.
+    """
+    name = load_manifest(repo_root).get("tracker")
+    if not name:
+        return None, None
+    config = _load_tracker_config(repo_root, name)
+    if config is None or "view" not in config.get("verbs", {}):
+        return None, None
+
+    params: dict = {"id": issue}
+    identity = config.get("identity")
+    if identity is not None:
+        params = {"me": identity, **params}
+    try:
+        argv = [_substitute(tok, params) for tok in config["verbs"]["view"]]
+    except _MissingParam as e:
+        return None, f"'view' requires --{e.key}"
+
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
+    except OSError as e:
+        return None, str(e)
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or "").strip()
+
+    for line in result.stdout.splitlines():
+        if line.strip() == "--":
+            break
+        head, sep, rest = line.partition(":")
+        if sep and head.strip().lower() == "labels":
+            return {p.strip() for p in rest.split(",") if p.strip()}, None
+    return set(), None

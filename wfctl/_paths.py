@@ -99,6 +99,25 @@ def _trunk_branch(repo_root: Path) -> str | None:
     return None
 
 
+def on_trunk(repo_root: Path, branch: str) -> bool | None:
+    """Whether `branch` is the repo's trunk. None when no trunk can be found.
+
+    `_trunk_branch` answers with a ref — `origin/main` when the remote publishes
+    one, a bare `main` when it does not — and the caller here holds a branch
+    name, so only the last segment can be compared. A remote-tracking ref cannot
+    itself be the checked-out branch, which is why the prefix is dropped rather
+    than tried both ways.
+
+    None is not "no", and callers that gate authority on this must not read it
+    as one: a repo whose trunk cannot be named is a repo where "is this the
+    trunk" has no answer, and an authorization check with no answer refuses.
+    """
+    trunk = _trunk_branch(repo_root)
+    if trunk is None:
+        return None
+    return branch == trunk.rpartition("/")[2]
+
+
 def _manifest_root(base: Path, key: str) -> Path | None:
     """The root `key` declares in the manifest at `base`, or None.
 

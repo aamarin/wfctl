@@ -111,6 +111,174 @@ def grant_auto_approve(agent_dir: Path, granted: bool) -> None:
     append_event(agent_dir, "mode", auto_approve=granted)
 
 
+# The second per-feature choice, and its own file rather than a second key on
+# `mode.json`. What `mode.json` says about itself is one writer, one reader; a
+# second key would make every write a read-merge-write and give a partly-corrupt
+# file a meaning nobody has decided. The ~12 lines saved would have been spent on
+# merge logic and a new failure mode.
+NOTIFY_NAME = "notify.json"
+
+# The label that grants from the tracker side. Spelled here rather than in
+# `_tracker`: which label means *may notify* is this module's business, and
+# reading labels off an issue is that one's.
+NOTIFY_LABEL = "authority:notify"
+
+
+class NotifyGrant(NamedTuple):
+    """Whether this run may take an action that tells someone outside the repo.
+
+    `granted` is what every caller gates on, and it is False for every source
+    below except `label` and `local`. `source` is what keeps the refusals apart,
+    and they are not one event: nobody granted it, someone turned it off, the
+    stored value could not be read, the tracker could not be reached, or this is
+    the trunk and no grant reaches it. FR-015 exists because the middle two
+    decide a whole run and must not be filed as a person withholding authority.
+
+    `detail` is for the event log and never for the console. `status` is glanced
+    at and has to stay one line; an unbounded stderr wraps and stops being
+    scannable, while a log carrying a fixed string cannot answer the only
+    question it is opened for.
+    """
+
+    granted: bool
+    source: str
+    detail: str | None = None
+
+
+def _read_notify_file(agent_dir: Path) -> tuple[dict | None, str | None]:
+    """The stored grant, or why it could not be read. Absent is not a failure.
+
+    Guards the three shapes `auto_approve` guards, and for the reason its
+    docstring gives: `ValueError` because an invalid UTF-8 byte raises
+    `UnicodeDecodeError`, which is a `ValueError` and not an `OSError`; and
+    `isinstance` because `null`, `3` and `[]` all parse and have no `.get`.
+
+    Where it parts company with `auto_approve` is the missing file. That reader
+    folds absent into malformed because both mean False to it. Here they are
+    different answers — absent means nobody has said anything, which a label may
+    still answer, and malformed means the answer is lost, which nothing may
+    overrule.
+    """
+    path = agent_dir / NOTIFY_NAME
+    if not path.exists():
+        return None, None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        return None, f"{path.name}: {e}"
+    if not isinstance(data, dict):
+        return None, f"{path.name}: expected an object, found {type(data).__name__}"
+    return data, None
+
+
+def notify_grant(
+    agent_dir: Path, repo_root: Path, branch: str, issue: str | None
+) -> NotifyGrant:
+    """Resolve the grant once, for the whole run (FR-014).
+
+    Never raises. Every failure shape resolves to refused, matching
+    `auto_approve`'s posture and for its stated reason: a raise here breaks
+    `status`, `start`, `resume` and `end` for that branch at once.
+
+    The order is the grid in `data-model.md`, and it is also what keeps the
+    tracker round-trip off the common path: an explicit local *denied* beats a
+    label and a local *granted* needs no second opinion, so only an unset local
+    file asks the tracker anything.
+
+    Takes `repo_root` and `branch`, which the contract's two-argument sketch did
+    not: the trunk question below cannot be asked without them, and the label
+    read reaches the backend through the repo's own config rather than through a
+    name this module would have to hardcode.
+    """
+    from wfctl._paths import on_trunk
+
+    # FR-008, asked first so nothing later can reach past it. Authority is
+    # bounded by the feature branch, and the state dir being per-branch already
+    # makes this true by construction — which is exactly why it is asserted
+    # here, where it survives the state dir changing shape.
+    trunk = on_trunk(repo_root, branch)
+    if trunk is None:
+        return NotifyGrant(False, "unreadable", "could not determine the trunk branch")
+    if trunk:
+        return NotifyGrant(False, "trunk")
+
+    data, corrupt = _read_notify_file(agent_dir)
+    if corrupt is not None:
+        return NotifyGrant(False, "corrupt", corrupt)
+    if data is not None:
+        state = data.get("state")
+        if state == "denied":
+            return NotifyGrant(False, "deny")
+        if state == "granted":
+            return NotifyGrant(True, "local")
+        # A file holding neither is a file whose answer is lost, not one that
+        # says nothing: something wrote it, and reading it as unset would let a
+        # typo resolve the way an absent file does.
+        return NotifyGrant(False, "corrupt", f"{NOTIFY_NAME}: unknown state {state!r}")
+
+    if issue is None:
+        return NotifyGrant(False, "unset")
+
+    from wfctl._tracker import read_issue_labels
+
+    labels, detail = read_issue_labels(repo_root, issue)
+    if detail is not None:
+        return NotifyGrant(False, "unreadable", detail)
+    if labels is not None and NOTIFY_LABEL in labels:
+        return NotifyGrant(True, "label")
+    # No labels and no failure covers two states that resolve alike: the tracker
+    # answered and the label was absent, or there is no tracker to ask (FR-012).
+    # A missing label says nothing, not no — which is why this is `unset` and not
+    # `deny`.
+    return NotifyGrant(False, "unset")
+
+
+def grant_notify(agent_dir: Path, state: str) -> None:
+    """Record the grant, and record that it was made.
+
+    Two writes for two questions, copied from `grant_auto_approve` and for its
+    reason. The file answers *what is the state now*, which every later report
+    reads. The event answers *when was this given*, which the file cannot: it
+    holds one value and is overwritten, so a grant leaves no trace in it.
+
+    That second question carries more here than it does for the mode. The
+    decision record says a human grants this and an agent may only narrow it,
+    and nothing available here can tell the two apart — `/start-session` runs
+    `wfctl start` under a glob that admits any flag. The event is what makes a
+    self-grant legible afterwards, which is the whole of what enforces the rule.
+
+    There is no call that writes *unset*: returning to unset is deleting the
+    file, and no code path does that today.
+    """
+    write_json_atomic(
+        agent_dir / NOTIFY_NAME,
+        {"state": state, "source": "local", "at": _now_utc()},
+    )
+    append_event(agent_dir, "notify-grant", state=state, source="local")
+
+
+def record_notify_action(agent_dir: Path, action: str, count: int = 1) -> None:
+    """Record one notifying action that was taken (FR-010).
+
+    Called after the action succeeded, by whatever took it. The log is the
+    required destination rather than one of several: it is written whether or
+    not a change is open and whether or not the session ends cleanly, and the
+    session summary and PR body are renderings of it.
+    """
+    append_event(agent_dir, "notify-action", action=action, count=count)
+
+
+def record_notify_unread(agent_dir: Path, detail: str) -> None:
+    """Record that the grant could not be read, and what the tracker said.
+
+    The console line for this state is fixed, so this is the only place the
+    underlying error survives. Someone debugging opens the log already knowing
+    the run refused; what they need from it is whether it was auth, network, or
+    a missing `gh` scope.
+    """
+    append_event(agent_dir, "notify-unread", detail=detail)
+
+
 def _render_session_summary(branch: str, observed: Observations) -> str:
     """The handoff, headed by what `end` could see rather than what it hoped.
 
