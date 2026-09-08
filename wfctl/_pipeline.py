@@ -95,10 +95,30 @@ STORY_COMPLETE_FILE = f"Story complete. Open PR or run {_END_SESSION}.\n"
 STORY_COMPLETE_CONSOLE = f"Story complete — open PR or run `{_END_SESSION}`."
 
 
+def next_step_file(command: str, auto: bool, blocked: str | None, remedy: str | None) -> str:
+    """What `next` and `resume` write to `next-step.md`.
+
+    Here for the reason `STORY_COMPLETE_FILE` is: two commands write this file,
+    and the format was composed at both. Every field added to it since has had
+    to be added twice — `why:` once, `how:` again — and the second writer is
+    where one of them will eventually be forgotten.
+
+    `how:` is keyed rather than appended. Unlabelled, the remedy's last line
+    sits directly above the closing imperative and becomes its nearest
+    antecedent, so "run this command" reads as pointing at a remedy rather than
+    at `Next step:` above it.
+    """
+    why = f"why: {blocked}\n" if blocked else ""
+    how = f"how:\n{remedy}\n" if remedy else ""
+    return (
+        f"Next step: {command}\nauto: {'true' if auto else 'false'}\n"
+        f"{why}{how}Run this command to continue.\n"
+    )
+
+
 # The design step's annotation when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
-# `DESIGN_BLOCK_HELP`, which the caller formats with a location only `cli` can
-# resolve and escape.
+# `DESIGN_BLOCK_HELP`, which is formatted with a location resolved per repo.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
 # Both escapes, because both are legitimate answers: `design-levels` excludes
@@ -106,12 +126,18 @@ DESIGN_BLOCK_REASON = "no architecture record for this change"
 # records that say nothing.
 #
 # Rendered under the step table rather than folded into the annotation. A path is
-# the one part of this that cannot be a constant — it is resolved per repo, and
-# `[wip]` is a legal directory name that rich reads as a style tag — so it stays
-# where `_arch_location` can escape it, and the payload carries the fact instead.
+# the one part of this that cannot be a constant — it is resolved per repo — so
+# the payload carries the formatted block and each view renders it, the console
+# escaping on the way out because `[wip]` is a legal directory name.
+#
+# Neither branch names a string that can be pasted back to fake the answer. The
+# record side describes a file rather than printing `<slug>.md`: the gate reads
+# `git status`, which counts an *untracked* file, so a reader following that path
+# literally cleared the gate with no command and no commit — the same defect the
+# `<why>` guard on the other branch was added for, on the half that had no guard.
 DESIGN_BLOCK_HELP = (
-    "  Either record the boundary this change draws:\n"
-    "      {location}/<slug>.md\n"
+    "  Either record the boundary this change draws — one file under:\n"
+    "      {location}/\n"
     "  or state that it draws none:\n"
     '      wfctl arch none --reason "<why>"'
 )
@@ -661,12 +687,7 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
     return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
-def next_step_content(
-    step: str,
-    repo_root: Path | None = None,
-    spec_dir: Path | None = None,
-    blocked: str | None = None,
-) -> tuple[str, bool]:
+def next_step_content(step: str, blocked: str | None = None) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
     An undefined step yields ("", False) rather than raising: `_current_step_name`
@@ -678,6 +699,12 @@ def next_step_content(
     here, and re-deriving it runs the gate's git and verify work a second time
     against artifacts an implementing agent may be rewriting — two reads of one
     question that can disagree.
+
+    That is also why `repo_root` and `spec_dir` are gone. They were here to
+    recompute the block, so a caller that passed them and omitted `blocked` got
+    a gate re-read; a caller that passed them once the sentinel was deleted got
+    them silently ignored, which reads as a routing decision made from artifacts
+    and is not one. Nothing here reaches disk.
 
     **A blocked step is never automatic, whatever the table says.** The table
     answers "may the loop proceed past a step that finished"; a blocked step has
@@ -758,7 +785,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # loads a record and shells out to git, and `status` runs on every session
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
-    command, auto = next_step_content(name, repo_root, spec_dir, blocked)
+    command, auto = next_step_content(name, blocked)
     return PipelineReport(
         steps=[
             {

@@ -275,7 +275,7 @@ def status_cmd(
     # view carried the reason and not the fix — and the consumer that acts on
     # it reads JSON. `escape()` because the resolved path is repo-supplied and
     # `[wip]` is a legal directory name.
-    remedy = next((step["remedy"] for step in steps if step["remedy"]), None)
+    remedy = next((step["remedy"] for step in steps if step["is_current"]), None)
     if remedy:
         console.print(escape(remedy))
 
@@ -300,6 +300,7 @@ def next_cmd() -> None:
         _current_step_name,
         _infer_steps,
         next_step_content,
+        next_step_file,
     )
     from wfctl._io import append_event
 
@@ -325,19 +326,15 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, repo_root, spec_dir, blocked)
+    command, auto = next_step_content(step_name, blocked)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
         auto_str = "true" if auto else "false"
-        # The reason travels with the command. Without it this file says "run
-        # this to continue" over a step that is blocked, and the one view that
-        # carried why — `status` — is not the view an agent reads.
-        why = f"why: {blocked}\n" if blocked else ""
-        how = f"{remedy}\n" if remedy else ""
-        content = (
-            f"Next step: {command}\nauto: {auto_str}\n{why}{how}Run this command to continue.\n"
-        )
+        # The reason and the remedy travel with the command. Without them this
+        # file says "run this to continue" over a step that is blocked, and the
+        # one view that carried why — `status` — is not the view an agent reads.
+        content = next_step_file(command, auto, blocked, remedy)
     else:
         content = STORY_COMPLETE_FILE
 
@@ -362,7 +359,7 @@ def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
     from rich.markup import escape
 
-    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report
+    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report, next_step_file
     from wfctl._session import session_started
     from wfctl._io import append_event
 
@@ -388,14 +385,14 @@ def resume_cmd() -> None:
     next_step_md = agent_dir / "next-step.md"
     if command:
         auto_str = "true" if auto else "false"
-        # Same shape `next` writes, for the same reason: this is the file an
-        # agent reads, and a blocked step whose reason lives only in `status`
-        # tells it to run a command without saying what is wrong.
-        why = f"why: {blocked}\n" if blocked else ""
-        how = f"{remedy}\n" if remedy else ""
-        next_step_md.write_text(
-            f"Next step: {command}\nauto: {auto_str}\n{why}{how}Run this command to continue.\n"
-        )
+        # The same writer `next` uses, not the same shape written twice: this is
+        # the file an agent reads, and a field added to one composition and not
+        # the other is a blocked step that says what is wrong under one command
+        # and not under the other.
+        # `bool(auto)`: `PipelineReport.__post_init__` pairs `auto` with
+        # `next_command`, so inside this branch it is not None — an invariant
+        # mypy cannot read off the dataclass.
+        next_step_md.write_text(next_step_file(command, bool(auto), blocked, remedy))
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
         if blocked:
             console.print(f"  [dim]{escape(blocked)}[/dim]")
@@ -458,6 +455,8 @@ def end_cmd() -> None:
     """End the current session."""
     from datetime import datetime, timezone
 
+    from rich.markup import escape
+
     from wfctl import _session
     from wfctl._pipeline import build_report
 
@@ -474,8 +473,12 @@ def end_cmd() -> None:
     # "closed", not "ended and complete". Every clause names something read a
     # moment ago; none of them concludes the work is done, because `end` has no
     # way to observe that (#70).
+    # escape(): `observed.step` carries the current step's annotation, and
+    # `implement`'s embeds the definition-of-done commands that failed — repo
+    # text, so `[unit]` is legal and `[/x]` raises. The write above has already
+    # happened, which is the ordering `next` was corrected for.
     console.print(
-        f"[green]✓[/green] Session closed — {observed.step}, "
+        f"[green]✓[/green] Session closed — {escape(observed.step)}, "
         f"boundary {observed.boundary}, tree {observed.tree}."
     )
     # soft_wrap: the path is read by an agent, and rich folds a long one at the

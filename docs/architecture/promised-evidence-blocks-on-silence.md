@@ -97,10 +97,11 @@ and is not proposed here.
 
 ## Consequences
 
-The verdict is three-valued, so a gate returning `bool` cannot express it. The
-design gate's signature is the one that has to change, because `bool` has already
-collapsed "no evidence against the work" into "evidence says proceed" at the
-point the rule would be applied.
+The verdict is three-valued, so a `bool` cannot express it *inside* a gate. The
+design gate is where that bit was being spent: `bool` collapsed "no evidence
+against the work" into "evidence says proceed" at the point the rule would be
+applied. What changes is the computation, not the boundary — the gate goes on
+returning a reason or `None`, as the Decision above says.
 
 The evidence source has to be nameable at the point it is read. That is the whole
 structure this record forces, and it is the smallest thing that can carry the

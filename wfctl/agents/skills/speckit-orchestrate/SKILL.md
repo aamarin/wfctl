@@ -110,7 +110,8 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    would refuse. `resume` and `status` are two renderings of one inference, so
    there is no answer step 3 has that step 4 lacks.
 
-4. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
+4. Run `wfctl status --json` and read `next_command` and `auto` off the payload,
+   and the current step's `reason` and `remedy` with them.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
@@ -129,4 +130,10 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
    **`auto` is `false`**:
    - Display: "Next: run `{next_command}` when ready."
+   - Where the current step carries a `reason`, display it, and its `remedy`
+     below it where there is one. `next_command` names the step to re-enter; the
+     reason is what re-entering has to answer, and the remedy is the part no
+     command can be. A step that reports blocked and is announced as merely
+     "next" sends the loop back in to do the work again rather than to give the
+     answer that was missing.
    - Stop.

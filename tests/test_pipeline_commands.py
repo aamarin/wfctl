@@ -223,8 +223,12 @@ def test_advancing_past_design_needs_an_answer(
     # Both remedies, because both are legitimate: a record for a change that
     # draws a boundary, `arch none` for one that does not. A gate naming only
     # one turns the excluded changes into records that say nothing.
-    assert "docs/architecture/<slug>.md" in out
+    assert "docs/architecture/" in out
     assert 'wfctl arch none --reason "<why>"' in out
+    # The record branch names a directory, not a filename. `<slug>.md` was
+    # printed literally and the gate counts untracked files, so writing a file
+    # of that exact name cleared it — no command, no commit, no record.
+    assert "<slug>" not in out
     # The step, not a remedy. Both answers clear this gate and only one of them
     # is a command, so a `next_command` naming a remedy names the cheaper answer
     # and hides the other — and the string it would name carries a `<why>`
@@ -1191,9 +1195,7 @@ def test_a_blocked_design_step_is_never_automatic(
 
     assert _STEPS["brainstorm"][1] == "automatic", "guards the premise, not the rule"
 
-    command, auto = next_step_content(
-        "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir, "no architecture record"
-    )
+    command, auto = next_step_content("brainstorm", "no architecture record")
     assert command == "/speckit.brainstorm"
     assert auto is False
 
@@ -1238,6 +1240,33 @@ def test_the_json_view_carries_the_block_reason(
     assert step["reason"] == "no architecture record for this change"
 
 
+def test_an_out_of_tree_arch_root_is_named_absolutely(tmp_path: Path) -> None:
+    """`arch_location` moved out of `cli` with only its in-tree branch covered.
+
+    Out-of-tree has no relative form worth showing, and `relative_to` raises
+    rather than returning one — so the branch that is missing is the one that
+    would take the whole command down."""
+    from wfctl._pipeline import arch_location
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "records"
+    outside.mkdir()
+
+    assert arch_location(outside, repo) == str(outside)
+
+
+def test_an_arch_root_at_the_repo_root_is_named_absolutely(tmp_path: Path) -> None:
+    """`relative_to` returns `Path(".")` there, and "./" beside a slug reads as
+    a stray typo rather than a location."""
+    from wfctl._pipeline import arch_location
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert arch_location(repo, repo) == str(repo)
+
+
 def test_the_json_view_carries_the_remedy_and_not_only_the_reason(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
@@ -1249,7 +1278,12 @@ def test_the_json_view_carries_the_remedy_and_not_only_the_reason(
     the consumer that acts, reads JSON. It would have had to resolve the arch
     root a second time to render what `status` renders, which is the second
     inference path `pipeline-state-is-one-payload` forbids."""
-    _arch_root(storyctl_dir, monkeypatch)
+    # A bracketed root, not the plain fixture one. Against `docs/architecture`
+    # `escape()` is the identity, so the unescaped assertion below passes with
+    # the escaping put back — the whole point of moving `arch_location` out of
+    # `cli` goes unpinned, which is what a reviewer caught it doing.
+    root = storyctl_dir.repo_root / "docs" / "[wip]"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     storyctl_dir.make_spec_artifact("brainstorm")
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
@@ -1257,13 +1291,14 @@ def test_the_json_view_carries_the_remedy_and_not_only_the_reason(
 
     assert step["remedy"] is not None
     # Both branches, because both are legitimate answers, and the resolved path
-    # rather than a placeholder — that path is the half a constant cannot carry.
-    assert "docs/architecture/<slug>.md" in step["remedy"]
+    # rather than a constant — that path is the half a constant cannot carry.
+    assert "docs/[wip]/" in step["remedy"]
     assert 'wfctl arch none --reason "<why>"' in step["remedy"]
-    # Unescaped. `_arch_location` escapes for rich, and a JSON consumer has no
-    # rich to undo it, so a repo whose arch root is `[wip]/` would ship
-    # `\\[wip]` to a reader that would then look for a directory of that name.
+    # Unescaped: a JSON consumer has no rich to undo `\\[wip]`, and would go
+    # looking for a directory of that name.
     assert "\\[" not in step["remedy"]
+    # And the console, which does have rich, prints the real one.
+    assert "docs/[wip]/" in runner.invoke(app, ["status"]).output
     # Only the step that is blocked carries one.
     assert all(s["remedy"] is None for s in payload["steps"] if s["name"] != "brainstorm")
 
@@ -1283,8 +1318,15 @@ def test_the_remedy_reaches_the_file_an_agent_acts_on(
         assert runner.invoke(app, [command]).exit_code == 0
         written = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "why: no architecture record for this change" in written, command
-        assert "docs/architecture/<slug>.md" in written, command
+        assert "docs/architecture/" in written, command
         assert 'wfctl arch none --reason "<why>"' in written, command
+        # Keyed. Unlabelled, the block's last line is the nearest antecedent of
+        # "Run this command to continue." — which names the step, two lines up.
+        assert "how:\n" in written, command
+        # And the record branch names no path a reader can create verbatim. The
+        # gate counts an *untracked* file, so a literal `<slug>.md` cleared it
+        # with no command and no commit — the `<why>` defect on the other half.
+        assert "<slug>" not in written, command
 
 
 def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
