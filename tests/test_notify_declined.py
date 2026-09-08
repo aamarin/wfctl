@@ -89,6 +89,26 @@ def test_the_decline_line_leads_with_the_permission_it_had(
     assert "rows with no key" in out
 
 
+def test_a_refused_run_cannot_file_a_decline(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A decline claims authority the run *had* and chose not to use.
+
+    Filing one from a refused run overstates the grant in the flattering
+    direction, and a decline is the single signal saying the grant should be
+    widened — so the wrong one here argues for widening authority nobody gave.
+    The action path guarded this from the start and the decline path did not,
+    which is the same inversion FR-011 names, reached from the other side.
+    """
+    runner.invoke(app, ["start", "--deny-notify"])
+    result = runner.invoke(app, [
+        "notify", "issue-create", "--declined", "--reason", "rows with no key",
+    ])
+    assert result.exit_code == 1
+    assert _events(storyctl_dir.agent_dir, "notify-declined") == []
+    assert "but skipped" not in result.output
+
+
 def test_a_decline_without_a_reason_is_refused(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
@@ -121,6 +141,37 @@ def test_a_granted_run_records_an_action_wfctl_did_not_perform(
 
 
 # --- the row no grant reaches --------------------------------------------------
+
+def test_a_grant_made_on_a_feature_branch_does_not_reach_the_trunk(
+    storyctl_dir: types.SimpleNamespace, tmp_path: Path, monkeypatch,
+) -> None:
+    """FR-008 at the moment of the action, not only at the moment it resolved.
+
+    The state dir is per-branch only while `WFCTL_STATE_DIR` is unset. Under a
+    shared one the log is not per-branch either, so a gate reading it reads
+    whichever branch wrote it — and a grant made on a feature branch fired a
+    notifying action on the trunk. Asserted from the granted side, because that
+    is the only side where the leak exists.
+    """
+    import subprocess
+
+    agent_dir, root = storyctl_dir.agent_dir, storyctl_dir.repo_root
+    marker = tmp_path / "ran.log"
+    _backend(root, {"comment": ["sh", "-c", f"echo ran >> {marker}"]})
+
+    runner.invoke(app, ["start", "--allow-notify"])
+    assert _tracker.dispatch(agent_dir, root, "comment", {"id": "418"}) == 0
+    assert marker.read_text().splitlines() == ["ran"]
+
+    trunk = subprocess.run(
+        ["git", "-C", str(root), "branch", "--show-current"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    monkeypatch.setenv("WFCTL_BRANCH", trunk)
+
+    assert _tracker.dispatch(agent_dir, root, "comment", {"id": "418"}) == 1
+    assert marker.read_text().splitlines() == ["ran"]
+
 
 def test_the_irreversible_notice_prints_even_when_the_run_is_granted(
     storyctl_dir: types.SimpleNamespace,

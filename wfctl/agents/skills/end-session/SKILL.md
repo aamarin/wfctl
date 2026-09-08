@@ -37,7 +37,7 @@ unfilled is a failed handoff.
    known — it's the branch key (`wfctl status` shows it), no scanning needed. If a
    commit subject says it *also* resolved another issue (your tracker's convention,
    e.g. GitHub `Closes #123` or Jira `Fixes PROJ-45`), note those as secondary
-   issues to reconcile in step 6.
+   issues to reconcile in step 7.
 
 3. **Close the session and write the summary scaffold:**
    ```bash

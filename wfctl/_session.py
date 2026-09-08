@@ -189,6 +189,10 @@ def notify_grant(
     not: the trunk question below cannot be asked without them, and the label
     read reaches the backend through the repo's own config rather than through a
     name this module would have to hardcode.
+
+    Called by `wfctl start` and nothing else. Every other command reads the
+    answer back through `resolved_notify`, which is what keeps the tracker
+    round-trip to one per run.
     """
     from wfctl._paths import on_trunk
 
@@ -198,7 +202,12 @@ def notify_grant(
     # here, where it survives the state dir changing shape.
     trunk = on_trunk(repo_root, branch)
     if trunk is None:
-        return NotifyGrant(False, "unreadable", "could not determine the trunk branch")
+        # Its own source rather than `unreadable`, which blames the issue
+        # tracker. A repo whose trunk cannot be named may have no tracker at all,
+        # and telling that reader the tracker was unreachable names a cause that
+        # is not the cause — the mistake the `corrupt`/`unreadable` split already
+        # corrected once, not applied to this third case until a panel found it.
+        return NotifyGrant(False, "unknown-trunk")
     if trunk:
         return NotifyGrant(False, "trunk")
 
@@ -216,7 +225,13 @@ def notify_grant(
         # typo resolve the way an absent file does.
         return NotifyGrant(False, "corrupt", f"{NOTIFY_NAME}: unknown state {state!r}")
 
-    if issue is None:
+    # `"unknown"` as well as None. `extract_issue_key` returns that sentinel for
+    # a branch carrying no key and never returns None, so a `is None` guard alone
+    # is dead code — every keyless branch reached the label read, asked the
+    # tracker about an issue called "unknown", and had the failure filed as a
+    # tracker that could not be reached. An absent key is not a failed read, and
+    # conflating them is what FR-015 forbids.
+    if issue is None or issue == "unknown":
         return NotifyGrant(False, "unset")
 
     from wfctl._tracker import read_issue_labels
@@ -231,6 +246,30 @@ def notify_grant(
     # A missing label says nothing, not no — which is why this is `unset` and not
     # `deny`.
     return NotifyGrant(False, "unset")
+
+
+def action_grant(agent_dir: Path, repo_root: Path) -> NotifyGrant:
+    """The verdict at the moment an action is about to be taken.
+
+    `resolved_notify` alone is not enough here, and the gap was real: the state
+    dir is per-branch only when `WFCTL_STATE_DIR` is unset, so under a shared one
+    a grant made on a feature branch fired a notifying action on the trunk. The
+    comment that used to sit beside the resolve-time check claimed it "survives
+    the state dir changing shape" — it did not, because a gate reading the log
+    reads whatever branch wrote it.
+
+    So the branch is re-asked here rather than trusted from the record. Two local
+    git calls, on a path that is about to talk to a network service anyway; the
+    round-trip argument that keeps this out of `status` does not apply.
+    """
+    from wfctl._paths import on_trunk, resolve_branch
+
+    trunk = on_trunk(repo_root, resolve_branch(repo_root))
+    if trunk is None:
+        return NotifyGrant(False, "unknown-trunk")
+    if trunk:
+        return NotifyGrant(False, "trunk")
+    return resolved_notify(agent_dir)
 
 
 def grant_notify(agent_dir: Path, state: str) -> None:
@@ -335,7 +374,7 @@ def resolved_notify(agent_dir: Path) -> NotifyGrant:
     return NotifyGrant(False, "unset") if last is None else last
 
 
-def record_notify_action(agent_dir: Path, action: str, count: int = 1) -> None:
+def record_notify_action(agent_dir: Path, action: str) -> None:
     """Record one notifying action that was taken (FR-010).
 
     Called after the action succeeded, by whatever took it. The log is the
@@ -343,7 +382,7 @@ def record_notify_action(agent_dir: Path, action: str, count: int = 1) -> None:
     not a change is open and whether or not the session ends cleanly, and the
     session summary and PR body are renderings of it.
     """
-    append_event(agent_dir, "notify-action", action=action, count=count)
+    append_event(agent_dir, "notify-action", action=action)
 
 
 def record_notify_declined(agent_dir: Path, action: str, reason: str) -> None:
@@ -371,17 +410,6 @@ def record_notify_refused(agent_dir: Path, action: str, source: str) -> None:
     person withholding authority.
     """
     append_event(agent_dir, "notify-refused", action=action, source=source)
-
-
-def record_notify_unread(agent_dir: Path, detail: str) -> None:
-    """Record that the grant could not be read, and what the tracker said.
-
-    The console line for this state is fixed, so this is the only place the
-    underlying error survives. Someone debugging opens the log already knowing
-    the run refused; what they need from it is whether it was auth, network, or
-    a missing `gh` scope.
-    """
-    append_event(agent_dir, "notify-unread", detail=detail)
 
 
 def _render_session_summary(branch: str, observed: Observations) -> str:

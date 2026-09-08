@@ -22,7 +22,6 @@ from wfctl._session import (
     grant_notify,
     notify_grant,
     record_notify_action,
-    record_notify_unread,
 )
 
 
@@ -229,6 +228,31 @@ def test_an_unknown_state_string_is_corrupt_rather_than_unset(
     assert got.source == "corrupt"
 
 
+def test_a_malformed_labels_verb_does_not_raise(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """"Never raises" is the documented posture, and a config that parsed is not
+    a config that is well-formed.
+
+    `"labels": 3` reached the argv comprehension and took `wfctl start` down with
+    a TypeError traceback — on a branch whose only fault was a typo in a file
+    nothing validates at load time. A raise here breaks `status`, `start`,
+    `resume` and `end` for that branch at once, which is why every other reader
+    in this module guards its shape.
+    """
+    import json
+
+    root = storyctl_dir.repo_root
+    (root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "fake"}))
+    trackers = root / ".agents" / "trackers"
+    trackers.mkdir(parents=True, exist_ok=True)
+    (trackers / "fake.json").write_text(json.dumps({"verbs": {"labels": 3}}))
+
+    got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
+    assert got.granted is False
+    assert got.source == "unreadable"
+
+
 def test_notify_grant_never_raises_on_a_directory_where_the_file_should_be(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
@@ -236,6 +260,53 @@ def test_notify_grant_never_raises_on_a_directory_where_the_file_should_be(
     (storyctl_dir.agent_dir / NOTIFY_NAME).mkdir()
     got = notify_grant(storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", None)
     assert got.granted is False
+
+
+def test_a_branch_with_no_issue_key_is_unset_not_a_failed_read(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`extract_issue_key` returns the string "unknown", never None.
+
+    So a `is None` guard alone was dead code: every keyless branch asked the
+    tracker about an issue called "unknown", got a refusal, and had it filed as a
+    tracker that could not be reached. An absent key is not a failed read, and
+    conflating them is what FR-015 forbids. The tracker here would fail if it
+    were consulted, which is the assertion — it must not be.
+    """
+    root = storyctl_dir.repo_root
+    _tracker(root, ["false"])
+    got = notify_grant(storyctl_dir.agent_dir, root, "hotfix-typo", "unknown")
+    assert got.granted is False
+    assert got.source == "unset"
+    assert got.detail is None
+
+
+def test_a_repo_with_no_nameable_trunk_does_not_blame_the_tracker(
+    storyctl_dir: types.SimpleNamespace, tmp_path: Path,
+) -> None:
+    """Its own source, because the reader may have no tracker at all.
+
+    Filed as `unreadable` this printed "couldn't reach the issue tracker" in a
+    repo with nothing configured — the same false cause the `corrupt` split
+    already corrected once, in the one case the argument was not applied to.
+    """
+    import subprocess
+
+    root = tmp_path / "develop-only"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "develop", str(root)], check=True)
+    for k, v in (("user.email", "t@t.com"), ("user.name", "T")):
+        subprocess.run(["git", "-C", str(root), "config", k, v], check=True)
+    (root / "README.md").write_text("x\n")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-qm", "init"], check=True,
+        capture_output=True,
+    )
+
+    got = notify_grant(storyctl_dir.agent_dir, root, "99-thing", None)
+    assert got.granted is False
+    assert got.source == "unknown-trunk"
 
 
 # --- FR-008: bounded by the feature branch -------------------------------------
@@ -363,14 +434,13 @@ def test_recording_an_action_appends_without_rewriting_what_is_there(
     required one — it survives a session that does not end cleanly."""
     agent_dir = storyctl_dir.agent_dir
     grant_notify(agent_dir, "granted")
-    record_notify_action(agent_dir, "issue-create", 6)
+    record_notify_action(agent_dir, "issue-create")
     record_notify_action(agent_dir, "push")
 
     kinds = [e["event"] for e in _events(agent_dir)]
     assert kinds == ["notify-grant", "notify-action", "notify-action"]
     actions = [e for e in _events(agent_dir) if e["event"] == "notify-action"]
-    assert (actions[0]["action"], actions[0]["count"]) == ("issue-create", 6)
-    assert actions[1]["count"] == 1
+    assert [a["action"] for a in actions] == ["issue-create", "push"]
 
 
 def test_a_malformed_earlier_line_does_not_break_the_append(
@@ -387,13 +457,19 @@ def test_a_malformed_earlier_line_does_not_break_the_append(
     assert json.loads(lines[1])["action"] == "issue-create"
 
 
-def test_an_unreadable_grant_records_what_the_tracker_said(
+def test_an_unreadable_grant_carries_what_the_tracker_said(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """The console line is fixed, so the log is the only place the cause lives.
     Someone opening it already knows the run refused; what they need is whether
-    it was auth, network, or a missing scope."""
-    agent_dir = storyctl_dir.agent_dir
-    record_notify_unread(agent_dir, "gh: HTTP 401 Bad credentials")
-    event = [e for e in _events(agent_dir) if e["event"] == "notify-unread"][0]
-    assert event["detail"] == "gh: HTTP 401 Bad credentials"
+    it was auth, network, or a missing scope.
+
+    Carried on the resolution rather than on an event of its own. A second event
+    held the same string and sat outside the dedupe, so the one state that
+    repeats across starts was the only one that grew the log.
+    """
+    root = storyctl_dir.repo_root
+    _tracker(root, ["sh", "-c", "echo 'HTTP 401 Bad credentials' >&2; exit 1"])
+    got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
+    assert got.source == "unreadable"
+    assert "401" in (got.detail or "")

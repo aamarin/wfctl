@@ -188,6 +188,31 @@ def test_a_changed_answer_is_recorded_on_a_later_start(
     assert resolved[-1]["granted"] is True
 
 
+def test_status_on_the_trunk_says_so_before_any_session_has_started(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """The one place the read-back answer is not the right one.
+
+    Nothing has resolved anything on a fresh trunk, so the recorded answer is the
+    `unset` default — which rendered as "nobody has allowed it for this work" and
+    sent the reader looking for the flag that would fix it. There is none, and
+    the trunk line exists to say so. `on_trunk` is a local git call, so the
+    round-trip argument that keeps the label read out of `status` does not reach
+    this one.
+    """
+    import subprocess
+
+    trunk = subprocess.run(
+        ["git", "-C", str(storyctl_dir.repo_root), "branch", "--show-current"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    monkeypatch.setenv("WFCTL_BRANCH", trunk)
+
+    assert _NOTIFY_LINES["trunk"] in runner.invoke(app, ["status"]).output
+    assert _payload()["notify_source"] == "trunk"
+    assert _payload()["notify"] is False
+
+
 def test_start_records_the_answer_the_rest_of_the_run_reads_back(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

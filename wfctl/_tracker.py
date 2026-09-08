@@ -17,6 +17,7 @@ from rich.console import Console
 
 from wfctl._io import append_event
 from wfctl._manifest import load_manifest
+from wfctl._session import NOTIFY_LABEL
 
 # highlight=False: don't let rich wrap quoted tokens (issue ids, verb names) in
 # ANSI — this output is parsed by agents, so keep it plain.
@@ -66,7 +67,7 @@ ALLOWED_CHANGES = {"list": set(), "view": {"id"}}
 _NOTIFYING_VERBS = {"comment", "create", "label"}
 
 
-def _refuse_notifying(agent_dir: Path, verb: str) -> int | None:
+def _refuse_notifying(agent_dir: Path, repo_root: Path, verb: str) -> int | None:
     """Refuse a notifying verb the run was never granted, or None to proceed.
 
     The two skills that take these actions already gate on the same answer in
@@ -76,8 +77,10 @@ def _refuse_notifying(agent_dir: Path, verb: str) -> int | None:
     comment. An agent that never reads the skill still cannot comment, label or
     open an issue on a feature nobody granted.
 
-    Reads the answer the run resolved at `wfctl start`; it asks the tracker
-    nothing, so putting it in front of every write costs no round-trip.
+    Reads the answer the run resolved at `wfctl start` and re-asks the branch,
+    which the record cannot answer: under a shared `WFCTL_STATE_DIR` the log is
+    not per-branch, and a grant made on a feature branch reached the trunk
+    (FR-008). Neither read touches the tracker, so this costs no round-trip.
 
     Exit 1 rather than the 0 that a missing backend returns. That 0 means
     "nothing was configured to do this", and a session must not fail for it. This
@@ -85,9 +88,9 @@ def _refuse_notifying(agent_dir: Path, verb: str) -> int | None:
     and a caller that reads a refusal as a completed write would report the
     tracker updated when it was not.
     """
-    from wfctl._session import record_notify_refused, resolved_notify
+    from wfctl._session import action_grant, record_notify_refused
 
-    grant = resolved_notify(agent_dir)
+    grant = action_grant(agent_dir, repo_root)
     if grant.granted:
         return None
     record_notify_refused(agent_dir, verb, grant.source)
@@ -98,10 +101,16 @@ def _refuse_notifying(agent_dir: Path, verb: str) -> int | None:
         f"[yellow]⚠[/yellow] '{verb}' would tell people outside this repo, "
         "and nobody allowed it"
     )
-    console.print(
-        "  Allow it: [bold]wfctl start --allow-notify[/bold], "
-        "or the [bold]authority:notify[/bold] label"
-    )
+    # No remedy line where there is no remedy. On the trunk, and in a repo whose
+    # trunk cannot be named, neither the flag nor the label lifts this — printing
+    # them anyway sends the reader to try two things that will not work, which is
+    # the failure the trunk *status* line was written to prevent, reintroduced at
+    # the other surface.
+    if grant.source not in ("trunk", "unknown-trunk"):
+        console.print(
+            "  Allow it: [bold]wfctl start --allow-notify[/bold], "
+            f"or the [bold]{NOTIFY_LABEL}[/bold] label"
+        )
     console.print(f"  Refused because: {grant.source}")
     return 1
 
@@ -301,7 +310,7 @@ def dispatch(
     # `comment` verb and a run with no authority are different answers, and only
     # one of them is about permission.
     if section == "verbs" and verb in _NOTIFYING_VERBS:
-        refused = _refuse_notifying(agent_dir, verb)
+        refused = _refuse_notifying(agent_dir, repo_root, verb)
         if refused is not None:
             return refused
 
@@ -344,7 +353,7 @@ def dispatch(
 
 
 def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str | None]:
-    """The labels on one issue, through the backend's own `view` verb.
+    """The labels on one issue, through the backend's own `labels` verb.
 
     Returns `(labels, detail)`. `labels` is None when there is no answer:
     `detail` then says why the read failed, or is None when nothing was asked —
@@ -367,18 +376,32 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     if config is None or "labels" not in config.get("verbs", {}):
         return None, None
 
+    # A config that parsed is a config that is JSON, not one that is well-formed.
+    # `"labels": 3` reached the comprehension below and raised TypeError out of a
+    # function whose caller documents that it never raises — taking `wfctl start`
+    # down with a traceback on a branch whose only fault was a typo in a file
+    # nothing validates at load.
+    template = config["verbs"]["labels"]
+    if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
+        return None, "'labels' must be a list of strings"
+
     params: dict = {"id": issue}
     identity = config.get("identity")
     if identity is not None:
         params = {"me": identity, **params}
     try:
-        argv = [_substitute(tok, params) for tok in config["verbs"]["labels"]]
+        argv = [_substitute(tok, params) for tok in template]
     except _MissingParam as e:
         return None, f"'labels' requires --{e.key}"
 
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
-    except OSError as e:
+        # The one network call on the `start` path. Unbounded, it would hang the
+        # command that every session opens with; refused-on-timeout is the same
+        # verdict an unreachable tracker already gets.
+        result = subprocess.run(
+            argv, capture_output=True, text=True, cwd=repo_root, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)
     if result.returncode != 0:
         return None, (result.stderr or result.stdout or "").strip()

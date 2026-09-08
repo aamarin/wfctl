@@ -161,6 +161,7 @@ _NOTIFY_LINES = {
     "unreadable": "will not notify anyone — couldn't reach the issue tracker to check",
     "corrupt": "will not notify anyone — couldn't read the setting for this work",
     "trunk": "will not notify anyone — only feature branches can be granted this",
+    "unknown-trunk": "will not notify anyone — couldn't tell which branch is trunk",
 }
 
 
@@ -232,7 +233,6 @@ def start_cmd(
         grant_notify,
         notify_grant,
         record_notify_resolved,
-        record_notify_unread,
     )
 
     agent_dir, repo_root, branch, issue = _resolve_context()
@@ -278,13 +278,11 @@ def start_cmd(
         session on a worktree's first turn, so by the time anyone types
         `--allow-notify` the session is already recorded.
         """
+        # One event, not two. `notify-resolved` already carries `detail` — the
+        # tracker's stderr, which the fixed console line cannot — and it is the
+        # one inside the dedupe. The second event sat outside it, so the single
+        # state that repeats across starts was the only one that grew the log.
         record_notify_resolved(agent_dir, grant)
-        if grant.detail is not None:
-            # The console line for a failed read is fixed, so this is the only
-            # place the cause survives — someone debugging opens the log already
-            # knowing the run refused, and needs to know whether it was auth,
-            # network or a missing scope.
-            record_notify_unread(agent_dir, grant.detail)
         console.print(_notify_line(grant.source, issue))
 
     if report.session_started and not force:
@@ -327,12 +325,24 @@ def notify_cmd(
     should be widened.
     """
     from wfctl._session import (
+        action_grant,
         record_notify_action,
         record_notify_declined,
-        resolved_notify,
     )
 
-    agent_dir, _, _, _ = _resolve_context()
+    agent_dir, repo_root, _, issue = _resolve_context()
+
+    # Both paths, not just the action one. A decline is a claim about authority
+    # the run *had* — "may notify people, but skipped" — so filing one from a
+    # refused run overstates the grant in the flattering direction, and a decline
+    # is the single signal that says the grant should be widened. The action path
+    # below guarded this from the start; the decline path did not, which is the
+    # inversion FR-011 names, arrived at from the other side.
+    grant = action_grant(agent_dir, repo_root)
+    if not grant.granted:
+        console.print(_notify_line(grant.source, issue))
+        raise typer.Exit(1)
+
     if declined:
         if not reason:
             console.print("[red]✗ --declined requires --reason[/red]")
@@ -343,13 +353,6 @@ def notify_cmd(
         console.print(f"may notify people, but skipped {action} — {reason}")
         return
 
-    # Recording an action nobody allowed would put a line in the log saying
-    # people were told something, on a run that was refused. The log is the
-    # report, so a false line there is a false report.
-    grant = resolved_notify(agent_dir)
-    if not grant.granted:
-        console.print(_notify_line(grant.source, None))
-        raise typer.Exit(1)
     record_notify_action(agent_dir, action)
     console.print(f"[green]✓[/green] recorded: {action}")
 
@@ -360,11 +363,25 @@ def status_cmd(
 ) -> None:
     """Show pipeline progress."""
     from wfctl._pipeline import STORY_COMPLETE_CONSOLE, build_report
-    from wfctl._paths import resolve_spec_dir
+    from wfctl._paths import on_trunk, resolve_spec_dir
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
+
+    # Asked here rather than read back with the rest. The recorded answer says
+    # what `wfctl start` resolved on whichever branch ran it, and on the trunk
+    # before any start there is nothing recorded at all — which rendered as
+    # "nobody has allowed it for this work" and sent the reader looking for the
+    # flag that would fix it. There is none, and the trunk line says so. Costs
+    # two local git calls; the round-trip this design avoids is the tracker's.
+    notify_source = report.notify_source
+    trunk = on_trunk(repo_root, branch)
+    if trunk is None:
+        notify_source = "unknown-trunk"
+    elif trunk:
+        notify_source = "trunk"
+    notify = report.notify and notify_source == report.notify_source
 
     if as_json:
         # The same object the console branch renders, in the other format. The
@@ -392,14 +409,14 @@ def status_cmd(
             # Present and false when refused, never omitted (FR-004). A consumer
             # reading a missing key as false cannot tell a refusal from a wfctl
             # too old to know the question — which is the whole point of FR-003.
-            "notify": report.notify,
-            "notify_source": report.notify_source,
+            "notify": notify,
+            "notify_source": notify_source,
             "steps": report.steps,
         })
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
-    console.print(_notify_line(report.notify_source, issue))
+    console.print(_notify_line(notify_source, issue))
     # FR-013, and it prints in every state including granted — that is what makes
     # it an answer rather than a refusal. A reader who has just been told the run
     # may notify people will ask what else it may do, and without this line they

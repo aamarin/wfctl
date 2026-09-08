@@ -77,7 +77,12 @@ def test_free_text_lands_as_single_inert_argv_token(agent_dir: Path, captured_ar
     payload = '$(rm -rf /); "quoted" & backtick`x`'
     runner.invoke(app, ["issue", "comment", "9", "--body", payload])
     # The dangerous string is exactly one argv element, never shell-interpreted.
-    assert captured_argv == [["gh", "issue", "comment", "9", "--body", payload]]
+    #
+    # The backend's call, not the whole capture. The fixture patches the
+    # `subprocess` module rather than one module's reference to it, so the two
+    # local git calls the notify gate makes before any write land here too. What
+    # this test is about is the shape of the token, and that is the last call.
+    assert captured_argv[-1] == ["gh", "issue", "comment", "9", "--body", payload]
 
 
 def test_within_token_substitution_for_label(agent_dir: Path, captured_argv: list) -> None:
@@ -85,7 +90,7 @@ def test_within_token_substitution_for_label(agent_dir: Path, captured_argv: lis
     _configure_tracker(repo_root, "github", _GITHUB_VERBS)
     _allow_notify(agent_dir)
     runner.invoke(app, ["issue", "label", "5", "--action", "add", "--label", "in-progress"])
-    assert captured_argv == [["gh", "issue", "edit", "5", "--add-label", "in-progress"]]
+    assert captured_argv[-1] == ["gh", "issue", "edit", "5", "--add-label", "in-progress"]
 
 
 def test_unsupported_verb_skips_gracefully(agent_dir: Path, captured_argv: list) -> None:

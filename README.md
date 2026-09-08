@@ -519,7 +519,21 @@ wfctl issue close 71 --comment "Done in abc123"
 wfctl issue start                      # the branch's issue; work has begun
 ```
 
-Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `start`, `stop`.
+Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `labels`, `start`,
+`stop`.
+
+**`comment`, `create` and `label` refuse unless someone allowed this branch to
+notify people.** They reach people outside the repo, and nothing does that on a
+branch nobody granted — the first one you run prints a refusal and exits 1. A
+person lifts it with `wfctl start --allow-notify`, or by putting an
+`authority:notify` label on the branch's issue; `wfctl status` says which, in
+every state, and the run records what it did with the authority. Merging,
+closing and deleting are never covered: there is no setting for those.
+
+`labels` lists one issue's labels, one per line, and is what reads that grant. A
+backend that cannot produce the list leaves the verb out and the repo grants from
+the terminal instead.
+
 `start` and `stop` report an event rather than a value — worktree creation and
 removal call them, and a backend with a board moves a column while one without
 declines the verb. Both default to the issue key on the current branch. The
