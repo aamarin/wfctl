@@ -210,11 +210,16 @@ def test_the_finding_reaches_the_model_and_is_not_also_printed(tmp_path: Path) -
 def test_the_report_carries_the_finding_before_the_instruction(tmp_path: Path) -> None:
     """An instruction to re-read the skill is, on its own, the fourth reminder in
     a stack of three that already lost — which is #212. The finding is what makes
-    it a correction instead, so it goes first and the pointer follows it."""
+    it a correction instead, so it goes first and the pointer follows it.
+
+    Both routes are asserted, and neither by a substring the other satisfies: the
+    slash command is not universal, and the agent that lacks it is exactly the one
+    that needs the path spelled out."""
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
     message = json.loads(_run(path))["hookSpecificOutput"]["additionalContext"]
     assert message.index("counted lead-in") < message.index("Re-read it in full")
-    assert "/conversation-response-shape" in message
+    assert "`/conversation-response-shape`" in message
+    assert ".agents/skills/conversation-response-shape/SKILL.md" in message
 
 
 def test_the_handed_over_reply_is_preferred_to_the_walked_one(tmp_path: Path) -> None:
