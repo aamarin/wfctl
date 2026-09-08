@@ -194,12 +194,30 @@ def start_cmd(
              "instead of stopping for approval in the session. "
              "--no-auto-approve hands the gates back to a human.",
     ),
+    # Tri-state for the same reason as the flag above, and the same failure if it
+    # were not: `/start-session` runs `wfctl start` on every handoff, so a plain
+    # bool would revoke the grant at the first one and an overnight run would go
+    # quiet without anyone touching it.
+    #
+    # The help text carries both vocabularies deliberately. `status` says "may
+    # notify people" and never prints a flag name, so this is the only place a
+    # reader who saw that line can find the command that sets it.
+    allow_notify: bool | None = typer.Option(
+        None, "--allow-notify/--deny-notify",
+        help="Allow this feature to take actions that notify people outside the "
+             "repo — comment on an issue, open one, add a label, push. This is "
+             "the setting behind the 'may notify people' line in `wfctl status`. "
+             "--deny-notify turns it off here, and beats a label that would "
+             "otherwise allow it. Merging, closing and deleting are never "
+             "covered by either.",
+    ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
     from wfctl._session import (
         grant_auto_approve,
+        grant_notify,
         notify_grant,
         record_notify_resolved,
         record_notify_unread,
@@ -226,6 +244,11 @@ def start_cmd(
             f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
             else "[green]✓[/green] auto-approve off — design gates stop for a human"
         )
+
+    # Before the resolution below, so a flag typed now is what the run resolves
+    # against rather than what the previous run left behind.
+    if allow_notify is not None:
+        grant_notify(agent_dir, "granted" if allow_notify else "denied")
 
     # The run's one tracker round-trip (FR-014). Resolving per command instead
     # would spend 1.4s on every `wfctl status`, re-reading a label that does not

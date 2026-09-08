@@ -270,6 +270,37 @@ def test_a_label_does_not_grant_on_the_trunk_branch_either(
     assert got.source == "trunk"
 
 
+def test_the_resolution_grid_end_to_end(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Every cell of `data-model.md`'s grid, in one place.
+
+    Written as a table because the property that matters is the *shape*: the
+    local answer decides two of the three rows outright, and only an unset local
+    file lets the label speak. Asserted cell by cell rather than by spot checks,
+    because the two disagreeing cells are the ones a reader will come here to
+    look up.
+    """
+    root, agent_dir = storyctl_dir.repo_root, storyctl_dir.agent_dir
+    grid = [
+        # local state, label present, expected verdict, expected source
+        (None,      False, False, "unset"),
+        (None,      True,  True,  "label"),
+        ("granted", False, True,  "local"),
+        ("granted", True,  True,  "local"),
+        ("denied",  False, False, "deny"),
+        ("denied",  True,  False, "deny"),
+    ]
+    for local, labelled, granted, source in grid:
+        (agent_dir / NOTIFY_NAME).unlink(missing_ok=True)
+        if local is not None:
+            grant_notify(agent_dir, local)
+        _tracker(root, ["printf", f"{NOTIFY_LABEL}\n"] if labelled else ["printf", ""])
+
+        got = notify_grant(agent_dir, root, "418-storyctl", "418")
+        assert (got.granted, got.source) == (granted, source), (local, labelled)
+
+
 # --- the writes ----------------------------------------------------------------
 
 def test_granting_writes_the_file_and_the_event(

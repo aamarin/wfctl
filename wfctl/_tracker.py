@@ -330,6 +330,15 @@ def dispatch(
         return result.returncode
 
     append_event(agent_dir, event, verb=verb, tracker=name)
+    if section == "verbs" and verb in _NOTIFYING_VERBS:
+        # FR-010, and unprompted is the point: a run that used the authority
+        # reports what it did whether or not anyone asked. Recorded here rather
+        # than by each caller because this is the one place that knows the write
+        # succeeded — the `issue` event above says the verb ran, not that anyone
+        # was told anything by it.
+        from wfctl._session import record_notify_action
+
+        record_notify_action(agent_dir, verb)
     return 0
 
 
