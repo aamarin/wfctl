@@ -48,6 +48,63 @@ ALLOWED = {
 ALLOWED_CHANGES = {"list": set(), "view": {"id"}}
 
 
+# The verbs that tell someone outside the repo, from the middle row of
+# `wfctl-classes-the-action-not-the-command`. Each of these reaches people who
+# are notified, and deleting the result later does not un-notify them.
+#
+# `close` is not here, and its absence is the decision rather than an omission.
+# Closing an issue is the irreversible row, which no grant reaches — so gating it
+# on the grant would be the wrong shape twice over: it would refuse the human who
+# is the only one allowed to do it, and wfctl cannot tell a human from an agent
+# anyway (`approval-mode-is-stored-intent`). What keeps that row safe is that
+# nothing here ever consults a grant for it.
+#
+# `start` and `stop` move a board column, which the spec assumes reaches nobody.
+# That assumption is recorded as unverified: if a column move does notify, these
+# two belong here and every worktree creation has been taking a notifying action
+# unprompted.
+_NOTIFYING_VERBS = {"comment", "create", "label"}
+
+
+def _refuse_notifying(agent_dir: Path, verb: str) -> int | None:
+    """Refuse a notifying verb the run was never granted, or None to proceed.
+
+    The two skills that take these actions already gate on the same answer in
+    prose, and this is the same rule expressed where it cannot be skipped
+    (`a-rule-is-expressed-as-a-check`): a violation shows up in an artifact the
+    work produces — the tracker changed — so the rule is a check rather than a
+    comment. An agent that never reads the skill still cannot comment, label or
+    open an issue on a feature nobody granted.
+
+    Reads the answer the run resolved at `wfctl start`; it asks the tracker
+    nothing, so putting it in front of every write costs no round-trip.
+
+    Exit 1 rather than the 0 that a missing backend returns. That 0 means
+    "nothing was configured to do this", and a session must not fail for it. This
+    is the opposite fact — something was configured, and the run may not use it —
+    and a caller that reads a refusal as a completed write would report the
+    tracker updated when it was not.
+    """
+    from wfctl._session import resolved_notify
+
+    grant = resolved_notify(agent_dir)
+    if grant.granted:
+        return None
+    # Three short lines rather than two long ones: rich wraps at the terminal
+    # width, and a remedy split across a wrap arrives as a fragment. The first
+    # draft ran to 84 characters and broke mid-sentence in a real terminal.
+    console.print(
+        f"[yellow]⚠[/yellow] '{verb}' would tell people outside this repo, "
+        "and nobody allowed it"
+    )
+    console.print(
+        "  Allow it: [bold]wfctl start --allow-notify[/bold], "
+        "or the [bold]authority:notify[/bold] label"
+    )
+    console.print(f"  Refused because: {grant.source}")
+    return 1
+
+
 def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> bool:
     """Validate one verb map; append problems to errs. Returns whether it uses {me}."""
     uses_me = False
@@ -237,6 +294,15 @@ def dispatch(
     if verb not in verbs:
         console.print(f"ℹ Tracker '{name}' does not support '{verb}' — skipped")
         return 0
+
+    # After the config checks and before argv is built, so a refusal reads as a
+    # refusal rather than as a backend that could not run: a repo with no
+    # `comment` verb and a run with no authority are different answers, and only
+    # one of them is about permission.
+    if section == "verbs" and verb in _NOTIFYING_VERBS:
+        refused = _refuse_notifying(agent_dir, verb)
+        if refused is not None:
+            return refused
 
     # {me} comes from the config's identity, not a CLI flag — inject it so a
     # backend can filter a list to the current user.
