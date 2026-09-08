@@ -18,7 +18,7 @@ The three classes that would have decided it were written on #131, folded into
 classes are recoverable only by knowing which closed issue folded into which.
 
 Two files already spend the vocabulary against that absence. `_pipeline.py`
-justifies leaving an issue unkeyed because "creating them is outward-facing and
+justifies leaving an issue unkeyed because "creating them is notifying and
 waits for a human"; `start-session/SKILL.md` tells the agent that "beginning
 implementation is local and reversible". Both name a class the reader cannot
 look up.
@@ -45,8 +45,8 @@ performs it, and how often a class fires decides how it is delivered:
 
 | Class | What it reaches | Delivery |
 |---|---|---|
-| local and reversible — edit files, commit, write the summary | this machine only, and only what this branch owns: the worktree, its spec dir, its state dir. Nobody is notified, and the actor can undo it alone | prose. It fires many times an hour, and a gate that frequent is answered reflexively rather than read |
-| outward-facing — push, comment on an issue, open one, add a label | people who are notified, and deleting it later does not un-notify them | prose, plus a check wherever one is cheap |
+| reversible — edit files, commit, write the summary | this machine only, and only what this branch owns: the worktree, its spec dir, its state dir. Nobody is notified, and the actor can undo it alone | prose. It fires many times an hour, and a gate that frequent is answered reflexively rather than read |
+| notifying — push, comment on an issue, open one, add a label | people who are notified, and deleting it later does not un-notify them | prose, plus a check wherever one is cheap |
 | irreversible — merge, close an issue, force-push, delete a branch or worktree | history, and work that is not this agent's | always the human. No switch, not configurable |
 
 "Reversible" is not "revertable by git". `session-summary.md` and the spec dir

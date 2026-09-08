@@ -17,6 +17,7 @@ from rich.console import Console
 
 from wfctl._io import append_event
 from wfctl._manifest import load_manifest
+from wfctl._session import NOTIFY_LABEL
 
 # highlight=False: don't let rich wrap quoted tokens (issue ids, verb names) in
 # ANSI — this output is parsed by agents, so keep it plain.
@@ -32,6 +33,11 @@ ALLOWED = {
     "list": set(), "view": {"id"}, "close": {"id", "comment"},
     "comment": {"id", "body"}, "create": {"title", "body"},
     "label": {"id", "action", "label"},
+    # `labels` reads what `label` writes, and is separate because reading is the
+    # half a backend can decline. A tracker with no way to list an issue's labels
+    # leaves it out; the caller falls back to the surface that needs no tracker
+    # at all rather than guessing from whatever `view` happened to print.
+    "labels": {"id"},
     # `start`/`stop` say when work on an issue began and stopped; what a backend
     # does with that is its own business. A tracker with a board moves a column,
     # one without it declines the verb and the caller carries on — which is why
@@ -41,6 +47,72 @@ ALLOWED = {
 }
 # The `changes` section (PRs / patchsets) supports a smaller verb set.
 ALLOWED_CHANGES = {"list": set(), "view": {"id"}}
+
+
+# The verbs that tell someone outside the repo, from the middle row of
+# `wfctl-classes-the-action-not-the-command`. Each of these reaches people who
+# are notified, and deleting the result later does not un-notify them.
+#
+# `close` is not here, and its absence is the decision rather than an omission.
+# Closing an issue is the irreversible row, which no grant reaches — so gating it
+# on the grant would be the wrong shape twice over: it would refuse the human who
+# is the only one allowed to do it, and wfctl cannot tell a human from an agent
+# anyway (`approval-mode-is-stored-intent`). What keeps that row safe is that
+# nothing here ever consults a grant for it.
+#
+# `start` and `stop` move a board column, which the spec assumes reaches nobody.
+# That assumption is recorded as unverified: if a column move does notify, these
+# two belong here and every worktree creation has been taking a notifying action
+# unprompted.
+_NOTIFYING_VERBS = {"comment", "create", "label"}
+
+
+def _refuse_notifying(agent_dir: Path, repo_root: Path, verb: str) -> int | None:
+    """Refuse a notifying verb the run was never granted, or None to proceed.
+
+    The two skills that take these actions already gate on the same answer in
+    prose, and this is the same rule expressed where it cannot be skipped
+    (`a-rule-is-expressed-as-a-check`): a violation shows up in an artifact the
+    work produces — the tracker changed — so the rule is a check rather than a
+    comment. An agent that never reads the skill still cannot comment, label or
+    open an issue on a feature nobody granted.
+
+    Reads the answer the run resolved at `wfctl start` and re-asks the branch,
+    which the record cannot answer: under a shared `WFCTL_STATE_DIR` the log is
+    not per-branch, and a grant made on a feature branch reached the trunk
+    (FR-008). Neither read touches the tracker, so this costs no round-trip.
+
+    Exit 1 rather than the 0 that a missing backend returns. That 0 means
+    "nothing was configured to do this", and a session must not fail for it. This
+    is the opposite fact — something was configured, and the run may not use it —
+    and a caller that reads a refusal as a completed write would report the
+    tracker updated when it was not.
+    """
+    from wfctl._session import action_grant, record_notify_refused
+
+    grant = action_grant(agent_dir, repo_root)
+    if grant.granted:
+        return None
+    record_notify_refused(agent_dir, verb, grant.source)
+    # Three short lines rather than two long ones: rich wraps at the terminal
+    # width, and a remedy split across a wrap arrives as a fragment. The first
+    # draft ran to 84 characters and broke mid-sentence in a real terminal.
+    console.print(
+        f"[yellow]⚠[/yellow] '{verb}' would tell people outside this repo, "
+        "and nobody allowed it"
+    )
+    # No remedy line where there is no remedy. On the trunk, and in a repo whose
+    # trunk cannot be named, neither the flag nor the label lifts this — printing
+    # them anyway sends the reader to try two things that will not work, which is
+    # the failure the trunk *status* line was written to prevent, reintroduced at
+    # the other surface.
+    if grant.source not in ("trunk", "unknown-trunk"):
+        console.print(
+            "  Allow it: [bold]wfctl start --allow-notify[/bold], "
+            f"or the [bold]{NOTIFY_LABEL}[/bold] label"
+        )
+    console.print(f"  Refused because: {grant.source}")
+    return 1
 
 
 def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> bool:
@@ -233,6 +305,15 @@ def dispatch(
         console.print(f"ℹ Tracker '{name}' does not support '{verb}' — skipped")
         return 0
 
+    # After the config checks and before argv is built, so a refusal reads as a
+    # refusal rather than as a backend that could not run: a repo with no
+    # `comment` verb and a run with no authority are different answers, and only
+    # one of them is about permission.
+    if section == "verbs" and verb in _NOTIFYING_VERBS:
+        refused = _refuse_notifying(agent_dir, repo_root, verb)
+        if refused is not None:
+            return refused
+
     # {me} comes from the config's identity, not a CLI flag — inject it so a
     # backend can filter a list to the current user.
     identity = config.get("identity")
@@ -259,4 +340,78 @@ def dispatch(
         return result.returncode
 
     append_event(agent_dir, event, verb=verb, tracker=name)
+    if section == "verbs" and verb in _NOTIFYING_VERBS:
+        # FR-010, and unprompted is the point: a run that used the authority
+        # reports what it did whether or not anyone asked. Recorded here rather
+        # than by each caller because this is the one place that knows the write
+        # succeeded — the `issue` event above says the verb ran, not that anyone
+        # was told anything by it.
+        from wfctl._session import record_notify_action
+
+        record_notify_action(agent_dir, verb)
     return 0
+
+
+def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str | None]:
+    """The labels on one issue, through the backend's own `labels` verb.
+
+    Returns `(labels, detail)`. `labels` is None when there is no answer:
+    `detail` then says why the read failed, or is None when nothing was asked —
+    no tracker configured, or one that declines `view`. A caller gating on a
+    label must keep those apart. "Nobody answered" is the ordinary state of a
+    repo with no tracker (FR-012); "the answer did not arrive" decides a whole
+    run and is reported as its own event (FR-015).
+
+    One label per line of stdout, because the verb is declared to produce that
+    and not because any backend's default output happens to look that way. An
+    earlier version ran `view` and looked for the `labels:` header `gh` prints:
+    it read every other backend as having no labels, silently, and searching the
+    whole output instead would have let an issue *about* a label grant that
+    label — #280's own body names `authority:notify` several times.
+    """
+    name = load_manifest(repo_root).get("tracker")
+    if not name:
+        return None, None
+    config = _load_tracker_config(repo_root, name)
+    if config is None:
+        return None, None
+    # `.get("verbs", {})` returns the value when the key is present, so a config
+    # carrying `"verbs": null` hands back None and the membership test below
+    # raises. Nothing validates a hand-edited config at load, and with no local
+    # grant every `wfctl start` reaches this line — so the crash lands on the
+    # command a session opens with. `validate_config` already guards the shape
+    # this way; this reader had not.
+    verbs = config.get("verbs")
+    if not isinstance(verbs, dict) or "labels" not in verbs:
+        return None, None
+
+    # A config that parsed is a config that is JSON, not one that is well-formed.
+    # `"labels": 3` reached the comprehension below and raised TypeError out of a
+    # function whose caller documents that it never raises — taking `wfctl start`
+    # down with a traceback on a branch whose only fault was a typo in a file
+    # nothing validates at load.
+    template = verbs["labels"]
+    if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
+        return None, "'labels' must be a list of strings"
+
+    params: dict = {"id": issue}
+    identity = config.get("identity")
+    if identity is not None:
+        params = {"me": identity, **params}
+    try:
+        argv = [_substitute(tok, params) for tok in template]
+    except _MissingParam as e:
+        return None, f"'labels' requires --{e.key}"
+
+    try:
+        # The one network call on the `start` path. Unbounded, it would hang the
+        # command that every session opens with; refused-on-timeout is the same
+        # verdict an unreachable tracker already gets.
+        result = subprocess.run(
+            argv, capture_output=True, text=True, cwd=repo_root, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or "").strip()
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}, None

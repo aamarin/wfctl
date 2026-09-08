@@ -139,6 +139,61 @@ _AUTO_APPROVE_NOTICE = (
 )
 
 
+# One line per resolved state, never silence. `auto_approve` prints nothing when
+# it is off, and copying that here would make a wfctl that knows about grants
+# indistinguishable from one too old to have heard of them — the confusion this
+# repo already lives with between its two installed copies (FR-003).
+#
+# Plain, not terse: `notify — refused; denied locally` is shorter and needs the
+# reader to already hold the vocabulary. And every refusal names which kind it
+# is, because five of them mean the same verdict for different reasons and only
+# some of those are anybody's decision (FR-015).
+#
+# The tracker is named generically rather than as GitHub. The pinned wording in
+# `contracts/notify-grant.md` said "couldn't reach GitHub", which is the same
+# mistake the label read made before it became a declared verb: wfctl talks to
+# whatever backend the repo configured, and naming one of them here would print a
+# false cause on every other.
+_NOTIFY_LINES = {
+    "local": "may notify people — you allowed it in this worktree",
+    "unset": "will not notify anyone — nobody has allowed it for this work",
+    "deny": "will not notify anyone — you turned it off here",
+    "unreadable": "will not notify anyone — couldn't reach the issue tracker to check",
+    "corrupt": "will not notify anyone — couldn't read the setting for this work",
+    "trunk": "will not notify anyone — only feature branches can be granted this",
+    "unknown-trunk": "will not notify anyone — couldn't tell which branch is trunk",
+}
+
+
+# Not keyed on the grant, because no grant value changes it. Merging, closing an
+# issue, force-pushing and deleting a branch reach history and work that is not
+# this agent's, and the classes record puts them on the row that is "always the
+# human. No switch, not configurable."
+#
+# "there is no setting for it" is the load-bearing half. The line exists to end
+# the search it would otherwise start.
+_IRREVERSIBLE_NOTICE = (
+    "will never merge or delete — that is always yours, no setting for it"
+)
+
+
+def _notify_line(source: str, issue: str | None) -> str:
+    """The status line for one resolved state.
+
+    `label` is built rather than looked up because it names the issue the label
+    is on: FR-005 asks the granted line to say where the authority came from, and
+    "on the issue" without which issue sends the reader to look for it.
+
+    An unrecognised source falls back to the refused wording rather than to
+    silence or a raise. A reader seeing a state this function has not been taught
+    should be told the run will not notify anyone, which is what an unrecognised
+    verdict resolves to everywhere else.
+    """
+    if source == "label":
+        return f"may notify people — you allowed it on issue #{issue}"
+    return _NOTIFY_LINES.get(source, _NOTIFY_LINES["unset"])
+
+
 @app.command("start")
 def start_cmd(
     force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded"),
@@ -152,13 +207,35 @@ def start_cmd(
              "instead of stopping for approval in the session. "
              "--no-auto-approve hands the gates back to a human.",
     ),
+    # Tri-state for the same reason as the flag above, and the same failure if it
+    # were not: `/start-session` runs `wfctl start` on every handoff, so a plain
+    # bool would revoke the grant at the first one and an overnight run would go
+    # quiet without anyone touching it.
+    #
+    # The help text carries both vocabularies deliberately. `status` says "may
+    # notify people" and never prints a flag name, so this is the only place a
+    # reader who saw that line can find the command that sets it.
+    allow_notify: bool | None = typer.Option(
+        None, "--allow-notify/--deny-notify",
+        help="Allow this feature to take actions that notify people outside the "
+             "repo — comment on an issue, open one, add a label, push. This is "
+             "the setting behind the 'may notify people' line in `wfctl status`. "
+             "--deny-notify turns it off here, and beats a label that would "
+             "otherwise allow it. Merging, closing and deleting are never "
+             "covered by either.",
+    ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._session import grant_auto_approve
+    from wfctl._session import (
+        grant_auto_approve,
+        grant_notify,
+        notify_grant,
+        record_notify_resolved,
+    )
 
-    agent_dir, repo_root, branch, _ = _resolve_context()
+    agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
 
@@ -180,16 +257,104 @@ def start_cmd(
             else "[green]✓[/green] auto-approve off — design gates stop for a human"
         )
 
+    # Before the resolution below, so a flag typed now is what the run resolves
+    # against rather than what the previous run left behind.
+    if allow_notify is not None:
+        grant_notify(agent_dir, "granted" if allow_notify else "denied", branch)
+
+    # The run's one tracker round-trip (FR-014). Resolving per command instead
+    # would spend 1.4s on every `wfctl status`, re-reading a label that does not
+    # change while a session runs.
+    grant = notify_grant(agent_dir, repo_root, branch, issue)
+
+    def report_notify() -> None:
+        """Record the answer and say it, on both ways out of this command.
+
+        Called twice rather than hoisted above the early return, because the
+        `start` event has to be the first thing a fresh log holds — that line is
+        what `session_started` reads, and a test asserts on its position because
+        the log is the session. Called on the early path too because a flag typed
+        on an already-started session has to take: `/start-session` opens the
+        session on a worktree's first turn, so by the time anyone types
+        `--allow-notify` the session is already recorded.
+        """
+        # One event, not two. `notify-resolved` already carries `detail` — the
+        # tracker's stderr, which the fixed console line cannot — and it is the
+        # one inside the dedupe. The second event sat outside it, so the single
+        # state that repeats across starts was the only one that grew the log.
+        record_notify_resolved(agent_dir, grant, branch)
+        console.print(_notify_line(grant.source, issue))
+
     if report.session_started and not force:
+        report_notify()
         console.print("ℹ Already initialized (use --force to reset)")
         return
 
     step = report.current or "complete"
     append_event(agent_dir, "start", branch=branch, step=step)
+    report_notify()
     console.print(
         f"[green]✓[/green] Session started — step: {step}, "
         f"next: {report.next_command or '(none)'}"
     )
+
+
+@app.command("notify")
+def notify_cmd(
+    action: str = typer.Argument(
+        ..., help="What was done or skipped — 'push', 'issue-create', 'comment'."
+    ),
+    declined: bool = typer.Option(
+        False, "--declined",
+        help="The run held the authority and chose not to use it. Requires --reason.",
+    ),
+    reason: str = typer.Option(
+        None, "--reason", help="Why the action was declined."
+    ),
+) -> None:
+    """Record a notifying action this run took, or declined to take.
+
+    `wfctl issue` records its own writes, so this is for the ones wfctl does not
+    perform — a push, most of all, which no wfctl verb covers and which is in the
+    notifying class all the same.
+
+    Declining is the half that needs a surface of its own. An action skipped
+    because the agent judged it should not act, and one refused because nobody
+    granted the authority, are the same absence in the tracker and different
+    facts about the run (FR-011) — and only one of them is a sign the grant
+    should be widened.
+    """
+    from wfctl._session import (
+        action_grant,
+        record_notify_action,
+        record_notify_declined,
+    )
+
+    agent_dir, repo_root, _, issue = _resolve_context()
+
+    # Both paths, not just the action one. A decline is a claim about authority
+    # the run *had* — "may notify people, but skipped" — so filing one from a
+    # refused run overstates the grant in the flattering direction, and a decline
+    # is the single signal that says the grant should be widened. The action path
+    # below guarded this from the start; the decline path did not, which is the
+    # inversion FR-011 names, arrived at from the other side.
+    grant = action_grant(agent_dir, repo_root)
+    if not grant.granted:
+        console.print(_notify_line(grant.source, issue))
+        raise typer.Exit(1)
+
+    if declined:
+        if not reason:
+            console.print("[red]✗ --declined requires --reason[/red]")
+            raise typer.Exit(1)
+        record_notify_declined(agent_dir, action, reason)
+        # Leads with the permission it had. Without that clause the line is
+        # indistinguishable from a refusal, which is the failure FR-011 names.
+        console.print(f"may notify people, but skipped {action} — {reason}")
+        return
+
+    record_notify_action(agent_dir, action)
+    console.print(f"[green]✓[/green] recorded: {action}")
 
 
 @app.command("status")
@@ -203,11 +368,25 @@ def status_cmd(
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
-    from wfctl._paths import resolve_spec_dir
+    from wfctl._paths import on_trunk, resolve_spec_dir
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
+
+    # Asked here rather than read back with the rest. The recorded answer says
+    # what `wfctl start` resolved on whichever branch ran it, and on the trunk
+    # before any start there is nothing recorded at all — which rendered as
+    # "nobody has allowed it for this work" and sent the reader looking for the
+    # flag that would fix it. There is none, and the trunk line says so. Costs
+    # two local git calls; the round-trip this design avoids is the tracker's.
+    notify_source = report.notify_source
+    trunk = on_trunk(repo_root, branch)
+    if trunk is None:
+        notify_source = "unknown-trunk"
+    elif trunk:
+        notify_source = "trunk"
+    notify = report.notify and notify_source == report.notify_source
 
     if as_json:
         # The same object the console branch renders, in the other format. The
@@ -232,11 +411,23 @@ def status_cmd(
             # notice about the ordinary case is noise; a reader that branches on
             # a key cannot tell an absent key from a false one.
             "auto_approve": report.auto_approve,
+            # Present and false when refused, never omitted (FR-004). A consumer
+            # reading a missing key as false cannot tell a refusal from a wfctl
+            # too old to know the question — which is the whole point of FR-003.
+            "notify": notify,
+            "notify_source": notify_source,
             "steps": report.steps,
         })
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
+    console.print(_notify_line(notify_source, issue))
+    # FR-013, and it prints in every state including granted — that is what makes
+    # it an answer rather than a refusal. A reader who has just been told the run
+    # may notify people will ask what else it may do, and without this line they
+    # go looking for the flag that widens it further. There is none, and the line
+    # says so rather than leaving the search to end in a wrong guess.
+    console.print(_IRREVERSIBLE_NOTICE)
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it

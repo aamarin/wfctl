@@ -8,6 +8,8 @@
     "comment": ["gh", "issue", "comment", "{id}", "--body", "{body}"],
     "create": ["bash", ".agents/trackers/github-issue-create.sh", "{title}", "{body}"],
     "label": ["gh", "issue", "edit", "{id}", "--{action}-label", "{label}"],
+    "labels": ["gh", "issue", "view", "{id}", "--json", "labels",
+               "--jq", ".labels[].name"],
     "start": ["bash", ".agents/trackers/github-board.sh", "{id}", "In Progress"],
     "stop": ["bash", ".agents/trackers/github-board.sh", "{id}", "Todo",
              "--only-from", "In Progress"]

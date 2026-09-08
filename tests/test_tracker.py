@@ -35,6 +35,24 @@ def _configure_tracker(repo_root: Path, name: str, config: object) -> None:
     (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": name}))
 
 
+def _allow_notify(agent_dir: Path, branch: str = "342-state-workflow") -> None:
+    """Record the grant these tests need to reach a notifying verb at all.
+
+    `comment`, `create` and `label` tell people outside the repo, and since #280
+    the dispatcher refuses them on a run nobody granted. The tests below are
+    about argv construction rather than authority, so they grant first — but they
+    have to grant rather than be exempted, because the gate they are stepping past
+    is the one that stops an ungranted run from reaching a real tracker.
+
+    The branch defaults to the one `agent_dir` pins, since a grant recorded for
+    another branch is no grant at all here — which is FR-008 and the whole point
+    of the argument.
+    """
+    from wfctl._session import NotifyGrant, record_notify_resolved
+
+    record_notify_resolved(agent_dir, NotifyGrant(True, "local"), branch)
+
+
 @pytest.fixture
 def captured_argv(monkeypatch: pytest.MonkeyPatch) -> list:
     """Capture argv passed to subprocess.run instead of executing it."""
@@ -59,17 +77,24 @@ def test_close_builds_expected_argv(agent_dir: Path, captured_argv: list) -> Non
 def test_free_text_lands_as_single_inert_argv_token(agent_dir: Path, captured_argv: list) -> None:
     repo_root = agent_dir.parent
     _configure_tracker(repo_root, "github", _GITHUB_VERBS)
+    _allow_notify(agent_dir)
     payload = '$(rm -rf /); "quoted" & backtick`x`'
     runner.invoke(app, ["issue", "comment", "9", "--body", payload])
     # The dangerous string is exactly one argv element, never shell-interpreted.
-    assert captured_argv == [["gh", "issue", "comment", "9", "--body", payload]]
+    #
+    # The backend's call, not the whole capture. The fixture patches the
+    # `subprocess` module rather than one module's reference to it, so the two
+    # local git calls the notify gate makes before any write land here too. What
+    # this test is about is the shape of the token, and that is the last call.
+    assert captured_argv[-1] == ["gh", "issue", "comment", "9", "--body", payload]
 
 
 def test_within_token_substitution_for_label(agent_dir: Path, captured_argv: list) -> None:
     repo_root = agent_dir.parent
     _configure_tracker(repo_root, "github", _GITHUB_VERBS)
+    _allow_notify(agent_dir)
     runner.invoke(app, ["issue", "label", "5", "--action", "add", "--label", "in-progress"])
-    assert captured_argv == [["gh", "issue", "edit", "5", "--add-label", "in-progress"]]
+    assert captured_argv[-1] == ["gh", "issue", "edit", "5", "--add-label", "in-progress"]
 
 
 def test_unsupported_verb_skips_gracefully(agent_dir: Path, captured_argv: list) -> None:

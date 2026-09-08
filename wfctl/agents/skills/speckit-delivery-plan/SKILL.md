@@ -66,7 +66,7 @@ Before running /speckit.decompose, verify all of these:
 
 ---
 
-## Process (5 Steps)
+## Process (7 Steps)
 
 **Step 1 — Read artifacts** (read-only, no code changes)
 Load `tasks.md`, `spec.md`, `plan.md`. Do not write anything yet.
@@ -86,7 +86,48 @@ T006 → READ ONLY (type or build check)
 **Step 4 — Apply issue grouping rules** → output task→issue map
 
 **Step 5 — Build parallelization wave table** → output wave assignments,
-then write `delivery.md` and create GitHub issues.
+then write `delivery.md`.
+
+**Step 6 — Check that this run may create issues, before creating any.**
+
+```bash
+wfctl status --json     # read `notify` and `notify_source`
+```
+
+Creating an issue tells the people watching the tracker, and deleting it later
+does not un-tell them. `notify` is `false` unless a person granted this feature
+branch the authority to do that — and `false` means write `delivery.md` with its
+placeholder keys, print the line `wfctl status` prints, say how many rows are
+waiting on a key, and stop there. Not "create them and mention it": the
+notification is what cannot be undone, so the refusal has to happen before the
+call, not be reported after it.
+
+Treat any other answer — the key absent, the command failing, an older wfctl —
+as `false`.
+
+**Record a decline that was yours, not the grant's.** If the run *is* allowed to
+create issues and you decide not to — the map has rows you cannot key
+confidently, the grouping is not settled — say so where the report can see it:
+
+```bash
+wfctl notify issue-create --declined --reason "<what stopped you>"
+```
+
+An action you skipped and one you were not allowed to take leave the same empty
+tracker and are different facts about the run. Only one of them is a sign the
+grant should be widened, so filing them together loses the thing the record was
+kept for.
+
+**A plan with unkeyed rows is a legitimate state, not a failed run.** `wfctl
+status` reads `decompose` as unfinished while any row lacks a key, which is
+exactly right: the issues do not exist yet. Someone grants the authority and the
+step is re-run, or they create the issues themselves and fill the keys in. What
+would be wrong is a run that reported `decompose` complete having quietly
+skipped the half of it that reaches people.
+
+**Step 7 — Create the issues and write their keys back**, once step 6 says you
+may. Each created key replaces the placeholder in the Issue Grouping Map's
+`Issue` column.
 
 ---
 

@@ -207,7 +207,7 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     """How many rows of a delivery plan promise an issue that does not exist yet.
 
     The Issue Grouping Map is authored with placeholder keys and filled in once
-    the issues are created, because creating them is outward-facing and waits for
+    the issues are created, because creating them is notifying and waits for
     a human. An unkeyed row is therefore a legitimate mid-decompose state; what
     was wrong was reading it as a finished one (#8).
 
@@ -755,6 +755,18 @@ class PipelineReport:
     # because there is no step left to run; the mode is still true of a finished
     # story, which ran under one.
     auto_approve: bool = False
+    # Whether this run may take an action that tells someone outside the repo,
+    # and which of the seven answers said so. Both always present and both
+    # defaulted, for the reason above: a report built without them is a report
+    # about a feature nobody granted anything to.
+    #
+    # `notify_source` is not decoration on the boolean. Five of its values mean
+    # refused and they are not one event — nobody granted it, someone turned it
+    # off, the stored value is damaged, the tracker could not be reached, this is
+    # the trunk — and a consumer that sees only `False` cannot tell a person's
+    # decision from a failed read (FR-015).
+    notify: bool = False
+    notify_source: str = "unset"
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
@@ -777,8 +789,13 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # `auto_approve=auto_approve(agent_dir)` two lines down reads as a
     # self-reference rather than a call.
     from wfctl._session import auto_approve as read_auto_approve
-    from wfctl._session import session_started
+    from wfctl._paths import resolve_branch
+    from wfctl._session import resolved_notify, session_started
 
+    # The branch decides which recorded resolution counts. A state dir shared
+    # across worktrees holds every branch's, and reading the newest regardless of
+    # whose it was is how one feature's grant answered for another.
+    notify = resolved_notify(agent_dir, resolve_branch(repo_root))
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
     # `_infer_steps` has already asked; `verification_block` reads the config,
@@ -811,4 +828,9 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         auto=auto if command else None,
         session_started=session_started(agent_dir),
         auto_approve=read_auto_approve(agent_dir),
+        # Read back rather than resolved here. `start` asks the tracker once and
+        # records the answer; doing it in this function would put a network
+        # round-trip inside the one call every view of pipeline state makes.
+        notify=notify.granted,
+        notify_source=notify.source,
     )
