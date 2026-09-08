@@ -107,3 +107,17 @@ and a one-pager written for someone with no `arch-root` has nothing to list.
 fidelity. `brainstorming` carries its approved design here in context rather than
 saving it first; a second write to that path destroys the approved design.
 `/speckit.specify` reads the file from there.
+
+**If `design.md` already exists when this command starts, do not overwrite it.**
+Read it, and treat this run as answering whatever the pipeline still reports
+open — usually the boundary question, since `wfctl status` holds the design step
+at `▶` with the reason on it and routes back here. A re-entered design step is
+the normal way that answer gets given, and the answer is a record under
+`wfctl arch-root`, or `wfctl arch none --reason "<why>"` carrying a real reason.
+The design document is not what was missing; rewriting it loses the level-1 and
+level-3 work and leaves the gate exactly as it was.
+
+Prose rather than a check, deliberately. Once the file has been overwritten
+there is no artifact left showing it happened, so nothing downstream could see
+the violation — `a-rule-is-expressed-as-a-check` puts this case on the other
+side of its own test, and delivers the rule at the moment it binds.

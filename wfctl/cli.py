@@ -197,6 +197,8 @@ def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
 ) -> None:
     """Show pipeline progress."""
+    from rich.markup import escape
+
     from wfctl._pipeline import (
         DESIGN_BLOCK_HELP,
         DESIGN_BLOCK_REASON,
@@ -261,7 +263,7 @@ def status_cmd(
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
         glyph, color = _STATE_GLYPH[step["state"]]
         sym_fmt = f"[{color}]{glyph}[/{color}]"
-        ann = f"  [dim]{step['annotation']}[/dim]" if step["annotation"] else ""
+        ann = f"  [dim]{escape(step['annotation'])}[/dim]" if step["annotation"] else ""
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
 
@@ -294,6 +296,8 @@ def verify_cmd() -> None:
 @app.command("next")
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
+    from rich.markup import escape
+
     from wfctl._pipeline import (
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
@@ -333,20 +337,30 @@ def next_cmd() -> None:
         content = (
             f"Next step: {command}\nauto: {auto_str}\n{why}Run this command to continue.\n"
         )
-        console.print(f"→ Next step: {command} (auto: {auto_str})")
-        if blocked:
-            console.print(f"  [dim]{blocked}[/dim]")
     else:
         content = STORY_COMPLETE_FILE
-        console.print(STORY_COMPLETE_CONSOLE)
 
+    # Composed, written, then printed. `blocked` is repo-supplied text — a verify
+    # command carrying `[unit]` is legal — so rendering it can raise, and with the
+    # print first that left `next-step.md` holding a previous run's answer behind
+    # a command that reported failure. The deleted refusal path was ordered this
+    # way for the same reason.
     next_step_md.write_text(content)
+
+    if command:
+        console.print(f"→ Next step: {command} (auto: {auto_str})")
+        if blocked:
+            console.print(f"  [dim]{escape(blocked)}[/dim]")
+    else:
+        console.print(STORY_COMPLETE_CONSOLE)
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
 
 
 @app.command("resume")
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
+    from rich.markup import escape
+
     from wfctl._pipeline import STORY_COMPLETE_FILE, build_report
     from wfctl._session import session_started
     from wfctl._io import append_event
@@ -379,7 +393,7 @@ def resume_cmd() -> None:
         )
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
         if blocked:
-            console.print(f"  [dim]{blocked}[/dim]")
+            console.print(f"  [dim]{escape(blocked)}[/dim]")
     else:
         next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
@@ -963,6 +977,19 @@ def arch_none_cmd(
         # An empty one is the silent omission the check was built to stop,
         # with an extra command in front of it.
         console.print("[red]✗[/red] --reason cannot be empty: say why no boundary changed.")
+        raise typer.Exit(1)
+
+    # A placeholder is an empty reason that got past the check above by having
+    # characters in it. `<why>` is the shape that matters, because it is the one
+    # documentation and error messages write — a reader who pastes the example
+    # back gets a committed declaration whose body is `<why>`, a green ✓, and a
+    # permanently answered gate. Same argument as the branch above: the value is
+    # what a reviewer disagrees with, and nobody can disagree with a placeholder.
+    if re.fullmatch(r"<[^>]*>", reason.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
+            "say what changed, or why nothing did."
+        )
         raise typer.Exit(1)
 
     # `.name`: the branch reaches this as a path segment, and unlike the state

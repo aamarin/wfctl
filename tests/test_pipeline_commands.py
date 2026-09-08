@@ -225,11 +225,11 @@ def test_advancing_past_design_needs_an_answer(
     # one turns the excluded changes into records that say nothing.
     assert "docs/architecture/<slug>.md" in out
     assert 'wfctl arch none --reason "<why>"' in out
-    # Never the step command. Re-running brainstorm over an existing design.md
-    # destroys the approved design by that command's own account, and the
-    # records it writes land in the subtree this gate excludes — so it would
-    # take the work and still not clear the gate.
-    assert "/speckit.brainstorm" not in out
+    # The step, not a remedy. Both answers clear this gate and only one of them
+    # is a command, so a `next_command` naming a remedy names the cheaper answer
+    # and hides the other — and the string it would name carries a `<why>`
+    # placeholder a reader can paste straight back.
+    assert "next: /speckit.brainstorm" in out
 
 
 def test_a_record_written_for_this_change_advances(
@@ -367,7 +367,7 @@ def test_resume_is_gated_too(
     # it this said "run this to continue" over a blocked step, and the only view
     # that explained why was the one an agent does not read.
     written = (storyctl_dir.agent_dir / "next-step.md").read_text()
-    assert written.startswith('Next step: wfctl arch none --reason "<why>"')
+    assert written.startswith("Next step: /speckit.brainstorm")
     assert "why: no architecture record for this change" in written
 
     runner.invoke(app, ["arch", "none", "--reason", "no new state"])
@@ -495,7 +495,7 @@ def test_a_refused_resume_does_not_advance_state(
     assert runner.invoke(app, ["resume"]).exit_code == 0
 
     assert (storyctl_dir.agent_dir / "next-step.md").read_text().startswith(
-        'Next step: wfctl arch none --reason "<why>"'
+        "Next step: /speckit.brainstorm"
     )
     assert "brainstorm   ▶" in runner.invoke(app, ["status"]).output
 
@@ -1192,30 +1192,89 @@ def test_a_blocked_design_step_is_never_automatic(
     assert _STEPS["brainstorm"][1] == "automatic", "guards the premise, not the rule"
 
     command, auto = next_step_content(
-        "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir
+        "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir, "no architecture record"
     )
-    assert command == 'wfctl arch none --reason "<why>"'
+    assert command == "/speckit.brainstorm"
     assert auto is False
 
     runner.invoke(app, ["next"])
     assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
 
 
-def test_the_recompute_path_does_not_gate_a_feature_with_no_design(
+def test_a_placeholder_reason_is_refused(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """`next_step_content` called without a verdict asks the gate itself, and
-    that path has its own copy of "is there a design to advance past?".
+    """`<why>` is the shape documentation and error messages write, so it is the
+    string a reader pastes back — and it cleared the gate permanently, wrote a
+    committed declaration whose body was `<why>`, and printed a green ✓.
 
-    `_infer_steps` guards the call, so the guard inside `design_block` is
-    unreachable from `next` and `status` — deleting it leaves the whole suite
-    green. The ~30 callers that pass no verdict reach it, and for them a feature
-    that never drew a design would be held at a gate it was never subject to."""
+    Same argument as the empty-reason branch it sits beside: a declaration is a
+    claim a reviewer disagrees with, and nobody can disagree with a placeholder.
+    Worst under `auto_approve`, the mode with no human in it."""
     _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
 
-    command, auto = next_step_content(
-        "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir
+    result = runner.invoke(app, ["arch", "none", "--reason", "<why>"])
+
+    assert result.exit_code == 1
+    assert "placeholder" in result.output
+    assert "brainstorm   ▶" in runner.invoke(app, ["status"]).output, "gate still held"
+
+
+def test_the_json_view_carries_the_block_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The console renders the reason twice — as an annotation and as the help
+    block — and an agent reads neither. Without this the payload could stop
+    carrying `reason` and every console assertion in this file would still pass,
+    which is the hole `test_the_json_view_carries_the_auto_flag` documents for
+    `auto`."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    step = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+
+    assert step["reason"] == "no architecture record for this change"
+
+
+def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`decompose` sets a blocking reason like the other two arms and was the one
+    left off the payload, so `status` showed the reason while `next-step.md` said
+    "Run this command to continue" with nothing about what was missing — the
+    failure the field was added to close, reproduced in the field itself."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (storyctl_dir.repo_root / "docs" / "architecture").mkdir(parents=True, exist_ok=True)
+    (storyctl_dir.repo_root / "docs" / "architecture" / "b.md").write_text(
+        "---\nstatus: proposed\n---\n\n# x\n"
     )
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    storyctl_dir.make_spec_artifact("plan")
+    storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
+    (storyctl_dir.spec_dir / "checklists" / "analysis-report.md").write_text("# r\n")
+    # The rows are only read inside this section — a table without the heading is
+    # a delivery plan predating the map, which reads `done` by design.
+    (storyctl_dir.spec_dir / "delivery.md").write_text(
+        "# Delivery\n\n## Issue Grouping Map\n\n"
+        "| Issue | Tasks |\n|---|---|\n| _(TBD)_ | T001 |\n"
+    )
+    # A key pattern is what makes an unkeyed row readable as one; with no tracker
+    # the step cannot block and the test would pass against any code.
+    trackers = storyctl_dir.repo_root / ".agents" / "trackers"
+    trackers.mkdir(parents=True, exist_ok=True)
+    (trackers / "custom.json").write_text(json.dumps({"verbs": {"list": ["gh", "issue", "list"]}}))
+    # Merged, not overwritten — the fixture's manifest carries `spec_root`, and
+    # replacing it sends resolution somewhere else entirely.
+    manifest = storyctl_dir.repo_root / ".wf-skills-manifest.json"
+    existing = json.loads(manifest.read_text()) if manifest.exists() else {}
+    existing["tracker"] = "custom"
+    manifest.write_text(json.dumps(existing))
 
-    assert command == "/speckit.brainstorm"
-    assert auto is True
+    runner.invoke(app, ["next"])
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    assert "issue row" in written, written

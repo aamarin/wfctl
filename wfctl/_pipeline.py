@@ -115,21 +115,19 @@ DESIGN_BLOCK_HELP = (
     '      wfctl arch none --reason "<why>"'
 )
 
-# What `next` and `resume` name for a blocked design step. Not
-# `/speckit.brainstorm`: that command's own file warns a second write to
-# `design.md` destroys the approved design, and its `allowed-tools` cannot run
-# `wfctl arch none` — so following it costs the work and still leaves one of the
-# two remedies out of reach. `implement` routes to `wfctl verify` because that is
-# what produces the missing evidence; this is the same choice, and the step
-# command is not it.
+# What `next` and `resume` name for a blocked design step: the step itself.
 #
-# It is not that brainstorm cannot write a satisfying record. It can: level-2
-# records go to `<arch-root>/` through `architecture-decisions` and answer the
-# gate. Only the level-3 records `software-design-decisions` writes land under
-# `<arch-root>/design/`, which is the subtree `design_block` excludes — so a run
-# that wrote one of those and nothing else would still be held. The reason to
-# route elsewhere is the destroyed design document, not an unsatisfiable gate.
-DESIGN_BLOCK_COMMAND = 'wfctl arch none --reason "<why>"'
+# Not a remedy command. The two answers are "write a record" and "declare there
+# is no boundary", and only the second is a command — so any single string here
+# names one of them and hides the other. Naming the declaration is the worse
+# half of that: it is the cheaper answer, it would arrive with a `<why>`
+# placeholder a reader can paste back, and `status --json` returns before the
+# other remedy is rendered, so an agent would see one option and it would be the
+# one that closes the question without answering it.
+#
+# The step command names neither and reaches both. `implement` differs because
+# its evidence has exactly one producer — `wfctl verify` — so there is nothing
+# for a second option to be.
 
 
 def _file_exists(path: Path) -> bool:
@@ -512,7 +510,16 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             if implement_reason:
                 annotation = f"{annotation}  {implement_reason}"
 
-        reason = {"implement": implement_reason, "brainstorm": design_reason}.get(name)
+        # Every arm that can set `state = "in_progress"` from evidence puts its
+        # reason here. `decompose` was the one left out, so a delivery plan with
+        # unkeyed rows rendered the reason in `status` and wrote a `next-step.md`
+        # that said "run this to continue" with nothing about what was missing —
+        # the failure the field was added to close, in the field itself.
+        reason = {
+            "implement": implement_reason,
+            "brainstorm": design_reason,
+            "decompose": decompose_reason,
+        }.get(name)
         steps.append(_PipelineStep(name, state, annotation, reason))
 
         if state == "pending":
@@ -603,16 +610,11 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
     return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
-# Distinguishes "the caller already has the verdict" from "the verdict is None",
-# which `None` alone cannot: a caller holding a passing verdict passes None.
-_RECOMPUTE = object()
-
-
 def next_step_content(
     step: str,
     repo_root: Path | None = None,
     spec_dir: Path | None = None,
-    blocked: object = _RECOMPUTE,
+    blocked: str | None = None,
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
@@ -620,50 +622,30 @@ def next_step_content(
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
 
-    `repo_root` and `spec_dir` are optional so the ~30 existing call sites keep
-    working. Given both, a step whose gate does not pass routes to what unblocks
-    it rather than to the step command, and never automatically.
+    `blocked` is the reason inference already reached, or None. Asked for rather
+    than recomputed: `build_report` and `next` both hold it by the time they get
+    here, and re-deriving it runs the gate's git and verify work a second time
+    against artifacts an implementing agent may be rewriting — two reads of one
+    question that can disagree.
 
     **A blocked step is never automatic, whatever the table says.** The table
     answers "may the loop proceed past a step that finished"; a blocked step has
     not finished. `brainstorm` is where the two diverge since it was flipped
-    (#283): automatic in the table, and the thing that answers its boundary
-    question is a record a person or an agent writes — so a blocked design step
-    left automatic emits `EXECUTE_COMMAND` for `/speckit.brainstorm` against a
-    `design.md` that already exists, and does it again on the next pass.
+    (#283): automatic in the table, and blocked whenever its boundary question is
+    unanswered.
 
-    `implement` routes to `wfctl verify` instead of `/speckit.implement`, because
-    re-running implement there does nothing — there is no task left to do. Tasks
-    still open route to the step command as before: the work itself is what
-    remains.
+    A blocked `implement` routes to `wfctl verify` rather than
+    `/speckit.implement`, because re-running implement there does nothing — every
+    task is already ticked and the verdict is what is missing. Tasks still open
+    route to the step command as before: the work itself is what remains.
     """
-    if repo_root is not None and spec_dir is not None:
-        if blocked is _RECOMPUTE:
-            blocked = _step_block(step, spec_dir, repo_root)
-        if blocked:
-            # Each names what produces the missing evidence, which is never the
-            # step command: re-running a step whose artifact already exists does
-            # not answer the question the gate asked, and for `brainstorm` it
-            # destroys the artifact on the way past.
-            return ("wfctl verify" if step == "implement" else DESIGN_BLOCK_COMMAND), False
+    if blocked and step in _STEPS:
+        # `implement` routes to what produces its evidence; every other blocked
+        # step routes to itself, because re-entering it is where its answers get
+        # given. The flag is what changes, not usually the destination.
+        return ("wfctl verify" if step == "implement" else _STEPS[step][0]), False
     command, continuation = _STEPS.get(step, ("", _REVIEW_REQUIRED))
     return command, continuation == _AUTOMATIC
-
-
-def _step_block(step: str, spec_dir: Path, repo_root: Path) -> str | None:
-    """Why this step's gate does not pass, or None — for a caller with no verdict.
-
-    `build_report` has already inferred and hands its answer over. This is for
-    the ~30 call sites that have not, and it keeps the recompute in one place
-    rather than at each branch above.
-    """
-    if step == "implement":
-        tasks_md = spec_dir / "tasks.md"
-        tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
-        return _implement_verdict(tasks_text, spec_dir, repo_root)[1]
-    if step == "brainstorm":
-        return design_block(spec_dir, repo_root)
-    return None
 
 
 @dataclass(frozen=True)

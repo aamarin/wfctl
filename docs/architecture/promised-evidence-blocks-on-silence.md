@@ -44,25 +44,39 @@ produces the missing evidence.
 
 ## Decision
 
-A gate reads evidence and returns one of `satisfied`, `unsatisfied`,
-`inconclusive`. It does not resolve `inconclusive`.
+A gate reduces what it read to `satisfied`, `unsatisfied` or `inconclusive`, and
+hands that verdict to one shared rule along with the name of the source it read.
+It does not decide for itself what its own silence means.
 
-Resolution is a property of the evidence, keyed on whether anyone undertook to
-produce it. Evidence that was promised — repo-declared commands, accepted
-records, human approval — blocks when it is unavailable. Ambient evidence — git,
-the filesystem — proceeds.
+The rule is keyed on whether anyone undertook to produce the evidence. Promised
+— repo-declared commands, accepted records, human approval — blocks when it is
+unavailable. Ambient — git, the filesystem — proceeds.
+
+Gates keep returning a reason or `None` at their boundary; the three-valued
+verdict is what they compute internally and pass to the rule. Nothing about the
+signature a caller sees changes.
 
 ## Owns truth
 
-The evidence source owns "what does it mean that this evidence is unavailable?".
+`blocks` owns "what does it mean that this evidence is unavailable?".
 
-A gate cannot own it. A gate sees one transition and one source, so its answer is
-correct locally and unreachable from anywhere else — which is how three gates
-came to hold two policies without any of them being wrong. The question is not
-about the transition being gated at all: it asks whether anything undertook to
-produce the evidence, which is a fact about the evidence's origin and is the same
-answer at every gate that reads that source. Asked at the gate, it is re-derived
-per gate and drifts; asked at the source, it is answered once.
+An individual gate cannot own it. A gate sees one transition and one source, so
+its answer is correct locally and unreachable from anywhere else — which is how
+three gates came to hold two policies without any of them being wrong. The
+question is not about the transition being gated: it asks whether anything
+undertook to produce the evidence, which is a fact about the evidence's origin
+and is the same answer at every gate reading that source. Held per gate it is
+re-derived and drifts; held in one function it is answered once, and changing it
+changes every caller.
+
+**What the gate still owns is which source it read**, declared as a name at the
+call site. That is not a weaker version of the above and it is worth being exact
+about: nothing binds the label to the reader that produced the evidence, so a
+gate can pass the wrong one. What the record fixes is two gates disagreeing about
+what silence *means*; what it does not fix is a gate misdescribing where its
+evidence came from. That would need the source to be a property of the reader
+rather than an argument, which is a larger change than the one this record makes
+and is not proposed here.
 
 ## Considered
 
