@@ -156,6 +156,22 @@ would report a stale build as current — which is why the tag job exists (#55).
 
 ## Safety
 
+**`wfctl issue comment`, `create` and `label` refuse by default.** They tell
+people outside the repo, and nothing on a fresh branch has allowed that — so the
+first one you run prints a refusal and exits 1 rather than doing anything. That
+is the feature working, not a broken tracker config. A person lifts it with
+`wfctl start --allow-notify` or the `authority:notify` label on the branch's
+issue; `wfctl status` says which, in every state.
+
+The answer is resolved once, by `wfctl start`, and read back from the event log
+by everything after it. A label added mid-session is therefore not seen until the
+next `wfctl start` — deliberate, so `status` does not spend a network round-trip
+per call.
+
+`close` is not gated and never will be. It is the irreversible row, which no
+grant reaches; gating it would refuse the human who is the only actor allowed to
+run it.
+
 `install-skills` writes into a project and can overwrite hand-authored files; it
 lists them and asks first. `--yes` skips that prompt — originally for CI, and now
 also for `/start-session`, which refreshes a stale mirror unattended. What it
