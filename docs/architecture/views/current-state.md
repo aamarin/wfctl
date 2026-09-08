@@ -7,33 +7,42 @@ down from them because `_arch.load_records` globs `*.md` non-recursively at the
 arch root — a view placed there would be read as a record and reach agents
 through `wfctl arch context` as if someone had agreed to it.
 
-Derived from `wfctl/*.py` at `24beb3e`. What keeps it honest is
+Derived from `wfctl/*.py` at `793fd95`. What keeps it honest is
 `tests/test_architecture_view.py`, which re-derives the import graph and fails
 when this drawing stops matching it. See **Staleness** below.
 
 ```
    ╭─ surface ─────────────────────────────────────────────────────────╮
-   │ cli 3627                                          14 out · 0 in   │
+   │ _entry 35                                          2 out · 0 in   │
+   │   └─► cli 4774                                    15 out · 1 in   │
+   │   └─► _hook 110                                    1 out · 2 in   │
    ╰───────────────────────────────────────────────────────────────────╯
       │      ╎ 2 private crossings into _pipeline
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 442   _arch 359   _archive 339   _guard 286        │      ┊
-   │ _verify 245     _tracker 227   _workmux 191   _settings 173  │      ┊
-   │ _shape 238      _session 102   _bundle 92    _body 393       │      ┊
+   │ _pipeline 593   _arch 444   _archive 339   _guard 293        │      ┊
+   │ _verify 245     _tracker 262   _workmux 274   _settings 173  │      ┊
+   │ _shape 260      _session 164   _bundle 126   _body 408       │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
       ▼ ┊  _tracker    → _paths.DEFAULT_KEY_PATTERN        edge, and the ┊
    ╭─ resolution ─────────────────────────────────────╮     only cycle   ┊
-   │ _paths 446      _manifest 42                     │◄────────────────╌╯
+   │ _paths 635      _manifest 42                     │◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
    ╭─ durability ─────────────────────────────────────╮  ◄── _arch _session
    │ _io 66                            0 out · 5 in   │      _tracker _verify
    ╰──────────────────────────────────────────────────╯      cli
 ```
+
+`_entry` is drawn above the two it reaches because it is the only one with no
+importer: it is what the console script resolves to, and it decides which of the
+other two answers. `_hook` reaches `_guard` directly and nothing else, which is
+what lets the guard run without `cli` — see the surface split below. The line
+counts and edge tallies moved with the re-derivation at `793fd95`; the bands and
+the crossings did not.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
 imports nothing back — not because resolution reaches it. Neither `_paths` nor
