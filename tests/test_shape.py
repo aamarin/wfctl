@@ -72,14 +72,22 @@ def test_the_same_long_reply_is_not_flagged_when_the_prompt_asked_for_depth() ->
 
 
 def test_the_explain_it_simply_row_of_rule_3_opts_into_depth() -> None:
-    """The verbatim prompt from #298. That row licenses the longest replies the
-    skill permits — plain words throughout, opening on a concrete instance — and
-    none of its vocabulary was in the gate, so the reply it asked for came back
-    with a Q3 for running long. A false positive on the row that most needs the
-    length is the shape that teaches the reader to switch the check off."""
-    asked = ("explain this in plain terms, pretend you're talking to a PM. "
-             "Provide a simple example as well")
-    assert not _shape.findings("word " * 300, asked)
+    """That row licenses the longest replies the skill permits — plain words
+    throughout, opening on a concrete instance — and the gate held no word from
+    it, so the reply it asked for came back with a Q3 for running long. A false
+    positive on the row that most needs the length is the shape that teaches the
+    reader to switch the check off.
+
+    The first case is the prompt from #298, and it is quoted without its own
+    opening `explain` on purpose: that word was already in the gate, and a case
+    carrying it passes on the code this test exists to prove wrong. The rest are
+    the row's other phrasings, one per word added, so deleting any of them fails
+    something."""
+    for asked in ("in plain terms, pretend you're talking to a PM. "
+                  "Provide a simple example as well",
+                  "ELI5", "put it in plain english", "keep it simple",
+                  "give me some examples", "how would you pitch it to a PM"):
+        assert not _shape.findings("word " * 300, asked), asked
 
 
 def test_every_finding_names_the_check_the_reader_already_agreed_to() -> None:
@@ -255,6 +263,18 @@ def test_the_echo_flag_prints_the_report_without_disturbing_the_json(
     assert "counted lead-in" in json.loads(result.stdout)[
         "hookSpecificOutput"]["additionalContext"]
     assert "counted lead-in" in result.stderr
+
+
+def test_the_echo_is_off_until_the_flag_is_set(tmp_path: Path) -> None:
+    """Its whole cost is that a reader who has not asked for it sees nothing new,
+    so the default is the half worth pinning. `conftest.py` pops the variable for
+    the same reason this asserts on it."""
+    path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
+    result = runner.invoke(
+        app, ["hook", "response-shape"],
+        input=json.dumps({"transcript_path": str(path)}),
+    )
+    assert result.stderr == ""
 
 
 def test_narration_between_tool_calls_is_not_the_terminal_reply(tmp_path: Path) -> None:

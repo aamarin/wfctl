@@ -478,10 +478,12 @@ the text is written, one after:
 | `UserPromptSubmit` | `wfctl hook user-prompt` | prints the `digest.md` of each skill the manifest records as installed, so a skill loaded at session start is re-anchored on later turns instead of decaying as the context fills |
 | `Stop` | `wfctl hook response-shape` | reads the finished reply back out of the transcript and warns when it broke a `conversation-response-shape` rule a machine can see — a markdown header, a counted lead-in, length nothing asked for |
 
-The `Stop` entry warns and never blocks. It reports to the agent that wrote the
-reply rather than to your terminal — `systemMessage` is the obvious channel and
-is not wired for this event, so the finding rides
-`hookSpecificOutput.additionalContext` and lands in the next turn's context. It
+The `Stop` entry warns and never blocks. The finding rides
+`hookSpecificOutput.additionalContext`, which lands in the next turn's context
+and so reaches the agent that wrote the reply — in time to shape the next one,
+which is the only moment anything can act on it. It rode `systemMessage` as well
+until #298: that key had reached nobody when this was written, and once the
+harness wired it up the reader got the same report twice per firing. It
 carries `|| true` because a non-zero exit on that event tells the agent to keep
 going rather than stopping, so an older `wfctl` on `PATH` would loop at the end
 of every turn instead of printing once. The same rules over a PR description are
@@ -701,6 +703,7 @@ Run `wfctl <command> --help` for all options.
 | `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
 | `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it only to know whether an absent agent layer was a choice. Unset installs the `.agents/` layer alone |
+| `WFCTL_SHAPE_ECHO`      | `1` echoes the `Stop` hook's finding to stderr, for exercising `hook response-shape` on a payload piped in by hand. The installed hook entry redirects stderr, so this shows nothing through the harness |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
 
 ## Development

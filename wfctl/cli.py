@@ -3671,17 +3671,18 @@ def hook_response_shape_cmd() -> None:
     of the ten is an options list the reader's own instructions ask for. The
     check cannot tell that one from the rest, so it says what it saw.
 
-    **It reports to the model, not to the terminal.** The channel is
-    `hookSpecificOutput.additionalContext`, and it is the right one: it reaches
-    the agent that wrote the reply, in time to shape the next one. The reader
-    cannot act on a finding about a reply that is already on screen.
+    **One channel, and it is the model's.** The finding rides
+    `hookSpecificOutput.additionalContext`, which reaches the agent that wrote
+    the reply, in time to shape the next one. The reader sees it go past under
+    `Stop says:` and cannot act on it — the reply it is about is already on
+    screen.
 
     `systemMessage` used to be emitted beside it, against the day the harness
-    wired it up for `Stop`. That day came: it now prints under `Stop hook
-    feedback:` while `additionalContext` prints under `Stop says:`, so the reader
-    got the same seven lines twice per firing (#298). The measurement that
-    justified emitting it — seven `Stop` runs in one session where it reached
-    nobody — was true of the harness of the time, and is what changed.
+    wired it up for `Stop`. That day came, and it prints under `Stop hook
+    feedback:` — so the reader got the same seven lines twice per firing (#298).
+    The measurement that justified emitting it, seven `Stop` runs in one session
+    where it reached nobody, was true of the harness of the time. The harness is
+    what changed.
 
     `WFCTL_SHAPE_ECHO=1` writes the report to stderr, for exercising the check by
     hand — the double print went four months unnoticed because reading a
