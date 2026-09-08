@@ -117,12 +117,18 @@ DESIGN_BLOCK_HELP = (
 
 # What `next` and `resume` name for a blocked design step. Not
 # `/speckit.brainstorm`: that command's own file warns a second write to
-# `design.md` destroys the approved design, its `allowed-tools` cannot run
-# `wfctl arch none`, and the records it writes land under `<arch-root>/design/`,
-# which `design_block` excludes — so it would overwrite the work and still not
-# clear the gate. `implement` routes to `wfctl verify` because that is what
-# produces the missing evidence; this is the same choice, and the step command
-# is not it.
+# `design.md` destroys the approved design, and its `allowed-tools` cannot run
+# `wfctl arch none` — so following it costs the work and still leaves one of the
+# two remedies out of reach. `implement` routes to `wfctl verify` because that is
+# what produces the missing evidence; this is the same choice, and the step
+# command is not it.
+#
+# It is not that brainstorm cannot write a satisfying record. It can: level-2
+# records go to `<arch-root>/` through `architecture-decisions` and answer the
+# gate. Only the level-3 records `software-design-decisions` writes land under
+# `<arch-root>/design/`, which is the subtree `design_block` excludes — so a run
+# that wrote one of those and nothing else would still be held. The reason to
+# route elsewhere is the destroyed design document, not an unsatisfiable gate.
 DESIGN_BLOCK_COMMAND = 'wfctl arch none --reason "<why>"'
 
 
