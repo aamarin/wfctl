@@ -119,7 +119,7 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     """How many rows of a delivery plan promise an issue that does not exist yet.
 
     The Issue Grouping Map is authored with placeholder keys and filled in once
-    the issues are created, because creating them is outward-facing and waits for
+    the issues are created, because creating them is notifying and waits for
     a human. An unkeyed row is therefore a legitimate mid-decompose state; what
     was wrong was reading it as a finished one (#8).
 

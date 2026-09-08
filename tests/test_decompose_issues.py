@@ -1,7 +1,7 @@
 """decompose's definition of done includes the issues its plan promises (#8).
 
 `delivery.md` existing used to be the whole check, and the file is written
-*before* the issues exist by design — creating them is outward-facing and waits
+*before* the issues exist by design — creating them is notifying and waits
 for a human. So the one state these tests care about is the middle one: a plan
 on disk whose Issue Grouping Map still carries placeholders. It read `done`, and
 `implement` advances unattended since #148, so a run flowed into implementation
