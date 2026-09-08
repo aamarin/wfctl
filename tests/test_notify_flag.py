@@ -9,6 +9,7 @@ the failure `--auto-approve` documents beside itself, and this flag inherits it.
 from __future__ import annotations
 
 import json
+import re
 import types
 from pathlib import Path
 
@@ -18,6 +19,23 @@ from wfctl._session import NOTIFY_NAME, resolved_notify
 from wfctl.cli import app
 
 runner = CliRunner()
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Help output with its styling removed.
+
+    `NO_COLOR` suppresses colour and not bold, and typer renders an option name
+    as one styled fragment per hyphenated part — `--allow-notify` reaches the
+    buffer as `\x1b[1m-\x1b[0m\x1b[1m-allow\x1b[0m\x1b[1m-notify\x1b[0m`, in
+    which the flag does not appear as a substring at all. Asserting on the raw
+    output therefore passes wherever rich believes it is not writing to a
+    terminal and fails where it does, which is a test that depends on where it
+    runs — the thing `conftest.py` exists to prevent.
+    """
+    return _ANSI.sub("", text)
 
 
 def _stored(agent_dir: Path) -> dict | None:
@@ -107,10 +125,12 @@ def test_the_help_text_connects_the_status_line_to_the_flag(
     """`status` says "may notify people" and never prints a flag name, so
     `--help` is the only place a reader who saw that line can find the command
     that sets it. Without the phrase, the two surfaces share no word."""
-    help_text = runner.invoke(app, ["start", "--help"]).output
+    help_text = _plain(runner.invoke(app, ["start", "--help"]).output)
     assert "--allow-notify" in help_text
     assert "--deny-notify" in help_text
-    assert "notify people outside" in help_text
+    # Collapsed, because the description is wrapped into a panel column and the
+    # break lands wherever the terminal width puts it.
+    assert "notify people outside" in " ".join(help_text.split())
 
 
 def test_a_granted_run_records_each_notifying_action_it_took(
