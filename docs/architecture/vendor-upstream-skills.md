@@ -80,10 +80,10 @@ have been missed by any rule reading frontmatter (#216).
 
 `wfctl/specify/` is derived from the same upstream and is a second table
 because it holds no skills. The scripts carry the attribution line as a comment
-on the line after the shebang; the templates carry nothing, because the skills
-copy them to make a project's `spec.md`, `plan.md` and `tasks.md`, so a line in
-a template would assert GitHub's copyright over every artifact the runtime
-generates. Their notice is `wfctl/specify/templates/NOTICES.md`, which names
+on the line after the shebang; the templates carry nothing, because
+`setup-plan.sh` runs `cp` on `plan-template.md` and the skills that read the
+others write from their structure, so a line in a template would assert
+GitHub's copyright over every artifact the runtime generates. Their notice is `wfctl/specify/templates/NOTICES.md`, which names
 each of them.
 
 | File under `wfctl/` | Upstream |
@@ -97,8 +97,8 @@ each of them.
 | `specify/templates/spec-template.md` | `github/spec-kit` |
 | `specify/templates/tasks-template.md` | `github/spec-kit` |
 
-Three vendored files and one of wfctl's own left this table rather than
-changing hands. `create-new-feature.sh`, `update-agent-context.sh` and the
+Three rows left this table, and the prose beside it lost a fourth file, rather
+than any of them changing hands. `create-new-feature.sh`, `update-agent-context.sh` and the
 `agent-file-template.md` only that script read were invoked by no skill,
 command or test, and shipped into every consuming repo regardless;
 `github-issue-template.md` was wfctl's own and described `/speckit.decompose`,

@@ -32,10 +32,11 @@ when this drawing stops matching it. See **Staleness** below.
    │ _paths 635      _manifest 42                     │◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
-   ╭─ durability ─────────────────────────────────────╮  ◄── _arch _session
-   │ _io 45                            0 out · 4 in   │      _verify cli
-   │ _md 97                            0 out · 3 in   │  ◄── _arch _body
-   ╰──────────────────────────────────────────────────╯      _shape
+   ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
+   │ _io 45                            0 out · 5 in   │      _tracker
+   │ _md 97                            0 out · 3 in   │      _verify cli
+   ╰──────────────────────────────────────────────────╯  ◄── _arch _body
+                                                             _shape
 ```
 
 `_entry` is drawn above the two it reaches because it is the only one with no
@@ -68,7 +69,7 @@ below it. One edge runs upward, and it is drawn.
 | **surface** | Everything a user or agent can invoke: argument parsing, console output, exit codes. | Removing it changes what `wfctl --help` lists. |
 | **domain** | One area of wfctl's subject each — the pipeline, the records, the archive, the tracker, worktrees, settings. | It answers a question about wfctl's problem, not about this machine. |
 | **resolution** | Where things are on *this* checkout: repo root, branch, spec root, arch root, state dir, the manifest that declares them. | Its answer changes when you move the checkout, not when you change the feature. |
-| **durability** | Getting bytes onto disk without a half-written file surviving a crash. | It would be correct in a program that was not wfctl. |
+| **mechanism** | Primitives with no subject of their own: replacing a file without a half-written one surviving a crash, and finding where a fenced block starts and ends. | It would be correct in a program that was not wfctl. |
 
 The bands were recovered from the graph, not imposed on it: 13 of 14 modules
 already obey them. That is the useful finding — a layering exists and nobody had
@@ -93,10 +94,18 @@ next". Move the line up and every domain module grows its own idea of where the
 spec dir is, which is the split-artifact failure `resolve_spec_dir`'s docstring
 already refuses. Move it down and `_paths` starts deciding pipeline questions.
 
-**resolution / durability.** Both modules here know nothing about wfctl: `_io`
+**resolution / mechanism.** Both modules here know nothing about wfctl: `_io`
 knows about tempfiles and `os.replace`, `_md` about where a fenced block starts
-and ends. Neither can name a spec dir, a branch or a pipeline step, and that —
-not persistence — is what the band actually collects.
+and ends. Neither can name a spec dir, a branch or a pipeline step, and that is
+what the band collects.
+
+**The band was called `durability` until `_md` joined it, and the rename is the
+correction rather than the change.** The third column has always been the
+admission rule and it decided every module here; the name and the "owns" cell
+described the single member that happened to satisfy it, so a second member
+satisfying the same rule and writing no bytes made them read as a contradiction.
+Naming the band after its own test is what stops the next generic primitive
+having to argue about a word.
 
 Move the line and each is reimplemented per caller, which is where both came
 from. The first caller to write a plain `open(...).write()` loses a
@@ -194,10 +203,10 @@ zero production callers and one test assertion; `_infer_steps` (line 131) is
 what `cli` and every other test call. The underscore is answering "what is this
 module's surface?" backwards. #115 is blocked on the same question.
 
-**`_io` is not purely a durability layer.** Four functions: `write_json_atomic`
-and `write_md_atomic` would be correct in any program; `append_event` knows the
-filename `events.jsonl`; `load_agentconfig` knows `current.json` and has zero
-callers anywhere, tests included. Decided in
+**`_io` is not purely mechanism.** Two functions: `write_atomic` would
+be correct in any program; `append_event` knows the filename `events.jsonl`.
+`load_agentconfig`, which knew `current.json` and had no callers, is gone — the
+easy half of the same finding, cut ahead of the move. Decided in
 `io-owns-durability-not-domain-files`.
 
 ## The pipeline, one layer up
@@ -238,7 +247,7 @@ red rather than stale.
 surface     cli _entry _hook
 domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body
 resolution  _paths _manifest
-durability  _io _md
+mechanism   _io _md
 ```
 
 ```upward

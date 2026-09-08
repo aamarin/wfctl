@@ -15,12 +15,10 @@ def write_atomic(path: Path, content: str, newline: str | None = None) -> None:
     caller rewriting a file it read verbatim. The default keeps the translating
     behaviour every existing caller was written against.
 
-    One writer for both text and JSON. The two used to be separate functions
-    with the same twenty-line body, and the duplication is what let them drift:
-    only one of them grew the `newline` argument, so a JSON caller needing it
-    would have had to copy the block a third time. JSON callers pass
-    `json.dumps(data, indent=2)` — the serialisation is theirs, the atomicity is
-    this function's, and neither has an opinion about the other.
+    One writer for both text and JSON, because atomicity has no opinion about
+    what is being written. JSON callers pass `json.dumps(data, indent=2)`: the
+    serialisation is theirs, and a writer that took `dict` could not also take
+    `newline`, which `_arch` needs.
     """
     if not path.parent.exists():
         raise FileNotFoundError(f"Parent directory does not exist: {path.parent}")

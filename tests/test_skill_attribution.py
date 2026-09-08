@@ -152,7 +152,8 @@ def _noticed_templates() -> dict[str, str]:
     with a notice that never said so.
 
     A path is read only from above its section's copyright line: the prose below
-    it names `templates/github-issue-template.md` in order to say it is *not*
+    it names removed files in order to say they are no longer shipped, and named
+    `templates/github-issue-template.md` before that in order to say it was *not*
     derived, and a scan of the whole section would read that denial as a claim.
     """
     return dict(_template_claims())

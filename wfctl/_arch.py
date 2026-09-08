@@ -353,6 +353,18 @@ def _unfenced(lines: list[str]) -> Iterator[tuple[int, str]]:
     `_pointed_at` prints one, and reads it from `lines` directly — but a heading
     scan that saw a bare ``` would be scanning the boundary of the example it is
     trying to skip.
+
+    Two rules tightened when this moved to `_md`, and both narrow what opens or
+    closes a fence rather than widening it. A fence indented four spaces or more
+    no longer opens one — at four the line is an indented code block, which is
+    markdown's rule and not this module's — so a record whose fence is nested
+    inside a list item now has its headings seen rather than skipped. And a
+    closing run must match the opening character, be at least as long, and carry
+    no info string, where the old prefix match let any three of the character
+    close any fence. A record using ```` to quote a ```-block is the shape that
+    was read wrong before; a record closing a ````-fence with a bare ``` is the
+    shape that changes meaning now, and `supersede` refuses it rather than
+    editing the wrong section.
     """
     for line in _md.walk_lines(lines):
         if not line.inside and not line.fence:

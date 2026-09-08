@@ -657,3 +657,21 @@ def test_no_in_force_record_projects_a_decision_ending_in_a_colon() -> None:
         "A colon in a Decision's lead paragraph has to point at a fence, a "
         "table or a list — see `_arch._pointed_at` for what is carried."
     )
+
+
+def test_a_mismatched_closer_leaves_the_fence_open_and_hides_the_log(tmp_path: Path) -> None:
+    """CommonMark's closing rule reaches records, and it can hide a `## Log`.
+
+    The old prefix match let a bare ``` close a ````-fence, so the heading below
+    one was found and appended to. It no longer is — the fence stays open to the
+    end of the file and every heading after it is inside an example. Refusing is
+    the right failure: appending to a heading that is part of a quoted example
+    edits an accepted record's body, which VR-005 forbids.
+    """
+    body = (
+        "---\nstatus: accepted\n---\n\n# r\n\n## Decision\n\nx.\n\n"
+        "````\n```\n\n## Log\n\n- 2026-03-14  accepted    — x\n"
+    )
+    path = _write(tmp_path, "r", body)
+    with pytest.raises(ValueError, match="no '## Log' section"):
+        _arch.supersede(_arch.parse_record(path), "2026-09-07", "mismatched closer")

@@ -12,30 +12,38 @@ scan. Nothing in the source records them, which is why they are written down
 here — a finding that lives only in a transcript is a finding that expires with
 the session.
 
-Scanned at `9807303`, wfctl 0.18.0, 2026-09-07, plus one marker added the same
-day and not yet committed.
+Harvested at `eb61482`, wfctl 0.19.0, 2026-09-07 — every `ponytail:` in
+`wfctl/**/*.py`, docstrings included. The first pass missed the three in
+docstrings by grepping for a comment prefix, so this one keys on the marker
+alone. Rows carry the symbol rather than a line number: a line number in a file
+that is still being edited is wrong before the commit that writes it lands, and
+three of the six here already were.
 
 ## Markers
 
 | Where | Simplified | Ceiling | Upgrade trigger |
 |---|---|---|---|
-| `wfctl/cli.py:243` | `status` names the arch records and checks nothing | a line someone has to read, not a rule | move it into `check-body`, which already reads a PR description before `gh pr create` sees it |
-| `wfctl/cli.py:590` | `archive-story` kept as a hidden alias | transition-only | the alias notice stops appearing during teardowns on every machine |
-| `wfctl/cli.py:1747` | `_AGENT_SKILL_EXTRAS` kept as a table with one entry | it reads as speculative generality and gets proposed for collapse on every audit | a second agent never needs a mirror |
-| `wfctl/cli.py:2091` | one `git check-ignore` process per path | ~7 ms each, ~600 ms per install, against a ~15 s clone | #1 lands and the clone stops dominating; batch via `check-ignore --stdin` |
-| `wfctl/_shape.py:111` | `_LONG_WORDS = 250`, a flat count | a threshold tuned on twenty replies from #208, not a measurement | it starts firing on replies that earned their length |
-| `wfctl/_archive.py:205` | `.agent/` rescue read in `_plan` | transition-only | the rescue notice stops appearing during teardowns on every machine |
+| `cli.status_cmd` | names the arch records and checks nothing | a line someone has to read, not a rule | move it into `check-body`, which already reads a PR description before `gh pr create` sees it |
+| `cli._FORMER_ARCHIVE_COMMAND` | `archive-story` kept as a hidden alias | transition-only | the alias notice stops appearing during teardowns on every machine |
+| `cli._AGENT_SKILL_EXTRAS` | a dispatch table with one entry | one entry | a second agent needs a mirror |
+| `cli._ensure_gitignored` | one `git check-ignore` process per path | ~7 ms each, ~600 ms per install, against a ~15 s clone | #1 lands and the clone stops dominating; batch via `check-ignore --stdin` |
+| `cli._last_exchange` | reads the whole transcript file | a few megabytes, once per turn | that stops being true; seek to the tail |
+| `_paths.main_checkout` | recognises only a `.git` common dir | the standard non-bare layout, and nothing else | a bare or separate-gitdir layout needs one — then `--is-bare-repository` plus an explicit setting, never a looser check |
+| `_paths.spec_root` | never checks the root exists, never creates it | a caller that needs it present must say so | nothing: adding the check back rebuilds the bug it was removed for |
+| `_shape._LONG_WORDS` | a flat count of 250 | a threshold tuned on twenty replies from #208, not a measurement | it starts firing on replies that earned their length |
+| `_archive._plan` | `.agent/` rescue read | transition-only | the rescue notice stops appearing during teardowns on every machine |
 
-6 markers, 0 with no trigger.
+9 markers, 0 with no trigger.
 
 The two transition-only markers are one end condition, not two: #52 shipped the
 alias and the rescue with a shared trigger and says to delete them together.
 
-Three markers are also audit findings — `cli.py:590` and `_archive.py:205` are
-findings 5 and 6, `cli.py:1747` is finding 10. Appearing in both ledgers is what
-it looks like when the source carries its own argument: the next audit reads the
-comment instead of re-deriving the finding against it. The remaining nine
-findings have no such anchor and live only in the table below.
+Three markers are also audit findings — `_FORMER_ARCHIVE_COMMAND` and
+`_archive._plan` are findings 5 and 6, `_AGENT_SKILL_EXTRAS` is finding 10.
+Appearing in both ledgers is what it looks like when the source carries its own
+argument: the next audit reads the comment instead of re-deriving the finding
+against it. The remaining nine findings have no such anchor and live only in the
+table below.
 
 ## Audit findings
 
@@ -59,14 +67,24 @@ two held, one answered in the source.
 
 net: -1440 lines proposed, -1256 applied.
 
-**5 and 6 are held, and the reason is on this machine.** #52 kept the
-`archive-story` alias and the `.agent/` rescue with one end condition — silence
-across every machine during teardowns. Four `.workmux.yaml` files under
-`~/Development/wf-skills` still wire `wfctl archive-story` into `pre_remove`,
-guarded by `|| true`, so deleting the alias would make every one of those
-teardowns archive nothing and swallow the error. That is the loss #52 named,
-still live. Re-seed those four with `wfctl install-config`, watch the notice go
-quiet, then cut both together.
+**5 and 6 are held because their end condition is not met, and it is checkable
+rather than remembered.** #52 kept the `archive-story` alias and the `.agent/`
+rescue with one trigger: silence during teardowns on every machine. The
+condition is that no `.workmux.yaml` anywhere still names the retired command:
+
+```bash
+grep -rl 'archive-story' ~/**/.workmux.yaml
+```
+
+A non-empty result means a teardown of one of those worktrees would invoke a
+command that no longer exists, get a non-zero exit swallowed by the hook's
+`|| true`, and remove the worktree having archived nothing — the spec loss #52
+kept the alias for. When it comes back empty, re-seed with `wfctl install-config`
+if needed, then cut 5 and 6 together.
+
+That grep was non-empty when this was written. Which repositories is not
+recorded here: it is a fact about one developer's disk on one day, and a reader
+running the check themselves gets a true answer instead of a stale one.
 
 Findings 1-4 change what `install-skills` writes, so a consuming repo carries
 the removed paths until the next install. They fall out of the manifest as

@@ -1745,11 +1745,11 @@ def _claude_native_skill_mirror(
 # `if agent == "..."` branches. Called once per item under .agents/skills;
 # returning None means "nothing extra for this item".
 #
-# ponytail: a table with one entry, kept as a table. The ceiling is that it
-# reads as speculative generality and gets proposed for collapse on every audit
-# — `_mirror_supersedes_wrapper` keys on membership here rather than on
-# `agent == "claude"`, which is the one thing an inlined call would take away.
-# Collapse it to a direct call if a second agent never needs a mirror.
+# ponytail: a table with one entry, kept as a table. The ceiling is one entry,
+# and what pays for it is `_mirror_supersedes_wrapper`, which asks whether this
+# agent got a mirror by testing membership here rather than by naming claude —
+# the one thing an inlined call would take away. Collapse it to a direct call if
+# a second agent never needs a mirror.
 _AGENT_SKILL_EXTRAS = {
     "claude": _claude_native_skill_mirror,
 }
