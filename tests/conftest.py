@@ -32,6 +32,13 @@ os.environ["NO_COLOR"] = "1"
 # already handled kept passing. Popping it is what makes the two agree.
 os.environ.pop("FORCE_COLOR", None)
 
+# Same shape, different variable. `WFCTL_SHAPE_ECHO=1` sends the `Stop` hook's
+# report to stderr, and the tests that assert on that hook parse its stdout as
+# JSON off a combined stream — so a developer who exported the flag to watch the
+# check fire by hand, which is the only reason it exists, would find four tests
+# failing on `Extra data`.
+os.environ.pop("WFCTL_SHAPE_ECHO", None)
+
 
 def init_git(path: Path) -> Path:
     """An initialized git repo at `path`, with a committer identity and no commits.
