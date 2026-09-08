@@ -71,25 +71,31 @@ the format exists for. Fill them from the template rather than from memory.
 
 ## Ask whether the record is really there
 
-Write the file, commit it — staging the record's path only, never `git add -A`,
-which sweeps whatever else the design session left dirty into a docs commit —
-then:
+Write the file, then commit that path and nothing else:
 
 ```bash
+git add <path to the record>
+git commit -m "<subject>" -- <path to the record>
 wfctl arch check <path to the record>
 ```
 
-Exit 0 and a reviewer opening the change reads it beside the code, which is the
-whole property. Exit 1 says which way it failed — written outside this working
-tree, or not committed as it stands — and the record moves, or the commit is
-repeated, before the design continues.
+The pathspec on `commit` is not the same instruction as the one on `add`. A bare
+`git commit` writes the whole index, so anything already staged when the design
+session began lands in a docs commit alongside the record; naming the path makes
+git commit that path and leave the rest staged where it was.
 
-Do not substitute a line of git for the command. Three have been tried in its
+Exit 0 and a reviewer opening the change reads it beside the code, which is the
+whole property. Exit 1 says which way it failed — outside this working tree,
+never committed, or written to since its commit — and the record moves, or the
+commit is repeated, before the design continues.
+
+Do not substitute a line of git for the command. Four have been tried in its
 place and each was wrong in its own direction: `git ls-files --error-unmatch`
 reads the index, so a staged record passes; `git cat-file -e HEAD:<path>` reads
-the path, so a record edited after its commit passes; and both exit 128 for a
-path outside the repository and for no repository at all alike, which is a
-failure and its own exemption sharing one code.
+the path, so a record edited after its commit passes; `git diff --quiet HEAD`
+omits untracked files, so a record never staged at all passes; and the first two
+exit 128 for a path outside the repository and for no repository at all alike,
+which is a failure and its own exemption sharing one code.
 
 **A project with no git at all is not a failure.** The command says so and exits
 0. There is no review to reach, so write the record and continue. A repository

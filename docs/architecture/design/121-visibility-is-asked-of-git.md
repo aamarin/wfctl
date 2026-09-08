@@ -31,9 +31,14 @@ two of the three is the same defect narrowed.
 - `git ls-files --error-unmatch` on a file staged and never committed exits 0.
   Reproduced in a scratch repository.
 - `git cat-file -e HEAD:<path>` on a file committed and then edited exits 0. It
-  answers about the path, not about what the tree holds. `git diff --quiet HEAD
-  -- <path>` exits non-zero for both that state and the staged one, and 0 only
-  when HEAD holds exactly what the tree holds.
+  answers about the path, not about what the tree holds.
+- `git diff --quiet HEAD -- <path>` on a file never staged at all exits 0.
+  Ordinary diffs omit untracked files, so the record compares equal to nothing.
+  Reproduced; the two commands are blind in opposite directions and only their
+  conjunction is the property.
+- `git commit -m <msg>` writes the whole index, so a path staged before the
+  design session began lands in the record's commit. `git commit -- <path>`
+  commits that path and leaves the rest staged. Reproduced both ways.
 - `git rev-parse --show-toplevel` prints `not a git repository (or any of the
   parent directories)` where there is no repository, `not a git repository:
   /nonexistent` for a `.git` file naming a gitdir that is gone, and `this
@@ -74,8 +79,10 @@ outside this working tree, or is not committed as it stands — and reports the
 rest.
 
 Two questions in the order a reviewer meets them. Is the file committed and
-unmodified here, which is the property itself: `git diff --quiet HEAD -- <path>`,
-zero only when HEAD holds exactly what the tree holds. Then, for the report
+unmodified here, which is the property itself — `git cat-file -e HEAD:<path>` and
+`git diff --quiet HEAD -- <path>`, both, because the first says nothing about
+what the tree holds and the second omits untracked files entirely. Then, for the
+report
 rather than the verdict, does the change under review add it —
 `touched_on_this_branch`, its three states honoured as three, per the rule
 `design_gate`'s caller already states: refuse only on evidence.
@@ -139,6 +146,12 @@ the agent now calls the tool rather than reading a value out of it.
   record committed once and edited since passed while `touched_on_this_branch`
   returned True *because* the file was dirty. The two checks cancelled, which is
   the failure a second reviewer is for.
+- `git diff --quiet HEAD -- <path>` alone — the third shape, and the fix for the
+  second. Diffs omit untracked files, so a record written and never staged
+  compared equal to nothing and passed: the plainest form of the failure the
+  command exists to catch, reaching a pull request past two panels that had each
+  tested a *staged* record and neither an untouched one. The two commands are
+  kept together rather than one replacing the other.
 - `wfctl start` refusing to begin a session — sound, and it buys failure at turn
   zero instead of after the design. Lost on the same predicate as the baseline:
   before the record exists there is nothing to ask git about. Recorded as dropped
@@ -194,6 +207,11 @@ The check is demonstrated by this record: `wfctl arch check` on this path exits
 - 2026-09-07  revised   — a second panel, run over the first revision because
   that commit had never been reviewed, found the replacement wrong in three more
   states: a record edited after its commit, a repository git cannot read, and a
-  branch that is itself the trunk. Each is now a test. Three shapes of this check
-  have been wrong in three different directions, which is the argument for it
-  being a command at all.
+  branch that is itself the trunk. Each is now a test.
+- 2026-09-08  revised   — an automated reviewer on the pull request found the
+  fix for the first of those had opened a fourth: a record never staged at all
+  passed, because diffs omit untracked files. Four shapes of this check have now
+  been wrong in four directions, and each was found by a different reader. That
+  is the argument for it being a command rather than a line of git in a skill,
+  and the reason the two git calls are kept together rather than one replacing
+  the other.
