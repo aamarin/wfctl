@@ -3599,13 +3599,12 @@ def hook_user_prompt_cmd() -> None:
 # followed, and the drift returned two turns after that. A pointer alone would
 # have to be believed; a pointer under a finding has just been shown to be right.
 #
-# It is a pointer and not an argument, which is the part #298 changed. The four
-# lines that justified re-reading — what the digest is, how long it is, what it
-# omits — were addressed to a reader deciding whether to comply, and the reader
-# here has already agreed to the rule. They cost the same on every firing, in the
-# terminal and in the next turn's context both, because there is one string and
-# it goes to both. What survives is the two routes, because they are not
-# interchangeable: an agent without the slash command needs the path.
+# It is a pointer and not an argument. Justifying the re-read addresses a reader
+# deciding whether to comply, and this one has already agreed to the rule — so it
+# is words that repeat verbatim on every firing, in the terminal and in the next
+# turn's context both, because the harness builds those from the same string.
+# Both routes stay: they are not interchangeable, and the agent without the slash
+# command is the one that needs the path.
 _SHAPE_REPORT = """Your last reply broke conversation-response-shape:
 
 {findings}
