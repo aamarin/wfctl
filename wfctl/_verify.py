@@ -18,7 +18,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from wfctl._io import append_event, write_json_atomic
+from wfctl._io import append_event, write_atomic
 
 # highlight=False: this output is read beside a test runner's own, and rich
 # colourising argv tokens makes the two hard to tell apart.
@@ -109,7 +109,7 @@ def load_record(agent_dir: Path) -> dict | None:
 
 def write_record(agent_dir: Path, record: dict) -> None:
     """Write atomically: `status` runs constantly while a run takes minutes."""
-    write_json_atomic(record_path(agent_dir), record)
+    write_atomic(record_path(agent_dir), json.dumps(record, indent=2))
 
 
 def code_identity(repo_root: Path) -> tuple[str, bool]:

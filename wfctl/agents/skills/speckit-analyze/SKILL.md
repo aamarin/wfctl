@@ -209,7 +209,7 @@ Output a Markdown report with the following structure:
 ### 6b. Write Analysis Report to File
 
 Write the full report produced in step 6 to `{FEATURE_DIR}/checklists/analysis-report.md`.
-This file is the machine-readable sentinel that `storyctl` uses to infer analyze is complete —
+This file is the machine-readable sentinel that `wfctl` uses to infer analyze is complete —
 without it, the pipeline will treat analyze as pending and re-run it.
 
 ### 7. Provide Next Actions

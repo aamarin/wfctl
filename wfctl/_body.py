@@ -29,9 +29,10 @@ not a proof: it can see that evidence was written, never that it is true.
 
 import re
 
+from wfctl import _md
+
 _HEADING = re.compile(r"^ {0,3}(#{2,6})\s+(.*?)\s*#*\s*$", re.MULTILINE)
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
 # Equal-length delimiter runs, and *complete* ones: the lookarounds keep the
@@ -112,11 +113,6 @@ BARE_VERDICTS = frozenset({"looks good"})
 _SECTION = "review panel"
 _SUMMARY = "**panel:**"
 
-# Reviewer, finding, disposition. The floor for a table with no header to
-# measure against — three is what a result row means, not a column count this
-# module prefers.
-_RESULT_CELLS = 3
-
 
 def _unanswered(text: str) -> bool:
     """Whether the field still holds something the template put there.
@@ -173,21 +169,16 @@ def _blank_fences(text: str) -> str:
     is an example rather than a section. Left in, a fenced example carrying a
     roster passes a body with no panel at all, and one carrying no roster hides
     the real section further down — both reported on PR #234.
+
+    The delimiters are blanked along with the content. `_md.walk` reports them as
+    outside, which is right for a caller that prints one; here they are furniture
+    around an example nobody is meant to read, and a bare ``` left standing is a
+    line the section scan below has to step over.
     """
-    out, fence = [], ""
-    for line in text.splitlines():
-        marker = _FENCE.match(line)
-        if fence:
-            out.append("")
-            if marker and line.strip().startswith(fence):
-                fence = ""
-            continue
-        if marker:
-            fence = marker.group(1)
-            out.append("")
-            continue
-        out.append(line)
-    return "\n".join(out)
+    return "\n".join(
+        "" if line.inside or line.fence else line.text
+        for line in _md.walk(text)
+    )
 
 
 def _section(body: str) -> str | None:

@@ -7,38 +7,76 @@ one that does until someone runs it.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from wfctl import _tracker
+from wfctl._paths import arch_root, is_in_tree
+
+# What reading one evidence source concluded. Three values rather than a bool
+# because "the evidence says proceed" and "there was no evidence" are the two a
+# bool collapses, and the rule below is the one place that distinction is spent.
+Verdict = Literal["satisfied", "unsatisfied", "inconclusive"]
+
+# Who owed the evidence. Closed rather than a bare `str`: the rule reads
+# "promised or not", so an unrecognised source would take the ambient branch and
+# proceed — a typo failing open on evidence somebody promised. mypy is not strict
+# here, and a `str` parameter is the shape that hides it.
+Source = Literal["repo-declared", "accepted-record", "human", "ambient"]
+
+# Sources someone undertook to produce. The repo declares its commands, the
+# process accepts its records, a person records an approval — so silence from
+# one of these is a missing answer, not the absence of a question.
+_PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record", "human"})
+
+
+def blocks(verdict: Verdict, source: Source) -> bool:
+    """Whether this verdict stops the step, given who owns the evidence.
+
+    The gate does not decide this — see
+    `docs/architecture/promised-evidence-blocks-on-silence.md`. A gate sees one
+    transition and one source, which is how three gates here came to hold two
+    policies without any of them being wrong. Whether anyone undertook to
+    produce the evidence is a fact about its origin and reads the same at every
+    gate, so it is answered once, here.
+
+    Ambient evidence proceeds on silence because nothing promised it: a git fact
+    that cannot be computed is not an answer the user can go and supply, and
+    refusing on it stops a pipeline with no action that unblocks it.
+    """
+    if verdict == "inconclusive":
+        return source in _PROMISED
+    return verdict == "unsatisfied"
 
 
 # step → (slash command that advances it, whether speckit-orchestrate may proceed
-# without pausing). One table rather than three keyed by the same names: a step
+# without pausing). The second value is a name rather than a Boolean because a
+# flag flip is a reviewable change and `grep _AUTOMATIC` finds every step that
+# takes one, while `grep True` finds nothing (#240, #283). It is the same two
+# states — the wire format `next_step_content` returns is still a bool.
+# One table rather than three keyed by the same names: a step
 # defined here carries both values or it does not parse. Split across separate
 # tables, omitting the command was silent and severe — `next_step_content`
 # returned "", which `next_cmd` treats as a finished pipeline, so a step with no
 # command announced "story complete" with half the pipeline unrun.
-_STEPS: dict[str, tuple[str, bool]] = {
-    "brainstorm": ("/speckit.brainstorm", True),
-    "specify":    ("/speckit.specify",    True),
-    "clarify":    ("/speckit.clarify",    False),
-    "plan":       ("/speckit.plan",       True),
-    "tasks":      ("/speckit.tasks",      True),
-    "analyze":    ("/speckit.analyze",    False),
-    "decompose":  ("/speckit.decompose",  False),
-    "implement":  ("/speckit.implement",  True),
+Continuation = Literal["automatic", "review_required"]
+_AUTOMATIC: Continuation = "automatic"
+_REVIEW_REQUIRED: Continuation = "review_required"
+
+_STEPS: dict[str, tuple[str, Continuation]] = {
+    "brainstorm": ("/speckit.brainstorm", _AUTOMATIC),
+    "specify":    ("/speckit.specify",    _AUTOMATIC),
+    "clarify":    ("/speckit.clarify",    _REVIEW_REQUIRED),
+    "plan":       ("/speckit.plan",       _AUTOMATIC),
+    "tasks":      ("/speckit.tasks",      _AUTOMATIC),
+    "analyze":    ("/speckit.analyze",    _REVIEW_REQUIRED),
+    "decompose":  ("/speckit.decompose",  _REVIEW_REQUIRED),
+    "implement":  ("/speckit.implement",  _AUTOMATIC),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
 _STEP_NAMES = list(_STEPS)
-
-# The step `design_gate` fires on: whatever follows the design step in the table,
-# so inserting a step between the two moves the gate with it. Derived rather than
-# spelled "specify", which would go on naming a step that is no longer the one
-# after design — silently, since every step name is a valid string.
-_AFTER_DESIGN = _STEP_NAMES[_STEP_NAMES.index("brainstorm") + 1]
 
 # Commands wfctl names that no step advances to. `/end-session` ships in
 # `agents/commands/` like any step command and carries the same drift risk, but a
@@ -57,16 +95,66 @@ STORY_COMPLETE_FILE = f"Story complete. Open PR or run {_END_SESSION}.\n"
 STORY_COMPLETE_CONSOLE = f"Story complete — open PR or run `{_END_SESSION}`."
 
 
-# Printed when the design step advanced without answering the boundary question.
-# Both branches are offered because both are legitimate answers: `design-levels`
-# excludes changes that draw no new state, and a check with only one exit turns
-# those into records that say nothing.
-DESIGN_GATE_REFUSAL = """[red]✗[/red] design: no architecture record for this change.
+def next_step_file(command: str, auto: bool, blocked: str | None, remedy: str | None) -> str:
+    """What `next` and `resume` write to `next-step.md`.
 
-  Either record the boundary this change draws:
-      {location}/<slug>.md
-  or state that it draws none:
-      wfctl arch none --reason "<why>\""""
+    Here for the reason `STORY_COMPLETE_FILE` is: two commands write this file,
+    and the format was composed at both. Every field added to it since has had
+    to be added twice — `why:` once, `how:` again — and the second writer is
+    where one of them will eventually be forgotten.
+
+    `how:` is keyed rather than appended. Unlabelled, the remedy's last line
+    sits directly above the closing imperative and becomes its nearest
+    antecedent, so "run this command" reads as pointing at a remedy rather than
+    at `Next step:` above it.
+    """
+    why = f"why: {blocked}\n" if blocked else ""
+    how = f"how:\n{remedy}\n" if remedy else ""
+    return (
+        f"Next step: {command}\nauto: {'true' if auto else 'false'}\n"
+        f"{why}{how}Run this command to continue.\n"
+    )
+
+
+# The design step's annotation when the boundary question went unanswered. Short
+# because it sits inline in the step table; the two remedies are spelled out by
+# `DESIGN_BLOCK_HELP`, which is formatted with a location resolved per repo.
+DESIGN_BLOCK_REASON = "no architecture record for this change"
+
+# Both escapes, because both are legitimate answers: `design-levels` excludes
+# changes that draw no new state, and a check with only one exit turns those into
+# records that say nothing.
+#
+# Rendered under the step table rather than folded into the annotation. A path is
+# the one part of this that cannot be a constant — it is resolved per repo — so
+# the payload carries the formatted block and each view renders it, the console
+# escaping on the way out because `[wip]` is a legal directory name.
+#
+# Neither branch names a string that can be pasted back to fake the answer. The
+# record side describes a file rather than printing `<slug>.md`: the gate reads
+# `git status`, which counts an *untracked* file, so a reader following that path
+# literally cleared the gate with no command and no commit — the same defect the
+# `<why>` guard on the other branch was added for, on the half that had no guard.
+DESIGN_BLOCK_HELP = (
+    "  Either record the boundary this change draws — one file under:\n"
+    "      {location}/\n"
+    "  or state that it draws none:\n"
+    '      wfctl arch none --reason "<why>"'
+)
+
+# What `next` and `resume` name for a blocked design step: the step itself.
+#
+# Not a remedy command. The two answers are "write a record" and "declare there
+# is no boundary", and only the second is a command — so any single string here
+# names one of them and hides the other. Naming the declaration is the worse
+# half of that: it is the cheaper answer, it would arrive with a `<why>`
+# placeholder a reader can paste back, and `status --json` returns before the
+# other remedy is rendered, so an agent would see one option and it would be the
+# one that closes the question without answering it.
+#
+# The step command names neither and reaches both. `implement` differs because
+# its evidence has exactly one producer — `wfctl verify` — so there is nothing
+# for a second option to be.
 
 
 def _file_exists(path: Path) -> bool:
@@ -204,7 +292,13 @@ def verification_block(repo_root: Path) -> str | None:
     record = _verify.load_record(agent_dir)
     if record is None:
         return "unverified — run `wfctl verify`"
-    if record["inconclusive"]:
+    # The rule, not a second copy of it. A run whose tree moved underneath it
+    # produced no verdict, and `wfctl.json` is the repo undertaking to produce
+    # one — so this blocks by `promised-evidence-blocks-on-silence`, and it
+    # blocks for the reason stated there rather than for a reason local to here.
+    # Wired through `blocks` so the two gates cannot drift again: changing the
+    # rule has to change both, because there is one rule.
+    if blocks("inconclusive" if record["inconclusive"] else "satisfied", "repo-declared"):
         return "inconclusive — re-run `wfctl verify`"
     if record["exit"] != 0:
         failed = [" ".join(c) for c in record["failed"]]
@@ -225,11 +319,46 @@ def verification_block(repo_root: Path) -> str | None:
     return None
 
 
+def _implement_verdict(
+    tasks_text: str, spec_dir: Path, repo_root: Path
+) -> tuple[str, str | None]:
+    """The implement step's state, and why it is not `done`.
+
+    One owner for a verdict that was composed at two sites — the implement arm
+    of `_infer_steps` and the routing branch in `next_step_content` — and kept
+    in agreement by convention alone (#265). A new blocking condition applied at
+    one and not the other reproduces #262 one level up: the step table reports
+    one thing and the routing path executes another, and `speckit-orchestrate`
+    acts on the routing path.
+
+    Returns the reason rather than a bool for the same reason `verification_block`
+    does: the caller renders it, and a caller that only needed to know *whether*
+    it is blocked reads the reason as truthy.
+    """
+    if not tasks_text:
+        return "pending", None
+    if _tasks_open(tasks_text, spec_dir):
+        return "in_progress", None
+    # Tasks read complete. Before #69 that was the whole check, and both routes
+    # to it are written by the agent doing the work. A configured definition of
+    # done gets the last word.
+    blocked = verification_block(repo_root)
+    return ("in_progress", blocked) if blocked else ("done", None)
+
+
 @dataclass
 class _PipelineStep:
     name: str
     state: str
     annotation: str | None
+    # The unrendered half of `annotation`, for the routing read. `implement`'s
+    # annotation prefixes a task tally, so the reason cannot be recovered from it.
+    reason: str | None = None
+    # How to clear the block, where the reason alone does not say. Part of
+    # inference rather than of each view: the string names a per-repo path, and
+    # resolving it in a view is what left `status --json` carrying the reason
+    # without the fix.
+    remedy: str | None = None
 
 
 def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
@@ -279,6 +408,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     cascade = False
     implement_reason: str | None = None
     decompose_reason: str | None = None
+    design_reason: str | None = None
 
     for name in _STEP_NAMES:
         if cascade:
@@ -287,7 +417,13 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
 
         if name == "brainstorm":
             if _file_exists(spec_dir / "design.md"):
-                state = "done"
+                # A design document is the artifact; the boundary question is the
+                # step. `design.md` on disk with no record for it means the step
+                # produced its file and not its answer — the same shape
+                # `implement` reads when every box is ticked and the definition
+                # of done has not passed.
+                design_reason = design_block(spec_dir, repo_root)
+                state = "in_progress" if design_reason else "done"
             elif _file_exists(spec_md):
                 # Passed by: the pipeline moved on without one, which
                 # `design-levels` explicitly allows for a change that draws no
@@ -389,23 +525,15 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 state = "pending"
 
         elif name == "implement":
-            if not tasks_text:
-                state = "pending"
-            elif tasks_open:
-                state = "in_progress"
-            else:
-                # Tasks read complete. Before #69 that was the whole check, and
-                # both routes to it are written by the agent doing the work.
-                # A configured definition of done gets the last word.
-                blocked = verification_block(repo_root)
-                state = "in_progress" if blocked else "done"
-                implement_reason = blocked
+            state, implement_reason = _implement_verdict(tasks_text, spec_dir, repo_root)
 
         else:
             state = "pending"
 
         annotation: str | None = None
-        if name == "decompose":
+        if name == "brainstorm":
+            annotation = design_reason
+        elif name == "decompose":
             annotation = decompose_reason
         elif name == "implement" and tasks_text:
             done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
@@ -414,7 +542,19 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             if implement_reason:
                 annotation = f"{annotation}  {implement_reason}"
 
-        steps.append(_PipelineStep(name, state, annotation))
+        # Every arm that can set `state = "in_progress"` from evidence puts its
+        # reason here. `decompose` was the one left out, so a delivery plan with
+        # unkeyed rows rendered the reason in `status` and wrote a `next-step.md`
+        # that said "run this to continue" with nothing about what was missing —
+        # the failure the field was added to close, in the field itself.
+        reason = {
+            "implement": implement_reason,
+            "brainstorm": design_reason,
+            "decompose": decompose_reason,
+        }.get(name)
+        step = _PipelineStep(name, state, annotation, reason)
+        step.remedy = _design_remedy(step, repo_root)
+        steps.append(step)
 
         if state == "pending":
             cascade = True
@@ -422,48 +562,100 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     return steps
 
 
-def design_gate(
-    spec_dir: Path | None, step: str, unanswered: Callable[[], bool]
-) -> bool:
-    """Whether advancing past design is being attempted with the question open.
+def design_block(spec_dir: Path | None, repo_root: Path) -> str | None:
+    """Why the design step cannot be complete, or None if nothing blocks it.
 
-    Decides; it does not render. `DESIGN_GATE_REFUSAL` is the message, and the
-    caller formats it with a location only this module has no way to name — so
-    the path is resolved on the refusal path alone rather than on every `next`.
+    Shaped like `verification_block` on purpose: both are a step's own evidence
+    read, both report through inference, and the payload carries the reason.
+    The previous shape returned `bool` to `cli`, which refused the transition
+    beside the payload rather than in it — so `status` named a command `next`
+    then refused, and `speckit-orchestrate` carried a prose workaround for the
+    disagreement. `pipeline-state-is-one-payload` already forbids a fact
+    computed inside a view; this is that fact moved back.
 
-    Fires on one transition: the step after design, with `design.md` present.
-    Not for the rest of the pipeline — "advance past the design step" is a
-    boundary, and a gate that stayed up through plan, tasks and implement would
-    refuse work that already answered by moving on. Not before it either: a
-    change that never drew a design has nothing to advance past, and gating it
-    would demand a record for the bug fixes and copy edits `design-levels`
-    explicitly excludes.
+    Reported on the design step rather than at the transition out of it, but
+    still scoped to that one transition: a step whose boundary question went
+    unanswered has not finished, which is the same thing `verification_block`
+    says about `implement` and needs no second mechanism to say it. Once
+    `spec.md` exists the pipeline is past the boundary and the gate is done —
+    see the guard below, which is the old `_AFTER_DESIGN` condition in the terms
+    this arm already speaks.
 
-    `unanswered` is a git fact, computed by the caller and passed unevaluated:
-    this module is pure functions over a tmp dir, and reaching for `subprocess`
-    would make every test of this rule build a repository to assert on a string.
-    A callable rather than a value because the guards above reject every step but
-    one, and an eagerly-evaluated argument would spend up to six git invocations
-    per `next` to reach a result thrown away — while a second copy of the guard
-    at the call site would be a second place to change when the rule moves.
-
-    A `False` from `unanswered` means proceed, and so does a git answer the
-    caller could not get — the caller collapses "cannot tell" into "answered" for the
-    same reason: a gate with no evidence against the work does not refuse it.
-    Deliberately not the conservative default `_arch` applies to record status.
-    There, guessing wrong presents an unreviewed decision as binding; here,
-    guessing wrong blocks a pipeline with no way to unblock it.
+    A record anywhere under the arch root answers, whatever its status: a
+    `proposed` record still means the question was put. `design/` is excluded
+    rather than counted — it holds level-3 records, which govern one feature and
+    are barred from drawing a boundary, and #121 item 3 lands one in every such
+    branch diff.
 
     What it does not check is whether the record is *about* this change, or
     whether a declaration is true. Neither has an objective test, and FR-010a
     settles the point: the purpose is to stop the question going unanswered, not
     to catch a wrong answer.
     """
-    if spec_dir is None or step != _AFTER_DESIGN:
-        return False
-    if not _file_exists(spec_dir / "design.md"):
-        return False
-    return unanswered()
+    if spec_dir is None or not _file_exists(spec_dir / "design.md"):
+        return None
+    if _file_exists(spec_dir / "spec.md"):
+        # Past the boundary. "Advance past the design step" is one transition,
+        # and a gate that stayed up through plan, tasks and implement would
+        # refuse work that already answered by moving on. `spec.md` is what
+        # "a later step ran" looks like — the same stand-in the brainstorm arm
+        # of `_infer_steps` uses to tell `skipped` from `pending`.
+        return None
+
+    from wfctl._paths import touched_on_this_branch
+
+    arch = arch_root(repo_root)
+    # Three states in, three states out. `touched_on_this_branch` already returns
+    # `None` for "git cannot answer" and says in its own docstring why — the old
+    # call site spent that third state on `is False` one line after computing it.
+    touched = touched_on_this_branch(repo_root, arch, exclude=arch / "design")
+    verdict: Verdict = (
+        "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
+    )
+    return DESIGN_BLOCK_REASON if blocks(verdict, "ambient") else None
+
+
+def arch_location(root: Path, repo_root: Path) -> str:
+    """How a path under the arch root is named in output.
+
+    Repo-relative in-tree, absolute outside, and never with a trailing
+    separator — it renders files as well as directories, so a caller that means
+    a directory writes the slash itself.
+
+    A record set lives beside the code by default, and printing the absolute
+    path for it is noise that differs per machine. Out-of-tree has no relative
+    form worth showing, so it stays absolute.
+
+    Unescaped, and here rather than in `cli`, because the remedy it names is
+    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
+    consumer that has no rich. Escaping is the console's, applied where the
+    string is printed — `cli._arch_location` is that wrapper, and every console
+    caller still reaches the escaped form through it.
+    """
+    if not is_in_tree(root, repo_root):
+        return str(root)
+    rel = root.resolve().relative_to(repo_root.resolve())
+    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
+    # next to a slug, so the absolute path is the clearer name for that case.
+    return str(root) if rel == Path(".") else str(rel)
+
+
+def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:
+    """The two ways to clear the design block, with this repo's path resolved.
+
+    In the payload rather than in the console branch that used to build it. The
+    reason alone says a record is missing and not where to put one, so a JSON
+    consumer — `speckit-orchestrate` is the one that acts — had to resolve the
+    arch root itself to render what `status` renders, which is the second
+    inference path `pipeline-state-is-one-payload` exists to forbid.
+
+    Keyed on the reason rather than on the step name: this is a rendering of a
+    fact inference already established, and the step that carries the design
+    block is `_infer_steps`' business, not this function's.
+    """
+    if step.reason != DESIGN_BLOCK_REASON:
+        return None
+    return DESIGN_BLOCK_HELP.format(location=arch_location(arch_root(repo_root), repo_root))
 
 
 def _current_step_name(steps: list[_PipelineStep]) -> str:
@@ -495,28 +687,43 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
     return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
-def next_step_content(
-    step: str, repo_root: Path | None = None, spec_dir: Path | None = None
-) -> tuple[str, bool]:
+def next_step_content(step: str, blocked: str | None = None) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
     An undefined step yields ("", False) rather than raising: `_current_step_name`
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
 
-    `repo_root` and `spec_dir` are optional so the ~30 existing call sites keep
-    working. Given both, an `implement` step whose tasks are all ticked but whose
-    definition of done has not passed routes to `wfctl verify` instead of
-    `/speckit.implement` — re-running implement there does nothing, because there
-    is no task left to do. Tasks still open route to the step command as before:
-    the work itself is what remains.
+    `blocked` is the reason inference already reached, or None. Asked for rather
+    than recomputed: `build_report` and `next` both hold it by the time they get
+    here, and re-deriving it runs the gate's git and verify work a second time
+    against artifacts an implementing agent may be rewriting — two reads of one
+    question that can disagree.
+
+    That is also why `repo_root` and `spec_dir` are gone. They were here to
+    recompute the block, so a caller that passed them and omitted `blocked` got
+    a gate re-read; a caller that passed them once the sentinel was deleted got
+    them silently ignored, which reads as a routing decision made from artifacts
+    and is not one. Nothing here reaches disk.
+
+    **A blocked step is never automatic, whatever the table says.** The table
+    answers "may the loop proceed past a step that finished"; a blocked step has
+    not finished. `brainstorm` is where the two diverge since it was flipped
+    (#283): automatic in the table, and blocked whenever its boundary question is
+    unanswered.
+
+    A blocked `implement` routes to `wfctl verify` rather than
+    `/speckit.implement`, because re-running implement there does nothing — every
+    task is already ticked and the verdict is what is missing. Tasks still open
+    route to the step command as before: the work itself is what remains.
     """
-    if step == "implement" and repo_root is not None and spec_dir is not None:
-        tasks_md = spec_dir / "tasks.md"
-        if _file_exists(tasks_md) and not _tasks_open(tasks_md.read_text(), spec_dir):
-            if verification_block(repo_root):
-                return "wfctl verify", False
-    return _STEPS.get(step, ("", False))
+    if blocked and step in _STEPS:
+        # `implement` routes to what produces its evidence; every other blocked
+        # step routes to itself, because re-entering it is where its answers get
+        # given. The flag is what changes, not usually the destination.
+        return ("wfctl verify" if step == "implement" else _STEPS[step][0]), False
+    command, continuation = _STEPS.get(step, ("", _REVIEW_REQUIRED))
+    return command, continuation == _AUTOMATIC
 
 
 @dataclass(frozen=True)
@@ -587,13 +794,27 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     notify = resolved_notify(agent_dir)
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
-    command, auto = next_step_content(name, repo_root, spec_dir)
+    # `_infer_steps` has already asked; `verification_block` reads the config,
+    # loads a record and shells out to git, and `status` runs on every session
+    # start. Recomputing it here is the one call this seam was meant to collapse.
+    blocked = next((s.reason for s in raw if s.name == name), None)
+    command, auto = next_step_content(name, blocked)
     return PipelineReport(
         steps=[
             {
                 "name": s.name,
                 "state": s.state,
                 "annotation": s.annotation,
+                # The unrendered reason, beside the rendering of it. A view that
+                # needs the reason without the tally `annotation` prefixes had to
+                # parse it back out otherwise, and `_PipelineStep.reason` would be
+                # a fact living below the payload rather than in it.
+                "reason": s.reason,
+                # The reason says a record is missing; this says where to put
+                # one, and that one of the two answers is a command rather than
+                # a file. Resolved here because the path is per-repo, which is
+                # exactly why it used to be computed in the console view.
+                "remedy": s.remedy,
                 "is_current": s.name == name,
             }
             for s in raw

@@ -24,6 +24,7 @@ from wfctl._pipeline import (
     _STEP_NAMES,
     _STEPS,
     _infer_steps,
+    blocks,
     next_step_content,
 )
 
@@ -206,16 +207,33 @@ def test_advancing_past_design_needs_an_answer(
     0 of 11 designs carried the Boundaries and Ownership section the skill
     mandates, which is the evidence this check exists on — the question was not
     refused, it went unanswered.
+
+    Reported through the payload rather than as a refusal beside it. The old
+    shape exited 1 from `next` while `status` went on naming the command that
+    had just been refused; `status` is where a reader looks, so that is where
+    the reason has to be.
     """
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
 
-    result = runner.invoke(app, ["next"])
-
-    assert result.exit_code == 1
-    assert "no architecture record for this change" in result.output
-    assert "wfctl arch none --reason" in result.output
-    assert "docs/architecture" in result.output
+    assert runner.invoke(app, ["next"]).exit_code == 0
+    out = runner.invoke(app, ["status"]).output
+    assert "brainstorm   ▶" in out
+    assert "no architecture record" in out
+    # Both remedies, because both are legitimate: a record for a change that
+    # draws a boundary, `arch none` for one that does not. A gate naming only
+    # one turns the excluded changes into records that say nothing.
+    assert "docs/architecture/" in out
+    assert 'wfctl arch none --reason "<why>"' in out
+    # The record branch names a directory, not a filename. `<slug>.md` was
+    # printed literally and the gate counts untracked files, so writing a file
+    # of that exact name cleared it — no command, no commit, no record.
+    assert "<slug>" not in out
+    # The step, not a remedy. Both answers clear this gate and only one of them
+    # is a command, so a `next_command` naming a remedy names the cheaper answer
+    # and hides the other — and the string it would name carries a `<why>`
+    # placeholder a reader can paste straight back.
+    assert "next: /speckit.brainstorm" in out
 
 
 def test_a_record_written_for_this_change_advances(
@@ -228,10 +246,12 @@ def test_a_record_written_for_this_change_advances(
     root.mkdir(parents=True)
     (root / "layer-model.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
 
-    result = runner.invoke(app, ["next"])
-
-    assert result.exit_code == 0
-    assert "Next step:" in result.output
+    # `exit_code == 0` alone is not the assertion. Since the gate reports
+    # through the payload rather than by refusing, every `next` exits 0 —
+    # inverting `design_block` to always block leaves that check passing. The
+    # step's own state is what moved.
+    assert "brainstorm   ●" in runner.invoke(app, ["status"]).output
+    assert "no architecture record" not in runner.invoke(app, ["status"]).output
 
 
 def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
@@ -248,10 +268,10 @@ def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
     (root / "design").mkdir(parents=True)
     (root / "design" / "122-a-choice.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
 
-    result = runner.invoke(app, ["next"])
+    out = runner.invoke(app, ["status"]).output
 
-    assert result.exit_code == 1
-    assert "no architecture record for this change" in result.output
+    assert "brainstorm   ▶" in out
+    assert "no architecture record" in out
 
 
 def test_a_declaration_advances(
@@ -306,6 +326,11 @@ def test_a_feature_with_no_design_step_is_not_gated(
     ever asked about."""
     _arch_root(storyctl_dir, monkeypatch)
 
+    # Asserted on the step, not the exit code: `next` exits 0 for a blocked step
+    # too now, so an exit-code check here passes whatever the gate decides.
+    # `–` is `skipped` — no design was drawn, so there is nothing to gate.
+    out = runner.invoke(app, ["status"]).output
+    assert "no architecture record" not in out
     assert runner.invoke(app, ["next"]).exit_code == 0
 
 
@@ -324,6 +349,10 @@ def test_the_gate_is_one_transition_not_the_rest_of_the_pipeline(
 
     assert result.exit_code == 0
     assert "/speckit.plan" in result.output
+    # The gate is past, not merely quiet. Without this the test passes with
+    # `design_block` inverted to always block, because the reason would land on
+    # `brainstorm` while `next` still routed to plan.
+    assert "no architecture record" not in runner.invoke(app, ["status"]).output
 
 
 def test_resume_is_gated_too(
@@ -336,13 +365,18 @@ def test_resume_is_gated_too(
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["start"])
 
-    result = runner.invoke(app, ["resume"])
-
-    assert result.exit_code == 1
-    assert "no architecture record for this change" in result.output
+    assert runner.invoke(app, ["resume"]).exit_code == 0
+    assert "no architecture record" in runner.invoke(app, ["status"]).output
+    # The file an agent reads carries the reason, not just the command. Without
+    # it this said "run this to continue" over a blocked step, and the only view
+    # that explained why was the one an agent does not read.
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+    assert written.startswith("Next step: /speckit.brainstorm")
+    assert "why: no architecture record for this change" in written
 
     runner.invoke(app, ["arch", "none", "--reason", "no new state"])
-    assert runner.invoke(app, ["resume"]).exit_code == 0
+    runner.invoke(app, ["resume"])
+    assert "no architecture record" not in runner.invoke(app, ["status"]).output
 
 
 def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
@@ -429,17 +463,21 @@ def test_an_empty_reason_is_refused(
 def test_a_bracketed_root_reaches_the_reader(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """`[wip]` is a legal directory name that rich reads as a style tag: the
-    refusal named `docs//architecture/`, a path that does not exist, and
-    `[/y]` raised MarkupError so the message never printed at all."""
+    """`[wip]` is a legal directory name that rich reads as a style tag: a
+    message naming it printed `docs//architecture/`, a path that does not
+    exist, and `[/y]` raised MarkupError so the message never printed at all.
+
+    Asserted against `arch context` because that is now the shortest path to an
+    interpolated location. The escaping lives in `_arch_location`, which every
+    caller shares — one caller forgetting is the silent failure it exists to
+    prevent, so any one of them covers it."""
     root = storyctl_dir.repo_root / "docs" / "[wip]" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
-    storyctl_dir.make_spec_artifact("brainstorm")
 
-    result = runner.invoke(app, ["next"])
+    result = runner.invoke(app, ["arch", "context"])
 
-    assert result.exit_code == 1
-    assert "docs/[wip]/architecture/<slug>.md" in result.output
+    assert result.exit_code == 0
+    assert "docs/[wip]/architecture/" in result.output
 
 
 def test_a_refused_resume_does_not_advance_state(
@@ -449,17 +487,21 @@ def test_a_refused_resume_does_not_advance_state(
     disagreed about where the session was — after a command that reported
     failure.
 
-    The log is the whole assertion now that the resume point is derived: nothing
-    else is written, so an event appended past the refusal is the only way the
-    session can claim to have moved."""
+    They cannot disagree any more, because neither is written past a refusal
+    that no longer happens: `resume` re-infers, finds the design step unfinished
+    and writes that. The assertion is the agreement rather than the absence —
+    a blocked design step resumes to itself, and the file an agent reads names
+    the step `status` prints."""
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["start"])
-    events_before = (storyctl_dir.agent_dir / "events.jsonl").read_text()
 
-    assert runner.invoke(app, ["resume"]).exit_code == 1
+    assert runner.invoke(app, ["resume"]).exit_code == 0
 
-    assert (storyctl_dir.agent_dir / "events.jsonl").read_text() == events_before
+    assert (storyctl_dir.agent_dir / "next-step.md").read_text().startswith(
+        "Next step: /speckit.brainstorm"
+    )
+    assert "brainstorm   ▶" in runner.invoke(app, ["status"]).output
 
 
 # --- the implement arm, once a definition of done exists (#69) ----------------
@@ -1081,3 +1123,249 @@ def test_the_file_an_agent_reads_names_the_command_status_prints(
 
     assert "Next step: wfctl verify" in written
     assert "next: wfctl verify" in runner.invoke(app, ["status"]).output
+
+
+# --- the inconclusive rule (#100) ---------------------------------------------
+#
+# The gates disagreed here and each was locally right: `verification_block`
+# blocks because the repo asked for the check, `design_block` proceeds because
+# nothing promised a git answer. `blocks` is where that stops being two policies.
+
+
+def test_promised_evidence_blocks_when_it_cannot_be_read() -> None:
+    """The repo declared the check, so a missing answer is a missing answer.
+
+    Asserted on the rule rather than only through `verification_block`, because
+    the rule is what the next gate consults and a gate-shaped test would let it
+    be re-derived per gate — which is how two policies got here."""
+    assert blocks("inconclusive", "repo-declared") is True
+    assert blocks("inconclusive", "accepted-record") is True
+    assert blocks("inconclusive", "human") is True
+
+
+def test_ambient_evidence_proceeds_when_it_cannot_be_read() -> None:
+    """Nothing undertook to produce a git fact, so silence is not a missing
+    answer — and refusing on it stops a pipeline with no action that unblocks
+    it, which is the case `design_gate`'s docstring was written for."""
+    assert blocks("inconclusive", "ambient") is False
+
+
+def test_the_rule_only_reaches_the_inconclusive_case() -> None:
+    """A verdict that read the evidence is the gate's answer whoever owns it.
+    Without this, a rule keyed on the owner could quietly re-answer a gate that
+    already had evidence against the work."""
+    assert blocks("unsatisfied", "ambient") is True
+    assert blocks("unsatisfied", "repo-declared") is True
+    assert blocks("satisfied", "ambient") is False
+    assert blocks("satisfied", "repo-declared") is False
+
+
+def test_an_unreadable_arch_root_advances_the_design_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path: Path
+) -> None:
+    """The ambient rule end to end. An arch root outside the repository is the
+    reachable way git cannot answer — `touched_on_this_branch` returns None, and
+    the step advances rather than stranding a pipeline on evidence nobody
+    promised.
+
+    `tmp_path` *is* `repo_root` for this fixture, so the root has to be hung off
+    its parent: a path under `tmp_path` is in-tree, and git answers about it."""
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(tmp_path.parent / "outside-the-repo"))
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    out = runner.invoke(app, ["status"]).output
+
+    assert "brainstorm   ●" in out
+    assert "no architecture record" not in out
+
+
+def test_a_blocked_design_step_is_never_automatic(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """#283 flipped `brainstorm` to automatic, which is right for a step that
+    finished. A blocked one has not.
+
+    Left automatic, the payload tells `speckit-orchestrate` to emit
+    EXECUTE_COMMAND for `/speckit.brainstorm` against a `design.md` that already
+    exists — and to do it again next pass, because running the step is not what
+    writes the record. The table answers whether the loop may proceed past a
+    finished step; the gate answers whether it finished."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    assert _STEPS["brainstorm"][1] == "automatic", "guards the premise, not the rule"
+
+    command, auto = next_step_content("brainstorm", "no architecture record")
+    assert command == "/speckit.brainstorm"
+    assert auto is False
+
+    runner.invoke(app, ["next"])
+    assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+
+def test_a_placeholder_reason_is_refused(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`<why>` is the shape documentation and error messages write, so it is the
+    string a reader pastes back — and it cleared the gate permanently, wrote a
+    committed declaration whose body was `<why>`, and printed a green ✓.
+
+    Same argument as the empty-reason branch it sits beside: a declaration is a
+    claim a reviewer disagrees with, and nobody can disagree with a placeholder.
+    Worst under `auto_approve`, the mode with no human in it."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    result = runner.invoke(app, ["arch", "none", "--reason", "<why>"])
+
+    assert result.exit_code == 1
+    assert "placeholder" in result.output
+    assert "brainstorm   ▶" in runner.invoke(app, ["status"]).output, "gate still held"
+
+
+def test_the_json_view_carries_the_block_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The console renders the reason twice — as an annotation and as the help
+    block — and an agent reads neither. Without this the payload could stop
+    carrying `reason` and every console assertion in this file would still pass,
+    which is the hole `test_the_json_view_carries_the_auto_flag` documents for
+    `auto`."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    step = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+
+    assert step["reason"] == "no architecture record for this change"
+
+
+def test_an_out_of_tree_arch_root_is_named_absolutely(tmp_path: Path) -> None:
+    """`arch_location` moved out of `cli` with only its in-tree branch covered.
+
+    Out-of-tree has no relative form worth showing, and `relative_to` raises
+    rather than returning one — so the branch that is missing is the one that
+    would take the whole command down."""
+    from wfctl._pipeline import arch_location
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "records"
+    outside.mkdir()
+
+    assert arch_location(outside, repo) == str(outside)
+
+
+def test_an_arch_root_at_the_repo_root_is_named_absolutely(tmp_path: Path) -> None:
+    """`relative_to` returns `Path(".")` there, and "./" beside a slug reads as
+    a stray typo rather than a location."""
+    from wfctl._pipeline import arch_location
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert arch_location(repo, repo) == str(repo)
+
+
+def test_the_json_view_carries_the_remedy_and_not_only_the_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The reason says a record is missing; it does not say where one goes, and
+    the arch root is per-repo so no consumer can name it from a constant.
+
+    That path was built inside the console branch, so `status` printed the fix
+    and `status --json` printed only the complaint — and `speckit-orchestrate`,
+    the consumer that acts, reads JSON. It would have had to resolve the arch
+    root a second time to render what `status` renders, which is the second
+    inference path `pipeline-state-is-one-payload` forbids."""
+    # A bracketed root, not the plain fixture one. Against `docs/architecture`
+    # `escape()` is the identity, so the unescaped assertion below passes with
+    # the escaping put back — the whole point of moving `arch_location` out of
+    # `cli` goes unpinned, which is what a reviewer caught it doing.
+    root = storyctl_dir.repo_root / "docs" / "[wip]"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    step = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+
+    assert step["remedy"] is not None
+    # Both branches, because both are legitimate answers, and the resolved path
+    # rather than a constant — that path is the half a constant cannot carry.
+    assert "docs/[wip]/" in step["remedy"]
+    assert 'wfctl arch none --reason "<why>"' in step["remedy"]
+    # Unescaped: a JSON consumer has no rich to undo `\\[wip]`, and would go
+    # looking for a directory of that name.
+    assert "\\[" not in step["remedy"]
+    # And the console, which does have rich, prints the real one.
+    assert "docs/[wip]/" in runner.invoke(app, ["status"]).output
+    # Only the step that is blocked carries one.
+    assert all(s["remedy"] is None for s in payload["steps"] if s["name"] != "brainstorm")
+
+
+def test_the_remedy_reaches_the_file_an_agent_acts_on(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`next-step.md` gained `why:` so a blocked step said what was wrong. It
+    still did not say what to do about it, and this is the one blocked step
+    whose fix is not the command on the line above — one of its two answers is
+    a file to write."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["start"])
+
+    for command in ("next", "resume"):
+        assert runner.invoke(app, [command]).exit_code == 0
+        written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+        assert "why: no architecture record for this change" in written, command
+        assert "docs/architecture/" in written, command
+        assert 'wfctl arch none --reason "<why>"' in written, command
+        # Keyed. Unlabelled, the block's last line is the nearest antecedent of
+        # "Run this command to continue." — which names the step, two lines up.
+        assert "how:\n" in written, command
+        # And the record branch names no path a reader can create verbatim. The
+        # gate counts an *untracked* file, so a literal `<slug>.md` cleared it
+        # with no command and no commit — the `<why>` defect on the other half.
+        assert "<slug>" not in written, command
+
+
+def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`decompose` sets a blocking reason like the other two arms and was the one
+    left off the payload, so `status` showed the reason while `next-step.md` said
+    "Run this command to continue" with nothing about what was missing — the
+    failure the field was added to close, reproduced in the field itself."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (storyctl_dir.repo_root / "docs" / "architecture").mkdir(parents=True, exist_ok=True)
+    (storyctl_dir.repo_root / "docs" / "architecture" / "b.md").write_text(
+        "---\nstatus: proposed\n---\n\n# x\n"
+    )
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    storyctl_dir.make_spec_artifact("plan")
+    storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
+    (storyctl_dir.spec_dir / "checklists" / "analysis-report.md").write_text("# r\n")
+    # The rows are only read inside this section — a table without the heading is
+    # a delivery plan predating the map, which reads `done` by design.
+    (storyctl_dir.spec_dir / "delivery.md").write_text(
+        "# Delivery\n\n## Issue Grouping Map\n\n"
+        "| Issue | Tasks |\n|---|---|\n| _(TBD)_ | T001 |\n"
+    )
+    # A key pattern is what makes an unkeyed row readable as one; with no tracker
+    # the step cannot block and the test would pass against any code.
+    trackers = storyctl_dir.repo_root / ".agents" / "trackers"
+    trackers.mkdir(parents=True, exist_ok=True)
+    (trackers / "custom.json").write_text(json.dumps({"verbs": {"list": ["gh", "issue", "list"]}}))
+    # Merged, not overwritten — the fixture's manifest carries `spec_root`, and
+    # replacing it sends resolution somewhere else entirely.
+    manifest = storyctl_dir.repo_root / ".wf-skills-manifest.json"
+    existing = json.loads(manifest.read_text()) if manifest.exists() else {}
+    existing["tracker"] = "custom"
+    manifest.write_text(json.dumps(existing))
+
+    runner.invoke(app, ["next"])
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    assert "issue row" in written, written

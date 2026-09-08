@@ -401,3 +401,15 @@ def test_check_body_exits_one_on_a_finding_and_zero_without(
     good.write_text(ACCEPTED + _PANEL)
     assert runner.invoke(app, ["check-body", str(bad)]).exit_code == 1
     assert runner.invoke(app, ["check-body", str(good)]).exit_code == 0
+
+
+def test_an_unclosed_fence_is_a_block_even_though_it_never_closes() -> None:
+    """The half `_split_fences` dropped, and the half it kept, now agree.
+
+    `_prose` always treated a truncated tail as inside a fence; `blocks` acted
+    as though the fence had never opened, so a body cut off mid-block produced
+    no drawing finding however badly its columns were aligned.
+    """
+    body = "intro\n```\nA   ok. Then more.\nB   also. Also more.\nC   yes. Yes more.\n"
+    assert _shape.body_findings(body)
+    assert "line 2" in _shape.body_findings(body)[0]

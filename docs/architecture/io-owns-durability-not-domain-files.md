@@ -13,11 +13,15 @@ standard library. That shape reads as a layer. Its contents do not.
    would be correct in a program        knows a wfctl filename
    that was not wfctl                   ──────────────────────
    ──────────────────────────           append_event      → events.jsonl
-   write_json_atomic                    load_agentconfig  → current.json
-   write_md_atomic
+   write_atomic
 ```
 
-The membership test the current-state view gives the durability band — *"it
+`load_agentconfig` sat in the right-hand column too, reaching `current.json`
+with no caller anywhere. It is gone; see the Log. `write_json_atomic` and
+`write_md_atomic` were one function written twice and are now `write_atomic`.
+Neither change touches this record's argument, which is about `append_event`.
+
+The membership test the current-state view gives the bottom band — *"it
 would be correct in a program that was not wfctl"* — returns two answers for one
 module. That is the question this record exists to close, because the answer
 decides the view's bottom band and therefore its top-level shape.
@@ -99,3 +103,14 @@ clean rather than an argument against it.
 ## Log
 
 - 2026-09-04  proposed    — #149 phase 1, pass 3: is `_io` a real layer
+- 2026-09-07  amended     — `load_agentconfig` cut ahead of phase 2, and `_md`
+  joined the band. The deletion is this record's Decision arriving early on an
+  over-engineering pass, not the rejected *move only `load_agentconfig`* option
+  above: that option's defect is that it stops there, and phase 2 is still open
+  as #149. The band gained a second member on the strength of the membership
+  test this record quotes — the widening its "persistence layer" option warned
+  would happen by default. The band is now named `mechanism` rather than
+  `durability`, which is that warning answered rather than ignored: the name was
+  a description of `_io` and the test was the rule, and only the rule ever
+  admitted anything. This record's own title still says what `_io` owns, which
+  is unchanged.

@@ -6,7 +6,7 @@ handoffs:
     agent: speckit.specify
     prompt: The design document is ready in specs/<branch>/design.md. Run specify.
     send: true
-allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
 ---
 
 Read `AGENTS.md` at the repository root for project overrides. It is optional —
@@ -36,14 +36,17 @@ pauses, all of them theirs, none of them wrong to have been written that way:
 | `brainstorming`'s HARD-GATE — no implementation "until the user has approved it" | The design is still presented, at every level, and still not skipped. What changes is who approves: each gate's answer goes into its record and the reviewer approves at the PR. Descending is not "taking implementation action" — the HARD-GATE's subject is code, and it still binds. |
 | Step 3, one clarifying question at a time | Answer them yourself from the codebase and the tracker, and write each answer *and its basis* into the design. A question decided silently is the failure this step exists to prevent, and nobody being there to ask does not make it acceptable. |
 | Step 5, approval after each level, and the two human diamonds in the `dot` flow | State the gate's answer in the form `design-levels` gives it, into the record, and descend. The flow's diamonds resolve to "yes" — they are not skipped. |
-| Step 7 and the User Review Gate; `idea-refine`'s "Only save if they confirm" | Do not wait. Say which mode you are in, in one line, and write `design.md`. This is the pause that would otherwise strand the whole mode: an auto-approving run that stops here has done all the work and produced none of the artifact the reviewer was going to read. |
+| Step 7 and the User Review Gate; `idea-refine`'s "Only save if they confirm" | Do not wait. Say which mode you are in, in one line, and write `design.md` — unless one is already there, in which case the re-entry rule below governs and this row does not license overwriting it. This is the pause that would otherwise strand the whole mode: an auto-approving run that stops here has done all the work and produced none of the artifact the reviewer was going to read. |
 
 **None of this waives a record.** An auto-approving pass documents more than an
 attended one, not less — every gate is still answered out loud, in its rendered
 form, because those answers are what generate the level-3 requirements. A record
 whose `Considered` is empty has skipped its gate more quietly, not passed it.
-`wfctl`'s design gate refuses a design step that produced no record, in both
-modes, and it is unchanged.
+`wfctl`'s design gate holds a design step that produced no record — in both
+modes, and it is unchanged by this file. It reports through the pipeline rather
+than refusing the command: the step reads `in_progress` with the reason on it,
+and `status`, `next` and `resume` all say so. Under `auto_approve` that is the
+same stop it always was, arriving as state rather than as an exit code.
 
 **Records land `proposed`.** An agent never writes `approved` — that transition
 is a human's, and it is what makes "come back and change this later" real rather
@@ -104,3 +107,17 @@ and a one-pager written for someone with no `arch-root` has nothing to list.
 fidelity. `brainstorming` carries its approved design here in context rather than
 saving it first; a second write to that path destroys the approved design.
 `/speckit.specify` reads the file from there.
+
+**If `design.md` already exists when this command starts, do not overwrite it.**
+Read it, and treat this run as answering whatever the pipeline still reports
+open — usually the boundary question, since `wfctl status` holds the design step
+at `▶` with the reason on it and routes back here. A re-entered design step is
+the normal way that answer gets given, and the answer is a record under
+`wfctl arch-root`, or `wfctl arch none --reason "<why>"` carrying a real reason.
+The design document is not what was missing; rewriting it loses the level-1 and
+level-3 work and leaves the gate exactly as it was.
+
+Prose rather than a check, deliberately. Once the file has been overwritten
+there is no artifact left showing it happened, so nothing downstream could see
+the violation — `a-rule-is-expressed-as-a-check` puts this case on the other
+side of its own test, and delivers the rule at the moment it binds.

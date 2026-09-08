@@ -40,8 +40,32 @@ class TestInferPipeline:
         assert _names(steps) == STEP_NAMES
 
     # brainstorm
-    def test_brainstorm_done_when_agent_spec_exists(self, storyctl_dir: NS) -> None:
+    def test_a_design_document_alone_does_not_finish_brainstorm(
+        self, storyctl_dir: NS
+    ) -> None:
+        """The artifact is `design.md`; the step is the boundary question.
+
+        This asserted `done` on the file alone, which is what let a design that
+        drew a boundary and recorded nothing read as finished. The same shape
+        `implement` already refuses: every box ticked is not a passing
+        definition of done.
+        """
         storyctl_dir.make_spec_artifact("brainstorm")
+        steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
+        assert steps[0].state == "in_progress"
+        assert steps[0].annotation is not None
+        assert "no architecture record" in steps[0].annotation
+
+    def test_a_record_written_for_this_change_finishes_brainstorm(
+        self, storyctl_dir: NS
+    ) -> None:
+        """The other side of the gate, asserted where the state is computed
+        rather than only through the CLI — a record in the working tree answers,
+        whatever its status."""
+        storyctl_dir.make_spec_artifact("brainstorm")
+        arch = storyctl_dir.repo_root / "docs" / "architecture"
+        arch.mkdir(parents=True, exist_ok=True)
+        (arch / "a-boundary.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[0].state == "done"
 

@@ -81,29 +81,30 @@ have been missed by any rule reading frontmatter (#216).
 `wfctl/specify/` is derived from the same upstream and is a second table
 because it holds no skills. The scripts carry the attribution line as a comment
 on the line after the shebang; the templates carry nothing, because
-`create-new-feature.sh` runs `cp` on `spec-template.md` to make a project's
-`spec.md`, so a line in a template would assert GitHub's copyright over every
-spec, plan and task list the runtime generates. Their notice is
-`wfctl/specify/templates/NOTICES.md`, which names each of them.
+`setup-plan.sh` runs `cp` on `plan-template.md` and the skills that read the
+others write from their structure, so a line in a template would assert
+GitHub's copyright over every artifact the runtime generates. Their notice is `wfctl/specify/templates/NOTICES.md`, which names
+each of them.
 
 | File under `wfctl/` | Upstream |
 | --- | --- |
 | `specify/scripts/bash/check-prerequisites.sh` | `github/spec-kit` |
 | `specify/scripts/bash/common.sh` | `github/spec-kit` |
-| `specify/scripts/bash/create-new-feature.sh` | `github/spec-kit` |
 | `specify/scripts/bash/setup-plan.sh` | `github/spec-kit` |
-| `specify/scripts/bash/update-agent-context.sh` | `github/spec-kit` |
-| `specify/templates/agent-file-template.md` | `github/spec-kit` |
 | `specify/templates/checklist-template.md` | `github/spec-kit` |
 | `specify/templates/constitution-template.md` | `github/spec-kit` |
 | `specify/templates/plan-template.md` | `github/spec-kit` |
 | `specify/templates/spec-template.md` | `github/spec-kit` |
 | `specify/templates/tasks-template.md` | `github/spec-kit` |
 
-`specify/templates/github-issue-template.md` is the one file in that tree the
-project owns. It describes `/speckit.decompose`; upstream's nearest counterpart
-is `templates/commands/taskstoissues.md`, and it scores 11% against it — the
-shared `## User Input` stanza and nothing else.
+Three rows left this table, and the prose beside it lost a fourth file, rather
+than any of them changing hands. `create-new-feature.sh`, `update-agent-context.sh` and the
+`agent-file-template.md` only that script read were invoked by no skill,
+command or test, and shipped into every consuming repo regardless;
+`github-issue-template.md` was wfctl's own and described `/speckit.decompose`,
+which never named it. Recorded here rather than dropped silently, because a
+row vanishing from an attribution table is indistinguishable from a file whose
+attribution someone decided not to declare.
 
 **Neither table is yet the whole answer, and says so rather than letting silence
 imply one.** The eight `speckit.*` command wrappers under
