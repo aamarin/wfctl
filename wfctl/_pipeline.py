@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from wfctl import _tracker
+from wfctl._paths import arch_root, is_in_tree
 
 # What reading one evidence source concluded. Three values rather than a bool
 # because "the evidence says proceed" and "there was no evidence" are the two a
@@ -327,6 +328,11 @@ class _PipelineStep:
     # The unrendered half of `annotation`, for the routing read. `implement`'s
     # annotation prefixes a task tally, so the reason cannot be recovered from it.
     reason: str | None = None
+    # How to clear the block, where the reason alone does not say. Part of
+    # inference rather than of each view: the string names a per-repo path, and
+    # resolving it in a view is what left `status --json` carrying the reason
+    # without the fix.
+    remedy: str | None = None
 
 
 def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
@@ -520,7 +526,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             "brainstorm": design_reason,
             "decompose": decompose_reason,
         }.get(name)
-        steps.append(_PipelineStep(name, state, annotation, reason))
+        step = _PipelineStep(name, state, annotation, reason)
+        step.remedy = _design_remedy(step, repo_root)
+        steps.append(step)
 
         if state == "pending":
             cascade = True
@@ -568,7 +576,7 @@ def design_block(spec_dir: Path | None, repo_root: Path) -> str | None:
         # of `_infer_steps` uses to tell `skipped` from `pending`.
         return None
 
-    from wfctl._paths import arch_root, touched_on_this_branch
+    from wfctl._paths import touched_on_this_branch
 
     arch = arch_root(repo_root)
     # Three states in, three states out. `touched_on_this_branch` already returns
@@ -579,6 +587,49 @@ def design_block(spec_dir: Path | None, repo_root: Path) -> str | None:
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
     )
     return DESIGN_BLOCK_REASON if blocks(verdict, "ambient") else None
+
+
+def arch_location(root: Path, repo_root: Path) -> str:
+    """How a path under the arch root is named in output.
+
+    Repo-relative in-tree, absolute outside, and never with a trailing
+    separator — it renders files as well as directories, so a caller that means
+    a directory writes the slash itself.
+
+    A record set lives beside the code by default, and printing the absolute
+    path for it is noise that differs per machine. Out-of-tree has no relative
+    form worth showing, so it stays absolute.
+
+    Unescaped, and here rather than in `cli`, because the remedy it names is
+    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
+    consumer that has no rich. Escaping is the console's, applied where the
+    string is printed — `cli._arch_location` is that wrapper, and every console
+    caller still reaches the escaped form through it.
+    """
+    if not is_in_tree(root, repo_root):
+        return str(root)
+    rel = root.resolve().relative_to(repo_root.resolve())
+    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
+    # next to a slug, so the absolute path is the clearer name for that case.
+    return str(root) if rel == Path(".") else str(rel)
+
+
+def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:
+    """The two ways to clear the design block, with this repo's path resolved.
+
+    In the payload rather than in the console branch that used to build it. The
+    reason alone says a record is missing and not where to put one, so a JSON
+    consumer — `speckit-orchestrate` is the one that acts — had to resolve the
+    arch root itself to render what `status` renders, which is the second
+    inference path `pipeline-state-is-one-payload` exists to forbid.
+
+    Keyed on the reason rather than on the step name: this is a rendering of a
+    fact inference already established, and the step that carries the design
+    block is `_infer_steps`' business, not this function's.
+    """
+    if step.reason != DESIGN_BLOCK_REASON:
+        return None
+    return DESIGN_BLOCK_HELP.format(location=arch_location(arch_root(repo_root), repo_root))
 
 
 def _current_step_name(steps: list[_PipelineStep]) -> str:
@@ -719,6 +770,11 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
                 # parse it back out otherwise, and `_PipelineStep.reason` would be
                 # a fact living below the payload rather than in it.
                 "reason": s.reason,
+                # The reason says a record is missing; this says where to put
+                # one, and that one of the two answers is a command rather than
+                # a file. Resolved here because the path is per-repo, which is
+                # exactly why it used to be computed in the console view.
+                "remedy": s.remedy,
                 "is_current": s.name == name,
             }
             for s in raw

@@ -200,8 +200,6 @@ def status_cmd(
     from rich.markup import escape
 
     from wfctl._pipeline import (
-        DESIGN_BLOCK_HELP,
-        DESIGN_BLOCK_REASON,
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
@@ -272,16 +270,14 @@ def status_cmd(
     # cannot drift apart.
     console.print(f"[dim]next:[/dim] {report.next_command or STORY_COMPLETE_CONSOLE}")
 
-    # The one remedy that needs more than a step annotation, because one of its
-    # two branches is a file to write rather than a command to run — and the
-    # directory to write it in is resolved per repo, so it cannot live in a
-    # constant. Keyed on the payload's own reason, not on the step name: this is
-    # a rendering of a fact inference already established, which is what a view
-    # is allowed to do.
-    if any(step["annotation"] == DESIGN_BLOCK_REASON for step in steps):
-        console.print(
-            DESIGN_BLOCK_HELP.format(location=_arch_location(arch_root(repo_root), repo_root))
-        )
+    # Rendered from the payload, not composed here. The console used to resolve
+    # the arch root and build both branches of this remedy itself, so the JSON
+    # view carried the reason and not the fix — and the consumer that acts on
+    # it reads JSON. `escape()` because the resolved path is repo-supplied and
+    # `[wip]` is a legal directory name.
+    remedy = next((step["remedy"] for step in steps if step["remedy"]), None)
+    if remedy:
+        console.print(escape(remedy))
 
 
 @app.command("verify")
@@ -318,6 +314,10 @@ def next_cmd() -> None:
     # — two reads of the same question that can disagree, which is the window
     # `build_report` was changed to close and this path was left outside of.
     blocked = next((s.reason for s in steps if s.name == step_name), None)
+    # The remedy travels with the reason, for the reason the reason travels with
+    # the command: this is the file an agent acts on, and a step whose only
+    # stated fix lives in `status` is one the agent cannot clear.
+    remedy = next((s.remedy for s in steps if s.name == step_name), None)
 
     # No special case for a missing spec dir. It used to force `/speckit.specify`,
     # from when an absent design read as "skipped" and specify was the honest
@@ -334,8 +334,9 @@ def next_cmd() -> None:
         # this to continue" over a step that is blocked, and the one view that
         # carried why — `status` — is not the view an agent reads.
         why = f"why: {blocked}\n" if blocked else ""
+        how = f"{remedy}\n" if remedy else ""
         content = (
-            f"Next step: {command}\nauto: {auto_str}\n{why}Run this command to continue.\n"
+            f"Next step: {command}\nauto: {auto_str}\n{why}{how}Run this command to continue.\n"
         )
     else:
         content = STORY_COMPLETE_FILE
@@ -380,6 +381,9 @@ def resume_cmd() -> None:
     blocked = next(
         (s["reason"] for s in report.steps if s["name"] == step_name), None
     )
+    remedy = next(
+        (s["remedy"] for s in report.steps if s["name"] == step_name), None
+    )
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -388,8 +392,9 @@ def resume_cmd() -> None:
         # agent reads, and a blocked step whose reason lives only in `status`
         # tells it to run a command without saying what is wrong.
         why = f"why: {blocked}\n" if blocked else ""
+        how = f"{remedy}\n" if remedy else ""
         next_step_md.write_text(
-            f"Next step: {command}\nauto: {auto_str}\n{why}Run this command to continue.\n"
+            f"Next step: {command}\nauto: {auto_str}\n{why}{how}Run this command to continue.\n"
         )
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
         if blocked:
@@ -831,30 +836,24 @@ app.add_typer(arch_app, name="arch")
 
 
 def _arch_location(root: Path, repo_root: Path) -> str:
-    """How a path under the arch root is named in output.
-
-    Repo-relative in-tree, absolute outside, and never with a trailing
-    separator — it renders files as well as directories, so a caller that means
-    a directory writes the slash itself.
-
-    A record set lives beside the code by default, and printing the absolute
-    path for it is noise that differs per machine. Out-of-tree has no relative
-    form worth showing, so it stays absolute.
+    """`_pipeline.arch_location`, escaped for the console.
 
     Escaped here rather than at each print, because one caller forgetting is
     silent: a path containing `[wip]` is legal on every platform and rich reads
     it as a style tag, so the message names a directory that does not exist —
     and `[/y]` raises `MarkupError` instead, killing the message entirely. The
-    same hazard `arch-root` documents, in the one place every caller shares.
+    same hazard `arch-root` documents, in the one place every console caller
+    shares.
+
+    A wrapper rather than the function itself since the same path became
+    payload: `status --json` carrying rich's `\\[wip]` would be this module's
+    rendering leaking into a view that has no rich to undo it.
     """
     from rich.markup import escape
 
-    if not is_in_tree(root, repo_root):
-        return escape(str(root))
-    rel = root.resolve().relative_to(repo_root.resolve())
-    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
-    # next to a slug, so the absolute path is the clearer name for that case.
-    return escape(str(root) if rel == Path(".") else str(rel))
+    from wfctl._pipeline import arch_location
+
+    return escape(arch_location(root, repo_root))
 
 
 @arch_app.command("context")

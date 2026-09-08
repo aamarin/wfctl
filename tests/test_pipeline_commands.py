@@ -1238,6 +1238,55 @@ def test_the_json_view_carries_the_block_reason(
     assert step["reason"] == "no architecture record for this change"
 
 
+def test_the_json_view_carries_the_remedy_and_not_only_the_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The reason says a record is missing; it does not say where one goes, and
+    the arch root is per-repo so no consumer can name it from a constant.
+
+    That path was built inside the console branch, so `status` printed the fix
+    and `status --json` printed only the complaint — and `speckit-orchestrate`,
+    the consumer that acts, reads JSON. It would have had to resolve the arch
+    root a second time to render what `status` renders, which is the second
+    inference path `pipeline-state-is-one-payload` forbids."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    step = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+
+    assert step["remedy"] is not None
+    # Both branches, because both are legitimate answers, and the resolved path
+    # rather than a placeholder — that path is the half a constant cannot carry.
+    assert "docs/architecture/<slug>.md" in step["remedy"]
+    assert 'wfctl arch none --reason "<why>"' in step["remedy"]
+    # Unescaped. `_arch_location` escapes for rich, and a JSON consumer has no
+    # rich to undo it, so a repo whose arch root is `[wip]/` would ship
+    # `\\[wip]` to a reader that would then look for a directory of that name.
+    assert "\\[" not in step["remedy"]
+    # Only the step that is blocked carries one.
+    assert all(s["remedy"] is None for s in payload["steps"] if s["name"] != "brainstorm")
+
+
+def test_the_remedy_reaches_the_file_an_agent_acts_on(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`next-step.md` gained `why:` so a blocked step said what was wrong. It
+    still did not say what to do about it, and this is the one blocked step
+    whose fix is not the command on the line above — one of its two answers is
+    a file to write."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["start"])
+
+    for command in ("next", "resume"):
+        assert runner.invoke(app, [command]).exit_code == 0
+        written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+        assert "why: no architecture record for this change" in written, command
+        assert "docs/architecture/<slug>.md" in written, command
+        assert 'wfctl arch none --reason "<why>"' in written, command
+
+
 def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
