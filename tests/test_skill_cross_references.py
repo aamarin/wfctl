@@ -127,6 +127,53 @@ def test_the_level_3_gate_names_the_design_record_skill() -> None:
     assert "software-design-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_design_record_skill_asks_git_whether_the_record_landed() -> None:
+    """A record nobody can open is the failure the format exists to prevent, and
+    it is invisible: the file is on disk, the session reports success, and the
+    reviewer sees nothing.
+
+    Pinned as the command rather than as any line of git, because the near-miss
+    an agent reaches for is `git ls-files --error-unmatch` and it is wrong twice:
+    it reads the index, so a record staged and never committed passes, and it
+    exits 128 for a path outside the repository and for no repository at all
+    alike — the failure and its exemption sharing one exit code."""
+    skill = (_AGENTS / "skills" / "software-design-decisions" / "SKILL.md").read_text()
+    assert "wfctl arch check" in skill
+
+
+def test_brainstorm_orders_the_records_before_the_one_pager() -> None:
+    """`design.md` lists records by path, so they have to exist before the file
+    that points at them. Nothing else states the order: `design-levels` says a
+    record is written, not when relative to `idea-refine`.
+
+    The reference is also the only thing that reaches the skill from the
+    pipeline — `design-levels` names it, but a command that never invokes it
+    leaves the level-3 answer wherever the agent happened to put it.
+
+    Named bare rather than by path, which is how this file already names its
+    other three skills; `_REFERENCE` matches the path form and finds nothing
+    here."""
+    command = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text()
+    assert "`software-design-decisions`" in command
+    assert "## Software design decisions" in command
+    handoff = "invoke the `idea-refine` skill"
+    assert handoff in command, "the sentence this test orders against was reworded"
+    assert command.index("software-design-decisions") < command.index(handoff), (
+        "records are written before the one-pager lists them"
+    )
+
+
+def test_brainstorm_allows_the_commands_its_records_need() -> None:
+    """The command's `allowed-tools` is a ceiling on the whole turn, so a step
+    added to the prose without its command is a step that reads correctly and
+    cannot run. Silent: the agent reports the tool refusal, not a missing rule.
+    """
+    front = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text().split("---")[1]
+    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+    for needed in ("wfctl arch check", "git add", "git commit", "wfctl arch-root"):
+        assert f"Bash({needed}*)" in allowed, needed
+
+
 def test_the_design_record_skill_is_model_invocable() -> None:
     """It ships no command wrapper, so the mirror is the only route in.
 

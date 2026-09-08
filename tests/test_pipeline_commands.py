@@ -42,7 +42,7 @@ _COMMANDS = Path(str(files("wfctl"))) / "agents" / "commands"
 # is self-consistent. Order is part of it: `_STEP_NAMES` is the sequence the
 # pipeline advances through, so a reordered table reroutes the workflow.
 _EXPECTED_STEPS = [
-    ("brainstorm", "/speckit.brainstorm", False),
+    ("brainstorm", "/speckit.brainstorm", True),
     ("specify",    "/speckit.specify",    True),
     ("clarify",    "/speckit.clarify",    False),
     ("plan",       "/speckit.plan",       True),
@@ -362,23 +362,29 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     `resume` could have written the wrong flag — or stopped writing one — with
     the suite green. Both values, because a flag hardcoded either way passes a
     test that only checks the other.
+
+    An empty feature is `brainstorm`, and it advances: what the flag governs is
+    entering the design step, whose output lands in the working tree. The pause
+    that matters sits one step later and belongs to `design_gate` rather than to
+    the table — `test_resume_is_gated_too` is where that half is pinned.
     """
     _arch_root(storyctl_dir, monkeypatch)
     runner.invoke(app, ["start"])
 
-    stops = runner.invoke(app, ["resume"])
-
-    assert "step: brainstorm" in stops.output
-    assert "auto: false" in stops.output
-
-    storyctl_dir.make_spec_artifact("brainstorm")
-    runner.invoke(app, ["arch", "none", "--reason", "no new state"])
-
     advances = runner.invoke(app, ["resume"])
 
-    assert "/speckit.specify" in advances.output
+    assert "step: brainstorm" in advances.output
     assert "auto: true" in advances.output
-    assert "auto: true" in (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    # A marked spec, which is clarify's own job — and clarify is the earliest
+    # step the table flags `False`, so the second read disagrees with the first.
+    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
+
+    stops = runner.invoke(app, ["resume"])
+
+    assert "/speckit.clarify" in stops.output
+    assert "auto: false" in stops.output
+    assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
 
 
 def test_a_declaration_git_will_not_carry_is_refused(
@@ -1145,3 +1151,29 @@ def test_an_unreadable_arch_root_advances_the_design_step(
 
     assert "brainstorm   ●" in out
     assert "no architecture record" not in out
+
+
+def test_a_blocked_design_step_is_never_automatic(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """#283 flipped `brainstorm` to automatic, which is right for a step that
+    finished. A blocked one has not.
+
+    Left automatic, the payload tells `speckit-orchestrate` to emit
+    EXECUTE_COMMAND for `/speckit.brainstorm` against a `design.md` that already
+    exists — and to do it again next pass, because running the step is not what
+    writes the record. The table answers whether the loop may proceed past a
+    finished step; the gate answers whether it finished."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    assert _STEPS["brainstorm"][1] == "automatic", "guards the premise, not the rule"
+
+    command, auto = next_step_content(
+        "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir
+    )
+    assert command == "/speckit.brainstorm"
+    assert auto is False
+
+    runner.invoke(app, ["next"])
+    assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()

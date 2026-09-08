@@ -127,6 +127,12 @@ whether the detail below is worth reading; past two sentences it is a preamble,
 which rule 10 of `i-have-adhd` forbids. If the answer is already in plain
 language, there is nothing to add — skip it.
 
+**Unless plain words are what was asked for.** "explain it simply", "like a
+PM", "ELI5" makes the framing the whole answer rather than its opening, and the
+cap lifts — rule 3's table carries the form. Two sentences is the limit on
+framing that is about to hand off to mechanics, not on an answer that never
+does.
+
 ```
 ✗  "FR-012a requires quarterly coverage before the cut."
 ✓  "Deleting the yearly view could silently break the quarterly view,
@@ -157,6 +163,7 @@ front of you, not to the subject they happen to be about.
 | Status, a tool result, "did it work?", progress | Short. The default. |
 | A fact, a definition, "what is X", "why do we need X" | The answer. Then stop. |
 | "explain", "walk me through", "why does X happen" | Full reasoning |
+| "explain it simply", "like a PM", "ELI5" | Plain words throughout. Open on one concrete instance — one person, one moment, one consequence — then name the single property it all turns on. Identifiers last, or never |
 | "should we X or Y", "what's the proposal", tradeoffs | Recommendation first, then options with costs |
 | Reporting your own error | What is true now, then plain-language cause, then blast radius |
 

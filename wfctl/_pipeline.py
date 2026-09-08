@@ -58,7 +58,7 @@ _AUTOMATIC: Continuation = "automatic"
 _REVIEW_REQUIRED: Continuation = "review_required"
 
 _STEPS: dict[str, tuple[str, Continuation]] = {
-    "brainstorm": ("/speckit.brainstorm", _REVIEW_REQUIRED),
+    "brainstorm": ("/speckit.brainstorm", _AUTOMATIC),
     "specify":    ("/speckit.specify",    _AUTOMATIC),
     "clarify":    ("/speckit.clarify",    _REVIEW_REQUIRED),
     "plan":       ("/speckit.plan",       _AUTOMATIC),
@@ -569,7 +569,7 @@ def next_step_content(
     step: str,
     repo_root: Path | None = None,
     spec_dir: Path | None = None,
-    implement_blocked: object = _RECOMPUTE,
+    blocked: object = _RECOMPUTE,
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
@@ -578,21 +578,49 @@ def next_step_content(
     empty command as the finished pipeline it is.
 
     `repo_root` and `spec_dir` are optional so the ~30 existing call sites keep
-    working. Given both, an `implement` step whose tasks are all ticked but whose
-    definition of done has not passed routes to `wfctl verify` instead of
-    `/speckit.implement` — re-running implement there does nothing, because there
-    is no task left to do. Tasks still open route to the step command as before:
-    the work itself is what remains.
+    working. Given both, a step whose gate does not pass routes to what unblocks
+    it rather than to the step command, and never automatically.
+
+    **A blocked step is never automatic, whatever the table says.** The table
+    answers "may the loop proceed past a step that finished"; a blocked step has
+    not finished. `brainstorm` is where the two diverge since it was flipped
+    (#283): automatic in the table, and the thing that answers its boundary
+    question is a record a person or an agent writes — so a blocked design step
+    left automatic emits `EXECUTE_COMMAND` for `/speckit.brainstorm` against a
+    `design.md` that already exists, and does it again on the next pass.
+
+    `implement` routes to `wfctl verify` instead of `/speckit.implement`, because
+    re-running implement there does nothing — there is no task left to do. Tasks
+    still open route to the step command as before: the work itself is what
+    remains.
     """
-    if step == "implement" and repo_root is not None and spec_dir is not None:
-        if implement_blocked is _RECOMPUTE:
-            tasks_md = spec_dir / "tasks.md"
-            tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
-            _, implement_blocked = _implement_verdict(tasks_text, spec_dir, repo_root)
-        if implement_blocked:
-            return "wfctl verify", False
+    if repo_root is not None and spec_dir is not None:
+        if blocked is _RECOMPUTE:
+            blocked = _step_block(step, spec_dir, repo_root)
+        if blocked:
+            # `implement`'s reason is a verify verdict, and `wfctl verify` is what
+            # produces a new one. `brainstorm`'s is a missing record, and its own
+            # command is where that gets written — the flag is what changes, not
+            # the destination.
+            return ("wfctl verify" if step == "implement" else _STEPS[step][0]), False
     command, continuation = _STEPS.get(step, ("", _REVIEW_REQUIRED))
     return command, continuation == _AUTOMATIC
+
+
+def _step_block(step: str, spec_dir: Path, repo_root: Path) -> str | None:
+    """Why this step's gate does not pass, or None — for a caller with no verdict.
+
+    `build_report` has already inferred and hands its answer over. This is for
+    the ~30 call sites that have not, and it keeps the recompute in one place
+    rather than at each branch above.
+    """
+    if step == "implement":
+        tasks_md = spec_dir / "tasks.md"
+        tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
+        return _implement_verdict(tasks_text, spec_dir, repo_root)[1]
+    if step == "brainstorm":
+        return design_block(spec_dir, repo_root)
+    return None
 
 
 @dataclass(frozen=True)
@@ -653,7 +681,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # `_infer_steps` has already asked; `verification_block` reads the config,
     # loads a record and shells out to git, and `status` runs on every session
     # start. Recomputing it here is the one call this seam was meant to collapse.
-    blocked = next((s.reason for s in raw if s.name == "implement"), None)
+    blocked = next((s.reason for s in raw if s.name == name), None)
     command, auto = next_step_content(name, repo_root, spec_dir, blocked)
     return PipelineReport(
         steps=[

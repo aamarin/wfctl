@@ -958,6 +958,129 @@ def arch_none_cmd(
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
+@arch_app.command("check")
+def arch_check_cmd(
+    record: Path = typer.Argument(..., help="Path to the record to check."),
+) -> None:
+    """Will a reviewer opening this branch read this record?
+
+    The one question a level-3 record's format depends on and cannot ask for
+    itself. `arch_root` is overridable, so a record can be written where the
+    branch does not carry it, and every way that fails is silent: the file is on
+    disk, the session reports success, and the reviewer is shown nothing.
+
+    A command rather than a line of git in the skill, because a skill's reader is
+    an agent and the near-misses read as equivalent to the real thing. Three of
+    them have already been written here and each was wrong in its own direction:
+    `git ls-files --error-unmatch` answers about the index, so a staged record
+    passes; `git cat-file -e HEAD:<path>` answers about the path, so a record
+    committed once and edited since passes; and both exit 128 for a path outside
+    the repository and for no repository at all alike, which is a failure and its
+    own exemption sharing one code.
+
+    Two questions, in the order a reviewer meets them. Is the file committed and
+    unmodified in this working tree — the property itself, and the only one this
+    command refuses on. That is two git calls and not one, because `diff` omits
+    untracked files and HEAD holding a path says nothing about what the tree
+    holds: either alone passes a record no reviewer would read. Then, for the report rather than the verdict, does the
+    change under review add it: `touched_on_this_branch`, three states honoured
+    as three, per the rule `design_gate`'s caller states — refuse only on
+    evidence. A branch that is itself the trunk, and a repo whose trunk git
+    cannot find, both answer "no" to a question that had no answer, and neither
+    is a record written wrong.
+    """
+    import subprocess
+
+    probe = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+    )
+    if probe.returncode != 0:
+        # Classified, never collapsed. `get_repo_root` raises one SystemExit for
+        # every failure of this command, and catching that is how the exemption
+        # below came to cover a bare repo, a `.git` file pointing nowhere, and
+        # `safe.directory` refusing the tree — each of them a real repository
+        # where the check would silently become a no-op. Only git saying there is
+        # no repository is the exemption; anything else it says is repeated and
+        # refused.
+        # The parenthetical, not the sentence it sits in. `not a git repository`
+        # alone also matches `fatal: not a git repository: /nonexistent` — a
+        # `.git` file pointing at a gitdir that is gone, which is a broken
+        # repository and not the absence of one. Git prints the walk it did
+        # only when it really walked to the root and found nothing. English,
+        # and knowingly: an unrecognised message is refused rather than
+        # exempted, so a translated git costs a false refusal and never a
+        # false pass.
+        if "(or any of the parent directories)" in probe.stderr:
+            console.print(
+                "[yellow]ℹ[/yellow] No git repository here, so no change carries "
+                "this record and no\n  reviewer is waiting for it. Not a failure.",
+                soft_wrap=True,
+            )
+            return
+        console.print(
+            "[yellow]⚠[/yellow] git cannot read this tree, so whether a reviewer "
+            f"would see the\n  record is unknown:\n\n  {probe.stderr.strip()}",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    repo_root = Path(probe.stdout.strip())
+    record = record.resolve()
+    location = _arch_location(record, repo_root)
+
+    if not is_in_tree(record, repo_root):
+        console.print(
+            f"[yellow]⚠[/yellow] {location} is outside this working tree. A second "
+            "checkout of\n  this same repository is the case that looks most like a "
+            "pass and is not one:\n  its own commits reach no branch this change is "
+            "opened from.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    relative = record.relative_to(repo_root.resolve())
+    if not record.exists():
+        console.print(f"[yellow]⚠[/yellow] {location} does not exist.")
+        raise typer.Exit(1)
+    # Both halves, because each is blind where the other sees. `diff` omits
+    # untracked files entirely, so a record written and never staged compares
+    # equal to nothing and exits 0 — the original failure, straight through. And
+    # HEAD holding the path says nothing about what the tree holds, so a record
+    # edited after its commit exits 0 there. Only together do they mean "a
+    # reviewer reads what is on disk here".
+    in_head = subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{relative}"], cwd=repo_root, capture_output=True
+    ).returncode == 0
+    if not in_head:
+        console.print(
+            f"[yellow]⚠[/yellow] {location} has never been committed. `git push` "
+            "moves commits,\n  so the change would open without it — staging it is "
+            "not committing it.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    if subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", str(relative)], cwd=repo_root
+    ).returncode != 0:
+        console.print(
+            f"[yellow]⚠[/yellow] {location} has been written to since its commit. A "
+            "reviewer would\n  read the committed version, not what is on disk here.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    landed = touched_on_this_branch(repo_root, record)
+    if landed is True:
+        console.print(f"[green]✓[/green] {location} is committed, and this change adds it")
+        return
+    console.print(
+        f"[green]✓[/green] {location} is committed and a reviewer of this branch "
+        "reads it.\n  Git cannot place it in a change under review — this branch may "
+        "be the trunk,\n  or the record may predate it.",
+        soft_wrap=True,
+    )
+
+
 @app.command("arch-root")
 def arch_root_cmd() -> None:
     """Show where this repo's architecture records live.
@@ -3358,36 +3481,6 @@ def check_body_cmd(
     raise typer.Exit(1)
 
 
-def _worktree_roots(cwd: str) -> tuple[str, list[str]]:
-    """The worktree `cwd` is in, and every worktree root git knows about.
-
-    ('', []) when git cannot answer — no repo, no git on PATH. The guard then
-    has nothing to compare against and allows the command, which is the right
-    failure direction for something that runs before every Bash call.
-    """
-    import subprocess
-
-    def git(*args: str) -> str | None:
-        try:
-            out = subprocess.run(
-                ["git", "-C", cwd, *args], capture_output=True, text=True, check=True
-            )
-        except (OSError, subprocess.CalledProcessError):
-            return None
-        return out.stdout
-
-    here = git("rev-parse", "--show-toplevel")
-    listing = git("worktree", "list", "--porcelain")
-    if here is None or listing is None:
-        return "", []
-    roots = [
-        line.split(" ", 1)[1]
-        for line in listing.splitlines()
-        if line.startswith("worktree ")
-    ]
-    return here.strip(), roots
-
-
 hook_app = typer.Typer(
     no_args_is_help=True,
     help="Run an agent hook. Not for interactive use — this is what a "
@@ -3599,41 +3692,20 @@ def hook_worktree_guard_cmd() -> None:
     are allowed. Exits 2 to block, which is what puts the reason in front of the
     agent — exit 1 is *non-blocking* and lets the command through.
 
+    The decision is `wfctl/_hook.py`, not here, and in practice this function
+    does not run: `wfctl/_entry.py` dispatches the exact argv straight there so
+    the hook never pays for typer and rich. This stays as the typer-visible
+    command — it is what `wfctl hook --help` lists, and what runs if anything
+    invokes the subcommand with a flag the fast path deliberately declines.
+
     See `wfctl/_guard.py` for the decision and its known gaps.
     """
-    from wfctl import _guard
+    from wfctl._hook import worktree_guard
 
-    # Every field defensively, because this runs before *every* Bash call and a
-    # traceback from it reaches the agent as a hook error on work that had
-    # nothing wrong with it. A payload this code cannot read describes no
-    # command, and no command crosses no boundary.
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return
-    # Types too, not just presence. `{"tool_input": "…"}` raises on `.get` and a
-    # list `command` raises inside `re.findall` — both the traceback-on-every-
-    # Bash-call this block exists to prevent, which the first version of it
-    # still allowed through.
-    if not isinstance(payload, dict):
-        return
-    tool_input = payload.get("tool_input")
-    command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not isinstance(command, str):
-        return
-    # The payload's `cwd` is the session's, which is the one the guard is about.
-    # This process's own cwd is the agent's project directory and can differ.
-    here, roots = _worktree_roots(payload.get("cwd") or ".")
-    if not here:
-        return
-
-    message = _guard.refusal(command, here, roots)
-    if message:
-        # Straight to stderr, not through `console`: exit 2 hands stderr to the
-        # model verbatim, and rich would wrap it to this process's terminal
-        # width — which, running under a hook, is whatever the agent inherited.
-        print(message, file=sys.stderr)
-        raise typer.Exit(2)
+    # `.buffer` for the same reason as `_entry`: the decode belongs under the
+    # guard's own `except`, not out here where it becomes a hook error.
+    if code := worktree_guard(sys.stdin.buffer.read()):
+        raise typer.Exit(code)
 
 
 # Where releases come from. Tags are always read from here, even for a fork

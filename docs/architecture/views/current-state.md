@@ -7,33 +7,42 @@ down from them because `_arch.load_records` globs `*.md` non-recursively at the
 arch root — a view placed there would be read as a record and reach agents
 through `wfctl arch context` as if someone had agreed to it.
 
-Derived from `wfctl/*.py` at `24beb3e`. What keeps it honest is
+Derived from `wfctl/*.py` at `793fd95`. What keeps it honest is
 `tests/test_architecture_view.py`, which re-derives the import graph and fails
 when this drawing stops matching it. See **Staleness** below.
 
 ```
    ╭─ surface ─────────────────────────────────────────────────────────╮
-   │ cli 3627                                          14 out · 0 in   │
+   │ _entry 35                                          2 out · 0 in   │
+   │   └─► cli 4774                                    15 out · 1 in   │
+   │   └─► _hook 110                                    1 out · 2 in   │
    ╰───────────────────────────────────────────────────────────────────╯
       │      ╎ 2 private crossings into _pipeline
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 442   _arch 359   _archive 339   _guard 286        │      ┊
-   │ _verify 245     _tracker 227   _workmux 191   _settings 173  │      ┊
-   │ _shape 238      _session 102   _bundle 92    _body 393       │      ┊
+   │ _pipeline 593   _arch 444   _archive 339   _guard 293        │      ┊
+   │ _verify 245     _tracker 262   _workmux 274   _settings 173  │      ┊
+   │ _shape 260      _session 164   _bundle 126   _body 408       │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
       ▼ ┊  _tracker    → _paths.DEFAULT_KEY_PATTERN        edge, and the ┊
    ╭─ resolution ─────────────────────────────────────╮     only cycle   ┊
-   │ _paths 446      _manifest 42                     │◄────────────────╌╯
+   │ _paths 635      _manifest 42                     │◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
    ╭─ durability ─────────────────────────────────────╮  ◄── _arch _session
    │ _io 66                            0 out · 5 in   │      _tracker _verify
    ╰──────────────────────────────────────────────────╯      cli
 ```
+
+`_entry` is drawn above the two it reaches because it is the only one with no
+importer: it is what the console script resolves to, and it decides which of the
+other two answers. `_hook` reaches `_guard` directly and nothing else, which is
+what lets the guard run without `cli` — see the surface split below. The line
+counts and edge tallies moved with the re-derivation at `793fd95`; the bands and
+the crossings did not.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
 imports nothing back — not because resolution reaches it. Neither `_paths` nor
@@ -145,6 +154,32 @@ Undecided. Unlike the three above, this one has no record: it was found during
 review of this view rather than in the pass that produced it, and #149 phase 1
 does not pre-decide what phase 2 moves.
 
+### The surface band split, because importing it got expensive
+
+```
+   wfctl (console script)
+     └─► _entry        argv dispatch, and nothing else
+           ├─► _hook   one path: stdin, git, exit code       ~34 ms
+           └─► cli     every other path: typer + rich        ~82 ms
+```
+
+`cli` is surface and always was. `_entry` and `_hook` are surface too, and they
+exist because one caller could not afford to enter the band through `cli`:
+`hook worktree-guard` runs before every Bash call an agent issues, and reaching
+it through `cli` cost `typer` (47.5 ms) and `rich.console` (26.7 ms), neither of
+which that path uses (#135).
+
+So this is a band with two doors rather than a new band. The decision still
+lives in `_guard`, one band down, and both doors reach it the same way — which
+is what makes the split safe to have: `_entry` holds no policy, and `_hook` holds
+no policy either beyond which fields of a payload it will trust.
+
+**What this costs.** `cli` is no longer the only surface module, so "does `wfctl
+--help` list it?" stops working as the band's membership test — it lists neither
+of these. The test that still holds is the band's description rather than its
+proxy: both parse input, both decide an exit code, and neither answers a question
+about wfctl's subject.
+
 ## Two things the drawing cannot show
 
 **`_pipeline`'s public entry point is dead.** `infer_pipeline` (line 354) has
@@ -193,7 +228,7 @@ red rather than stale.
   test *and* a section admitting what the test cannot reach.
 
 ```layers
-surface     cli
+surface     cli _entry _hook
 domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body
 resolution  _paths _manifest
 durability  _io

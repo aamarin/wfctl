@@ -6,7 +6,7 @@ handoffs:
     agent: speckit.specify
     prompt: The design document is ready in specs/<branch>/design.md. Run specify.
     send: true
-allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(mkdir*) Bash(git log*)
+allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
 ---
 
 Read `AGENTS.md` at the repository root for project overrides. It is optional —
@@ -59,8 +59,46 @@ Read `FEATURE_DIR` from that output and `mkdir -p` it. Substitute the real path 
 `<branch>` in this file is a placeholder, never a directory name. The design
 document is `design.md` inside that directory.
 
+Level-3 records are written before `idea-refine` runs, not after. Invoke
+`software-design-decisions` for each structural choice that weighed a credible
+alternative, once level 2's records are written and while the reasoning is still
+in front of you. The order is what makes the next paragraph possible: `design.md`
+lists the records by path, so they have to exist before the file that points at
+them.
+
+The records land where that skill sends them and are committed there, which is
+outside `FEATURE_DIR` on purpose — `specs/` is gitignored, so a record kept
+beside `design.md` reaches no reviewer. That skill owns the check that it
+actually landed.
+
+Committing them here puts a record on the branch before step 7's review gate has
+approved the direction. That is the intended order and not an oversight: records
+land `proposed`, which is the status for a decision nobody has ratified, and a
+direction the reader rejects leaves behind the argument for why it was
+considered. A record is superseded by a later one rather than deleted.
+
 After the brainstorming session concludes, invoke the `idea-refine` skill to
-sharpen the chosen direction into an actionable one-pager.
+sharpen the chosen direction into an actionable one-pager. Its one-pager gains a
+section `idea-refine` does not itself carry:
+
+```markdown
+## Software design decisions
+
+- <arch-root>/design/<issue>-<decision>.md — <the decision in one line>
+```
+
+`wfctl arch-root` prints that root. Writing the default in is the assumption this
+feature exists to remove: a repo can declare `arch_root` elsewhere, and a
+one-pager naming a path no record was written to points at nothing.
+
+Paths, never blocks. A digest of a record is a second copy of it, and the copy is
+what drifts. Where a level was answered with no record, the section says so in
+one line rather than being deleted — a missing section reads as a level nobody
+ran.
+
+Stated here rather than in `idea-refine` because that skill is upstream-derived
+and fires outside this pipeline as often as inside it (`vendor-upstream-skills`),
+and a one-pager written for someone with no `arch-root` has nothing to list.
 
 **Output:** `specs/<branch>/design.md`, written by `idea-refine` — once, at final
 fidelity. `brainstorming` carries its approved design here in context rather than

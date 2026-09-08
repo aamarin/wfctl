@@ -36,7 +36,11 @@ dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3"]
 dev = ["wfctl[dev]"]
 
 [project.scripts]
-wfctl = "wfctl.cli:app"
+# Not `cli:app`. `wfctl hook worktree-guard` runs before every Bash call an
+# agent makes, and reaching it through `cli` costs typer and rich — 68.5 of the
+# guard's 81.7 ms, neither used on that path (#135). `_entry` dispatches that one
+# argv without importing the CLI and falls through for everything else.
+wfctl = "wfctl._entry:main"
 
 [tool.setuptools.packages.find]
 include = ["wfctl*"]
