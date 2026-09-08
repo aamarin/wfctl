@@ -66,6 +66,14 @@ def test_the_position_follows_the_artifacts_with_no_command_in_between(
 
     storyctl_dir.make_spec_artifact("brainstorm")
 
+    # The artifact moved the step off `pending`; the boundary question is what
+    # finishes it, so the design gate holds it at `▶` until a record answers.
+    assert "brainstorm   ▶" in _run("status")
+
+    arch = storyctl_dir.repo_root / "docs" / "architecture"
+    arch.mkdir(parents=True, exist_ok=True)
+    (arch / "a-boundary.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
+
     assert "brainstorm   ●" in _run("status")
     assert "specify      ○  ← current" in _run("status")
 

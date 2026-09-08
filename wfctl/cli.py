@@ -197,7 +197,12 @@ def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
 ) -> None:
     """Show pipeline progress."""
-    from wfctl._pipeline import STORY_COMPLETE_CONSOLE, build_report
+    from rich.markup import escape
+
+    from wfctl._pipeline import (
+        STORY_COMPLETE_CONSOLE,
+        build_report,
+    )
     from wfctl._paths import resolve_spec_dir
 
     agent_dir, repo_root, branch, issue = _resolve_context()
@@ -256,7 +261,7 @@ def status_cmd(
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
         glyph, color = _STATE_GLYPH[step["state"]]
         sym_fmt = f"[{color}]{glyph}[/{color}]"
-        ann = f"  [dim]{step['annotation']}[/dim]" if step["annotation"] else ""
+        ann = f"  [dim]{escape(step['annotation'])}[/dim]" if step["annotation"] else ""
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
 
@@ -264,6 +269,15 @@ def status_cmd(
     # owns both forms so the file an agent reads and the line a human reads
     # cannot drift apart.
     console.print(f"[dim]next:[/dim] {report.next_command or STORY_COMPLETE_CONSOLE}")
+
+    # Rendered from the payload, not composed here. The console used to resolve
+    # the arch root and build both branches of this remedy itself, so the JSON
+    # view carried the reason and not the fix — and the consumer that acts on
+    # it reads JSON. `escape()` because the resolved path is repo-supplied and
+    # `[wip]` is a legal directory name.
+    remedy = next((step["remedy"] for step in steps if step["is_current"]), None)
+    if remedy:
+        console.print(escape(remedy))
 
 
 @app.command("verify")
@@ -275,50 +289,18 @@ def verify_cmd() -> None:
     raise typer.Exit(_verify.perform(agent_dir, repo_root))
 
 
-def _refuse_unless_boundary_answered(
-    spec_dir: Path | None, step_name: str, repo_root: Path
-) -> None:
-    """Exit 1 when the design step is being left with the boundary unanswered.
-
-    Called by every command that writes `next-step.md`, not just `next`:
-    `speckit-orchestrate` advances the pipeline with `wfctl resume`, so gating
-    only `next` would leave the orchestrated path — the one that actually runs —
-    walking straight past the check. `start` is deliberately not gated: it opens
-    the session that has to run `arch none` to answer.
-
-    Before the file is written, never after. `next-step.md` is what the agent
-    reads next, so a refusal that still wrote it would be a message nothing acts
-    on.
-    """
-    from wfctl._pipeline import DESIGN_GATE_REFUSAL, design_gate
-
-    arch = arch_root(repo_root)
-    # `is False` — never a falsy check. `touched_on_this_branch` returns None
-    # when git cannot answer (no trunk, or a root outside the tree), and that
-    # case proceeds along with a real True: the gate refuses only on evidence.
-    # `design/` is excluded, not counted. It holds level-3 records, which govern
-    # one feature and say nothing about ownership — the question this gate asks.
-    # Counting them would let a change that genuinely moves a boundary satisfy
-    # the gate with a record whose own format forbids it from drawing one, and
-    # #121 item 3 guarantees every such record lands in the branch diff.
-    if design_gate(
-        spec_dir,
-        step_name,
-        lambda: touched_on_this_branch(repo_root, arch, exclude=arch / "design") is False,
-    ):
-        console.print(DESIGN_GATE_REFUSAL.format(location=_arch_location(arch, repo_root)))
-        raise typer.Exit(1)
-
-
 @app.command("next")
 def next_cmd() -> None:
     """Write next actionable step to next-step.md."""
+    from rich.markup import escape
+
     from wfctl._pipeline import (
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
         _current_step_name,
         _infer_steps,
         next_step_content,
+        next_step_file,
     )
     from wfctl._io import append_event
 
@@ -327,8 +309,16 @@ def next_cmd() -> None:
     steps = _infer_steps(spec_dir, repo_root)
     step_name = _current_step_name(steps)
 
-    # With no spec dir there is no design.md either, so the gate cannot fire.
-    _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
+    # Handed the verdict `_infer_steps` already reached, not asked to find it
+    # again. Recomputing runs the gate's git and verify work a second time on
+    # every `next`, and re-reads artifacts an implementing agent may be rewriting
+    # — two reads of the same question that can disagree, which is the window
+    # `build_report` was changed to close and this path was left outside of.
+    blocked = next((s.reason for s in steps if s.name == step_name), None)
+    # The remedy travels with the reason, for the reason the reason travels with
+    # the command: this is the file an agent acts on, and a step whose only
+    # stated fix lives in `status` is one the agent cannot clear.
+    remedy = next((s.remedy for s in steps if s.name == step_name), None)
 
     # No special case for a missing spec dir. It used to force `/speckit.specify`,
     # from when an absent design read as "skipped" and specify was the honest
@@ -336,25 +326,40 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, repo_root, spec_dir)
+    command, auto = next_step_content(step_name, blocked)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
         auto_str = "true" if auto else "false"
-        content = f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n"
-        console.print(f"→ Next step: {command} (auto: {auto_str})")
+        # The reason and the remedy travel with the command. Without them this
+        # file says "run this to continue" over a step that is blocked, and the
+        # one view that carried why — `status` — is not the view an agent reads.
+        content = next_step_file(command, auto, blocked, remedy)
     else:
         content = STORY_COMPLETE_FILE
-        console.print(STORY_COMPLETE_CONSOLE)
 
+    # Composed, written, then printed. `blocked` is repo-supplied text — a verify
+    # command carrying `[unit]` is legal — so rendering it can raise, and with the
+    # print first that left `next-step.md` holding a previous run's answer behind
+    # a command that reported failure. The deleted refusal path was ordered this
+    # way for the same reason.
     next_step_md.write_text(content)
+
+    if command:
+        console.print(f"→ Next step: {command} (auto: {auto_str})")
+        if blocked:
+            console.print(f"  [dim]{escape(blocked)}[/dim]")
+    else:
+        console.print(STORY_COMPLETE_CONSOLE)
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
 
 
 @app.command("resume")
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
-    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report
+    from rich.markup import escape
+
+    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report, next_step_file
     from wfctl._session import session_started
     from wfctl._io import append_event
 
@@ -368,19 +373,29 @@ def resume_cmd() -> None:
     report = build_report(spec_dir, repo_root, agent_dir)
     step_name = report.current or "complete"
 
-    # Gated before anything is written. Refusing afterwards left `next-step.md`
-    # deliberately stale while the event log said the session had advanced, so
-    # the two disagreed about where it was — after a command that reported
-    # failure.
-    _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
-
     command, auto = report.next_command, report.auto
+
+    blocked = next(
+        (s["reason"] for s in report.steps if s["name"] == step_name), None
+    )
+    remedy = next(
+        (s["remedy"] for s in report.steps if s["name"] == step_name), None
+    )
 
     next_step_md = agent_dir / "next-step.md"
     if command:
         auto_str = "true" if auto else "false"
-        next_step_md.write_text(f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n")
+        # The same writer `next` uses, not the same shape written twice: this is
+        # the file an agent reads, and a field added to one composition and not
+        # the other is a blocked step that says what is wrong under one command
+        # and not under the other.
+        # `bool(auto)`: `PipelineReport.__post_init__` pairs `auto` with
+        # `next_command`, so inside this branch it is not None — an invariant
+        # mypy cannot read off the dataclass.
+        next_step_md.write_text(next_step_file(command, bool(auto), blocked, remedy))
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
+        if blocked:
+            console.print(f"  [dim]{escape(blocked)}[/dim]")
     else:
         next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
@@ -440,6 +455,8 @@ def end_cmd() -> None:
     """End the current session."""
     from datetime import datetime, timezone
 
+    from rich.markup import escape
+
     from wfctl import _session
     from wfctl._pipeline import build_report
 
@@ -456,8 +473,12 @@ def end_cmd() -> None:
     # "closed", not "ended and complete". Every clause names something read a
     # moment ago; none of them concludes the work is done, because `end` has no
     # way to observe that (#70).
+    # escape(): `observed.step` carries the current step's annotation, and
+    # `implement`'s embeds the definition-of-done commands that failed — repo
+    # text, so `[unit]` is legal and `[/x]` raises. The write above has already
+    # happened, which is the ordering `next` was corrected for.
     console.print(
-        f"[green]✓[/green] Session closed — {observed.step}, "
+        f"[green]✓[/green] Session closed — {escape(observed.step)}, "
         f"boundary {observed.boundary}, tree {observed.tree}."
     )
     # soft_wrap: the path is read by an agent, and rich folds a long one at the
@@ -818,30 +839,24 @@ app.add_typer(arch_app, name="arch")
 
 
 def _arch_location(root: Path, repo_root: Path) -> str:
-    """How a path under the arch root is named in output.
-
-    Repo-relative in-tree, absolute outside, and never with a trailing
-    separator — it renders files as well as directories, so a caller that means
-    a directory writes the slash itself.
-
-    A record set lives beside the code by default, and printing the absolute
-    path for it is noise that differs per machine. Out-of-tree has no relative
-    form worth showing, so it stays absolute.
+    """`_pipeline.arch_location`, escaped for the console.
 
     Escaped here rather than at each print, because one caller forgetting is
     silent: a path containing `[wip]` is legal on every platform and rich reads
     it as a style tag, so the message names a directory that does not exist —
     and `[/y]` raises `MarkupError` instead, killing the message entirely. The
-    same hazard `arch-root` documents, in the one place every caller shares.
+    same hazard `arch-root` documents, in the one place every console caller
+    shares.
+
+    A wrapper rather than the function itself since the same path became
+    payload: `status --json` carrying rich's `\\[wip]` would be this module's
+    rendering leaking into a view that has no rich to undo it.
     """
     from rich.markup import escape
 
-    if not is_in_tree(root, repo_root):
-        return escape(str(root))
-    rel = root.resolve().relative_to(repo_root.resolve())
-    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
-    # next to a slug, so the absolute path is the clearer name for that case.
-    return escape(str(root) if rel == Path(".") else str(rel))
+    from wfctl._pipeline import arch_location
+
+    return escape(arch_location(root, repo_root))
 
 
 @arch_app.command("context")
@@ -966,6 +981,19 @@ def arch_none_cmd(
         console.print("[red]✗[/red] --reason cannot be empty: say why no boundary changed.")
         raise typer.Exit(1)
 
+    # A placeholder is an empty reason that got past the check above by having
+    # characters in it. `<why>` is the shape that matters, because it is the one
+    # documentation and error messages write — a reader who pastes the example
+    # back gets a committed declaration whose body is `<why>`, a green ✓, and a
+    # permanently answered gate. Same argument as the branch above: the value is
+    # what a reviewer disagrees with, and nobody can disagree with a placeholder.
+    if re.fullmatch(r"<[^>]*>", reason.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
+            "say what changed, or why nothing did."
+        )
+        raise typer.Exit(1)
+
     # `.name`: the branch reaches this as a path segment, and unlike the state
     # dir this write lands in a working tree. Git rejects `..` in a refname, so
     # only `WFCTL_BRANCH` can carry one — but the file is committed, and a write
@@ -987,14 +1015,14 @@ def arch_none_cmd(
     # the change under review?" is the whole question — and both ways it can
     # fail are silent. An out-of-tree root writes outside the repo; a gitignored
     # root writes a file git never reports. Either way the design gate keeps
-    # refusing and the escape hatch it names has no effect, so a green ✓ here
+    # blocking and the escape hatch it names has no effect, so a green ✓ here
     # would send the author back to a command that already did nothing.
     if touched_on_this_branch(repo_root, path) is not True:
         console.print(
             f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
             "part of the change under\n  review — the root is outside the working tree, "
             "or git is ignoring it. No\n  reviewer will see this claim, and the design "
-            "step will keep refusing.",
+            "step will keep blocking.",
             soft_wrap=True,
         )
         raise typer.Exit(1)
@@ -1028,7 +1056,7 @@ def arch_check_cmd(
     untracked files and HEAD holding a path says nothing about what the tree
     holds: either alone passes a record no reviewer would read. Then, for the report rather than the verdict, does the
     change under review add it: `touched_on_this_branch`, three states honoured
-    as three, per the rule `design_gate`'s caller states — refuse only on
+    as three, per the rule `blocks` now states — block only on
     evidence. A branch that is itself the trunk, and a repo whose trunk git
     cannot find, both answer "no" to a question that had no answer, and neither
     is a record written wrong.

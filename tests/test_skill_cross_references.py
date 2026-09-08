@@ -167,10 +167,24 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     """The command's `allowed-tools` is a ceiling on the whole turn, so a step
     added to the prose without its command is a step that reads correctly and
     cannot run. Silent: the agent reports the tool refusal, not a missing rule.
+
+    `wfctl arch none` is the one this list was missing, and it is not optional
+    prose: `design-levels` requires a level that drew no boundary to *declare*
+    that — "a declared absence is an answer; silence is not" — and the
+    declaration is that command. Without it the only level-2 answer brainstorm
+    could give was a record, so a change the skill explicitly excludes from
+    needing one had no way to finish the step. This command is also the only
+    place in the shipped tree that names `wfctl arch none` at all.
     """
     front = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text().split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
-    for needed in ("wfctl arch check", "git add", "git commit", "wfctl arch-root"):
+    for needed in (
+        "wfctl arch check",
+        "wfctl arch none",
+        "git add",
+        "git commit",
+        "wfctl arch-root",
+    ):
         assert f"Bash({needed}*)" in allowed, needed
 
 
