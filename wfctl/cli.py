@@ -3671,14 +3671,23 @@ def hook_response_shape_cmd() -> None:
     of the ten is an options list the reader's own instructions ask for. The
     check cannot tell that one from the rest, so it says what it saw.
 
-    **It reports to the model, not to the terminal.** `systemMessage` is the
-    obvious channel and it is not wired for this event — measured, not assumed:
-    across seven `Stop` runs in one session the hook produced a finding twice and
-    neither reached the reader, while the runs that printed nothing were correctly
-    silent. `hookSpecificOutput.additionalContext` is the channel that works, and
-    it is the better one anyway: it reaches the agent that wrote the reply, in
-    time to shape the next one. `systemMessage` is emitted beside it so a version
-    that wires it up costs no change here.
+    **It reports to the model, not to the terminal.** The channel is
+    `hookSpecificOutput.additionalContext`, and it is the right one: it reaches
+    the agent that wrote the reply, in time to shape the next one. The reader
+    cannot act on a finding about a reply that is already on screen.
+
+    `systemMessage` used to be emitted beside it, against the day the harness
+    wired it up for `Stop`. That day came: it now prints under `Stop hook
+    feedback:` while `additionalContext` prints under `Stop says:`, so the reader
+    got the same seven lines twice per firing (#298). The measurement that
+    justified emitting it — seven `Stop` runs in one session where it reached
+    nobody — was true of the harness of the time, and is what changed.
+
+    `WFCTL_SHAPE_ECHO=1` writes the report to stderr, for exercising the check by
+    hand — the double print went four months unnoticed because reading a
+    transcript was the only other way to see this fire. It is off by default, and
+    invisible through the wired hook either way: `install-skills` writes the
+    `Stop` entry with `2>/dev/null`, so stderr is for a payload piped in by hand.
 
     Silent when it finds nothing, which is most turns and the only behaviour
     that keeps the loud ones worth reading.
@@ -3723,8 +3732,9 @@ def hook_response_shape_cmd() -> None:
                 "hookEventName": STOP_EVENT,
                 "additionalContext": message,
             },
-            "systemMessage": message,
         }))
+        if os.environ.get("WFCTL_SHAPE_ECHO") == "1":
+            print(message, file=sys.stderr)
 
 
 @hook_app.command(_WORKTREE_GUARD)

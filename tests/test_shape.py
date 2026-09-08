@@ -71,6 +71,17 @@ def test_the_same_long_reply_is_not_flagged_when_the_prompt_asked_for_depth() ->
     assert not _shape.findings("word " * 300, "thoughts?")
 
 
+def test_the_explain_it_simply_row_of_rule_3_opts_into_depth() -> None:
+    """The verbatim prompt from #298. That row licenses the longest replies the
+    skill permits — plain words throughout, opening on a concrete instance — and
+    none of its vocabulary was in the gate, so the reply it asked for came back
+    with a Q3 for running long. A false positive on the row that most needs the
+    length is the shape that teaches the reader to switch the check off."""
+    asked = ("explain this in plain terms, pretend you're talking to a PM. "
+             "Provide a simple example as well")
+    assert not _shape.findings("word " * 300, asked)
+
+
 def test_every_finding_names_the_check_the_reader_already_agreed_to() -> None:
     """The signal has to read as their own pre-send check, not as a script
     scolding them — an AC in its own right, because the fix is only obvious when
@@ -176,18 +187,16 @@ def _run(transcript: Path) -> str:
     ).output
 
 
-def test_the_finding_reaches_the_model_not_the_terminal(tmp_path: Path) -> None:
-    """`systemMessage` is not wired for `Stop` in the Claude Code this was built
-    against: across seven runs in one session the hook produced a finding twice
-    and neither reached the reader. `additionalContext` is the channel that
-    works, and it reaches the agent that wrote the reply, in time to shape the
-    next one. Both are emitted, so a version that wires the other up costs no
-    change — but the model-facing one is the load-bearing key."""
+def test_the_finding_reaches_the_model_and_is_not_also_printed(tmp_path: Path) -> None:
+    """`additionalContext` reaches the agent that wrote the reply, in time to
+    shape the next one. `systemMessage` was emitted beside it while the harness
+    ignored it for `Stop`; once it stopped ignoring it the reader got the same
+    seven-line report twice per firing, which is #298."""
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
     out = json.loads(_run(path))
     assert out["hookSpecificOutput"]["hookEventName"] == "Stop"
     assert "counted lead-in" in out["hookSpecificOutput"]["additionalContext"]
-    assert out["hookSpecificOutput"]["additionalContext"] == out["systemMessage"]
+    assert "systemMessage" not in out
 
 
 def test_the_report_carries_the_finding_before_the_instruction(tmp_path: Path) -> None:
@@ -195,7 +204,7 @@ def test_the_report_carries_the_finding_before_the_instruction(tmp_path: Path) -
     a stack of three that already lost — which is #212. The finding is what makes
     it a correction instead, so it goes first and the pointer follows it."""
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
-    message = json.loads(_run(path))["systemMessage"]
+    message = json.loads(_run(path))["hookSpecificOutput"]["additionalContext"]
     assert message.index("counted lead-in") < message.index("Re-read the skill")
     assert "/conversation-response-shape" in message
 
@@ -209,7 +218,8 @@ def test_the_handed_over_reply_is_preferred_to_the_walked_one(tmp_path: Path) ->
         "transcript_path": str(path),
         "last_assistant_message": "Three things worth flagging:",
     }))
-    assert "counted lead-in" in json.loads(result.output)["systemMessage"]
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    assert "counted lead-in" in ctx
 
 
 def test_a_handed_over_reply_that_is_empty_falls_back_to_the_walk(tmp_path: Path) -> None:
@@ -228,6 +238,23 @@ def test_the_hook_says_nothing_when_the_reply_is_clean(tmp_path: Path) -> None:
     every turn is the third reminder in a stack of three that already lost."""
     path = _transcript(tmp_path, [_user(BARE), _assistant("Filed #213.")])
     assert _run(path) == ""
+
+
+def test_the_echo_flag_prints_the_report_without_disturbing_the_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The only way to watch this fire is otherwise to read a transcript, which
+    is how the double print went four months unnoticed. stderr, because stdout is
+    the payload the harness parses."""
+    monkeypatch.setenv("WFCTL_SHAPE_ECHO", "1")
+    path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
+    result = runner.invoke(
+        app, ["hook", "response-shape"],
+        input=json.dumps({"transcript_path": str(path)}),
+    )
+    assert "counted lead-in" in json.loads(result.stdout)[
+        "hookSpecificOutput"]["additionalContext"]
+    assert "counted lead-in" in result.stderr
 
 
 def test_narration_between_tool_calls_is_not_the_terminal_reply(tmp_path: Path) -> None:
@@ -299,7 +326,8 @@ def test_a_line_this_hook_cannot_parse_does_not_stop_the_scan(tmp_path: Path) ->
     """Transcripts are appended to live, so the last line can be a partial write."""
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
     path.write_text(path.read_text() + '{"type": "assist')
-    assert "counted lead-in" in json.loads(_run(path))["systemMessage"]
+    out = json.loads(_run(path))["hookSpecificOutput"]["additionalContext"]
+    assert "counted lead-in" in out
 
 
 # --- the PR-body surface ----------------------------------------------------

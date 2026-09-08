@@ -101,8 +101,14 @@ _QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S+")
 # `?` is pointedly not here. The failure this issue was filed over is a yes/no
 # question answered with a table and four paragraphs, so a question mark cannot
 # be what licenses length.
+#
+# The second line is the "explain it simply" row of rule 3, which licenses the
+# longest replies the skill permits and was missing from the first — a prompt
+# quoting it word for word ("in plain terms, pretend you're talking to a PM…
+# Provide a simple example as well") drew a Q3 for length it had asked for (#298).
 _ASKED_FOR_DEPTH = re.compile(
     r"\b(thoughts|why|explain|compare|comparison|tradeoffs?|options|opinion"
+    r"|eli5|plain|simpl\w+|example|pm"
     r"|walk me|analys\w+|analyz\w+|detail\w*|elaborat\w+|summar\w+|review"
     r"|more questions|deep\w*|research|assess\w*|evaluat\w+)\b",
     re.IGNORECASE,
