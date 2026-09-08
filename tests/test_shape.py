@@ -213,7 +213,7 @@ def test_the_report_carries_the_finding_before_the_instruction(tmp_path: Path) -
     it a correction instead, so it goes first and the pointer follows it."""
     path = _transcript(tmp_path, [_user(BARE), _assistant("Three things worth flagging:")])
     message = json.loads(_run(path))["hookSpecificOutput"]["additionalContext"]
-    assert message.index("counted lead-in") < message.index("Re-read the skill")
+    assert message.index("counted lead-in") < message.index("Re-read it in full")
     assert "/conversation-response-shape" in message
 
 

@@ -3598,14 +3598,20 @@ def hook_user_prompt_cmd() -> None:
 # took the reply from a finding on four turns out of four to none on the two that
 # followed, and the drift returned two turns after that. A pointer alone would
 # have to be believed; a pointer under a finding has just been shown to be right.
+#
+# It is a pointer and not an argument, which is the part #298 changed. The four
+# lines that justified re-reading — what the digest is, how long it is, what it
+# omits — were addressed to a reader deciding whether to comply, and the reader
+# here has already agreed to the rule. They cost the same on every firing, in the
+# terminal and in the next turn's context both, because there is one string and
+# it goes to both. What survives is the two routes, because they are not
+# interchangeable: an agent without the slash command needs the path.
 _SHAPE_REPORT = """Your last reply broke conversation-response-shape:
 
 {findings}
 
-Re-read the skill in full before the next reply — the every-turn digest is 500
-characters and this is what it does not carry. Run `/conversation-response-shape`
-if you can; otherwise read `.agents/skills/conversation-response-shape/SKILL.md`,
-including the seven-question pre-send check at the end."""
+Re-read it in full before the next reply: `/conversation-response-shape`, or
+`.agents/skills/conversation-response-shape/SKILL.md`."""
 
 
 def _last_exchange(transcript: Path) -> tuple[str, str]:
