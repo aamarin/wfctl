@@ -346,6 +346,33 @@ def record_notify_action(agent_dir: Path, action: str, count: int = 1) -> None:
     append_event(agent_dir, "notify-action", action=action, count=count)
 
 
+def record_notify_declined(agent_dir: Path, action: str, reason: str) -> None:
+    """Record that the run held the authority and chose not to use it (FR-011).
+
+    Distinct from a refusal, and the distinction is the requirement rather than
+    bookkeeping: *the agent decided this was not its call* and *nobody allowed
+    this* look identical in a report that files them together, and only one of
+    them is a signal that the grant should be widened.
+
+    No count. An earlier draft of the console wording read "declined 6 issue
+    writes", and the number contradicts the reason — an agent that declined
+    because it could not read the plan confidently cannot also claim it knew
+    there were exactly six.
+    """
+    append_event(agent_dir, "notify-declined", action=action, reason=reason)
+
+
+def record_notify_refused(agent_dir: Path, action: str, source: str) -> None:
+    """Record that the run wanted to notify someone and was not allowed to.
+
+    The other half of FR-011, written where the refusal happens rather than left
+    to the actor to remember. `source` travels with it because the five refused
+    states are not one event — a tracker that could not be reached is not a
+    person withholding authority.
+    """
+    append_event(agent_dir, "notify-refused", action=action, source=source)
+
+
 def record_notify_unread(agent_dir: Path, detail: str) -> None:
     """Record that the grant could not be read, and what the tracker said.
 

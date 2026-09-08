@@ -105,6 +105,19 @@ call, not be reported after it.
 Treat any other answer — the key absent, the command failing, an older wfctl —
 as `false`.
 
+**Record a decline that was yours, not the grant's.** If the run *is* allowed to
+create issues and you decide not to — the map has rows you cannot key
+confidently, the grouping is not settled — say so where the report can see it:
+
+```bash
+wfctl notify issue-create --declined --reason "<what stopped you>"
+```
+
+An action you skipped and one you were not allowed to take leave the same empty
+tracker and are different facts about the run. Only one of them is a sign the
+grant should be widened, so filing them together loses the thing the record was
+kept for.
+
 **A plan with unkeyed rows is a legitimate state, not a failed run.** `wfctl
 status` reads `decompose` as unfinished while any row lacks a key, which is
 exactly right: the issues do not exist yet. Someone grants the authority and the

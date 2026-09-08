@@ -164,6 +164,18 @@ _NOTIFY_LINES = {
 }
 
 
+# Not keyed on the grant, because no grant value changes it. Merging, closing an
+# issue, force-pushing and deleting a branch reach history and work that is not
+# this agent's, and the classes record puts them on the row that is "always the
+# human. No switch, not configurable."
+#
+# "there is no setting for it" is the load-bearing half. The line exists to end
+# the search it would otherwise start.
+_IRREVERSIBLE_NOTICE = (
+    "will never merge or delete — that is always yours, no setting for it"
+)
+
+
 def _notify_line(source: str, issue: str | None) -> str:
     """The status line for one resolved state.
 
@@ -289,6 +301,59 @@ def start_cmd(
     )
 
 
+@app.command("notify")
+def notify_cmd(
+    action: str = typer.Argument(
+        ..., help="What was done or skipped — 'push', 'issue-create', 'comment'."
+    ),
+    declined: bool = typer.Option(
+        False, "--declined",
+        help="The run held the authority and chose not to use it. Requires --reason.",
+    ),
+    reason: str = typer.Option(
+        None, "--reason", help="Why the action was declined."
+    ),
+) -> None:
+    """Record a notifying action this run took, or declined to take.
+
+    `wfctl issue` records its own writes, so this is for the ones wfctl does not
+    perform — a push, most of all, which no wfctl verb covers and which is in the
+    notifying class all the same.
+
+    Declining is the half that needs a surface of its own. An action skipped
+    because the agent judged it should not act, and one refused because nobody
+    granted the authority, are the same absence in the tracker and different
+    facts about the run (FR-011) — and only one of them is a sign the grant
+    should be widened.
+    """
+    from wfctl._session import (
+        record_notify_action,
+        record_notify_declined,
+        resolved_notify,
+    )
+
+    agent_dir, _, _, _ = _resolve_context()
+    if declined:
+        if not reason:
+            console.print("[red]✗ --declined requires --reason[/red]")
+            raise typer.Exit(1)
+        record_notify_declined(agent_dir, action, reason)
+        # Leads with the permission it had. Without that clause the line is
+        # indistinguishable from a refusal, which is the failure FR-011 names.
+        console.print(f"may notify people, but skipped {action} — {reason}")
+        return
+
+    # Recording an action nobody allowed would put a line in the log saying
+    # people were told something, on a run that was refused. The log is the
+    # report, so a false line there is a false report.
+    grant = resolved_notify(agent_dir)
+    if not grant.granted:
+        console.print(_notify_line(grant.source, None))
+        raise typer.Exit(1)
+    record_notify_action(agent_dir, action)
+    console.print(f"[green]✓[/green] recorded: {action}")
+
+
 @app.command("status")
 def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
@@ -335,6 +400,12 @@ def status_cmd(
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
     console.print(_notify_line(report.notify_source, issue))
+    # FR-013, and it prints in every state including granted — that is what makes
+    # it an answer rather than a refusal. A reader who has just been told the run
+    # may notify people will ask what else it may do, and without this line they
+    # go looking for the flag that widens it further. There is none, and the line
+    # says so rather than leaving the search to end in a wrong guess.
+    console.print(_IRREVERSIBLE_NOTICE)
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it

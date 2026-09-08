@@ -153,6 +153,18 @@ unfilled is a failed handoff.
    exactly as written. What the grant changes is what an unattended run does when
    nobody answers: refuse, rather than proceed.
 
+   **Record what wfctl cannot see.** `wfctl issue` logs its own writes, so a
+   comment or a label needs nothing from you. A push does — no wfctl verb
+   performs one, and it is in the same class:
+
+   ```bash
+   wfctl notify push                                    # after it succeeded
+   wfctl notify push --declined --reason "<why not>"    # allowed, and you didn't
+   ```
+
+   The second is not bookkeeping. An action you skipped and one you were refused
+   leave an identical repo, and only one of them says the grant should be wider.
+
 6. **Ask before committing.** If step 2 showed uncommitted changes, ask the user:
    "Commit these with a message referencing the active issue?" On yes, commit with
    a clear message (include your tracker's close keyword if it has one, e.g. GitHub

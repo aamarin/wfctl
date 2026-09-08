@@ -85,11 +85,12 @@ def _refuse_notifying(agent_dir: Path, verb: str) -> int | None:
     and a caller that reads a refusal as a completed write would report the
     tracker updated when it was not.
     """
-    from wfctl._session import resolved_notify
+    from wfctl._session import record_notify_refused, resolved_notify
 
     grant = resolved_notify(agent_dir)
     if grant.granted:
         return None
+    record_notify_refused(agent_dir, verb, grant.source)
     # Three short lines rather than two long ones: rich wraps at the terminal
     # width, and a remedy split across a wrap arrives as a fragment. The first
     # draft ran to 84 characters and broke mid-sentence in a real terminal.
