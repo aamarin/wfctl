@@ -954,7 +954,7 @@ def arch_none_cmd(
     """
     from rich.markup import escape
 
-    from wfctl._io import write_md_atomic
+    from wfctl._io import write_atomic
 
     _, repo_root, branch, _ = _resolve_context()
     root = arch_root(repo_root)
@@ -982,7 +982,7 @@ def arch_none_cmd(
     # — branch and date — are the two things git answers about a committed file.
     # `record-format.md` draws the same line for records: the file holds what git
     # cannot.
-    write_md_atomic(path, f"# No new boundary — {Path(branch).name}\n\n{reason}\n")
+    write_atomic(path, f"# No new boundary — {Path(branch).name}\n\n{reason}\n")
     # The declaration's only check is a reviewer reading it, so "did it land in
     # the change under review?" is the whole question — and both ways it can
     # fail are silent. An out-of-tree root writes outside the repo; a gitignored
@@ -1744,6 +1744,12 @@ def _claude_native_skill_mirror(
 # _AGENT_TARGETS, keyed the same way — dispatch by agent, not by growing
 # `if agent == "..."` branches. Called once per item under .agents/skills;
 # returning None means "nothing extra for this item".
+#
+# ponytail: a table with one entry, kept as a table. The ceiling is that it
+# reads as speculative generality and gets proposed for collapse on every audit
+# — `_mirror_supersedes_wrapper` keys on membership here rather than on
+# `agent == "claude"`, which is the one thing an inlined call would take away.
+# Collapse it to a direct call if a second agent never needs a mirror.
 _AGENT_SKILL_EXTRAS = {
     "claude": _claude_native_skill_mirror,
 }
@@ -1827,7 +1833,7 @@ def _write_settings(path: Path, settings: dict) -> None:
 
     `ensure_ascii=False` because this file is committed and read by a person:
     escaping every accented character in a path they typed is churn in the diff,
-    not safety. `write_md_atomic` rather than `write_json_atomic`, only for the
+    not safety. `write_atomic` with the text already serialised, only for the
     trailing newline every other text file in their repo ends with.
 
     Resolved first, and the mode carried over, because `os.replace` installs a
@@ -1835,11 +1841,11 @@ def _write_settings(path: Path, settings: dict) -> None:
     and leaves the file they actually read untouched, and it would hand back
     whatever mode `mkstemp` chose rather than the one they set.
     """
-    from wfctl._io import write_md_atomic
+    from wfctl._io import write_atomic
 
     target = path.resolve()
     mode = target.stat().st_mode & 0o777 if target.exists() else None
-    write_md_atomic(
+    write_atomic(
         target, json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
     )
     if mode is not None:

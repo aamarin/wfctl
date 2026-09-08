@@ -21,9 +21,9 @@ when this drawing stops matching it. See **Staleness** below.
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 593   _arch 444   _archive 339   _guard 293        │      ┊
+   │ _pipeline 593   _arch 446   _archive 339   _guard 293        │      ┊
    │ _verify 245     _tracker 262   _workmux 274   _settings 173  │      ┊
-   │ _shape 260      _session 164   _bundle 126   _body 408       │      ┊
+   │ _shape 239      _session 164   _bundle 126   _body 399       │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -33,8 +33,9 @@ when this drawing stops matching it. See **Staleness** below.
    ╰──────────────────────────────────────────────────╯
 
    ╭─ durability ─────────────────────────────────────╮  ◄── _arch _session
-   │ _io 66                            0 out · 5 in   │      _tracker _verify
-   ╰──────────────────────────────────────────────────╯      cli
+   │ _io 45                            0 out · 4 in   │      _verify cli
+   │ _md 97                            0 out · 3 in   │  ◄── _arch _body
+   ╰──────────────────────────────────────────────────╯      _shape
 ```
 
 `_entry` is drawn above the two it reaches because it is the only one with no
@@ -92,10 +93,16 @@ next". Move the line up and every domain module grows its own idea of where the
 spec dir is, which is the split-artifact failure `resolve_spec_dir`'s docstring
 already refuses. Move it down and `_paths` starts deciding pipeline questions.
 
-**resolution / durability.** `_io` knows about tempfiles and `os.replace` and
-nothing about wfctl. Move the line and atomicity gets reimplemented per caller;
-the first one to write a plain `open(...).write()` loses a `next-step.md` to a
-crash and nothing announces it.
+**resolution / durability.** Both modules here know nothing about wfctl: `_io`
+knows about tempfiles and `os.replace`, `_md` about where a fenced block starts
+and ends. Neither can name a spec dir, a branch or a pipeline step, and that —
+not persistence — is what the band actually collects.
+
+Move the line and each is reimplemented per caller, which is where both came
+from. The first caller to write a plain `open(...).write()` loses a
+`next-step.md` to a crash and nothing announces it; the three that each had
+their own fence walker disagreed about what closes one, so a document quoting a
+fenced example had the rest of the quotation scanned as prose.
 
 ## Where the bands do not hold
 
@@ -231,7 +238,7 @@ red rather than stale.
 surface     cli _entry _hook
 domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body
 resolution  _paths _manifest
-durability  _io
+durability  _io _md
 ```
 
 ```upward

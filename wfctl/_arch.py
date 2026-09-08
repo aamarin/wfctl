@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from itertools import dropwhile, takewhile
 from pathlib import Path
 
-from wfctl._io import write_md_atomic
+from wfctl import _md
+from wfctl._io import write_atomic
 
 
 IN_FORCE = "accepted"
@@ -343,18 +344,19 @@ def _unfenced(lines: list[str]) -> Iterator[tuple[int, str]]:
     `## Decision` examples — `contracts/record-format.md` is exactly such a
     document — and matching one would append a transition inside the example, or
     project the example as the decision the record reached.
+
+    Index is 0-based, because both callers use it to slice `lines`. `_md.walk`
+    numbers from 1 for findings that name a line to a reader, so the conversion
+    happens here rather than at both call sites.
+
+    The fence delimiters are excluded too. The walk reports them as outside —
+    `_pointed_at` prints one, and reads it from `lines` directly — but a heading
+    scan that saw a bare ``` would be scanning the boundary of the example it is
+    trying to skip.
     """
-    fence = ""
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if fence:
-            if stripped.startswith(fence):
-                fence = ""
-            continue
-        if stripped[:3] in ("```", "~~~"):
-            fence = stripped[:3]
-            continue
-        yield i, stripped
+    for line in _md.walk_lines(lines):
+        if not line.inside and not line.fence:
+            yield line.number - 1, line.text.strip()
 
 
 def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
@@ -441,4 +443,4 @@ def supersede(record: Record, date: str, reason: str) -> None:
     # one matters more than those: a session summary is re-derivable, while an
     # accepted record is hand-authored and committed, so a torn write loses a
     # decision no later run can reconstruct.
-    write_md_atomic(record.path, "".join(lines), newline="")
+    write_atomic(record.path, "".join(lines), newline="")

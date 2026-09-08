@@ -4,15 +4,15 @@ wfctl is MIT-licensed; see the `LICENSE` shipped in the wfctl package — not
 whatever `LICENSE` sits at the root of the repository you are reading this in,
 which is yours. The
 speckit runtime — the scripts under `scripts/bash/` and every template beside
-this file but one — is derived from `github/spec-kit`, and that upstream's
+this file — is derived from `github/spec-kit`, and that upstream's
 notice is reproduced here, which is what MIT asks for beyond the copyright line
 itself.
 
 Each script names its upstream on its own second line. The templates do not,
 and cannot: a template is copied verbatim to become the reader's own document —
-`create-new-feature.sh` runs `cp` on `spec-template.md` to make `spec.md` — so a
-line in a template would land in every spec, plan and task list the runtime
-generates, asserting GitHub's copyright over the reader's own writing.
+`speckit-specify` copies `spec-template.md` to make `spec.md` — so a line in a
+template would land in every spec, plan and task list the runtime generates,
+asserting GitHub's copyright over the reader's own writing.
 
 This file travels into projects wfctl installs, so every path in it is written
 relative to `.specify/`. In wfctl's own repository they sit under
@@ -23,24 +23,20 @@ and this file against each other.
 ## github/spec-kit
 
 <https://github.com/github/spec-kit> — `scripts/bash/check-prerequisites.sh`,
-`scripts/bash/common.sh`, `scripts/bash/create-new-feature.sh`,
-`scripts/bash/setup-plan.sh`, `scripts/bash/update-agent-context.sh`,
-`templates/agent-file-template.md`, `templates/checklist-template.md`,
-`templates/constitution-template.md`, `templates/plan-template.md`,
-`templates/spec-template.md`, `templates/tasks-template.md`.
+`scripts/bash/common.sh`, `scripts/bash/setup-plan.sh`,
+`templates/checklist-template.md`, `templates/constitution-template.md`,
+`templates/plan-template.md`, `templates/spec-template.md`,
+`templates/tasks-template.md`.
 
     Copyright GitHub, Inc.
 
-`templates/github-issue-template.md` is wfctl's own and is deliberately absent:
-it scores 0% against every upstream template, including
-`templates/commands/taskstoissues.md`, the nearest thing upstream has to
-`/speckit.decompose`.
+Every file above is measured against upstream `main`.
 
-`update-agent-context.sh` and `agent-file-template.md` are derived from paths
-that no longer exist upstream. Both were removed in `github/spec-kit@fc3d124`;
-measured against its parent `518dc9d`, and before the attribution comment above
-was added to the script, they are 82% and 100% upstream. Every other file here
-is measured against `main`.
+Four files this notice used to name are no longer shipped:
+`scripts/bash/create-new-feature.sh`, `scripts/bash/update-agent-context.sh`
+and `templates/agent-file-template.md` came from upstream but were invoked by
+no skill, command or test, and `templates/github-issue-template.md` was
+wfctl's own. Their removal takes their attribution with them.
 
 ## The permission notice
 
