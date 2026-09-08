@@ -8,10 +8,12 @@ version of this check reporting wrongly.
 Three near-misses have been written into this command and each was wrong in its
 own direction. `git ls-files --error-unmatch` reads the index, so a record
 staged and never committed passes. `git cat-file -e HEAD:<path>` reads the path,
-so a record edited after its commit passes. And both exit 128 for a path outside
-the repository and for no repository at all alike, which is a failure and its
-own exemption sharing one code. Most tests below are one of those mistakes,
-written as the outcome it must not produce.
+so a record edited after its commit passes. `git diff --quiet HEAD` omits
+untracked files, so a record never staged at all compares equal to nothing and
+passes. And the first two exit 128 for a path outside the repository and for no
+repository at all alike, which is a failure and its own exemption sharing one
+code. Most tests below are one of those mistakes, written as the outcome it must
+not produce.
 """
 
 import subprocess
@@ -85,7 +87,29 @@ def test_a_staged_record_is_not_a_committed_one(
     result = runner.invoke(app, ["arch", "check", str(path)])
 
     assert result.exit_code == 1
-    assert "not committed as it stands" in result.output
+    assert "never been committed" in result.output
+
+
+def test_a_record_never_staged_at_all_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git diff --quiet HEAD -- <path>` exits 0 here, which is why it cannot be
+    the check on its own: ordinary diffs omit untracked files, so a record that
+    was written and never touched again compares equal to nothing.
+
+    The plainest form of the failure this command exists to catch, and the one
+    that reached a pull request — two review panels tested a *staged* record and
+    neither tested an untouched one.
+    """
+    repo = _repo(tmp_path / "r")
+    path = _record(repo)
+    subprocess.run(["git", "checkout", "-qb", "feat"], cwd=repo, check=True)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["arch", "check", str(path)])
+
+    assert result.exit_code == 1
+    assert "never been committed" in result.output
 
 
 def test_a_record_edited_after_its_commit_is_not_committed_as_it_stands(
@@ -109,7 +133,7 @@ def test_a_record_edited_after_its_commit_is_not_committed_as_it_stands(
     result = runner.invoke(app, ["arch", "check", str(path)])
 
     assert result.exit_code == 1
-    assert "not committed as it stands" in result.output
+    assert "written to since its commit" in result.output
 
 
 def test_a_record_in_another_checkout_fails(

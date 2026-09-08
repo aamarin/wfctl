@@ -1024,7 +1024,9 @@ def arch_check_cmd(
 
     Two questions, in the order a reviewer meets them. Is the file committed and
     unmodified in this working tree — the property itself, and the only one this
-    command refuses on. Then, for the report rather than the verdict, does the
+    command refuses on. That is two git calls and not one, because `diff` omits
+    untracked files and HEAD holding a path says nothing about what the tree
+    holds: either alone passes a record no reviewer would read. Then, for the report rather than the verdict, does the
     change under review add it: `touched_on_this_branch`, three states honoured
     as three, per the rule `design_gate`'s caller states — refuse only on
     evidence. A branch that is itself the trunk, and a repo whose trunk git
@@ -1084,18 +1086,29 @@ def arch_check_cmd(
     if not record.exists():
         console.print(f"[yellow]⚠[/yellow] {location} does not exist.")
         raise typer.Exit(1)
-    # `diff --quiet` against HEAD rather than either half separately: it is zero
-    # only when HEAD holds this path and holds exactly what the tree holds. A
-    # record never committed differs from an empty HEAD entry, and one edited
-    # since differs from the entry it has — the two states the commands named in
-    # the docstring each pass one of.
+    # Both halves, because each is blind where the other sees. `diff` omits
+    # untracked files entirely, so a record written and never staged compares
+    # equal to nothing and exits 0 — the original failure, straight through. And
+    # HEAD holding the path says nothing about what the tree holds, so a record
+    # edited after its commit exits 0 there. Only together do they mean "a
+    # reviewer reads what is on disk here".
+    in_head = subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{relative}"], cwd=repo_root, capture_output=True
+    ).returncode == 0
+    if not in_head:
+        console.print(
+            f"[yellow]⚠[/yellow] {location} has never been committed. `git push` "
+            "moves commits,\n  so the change would open without it — staging it is "
+            "not committing it.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
     if subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--", str(relative)], cwd=repo_root
     ).returncode != 0:
         console.print(
-            f"[yellow]⚠[/yellow] {location} is not committed as it stands — never "
-            "committed, or\n  written to since. `git push` moves commits, so the "
-            "change would open\n  without what is on disk here.",
+            f"[yellow]⚠[/yellow] {location} has been written to since its commit. A "
+            "reviewer would\n  read the committed version, not what is on disk here.",
             soft_wrap=True,
         )
         raise typer.Exit(1)
