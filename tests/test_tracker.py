@@ -35,7 +35,7 @@ def _configure_tracker(repo_root: Path, name: str, config: object) -> None:
     (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": name}))
 
 
-def _allow_notify(agent_dir: Path) -> None:
+def _allow_notify(agent_dir: Path, branch: str = "342-state-workflow") -> None:
     """Record the grant these tests need to reach a notifying verb at all.
 
     `comment`, `create` and `label` tell people outside the repo, and since #280
@@ -43,10 +43,14 @@ def _allow_notify(agent_dir: Path) -> None:
     about argv construction rather than authority, so they grant first — but they
     have to grant rather than be exempted, because the gate they are stepping past
     is the one that stops an ungranted run from reaching a real tracker.
+
+    The branch defaults to the one `agent_dir` pins, since a grant recorded for
+    another branch is no grant at all here — which is FR-008 and the whole point
+    of the argument.
     """
     from wfctl._session import NotifyGrant, record_notify_resolved
 
-    record_notify_resolved(agent_dir, NotifyGrant(True, "local"))
+    record_notify_resolved(agent_dir, NotifyGrant(True, "local"), branch)
 
 
 @pytest.fixture

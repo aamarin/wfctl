@@ -214,6 +214,13 @@ def notify_grant(
     data, corrupt = _read_notify_file(agent_dir)
     if corrupt is not None:
         return NotifyGrant(False, "corrupt", corrupt)
+    if data is not None and data.get("branch") not in (None, branch):
+        # Written on a different branch, under a state dir the two share. Read as
+        # unset rather than refused: nobody said no about *this* branch, and the
+        # label may still answer for it. A grant with no branch recorded predates
+        # this field and is honoured, which is the only migration this needs —
+        # the file is rewritten by the next `--allow-notify`.
+        data = None
     if data is not None:
         state = data.get("state")
         if state == "denied":
@@ -264,15 +271,16 @@ def action_grant(agent_dir: Path, repo_root: Path) -> NotifyGrant:
     """
     from wfctl._paths import on_trunk, resolve_branch
 
-    trunk = on_trunk(repo_root, resolve_branch(repo_root))
+    branch = resolve_branch(repo_root)
+    trunk = on_trunk(repo_root, branch)
     if trunk is None:
         return NotifyGrant(False, "unknown-trunk")
     if trunk:
         return NotifyGrant(False, "trunk")
-    return resolved_notify(agent_dir)
+    return resolved_notify(agent_dir, branch)
 
 
-def grant_notify(agent_dir: Path, state: str) -> None:
+def grant_notify(agent_dir: Path, state: str, branch: str) -> None:
     """Record the grant, and record that it was made.
 
     Two writes for two questions, copied from `grant_auto_approve` and for its
@@ -286,17 +294,26 @@ def grant_notify(agent_dir: Path, state: str) -> None:
     `wfctl start` under a glob that admits any flag. The event is what makes a
     self-grant legible afterwards, which is the whole of what enforces the rule.
 
+    The branch is stored with it because the file is not reliably per-branch. The
+    state dir is only when `WFCTL_STATE_DIR` is unset; under a shared one, a
+    grant written on one feature branch was read as granting every other. FR-008
+    bounds authority to *the branch it was granted for* — the trunk clause is one
+    case of that rule, and fixing only the trunk left the general one open.
+
     There is no call that writes *unset*: returning to unset is deleting the
     file, and no code path does that today.
     """
     write_atomic(
         agent_dir / NOTIFY_NAME,
-        json.dumps({"state": state, "source": "local", "at": _now_utc()}, indent=2),
+        json.dumps(
+            {"state": state, "source": "local", "branch": branch, "at": _now_utc()},
+            indent=2,
+        ),
     )
-    append_event(agent_dir, "notify-grant", state=state, source="local")
+    append_event(agent_dir, "notify-grant", state=state, source="local", branch=branch)
 
 
-def record_notify_resolved(agent_dir: Path, grant: NotifyGrant) -> None:
+def record_notify_resolved(agent_dir: Path, grant: NotifyGrant, branch: str) -> None:
     """Record the answer the run will hold to, at the moment the run begins.
 
     FR-014 says the grant is read once and that answer holds for every notifying
@@ -315,7 +332,7 @@ def record_notify_resolved(agent_dir: Path, grant: NotifyGrant) -> None:
     What it costs is a label added mid-run, which is seen at the next `wfctl
     start` rather than the next command. FR-014 already spent that.
     """
-    if _last_resolved(agent_dir) == grant:
+    if _last_resolved(agent_dir, branch) == grant:
         # `start` is idempotent about the event log, and a second run that
         # resolved the same answer must leave it byte-identical — `/start-session`
         # runs `wfctl start` on every handoff, so an unconditional append would
@@ -324,12 +341,12 @@ def record_notify_resolved(agent_dir: Path, grant: NotifyGrant) -> None:
         # or a newly-added label does.
         return
     append_event(
-        agent_dir, "notify-resolved",
+        agent_dir, "notify-resolved", branch=branch,
         granted=grant.granted, source=grant.source, detail=grant.detail,
     )
 
 
-def _last_resolved(agent_dir: Path) -> NotifyGrant | None:
+def _last_resolved(agent_dir: Path, branch: str) -> NotifyGrant | None:
     """The last recorded resolution, or None when nothing has resolved one.
 
     None and a recorded refusal are the same verdict and not the same fact, and
@@ -349,7 +366,11 @@ def _last_resolved(agent_dir: Path) -> NotifyGrant | None:
             data = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(data, dict) and data.get("event") == "notify-resolved":
+        if (
+            isinstance(data, dict)
+            and data.get("event") == "notify-resolved"
+            and data.get("branch") in (None, branch)
+        ):
             found = NotifyGrant(
                 bool(data.get("granted")),
                 str(data.get("source", "unset")),
@@ -358,7 +379,7 @@ def _last_resolved(agent_dir: Path) -> NotifyGrant | None:
     return found
 
 
-def resolved_notify(agent_dir: Path) -> NotifyGrant:
+def resolved_notify(agent_dir: Path, branch: str) -> NotifyGrant:
     """The answer this run is holding to, or refused when nothing resolved one.
 
     Refused is the honest reading of an absent line, not a fallback: no `wfctl
@@ -370,7 +391,7 @@ def resolved_notify(agent_dir: Path) -> NotifyGrant:
     every command appends here, so a truncated final write must not decide the
     authority question by crashing the reader.
     """
-    last = _last_resolved(agent_dir)
+    last = _last_resolved(agent_dir, branch)
     return NotifyGrant(False, "unset") if last is None else last
 
 

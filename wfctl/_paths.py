@@ -104,9 +104,14 @@ def on_trunk(repo_root: Path, branch: str) -> bool | None:
 
     `_trunk_branch` answers with a ref — `origin/main` when the remote publishes
     one, a bare `main` when it does not — and the caller here holds a branch
-    name, so only the last segment can be compared. A remote-tracking ref cannot
-    itself be the checked-out branch, which is why the prefix is dropped rather
-    than tried both ways.
+    name, so the remote prefix has to come off before they can be compared.
+
+    Only the remote's name comes off, and only once. `rpartition("/")` was the
+    first shape and it drops every leading component, so a trunk published as
+    `origin/release/stable` compared as `stable` and never matched the branch
+    actually checked out — classifying the trunk itself as a feature branch,
+    where `--allow-notify` is accepted and notifying writes go through. Slashes
+    are legal in branch names, so the only safe cut is the known prefix.
 
     None is not "no", and callers that gate authority on this must not read it
     as one: a repo whose trunk cannot be named is a repo where "is this the
@@ -115,7 +120,8 @@ def on_trunk(repo_root: Path, branch: str) -> bool | None:
     trunk = _trunk_branch(repo_root)
     if trunk is None:
         return None
-    return branch == trunk.rpartition("/")[2]
+    remote, sep, rest = trunk.partition("/")
+    return branch == (rest if sep and remote == "origin" else trunk)
 
 
 def _manifest_root(base: Path, key: str) -> Path | None:

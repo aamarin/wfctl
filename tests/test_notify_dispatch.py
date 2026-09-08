@@ -45,7 +45,7 @@ def _ran(marker: Path) -> int:
 
 
 def _grant(agent_dir: Path, granted: bool, source: str) -> None:
-    record_notify_resolved(agent_dir, NotifyGrant(granted, source))
+    record_notify_resolved(agent_dir, NotifyGrant(granted, source), "418-storyctl")
 
 
 def test_an_ungranted_run_cannot_reach_the_notifying_verbs(

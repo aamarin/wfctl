@@ -789,9 +789,13 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # `auto_approve=auto_approve(agent_dir)` two lines down reads as a
     # self-reference rather than a call.
     from wfctl._session import auto_approve as read_auto_approve
+    from wfctl._paths import resolve_branch
     from wfctl._session import resolved_notify, session_started
 
-    notify = resolved_notify(agent_dir)
+    # The branch decides which recorded resolution counts. A state dir shared
+    # across worktrees holds every branch's, and reading the newest regardless of
+    # whose it was is how one feature's grant answered for another.
+    notify = resolved_notify(agent_dir, resolve_branch(repo_root))
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
     # `_infer_steps` has already asked; `verification_block` reads the config,

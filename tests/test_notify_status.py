@@ -22,7 +22,7 @@ REFUSALS = ["unset", "deny", "unreadable", "corrupt", "trunk"]
 
 
 def _resolve(agent_dir, source: str, granted: bool = False) -> None:
-    record_notify_resolved(agent_dir, NotifyGrant(granted, source))
+    record_notify_resolved(agent_dir, NotifyGrant(granted, source), "418-storyctl")
 
 
 def _payload() -> dict:
@@ -141,7 +141,7 @@ def test_no_tracker_stderr_reaches_the_console(
     opened by someone already debugging."""
     stderr = "gh: HTTP 401 Bad credentials\nrun `gh auth login`\nsee: https://x/y"
     record_notify_resolved(
-        storyctl_dir.agent_dir, NotifyGrant(False, "unreadable", stderr)
+        storyctl_dir.agent_dir, NotifyGrant(False, "unreadable", stderr), "418-storyctl"
     )
     output = runner.invoke(app, ["status"]).output
     assert _NOTIFY_LINES["unreadable"] in output
@@ -179,7 +179,7 @@ def test_a_changed_answer_is_recorded_on_a_later_start(
     from wfctl._session import grant_notify
 
     runner.invoke(app, ["start"])
-    grant_notify(storyctl_dir.agent_dir, "granted")
+    grant_notify(storyctl_dir.agent_dir, "granted", "418-storyctl")
     runner.invoke(app, ["start"])
 
     log = (storyctl_dir.agent_dir / "events.jsonl").read_text().splitlines()

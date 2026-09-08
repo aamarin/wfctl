@@ -373,7 +373,16 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     if not name:
         return None, None
     config = _load_tracker_config(repo_root, name)
-    if config is None or "labels" not in config.get("verbs", {}):
+    if config is None:
+        return None, None
+    # `.get("verbs", {})` returns the value when the key is present, so a config
+    # carrying `"verbs": null` hands back None and the membership test below
+    # raises. Nothing validates a hand-edited config at load, and with no local
+    # grant every `wfctl start` reaches this line — so the crash lands on the
+    # command a session opens with. `validate_config` already guards the shape
+    # this way; this reader had not.
+    verbs = config.get("verbs")
+    if not isinstance(verbs, dict) or "labels" not in verbs:
         return None, None
 
     # A config that parsed is a config that is JSON, not one that is well-formed.
@@ -381,7 +390,7 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     # function whose caller documents that it never raises — taking `wfctl start`
     # down with a traceback on a branch whose only fault was a typo in a file
     # nothing validates at load.
-    template = config["verbs"]["labels"]
+    template = verbs["labels"]
     if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
         return None, "'labels' must be a list of strings"
 

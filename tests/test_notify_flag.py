@@ -64,11 +64,11 @@ def test_allow_notify_grants_and_deny_notify_revokes(
     agent_dir = storyctl_dir.agent_dir
     runner.invoke(app, ["start", "--allow-notify"])
     assert _stored(agent_dir)["state"] == "granted"
-    assert resolved_notify(agent_dir).granted is True
+    assert resolved_notify(agent_dir, "418-storyctl").granted is True
 
     runner.invoke(app, ["start", "--deny-notify"])
     assert _stored(agent_dir)["state"] == "denied"
-    assert resolved_notify(agent_dir).granted is False
+    assert resolved_notify(agent_dir, "418-storyctl").granted is False
 
 
 def test_neither_flag_leaves_the_stored_answer_alone(
@@ -85,7 +85,7 @@ def test_neither_flag_leaves_the_stored_answer_alone(
     for _ in range(3):
         runner.invoke(app, ["start"])
     assert _stored(agent_dir)["state"] == "granted"
-    assert resolved_notify(agent_dir).granted is True
+    assert resolved_notify(agent_dir, "418-storyctl").granted is True
 
 
 def test_the_flag_takes_on_a_session_that_is_already_open(
@@ -103,7 +103,7 @@ def test_the_flag_takes_on_a_session_that_is_already_open(
     result = runner.invoke(app, ["start", "--allow-notify"])
 
     assert "Already initialized" in result.output
-    assert resolved_notify(agent_dir).granted is True
+    assert resolved_notify(agent_dir, "418-storyctl").granted is True
 
 
 def test_the_granted_line_names_which_surface_answered(

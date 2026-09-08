@@ -260,7 +260,7 @@ def start_cmd(
     # Before the resolution below, so a flag typed now is what the run resolves
     # against rather than what the previous run left behind.
     if allow_notify is not None:
-        grant_notify(agent_dir, "granted" if allow_notify else "denied")
+        grant_notify(agent_dir, "granted" if allow_notify else "denied", branch)
 
     # The run's one tracker round-trip (FR-014). Resolving per command instead
     # would spend 1.4s on every `wfctl status`, re-reading a label that does not
@@ -282,7 +282,7 @@ def start_cmd(
         # tracker's stderr, which the fixed console line cannot — and it is the
         # one inside the dedupe. The second event sat outside it, so the single
         # state that repeats across starts was the only one that grew the log.
-        record_notify_resolved(agent_dir, grant)
+        record_notify_resolved(agent_dir, grant, branch)
         console.print(_notify_line(grant.source, issue))
 
     if report.session_started and not force:

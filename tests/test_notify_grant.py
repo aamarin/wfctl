@@ -99,7 +99,7 @@ def test_a_local_deny_beats_a_present_label(
     """
     root = storyctl_dir.repo_root
     _tracker(root, ["printf", f"{NOTIFY_LABEL}\n"])
-    grant_notify(storyctl_dir.agent_dir, "denied")
+    grant_notify(storyctl_dir.agent_dir, "denied", "418-storyctl")
     got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
     assert got.granted is False
     assert got.source == "deny"
@@ -115,7 +115,7 @@ def test_a_local_grant_needs_no_second_opinion(
     """
     root = storyctl_dir.repo_root
     _tracker(root, ["false"])
-    grant_notify(storyctl_dir.agent_dir, "granted")
+    grant_notify(storyctl_dir.agent_dir, "granted", "418-storyctl")
     got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
     assert got.granted is True
     assert got.source == "local"
@@ -138,7 +138,7 @@ def test_a_backend_that_cannot_list_labels_falls_back_rather_than_failing(
     assert got.granted is False
     assert got.source == "unset"
 
-    grant_notify(storyctl_dir.agent_dir, "granted")
+    grant_notify(storyctl_dir.agent_dir, "granted", "418-storyctl")
     assert notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418").source == "local"
 
 
@@ -159,7 +159,7 @@ def test_no_tracker_configured_leaves_the_grant_expressible(
 ) -> None:
     """FR-012 — the local surface still answers where there is no label to read."""
     root = storyctl_dir.repo_root
-    grant_notify(storyctl_dir.agent_dir, "granted")
+    grant_notify(storyctl_dir.agent_dir, "granted", "418-storyctl")
     got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", None)
     assert got.granted is True
     assert got.source == "local"
@@ -321,7 +321,7 @@ def test_a_grant_written_on_the_trunk_branch_is_still_refused(
     per-branch — and this is what keeps it correct when that changes.
     """
     root = storyctl_dir.repo_root
-    grant_notify(storyctl_dir.agent_dir, "granted")
+    grant_notify(storyctl_dir.agent_dir, "granted", "418-storyctl")
     assert notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", None).granted is True
 
     got = notify_grant(storyctl_dir.agent_dir, root, _trunk(root), None)
@@ -365,11 +365,117 @@ def test_the_resolution_grid_end_to_end(
     for local, labelled, granted, source in grid:
         (agent_dir / NOTIFY_NAME).unlink(missing_ok=True)
         if local is not None:
-            grant_notify(agent_dir, local)
+            grant_notify(agent_dir, local, "418-storyctl")
         _tracker(root, ["printf", f"{NOTIFY_LABEL}\n"] if labelled else ["printf", ""])
 
         got = notify_grant(agent_dir, root, "418-storyctl", "418")
         assert (got.granted, got.source) == (granted, source), (local, labelled)
+
+
+def test_a_grant_does_not_answer_for_a_different_feature_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """FR-008 in full: bounded to *the branch it was granted for*, not merely
+    kept off the trunk.
+
+    The trunk clause is one case of the rule, and fixing only that left the
+    general one open — under a shared `WFCTL_STATE_DIR` the file is not
+    per-branch, so a grant written on feature A read as granting feature B.
+    Asserted from the granted side, because the leak exists nowhere else.
+    """
+    root, agent_dir = storyctl_dir.repo_root, storyctl_dir.agent_dir
+    grant_notify(agent_dir, "granted", "11-feature-a")
+
+    assert notify_grant(agent_dir, root, "11-feature-a", None).granted is True
+
+    got = notify_grant(agent_dir, root, "22-feature-b", None)
+    assert got.granted is False
+    # Unset, not denied: nobody said no about B, and a label could still answer
+    # for it.
+    assert got.source == "unset"
+
+
+def test_a_grant_written_before_the_branch_was_recorded_is_honoured(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The only migration this needs. A file from before the branch field is
+    read as belonging to whoever asks, and the next `--allow-notify` rewrites
+    it — refusing it instead would revoke a grant nobody withdrew."""
+    import json as _json
+
+    agent_dir = storyctl_dir.agent_dir
+    (agent_dir / NOTIFY_NAME).write_text(
+        _json.dumps({"state": "granted", "source": "local", "at": "2026-01-01T00:00:00Z"})
+    )
+    got = notify_grant(agent_dir, storyctl_dir.repo_root, "418-storyctl", None)
+    assert got.granted is True
+    assert got.source == "local"
+
+
+def test_a_trunk_whose_name_contains_a_slash_is_still_the_trunk(
+    tmp_path: Path,
+) -> None:
+    """Slashes are legal in branch names, and `origin/release/stable` is a real
+    shape.
+
+    Cutting at the last separator reduced it to `stable`, which never equals the
+    checked-out `release/stable` — so the trunk classified as a feature branch,
+    where `--allow-notify` is accepted and notifying writes go through. Only the
+    remote's own prefix may come off.
+    """
+    import subprocess
+
+    from wfctl._paths import on_trunk
+
+    def git(*args: str, cwd: Path) -> None:
+        subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+    bare, seed = tmp_path / "rem", tmp_path / "seed"
+    subprocess.run(
+        ["git", "init", "-q", "--bare", "-b", "release/stable", str(bare)], check=True
+    )
+    subprocess.run(["git", "init", "-q", "-b", "release/stable", str(seed)], check=True)
+    for k, v in (("user.email", "t@t.com"), ("user.name", "T")):
+        git("config", k, v, cwd=seed)
+    (seed / "R.md").write_text("x\n")
+    git("add", "-A", cwd=seed)
+    git("commit", "-qm", "init", cwd=seed)
+    git("remote", "add", "origin", str(bare), cwd=seed)
+    git("push", "-q", "origin", "release/stable", cwd=seed)
+
+    clone = tmp_path / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", str(bare), str(clone)], check=True, capture_output=True
+    )
+    git("symbolic-ref", "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/release/stable", cwd=clone)
+
+    assert on_trunk(clone, "release/stable") is True
+    assert on_trunk(clone, "stable") is False
+    assert on_trunk(clone, "99-thing") is False
+
+
+def test_a_non_mapping_verbs_section_does_not_crash_the_session(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`"verbs": null` parses, and `.get("verbs", {})` returns the null rather
+    than the default.
+
+    With no local grant every `wfctl start` reaches the label read, so the
+    TypeError landed on the command a session opens with. `validate_config`
+    already guards the shape; this reader did not.
+    """
+    import json as _json
+
+    root = storyctl_dir.repo_root
+    (root / ".wf-skills-manifest.json").write_text(_json.dumps({"tracker": "fake"}))
+    trackers = root / ".agents" / "trackers"
+    trackers.mkdir(parents=True, exist_ok=True)
+    (trackers / "fake.json").write_text('{"verbs": null}')
+
+    got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
+    assert got.granted is False
+    assert got.source == "unset"
 
 
 # --- the writes ----------------------------------------------------------------
@@ -381,7 +487,7 @@ def test_granting_writes_the_file_and_the_event(
     overwritten, so it cannot answer *when was this given* — and that question
     is what makes a grant nobody made legible afterwards."""
     agent_dir = storyctl_dir.agent_dir
-    grant_notify(agent_dir, "granted")
+    grant_notify(agent_dir, "granted", "418-storyctl")
 
     stored = json.loads((agent_dir / NOTIFY_NAME).read_text())
     assert stored["state"] == "granted"
@@ -407,7 +513,7 @@ def test_granting_leaves_the_neighbouring_mode_file_untouched(
     grant_auto_approve(agent_dir, True)
     before = (agent_dir / MODE_NAME).read_text()
 
-    grant_notify(agent_dir, "denied")
+    grant_notify(agent_dir, "denied", "418-storyctl")
 
     assert (agent_dir / MODE_NAME).read_text() == before
     assert auto_approve(agent_dir) is True
@@ -417,8 +523,8 @@ def test_regranting_overwrites_the_value_and_appends_a_second_event(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     agent_dir = storyctl_dir.agent_dir
-    grant_notify(agent_dir, "granted")
-    grant_notify(agent_dir, "denied")
+    grant_notify(agent_dir, "granted", "418-storyctl")
+    grant_notify(agent_dir, "denied", "418-storyctl")
 
     assert json.loads((agent_dir / NOTIFY_NAME).read_text())["state"] == "denied"
     states = [e["state"] for e in _events(agent_dir) if e["event"] == "notify-grant"]
@@ -433,7 +539,7 @@ def test_recording_an_action_appends_without_rewriting_what_is_there(
     """FR-010's destination. Append-only is the property that makes the log the
     required one — it survives a session that does not end cleanly."""
     agent_dir = storyctl_dir.agent_dir
-    grant_notify(agent_dir, "granted")
+    grant_notify(agent_dir, "granted", "418-storyctl")
     record_notify_action(agent_dir, "issue-create")
     record_notify_action(agent_dir, "push")
 
