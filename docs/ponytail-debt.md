@@ -73,8 +73,14 @@ rescue with one trigger: silence during teardowns on every machine. The
 condition is that no `.workmux.yaml` anywhere still names the retired command:
 
 ```bash
-grep -rl 'archive-story' ~/**/.workmux.yaml
+find <where your checkouts live> -name .workmux.yaml -exec grep -l archive-story {} +
 ```
+
+`find`, not `**`. Bash leaves `globstar` off by default, so `~/**/.workmux.yaml`
+matches one level below the home directory and nothing deeper — and a worktree
+nested two levels down is exactly the shape this is looking for. The glob is
+recursive in zsh and not in bash, so the same line means different things in two
+shells and the shallow reading is the one that says *safe to delete*.
 
 A non-empty result means a teardown of one of those worktrees would invoke a
 command that no longer exists, get a non-zero exit swallowed by the hook's
@@ -86,11 +92,15 @@ That grep was non-empty when this was written. Which repositories is not
 recorded here: it is a fact about one developer's disk on one day, and a reader
 running the check themselves gets a true answer instead of a stale one.
 
-Findings 1-4 change what `install-skills` writes, so a consuming repo carries
-the removed paths until the next install. They fall out of the manifest as
-abandoned entries rather than being deleted — `doctor` reports them and
-`install-skills --prune` removes them, which is the same shape #183 describes
-for any dropped path.
+Findings 1-4 change what `install-skills` writes, and a consuming repo does not
+get all of them back. The two templates are recorded per file, so dropping them
+from the bundle makes them abandoned entries that `doctor` reports — the shape
+#183 describes. The two scripts are not: `.specify/scripts/bash` is recorded as
+one *directory* item, and the copy is `copytree(..., dirs_exist_ok=True)`, which
+merges rather than mirrors. The directory still ships, so it never orphans,
+`--prune` never reaches inside it, and `doctor`'s one-level scan sees only the
+recorded `bash/`. Both scripts stay on disk in every consuming repo and nothing
+reports them.
 
 ## Considered and not filed
 
