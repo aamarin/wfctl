@@ -11,7 +11,7 @@ that a fresh session (after `/clear`) can resume from the artifacts alone.
 
 **Run every step below — do not stop at `wfctl end`.** Step 3 only writes an
 *empty scaffold*; the session isn't ended until the summary is filled with real
-data (step 4). Steps 1–4 and 7 are mandatory; steps 5–6 must be *offered* to the
+data (step 4). Steps 1–5 and 8 are mandatory; steps 6–7 must be *offered* to the
 user, who decides whether to commit and update the tracker. A scaffold left
 unfilled is a failed handoff.
 
@@ -120,12 +120,45 @@ unfilled is a failed handoff.
    unfinished in **Next Session TODO**, where it is a statement of intent and
    reads as one.
 
-5. **Ask before committing.** If step 2 showed uncommitted changes, ask the user:
+5. **Read what this run may do before doing any of it.**
+
+   ```bash
+   wfctl status --json     # read `notify` and `notify_source`
+   ```
+
+   `notify` is `false` unless a person granted this feature branch the authority
+   to tell people outside the repo. Steps 6 and 7 below both take actions in that
+   class — a comment, a label, a new issue, a push — and none of them can be
+   taken back once someone has been notified.
+
+   **`false` means do not take them.** Not "ask twice", not "take them and say
+   so afterwards": print the line `wfctl status` prints, say which of the actions
+   below you are therefore skipping, and carry on with the rest of the session
+   close. Committing and writing the summary are unaffected — those reach nobody
+   and are undone by the person who made them.
+
+   Treat any other answer — the key absent, the command failing, an older wfctl —
+   as `false`. The mode is the thing that removes a human from an outward-facing
+   decision, so an inconclusive read has to leave one in.
+
+   `notify_source` says *why*, and the report in step 8 carries it. Five values
+   mean refused and they are not the same event: nobody granted it, someone
+   turned it off, the stored answer was damaged, the tracker could not be
+   reached, or this is the trunk branch. The middle two are failures rather than
+   anyone's decision, and reporting them as a person withholding authority is the
+   thing this distinction exists to prevent.
+
+   **An attended session still asks.** The grant answers whether the authority
+   *exists*, never whether to use it here — steps 6 and 7 ask their questions
+   exactly as written. What the grant changes is what an unattended run does when
+   nobody answers: refuse, rather than proceed.
+
+6. **Ask before committing.** If step 2 showed uncommitted changes, ask the user:
    "Commit these with a message referencing the active issue?" On yes, commit with
    a clear message (include your tracker's close keyword if it has one, e.g. GitHub
    `Closes #N`). On no, leave them as-is and note it in the report.
 
-6. **Ask before touching the tracker.** Ask the user: "Update the issue tracker —
+7. **Ask before touching the tracker.** Ask the user: "Update the issue tracker —
    close it (work complete), add a progress comment (partial), or skip?" Act on
    their choice with `wfctl issue` (skip silently if no tracker is configured or a
    verb is unsupported — `wfctl issue` no-ops in both cases). The branch's issue
@@ -149,8 +182,11 @@ unfilled is a failed handoff.
    wfctl issue create --title "<title>" --body "<context>"
    ```
 
-7. **Report:** session closed, summary written, whether the work was committed and
-   the tracker updated (per the user's choices in 5–6), next steps, any blockers.
+8. **Report:** session closed, summary written, whether the work was committed and
+   the tracker updated (per the user's choices in 6–7), next steps, any blockers.
+   **Say what the grant allowed and what it refused**, naming the source — a run
+   that skipped the tracker because nobody granted it looks identical, in a
+   report that omits this, to a run that had nothing to tell anyone.
    If ending because context is filling, remind the user they can `/clear` and
    `/start-session` to resume from the summary.
 
@@ -172,7 +208,7 @@ unfilled is a failed handoff.
 
    Say nothing at all when the first command fails — the spec dir is in a plain
    directory, or this branch has no spec dir, and it fails identically for both —
-   or when `SPEC_ROOT` equals `THIS_ROOT`, since step 5 already covered that
+   or when `SPEC_ROOT` equals `THIS_ROOT`, since step 6 already covered that
    case. Otherwise count the lines of
    `git -C <SPEC_ROOT> status --short -- <FEATURE_DIR>` and, if non-zero, add one
    line to the report naming `SPEC_ROOT` and the count. An absolute pathspec is
@@ -194,5 +230,5 @@ unfilled is a failed handoff.
    on an orphan branch — it shares an object store but has its own toplevel.
 
 **Before reporting done:** confirm `session-summary.md` has real content (no
-`(fill in)` placeholders) and that steps 5–6 were offered to the user. If the
+`(fill in)` placeholders) and that steps 6–7 were offered to the user. If the
 summary is still a scaffold, you haven't finished — go back to step 4.

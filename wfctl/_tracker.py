@@ -32,6 +32,11 @@ ALLOWED = {
     "list": set(), "view": {"id"}, "close": {"id", "comment"},
     "comment": {"id", "body"}, "create": {"title", "body"},
     "label": {"id", "action", "label"},
+    # `labels` reads what `label` writes, and is separate because reading is the
+    # half a backend can decline. A tracker with no way to list an issue's labels
+    # leaves it out; the caller falls back to the surface that needs no tracker
+    # at all rather than guessing from whatever `view` happened to print.
+    "labels": {"id"},
     # `start`/`stop` say when work on an issue began and stopped; what a backend
     # does with that is its own business. A tracker with a board moves a column,
     # one without it declines the verb and the caller carries on — which is why
@@ -272,20 +277,18 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     repo with no tracker (FR-012); "the answer did not arrive" decides a whole
     run and is reported as its own event (FR-015).
 
-    Reads the header `gh` prints above the `--` separator, never the whole
-    output. Searching the body would let an issue *about* a label grant that
-    label — and #280's own body names `authority:notify` several times, so this
-    is the shape that would have failed on the first issue it was pointed at.
-
-    A backend whose `view` prints no `labels:` header reads as no labels, which
-    resolves to refused. That is the safe direction and the one this cannot get
-    wrong on a tracker nobody has taught it to read.
+    One label per line of stdout, because the verb is declared to produce that
+    and not because any backend's default output happens to look that way. An
+    earlier version ran `view` and looked for the `labels:` header `gh` prints:
+    it read every other backend as having no labels, silently, and searching the
+    whole output instead would have let an issue *about* a label grant that
+    label — #280's own body names `authority:notify` several times.
     """
     name = load_manifest(repo_root).get("tracker")
     if not name:
         return None, None
     config = _load_tracker_config(repo_root, name)
-    if config is None or "view" not in config.get("verbs", {}):
+    if config is None or "labels" not in config.get("verbs", {}):
         return None, None
 
     params: dict = {"id": issue}
@@ -293,9 +296,9 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     if identity is not None:
         params = {"me": identity, **params}
     try:
-        argv = [_substitute(tok, params) for tok in config["verbs"]["view"]]
+        argv = [_substitute(tok, params) for tok in config["verbs"]["labels"]]
     except _MissingParam as e:
-        return None, f"'view' requires --{e.key}"
+        return None, f"'labels' requires --{e.key}"
 
     try:
         result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
@@ -303,11 +306,4 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
         return None, str(e)
     if result.returncode != 0:
         return None, (result.stderr or result.stdout or "").strip()
-
-    for line in result.stdout.splitlines():
-        if line.strip() == "--":
-            break
-        head, sep, rest = line.partition(":")
-        if sep and head.strip().lower() == "labels":
-            return {p.strip() for p in rest.split(",") if p.strip()}, None
-    return set(), None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}, None

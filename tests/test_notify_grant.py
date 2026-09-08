@@ -31,17 +31,20 @@ def _events(agent_dir: Path) -> list[dict]:
     return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
 
-def _tracker(root: Path, view: list[str]) -> None:
-    """Point the repo at a backend whose `view` verb is whatever we hand it.
+def _tracker(root: Path, labels: list[str] | None) -> None:
+    """Point the repo at a backend whose `labels` verb is whatever we hand it.
 
     A shell command standing in for `gh` rather than a patched function: the
-    label read builds argv from the repo's own config and runs it, and a mock
-    would skip the half of that this feature actually added.
+    read builds argv from the repo's own config and runs it, and a mock would
+    skip the half of that this feature actually added. `None` declares a backend
+    that does not implement the verb at all, which is how a tracker says it
+    cannot answer.
     """
     (root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "fake"}))
     trackers = root / ".agents" / "trackers"
     trackers.mkdir(parents=True, exist_ok=True)
-    (trackers / "fake.json").write_text(json.dumps({"verbs": {"view": view}}))
+    verbs = {} if labels is None else {"labels": labels}
+    (trackers / "fake.json").write_text(json.dumps({"verbs": verbs}))
 
 
 def _trunk(root: Path) -> str:
@@ -81,7 +84,7 @@ def test_the_label_grants_when_no_local_answer_exists(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     root = storyctl_dir.repo_root
-    _tracker(root, ["printf", f"state:\tOPEN\nlabels:\tbug, {NOTIFY_LABEL}\n--\nbody\n"])
+    _tracker(root, ["printf", f"bug\n{NOTIFY_LABEL}\n"])
     got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
     assert got.granted is True
     assert got.source == "label"
@@ -96,7 +99,7 @@ def test_a_local_deny_beats_a_present_label(
     passes whatever the resolver does with `denied`.
     """
     root = storyctl_dir.repo_root
-    _tracker(root, ["printf", f"labels:\t{NOTIFY_LABEL}\n--\nbody\n"])
+    _tracker(root, ["printf", f"{NOTIFY_LABEL}\n"])
     grant_notify(storyctl_dir.agent_dir, "denied")
     got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
     assert got.granted is False
@@ -119,17 +122,34 @@ def test_a_local_grant_needs_no_second_opinion(
     assert got.source == "local"
 
 
-def test_an_issue_body_naming_the_label_does_not_grant_it(
+def test_a_backend_that_cannot_list_labels_falls_back_rather_than_failing(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """The header is read, never the body — and #280's own body names the label.
+    """Declining the verb is how a backend says it cannot answer, and it is not
+    a failure — the repo still grants through the local command (FR-012).
 
-    Pointed at an issue *about* this feature, a substring search over the whole
-    of `gh issue view` grants the authority the issue is asking for. That is not
-    a hypothetical: it is the first issue this code was aimed at.
+    The distinction this pins is between *nothing was asked* and *the answer did
+    not arrive*: only the second is an unreadable grant, and reporting the first
+    as one would file a tracker that never had the feature as a tracker that
+    broke.
     """
     root = storyctl_dir.repo_root
-    _tracker(root, ["printf", f"labels:\tbug\n--\nWe should add {NOTIFY_LABEL} here\n"])
+    _tracker(root, None)
+    got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
+    assert got.granted is False
+    assert got.source == "unset"
+
+    grant_notify(storyctl_dir.agent_dir, "granted")
+    assert notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418").source == "local"
+
+
+def test_a_label_is_matched_whole_and_never_as_a_substring(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """One label per line, compared exactly. A backend listing a neighbouring
+    label whose name contains this one must not grant it."""
+    root = storyctl_dir.repo_root
+    _tracker(root, ["printf", f"{NOTIFY_LABEL}-proposed\nneeds-{NOTIFY_LABEL}\n"])
     got = notify_grant(storyctl_dir.agent_dir, root, "418-storyctl", "418")
     assert got.granted is False
     assert got.source == "unset"
@@ -192,7 +212,7 @@ def test_a_missing_file_is_unset_and_a_corrupt_one_is_not(
     together because both mean False to it. Here absent leaves the label free to
     answer and corrupt does not, so they cannot be one source."""
     root, agent_dir = storyctl_dir.repo_root, storyctl_dir.agent_dir
-    _tracker(root, ["printf", f"labels:\t{NOTIFY_LABEL}\n--\n"])
+    _tracker(root, ["printf", f"{NOTIFY_LABEL}\n"])
     assert notify_grant(agent_dir, root, "418-storyctl", "418").source == "label"
     (agent_dir / NOTIFY_NAME).write_text("{")
     assert notify_grant(agent_dir, root, "418-storyctl", "418").source == "corrupt"
@@ -244,7 +264,7 @@ def test_a_label_does_not_grant_on_the_trunk_branch_either(
     """The other surface, through the same gate. Nothing on `main`, under any
     switch — so the check has to sit above both, not inside one."""
     root = storyctl_dir.repo_root
-    _tracker(root, ["printf", f"labels:\t{NOTIFY_LABEL}\n--\n"])
+    _tracker(root, ["printf", f"{NOTIFY_LABEL}\n"])
     got = notify_grant(storyctl_dir.agent_dir, root, _trunk(root), "418")
     assert got.granted is False
     assert got.source == "trunk"

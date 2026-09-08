@@ -139,6 +139,48 @@ _AUTO_APPROVE_NOTICE = (
 )
 
 
+# One line per resolved state, never silence. `auto_approve` prints nothing when
+# it is off, and copying that here would make a wfctl that knows about grants
+# indistinguishable from one too old to have heard of them — the confusion this
+# repo already lives with between its two installed copies (FR-003).
+#
+# Plain, not terse: `notify — refused; denied locally` is shorter and needs the
+# reader to already hold the vocabulary. And every refusal names which kind it
+# is, because five of them mean the same verdict for different reasons and only
+# some of those are anybody's decision (FR-015).
+#
+# The tracker is named generically rather than as GitHub. The pinned wording in
+# `contracts/notify-grant.md` said "couldn't reach GitHub", which is the same
+# mistake the label read made before it became a declared verb: wfctl talks to
+# whatever backend the repo configured, and naming one of them here would print a
+# false cause on every other.
+_NOTIFY_LINES = {
+    "local": "may notify people — you allowed it in this worktree",
+    "unset": "will not notify anyone — nobody has allowed it for this work",
+    "deny": "will not notify anyone — you turned it off here",
+    "unreadable": "will not notify anyone — couldn't reach the issue tracker to check",
+    "corrupt": "will not notify anyone — couldn't read the setting for this work",
+    "trunk": "will not notify anyone — only feature branches can be granted this",
+}
+
+
+def _notify_line(source: str, issue: str | None) -> str:
+    """The status line for one resolved state.
+
+    `label` is built rather than looked up because it names the issue the label
+    is on: FR-005 asks the granted line to say where the authority came from, and
+    "on the issue" without which issue sends the reader to look for it.
+
+    An unrecognised source falls back to the refused wording rather than to
+    silence or a raise. A reader seeing a state this function has not been taught
+    should be told the run will not notify anyone, which is what an unrecognised
+    verdict resolves to everywhere else.
+    """
+    if source == "label":
+        return f"may notify people — you allowed it on issue #{issue}"
+    return _NOTIFY_LINES.get(source, _NOTIFY_LINES["unset"])
+
+
 @app.command("start")
 def start_cmd(
     force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded"),
@@ -156,9 +198,14 @@ def start_cmd(
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._session import grant_auto_approve
+    from wfctl._session import (
+        grant_auto_approve,
+        notify_grant,
+        record_notify_resolved,
+        record_notify_unread,
+    )
 
-    agent_dir, repo_root, branch, _ = _resolve_context()
+    agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
 
@@ -180,12 +227,39 @@ def start_cmd(
             else "[green]✓[/green] auto-approve off — design gates stop for a human"
         )
 
+    # The run's one tracker round-trip (FR-014). Resolving per command instead
+    # would spend 1.4s on every `wfctl status`, re-reading a label that does not
+    # change while a session runs.
+    grant = notify_grant(agent_dir, repo_root, branch, issue)
+
+    def report_notify() -> None:
+        """Record the answer and say it, on both ways out of this command.
+
+        Called twice rather than hoisted above the early return, because the
+        `start` event has to be the first thing a fresh log holds — that line is
+        what `session_started` reads, and a test asserts on its position because
+        the log is the session. Called on the early path too because a flag typed
+        on an already-started session has to take: `/start-session` opens the
+        session on a worktree's first turn, so by the time anyone types
+        `--allow-notify` the session is already recorded.
+        """
+        record_notify_resolved(agent_dir, grant)
+        if grant.detail is not None:
+            # The console line for a failed read is fixed, so this is the only
+            # place the cause survives — someone debugging opens the log already
+            # knowing the run refused, and needs to know whether it was auth,
+            # network or a missing scope.
+            record_notify_unread(agent_dir, grant.detail)
+        console.print(_notify_line(grant.source, issue))
+
     if report.session_started and not force:
+        report_notify()
         console.print("ℹ Already initialized (use --force to reset)")
         return
 
     step = report.current or "complete"
     append_event(agent_dir, "start", branch=branch, step=step)
+    report_notify()
     console.print(
         f"[green]✓[/green] Session started — step: {step}, "
         f"next: {report.next_command or '(none)'}"
@@ -227,11 +301,17 @@ def status_cmd(
             # notice about the ordinary case is noise; a reader that branches on
             # a key cannot tell an absent key from a false one.
             "auto_approve": report.auto_approve,
+            # Present and false when refused, never omitted (FR-004). A consumer
+            # reading a missing key as false cannot tell a refusal from a wfctl
+            # too old to know the question — which is the whole point of FR-003.
+            "notify": report.notify,
+            "notify_source": report.notify_source,
             "steps": report.steps,
         })
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
+    console.print(_notify_line(report.notify_source, issue))
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it

@@ -257,6 +257,84 @@ def grant_notify(agent_dir: Path, state: str) -> None:
     append_event(agent_dir, "notify-grant", state=state, source="local")
 
 
+def record_notify_resolved(agent_dir: Path, grant: NotifyGrant) -> None:
+    """Record the answer the run will hold to, at the moment the run begins.
+
+    FR-014 says the grant is read once and that answer holds for every notifying
+    action in the run, and this is where "once" happens: `wfctl start` resolves,
+    every later command reads the line back. The alternative was resolving on
+    each command, which spends a 1.4s tracker round-trip on every `wfctl status`
+    — dozens per session, all returning the same answer, against a budget
+    `plan.md` states as one round-trip per run.
+
+    Not a cache. `session-state-is-re-derived` forbids carrying a conclusion
+    forward from an earlier write, and what this writes is an event: the log is
+    an artifact, and reading the last answer out of it is re-derivation from
+    disk, the same way `session_started` reads the `start` line rather than
+    trusting a file's existence.
+
+    What it costs is a label added mid-run, which is seen at the next `wfctl
+    start` rather than the next command. FR-014 already spent that.
+    """
+    if _last_resolved(agent_dir) == grant:
+        # `start` is idempotent about the event log, and a second run that
+        # resolved the same answer must leave it byte-identical — `/start-session`
+        # runs `wfctl start` on every handoff, so an unconditional append would
+        # make the log grow with lines that say what the previous one said.
+        # What is worth recording is the answer changing, which is what a flag
+        # or a newly-added label does.
+        return
+    append_event(
+        agent_dir, "notify-resolved",
+        granted=grant.granted, source=grant.source, detail=grant.detail,
+    )
+
+
+def _last_resolved(agent_dir: Path) -> NotifyGrant | None:
+    """The last recorded resolution, or None when nothing has resolved one.
+
+    None and a recorded refusal are the same verdict and not the same fact, and
+    only this reader can tell them apart: one says nobody has opened a session on
+    this branch, the other says a session asked and was told no. The public
+    reader below collapses them on purpose — a caller gating on the answer wants
+    the verdict — but the writer must not, or the first resolution of a run that
+    found nothing would look like a resolution that had already been recorded and
+    never be written down.
+    """
+    events = agent_dir / "events.jsonl"
+    if not events.exists():
+        return None
+    found = None
+    for line in events.read_text().splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("event") == "notify-resolved":
+            found = NotifyGrant(
+                bool(data.get("granted")),
+                str(data.get("source", "unset")),
+                data.get("detail"),
+            )
+    return found
+
+
+def resolved_notify(agent_dir: Path) -> NotifyGrant:
+    """The answer this run is holding to, or refused when nothing resolved one.
+
+    Refused is the honest reading of an absent line, not a fallback: no `wfctl
+    start` has run on this branch, so nobody has granted anything to it. The
+    conservative direction is the same one `auto_approve` takes and for the same
+    reason — a state dir that lost this must stop, not proceed.
+
+    A malformed line is skipped rather than raising, matching `session_started`:
+    every command appends here, so a truncated final write must not decide the
+    authority question by crashing the reader.
+    """
+    last = _last_resolved(agent_dir)
+    return NotifyGrant(False, "unset") if last is None else last
+
+
 def record_notify_action(agent_dir: Path, action: str, count: int = 1) -> None:
     """Record one notifying action that was taken (FR-010).
 

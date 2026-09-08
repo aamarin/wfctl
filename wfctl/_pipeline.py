@@ -548,6 +548,18 @@ class PipelineReport:
     # because there is no step left to run; the mode is still true of a finished
     # story, which ran under one.
     auto_approve: bool = False
+    # Whether this run may take an action that tells someone outside the repo,
+    # and which of the seven answers said so. Both always present and both
+    # defaulted, for the reason above: a report built without them is a report
+    # about a feature nobody granted anything to.
+    #
+    # `notify_source` is not decoration on the boolean. Five of its values mean
+    # refused and they are not one event — nobody granted it, someone turned it
+    # off, the stored value is damaged, the tracker could not be reached, this is
+    # the trunk — and a consumer that sees only `False` cannot tell a person's
+    # decision from a failed read (FR-015).
+    notify: bool = False
+    notify_source: str = "unset"
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
@@ -570,8 +582,9 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # `auto_approve=auto_approve(agent_dir)` two lines down reads as a
     # self-reference rather than a call.
     from wfctl._session import auto_approve as read_auto_approve
-    from wfctl._session import session_started
+    from wfctl._session import resolved_notify, session_started
 
+    notify = resolved_notify(agent_dir)
     raw = _infer_steps(spec_dir, repo_root)
     name = _current_step_name(raw)
     command, auto = next_step_content(name, repo_root, spec_dir)
@@ -590,4 +603,9 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         auto=auto if command else None,
         session_started=session_started(agent_dir),
         auto_approve=read_auto_approve(agent_dir),
+        # Read back rather than resolved here. `start` asks the tracker once and
+        # records the answer; doing it in this function would put a network
+        # round-trip inside the one call every view of pipeline state makes.
+        notify=notify.granted,
+        notify_source=notify.source,
     )
