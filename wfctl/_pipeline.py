@@ -18,13 +18,19 @@ from wfctl import _tracker
 # bool collapses, and the rule below is the one place that distinction is spent.
 Verdict = Literal["satisfied", "unsatisfied", "inconclusive"]
 
+# Who owed the evidence. Closed rather than a bare `str`: the rule reads
+# "promised or not", so an unrecognised source would take the ambient branch and
+# proceed — a typo failing open on evidence somebody promised. mypy is not strict
+# here, and a `str` parameter is the shape that hides it.
+Source = Literal["repo-declared", "accepted-record", "human", "ambient"]
+
 # Sources someone undertook to produce. The repo declares its commands, the
 # process accepts its records, a person records an approval — so silence from
 # one of these is a missing answer, not the absence of a question.
-_PROMISED = frozenset({"repo-declared", "accepted-record", "human"})
+_PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record", "human"})
 
 
-def blocks(verdict: Verdict, source: str) -> bool:
+def blocks(verdict: Verdict, source: Source) -> bool:
     """Whether this verdict stops the step, given who owns the evidence.
 
     The gate does not decide this — see
@@ -88,11 +94,36 @@ STORY_COMPLETE_FILE = f"Story complete. Open PR or run {_END_SESSION}.\n"
 STORY_COMPLETE_CONSOLE = f"Story complete — open PR or run `{_END_SESSION}`."
 
 
-# The design step's annotation when the boundary question went unanswered. Both
-# escapes are named because both are legitimate: `design-levels` excludes changes
-# that draw no new state, and a check with only one exit turns those into records
-# that say nothing.
-DESIGN_BLOCK_REASON = "no architecture record — write one, or run `wfctl arch none`"
+# The design step's annotation when the boundary question went unanswered. Short
+# because it sits inline in the step table; the two remedies are spelled out by
+# `DESIGN_BLOCK_HELP`, which the caller formats with a location only `cli` can
+# resolve and escape.
+DESIGN_BLOCK_REASON = "no architecture record for this change"
+
+# Both escapes, because both are legitimate answers: `design-levels` excludes
+# changes that draw no new state, and a check with only one exit turns those into
+# records that say nothing.
+#
+# Rendered under the step table rather than folded into the annotation. A path is
+# the one part of this that cannot be a constant — it is resolved per repo, and
+# `[wip]` is a legal directory name that rich reads as a style tag — so it stays
+# where `_arch_location` can escape it, and the payload carries the fact instead.
+DESIGN_BLOCK_HELP = (
+    "  Either record the boundary this change draws:\n"
+    "      {location}/<slug>.md\n"
+    "  or state that it draws none:\n"
+    '      wfctl arch none --reason "<why>"'
+)
+
+# What `next` and `resume` name for a blocked design step. Not
+# `/speckit.brainstorm`: that command's own file warns a second write to
+# `design.md` destroys the approved design, its `allowed-tools` cannot run
+# `wfctl arch none`, and the records it writes land under `<arch-root>/design/`,
+# which `design_block` excludes — so it would overwrite the work and still not
+# clear the gate. `implement` routes to `wfctl verify` because that is what
+# produces the missing evidence; this is the same choice, and the step command
+# is not it.
+DESIGN_BLOCK_COMMAND = 'wfctl arch none --reason "<why>"'
 
 
 def _file_exists(path: Path) -> bool:
@@ -230,7 +261,13 @@ def verification_block(repo_root: Path) -> str | None:
     record = _verify.load_record(agent_dir)
     if record is None:
         return "unverified — run `wfctl verify`"
-    if record["inconclusive"]:
+    # The rule, not a second copy of it. A run whose tree moved underneath it
+    # produced no verdict, and `wfctl.json` is the repo undertaking to produce
+    # one — so this blocks by `promised-evidence-blocks-on-silence`, and it
+    # blocks for the reason stated there rather than for a reason local to here.
+    # Wired through `blocks` so the two gates cannot drift again: changing the
+    # rule has to change both, because there is one rule.
+    if blocks("inconclusive" if record["inconclusive"] else "satisfied", "repo-declared"):
         return "inconclusive — re-run `wfctl verify`"
     if record["exit"] != 0:
         failed = [" ".join(c) for c in record["failed"]]
@@ -598,11 +635,11 @@ def next_step_content(
         if blocked is _RECOMPUTE:
             blocked = _step_block(step, spec_dir, repo_root)
         if blocked:
-            # `implement`'s reason is a verify verdict, and `wfctl verify` is what
-            # produces a new one. `brainstorm`'s is a missing record, and its own
-            # command is where that gets written — the flag is what changes, not
-            # the destination.
-            return ("wfctl verify" if step == "implement" else _STEPS[step][0]), False
+            # Each names what produces the missing evidence, which is never the
+            # step command: re-running a step whose artifact already exists does
+            # not answer the question the gate asked, and for `brainstorm` it
+            # destroys the artifact on the way past.
+            return ("wfctl verify" if step == "implement" else DESIGN_BLOCK_COMMAND), False
     command, continuation = _STEPS.get(step, ("", _REVIEW_REQUIRED))
     return command, continuation == _AUTOMATIC
 
@@ -689,6 +726,11 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
                 "name": s.name,
                 "state": s.state,
                 "annotation": s.annotation,
+                # The unrendered reason, beside the rendering of it. A view that
+                # needs the reason without the tally `annotation` prefixes had to
+                # parse it back out otherwise, and `_PipelineStep.reason` would be
+                # a fact living below the payload rather than in it.
+                "reason": s.reason,
                 "is_current": s.name == name,
             }
             for s in raw

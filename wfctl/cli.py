@@ -197,7 +197,12 @@ def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
 ) -> None:
     """Show pipeline progress."""
-    from wfctl._pipeline import STORY_COMPLETE_CONSOLE, build_report
+    from wfctl._pipeline import (
+        DESIGN_BLOCK_HELP,
+        DESIGN_BLOCK_REASON,
+        STORY_COMPLETE_CONSOLE,
+        build_report,
+    )
     from wfctl._paths import resolve_spec_dir
 
     agent_dir, repo_root, branch, issue = _resolve_context()
@@ -265,6 +270,17 @@ def status_cmd(
     # cannot drift apart.
     console.print(f"[dim]next:[/dim] {report.next_command or STORY_COMPLETE_CONSOLE}")
 
+    # The one remedy that needs more than a step annotation, because one of its
+    # two branches is a file to write rather than a command to run — and the
+    # directory to write it in is resolved per repo, so it cannot live in a
+    # constant. Keyed on the payload's own reason, not on the step name: this is
+    # a rendering of a fact inference already established, which is what a view
+    # is allowed to do.
+    if any(step["annotation"] == DESIGN_BLOCK_REASON for step in steps):
+        console.print(
+            DESIGN_BLOCK_HELP.format(location=_arch_location(arch_root(repo_root), repo_root))
+        )
+
 
 @app.command("verify")
 def verify_cmd() -> None:
@@ -292,19 +308,34 @@ def next_cmd() -> None:
     steps = _infer_steps(spec_dir, repo_root)
     step_name = _current_step_name(steps)
 
+    # Handed the verdict `_infer_steps` already reached, not asked to find it
+    # again. Recomputing runs the gate's git and verify work a second time on
+    # every `next`, and re-reads artifacts an implementing agent may be rewriting
+    # — two reads of the same question that can disagree, which is the window
+    # `build_report` was changed to close and this path was left outside of.
+    blocked = next((s.reason for s in steps if s.name == step_name), None)
+
     # No special case for a missing spec dir. It used to force `/speckit.specify`,
     # from when an absent design read as "skipped" and specify was the honest
     # first step. Inference now says `brainstorm` for a feature nothing has
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, repo_root, spec_dir)
+    command, auto = next_step_content(step_name, repo_root, spec_dir, blocked)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
         auto_str = "true" if auto else "false"
-        content = f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n"
+        # The reason travels with the command. Without it this file says "run
+        # this to continue" over a step that is blocked, and the one view that
+        # carried why — `status` — is not the view an agent reads.
+        why = f"why: {blocked}\n" if blocked else ""
+        content = (
+            f"Next step: {command}\nauto: {auto_str}\n{why}Run this command to continue.\n"
+        )
         console.print(f"→ Next step: {command} (auto: {auto_str})")
+        if blocked:
+            console.print(f"  [dim]{blocked}[/dim]")
     else:
         content = STORY_COMPLETE_FILE
         console.print(STORY_COMPLETE_CONSOLE)
@@ -332,11 +363,23 @@ def resume_cmd() -> None:
 
     command, auto = report.next_command, report.auto
 
+    blocked = next(
+        (s["reason"] for s in report.steps if s["name"] == step_name), None
+    )
+
     next_step_md = agent_dir / "next-step.md"
     if command:
         auto_str = "true" if auto else "false"
-        next_step_md.write_text(f"Next step: {command}\nauto: {auto_str}\nRun this command to continue.\n")
+        # Same shape `next` writes, for the same reason: this is the file an
+        # agent reads, and a blocked step whose reason lives only in `status`
+        # tells it to run a command without saying what is wrong.
+        why = f"why: {blocked}\n" if blocked else ""
+        next_step_md.write_text(
+            f"Next step: {command}\nauto: {auto_str}\n{why}Run this command to continue.\n"
+        )
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
+        if blocked:
+            console.print(f"  [dim]{blocked}[/dim]")
     else:
         next_step_md.write_text(STORY_COMPLETE_FILE)
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
@@ -943,14 +986,14 @@ def arch_none_cmd(
     # the change under review?" is the whole question — and both ways it can
     # fail are silent. An out-of-tree root writes outside the repo; a gitignored
     # root writes a file git never reports. Either way the design gate keeps
-    # refusing and the escape hatch it names has no effect, so a green ✓ here
+    # blocking and the escape hatch it names has no effect, so a green ✓ here
     # would send the author back to a command that already did nothing.
     if touched_on_this_branch(repo_root, path) is not True:
         console.print(
             f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
             "part of the change under\n  review — the root is outside the working tree, "
             "or git is ignoring it. No\n  reviewer will see this claim, and the design "
-            "step will keep refusing.",
+            "step will keep blocking.",
             soft_wrap=True,
         )
         raise typer.Exit(1)
@@ -984,7 +1027,7 @@ def arch_check_cmd(
     untracked files and HEAD holding a path says nothing about what the tree
     holds: either alone passes a record no reviewer would read. Then, for the report rather than the verdict, does the
     change under review add it: `touched_on_this_branch`, three states honoured
-    as three, per the rule `design_gate`'s caller states — refuse only on
+    as three, per the rule `blocks` now states — block only on
     evidence. A branch that is itself the trunk, and a repo whose trunk git
     cannot find, both answer "no" to a question that had no answer, and neither
     is a record written wrong.

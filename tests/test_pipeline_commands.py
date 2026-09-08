@@ -220,8 +220,16 @@ def test_advancing_past_design_needs_an_answer(
     out = runner.invoke(app, ["status"]).output
     assert "brainstorm   ▶" in out
     assert "no architecture record" in out
-    assert "wfctl arch none" in out
-    assert "next: /speckit.brainstorm" in out
+    # Both remedies, because both are legitimate: a record for a change that
+    # draws a boundary, `arch none` for one that does not. A gate naming only
+    # one turns the excluded changes into records that say nothing.
+    assert "docs/architecture/<slug>.md" in out
+    assert 'wfctl arch none --reason "<why>"' in out
+    # Never the step command. Re-running brainstorm over an existing design.md
+    # destroys the approved design by that command's own account, and the
+    # records it writes land in the subtree this gate excludes — so it would
+    # take the work and still not clear the gate.
+    assert "/speckit.brainstorm" not in out
 
 
 def test_a_record_written_for_this_change_advances(
@@ -234,10 +242,12 @@ def test_a_record_written_for_this_change_advances(
     root.mkdir(parents=True)
     (root / "layer-model.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
 
-    result = runner.invoke(app, ["next"])
-
-    assert result.exit_code == 0
-    assert "Next step:" in result.output
+    # `exit_code == 0` alone is not the assertion. Since the gate reports
+    # through the payload rather than by refusing, every `next` exits 0 —
+    # inverting `design_block` to always block leaves that check passing. The
+    # step's own state is what moved.
+    assert "brainstorm   ●" in runner.invoke(app, ["status"]).output
+    assert "no architecture record" not in runner.invoke(app, ["status"]).output
 
 
 def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
@@ -312,6 +322,11 @@ def test_a_feature_with_no_design_step_is_not_gated(
     ever asked about."""
     _arch_root(storyctl_dir, monkeypatch)
 
+    # Asserted on the step, not the exit code: `next` exits 0 for a blocked step
+    # too now, so an exit-code check here passes whatever the gate decides.
+    # `–` is `skipped` — no design was drawn, so there is nothing to gate.
+    out = runner.invoke(app, ["status"]).output
+    assert "no architecture record" not in out
     assert runner.invoke(app, ["next"]).exit_code == 0
 
 
@@ -330,6 +345,10 @@ def test_the_gate_is_one_transition_not_the_rest_of_the_pipeline(
 
     assert result.exit_code == 0
     assert "/speckit.plan" in result.output
+    # The gate is past, not merely quiet. Without this the test passes with
+    # `design_block` inverted to always block, because the reason would land on
+    # `brainstorm` while `next` still routed to plan.
+    assert "no architecture record" not in runner.invoke(app, ["status"]).output
 
 
 def test_resume_is_gated_too(
@@ -344,9 +363,12 @@ def test_resume_is_gated_too(
 
     assert runner.invoke(app, ["resume"]).exit_code == 0
     assert "no architecture record" in runner.invoke(app, ["status"]).output
-    assert (storyctl_dir.agent_dir / "next-step.md").read_text().startswith(
-        "Next step: /speckit.brainstorm"
-    )
+    # The file an agent reads carries the reason, not just the command. Without
+    # it this said "run this to continue" over a blocked step, and the only view
+    # that explained why was the one an agent does not read.
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+    assert written.startswith('Next step: wfctl arch none --reason "<why>"')
+    assert "why: no architecture record for this change" in written
 
     runner.invoke(app, ["arch", "none", "--reason", "no new state"])
     runner.invoke(app, ["resume"])
@@ -473,7 +495,7 @@ def test_a_refused_resume_does_not_advance_state(
     assert runner.invoke(app, ["resume"]).exit_code == 0
 
     assert (storyctl_dir.agent_dir / "next-step.md").read_text().startswith(
-        "Next step: /speckit.brainstorm"
+        'Next step: wfctl arch none --reason "<why>"'
     )
     assert "brainstorm   ▶" in runner.invoke(app, ["status"]).output
 
@@ -1172,8 +1194,28 @@ def test_a_blocked_design_step_is_never_automatic(
     command, auto = next_step_content(
         "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir
     )
-    assert command == "/speckit.brainstorm"
+    assert command == 'wfctl arch none --reason "<why>"'
     assert auto is False
 
     runner.invoke(app, ["next"])
     assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+
+def test_the_recompute_path_does_not_gate_a_feature_with_no_design(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`next_step_content` called without a verdict asks the gate itself, and
+    that path has its own copy of "is there a design to advance past?".
+
+    `_infer_steps` guards the call, so the guard inside `design_block` is
+    unreachable from `next` and `status` — deleting it leaves the whole suite
+    green. The ~30 callers that pass no verdict reach it, and for them a feature
+    that never drew a design would be held at a gate it was never subject to."""
+    _arch_root(storyctl_dir, monkeypatch)
+
+    command, auto = next_step_content(
+        "brainstorm", storyctl_dir.repo_root, storyctl_dir.spec_dir
+    )
+
+    assert command == "/speckit.brainstorm"
+    assert auto is True

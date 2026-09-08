@@ -138,9 +138,10 @@ a rule whose violation is not visible in an artifact the work already produces
 stays prose delivered at the moment it binds, and that is not a defect. The mode
 is therefore advisory to the skills that read it, deliberately.
 
-What *is* observable is whether the records exist, and `design_gate` already
-refuses a design step that produced none. That check is unchanged by this record
-and by #127, in both modes.
+What *is* observable is whether the records exist, and `design_block` already
+holds a design step that produced none. That check is unchanged by this record
+and by #127, in both modes — what changed under #287 is where it reports, not
+whether it stops.
 
 ## Considered
 

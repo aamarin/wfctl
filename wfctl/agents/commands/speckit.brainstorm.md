@@ -42,8 +42,11 @@ pauses, all of them theirs, none of them wrong to have been written that way:
 attended one, not less — every gate is still answered out loud, in its rendered
 form, because those answers are what generate the level-3 requirements. A record
 whose `Considered` is empty has skipped its gate more quietly, not passed it.
-`wfctl`'s design gate refuses a design step that produced no record, in both
-modes, and it is unchanged.
+`wfctl`'s design gate holds a design step that produced no record — in both
+modes, and it is unchanged by this file. It reports through the pipeline rather
+than refusing the command: the step reads `in_progress` with the reason on it,
+and `status`, `next` and `resume` all say so. Under `auto_approve` that is the
+same stop it always was, arriving as state rather than as an exit code.
 
 **Records land `proposed`.** An agent never writes `approved` — that transition
 is a human's, and it is what makes "come back and change this later" real rather

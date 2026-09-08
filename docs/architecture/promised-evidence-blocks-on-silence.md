@@ -83,17 +83,27 @@ per gate and drifts; asked at the source, it is answered once.
 
 ## Consequences
 
-The verdict is three-valued, so a gate returning `bool` cannot express it —
-`design_gate`'s signature is the one that has to change, because `bool` has
-already collapsed "no evidence against the work" into "evidence says proceed" at
-the point the rule would be applied.
+The verdict is three-valued, so a gate returning `bool` cannot express it. The
+design gate's signature is the one that has to change, because `bool` has already
+collapsed "no evidence against the work" into "evidence says proceed" at the
+point the rule would be applied.
 
 The evidence source has to be nameable at the point it is read. That is the whole
 structure this record forces, and it is the smallest thing that can carry the
 rule: something at each read site saying which class the source belongs to.
 
-`_arch.parse_record` already implements this rule for records and does not
-change. What it gains is a reason that is not local to `_arch`.
+**Two gates call the rule, not one.** A rule wired into a single gate is applied
+in exactly the place where applying it changes nothing, and the record would be
+claiming a generality the code does not have. `design_block` and
+`verification_block` both hand their verdict to `blocks`, which is what makes a
+change to the rule a change to both.
+
+`_arch.parse_record` is the exception, and stays one. It does not judge a
+transition — it reads a set of records and reports which are in force, and a
+caller asking "is this decision binding?" gets the same answer under any policy
+this rule could state. Its conservative default is consistent with the rule
+rather than an application of it, and routing it through `blocks` would make a
+gate out of a parser.
 
 ## Log
 

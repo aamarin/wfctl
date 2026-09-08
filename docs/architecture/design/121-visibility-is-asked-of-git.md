@@ -85,7 +85,9 @@ what the tree holds and the second omits untracked files entirely. Then, for the
 report
 rather than the verdict, does the change under review add it —
 `touched_on_this_branch`, its three states honoured as three, per the rule
-`design_gate`'s caller already states: refuse only on evidence.
+`design_block` already states: block only on evidence. (Written when that
+rule lived in `design_gate`'s caller; `promised-evidence-blocks-on-silence`
+now names it and `blocks` applies it.)
 
 A project with no git at all exits 0 and is told so. A repository git cannot
 read — a broken gitdir, a bare repo, `safe.directory` refusing the tree — is
