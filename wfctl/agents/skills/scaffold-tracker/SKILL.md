@@ -29,6 +29,7 @@ stale — which it did, one release after `start` and `stop` were added.
 | `create`  | open a new issue            | `{title}`, `{body}`                        |
 | `label`   | add/remove a label          | `{id}`, `{action}` (add\|remove), `{label}`|
 | `labels`  | list one issue's labels      | `{id}`                                     |
+| `fields`  | one issue's attributes, as JSON | `{id}`                                  |
 | `start`   | work on an issue has begun  | `{id}`                                     |
 | `stop`    | work on an issue has stopped| `{id}`                                     |
 
@@ -43,6 +44,18 @@ Point it at whatever produces that (`--jq` for `gh`, a script for a backend with
 no such flag); do not point it at a command whose human-readable output happens
 to contain the labels somewhere. A backend that cannot produce the list leaves
 the verb out, and the repo grants through `wfctl start --allow-notify` instead.
+
+`fields` must print **one JSON object and nothing else**, whose values are
+scalars or arrays of scalars. The key names are yours — wfctl neither supplies
+nor validates them, so a tracker with topics and hashtags reports topics and
+hashtags. What it must not return is an object, or an array of them: comparing
+two of those means knowing which key inside identifies one, and that key is your
+vocabulary living inside wfctl. Flatten before you hand it over (`--jq` for
+`gh`), and wfctl reports a payload that did not as a problem with this file.
+
+`fields` and `labels` overlap and are both kept. `labels` decides whether a run
+may notify anyone, which is a path worth leaving alone; a backend may declare
+either, both, or neither.
 
 `start` and `stop` are events, not values: they say *when*, and the backend
 decides what that means. wfctl wires them into worktree creation and removal, so
@@ -65,19 +78,30 @@ wrong thing.
 
 `wfctl change` lists/views code changes through a **parallel `changes` section**,
 so PRs (GitHub) and patchsets (Gerrit) share one abstraction. Same argv-list
-rules; two verbs:
+rules; three verbs:
 
-| Verb   | Meaning              | Params |
-|--------|----------------------|--------|
-| `list` | list open changes    | (none) |
-| `view` | show one change      | `{id}` |
+| Verb     | Meaning                          | Params |
+|----------|----------------------------------|--------|
+| `list`   | list open changes                | (none) |
+| `view`   | show one change                  | `{id}` |
+| `fields` | one change's attributes, as JSON | `{id}` |
 
 ```json
 "changes": {
   "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],
-  "view": ["gh", "pr", "view", "{id}"]
+  "view": ["gh", "pr", "view", "{id}"],
+  "fields": ["gh", "pr", "view", "{id}", "--json", "labels,assignees,milestone",
+             "--jq", "{labels:[.labels[].name],assignees:[.assignees[].login],milestone:(.milestone.title//null)}"]
 }
 ```
+
+`view` and `fields` answer different readers. `view` prints whatever your client
+shows a person; `fields` is parsed by `wfctl change check`, which compares a
+change's attributes against the issue it answers to. Declare `fields` on both
+sections or on neither — a check with only one side has nothing to compare.
+
+`check` is **not** a verb you declare. `wfctl change check` is wfctl's own, and a
+config naming it is rejected.
 Gerrit example — `"list": ["ssh","gerrit","gerrit","query","status:open","owner:{me}"]`.
 Omit the whole section if the backend has no change concept.
 
