@@ -16,7 +16,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import HOOK_COMMAND, STOP_HOOK_COMMAND, app
+from wfctl.cli import (
+    DENY_RULE,
+    GUARD_HOOK_COMMAND,
+    HOOK_COMMAND,
+    STOP_HOOK_COMMAND,
+    app,
+)
 
 runner = CliRunner()
 
@@ -31,15 +37,17 @@ def _manifest(repo_root: Path) -> dict:
 
 # --- US1: install merges without disturbing what's already there -----------
 
-def test_install_preserves_foreign_permissions_and_hooks_and_adds_one_entry(
+def test_install_preserves_foreign_permissions_and_hooks_and_adds_its_own(
     agent_dir: Path,
 ) -> None:
     """The acceptance criterion for the whole mode: everything the consumer had
-    is byte-for-byte where they left it, and wfctl added exactly one row.
+    is where they left it, and wfctl added only its own rows.
 
     A managed mirror would have replaced the file. The diff excluding wfctl's
-    entry has to be empty, or the mode has cost the consumer the settings it
-    exists to preserve."""
+    entries has to be empty, or the mode has cost the consumer the settings it
+    exists to preserve. Their `PreToolUse` group matters most here — it is the
+    event wfctl now writes to as well, so theirs has to survive beside it rather
+    than be adopted or replaced."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
@@ -60,8 +68,10 @@ def test_install_preserves_foreign_permissions_and_hooks_and_adds_one_entry(
     assert result.exit_code == 0, result.output
 
     after = json.loads(settings_path.read_text())
-    assert after["permissions"] == foreign["permissions"]
-    assert after["hooks"]["PreToolUse"] == foreign["hooks"]["PreToolUse"]
+    assert after["permissions"]["allow"] == foreign["permissions"]["allow"]
+    assert after["permissions"]["deny"] == [DENY_RULE]
+    # Their guard script keeps its own group, its matcher and its position.
+    assert after["hooks"]["PreToolUse"][0] == foreign["hooks"]["PreToolUse"][0]
     assert after["hooks"]["UserPromptSubmit"][0] == foreign["hooks"]["UserPromptSubmit"][0]
     managed = [
         h["command"]
@@ -70,6 +80,10 @@ def test_install_preserves_foreign_permissions_and_hooks_and_adds_one_entry(
         if h["command"] == HOOK_COMMAND
     ]
     assert managed == [HOOK_COMMAND]
+    assert after["hooks"]["PreToolUse"][1] == {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": GUARD_HOOK_COMMAND}],
+    }
 
 
 def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path) -> None:
@@ -91,7 +105,14 @@ def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path)
             "Stop": [
                 {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]}
             ],
-        }
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": GUARD_HOOK_COMMAND}],
+                }
+            ],
+        },
+        "permissions": {"deny": [DENY_RULE]},
     }
 
 
@@ -265,9 +286,13 @@ def test_uninstall_with_no_managed_entry_does_not_open_the_file(agent_dir: Path)
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
     settings_path = _settings_path(repo_root)
-    # Simulate the consumer already having removed wfctl's entry by hand.
+    # Simulate the consumer already having removed wfctl's entries by hand —
+    # every one of them, hooks and the deny rule alike. Clearing only the hooks
+    # would leave a rule wfctl still owns in the file, and removing that is work
+    # uninstall is supposed to do.
     settings = json.loads(settings_path.read_text())
     settings["hooks"] = {}
+    settings.pop("permissions", None)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     before_mtime = settings_path.stat().st_mtime_ns
 
@@ -594,3 +619,292 @@ def test_a_manifest_record_without_created_does_not_crash_the_install(
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
     assert result.exit_code == 0, result.output
     assert settings_path.exists()
+
+
+# --- The receipt: who added the rule that cannot say so itself --------------
+
+def _permissions(repo_root: Path) -> list[dict]:
+    return _manifest(repo_root)["claude"].get("permissions", [])
+
+
+def test_a_rule_the_repo_already_had_is_recorded_as_not_wfctls(agent_dir: Path) -> None:
+    """The entire reason a receipt exists. `Bash(cd:*)` in a repo that wrote it
+    themselves is indistinguishable from one wfctl installed, so the only moment
+    authorship is observable is the install that first looks."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [DENY_RULE]}}, indent=2) + "\n"
+    )
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert _permissions(repo_root) == [
+        {"path": ".claude/settings.json", "rule": DENY_RULE, "added": False}
+    ]
+
+
+def test_uninstall_leaves_a_rule_the_repo_wrote_themselves(agent_dir: Path) -> None:
+    """SC-004. Losing a security rule the repo wrote, to an uninstall that
+    believed it was cleaning up after itself, is the failure the receipt is
+    built to prevent."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [DENY_RULE]}}, indent=2) + "\n"
+    )
+
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(settings_path.read_text())["permissions"]["deny"] == [DENY_RULE]
+
+
+def test_uninstall_removes_a_rule_wfctl_added(agent_dir: Path) -> None:
+    """The other half. A receipt that never licensed a removal would leave
+    wfctl's own entry denying `cd` with nothing left to explain why."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"allow": ["Bash(npm test)"]}}, indent=2) + "\n"
+    )
+
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert _permissions(repo_root)[0]["added"] is True
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    after = json.loads(settings_path.read_text())
+    assert after == {"permissions": {"allow": ["Bash(npm test)"]}}
+
+
+def test_uninstall_says_when_it_leaves_an_edited_rule_behind(agent_dir: Path) -> None:
+    """FR-020. Silence here would leave "your own entries were left alone"
+    standing over an entry descended from wfctl's, which is the one reading of
+    that line this feature must not allow."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["permissions"]["deny"] = ["Bash(cd:/tmp/*)"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "Bash(cd:/tmp/*)" in result.output
+    assert DENY_RULE in result.output
+    assert json.loads(settings_path.read_text())["permissions"]["deny"] == [
+        "Bash(cd:/tmp/*)"
+    ]
+
+
+# --- The refusal -----------------------------------------------------------
+
+def test_install_refuses_over_a_rule_the_repo_removed(agent_dir: Path) -> None:
+    """FR-017. Re-adding it silently makes "you may remove this" theatre;
+    stepping over it silently hides a decision someone made."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 1, result.output
+    assert DENY_RULE in result.output
+    assert "--force" in result.output
+    assert "permissions" not in json.loads(settings_path.read_text())
+
+
+def test_the_refusal_copies_nothing(agent_dir: Path) -> None:
+    """The placement is the risk, not the logic. `_merge_permissions` runs past
+    the skill copies, so a check written beside it would refuse over a tree it
+    had already half-installed."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    skill = repo_root / ".agents" / "skills" / "test-skill" / "SKILL.md"
+    skill.write_text("edited by hand\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 1, result.output
+    # Untouched, not merely unreported: a half-install would have overwritten it.
+    assert skill.read_text() == "edited by hand\n"
+
+
+def test_a_receipt_of_theirs_refuses_the_same_way(agent_dir: Path) -> None:
+    """A receipt is wfctl's record that it looked at this entry, not a claim of
+    ownership. The repo is equally entitled to delete a rule wfctl installed and
+    one it merely noticed, and both are changes only a person can explain."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [DENY_RULE]}}, indent=2) + "\n"
+    )
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert _permissions(repo_root)[0]["added"] is False
+
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 1, result.output
+
+
+def test_force_reasserts_the_rule_and_records_it_as_wfctls(agent_dir: Path) -> None:
+    """`--force` is the person answering the refusal. A run that re-asserted the
+    rule did add it, so a receipt still reading `added: false` afterwards would
+    have uninstall leave wfctl's own entry behind."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [DENY_RULE]}}, indent=2) + "\n"
+    )
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--force"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(settings_path.read_text())["permissions"]["deny"] == [DENY_RULE]
+    assert _permissions(repo_root)[0]["added"] is True
+
+
+def test_an_unreadable_settings_file_warns_rather_than_refusing(agent_dir: Path) -> None:
+    """FR-014 outranks FR-017. Drift is not established by failing to read, and
+    refusing here would hold the whole skills tree hostage to a stray comma."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings_path.write_text("{not valid json")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert settings_path.read_text() == "{not valid json"
+    assert (repo_root / ".agents" / "skills" / "test-skill" / "SKILL.md").exists()
+
+
+def test_a_fresh_install_never_trips_the_refusal(agent_dir: Path) -> None:
+    """The one genuinely unattended install is worktree creation, whose
+    `.claude/` is made by that same install. This is what makes a refusal safe
+    to put in a command a `post_create` hook runs with nobody watching."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+
+
+# --- The two that would otherwise hold by omission -------------------------
+
+def test_the_base_layer_installs_no_guard_entry_and_no_rule(agent_dir: Path) -> None:
+    """FR-016. `PreToolUse` and `permissions` are Claude Code's schema, and the
+    base layer is agent-agnostic. Nothing fails today if that stops being true,
+    which is exactly why it is pinned."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills"])
+    assert result.exit_code == 0, result.output
+    assert not _settings_path(repo_root).exists()
+    assert "permissions" not in _manifest(repo_root).get("base", {})
+
+
+def test_a_drifted_hook_is_still_corrected_without_refusing(agent_dir: Path) -> None:
+    """FR-018. The refusal covers the entry that cannot say whose it is, and
+    stops there. A managed hook announces itself with `wfctl hook `, so
+    re-asserting one is wfctl correcting its own row — extending the refusal to
+    hooks would change behaviour for every existing consumer."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["hooks"]["PreToolUse"][0]["matcher"] = "*"
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    after = json.loads(settings_path.read_text())
+    assert after["hooks"]["PreToolUse"][0]["matcher"] == "Bash"
+
+
+def test_uninstall_deletes_a_file_both_passes_emptied(agent_dir: Path) -> None:
+    """`created` is one fact about the file, and the hook pass and the permission
+    pass each hold only half of what is in it. Answered separately, whichever ran
+    first saw entries the other had yet to remove and left an empty `{}` behind."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    assert "permissions" in json.loads(settings_path.read_text())
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert not settings_path.exists(), settings_path.read_text()
+
+
+# --- doctor's second vocabulary --------------------------------------------
+
+def test_doctor_warns_about_a_removed_rule_without_failing_the_run(
+    agent_dir: Path,
+) -> None:
+    """The whole reason a second tier exists. A missing hook is breakage — the
+    guard does not run at all. A missing deny rule narrows its reach and leaves a
+    working guard, and `cd` is an ordinary command a repo may have decided it
+    needs. Exiting 1 would turn their build red for as long as that decision
+    stands, and `doctor` only reads."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert DENY_RULE in result.output
+    assert "is gone" in result.output
+
+
+def test_a_missing_hook_still_fails_the_run(agent_dir: Path) -> None:
+    """The other side of the same tier. Both entries live in one file, and a
+    check that reported them alike would either fail a build over a decision or
+    stay quiet about a guard that is not running."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["hooks"]["PreToolUse"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "nothing stops a Bash call reaching into a sibling worktree" in result.output
+
+
+def test_doctor_says_nothing_about_a_rule_the_repo_wrote_themselves(
+    agent_dir: Path,
+) -> None:
+    """A receipt of `added: false` is wfctl recording that the entry is not its
+    business. Reporting its removal would be wfctl claiming an entry it had
+    explicitly disclaimed."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [DENY_RULE]}}, indent=2) + "\n"
+    )
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert DENY_RULE not in result.output

@@ -227,3 +227,150 @@ def test_remove_leaves_a_group_that_arrived_empty_or_unrecognised() -> None:
         "not-a-group",
         {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine"}]},
     ]
+
+
+# --- merge_hook, matcher ---------------------------------------------------
+
+PRETOOL = "PreToolUse"
+GUARD = "wfctl hook worktree-guard"
+
+
+def test_a_matcherless_event_leaves_every_group_matcher_alone() -> None:
+    """The regression the matcher parameter could most easily cause. Two of the
+    three managed events have nothing to match on, and passing None must leave
+    them behaving exactly as they did before the parameter existed."""
+    settings = copy.deepcopy(CONSUMER)
+    assert _settings.merge_hook(settings, EVENT, COMMAND) is True
+    assert all("matcher" not in g for g in settings["hooks"][EVENT])
+    # The consumer's own PreToolUse group, on an event this call never named.
+    assert settings["hooks"][PRETOOL][0]["matcher"] == "Bash"
+
+
+def test_a_fresh_group_carries_the_matcher_it_was_given() -> None:
+    """A tool event's hook is inert without a matcher — it either never fires or
+    fires on everything, depending on the harness."""
+    settings: dict = {}
+    assert _settings.merge_hook(settings, PRETOOL, GUARD, "Bash") is True
+    assert settings["hooks"][PRETOOL] == [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": GUARD}]}
+    ]
+
+
+def test_adopting_a_hand_wired_entry_corrects_its_matcher_in_place() -> None:
+    """Someone who followed the README but scoped it to every tool. The command
+    is one wfctl recognises, so the install adopts the entry — and before this,
+    adopted it without looking at the matcher, printing a ✓ over a hook that
+    still fired on every tool call."""
+    settings = {
+        "hooks": {
+            PRETOOL: [
+                {"matcher": "*", "hooks": [{"type": "command", "command": GUARD}]},
+                {"matcher": "Edit", "hooks": [{"type": "command", "command": "./mine.sh"}]},
+            ]
+        }
+    }
+    assert _settings.merge_hook(settings, PRETOOL, GUARD, "Bash") is True
+    assert settings["hooks"][PRETOOL][0]["matcher"] == "Bash"
+    # Position kept: a consumer who ordered their hooks deliberately does not
+    # find wfctl's moved to the end, and theirs is untouched either way.
+    assert settings["hooks"][PRETOOL][1]["matcher"] == "Edit"
+
+
+def test_a_correct_entry_with_a_correct_matcher_reports_no_change() -> None:
+    """What keeps a re-install from reflowing the file. The matcher comparison
+    had to join the command comparison rather than replace it."""
+    settings = {
+        "hooks": {
+            PRETOOL: [
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": GUARD}]}
+            ]
+        }
+    }
+    assert _settings.merge_hook(settings, PRETOOL, GUARD, "Bash") is False
+
+
+# --- permissions -----------------------------------------------------------
+
+RULE = "Bash(cd:*)"
+
+
+def test_merge_permission_reports_whether_it_added_the_rule() -> None:
+    """The return value is the receipt. After this call the file cannot answer
+    whether wfctl added the rule, so this is the only moment it is observable."""
+    fresh: dict = {}
+    assert _settings.merge_permission(fresh, RULE) is True
+    assert fresh == {"permissions": {"deny": [RULE]}}
+
+    theirs = {"permissions": {"deny": [RULE]}}
+    assert _settings.merge_permission(theirs, RULE) is False
+
+
+def test_merge_permission_keeps_every_rule_the_consumer_had() -> None:
+    """A deny list is where a project puts the commands it has decided are
+    dangerous. Losing one of those to an install is the failure this whole mode
+    is built to avoid."""
+    settings = {"permissions": {"allow": ["Bash(npm test)"], "deny": ["Bash(rm:*)"]}}
+    assert _settings.merge_permission(settings, RULE) is True
+    assert settings["permissions"]["deny"] == ["Bash(rm:*)", RULE]
+    assert settings["permissions"]["allow"] == ["Bash(npm test)"]
+
+
+def test_remove_permission_prunes_the_keys_it_created() -> None:
+    """Uninstall has to return a file that never had a `permissions` key to a
+    file with no `permissions` key, not to one carrying an empty scaffold."""
+    settings: dict = {}
+    _settings.merge_permission(settings, RULE)
+    assert _settings.remove_permission(settings, RULE) is True
+    assert settings == {}
+
+
+def test_remove_permission_keeps_a_permissions_map_still_in_use() -> None:
+    """The prune stops at the first key that is not wfctl's doing."""
+    settings = {"permissions": {"allow": ["Bash(npm test)"], "deny": [RULE]}}
+    assert _settings.remove_permission(settings, RULE) is True
+    assert settings == {"permissions": {"allow": ["Bash(npm test)"]}}
+
+
+def test_remove_permission_reports_no_change_when_the_rule_is_absent() -> None:
+    """What tells uninstall the consumer edited the rule rather than kept it —
+    the caller turns this False into a report rather than a silent skip."""
+    settings = {"permissions": {"deny": ["Bash(cd:/tmp/*)"]}}
+    assert _settings.remove_permission(settings, RULE) is False
+    assert settings == {"permissions": {"deny": ["Bash(cd:/tmp/*)"]}}
+
+
+def test_remove_permission_drops_every_copy() -> None:
+    """A duplicate can only come from a hand-edit. Leaving the second behind
+    would have uninstall report the rule gone while the agent still denies it."""
+    settings = {"permissions": {"deny": [RULE, "Bash(rm:*)", RULE]}}
+    assert _settings.remove_permission(settings, RULE) is True
+    assert settings == {"permissions": {"deny": ["Bash(rm:*)"]}}
+
+
+def test_permission_helpers_ignore_a_shape_they_do_not_recognise() -> None:
+    """Same posture as `_groups`: the file is hand-editable, and a reader asking
+    whether a rule is present gets a truthful no rather than a crash."""
+    assert _settings.permission_present({"permissions": "yes please"}, RULE) is False
+    assert _settings.permission_present({"permissions": {"deny": "no"}}, RULE) is False
+    assert _settings.related_rules({"permissions": None}, RULE) == []
+
+
+def test_merge_permission_refuses_a_permissions_key_that_is_not_an_object() -> None:
+    """Refusing is the only safe move — overwriting would destroy whatever the
+    consumer meant by it — and the caller reports the file as unmergeable."""
+    with pytest.raises(ValueError):
+        _settings.merge_permission({"permissions": ["deny"]}, RULE)
+    with pytest.raises(ValueError):
+        _settings.merge_permission({"permissions": {"deny": "Bash(cd:*)"}}, RULE)
+
+
+def test_related_rules_finds_the_edited_form_and_nothing_else() -> None:
+    """What a reader is shown after being told a managed rule is missing. Which
+    entry is the edit is not recoverable, so the verb is the honest guess — and
+    finding nothing is an answer, not a gap."""
+    settings = {"permissions": {"deny": ["Bash(cd:/tmp/*)", "Bash(rm:*)"]}}
+    assert _settings.related_rules(settings, RULE) == ["Bash(cd:/tmp/*)"]
+    assert _settings.related_rules({"permissions": {"deny": ["Bash(rm:*)"]}}, RULE) == []
+    # The rule itself is not "related to" itself: a caller showing this list is
+    # explaining an absence, and echoing the missing rule back reads as present.
+    assert _settings.related_rules({"permissions": {"deny": [RULE]}}, RULE) == []

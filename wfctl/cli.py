@@ -1670,6 +1670,7 @@ _CONFIG_SOURCES = {
 SETTINGS_PATH = ".claude/settings.json"
 SETTINGS_EVENT = "UserPromptSubmit"
 STOP_EVENT = "Stop"
+PRETOOL_EVENT = "PreToolUse"
 
 # The hooks `wfctl hook` can run. These names are an interface: they are what a
 # consumer's settings.json invokes, so renaming one breaks every settings file
@@ -1691,19 +1692,46 @@ HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
 # no non-zero exit of its own to report; every one it could produce is a version
 # mismatch or a bug, and neither is worth a per-turn error on work that was fine.
 STOP_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_RESPONSE_SHAPE} 2>/dev/null || true"
+# No `|| true` here, unlike `Stop`. A non-zero exit on `PreToolUse` is the guard
+# refusing the call, which is the entire feature; swallowing it would install a
+# hook that reports and never blocks.
+GUARD_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_WORKTREE_GUARD}"
 
 # Event → the command this wfctl installs for it. One map rather than a pair of
 # constants because three separate places have to agree on it: the merge, the
 # uninstall record it writes, and `doctor`'s freshness check. The two entries are
 # opposite halves of the same skill — `UserPromptSubmit` re-anchors the rules
 # before a reply is written, `Stop` looks at what was actually written (#212).
-MANAGED_HOOKS = {SETTINGS_EVENT: HOOK_COMMAND, STOP_EVENT: STOP_HOOK_COMMAND}
+MANAGED_HOOKS = {
+    SETTINGS_EVENT: HOOK_COMMAND,
+    STOP_EVENT: STOP_HOOK_COMMAND,
+    PRETOOL_EVENT: GUARD_HOOK_COMMAND,
+}
+
+# The group matcher an event needs, for the events that have one. Its own map
+# rather than widening `MANAGED_HOOKS`' values to a pair: three call sites read
+# that map as event → command, and a tuple there would touch all three to serve
+# the one event that has a matcher. `.get` returning None is what tells
+# `merge_hook` to leave a group's matcher alone.
+_HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
+
+# The blunt companion to the guard, and the first entry wfctl installs that
+# cannot say whose it is. `MANAGED_PREFIX` has no equivalent here: the agent
+# matches a deny rule by exact text, so any marker changes what it denies.
+# Ownership moves to the manifest — see
+# `docs/architecture/the-manifest-owns-what-carries-no-marker.md`.
+#
+# It exists because the guard reads the command as text and a relative path
+# carries no worktree root, so `cd ../sibling` is invisible to it. `cd` is not an
+# allowlisted read verb, so denying the verb closes the case the guard cannot see.
+DENY_RULE = "Bash(cd:*)"
 
 # What `doctor` says a missing entry costs. Per event, because the two lose
 # different things and "the managed hook is gone" tells the reader neither.
 _HOOK_GONE = {
     SETTINGS_EVENT: "is gone — the skills it re-anchors decay again mid-session",
     STOP_EVENT: "is gone — nothing looks at a reply once it is written",
+    PRETOOL_EVENT: "is gone — nothing stops a Bash call reaching into a sibling worktree",
 }
 
 _BACKUP_DIR = ".wf-skills-backup"
@@ -2132,7 +2160,9 @@ def _merge_hooks(
             records.extend([keep] if keep else [])
             continue
         try:
-            changed = _settings.merge_hook(settings, event, command)
+            changed = _settings.merge_hook(
+                settings, event, command, _HOOK_MATCHER.get(event)
+            )
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
             records.extend([keep] if keep else [])
@@ -2162,10 +2192,158 @@ def _merge_hooks(
     return records, written, problems
 
 
+def _managed_permissions(agent: str) -> list[tuple[str, str]]:
+    """`(settings path, rule)` for every permission rule `agent` manages.
+
+    Claude-only for the same reason the hooks are: `permissions` is Claude Code's
+    schema, and the base layer is agent-agnostic. A list rather than a constant
+    because install, uninstall and `doctor` all have to agree on the set, and a
+    second copy of it is the drift this collapses.
+    """
+    return [(SETTINGS_PATH, DENY_RULE)] if agent == "claude" else []
+
+
+def _permission_drift(
+    repo_root: Path, agent: str, manifest: dict
+) -> tuple[str, str, list[str]] | None:
+    """The first managed rule a receipt claims and the file no longer carries.
+
+    `(path, rule, related)`, where `related` is whatever else in their deny list
+    denies the same verb — usually the edited form of the rule, and empty when
+    the rule was simply deleted.
+
+    None when there is nothing to stop for, which includes every case wfctl
+    cannot be sure about. A file it cannot parse is one of those: drift is not
+    established by failing to read, and `_merge_hooks` already reports that file
+    as a problem and lets the rest of the install land. Refusing on it instead
+    would hold the whole skills tree hostage to a stray comma.
+    """
+    for rel, rule in _managed_permissions(agent):
+        receipts = [
+            record
+            for layer in _layer_keys(manifest)
+            for record in manifest[layer].get("permissions", [])
+            if record.get("path") == rel and record.get("rule") == rule
+        ]
+        if not receipts:
+            # No receipt is not drift. wfctl has never looked at this entry, so
+            # the install adds it and records what it found — the ordinary path.
+            continue
+        settings, _ = _read_settings(repo_root / rel)
+        if settings is None or _settings.permission_present(settings, rule):
+            continue
+        return rel, rule, _settings.related_rules(settings, rule)
+    return None
+
+
+def _merge_permissions(
+    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
+) -> tuple[list[dict], list[str], list[str]]:
+    """Install `agent`'s managed permission rules. `(records, written, problems)`.
+
+    Shaped after `_merge_hooks` and reached the same way, but kept beside it
+    rather than folded into it: that loop is over `(path, event, command)`
+    targets, and an entry with no event rides in only as a special case of a
+    tuple it does not fit. The second read of the settings file this costs is not
+    a new window — `_merge_hooks` already opens that file once per managed event.
+    """
+    records: list[dict] = []
+    written: list[str] = []
+    problems: list[str] = []
+    for rel, rule in _managed_permissions(agent):
+        path = repo_root / rel
+        keep = prior.get((rel, rule))
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            records.extend([keep] if keep else [])
+            continue
+        try:
+            added = _settings.merge_permission(settings, rule)
+        except ValueError as exc:
+            problems.append(f"{rel}: {exc}")
+            records.extend([keep] if keep else [])
+            continue
+        if added:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_settings(path, settings)
+            except OSError as exc:
+                problems.append(f"{rel}: {exc}")
+                records.extend([keep] if keep else [])
+                continue
+            if rel not in written:
+                written.append(rel)
+        records.append({
+            "path": rel,
+            "rule": rule,
+            # `added or the prior answer`, never re-observed from the file: after
+            # the first install the rule is present whoever put it there, so
+            # asking again answers a different question. The `added` half is what
+            # makes `--force` honest — a run that re-asserted the rule did add it.
+            "added": added or bool(keep and keep.get("added", False)),
+        })
+    return records, written, problems
+
+
+def _touched_created(entry: dict, touched: set[str]) -> set[str]:
+    """Of the settings files this uninstall changed, those wfctl brought into
+    existence — the only ones it may delete rather than leave empty.
+
+    Read from the hook records, which are the ones that carry `created`. A
+    permission record does not: the flag answers "did wfctl create this file",
+    which is one fact per file, and recording it twice invites the two copies to
+    disagree after an upgrade that added an entry to a file already there.
+    """
+    created = {r["path"] for r in entry.get("merged", []) if r.get("created")}
+    return touched & created
+
+
+def _unmerge_permissions(
+    repo_root: Path, records: Iterable[dict]
+) -> tuple[set[str], list[tuple[str, str, list[str]]], list[str]]:
+    """Remove the managed rules `records` describes.
+
+    `(files changed, declined, problems)`. A `declined` entry is
+    `(path, rule, related)` — a rule wfctl installed whose text no longer matches,
+    left in place because a project that edited it meant to.
+
+    Returns the changed files as a set, not a count. Both this and `_unmerge_hooks`
+    touch `.claude/settings.json`, and a caller that added their counts would
+    report two files where there is one.
+    """
+    changed: set[str] = set()
+    declined: list[tuple[str, str, list[str]]] = []
+    problems: list[str] = []
+    for record in records:
+        rel, rule = record["path"], record["rule"]
+        path = repo_root / rel
+        if not path.exists():
+            continue
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            continue
+        if not record.get("added", False):
+            # Recorded as theirs at install time. wfctl never owned it, so
+            # uninstall has nothing to remove and nothing to report.
+            continue
+        if not _settings.remove_permission(settings, rule):
+            declined.append((rel, rule, _settings.related_rules(settings, rule)))
+            continue
+        _write_settings(path, settings)
+        changed.add(rel)
+    return changed, declined, problems
+
+
 def _unmerge_hooks(
     repo_root: Path, records: Iterable[dict]
-) -> tuple[int, list[str]]:
+) -> tuple[set[str], list[str]]:
     """Remove the managed hooks `records` describes. `(files changed, problems)`.
+
+    The files are a set rather than a count because the permission pass returns
+    one too, and the summary counts files across both. Adding two counts reports
+    two files where `.claude/settings.json` is the only one either touched.
 
     A file that has gone needs no action — uninstall's job is to leave nothing of
     wfctl's behind, and there is nothing there. A file that has stopped *parsing*
@@ -2185,15 +2363,18 @@ def _unmerge_hooks(
             continue
         if not _settings.remove_hooks(settings, record["event"]):
             continue
-        if not settings and record.get("created"):
-            path.unlink()
-        else:
-            _write_settings(path, settings)
+        # Writes even when the result is `{}`. Whether a file wfctl created and
+        # has now emptied should be deleted is one question about the file, and
+        # the permission pass removes entries from the same one — a pass that
+        # answered it alone would either unlink out from under the other or, as
+        # here first, leave an empty `{}` because the entries it could not see
+        # were still in the file when it looked. The caller asks once, after both.
+        _write_settings(path, settings)
         # By file, not by record — `_merge_hooks` counts `written` the same way
         # and for the same reason: two managed events share one settings file,
         # and the summary this feeds says "settings file(s)".
         changed.add(record["path"])
-    return len(changed), problems
+    return changed, problems
 
 
 def _kind_of(src_rel: str, item: Path | None = None) -> str:
@@ -2492,6 +2673,15 @@ def install_skills_cmd(
         "the recorded choice and your edits to its config; a bare install still "
         "delivers a file of that backend the repo is missing.",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Install over a managed permission rule this repo has since removed "
+        "or edited, re-asserting wfctl's version. Not `install-config --force`, "
+        "which overwrites whole files: nothing here overwrites anything but the "
+        "one rule, and without this flag that rule stops the install rather than "
+        "being written over.",
+    ),
     # `from` is a keyword, so the parameter cannot carry the flag's name. The
     # option string is what the user types and what `doctor`'s remedy prints.
     source: str = typer.Option(
@@ -2563,6 +2753,36 @@ def install_skills_cmd(
     # a layer they deselected abandoned. Read here rather than later: the loop
     # that writes the new record replaces these entries wholesale.
     prior_layer_items = {k: manifest[k].get("items", []) for k in _layer_keys(manifest)}
+
+    # Before a single file is copied, and after the manifest that holds the
+    # receipts is read. `_merge_permissions` runs at the far end of this command,
+    # past the copies, so a check written down there would refuse over a tree it
+    # had already half-installed.
+    #
+    # The entry this guards is the one that cannot say whose it is. A managed hook
+    # carries `MANAGED_PREFIX` and is wfctl's to correct in place; a deny rule is a
+    # bare string the repo may have authored, so a receipt of wfctl's and a file
+    # that no longer matches it is a change only a person can explain.
+    drift = None if force else _permission_drift(repo_root, agent, manifest)
+    if drift is not None:
+        drifted_path, rule, related = drift
+        console.print(
+            f"[red]✗[/red] {escape(drifted_path)} no longer carries "
+            f"[cyan]{escape(rule)}[/cyan], which wfctl installed.",
+            soft_wrap=True,
+        )
+        for existing in related:
+            console.print(f"    it now denies: [cyan]{escape(existing)}[/cyan]")
+        console.print(
+            "  Nothing was installed. Removing that rule is your call to make, so "
+            "wfctl will not\n  put it back without being told to:\n"
+            f"    keep your version   — restore [cyan]{escape(rule)}[/cyan] "
+            "by hand, or leave it out and\n"
+            "                          expect this on every install\n"
+            f"    take wfctl's        — wfctl install-skills --agent {escape(agent)} --force",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
 
     # `--from` is one-shot, so a bare install silently discards it. Said before
     # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
@@ -2928,6 +3148,17 @@ def install_skills_cmd(
     }
     merged, merge_written, merge_problems = _merge_hooks(repo_root, agent, prior_merged)
 
+    prior_permissions = {
+        (r["path"], r["rule"]): r
+        for key in _layer_keys(manifest)
+        for r in manifest[key].get("permissions", [])
+    }
+    permissions, perm_written, perm_problems = _merge_permissions(
+        repo_root, agent, prior_permissions
+    )
+    merge_problems.extend(perm_problems)
+    merge_written.extend(rel for rel in perm_written if rel not in merge_written)
+
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
     # One entry per layer that installed something. An agent with no layer of
@@ -2971,6 +3202,13 @@ def install_skills_cmd(
     # consumer's permissions and their own hooks with it.
     if merged:
         manifest.setdefault(agent, {})["merged"] = merged
+
+    # A sibling of `merged`, not a row inside it. Every record there is a hook and
+    # three readers reach for `record["event"]` without a guard; a permission has
+    # none and never will. See
+    # `docs/architecture/design/136-the-receipt-is-a-sibling-of-merged.md`.
+    if permissions:
+        manifest.setdefault(agent, {})["permissions"] = permissions
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -3167,12 +3405,23 @@ def install_skills_cmd(
         # one file in the install that stays the consumer's, and reading as a
         # third count would bury exactly the thing worth noticing.
         console.print(
-            f"\n[green]✓[/green] Merged wfctl's managed hooks into {merged_rel}\n"
+            f"\n[green]✓[/green] Merged wfctl's managed entries into {merged_rel}\n"
             "  Your own hooks, permissions and settings are still there — "
             "`wfctl uninstall-skills`\n  removes just wfctl's own entries. The rewrite "
             "reflows the file once; later installs\n  leave it closed.",
             soft_wrap=True,
         )
+        # Named on its own line because it is the one entry in that file wfctl
+        # cannot mark as its own. A reader who later wonders where a blanket `cd`
+        # denial came from has this line, and nothing in the file itself, to
+        # answer them.
+        if any(r["path"] == merged_rel and r["added"] for r in permissions):
+            console.print(
+                f"  It also now denies [cyan]{escape(DENY_RULE)}[/cyan] — the guard "
+                "reads a command as text,\n  so a relative path into a sibling "
+                "worktree is invisible to it without this.",
+                soft_wrap=True,
+            )
 
     # Only worth saying when nothing agent-specific was installed: that is the
     # case where a user whose assistant needs native paths sees no sign of them.
@@ -3272,7 +3521,10 @@ def uninstall_skills_cmd(
     # wfctl that merged somewhere this one no longer does — and leave it
     # running forever.
     unmerged, unmerge_problems = _unmerge_hooks(repo_root, entry.get("merged", []))
-    for problem in unmerge_problems:
+    unmerged_perms, declined, perm_problems = _unmerge_permissions(
+        repo_root, entry.get("permissions", [])
+    )
+    for problem in unmerge_problems + perm_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
             "this file; the record naming it is being removed either way",
@@ -3294,13 +3546,45 @@ def uninstall_skills_cmd(
         f"[green]✓[/green] Removed {removed} item(s), restored {restored} "
         f"pre-existing file(s) for layer '{agent}'"
     )
-    if unmerged:
+    # Asked once, with every managed entry already out of the file. `created` is
+    # a fact about the file rather than about one entry, and the two passes above
+    # each hold only their own half of what was in it.
+    for rel in _touched_created(entry, unmerged | unmerged_perms):
+        path = repo_root / rel
+        settings, _ = _read_settings(path)
+        if settings == {}:
+            path.unlink()
+
+    touched = unmerged | unmerged_perms
+    if touched:
         # soft_wrap, break placed by hand: rich re-wraps at the terminal edge and
         # splits "in place" across two lines under an indent that then stops
         # lining up with the ✓ above it.
+        #
+        # "entries", not "hook": a run that removed the deny rule and no hook
+        # would otherwise name the one thing it did not do.
         console.print(
-            f"  Removed the managed hook from {unmerged} settings file(s).\n"
+            f"  Removed wfctl's managed entries from {len(touched)} settings file(s).\n"
             "  Your own entries in them were left alone.",
+            soft_wrap=True,
+        )
+    for declined_path, rule, related in declined:
+        # A rule wfctl installed and someone has since rewritten. Saying nothing
+        # would leave "your own entries were left alone" standing over an entry
+        # that is descended from wfctl's, which is the one reading of that line
+        # this feature must not allow.
+        from rich.markup import escape as _escape
+
+        console.print(
+            f"[yellow]⚠[/yellow] {_escape(declined_path)}: left "
+            f"[cyan]{_escape(related[0])}[/cyan] in place"
+            if related
+            else f"[yellow]⚠[/yellow] {_escape(declined_path)}: nothing removed",
+            soft_wrap=True,
+        )
+        console.print(
+            f"  wfctl installed [cyan]{_escape(rule)}[/cyan] and it has since been "
+            "edited, so it was not removed.",
             soft_wrap=True,
         )
 
@@ -4685,6 +4969,42 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     return drift
 
 
+def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
+    """Say when a managed permission rule this repo recorded is no longer there.
+
+    Returns nothing, and that is the point: a rule's absence never reaches the
+    exit code. A missing hook is breakage — the guard does not run, and nothing is
+    enforcing worktree isolation. A missing deny rule narrows the guard's reach
+    from most relative paths to none, which still leaves a working guard, and `cd`
+    is an ordinary command a repo may have decided it needs. Failing a build over
+    that decision turns it red for as long as the decision stands.
+
+    So this warns and `install-skills` refuses: `doctor` only reads, so a repo's
+    CI stays green, while the write that would paper over the edit stops and asks.
+    """
+    from rich.markup import escape
+
+    for layer in _layer_keys(manifest):
+        for record in manifest[layer].get("permissions", []):
+            if not record.get("added", False):
+                continue
+            rel, rule = record["path"], record["rule"]
+            settings, _ = _read_settings(repo_root / rel)
+            # Unreadable is not gone. The hook check above already names a file it
+            # cannot parse, and saying it twice about one file helps nobody.
+            if settings is None or _settings.permission_present(settings, rule):
+                continue
+            console.print(
+                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(rule)}[/cyan] is gone "
+                f"from {escape(rel)}\n  the guard reads a command as text, so "
+                "`cd ../sibling` is invisible to it without this",
+                soft_wrap=True,
+            )
+            console.print(
+                f"    restore: wfctl install-skills --agent {layer} --force"
+            )
+
+
 def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool:
     """Print what one managed entry got wrong, if anything. True when it drifted."""
     from rich.markup import escape
@@ -4988,6 +5308,11 @@ def doctor_cmd() -> None:
         _check_managed_hooks(repo_root, manifest),
     ]):
         exit_code = 1
+
+    # Outside that list, never inside it. Being inside is the whole defect this
+    # avoids: it would make a repo's deliberate removal of one permission rule
+    # fail every `doctor` run, and `/start-session` and CI both read the code.
+    _check_managed_permissions(repo_root, manifest)
 
     # Both used only by the recorded-source branch below, which prints a path
     # into a shell-shaped line.
