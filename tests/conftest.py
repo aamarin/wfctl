@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._pipeline import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+from wfctl._predicates import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
 
 # Set before any wfctl import: `wfctl.cli` builds its `Console()` at module
 # scope, and rich resolves the color system there — a fixture would run too
@@ -204,9 +204,15 @@ def _default_body(filename: str) -> str:
     if filename == "spec.md":
         return CLEAN_SPEC
     if filename == "plan.md":
-        return "# Plan\n\n" + PLAN_SECTIONS
+        return CLEAN_PLAN
     return "x"
 
+
+# A plan that satisfies `plan`: every required section, and none of the template's
+# `ACTION REQUIRED` placeholder text. Named beside `CLEAN_SPEC` because the two
+# are the same idea one step apart, and a test staging upstream artifacts needs
+# both since #309.
+CLEAN_PLAN = "# Plan\n\n" + PLAN_SECTIONS
 
 # A spec that satisfies both `specify` and `clarify`: every required section, no
 # markers, and the `## Clarifications` section clarify writes on every run

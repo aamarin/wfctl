@@ -14,28 +14,28 @@ when this drawing stops matching it. See **Staleness** below.
 ```
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 35                                          2 out · 0 in   │
-   │   └─► cli 4774                                    15 out · 1 in   │
+   │   └─► cli 5266                                    15 out · 1 in   │
    │   └─► _hook 110                                    1 out · 2 in   │
    ╰───────────────────────────────────────────────────────────────────╯
       │      ╎ 2 private crossings into _pipeline
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 593   _arch 446   _archive 339   _guard 293        │      ┊
-   │ _verify 245     _tracker 262   _workmux 274   _settings 173  │      ┊
-   │ _shape 239      _session 164   _bundle 126   _body 399       │      ┊
-   │ _change 201                                                  │      ┊
+   │ _pipeline 439   _predicates 603   _arch 458   _archive 339   │      ┊
+   │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
+   │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
+   │ _body 399       _change 199                                  │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
       ▼ ┊  _tracker    → _paths.DEFAULT_KEY_PATTERN        edge, and the ┊
    ╭─ resolution ─────────────────────────────────────╮     only cycle   ┊
-   │ _paths 635      _manifest 42                     │◄────────────────╌╯
+   │ _paths 660      _manifest 42                     │◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
    ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
-   │ _io 45                            0 out · 5 in   │      _tracker
-   │ _md 97                            0 out · 3 in   │      _verify cli
+   │ _io 43                            0 out · 5 in   │      _tracker
+   │ _md 98                            0 out · 3 in   │      _verify cli
    ╰──────────────────────────────────────────────────╯  ◄── _arch _body
                                                              _shape
 ```
@@ -44,8 +44,10 @@ when this drawing stops matching it. See **Staleness** below.
 importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` reaches `_guard` directly and nothing else, which is
 what lets the guard run without `cli` — see the surface split below. The line
-counts and edge tallies moved with the re-derivation at `793fd95`; the bands and
-the crossings did not.
+counts were re-derived for #314, which split `_pipeline` into it and `_predicates`
+and is why this drawing changed at all. The four crossings are unchanged: the
+split moved helpers `_pipeline` used privately into a module that now owns them,
+so `_pipeline` reaches them by public name and no fifth crossing was added.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
 imports nothing back — not because resolution reaches it. Neither `_paths` nor
@@ -246,7 +248,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook
-domain      _pipeline _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body _change
+domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body _change
 resolution  _paths _manifest
 mechanism   _io _md
 ```

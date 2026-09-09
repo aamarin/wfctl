@@ -215,13 +215,21 @@ class TestInferPipeline:
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[4].state == "done"
 
-    def test_tasks_done_when_no_checkboxes(self, storyctl_dir: NS) -> None:
+    def test_tasks_is_unfinished_when_the_file_holds_no_checkbox(
+        self, storyctl_dir: NS
+    ) -> None:
+        """Inverted by #308; it pinned `done` here, which is the defect itself.
+
+        A file of prose satisfied this step and then `implement`, because
+        "no open checkbox" was how both spelled finished. `test_tasks_hold_a_task`
+        carries the reproduction and the rest of the consequence.
+        """
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="# Tasks\n\nno checkboxes here\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
-        assert steps[4].state == "done"
+        assert steps[4].state == "in_progress"
 
     def test_tasks_done_when_open_checkboxes(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")

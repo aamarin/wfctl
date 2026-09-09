@@ -1,0 +1,3 @@
+# No new boundary — 314-one-predicate-signature
+
+The change rearranges the inference side of pipeline-state-is-one-payload and moves no boundary. The eight predicates gain one signature and move from statements inside _infer_steps to values _STEPS holds; the divider between inference and every view sits where it did, and nothing crosses it that did not cross it before. The one ownership question touched — whether an inconclusive reading stops a step — is already owned by blocks(verdict, source), and routing decompose through it is honouring that record rather than reopening it. The structural choice is level 3 and is recorded at docs/architecture/design/314-the-step-table-holds-the-predicate.md.

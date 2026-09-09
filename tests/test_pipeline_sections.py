@@ -28,17 +28,19 @@ import pytest
 from tests.conftest import PLAN_SECTIONS, SPEC_SECTIONS
 from wfctl._paths import spec_root
 from wfctl._pipeline import (
-    CLARIFY_UNSCANNED,
-    TEMPLATE_PLACEHOLDER,
-    _current_step_name,
-    _REQUIRED_PLAN_SECTIONS,
-    _REQUIRED_SPEC_SECTIONS,
     _STEPS,
+    _current_step_name,
     _infer_steps,
-    _missing_sections,
-    _prose,
     next_step_content,
     next_step_file,
+)
+from wfctl._predicates import (
+    CLARIFY_UNSCANNED,
+    TEMPLATE_PLACEHOLDER,
+    _REQUIRED_PLAN_SECTIONS,
+    _REQUIRED_SPEC_SECTIONS,
+    _missing_sections,
+    _quoted_out,
 )
 
 _TEMPLATES = Path(str(files("wfctl"))) / "specify" / "templates"
@@ -339,7 +341,7 @@ def test_the_matcher_finds_every_required_section_in_the_templates_themselves() 
         ("spec-template.md", _REQUIRED_SPEC_SECTIONS),
         ("plan-template.md", _REQUIRED_PLAN_SECTIONS),
     ):
-        missing = _missing_sections(_prose(_TEMPLATES / template), required)
+        missing = _missing_sections(_quoted_out((_TEMPLATES / template).read_text()), required)
         assert missing == (), f"{template}: the matcher cannot find {list(missing)}"
 
 
@@ -391,7 +393,7 @@ def test_no_step_changed_the_flag_that_says_it_may_run_unattended() -> None:
     The flags live in a table, not in a code path, so nothing else in this file
     could notice one had moved.
     """
-    assert {name: flag for name, (_cmd, flag) in _STEPS.items()} == {
+    assert {name: step.continuation for name, step in _STEPS.items()} == {
         "brainstorm": "automatic",
         "specify": "automatic",
         "clarify": "review_required",
