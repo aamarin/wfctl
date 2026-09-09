@@ -53,6 +53,7 @@ include = ["wfctl*"]
 testpaths = ["tests"]
 markers = [
     "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
+    "runs_mypy: shells out to mypy, so it costs seconds rather than milliseconds",
 ]
 
 [tool.ruff.lint]

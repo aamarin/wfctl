@@ -3786,7 +3786,7 @@ def _verification_finding() -> list[str]:
     passed. The middle one is `wfctl-runs-the-verification`'s own degrade clause
     and is what keeps a copy edit openable in a repo that checks nothing.
     """
-    from wfctl._pipeline import verification_block
+    from wfctl._predicates import verification_block
 
     try:
         repo_root = get_repo_root()

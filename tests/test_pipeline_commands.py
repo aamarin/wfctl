@@ -24,9 +24,9 @@ from wfctl._pipeline import (
     _STEP_NAMES,
     _STEPS,
     _infer_steps,
-    blocks,
     next_step_content,
 )
+from wfctl._predicates import blocks
 
 runner = CliRunner()
 
@@ -69,7 +69,7 @@ def _named_commands() -> dict[str, str]:
     messages, so a check that walked `_STEPS` alone would pass while the last
     instruction a session receives pointed at nothing.
     """
-    named = {step: cmd for step, (cmd, _) in _STEPS.items()}
+    named = {step: row.command for step, row in _STEPS.items()}
     named.update({f"story complete → {cmd}": cmd for cmd in _LOOSE_COMMANDS})
     return named
 
@@ -1193,7 +1193,7 @@ def test_a_blocked_design_step_is_never_automatic(
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
 
-    assert _STEPS["brainstorm"][1] == "automatic", "guards the premise, not the rule"
+    assert _STEPS["brainstorm"].continuation == "automatic", "guards the premise, not the rule"
 
     command, auto = next_step_content("brainstorm", "no architecture record")
     assert command == "/speckit.brainstorm"

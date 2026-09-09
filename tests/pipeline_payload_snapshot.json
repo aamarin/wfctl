@@ -1,0 +1,2902 @@
+{
+  "analyzed": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "analyzed (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "decompose-keyed": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "decompose-keyed (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "decompose-no-map": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "decompose-no-map (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "decompose-skipped": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "decompose-skipped (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "decompose-unkeyed-tasks-closed": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "2 issue rows without a key",
+      "name": "decompose",
+      "reason": "2 issue rows without a key",
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "2/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "decompose-unkeyed-tasks-closed (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "2/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "decompose-unkeyed-tasks-open": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "2 issue rows without a key",
+      "name": "decompose",
+      "reason": "2 issue rows without a key",
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "decompose-unkeyed-tasks-open (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "design-no-record": [
+    {
+      "annotation": "no architecture record for this change",
+      "name": "brainstorm",
+      "reason": "no architecture record for this change",
+      "remedy": "  Either record the boundary this change draws \u2014 one file under:\n      docs/architecture/\n  or state that it draws none:\n      wfctl arch none --reason \"<why>\"",
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "design-only": [
+    {
+      "annotation": "no architecture record for this change",
+      "name": "brainstorm",
+      "reason": "no architecture record for this change",
+      "remedy": "  Either record the boundary this change draws \u2014 one file under:\n      docs/architecture/\n  or state that it draws none:\n      wfctl arch none --reason \"<why>\"",
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "design-only (no tracker)": [
+    {
+      "annotation": "no architecture record for this change",
+      "name": "brainstorm",
+      "reason": "no architecture record for this change",
+      "remedy": "  Either record the boundary this change draws \u2014 one file under:\n      docs/architecture/\n  or state that it draws none:\n      wfctl arch none --reason \"<why>\"",
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "design-past-boundary": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "design-past-boundary (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "design-with-record": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "empty": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "empty (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "implement-failed": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  failed \u2014 1 of 1 at <sha>: true",
+      "name": "implement",
+      "reason": "failed \u2014 1 of 1 at <sha>: true",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-inconclusive": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  inconclusive \u2014 re-run `wfctl verify`",
+      "name": "implement",
+      "reason": "inconclusive \u2014 re-run `wfctl verify`",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-malformed-config": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  definition of done is malformed \u2014 run `wfctl verify`",
+      "name": "implement",
+      "reason": "definition of done is malformed \u2014 run `wfctl verify`",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-no-definition-of-done": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "implement-stale-definition": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  stale \u2014 definition of done changed since it was verified",
+      "name": "implement",
+      "reason": "stale \u2014 definition of done changed since it was verified",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-stale-dirty": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  stale \u2014 verified at <sha>, tree has uncommitted changes",
+      "name": "implement",
+      "reason": "stale \u2014 verified at <sha>, tree has uncommitted changes",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-stale-sha": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  stale \u2014 verified at <sha>, HEAD is <sha>",
+      "name": "implement",
+      "reason": "stale \u2014 verified at <sha>, HEAD is <sha>",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-unverified": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done  unverified \u2014 run `wfctl verify`",
+      "name": "implement",
+      "reason": "unverified \u2014 run `wfctl verify`",
+      "remedy": null,
+      "state": "in_progress"
+    }
+  ],
+  "implement-verified": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": "2/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "no-spec-dir": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-clarified": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-clarified (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-marked": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-marked (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-only": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-only (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-plan-unclarified": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-plan-unclarified (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-closed": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-closed (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-no-checkbox": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "tasks.md holds no task",
+      "name": "tasks",
+      "reason": "tasks.md holds no task",
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-no-checkbox (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "tasks.md holds no task",
+      "name": "tasks",
+      "reason": "tasks.md holds no task",
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-no-checkbox-but-implemented": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-no-checkbox-but-implemented (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-only-a-fenced-example": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "tasks.md holds no task",
+      "name": "tasks",
+      "reason": "tasks.md holds no task",
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-only-a-fenced-example (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "tasks.md holds no task",
+      "name": "tasks",
+      "reason": "tasks.md holds no task",
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-open": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-open (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-open-but-implemented": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-open-but-implemented (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ]
+}
