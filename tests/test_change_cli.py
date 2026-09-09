@@ -306,3 +306,50 @@ def test_a_key_as_long_as_the_column_still_has_a_gap_after_it(
     _answers(monkeypatch, change={"reviewRequests": []}, issue={})
     result = runner.invoke(app, ["change", "check", "301"])
     assert "reviewRequests " in result.output
+
+
+def test_a_verdict_over_an_unread_issue_says_what_it_did_not_cover(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The state the panel's fix did not reach, found by the review on the PR.
+
+    A backend declaring `changes.fields` and not `verbs.fields`, against a change
+    that satisfies everything `wfctl.json` asked for, produced a screen of green
+    ticks and exit 0 — with the issue's labels, milestone and everything else
+    never read. Indistinguishable from a complete pass, which is the one thing
+    this command must never be.
+
+    Exit stays 0: a declined verb is a repo that opted out, not a failure, and
+    the degrade contract says a session must not break on one. What changes is
+    that the run says which half it covered.
+    """
+    _configure(
+        agent_dir.parent,
+        {"verbs": {"list": ["gh"]},
+         "changes": {"list": ["gh"], "fields": ["gh", "pr", "view", "{id}"]}},
+    )
+    _require(agent_dir.parent, "assignees")
+    _answers(monkeypatch, change={"assignees": ["aamarin"]}, issue={})
+    result = runner.invoke(app, ["change", "check", "311"])
+    assert result.exit_code == 0
+    assert "✓" in result.output
+    assert "was not read" in result.output
+    assert "wfctl.json only" in result.output
+
+
+def test_a_branch_with_no_issue_key_claims_no_missing_coverage(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The neighbouring state, which must *not* carry that caveat.
+
+    No issue key means no issue, so nothing went unread and the verdict is
+    complete for what exists. Printing "was not read" here would teach a reader
+    to skim past it in the case above, where it is the whole point.
+    """
+    monkeypatch.setenv("WFCTL_BRANCH", "docs-typo")
+    _configure(agent_dir.parent)
+    _require(agent_dir.parent, "assignees")
+    _answers(monkeypatch, change={"assignees": ["aamarin"]}, issue={})
+    result = runner.invoke(app, ["change", "check", "305"])
+    assert result.exit_code == 0
+    assert "was not read" not in result.output

@@ -1607,11 +1607,15 @@ def _render_change_check(
     issue_fields: dict | None = None
     issue_detail: str | None = None
     if issue == "unknown":
+        # Nothing to read, so nothing was missed. What the repository requires is
+        # the whole of what there was to check, and the verdict below is complete.
+        unread = False
         no_issue = "the branch carries no issue key"
     else:
         issue_fields, issue_detail = _tracker.read_fields(repo_root, "verbs", issue)
+        unread = issue_fields is None
         no_issue = (
-            "the tracker reports no fields for issues" if issue_fields is None
+            "the tracker reports no fields for issues" if unread
             else "the issue has none set"
         )
 
@@ -1625,6 +1629,16 @@ def _render_change_check(
         # exit like a clean one.
         console.print(
             f"[red]✗[/red] could not read #{escape(issue)}: {escape(issue_detail)}"
+        )
+    elif unread and rows:
+        # The same invariant, met from the side that has something to print. A
+        # declined `verbs.fields` is not a failure and does not change the exit
+        # code — but the `✓` lines below cover only what `wfctl.json` asked for,
+        # and without this line a run that never opened the issue is a screen of
+        # green ticks indistinguishable from one that did.
+        console.print(
+            f"ℹ #{escape(issue)} was not read — {no_issue}. What follows covers "
+            f"{_change.CONFIG_PATH} only."
         )
 
     # Widened to the longest key rather than fixed, because a fixed 14 ran flush
