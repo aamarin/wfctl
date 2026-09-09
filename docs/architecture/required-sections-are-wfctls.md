@@ -93,6 +93,15 @@ blocks every step in a repository whose only fault is not having run
 - Flip either step to `review_required` — out of scope in #309 and against the
   direction of #100: it trades an unchecked pass for a human pause on every run.
 
+Structure is necessary and not sufficient, and the gap is not hypothetical. The
+speckit runtime creates `plan.md` by copying `plan-template.md`, so the document
+this step most often meets carries every heading the check asks for. Both steps
+therefore also reject a document still carrying the templates' own `ACTION
+REQUIRED` instruction to its author. That is the same class of claim as the
+section list — a fact about an upstream document, pinned here and held against it
+by a test — and it is recorded in this decision rather than a second one because
+it answers the same question: what evidence lets an unattended step pass.
+
 ## Consequences
 
 A required list may be stricter than the template; it may not contradict it.

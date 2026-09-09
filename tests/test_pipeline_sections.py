@@ -29,6 +29,7 @@ from tests.conftest import PLAN_SECTIONS, SPEC_SECTIONS
 from wfctl._paths import spec_root
 from wfctl._pipeline import (
     CLARIFY_UNSCANNED,
+    TEMPLATE_PLACEHOLDER,
     _current_step_name,
     _REQUIRED_PLAN_SECTIONS,
     _REQUIRED_SPEC_SECTIONS,
@@ -585,4 +586,80 @@ def test_the_required_plan_sections_do_not_contradict_the_template() -> None:
         assert len(section) == 2, f"{name} is required of a plan and absent from the template"
         assert "Fill ONLY if" not in section[1].split("\n##", 1)[0], (
             f"{name} is required, but the template tells the author to delete it"
+        )
+
+
+# --------------------------------------------------------------------------
+# The document that is still its own template
+# --------------------------------------------------------------------------
+
+def test_a_verbatim_plan_template_does_not_read_done(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The case structure alone cannot reject, on the path the tool always takes.
+
+    `setup-plan.sh` runs `cp plan-template.md plan.md`, so the first act of
+    `/speckit.plan` creates a file carrying every required heading and no
+    content. A section check has nothing to say about it. Before this, the rung
+    `plan` claimed was the one rung it did not reach in the one case that always
+    happens.
+
+    `spec.md` never had this hole — its template ships `[NEEDS CLARIFICATION`
+    markers — which is why it went unnoticed on the side that did.
+    """
+    verbatim = (_TEMPLATES / "plan-template.md").read_text()
+    spec = spec_tree(content={"spec.md": FULL_SPEC, "plan.md": verbatim})
+    step = _step(spec, tmp_path, "plan")
+    assert step.state == "in_progress"
+    assert step.annotation == "still the template"
+
+
+def test_a_verbatim_spec_template_routes_to_specify_not_clarify(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The routing blocker, one door along, and why the check runs before markers.
+
+    The spec template carries its own markers, so an untouched copy was
+    `in_progress` before this too — but as a *marked* spec, which routes to
+    `/speckit.clarify`. Clarify cannot write a spec nobody has written. Reading
+    the document as unwritten sends it to the command that can.
+    """
+    verbatim = (_TEMPLATES / "spec-template.md").read_text()
+    steps = _infer_steps(spec_tree(content={"spec.md": verbatim}), tmp_path)
+    assert _current_step_name(steps) == "specify"
+    assert next(s.annotation for s in steps if s.name == "specify") == "still the template"
+
+
+def test_a_written_spec_with_an_open_marker_still_belongs_to_clarify(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The ordering above narrows the marker branch; it must not swallow it.
+
+    A spec someone has written carries no `ACTION REQUIRED` — the template tells
+    the author to delete it — so a real open marker reaches the marker branch and
+    routes to clarify exactly as before.
+    """
+    written = FULL_SPEC + "\n[NEEDS CLARIFICATION: which one?]\n"
+    steps = _infer_steps(spec_tree(content={"spec.md": written}), tmp_path)
+    assert _current_step_name(steps) == "clarify"
+
+
+def test_no_artifact_the_pipeline_wrote_carries_the_placeholder() -> None:
+    """The pair a placeholder marker needs: in both templates, in no real document.
+
+    `NEEDS CLARIFICATION` would have been the symmetric choice and is not usable
+    on the plan side — three plans on disk discuss markers in prose, so it
+    rejects real work. This string appears in neither corpus and in both
+    templates, which is what makes it evidence rather than a guess.
+    """
+    for template in ("spec-template.md", "plan-template.md"):
+        assert TEMPLATE_PLACEHOLDER in (_TEMPLATES / template).read_text(), (
+            f"{template} no longer carries the placeholder the check keys on"
+        )
+    corpus = _corpus()
+    if corpus is None:
+        pytest.skip("no durable spec root resolves from here")
+    for artifact in sorted(corpus.glob("*/spec.md")) + sorted(corpus.glob("*/plan.md")):
+        assert TEMPLATE_PLACEHOLDER not in artifact.read_text(), (
+            f"{artifact.parent.name}/{artifact.name} carries the placeholder and would be held"
         )

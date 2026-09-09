@@ -262,11 +262,37 @@ _REQUIRED_PLAN_SECTIONS: tuple[str, ...] = (
     "Project Structure",
 )
 
+# The templates' own instruction to the author, which they also tell the author to
+# delete: "ACTION REQUIRED: Replace the content in this section", inside an HTML
+# comment. Its presence means the document is still the template.
+#
+# This exists because structure alone could not tell the two apart, and on the
+# path the tool itself takes they are the same document: `setup-plan.sh` runs
+# `cp plan-template.md plan.md`, so the first act of `/speckit.plan` creates a
+# file carrying every required heading and nothing else. `spec.md` was already
+# covered — its template ships `[NEEDS CLARIFICATION` markers and the marker
+# check catches them — and the plan template has no equivalent, so a rung this
+# step claimed was not reached in the one case that always happens.
+#
+# The string rather than `NEEDS CLARIFICATION`, which would have been the
+# symmetric choice: three plans on disk discuss clarification markers in prose,
+# so it rejects real work. No spec or plan on disk carries this one, and both
+# templates do — which is the pair a placeholder marker needs.
+#
+# Blanking leaves it alone: `_prose` removes fences and inline spans, and this
+# lives in an HTML comment. That is deliberate. A document quoting this constant
+# inside a fence is discussing it, not carrying it.
+TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"
+
 # clarify passed because a plan already exists, not because a scan ran.
 # Annotation only, never `reason`: a `skipped` step is never
 # `_current_step_name`, so a reason set here would reach no consumer, and the
 # contract that field states below is arms setting `in_progress` from evidence.
 CLARIFY_UNSCANNED = "scan never ran"
+
+
+# Short, because it renders inline in the step table beside the step's name.
+UNWRITTEN_TEMPLATE = "still the template"
 
 
 def _missing_reason(missing: tuple[str, ...]) -> str | None:
@@ -626,10 +652,24 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 # whole pipeline and contradict `brainstorm`, which calls the
                 # same directory `skipped` two arms up.
                 state = "pending"
+            elif TEMPLATE_PLACEHOLDER in spec_text:
+                # Ahead of the marker check, and that ordering is the whole of
+                # what it adds here. The spec template ships `[NEEDS
+                # CLARIFICATION` markers of its own, so an untouched copy is
+                # `in_progress` either way — but as a *marked* spec it routes to
+                # `/speckit.clarify`, which cannot write a spec nobody has
+                # written. Reading it as unwritten routes it to the command that
+                # can. Same defect as the routing blocker, one door along.
+                #
+                # A spec someone has actually written carries no `ACTION
+                # REQUIRED`, so a real open marker still reaches the branch
+                # below.
+                specify_reason = UNWRITTEN_TEMPLATE
+                state = "in_progress"
             elif has_markers:
-                # Unchanged, and it keeps priority over the section read: a marked
-                # spec is clarify's business, and naming missing sections beside a
-                # marker would route the reader to the wrong command.
+                # Keeps priority over the section read: a marked spec is
+                # clarify's business, and naming missing sections beside a marker
+                # would route the reader to the wrong command.
                 state = "in_progress"
             else:
                 missing = _missing_sections(spec_text, _REQUIRED_SPEC_SECTIONS)
@@ -668,6 +708,12 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         elif name == "plan":
             if not _file_exists(spec_dir / "plan.md"):
                 state = "pending"
+            elif TEMPLATE_PLACEHOLDER in plan_text:
+                # Ordered before the section read on purpose: an untouched
+                # template carries every required heading, so the section check
+                # has nothing to say about it and would report `done`.
+                plan_reason = UNWRITTEN_TEMPLATE
+                state = "in_progress"
             else:
                 missing = _missing_sections(plan_text, _REQUIRED_PLAN_SECTIONS)
                 plan_reason = _missing_reason(missing)
