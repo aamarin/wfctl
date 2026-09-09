@@ -78,6 +78,62 @@ _STEPS: dict[str, tuple[str, Continuation]] = {
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
 _STEP_NAMES = list(_STEPS)
 
+# What each step's predicate proves (#300, epic #100 scope 5). The rungs, weakest
+# first: 1 an artifact was written; 2 the artifact has structure; 3 known questions
+# were addressed, syntactically; 4 promised external objects exist; 5 executable
+# completion criteria passed; 6 a decision has authority; 7 integration was approved.
+#
+# Here rather than under `docs/architecture/` by `knowledge-placement`: a fact about
+# one file belongs to that file, and this is a fact about the arms below. A record
+# would also have to decide something, and this decides nothing — it names what an
+# existing predicate reads.
+#
+# Two conditions hold over every line. Each describes its own arm, and `cascade` at
+# the foot of that loop forces every step after the first `pending` one to `pending`
+# without evaluating its arm — so a satisfied predicate is necessary and never
+# sufficient. And `skipped` advances the pipeline exactly as `done` does
+# (`infer_pipeline`), so an arm reaching it passes the step on none of the evidence
+# its line names.
+#
+#   brainstorm  1, and a gesture at 6 rather than 6 itself: a design doc exists and
+#               git says some path under `<arch>/` outside `design/` changed on this
+#               branch — an edit to a descriptive view, or a deletion, counts as
+#               readily as a new record — or git could not say, which proceeds
+#               (`ambient`). Never checked to be about this change, and not read at
+#               all once `spec.md` exists.
+#   specify     1 + 3. `spec.md` is non-empty and carries no marker. Never 2: its
+#               sections are not read.
+#   clarify     2 + 3. A `## Clarifications` heading, and no marker left; nothing
+#               under the heading is read. `skipped` where `plan.md` exists and the
+#               heading does not.
+#   plan        1. `plan.md` is non-empty.
+#   tasks       1. `tasks.md` is non-empty — not that it holds a single task.
+#   analyze     1. `checklists/analysis-report.md` is non-empty.
+#   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
+#               and where a tracker is configured and it carries an Issue Grouping
+#               Map, every row names a key — read from the delivery plan's own prose,
+#               so the plan asserts its issues exist rather than the tracker
+#               confirming it. Stops blocking once the tasks read closed, and
+#               `skipped` where no plan exists and they already have. #100 scope 5
+#               records this as rung 4 since #8; it does not reach one.
+#   implement   5, or 1 + 3 where the repo declares no definition of done (FR-002):
+#               the tasks read closed, and a repo-declared verification passed
+#               against this tree.
+#
+# `blocks` is consulted twice — `implement` as `repo-declared`, `brainstorm` as
+# `ambient`. Five of the other six read a file that is there or is not, which has no
+# inconclusive state for the rule to judge. `decompose` is the exception, and
+# resolves two of its own without reaching the rule: no tracker configured, and a
+# plan carrying no map or no rows. Both proceed.
+#
+# Where a rung sits below its flag, that is filed, not fixed. #308 is `tasks` and
+# `implement` cleared by a file holding no task; #309 is `specify` and `plan`
+# automatic on a file's mere existence; `decompose` is argued on #240, the issue that
+# would spend it. `brainstorm` is automatic over a weak rung as well and is not
+# filed: #283 settled that flag on reversibility, and a blocked step is never
+# automatic whatever the table says (`next_step_content`). Nothing pins these lines
+# to the arms they describe — re-read the arm before trusting one.
+
 # Commands wfctl names that no step advances to. `/end-session` ships in
 # `agents/commands/` like any step command and carries the same drift risk, but a
 # check that walks `_STEPS` cannot see it — and it is the last instruction a
