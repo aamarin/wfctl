@@ -35,7 +35,7 @@ Three install modes, chosen per path rather than per run.
 | --- | --- | --- | --- | --- |
 | managed mirror | `install-skills` | the whole file | rewrites from source, tracked by content hash in `.wf-skills-manifest.json` | yes, `uninstall` |
 | seed-once | `install-config` | nothing, after the write | writes only if absent, then never touches the file again | no |
-| merge | `install-skills --agent claude` | one entry per managed event | replaces its own entries, leaves every other byte | yes, `uninstall` |
+| merge | `install-skills --agent claude` | one entry per managed event, plus any entry named below | replaces its own entries, leaves every other byte | yes, `uninstall` |
 
 A merged entry is recognised by what it runs. Every managed hook's command starts
 `wfctl hook `, so the installer finds its own rows by reading the file rather than
@@ -44,7 +44,18 @@ around it. The manifest records that an entry exists and where; the file itself
 is the authority on whether it still does. Ownership is drawn at the command
 entry rather than the matcher group around it, so a consumer is free to put
 their own command in the same group as wfctl's — a group is pruned only once
-wfctl has emptied it of its own entries.
+wfctl has emptied it of its own entries. Where the two disagree about a matcher,
+wfctl's entry moves to a group of its own rather than re-scoping theirs, which
+is what keeps that freedom real rather than nominal.
+
+**Not every merged entry can be recognised that way, and one is not.** #136 seeds
+`permissions.deny: ["Bash(cd:*)"]` beside the guard hook. A permission is matched
+by exact text, so it cannot carry `wfctl hook ` or any other marker without
+changing what it denies — the paragraph above describes the hooks and no longer
+describes the whole mode. For that entry the manifest is the authority and the
+file cannot answer, which inverts the sentence above for exactly one row.
+`the-manifest-owns-what-carries-no-marker` is the decision, and it governs the
+carve-out rather than this record.
 
 Merge mode is scoped to the agent layer: the hook schema belongs to Claude Code,
 not to wfctl's base layer, so it is claude-only rather than a base-layer path
@@ -72,8 +83,9 @@ For a seeded path, the repo owns the file from the moment it is written. wfctl
 cannot own it: it has no record of what the repo intended to change, so any
 rewrite is a guess that silently discards local intent.
 
-For a merged path, the consumer owns the file and wfctl owns exactly the entries
-whose command carries its prefix. Two consequences follow and both are load
+For a merged path, the consumer owns the file and wfctl owns the entries whose
+command carries its prefix, plus any entry the manifest records it as having
+added (`the-manifest-owns-what-carries-no-marker`). Two consequences follow and both are load
 bearing. The path is never gitignored, unlike every mirrored path — it is the
 consumer's file and they may want it committed. And it is never listed in the
 manifest's `items`, because `uninstall-skills` deletes those outright; a merged
@@ -117,7 +129,16 @@ settings file edited back to the consumer's original leaves every other check
 reporting the install as current. What it checks instead is that the entry is
 present and that its command matches what this wfctl would install — not
 whether the digest text itself is current, which is never in the file, only the
-command that fetches it.
+command that fetches it. A tool event's matcher is checked alongside the command,
+since an entry scoped to a tool it will never see is as absent as a deleted one.
+
+That check has two vocabularies, and they differ in what they cost. A managed
+hook missing or wrong is a finding and exits 1: nothing is enforcing the rule it
+carries. An unmarked entry is reported as present or gone only — never *behind*,
+having no version to be behind — and leaves the exit code alone, because removing
+it is a decision the consumer is entitled to make and a red build is no way to
+argue with one. The write is where that decision is met instead: `install-skills`
+refuses rather than re-asserting an unmarked entry the consumer has changed.
 
 ## Log
 
@@ -127,3 +148,10 @@ command that fetches it.
 - 2026-09-05  amended     — merge owns one entry per event, not one entry (#212
   added a `Stop` hook beside the `UserPromptSubmit` one in the same file). No
   change to the mode: ownership was already drawn at the command entry.
+- 2026-09-09  amended     — merge owns an entry that carries no marker (#136
+  seeds `permissions.deny: ["Bash(cd:*)"]` beside the guard hook). This one does
+  change the mode: for that entry the file is no longer the authority on whether
+  wfctl owns it, and the manifest is — see
+  `the-manifest-owns-what-carries-no-marker`. Recorded here as well as there
+  because `arch context` prints only accepted records, and a reader following
+  this one alone would find it contradicted by the code.

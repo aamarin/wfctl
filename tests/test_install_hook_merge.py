@@ -804,11 +804,21 @@ def test_an_unreadable_settings_file_warns_rather_than_refusing(agent_dir: Path)
 
 
 def test_a_fresh_install_never_trips_the_refusal(agent_dir: Path) -> None:
-    """The one genuinely unattended install is worktree creation, whose
-    `.claude/` is made by that same install. This is what makes a refusal safe
-    to put in a command a `post_create` hook runs with nobody watching."""
+    """Two installs run with nobody watching — `post_create` on a new worktree,
+    and `/start-session` refreshing a stale mirror with `--yes`. Neither may meet
+    a refusal on a tree that has no receipt yet, and an exit code alone does not
+    show that: a run can exit 0 having printed the ✗ for a different path. The
+    receipt and the absence of a refusal are what this asserts."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
+    assert "no longer carries" not in result.output
+    assert _permissions(repo_root) == [
+        {"path": ".claude/settings.json", "rule": DENY_RULE, "added": True}
+    ]
+    # nit 4: the one line that ever explains where a blanket `cd` denial came
+    # from. Nothing else in the suite reaches it, so deleting it stayed green.
+    assert "It also now denies" in result.output
 
 
 # --- The two that would otherwise hold by omission -------------------------
@@ -877,6 +887,10 @@ def test_doctor_warns_about_a_removed_rule_without_failing_the_run(
     assert result.exit_code == 0, result.output
     assert DENY_RULE in result.output
     assert "is gone" in result.output
+    # The remedy is half the report: doctor is green here by design, so this is
+    # the only place a reader learns that every install refuses meanwhile.
+    assert "every install refuses until this is settled" in result.output
+    assert "wfctl install-skills --agent claude --force" in result.output
 
 
 def test_a_missing_hook_still_fails_the_run(agent_dir: Path) -> None:
@@ -891,7 +905,7 @@ def test_a_missing_hook_still_fails_the_run(agent_dir: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1
+    assert result.exit_code == 1, result.output
     assert "nothing stops a Bash call reaching into a sibling worktree" in result.output
 
 
@@ -1051,3 +1065,54 @@ def test_a_half_written_receipt_does_not_crash_doctor_or_uninstall(
     assert runner.invoke(app, ["doctor"]).exit_code in (0, 1)
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
     assert result.exit_code == 0, result.output
+
+
+def test_doctor_reports_a_guard_scoped_to_the_wrong_tool(agent_dir: Path) -> None:
+    """A hook can be byte-correct and never fire. `managed_command` searches every
+    group regardless of matcher, so an entry re-scoped to `Read` left doctor green
+    over a guard that sees no Bash call — the same loss `_HOOK_GONE` names, by a
+    route the command comparison cannot see. It is also the likelier route: the
+    matcher is the one part of a managed entry a consumer can edit without
+    touching a string that starts `wfctl hook `."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["hooks"]["PreToolUse"][0]["matcher"] = "Read"
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1, result.output
+    assert "matches the wrong tool" in result.output
+    assert "never sees a Bash call" in result.output
+
+
+def test_a_matcherless_event_is_never_reported_as_mis_scoped(agent_dir: Path) -> None:
+    """Two of the three managed events have nothing to match on. Comparing their
+    absent matcher against an expected one would report every clean install as
+    drifted, on the events that have had no matcher since they were written."""
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "settings.json" not in result.output
+
+
+def test_uninstall_says_nothing_about_a_rule_that_was_simply_deleted(
+    agent_dir: Path,
+) -> None:
+    """FR-020 covers a rule left in place because its text no longer matches.
+    A rule someone deleted leaves nothing in place and nothing to decline, and
+    reporting it printed two contradicting lines — "nothing there matched" above
+    "it has since been edited, so it was left in place". `doctor` already reports
+    the absence."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "left in place" not in result.output
+    assert "nothing there matched" not in result.output

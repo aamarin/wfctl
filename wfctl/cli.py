@@ -2358,7 +2358,14 @@ def _unmerge_permissions(
             problems.append(f"{rel}: {problem}")
             continue
         if not _settings.remove_permission(settings, rule):
-            declined.append((rel, rule, _settings.related_rules(settings, rule)))
+            related = _settings.related_rules(settings, rule)
+            # Nothing of wfctl's is in the file and nothing resembling it either,
+            # so there is nothing to have declined. FR-020 is about a rule left in
+            # place because it was edited; saying "left in place" about a rule
+            # someone deleted is false twice over, and `doctor` already reports
+            # the absence.
+            if related:
+                declined.append((rel, rule, related))
             continue
         _write_settings(path, settings)
         changed.add(rel)
@@ -5076,10 +5083,34 @@ def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool
     from rich.markup import escape
 
     actual = _settings.managed_command(settings, event)
-    if actual == MANAGED_HOOKS[event]:
+    # A tool event's hook is only as installed as its matcher: the command can be
+    # byte-correct and scoped to a tool it will never see, which is the same loss
+    # `_HOOK_GONE` describes reached by a route the command comparison cannot see.
+    # It is the likelier route, too — the matcher is the one part of a managed
+    # entry a consumer can edit without touching a string starting `wfctl hook `.
+    expected_matcher = _HOOK_MATCHER.get(event)
+    mis_scoped = (
+        actual is not None
+        and expected_matcher is not None
+        and _settings.managed_matcher(settings, event) != expected_matcher
+    )
+    if actual == MANAGED_HOOKS[event] and not mis_scoped:
         return False
 
-    state = _HOOK_GONE[event] if actual is None else "is behind this wfctl"
+    if actual is None:
+        state = _HOOK_GONE[event]
+    elif actual != MANAGED_HOOKS[event]:
+        # Behind wins over mis-scoped when both hold: one install repairs both,
+        # and the older command is the thing a reader has to understand first.
+        state = "is behind this wfctl"
+    else:
+        # `mis_scoped` is the only way here, and it is False whenever
+        # `expected_matcher` is None — the assert is for the reader and the
+        # checker, not for a case that reaches it.
+        assert expected_matcher is not None
+        state = (
+            f"matches the wrong tool — it never sees a {escape(expected_matcher)} call"
+        )
     # soft_wrap and the break placed by hand: rich would otherwise
     # re-wrap at the terminal edge and split the settings path across
     # two lines, which both reads badly and makes assertions on these

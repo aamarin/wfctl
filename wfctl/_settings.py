@@ -141,7 +141,9 @@ def merge_hook(
     Corrected in place only where the group holds nothing else. A group is the
     unit a matcher applies to, so one shared with the consumer's own hook has
     wfctl's moved out to a group of its own rather than rewritten underneath
-    them.
+    them — which is the one case where the position guarantee above does not
+    hold, and the reason it does not is that keeping the position would mean
+    keeping their matcher wrong.
     """
     managed = _managed_pairs(settings, event)
 
@@ -327,3 +329,23 @@ def related_rules(settings: dict, rule: str) -> list[str]:
         for existing in _deny(settings)
         if isinstance(existing, str) and existing != rule and existing.startswith(verb)
     ]
+
+
+def managed_matcher(settings: dict, event: str) -> str | None:
+    """The matcher on the group holding the managed hook for `event`, or None.
+
+    None means either no managed hook or a group carrying no matcher, and a
+    caller comparing against an expected matcher wants the same answer for both:
+    a tool event whose group says nothing fires on everything, which is not what
+    was installed.
+
+    Separate from `managed_command` because drift has two shapes here and they
+    are repaired by the same command but described differently — an entry that
+    is behind is running old code, one that is scoped wrong is running correct
+    code where nothing will ever call it.
+    """
+    found = [group for group, _ in _managed_pairs(settings, event)]
+    if not found:
+        return None
+    matcher = found[0].get("matcher")
+    return matcher if isinstance(matcher, str) else None

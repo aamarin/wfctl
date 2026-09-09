@@ -424,8 +424,8 @@ Reading a sibling is ordinary review work and cannot cause the failure, so it
 stays allowed. Executing is not reading: `uv run pytest` over there writes a
 `.venv`, builds the package, and reports on a branch this session is not on.
 
-`wfctl install-skills --agent claude` wires it up. What lands in
-`.claude/settings.json`:
+`wfctl install-skills --agent claude` wires it up. The guard's half of what
+lands in `.claude/settings.json` — the merge mode below lists the rest:
 
 ```json
 {
@@ -472,9 +472,11 @@ one entry at a time, leaving every other byte of the file alone.
 
 **The deny rule is yours to remove.** `cd` is an ordinary command, and blocking it
 wholesale catches the case the guard cannot see by also catching harmless ones. If
-you take it out, `doctor` says so and leaves your exit code alone — but the next
-`install-skills` stops rather than putting it back, because a bare string in a
-permissions list cannot say whether you or wfctl wrote it. The refusal names both
+you take it out, the next `install-skills` stops rather than putting it back,
+because a bare string in a permissions list cannot say whether you or wfctl wrote
+it. `doctor` says so too and leaves your exit code alone — though only for a rule
+wfctl added: one you wrote yourself is recorded as yours, and wfctl does not
+report on entries it has disclaimed. The refusal names both
 ways forward: restore the rule, or `--force` to take wfctl's version. Nothing
 records a standing "we don't want this" yet; #313 is where that goes.
 
@@ -504,8 +506,12 @@ wfctl's and the text still matches. A missing record reads as "not wfctl's",
 which costs a leftover entry rather than one of yours.
 
 The `PreToolUse` entry is also the first whose group carries a `matcher`, so an
-install over a hand-wired guard corrects the scope as well as the command — the
-entry keeps its position in the array either way.
+install over a hand-wired guard corrects the scope as well as the command. A
+group is what a matcher applies to, so how that happens depends on who else is in
+it: wfctl's hook alone in a group has the group's matcher corrected and keeps its
+position, while one sharing a group with your own hook moves out into a group of
+its own — correcting it in place would re-scope yours, and uninstall would not
+put that back, because it owns entries rather than matchers.
 
 The `Stop` entry warns and never blocks. The finding rides
 `hookSpecificOutput.additionalContext`, which lands in the next turn's context
