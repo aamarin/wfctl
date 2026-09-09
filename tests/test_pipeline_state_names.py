@@ -21,7 +21,7 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_SPEC
+from tests.conftest import CLEAN_SPEC, structured
 from wfctl import cli
 from wfctl.cli import app
 from wfctl._pipeline import PipelineReport, _infer_steps, build_report
@@ -176,7 +176,7 @@ def test_the_json_view_carries_the_auto_flag(
     # `False` — a payload asserted at one value twice cannot show the field is
     # read rather than emitted.
     storyctl_dir.make_spec_artifact(
-        "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+        "specify", content=structured("# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
     )
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)

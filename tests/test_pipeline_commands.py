@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_SPEC
+from tests.conftest import CLEAN_SPEC, structured
 from wfctl import _verify
 from wfctl.cli import app
 from wfctl._pipeline import (
@@ -169,7 +169,7 @@ def test_a_finished_pipeline_prints_the_checked_completion_messages(
     for step in ("brainstorm", "plan", "analyze", "decompose"):
         storyctl_dir.make_spec_artifact(step)
     # A spec that reads as clarified: the section clarify writes, no open markers.
-    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n## Clarifications\n\nnone\n")
+    storyctl_dir.make_spec_artifact("specify", structured("# Spec\n\n## Clarifications\n\nnone\n"))
     storyctl_dir.make_spec_artifact("tasks", "- [x] T001 done\n")
 
     result = runner.invoke(app, ["next"])
@@ -343,7 +343,7 @@ def test_the_gate_is_one_transition_not_the_rest_of_the_pipeline(
     wide version, which is the blast radius in miniature."""
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n## Clarifications\n\nnone\n")
+    storyctl_dir.make_spec_artifact("specify", structured("# Spec\n\n## Clarifications\n\nnone\n"))
 
     result = runner.invoke(app, ["next"])
 
@@ -940,7 +940,7 @@ def test_in_progress_draws_the_cursor_glyph(
     """
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact(
-        "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+        "specify", content=structured("# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
     )
 
     lines = _status_lines(storyctl_dir)
@@ -1032,7 +1032,7 @@ def test_state_3_a_marked_spec_routes_to_clarify(
     """Markers are clarify's job, so specify is not where the reader is sent back to."""
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact(
-        "specify", content="# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+        "specify", content=structured("# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
     )
 
     lines = _status_lines(storyctl_dir)
@@ -1052,13 +1052,14 @@ def test_state_4_a_spec_that_predates_the_gate_shows_clarify_skipped(
     which one it has. `--json` is where that difference now survives.
     """
     storyctl_dir.make_spec_artifact("brainstorm")
-    storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo markers.\n")
+    storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nNo markers.\n"))
     storyctl_dir.make_spec_artifact("plan")
 
     lines = _status_lines(storyctl_dir)
 
     assert "specify      ●" in lines
-    assert "clarify      –" in lines
+    # Since #309 the line carries why it passed: the plan's existence, not a scan.
+    assert "clarify      –  scan never ran" in lines
     assert "plan         ●" in lines
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)

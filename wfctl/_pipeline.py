@@ -101,12 +101,15 @@ _STEP_NAMES = list(_STEPS)
 #               readily as a new record — or git could not say, which proceeds
 #               (`ambient`). Never checked to be about this change, and not read at
 #               all once `spec.md` exists.
-#   specify     1 + 3. `spec.md` is non-empty and carries no marker. Never 2: its
-#               sections are not read.
+#   specify     1 + 2 + 3. `spec.md` carries every section in
+#               `_REQUIRED_SPEC_SECTIONS`, and no marker. Nothing under a heading is
+#               read, so 2 is the heading and not its contents.
 #   clarify     2 + 3. A `## Clarifications` heading, and no marker left; nothing
 #               under the heading is read. `skipped` where `plan.md` exists and the
-#               heading does not.
-#   plan        1. `plan.md` is non-empty.
+#               heading does not — annotated `scan never ran`, because that pass is
+#               on the plan's existence and not on any evidence a scan happened.
+#   plan        1 + 2. `plan.md` carries every section in
+#               `_REQUIRED_PLAN_SECTIONS`. Never 3: a plan has no marker to carry.
 #   tasks       1. `tasks.md` is non-empty — not that it holds a single task.
 #   analyze     1. `checklists/analysis-report.md` is non-empty.
 #   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
@@ -127,9 +130,11 @@ _STEP_NAMES = list(_STEPS)
 # plan carrying no map or no rows. Both proceed.
 #
 # Where a rung sits below its flag, that is filed, not fixed. #308 is `tasks` and
-# `implement` cleared by a file holding no task; #309 is `specify` and `plan`
-# automatic on a file's mere existence; `decompose` is argued on #240, the issue that
-# would spend it. `brainstorm` is automatic over a weak rung as well and is not
+# `implement` cleared by a file holding no task; `decompose` is argued on #240, the
+# issue that would spend it. #309 was `specify` and `plan` automatic on a file's mere
+# existence, and is settled above — the section names are wfctl's under
+# `required-sections-are-wfctls`, held against the shipped templates by
+# `test_pipeline_sections.py` rather than read from them at inference time. `brainstorm` is automatic over a weak rung as well and is not
 # filed: #283 settled that flag on reversibility, and a blocked step is never
 # automatic whatever the table says (`next_step_content`). Nothing pins these lines
 # to the arms they describe — re-read the arm before trusting one.
@@ -215,6 +220,91 @@ DESIGN_BLOCK_HELP = (
 
 def _file_exists(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
+
+
+# The sections each artifact must carry for its step to pass. wfctl's own list,
+# not one read from the template — `required-sections-are-wfctls`. Inference
+# reads a spec directory and nothing else, and the template it would otherwise
+# consult need not be installed in the repository under inspection: a repo that
+# never ran `install-skills` has no `.specify/`, and neither answer to its
+# absence is acceptable. `tests/test_pipeline_sections.py` holds these against
+# the templates the same wheel ships, which is the condition the record accepted
+# the coupling under — a rename fails the build here rather than changing a
+# verdict in the field.
+#
+# Stems rather than whole lines. The template's own `_(mandatory)_` suffix
+# reaches real specs verbatim, so a whole-line match would reject the corpus
+# these were measured against. Template order, because the annotation lists what
+# is missing and that is the order the reader will look for them in.
+_REQUIRED_SPEC_SECTIONS: tuple[str, ...] = (
+    "User Scenarios & Testing",
+    "Requirements",
+    "Success Criteria",
+    "Validation Strategy",
+)
+
+# `plan-template.md` marks nothing `_(mandatory)_`, so this is wfctl's choice
+# from the headings that template does carry — which is why the drift test
+# asserts the two halves differently, and says so in its own docstring.
+_REQUIRED_PLAN_SECTIONS: tuple[str, ...] = (
+    "Summary",
+    "Technical Context",
+    "Constitution Check",
+    "Project Structure",
+    "Complexity Tracking",
+)
+
+# clarify passed because a plan already exists, not because a scan ran.
+# Annotation only, never `reason`: a `skipped` step is never
+# `_current_step_name`, so a reason set here would reach no consumer, and the
+# contract that field states below is arms setting `in_progress` from evidence.
+CLARIFY_UNSCANNED = "scan never ran"
+
+
+def _missing_reason(missing: tuple[str, ...]) -> str | None:
+    """The held step's line, or None when nothing is missing.
+
+    Names them rather than counting them: the reader fixes the artifact without
+    opening it, which is what the annotation slot is for. Template order comes
+    from the constant, so the list reads in the order the document declares.
+    """
+    return f"missing: {', '.join(missing)}" if missing else None
+
+
+def _prose(path: Path) -> str:
+    r"""The file's text with fenced blocks and inline spans blanked, or "".
+
+    A document that *documents* a heading or a marker does not thereby carry
+    one. ```.*?``` is non-greedy under DOTALL so two separate fences don't merge
+    into one match spanning the prose between them; `[^`\n]+` excludes newline
+    so an unpaired backtick can't swallow the rest of the file.
+
+    Empty and absent collapse to the same "" because `_file_exists` already
+    treats a zero-byte file as absent, and every caller here asks whether there
+    is an artifact rather than whether there is a path.
+    """
+    if not _file_exists(path):
+        return ""
+    return re.sub(r"```.*?```|`[^`\n]+`", "", path.read_text(), flags=re.DOTALL)
+
+
+def _missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
+    r"""Which of `required` the document does not carry, in the order given.
+
+    `^##[ \t]+<name>\b` is the idiom `clarify` already uses for its own
+    heading, and it is reused rather than reinvented so the three structural
+    reads in this file cannot drift apart. MULTILINE anchors `^` to a line
+    rather than the file. `[ \t]` rather than `\s` so a bare `##` line followed
+    by the name on the next line is not a match. `\b` rejects
+    `## RequirementsTODO`, and also rejects `## Functional Requirements` — the
+    second is the strictness the list was chosen for, and the reason three spec
+    directories written before this pipeline existed do not satisfy it.
+    """
+    return tuple(
+        name
+        for name in required
+        if not re.search(rf"^##[ \t]+{re.escape(name)}\b", text, re.MULTILINE)
+    )
 
 
 def _has_open_checkboxes(text: str) -> bool:
@@ -445,16 +535,13 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     tasks_open = _tasks_open(tasks_text, spec_dir)
 
     spec_md = spec_dir / "spec.md"
-    spec_text = ""
-    if _file_exists(spec_md):
-        # Blank out fenced blocks and inline spans before matching, so a spec that
-        # *documents* a marker or a heading doesn't read as having one. Both specify
-        # and clarify match against the result.
-        #
-        # ```.*?``` is non-greedy under DOTALL so two separate fences don't merge
-        # into one match spanning the prose between them; `[^`\n]+` excludes newline
-        # so an unpaired backtick can't swallow the rest of the file.
-        spec_text = re.sub(r"```.*?```|`[^`\n]+`", "", spec_md.read_text(), flags=re.DOTALL)
+    # Blanked before matching, so a spec that *documents* a marker or a heading
+    # doesn't read as having one. specify, clarify and the section read all match
+    # against the result. `plan.md` is read the same way and for the same reason:
+    # `plan-template.md` carries `#` lines inside fenced blocks, so an unblanked
+    # read would count a section the document only illustrates.
+    spec_text = _prose(spec_md)
+    plan_text = _prose(spec_dir / "plan.md")
 
     # templates emit `[NEEDS CLARIFICATION: <question>]`, so the bracketed literal
     # `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix
@@ -465,6 +552,8 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     implement_reason: str | None = None
     decompose_reason: str | None = None
     design_reason: str | None = None
+    specify_reason: str | None = None
+    plan_reason: str | None = None
 
     for name in _STEP_NAMES:
         if cascade:
@@ -494,10 +583,17 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 state = "pending"
 
         elif name == "specify":
-            if _file_exists(spec_md):
-                state = "in_progress" if has_markers else "done"
-            else:
+            if not spec_text:
                 state = "pending"
+            elif has_markers:
+                # Unchanged, and it keeps priority over the section read: a marked
+                # spec is clarify's business, and naming missing sections beside a
+                # marker would route the reader to the wrong command.
+                state = "in_progress"
+            else:
+                missing = _missing_sections(spec_text, _REQUIRED_SPEC_SECTIONS)
+                specify_reason = _missing_reason(missing)
+                state = "in_progress" if missing else "done"
 
         elif name == "clarify":
             # clarify has no file of its own — its artifact is the `## Clarifications`
@@ -529,7 +625,12 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 state = "in_progress"
 
         elif name == "plan":
-            state = "done" if _file_exists(spec_dir / "plan.md") else "pending"
+            if not plan_text:
+                state = "pending"
+            else:
+                missing = _missing_sections(plan_text, _REQUIRED_PLAN_SECTIONS)
+                plan_reason = _missing_reason(missing)
+                state = "in_progress" if missing else "done"
 
         elif name == "tasks":
             state = "done" if tasks_text else "pending"
@@ -589,6 +690,16 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         annotation: str | None = None
         if name == "brainstorm":
             annotation = design_reason
+        elif name == "specify":
+            annotation = specify_reason
+        elif name == "clarify" and state == "skipped":
+            # The step still passes, and that verdict is not relitigated here —
+            # it only stops being silent. Keyed on the state rather than on a
+            # variable set in the arm, because `skipped` is the only branch that
+            # reaches this verdict without a scan.
+            annotation = CLARIFY_UNSCANNED
+        elif name == "plan":
+            annotation = plan_reason
         elif name == "decompose":
             annotation = decompose_reason
         elif name == "implement" and tasks_text:
@@ -607,6 +718,8 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             "implement": implement_reason,
             "brainstorm": design_reason,
             "decompose": decompose_reason,
+            "specify": specify_reason,
+            "plan": plan_reason,
         }.get(name)
         step = _PipelineStep(name, state, annotation, reason)
         step.remedy = _design_remedy(step, repo_root)
