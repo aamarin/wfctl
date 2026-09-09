@@ -374,3 +374,35 @@ def test_related_rules_finds_the_edited_form_and_nothing_else() -> None:
     # The rule itself is not "related to" itself: a caller showing this list is
     # explaining an absence, and echoing the missing rule back reads as present.
     assert _settings.related_rules({"permissions": {"deny": [RULE]}}, RULE) == []
+
+
+def test_a_shared_group_keeps_its_matcher_and_wfctls_hook_moves_out() -> None:
+    """Correcting a matcher in place re-scopes every hook in the group, and a
+    group is what a matcher applies to. The README this change retires told
+    people to wire the guard by hand, so a hand-wired entry sharing a group with
+    their own hook is exactly the population the correction targets — and
+    narrowing their hook from `*` to `Bash` is silent, reported as ✓, and not
+    undone by uninstall, which owns entries rather than matchers."""
+    settings = {
+        "hooks": {
+            PRETOOL: [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "./my-audit.sh"},
+                        {"type": "command", "command": GUARD},
+                    ],
+                }
+            ]
+        }
+    }
+    assert _settings.merge_hook(settings, PRETOOL, GUARD, "Bash") is True
+    theirs, ours = settings["hooks"][PRETOOL]
+    assert theirs == {
+        "matcher": "*",
+        "hooks": [{"type": "command", "command": "./my-audit.sh"}],
+    }
+    assert ours == {"matcher": "Bash", "hooks": [{"type": "command", "command": GUARD}]}
+    # And uninstall leaves their group exactly as they wrote it.
+    _settings.remove_hooks(settings, PRETOOL)
+    assert settings["hooks"][PRETOOL] == [theirs]

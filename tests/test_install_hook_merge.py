@@ -121,7 +121,14 @@ def test_install_warns_on_invalid_json_and_still_completes_every_other_target(
 ) -> None:
     """One malformed settings file must not cost the consumer the whole install.
     A refusal here would trade a working skills tree for a file they have to fix
-    before they can have either — FR-010."""
+    before they can have either — FR-010.
+
+    Asserts on "not added or updated" rather than on "left untouched", which the
+    message used to carry and no longer can: the hook pass and the permission
+    pass fail independently, so a `hooks` key the consumer malformed stops one
+    while the other rewrites the same file. Here both fail and the file really is
+    untouched — which is checked below on the bytes, where it is a fact rather
+    than a claim in a sentence."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
@@ -130,7 +137,7 @@ def test_install_warns_on_invalid_json_and_still_completes_every_other_target(
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
     assert "settings.json" in result.output
-    assert "left untouched" in result.output
+    assert "not added or updated" in result.output
     # Untouched means untouched: the malformed bytes are exactly what was there.
     assert settings_path.read_text() == "{not valid json"
     # Every other target still lands.
@@ -800,7 +807,6 @@ def test_a_fresh_install_never_trips_the_refusal(agent_dir: Path) -> None:
     """The one genuinely unattended install is worktree creation, whose
     `.claude/` is made by that same install. This is what makes a refusal safe
     to put in a command a `post_create` hook runs with nobody watching."""
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
 
@@ -908,3 +914,140 @@ def test_doctor_says_nothing_about_a_rule_the_repo_wrote_themselves(
 
     result = runner.invoke(app, ["doctor"])
     assert DENY_RULE not in result.output
+
+
+def test_a_committed_manifest_with_no_settings_file_installs(agent_dir: Path) -> None:
+    """A fresh clone of a repo that commits its manifest: every receipt present,
+    no `.claude/` yet, because that tree is what is gitignored. Reading the
+    absent file as a removed rule refused the install and copied nothing — from
+    `post_create`, with nobody watching, which is where this command runs."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        json.dumps(
+            {
+                "claude": {
+                    "items": [],
+                    "permissions": [
+                        {
+                            "path": ".claude/settings.json",
+                            "rule": DENY_RULE,
+                            "added": True,
+                        }
+                    ],
+                }
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    assert not _settings_path(repo_root).exists()
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert (repo_root / ".agents" / "skills" / "test-skill" / "SKILL.md").exists()
+    assert _settings_path(repo_root).exists()
+
+
+def test_deleting_the_settings_file_outright_is_not_drift(agent_dir: Path) -> None:
+    """The same gap from the other side, and the likelier route to it: someone
+    who deletes `.claude/` to start clean. Nothing of wfctl's survives there to
+    have drifted, so the install restores rather than refusing."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    import shutil
+
+    shutil.rmtree(repo_root / ".claude")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert DENY_RULE in json.loads(
+        _settings_path(repo_root).read_text()
+    )["permissions"]["deny"]
+
+
+def test_a_malformed_hooks_key_does_not_claim_the_file_was_left_alone(
+    agent_dir: Path,
+) -> None:
+    """The two passes fail independently. A `hooks` key the consumer malformed
+    stops the hook merge while the permission merge writes the same file — so a
+    message saying the file was left untouched was untrue about exactly the runs
+    that printed it, and the reflow it denied had already happened."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"hooks": "not a map", "model": "opusplan"}, indent=4) + "\n"
+    )
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert "left untouched" not in result.output
+    # Both halves say what they are about, and neither calls a rule a hook.
+    assert "the managed hook was not added or updated" in result.output
+    after = json.loads(settings_path.read_text())
+    assert after["hooks"] == "not a map"
+    assert after["model"] == "opusplan"
+    assert after["permissions"]["deny"] == [DENY_RULE]
+
+
+def test_a_malformed_permissions_key_is_not_reported_as_a_hook(
+    agent_dir: Path,
+) -> None:
+    """The mirror case. Folding both problem lists into one loop produced a
+    warning saying "the managed hook was not added" about something that is not
+    a hook, which sends the reader to the wrong key in their own file."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": ["deny"]}, indent=2) + "\n"
+    )
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert "the managed permission rule was not added" in result.output
+    # The hooks still landed: only the permission half had anything to refuse.
+    assert json.loads(settings_path.read_text())["hooks"]["PreToolUse"]
+
+
+def test_the_refusal_says_whose_the_rule_was(agent_dir: Path) -> None:
+    """"which wfctl installed" is the claim the `added` field was built to deny.
+    A repo that wrote the rule themselves, told wfctl put it there, has been
+    given the one piece of misinformation the receipt exists to prevent."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [DENY_RULE]}}, indent=2) + "\n"
+    )
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 1
+    assert "recorded as already yours" in result.output
+    assert "which wfctl installed" not in result.output
+    # And the reader is told what taking wfctl's version costs them.
+    assert "records the rule as wfctl's" in result.output
+
+
+def test_a_half_written_receipt_does_not_crash_doctor_or_uninstall(
+    agent_dir: Path,
+) -> None:
+    """The manifest is gitignored and hand-editable, and `added` is already read
+    defensively for that reason. `path` and `rule` were not, so a record missing
+    either raised `KeyError` out of a command `/start-session` runs — and out of
+    an uninstall, over wfctl's own bookkeeping rather than anything in the
+    consumer's file."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claude"]["permissions"] = [{"rule": DENY_RULE, "added": True}]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    assert runner.invoke(app, ["doctor"]).exit_code in (0, 1)
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output

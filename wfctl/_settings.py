@@ -137,6 +137,11 @@ def merge_hook(
     command wfctl recognises inside a group that fires on every tool, and
     replacing only the command would report success over an entry still scoped
     wrong.
+
+    Corrected in place only where the group holds nothing else. A group is the
+    unit a matcher applies to, so one shared with the consumer's own hook has
+    wfctl's moved out to a group of its own rather than rewritten underneath
+    them.
     """
     managed = _managed_pairs(settings, event)
 
@@ -148,7 +153,21 @@ def merge_hook(
             hook["type"] = "command"
             changed = True
         if matcher is not None and group.get("matcher") != matcher:
-            group["matcher"] = matcher
+            if len(_hooks_of(group)) == 1:
+                group["matcher"] = matcher
+            else:
+                # The group is shared, and a matcher is the whole group's. The
+                # consumer put their own hook in here — correcting the matcher in
+                # place would silently re-scope theirs, which is the one thing
+                # this mode promises never to do, and `remove_hooks` would leave
+                # it narrowed after an uninstall because a matcher is not an entry
+                # it owns. So wfctl's hook leaves instead: theirs keeps the
+                # matcher it was written with, and the guard gets the scope it
+                # needs.
+                group["hooks"] = [h for h in _hooks_of(group) if h is not hook]
+                _groups(settings, event).append(
+                    {"matcher": matcher, "hooks": [hook]}
+                )
             changed = True
         return changed
 
@@ -299,7 +318,10 @@ def related_rules(settings: dict, rule: str) -> list[str]:
     Returning nothing is an answer rather than a gap: the rule may simply have
     been deleted, and inventing a candidate would be worse than saying nothing.
     """
-    verb = rule.split(":", 1)[0]
+    # The colon is kept on the prefix. Without it `Bash(cd:*)` also claims
+    # `Bash(cdk:*)`, and naming an unrelated rule as "the edited form" is worse
+    # than naming none: it sends a reader to change something they never touched.
+    verb = rule.split(":", 1)[0] + ":"
     return [
         existing
         for existing in _deny(settings)

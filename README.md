@@ -458,10 +458,11 @@ It is a heuristic and says so. It reads the command as text, so a relative path
 (`../105-mypy-cold-venv/…`), a path built in a variable, or a script that `cd`s
 elsewhere all pass unseen — resolving those means parsing shell. `cd` itself is
 not an allowlisted verb, so the `Bash(cd:*)` denial above closes most of the
-remainder — which is why the install seeds both, not just the hook. Nothing fires unless a path in the command belongs to a
-worktree that already exists, so `git worktree add` to a fresh path outside every
-one of them is invisible too. Worktrees outside `wt/` are *not* a gap: the roots
-come from `git worktree list`. See `wfctl/_guard.py` for the full list of what it
+remainder — which is why the install seeds both, not just the hook. Nothing
+fires unless a path in the command belongs to a worktree that already exists,
+so `git worktree add` to a fresh path outside every one of them is invisible
+too. Worktrees outside `wt/` are *not* a gap: the roots come from
+`git worktree list`. See `wfctl/_guard.py` for the full list of what it
 cannot catch.
 
 Not seeded by `install-config`, which is seed-once and would refuse a
@@ -531,9 +532,11 @@ or falls behind. A missing hook is a finding and exits 1; a missing `Bash(cd:*)`
 is a warning that leaves the exit code alone, because removing it is a decision a
 repo is entitled to make and a red build is no way to argue with one. The write
 is where that decision is met instead: `install-skills` refuses rather than
-re-asserting a rule the repo has changed, and `--force` is how you tell it to. The first install that adds the entry reflows the file (key order, array
-layout and indent width are lost to the JSON round-trip; the trailing newline,
-the file mode and any non-ASCII survive). Later installs leave it closed.
+re-asserting a rule the repo has changed, and `--force` is how you tell it to.
+
+The first install that adds an entry reflows the file (key order, array layout
+and indent width are lost to the JSON round-trip; the trailing newline, the file
+mode and any non-ASCII survive). Later installs leave it closed.
 
 The file is deliberately not gitignored — committing it is what shares the hook
 with everyone who clones. That is also why the hook reads the manifest rather

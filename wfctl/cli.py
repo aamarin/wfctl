@@ -1699,9 +1699,11 @@ GUARD_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_WORKTREE_GUARD}"
 
 # Event → the command this wfctl installs for it. One map rather than a pair of
 # constants because three separate places have to agree on it: the merge, the
-# uninstall record it writes, and `doctor`'s freshness check. The two entries are
+# uninstall record it writes, and `doctor`'s freshness check. The first two are
 # opposite halves of the same skill — `UserPromptSubmit` re-anchors the rules
 # before a reply is written, `Stop` looks at what was actually written (#212).
+# `PreToolUse` belongs to neither: it is the cross-worktree guard, and the only
+# one of the three that blocks rather than reports.
 MANAGED_HOOKS = {
     SETTINGS_EVENT: HOOK_COMMAND,
     STOP_EVENT: STOP_HOOK_COMMAND,
@@ -1726,8 +1728,8 @@ _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
 
-# What `doctor` says a missing entry costs. Per event, because the two lose
-# different things and "the managed hook is gone" tells the reader neither.
+# What `doctor` says a missing entry costs. Per event, because each loses
+# something different and "the managed hook is gone" names none of them.
 _HOOK_GONE = {
     SETTINGS_EVENT: "is gone — the skills it re-anchors decay again mid-session",
     STOP_EVENT: "is gone — nothing looks at a reply once it is written",
@@ -2205,12 +2207,19 @@ def _managed_permissions(agent: str) -> list[tuple[str, str]]:
 
 def _permission_drift(
     repo_root: Path, agent: str, manifest: dict
-) -> tuple[str, str, list[str]] | None:
+) -> tuple[str, str, list[str], bool] | None:
     """The first managed rule a receipt claims and the file no longer carries.
 
-    `(path, rule, related)`, where `related` is whatever else in their deny list
-    denies the same verb — usually the edited form of the rule, and empty when
-    the rule was simply deleted.
+    `(path, rule, related, added)`, where `related` is whatever else in their deny
+    list denies the same verb — usually the edited form of the rule, and empty
+    when the rule was simply deleted — and `added` is the receipt's own answer to
+    who put the rule there.
+
+    `added` does not decide whether to stop: a receipt is wfctl's record that it
+    looked at this entry, and the repo is equally entitled to delete a rule wfctl
+    installed and one it merely noticed. It decides what the refusal may *say*.
+    Telling someone who wrote the rule themselves that wfctl installed it is
+    precisely the claim `added` exists to deny.
 
     None when there is nothing to stop for, which includes every case wfctl
     cannot be sure about. A file it cannot parse is one of those: drift is not
@@ -2229,10 +2238,23 @@ def _permission_drift(
             # No receipt is not drift. wfctl has never looked at this entry, so
             # the install adds it and records what it found — the ordinary path.
             continue
-        settings, _ = _read_settings(repo_root / rel)
+        path = repo_root / rel
+        # A file that is not there is not a rule someone removed. `_read_settings`
+        # reports a missing file as `({}, None)` on purpose, and reading that as
+        # drift refuses the one install that most needs to run: a fresh clone
+        # whose manifest is committed has every receipt and no `.claude/` yet, and
+        # `post_create` runs this command with nobody watching.
+        if not path.exists():
+            continue
+        settings, _ = _read_settings(path)
         if settings is None or _settings.permission_present(settings, rule):
             continue
-        return rel, rule, _settings.related_rules(settings, rule)
+        return (
+            rel,
+            rule,
+            _settings.related_rules(settings, rule),
+            bool(receipts[0].get("added", False)),
+        )
     return None
 
 
@@ -2316,17 +2338,24 @@ def _unmerge_permissions(
     declined: list[tuple[str, str, list[str]]] = []
     problems: list[str] = []
     for record in records:
-        rel, rule = record["path"], record["rule"]
+        rel, rule = record.get("path"), record.get("rule")
+        # The manifest is gitignored and hand-editable, and `added` is already
+        # read with `.get` for that reason. A record missing the fields naming
+        # what to remove says nothing about the consumer's file, and raising
+        # there fails an uninstall over wfctl's own bookkeeping.
+        if not rel or not rule:
+            continue
+        if not record.get("added", False):
+            # Recorded as theirs at install time. wfctl never owned it, so
+            # uninstall has nothing to remove and nothing to report — including
+            # about a file it cannot parse, which is why this precedes the read.
+            continue
         path = repo_root / rel
         if not path.exists():
             continue
         settings, problem = _read_settings(path)
         if settings is None:
             problems.append(f"{rel}: {problem}")
-            continue
-        if not record.get("added", False):
-            # Recorded as theirs at install time. wfctl never owned it, so
-            # uninstall has nothing to remove and nothing to report.
             continue
         if not _settings.remove_permission(settings, rule):
             declined.append((rel, rule, _settings.related_rules(settings, rule)))
@@ -2765,21 +2794,30 @@ def install_skills_cmd(
     # that no longer matches it is a change only a person can explain.
     drift = None if force else _permission_drift(repo_root, agent, manifest)
     if drift is not None:
-        drifted_path, rule, related = drift
+        drifted_path, rule, related, was_wfctls = drift
+        whose = (
+            "which wfctl installed"
+            if was_wfctls
+            else "which wfctl recorded as already yours"
+        )
         console.print(
             f"[red]✗[/red] {escape(drifted_path)} no longer carries "
-            f"[cyan]{escape(rule)}[/cyan], which wfctl installed.",
+            f"[cyan]{escape(rule)}[/cyan], {whose}.",
             soft_wrap=True,
         )
         for existing in related:
             console.print(f"    it now denies: [cyan]{escape(existing)}[/cyan]")
+        forced = "wfctl install-skills --agent " + agent + " --force"
         console.print(
             "  Nothing was installed. Removing that rule is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
             f"    keep your version   — restore [cyan]{escape(rule)}[/cyan] "
             "by hand, or leave it out and\n"
-            "                          expect this on every install\n"
-            f"    take wfctl's        — wfctl install-skills --agent {escape(agent)} --force",
+            "                          expect this on every install, including the "
+            "one\n                          `/start-session` runs unattended\n"
+            f"    take wfctl's        — {escape(forced)}\n"
+            "                          which records the rule as wfctl's, so a "
+            "later uninstall\n                          removes it",
             soft_wrap=True,
         )
         raise typer.Exit(1)
@@ -3156,7 +3194,6 @@ def install_skills_cmd(
     permissions, perm_written, perm_problems = _merge_permissions(
         repo_root, agent, prior_permissions
     )
-    merge_problems.extend(perm_problems)
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -3384,8 +3421,18 @@ def install_skills_cmd(
         # working install for an unparseable settings file the user has to fix
         # before they can have either.
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — left untouched; the managed hook "
-            "was not added or updated",
+            f"[yellow]⚠[/yellow] {problem} — the managed hook was not added or "
+            "updated",
+            soft_wrap=True,
+        )
+    for problem in perm_problems:
+        # Its own sentence rather than a line in the loop above. The two passes
+        # fail independently — a malformed `hooks` key stops one while the other
+        # writes the same file — so a shared message saying the file was left
+        # untouched would be untrue about half the runs that print it.
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — the managed permission rule was not "
+            "added",
             soft_wrap=True,
         )
 
@@ -3415,7 +3462,10 @@ def install_skills_cmd(
         # cannot mark as its own. A reader who later wonders where a blanket `cd`
         # denial came from has this line, and nothing in the file itself, to
         # answer them.
-        if any(r["path"] == merged_rel and r["added"] for r in permissions):
+        # `perm_written`, not the record: a receipt is carried forward, so
+        # `added` stays true for the life of the install and this line would keep
+        # announcing a rule it did not touch.
+        if merged_rel in perm_written:
             console.print(
                 f"  It also now denies [cyan]{escape(DENY_RULE)}[/cyan] — the guard "
                 "reads a command as text,\n  so a relative path into a sibling "
@@ -3524,10 +3574,16 @@ def uninstall_skills_cmd(
     unmerged_perms, declined, perm_problems = _unmerge_permissions(
         repo_root, entry.get("permissions", [])
     )
-    for problem in unmerge_problems + perm_problems:
+    for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
             "this file; the record naming it is being removed either way",
+            soft_wrap=True,
+        )
+    for problem in perm_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — wfctl's permission rule may still be "
+            "in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
 
@@ -3568,23 +3624,29 @@ def uninstall_skills_cmd(
             "  Your own entries in them were left alone.",
             soft_wrap=True,
         )
+    from rich.markup import escape
+
     for declined_path, rule, related in declined:
         # A rule wfctl installed and someone has since rewritten. Saying nothing
         # would leave "your own entries were left alone" standing over an entry
         # that is descended from wfctl's, which is the one reading of that line
         # this feature must not allow.
-        from rich.markup import escape as _escape
-
-        console.print(
-            f"[yellow]⚠[/yellow] {_escape(declined_path)}: left "
-            f"[cyan]{_escape(related[0])}[/cyan] in place"
+        #
+        # "denies this instead" rather than "left the edited rule": which of their
+        # rules is the edit is a guess off the verb, and stating it as a fact
+        # about their file is a claim `related_rules` cannot support.
+        tail = (
+            f"it denies [cyan]{escape(related[0])}[/cyan] instead"
             if related
-            else f"[yellow]⚠[/yellow] {_escape(declined_path)}: nothing removed",
+            else "nothing there matched, so nothing was removed"
+        )
+        console.print(
+            f"[yellow]⚠[/yellow] {escape(declined_path)}: {tail}",
             soft_wrap=True,
         )
         console.print(
-            f"  wfctl installed [cyan]{_escape(rule)}[/cyan] and it has since been "
-            "edited, so it was not removed.",
+            f"  wfctl installed [cyan]{escape(rule)}[/cyan] and it has since been "
+            "edited, so it was left in place.",
             soft_wrap=True,
         )
 
@@ -4986,9 +5048,9 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
 
     for layer in _layer_keys(manifest):
         for record in manifest[layer].get("permissions", []):
-            if not record.get("added", False):
+            rel, rule = record.get("path"), record.get("rule")
+            if not record.get("added", False) or not rel or not rule:
                 continue
-            rel, rule = record["path"], record["rule"]
             settings, _ = _read_settings(repo_root / rel)
             # Unreadable is not gone. The hook check above already names a file it
             # cannot parse, and saying it twice about one file helps nobody.
@@ -5001,7 +5063,11 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
                 soft_wrap=True,
             )
             console.print(
-                f"    restore: wfctl install-skills --agent {layer} --force"
+                "    every install refuses until this is settled, including the "
+                "one `/start-session`\n    runs unattended"
+            )
+            console.print(
+                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
             )
 
 
