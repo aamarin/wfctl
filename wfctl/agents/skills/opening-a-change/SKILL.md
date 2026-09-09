@@ -295,7 +295,8 @@ a repository whose readers are all of that kind, an empty reviewer field is the
 finished state, and the way to know which kind you have is to look at a PR you
 did not touch.
 
-Then read it back — and read it back with the check, not by eye:
+Then read it back — with the check where it is available, and by eye where it
+is not:
 
 ```bash
 wfctl change check <pr>
@@ -303,15 +304,36 @@ wfctl change check <pr>
 
 It reports every field the issue carries that the change does not, plus any your
 repository named in `change_check` in `wfctl.json`, and stays silent about
-everything else. `⚠` is a finding, `✓` a field it verified, and `ℹ` **no verdict
-at all** — nothing was expected, or the backend declines to report fields. Exit 1
-means this step is unfinished.
+everything else. `⚠` is a finding, `✓` a field it verified. Exit 1 means this
+step is unfinished.
 
 This exists because the paragraph above it was skipped across several worktrees
 (#302). A run that copied the sidebar and a run that did not produced the same
 observable state, so nothing disagreed. Now something does.
 
-The check does not reach the two below, which are not copied from anywhere:
+**`ℹ No \`fields\` verb for changes` is not a pass, and it is the answer you
+should expect first.** It means the tracker config in this repo predates the
+verb, so the check read nothing and exited 0 — and *no ordinary command tells
+you*. A bare `install-skills` fills a missing tracker file and never refreshes a
+present one; `doctor` does not look inside `.agents/trackers/`; `tracker-check`
+prints the `verbs` section only, never `changes`, which is the half this reads
+first. The refresh is explicit:
+
+```bash
+wfctl install-skills --tracker <name>     # `github` for the shipped backend
+```
+
+Until that has been run, and in any repo whose backend declines the verb, do the
+read-back by hand. This is the instruction the check replaces, not one it
+retired:
+
+```bash
+gh pr view <pr> --json labels,assignees,milestone,projectItems     # copied
+```
+
+The copied set is done when it matches the issue's.
+
+Neither form reaches the two below, which are not copied from anywhere:
 
 ```bash
 gh pr view <pr> --json closingIssuesReferences,reviewRequests,latestReviews

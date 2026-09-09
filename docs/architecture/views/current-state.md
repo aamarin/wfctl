@@ -24,7 +24,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _pipeline 593   _arch 446   _archive 339   _guard 293        │      ┊
    │ _verify 245     _tracker 262   _workmux 274   _settings 173  │      ┊
    │ _shape 239      _session 164   _bundle 126   _body 399       │      ┊
-   │ _change 201                                              │      ┊
+   │ _change 201                                                  │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊

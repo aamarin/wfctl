@@ -1567,6 +1567,14 @@ def _render_change_check(
     or the backend declined to answer. A run that checked nothing must never look
     like a run that passed, which is the failure this whole command exists to
     correct, and printing `✓` on an empty check would reproduce it here.
+
+    Everything interpolated is escaped. Backend stderr is the reason: a hand
+    authored backend that prefixes its errors `[error]` has that prefix eaten by
+    rich's markup parser, and one whose output carries a closing tag takes the
+    command down with a `MarkupError` — destroying the only diagnostic on the
+    one path that has nothing else to say. `_tracker.dispatch` answers the same
+    question with `markup=False`; these lines carry a marker of their own, so
+    they escape instead.
     """
     from rich.markup import escape
 
@@ -1575,24 +1583,37 @@ def _render_change_check(
     required, errs = _change.load_required(repo_root)
     if errs:
         for err in errs:
-            console.print(f"[yellow]⚠[/yellow] {err}")
+            console.print(f"[yellow]⚠[/yellow] {escape(err)}")
         return 1
 
     change_fields, detail = _tracker.read_fields(repo_root, "changes", change_id)
     if change_fields is None:
         if detail is None:
-            console.print(f"ℹ No `fields` verb for changes — skipping check of {change_id}")
+            console.print(
+                f"ℹ No `fields` verb for changes — skipping check of "
+                f"{escape(change_id)}.\n"
+                "  A tracker config that predates this verb is refreshed with "
+                "`wfctl install-skills --tracker <name>`."
+            )
             return 0
-        console.print(f"[red]✗[/red] could not read {change_id}: {detail}")
+        console.print(f"[red]✗[/red] could not read {escape(change_id)}: {escape(detail)}")
         return 1
 
-    # A branch with no key has no issue to inherit from, which is a state rather
-    # than a fault — `wfctl change check` is run from worktrees made outside the
-    # naming rule too. What the repository requires is still checked.
+    # Three states, not two, and the difference is what the reader does next. A
+    # branch with no key has no issue; a backend that declines `fields` has one
+    # nobody can read; an issue that answered may simply carry nothing. Telling
+    # them apart is the distinction `_read_verb` exists to preserve, and
+    # collapsing it here would undo that one layer up.
     issue_fields: dict | None = None
     issue_detail: str | None = None
-    if issue != "unknown":
+    if issue == "unknown":
+        no_issue = "the branch carries no issue key"
+    else:
         issue_fields, issue_detail = _tracker.read_fields(repo_root, "verbs", issue)
+        no_issue = (
+            "the tracker reports no fields for issues" if issue_fields is None
+            else "the issue has none set"
+        )
 
     rows = _change.compare(required, issue_fields, change_fields)
     findings = [r for r in rows if not r.satisfied]
@@ -1602,24 +1623,30 @@ def _render_change_check(
         # A read that was attempted and failed is not a source that had nothing
         # to say: collapsing the two lets a run that saw half of what it needed
         # exit like a clean one.
-        console.print(f"[red]✗[/red] could not read #{issue}: {issue_detail}")
+        console.print(
+            f"[red]✗[/red] could not read #{escape(issue)}: {escape(issue_detail)}"
+        )
 
+    # Widened to the longest key rather than fixed, because a fixed 14 ran flush
+    # against `reviewRequests` — which is exactly 14 characters and ships in the
+    # default payload, so the shipped config produced `reviewRequestsempty; …`.
+    width = max((len(r.key) for r in rows), default=0) + 2
     for row in findings:
-        console.print(f"[yellow]⚠[/yellow] {row.key:<14}{escape(_change.describe(row))}")
+        console.print(
+            f"[yellow]⚠[/yellow] {escape(row.key):<{width}}{escape(_change.describe(row))}"
+        )
     for row in rows:
         if row.satisfied:
-            console.print(f"[green]✓[/green] {row.key:<14}{escape(_change.describe(row))}")
+            console.print(
+                f"[green]✓[/green] {escape(row.key):<{width}}{escape(_change.describe(row))}"
+            )
 
     if issue_detail is not None:
         return 1
     if not rows:
-        where = (
-            "the issue has none set" if issue_fields is not None
-            else "there is no issue to inherit from"
-        )
         console.print(
-            f"ℹ {change_id}: nothing to check — {_change.CONFIG_PATH} requires no "
-            f"fields, and {where}"
+            f"ℹ {escape(change_id)}: nothing to check — {_change.CONFIG_PATH} "
+            f"requires no fields, and {no_issue}"
         )
         return 0
     return 1 if findings else 0

@@ -44,13 +44,6 @@ from wfctl._verify import CONFIG_PATH
 
 CONFIG_KEY = "change_check"
 
-# The three ways a key can come to be worth reporting. `unreported` is the one
-# that is easy to leave out and expensive to: `wfctl.json` naming a key the
-# backend never emits is a typo, and treating it as "nothing required" makes the
-# typo mean the requirement was never written — a check that quietly stops
-# checking, which is the failure class the feature exists to close.
-SOURCES = ("required", "inherited", "unreported")
-
 
 @dataclass(frozen=True)
 class Field:
@@ -64,6 +57,11 @@ class Field:
     """
 
     key: str
+    # `required`, `inherited`, or `unreported` — the last being `wfctl.json`
+    # naming a key the backend never emits. Easy to leave out and expensive to:
+    # treating an absent key as "nothing required" makes a typo mean the
+    # requirement was never written, which is a check that quietly stops
+    # checking.
     source: str
     satisfied: bool
     missing: list = field(default_factory=list)

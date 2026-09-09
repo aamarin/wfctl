@@ -40,17 +40,26 @@ def _configure(repo_root: Path, config: object = _CONFIG) -> None:
     (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "github"}))
 
 
-def _answers(monkeypatch: pytest.MonkeyPatch, change: object, issue: object) -> None:
-    """Answer the change read then the issue read, in that order.
+def _answers(monkeypatch: pytest.MonkeyPatch, change: object, issue: object) -> list:
+    """Answer the change read and the issue read, told apart by their argv.
 
     Either may be an exception to raise or an exit code to fail with, so a test
     can fail exactly one of the two reads — which is the case the exit code
     turns on and the one a single stub could not express.
+
+    Returns the argv list every call was made with, so a test can assert *which*
+    id went to which section rather than only what came back.
     """
+    seen: list = []
     queue = [change, issue]
 
     def fake_run(argv, **kwargs):
-        nxt = queue.pop(0) if queue else {}
+        # Keyed on the argv, not on call order. Answering positionally left
+        # "which id reaches which section" unpinned: swapping the two reads made
+        # the command compare the change against itself and every test here
+        # still passed.
+        nxt = queue[0] if "pr" in argv else queue[1]
+        seen.append(argv)
         if isinstance(nxt, BaseException):
             raise nxt
         if isinstance(nxt, int):
@@ -58,6 +67,7 @@ def _answers(monkeypatch: pytest.MonkeyPatch, change: object, issue: object) -> 
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(nxt), stderr="")
 
     monkeypatch.setattr(_tracker.subprocess, "run", fake_run)
+    return seen
 
 
 def _require(repo_root: Path, *keys: str) -> None:
@@ -101,13 +111,23 @@ def test_nothing_required_and_nothing_to_inherit_says_so_rather_than_passing(
     assert "✓" not in result.output
 
 
-def test_a_backend_that_declines_fields_is_skipped_not_failed(
-    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_backend_that_declines_fields_is_skipped_and_says_how_to_fix_it(
+    agent_dir: Path,
 ) -> None:
+    """Exit 0, because a session must not fail on a tracker step that could not
+    run — but the reason is the one a reader cannot otherwise discover.
+
+    A bare `install-skills` never refreshes a tracker file already present,
+    `doctor` does not look inside `.agents/trackers/`, and `tracker-check`
+    prints the `verbs` section only. So a repo whose config predates this verb
+    gets a silent skip from every command that would normally tell it, and this
+    line is the only place the remedy appears.
+    """
     _configure(agent_dir.parent, {"verbs": {"list": ["gh"]}, "changes": {"list": ["gh"]}})
     result = runner.invoke(app, ["change", "check", "301"])
     assert result.exit_code == 0
     assert "skipping" in result.output
+    assert "--tracker" in result.output
 
 
 def test_no_tracker_at_all_is_skipped_not_failed(agent_dir: Path) -> None:
@@ -167,11 +187,20 @@ def test_a_payload_the_verb_never_flattened_names_the_config_not_a_traceback(
 def test_a_malformed_change_check_declaration_is_reported_before_any_read(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """"Before any read" is the half worth pinning.
+
+    A declaration nobody can parse decides the run on its own, so spending a
+    network call first would be work whose answer is already known — and would
+    put a tracker's failure in front of a reader whose actual problem is a file
+    in their own repo.
+    """
     _configure(agent_dir.parent)
+    seen = _answers(monkeypatch, change={}, issue={})
     (agent_dir.parent / "wfctl.json").write_text(json.dumps({"change_check": "assignees"}))
     result = runner.invoke(app, ["change", "check", "301"])
     assert result.exit_code == 1
     assert "change_check" in result.output
+    assert seen == []
 
 
 def test_check_without_a_change_id_refuses(agent_dir: Path) -> None:
@@ -197,3 +226,83 @@ def test_list_and_view_still_dispatch_to_the_backend(
     _configure(agent_dir.parent)
     runner.invoke(app, ["change", "view", "128"])
     assert calls == [["gh", "pr", "view", "128"]]
+
+
+def test_a_branch_with_no_issue_key_still_checks_what_the_repo_requires(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The branch that had no test, and would have failed every worktree made
+    outside the naming rule.
+
+    `conftest` pins a branch that always carries a key, so the guard was never
+    taken and deleting it left the suite green. What it protects is a real
+    worktree: `wfctl change check` is run from trees named for no issue too, and
+    the repository's own requirements are knowable without one.
+    """
+    monkeypatch.setenv("WFCTL_BRANCH", "docs-typo")
+    _configure(agent_dir.parent)
+    _require(agent_dir.parent, "assignees")
+    seen = _answers(monkeypatch, change={"assignees": []}, issue={"labels": ["P1"]})
+    result = runner.invoke(app, ["change", "check", "305"])
+    assert result.exit_code == 1
+    assert "assignees" in result.output
+    # One read, not two. There is no issue to ask about, and asking anyway would
+    # send a branch name at a tracker as though it were a key.
+    assert len(seen) == 1
+
+
+def test_a_declined_issue_read_is_not_reported_as_an_issue_with_nothing_set(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one place the command had collapsed a distinction it defends everywhere else.
+
+    `_read_verb` keeps "the backend declined" apart from "the answer was empty"
+    on purpose. The `ℹ` line used to say "the issue has none set" when the issue
+    existed and its backend simply reports no fields — pointing the reader away
+    from the only thing that would fix it.
+    """
+    _configure(
+        agent_dir.parent,
+        {"verbs": {"list": ["gh"]},
+         "changes": {"list": ["gh"], "fields": ["gh", "pr", "view", "{id}"]}},
+    )
+    _answers(monkeypatch, change={"labels": []}, issue={})
+    result = runner.invoke(app, ["change", "check", "301"])
+    assert result.exit_code == 0
+    assert "no fields for issues" in result.output
+    assert "none set" not in result.output
+
+
+def test_backend_stderr_carrying_markup_is_shown_rather_than_eaten(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hand-authored backend prefixing its errors `[error]` had that prefix
+    deleted by rich, and one emitting a closing tag took the command down.
+
+    The failure path is the one with nothing else to say, so destroying its only
+    diagnostic costs everything. `_tracker.dispatch` answers this with
+    `markup=False`; these lines carry a marker of their own and escape instead.
+    """
+    _configure(agent_dir.parent)
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="[error] no [/x]")
+
+    monkeypatch.setattr(_tracker.subprocess, "run", fake_run)
+    result = runner.invoke(app, ["change", "check", "301"])
+    assert result.exit_code == 1
+    assert "[error]" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_a_key_as_long_as_the_column_still_has_a_gap_after_it(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`reviewRequests` is exactly the width the column used to be fixed at, and
+    ships in the default payload — so the shipped config rendered
+    `reviewRequestsempty; …` with no separator at all."""
+    _configure(agent_dir.parent)
+    _require(agent_dir.parent, "reviewRequests")
+    _answers(monkeypatch, change={"reviewRequests": []}, issue={})
+    result = runner.invoke(app, ["change", "check", "301"])
+    assert "reviewRequests " in result.output
