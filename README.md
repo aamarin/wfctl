@@ -424,7 +424,8 @@ Reading a sibling is ordinary review work and cannot cause the failure, so it
 stays allowed. Executing is not reading: `uv run pytest` over there writes a
 `.venv`, builds the package, and reports on a branch this session is not on.
 
-Wire it up in `.claude/settings.json`:
+`wfctl install-skills --agent claude` wires it up. The guard's half of what
+lands in `.claude/settings.json` — the merge mode below lists the rest:
 
 ```json
 {
@@ -435,7 +436,8 @@ Wire it up in `.claude/settings.json`:
         "hooks": [{ "type": "command", "command": "wfctl hook worktree-guard" }]
       }
     ]
-  }
+  },
+  "permissions": { "deny": ["Bash(cd:*)"] }
 }
 ```
 
@@ -455,28 +457,61 @@ has no session.
 It is a heuristic and says so. It reads the command as text, so a relative path
 (`../105-mypy-cold-venv/…`), a path built in a variable, or a script that `cd`s
 elsewhere all pass unseen — resolving those means parsing shell. `cd` itself is
-not an allowlisted verb, and pairing this with `"deny": ["Bash(cd:*)"]` closes
-most of the remainder. Nothing fires unless a path in the command belongs to a
-worktree that already exists, so `git worktree add` to a fresh path outside every
-one of them is invisible too. Worktrees outside `wt/` are *not* a gap: the roots
-come from `git worktree list`. See `wfctl/_guard.py` for the full list of what it
+not an allowlisted verb, so the `Bash(cd:*)` denial above closes most of the
+remainder — which is why the install seeds both, not just the hook. Nothing
+fires unless a path in the command belongs to a worktree that already exists,
+so `git worktree add` to a fresh path outside every one of them is invisible
+too. Worktrees outside `wt/` are *not* a gap: the roots come from
+`git worktree list`. See `wfctl/_guard.py` for the full list of what it
 cannot catch.
 
 Not seeded by `install-config`, which is seed-once and would refuse a
-`settings.json` the project already owns — `--force` would take the project's own
-permissions with it. `install-skills --agent claude` does install a hook this
-way, using the merge mode described below.
+`settings.json` the project already owns — its `--force` would take the project's
+own permissions with it. The merge mode described below is what installs these,
+one entry at a time, leaving every other byte of the file alone.
+
+**The deny rule is yours to remove.** `cd` is an ordinary command, and blocking it
+wholesale catches the case the guard cannot see by also catching harmless ones. If
+you take it out, the next `install-skills` stops rather than putting it back,
+because a bare string in a permissions list cannot say whether you or wfctl wrote
+it. `doctor` says so too and leaves your exit code alone — though only for a rule
+wfctl added: one you wrote yourself is recorded as yours, and wfctl does not
+report on entries it has disclaimed. The refusal names both
+ways forward: restore the rule, or `--force` to take wfctl's version. Nothing
+records a standing "we don't want this" yet; #313 is where that goes.
 
 ### The merge install mode
 
-`install-skills --agent claude` adds two entries to `.claude/settings.json` and
-edits nothing else in it. They are the two halves of the same skill — one before
-the text is written, one after:
+`install-skills --agent claude` adds four entries to `.claude/settings.json` and
+edits nothing else in it. Three are hooks; the first two are the halves of the
+same skill, one before the text is written and one after:
 
 | Event | Command | What it does |
 |---|---|---|
 | `UserPromptSubmit` | `wfctl hook user-prompt` | prints the `digest.md` of each skill the manifest records as installed, so a skill loaded at session start is re-anchored on later turns instead of decaying as the context fills |
 | `Stop` | `wfctl hook response-shape` | reads the finished reply back out of the transcript and warns when it broke a `conversation-response-shape` rule a machine can see — a markdown header, a counted lead-in, length nothing asked for |
+| `PreToolUse`, matched on `Bash` | `wfctl hook worktree-guard` | refuses a shell command that would mutate or run something in a sibling worktree |
+
+The fourth is not a hook: `Bash(cd:*)` in `permissions.deny`, the guard's blunt
+companion described above.
+
+That one entry is the only thing wfctl installs anywhere that cannot say whose it
+is. Every managed hook's command starts `wfctl hook `, so a person reading their
+own JSON can see which rows are not theirs and `uninstall-skills` finds them by
+that prefix. A deny rule is matched by exact text, so decorating it changes what
+it denies. Ownership for it lives in `.wf-skills-manifest.json` instead — wfctl
+records, at the install that first writes it, whether it added the rule or found
+it already there, and removes it on the way out only if that record says it was
+wfctl's and the text still matches. A missing record reads as "not wfctl's",
+which costs a leftover entry rather than one of yours.
+
+The `PreToolUse` entry is also the first whose group carries a `matcher`, so an
+install over a hand-wired guard corrects the scope as well as the command. A
+group is what a matcher applies to, so how that happens depends on who else is in
+it: wfctl's hook alone in a group has the group's matcher corrected and keeps its
+position, while one sharing a group with your own hook moves out into a group of
+its own — correcting it in place would re-scope yours, and uninstall would not
+put that back, because it owns entries rather than matchers.
 
 The `Stop` entry warns and never blocks. The finding rides
 `hookSpecificOutput.additionalContext`, which lands in the next turn's context
@@ -499,9 +534,15 @@ the tree it describes stops being clean by its existing.
 
 Your own permissions, hooks and settings are left alone; `uninstall-skills`
 removes just wfctl's own entries, and `doctor` reports one when it goes missing
-or falls behind. The first install that adds the entry reflows the file (key order, array
-layout and indent width are lost to the JSON round-trip; the trailing newline,
-the file mode and any non-ASCII survive). Later installs leave it closed.
+or falls behind. A missing hook is a finding and exits 1; a missing `Bash(cd:*)`
+is a warning that leaves the exit code alone, because removing it is a decision a
+repo is entitled to make and a red build is no way to argue with one. The write
+is where that decision is met instead: `install-skills` refuses rather than
+re-asserting a rule the repo has changed, and `--force` is how you tell it to.
+
+The first install that adds an entry reflows the file (key order, array layout
+and indent width are lost to the JSON round-trip; the trailing newline, the file
+mode and any non-ASCII survive). Later installs leave it closed.
 
 The file is deliberately not gitignored — committing it is what shares the hook
 with everyone who clones. That is also why the hook reads the manifest rather

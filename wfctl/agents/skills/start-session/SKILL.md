@@ -64,6 +64,27 @@ memory of it — load them before doing anything else.
    a layer is rewritten only when it is asked for by name, so a run that omits
    `--agent` leaves that layer exactly as stale as it found it.
 
+   **A refusal is not a repair that failed halfway — it is one that never ran.**
+   `install-skills` exits 1, having copied nothing, when the repo's
+   `.claude/settings.json` no longer carries a managed permission rule wfctl
+   recorded:
+
+   ```
+   ✗ .claude/settings.json no longer carries Bash(cd:*), which wfctl installed.
+     Nothing was installed. …
+   ```
+
+   So the skills drift the step above was called to repair is still there, and
+   the ✓ this step is watching for will not arrive. Report the refusal in step 8
+   verbatim, and say that the layers named in the finding are still stale.
+
+   **Do not run `--force` to clear it.** That flag re-asserts the rule *and*
+   records it as wfctl's, so a later `uninstall-skills` deletes a line the repo
+   may have written itself — a transfer of ownership, and the reader's to make
+   rather than the agent's. `wfctl doctor` is green by design in this state, so
+   the refusal is the only thing that will say it, and a session that clears it
+   quietly leaves nobody who knows.
+
    `--prune` also clears paths a past install left behind when they were renamed
    upstream, and doctor prints the exact command per layer — copy that, because
    a bare `install-skills --prune` diffs only the base layer and silently leaves
