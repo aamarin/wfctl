@@ -30,7 +30,12 @@ and say in the commit message which verdict moved and why.
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import re
+import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from tests.conftest import git_repo
@@ -89,7 +94,48 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ),
     ("decompose-no-map", {**_ANALYZED, "delivery.md": NO_MAP_DELIVERY}),
     ("decompose-skipped", {**_ANALYZED, "tasks.md": CLOSED_TASKS}),
+    # The design gate's other early return: past the boundary, so a `design.md`
+    # with no record still reads `done` once `spec.md` exists.
+    ("design-past-boundary", {"design.md": "x", "spec.md": CLARIFIED_SPEC}),
 ]
+
+# `implement`'s blocking arms, which need a definition of done and a verification
+# record rather than a feature-dir shape. Each is the *first* reason
+# `verification_block` returns for that record, in its own order — so a row that
+# holds two conditions at once is testing the earlier one.
+#
+# `None` for the record means none was written.
+DONE = [["true"]]
+_SHA = "0" * 40
+VERIFY_ROWS: list[tuple[str, str | None, dict | None]] = [
+    ("malformed-config", "{ not json", None),
+    ("no-definition-of-done", None, None),
+    ("unverified", json.dumps({"verify": DONE}), None),
+    ("inconclusive", json.dumps({"verify": DONE}),
+     {"command": DONE, "exit": 0, "failed": [], "sha": _SHA, "dirty": False,
+      "inconclusive": True, "at": "2026-01-01T00:00:00Z"}),
+    ("failed", json.dumps({"verify": DONE}),
+     {"command": DONE, "exit": 1, "failed": [["true"]], "sha": _SHA, "dirty": False,
+      "inconclusive": False, "at": "2026-01-01T00:00:00Z"}),
+    ("stale-definition", json.dumps({"verify": [["false"]]}),
+     {"command": DONE, "exit": 0, "failed": [], "sha": _SHA, "dirty": False,
+      "inconclusive": False, "at": "2026-01-01T00:00:00Z"}),
+    ("stale-sha", json.dumps({"verify": DONE}),
+     {"command": DONE, "exit": 0, "failed": [], "sha": _SHA, "dirty": False,
+      "inconclusive": False, "at": "2026-01-01T00:00:00Z"}),
+    ("stale-dirty", json.dumps({"verify": DONE}),
+     {"command": DONE, "exit": 0, "failed": [], "sha": None, "dirty": True,
+      "inconclusive": False, "at": "2026-01-01T00:00:00Z"}),
+    ("verified", json.dumps({"verify": DONE}),
+     {"command": DONE, "exit": 0, "failed": [], "sha": None, "dirty": False,
+      "inconclusive": False, "at": "2026-01-01T00:00:00Z"}),
+]
+
+# `verification_block` prints the record's sha, which is this run's HEAD and
+# therefore different every time. Anchored to 7 hex characters between word
+# boundaries, which is what `sha[:7]` produces and what nothing else in these
+# strings looks like.
+_SHA_IN_TEXT = re.compile(r"\b[0-9a-f]{7}\b")
 
 
 def _feature(root: Path, name: str, files: dict[str, str]) -> Path:
@@ -130,17 +176,79 @@ def _repo(root: Path, name: str, *, tracker: bool, record: bool) -> Path:
     return repo
 
 
+def _scrub(text: str | None) -> str | None:
+    """Replace this run's git sha so the snapshot is stable across machines."""
+    return None if text is None else _SHA_IN_TEXT.sub("<sha>", text)
+
+
 def _dump(feature: Path | None, repo: Path) -> list[dict[str, str | None]]:
     return [
         {
             "name": s.name,
             "state": s.state,
-            "annotation": s.annotation,
-            "reason": s.reason,
+            "annotation": _scrub(s.annotation),
+            "reason": _scrub(s.reason),
             "remedy": s.remedy,
         }
         for s in _infer_steps(feature, repo)
     ]
+
+
+@contextlib.contextmanager
+def _state_dir(path: Path) -> Iterator[None]:
+    """Point `resolve_agent_dir` at `path` for the duration.
+
+    `verification_block` resolves the state dir itself from the repo root and the
+    branch, so a verification record cannot be placed by building a feature dir —
+    the env override is the seam wfctl already publishes for exactly this.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    before = os.environ.get("WFCTL_STATE_DIR")
+    os.environ["WFCTL_STATE_DIR"] = str(path)
+    try:
+        yield
+    finally:
+        if before is None:
+            os.environ.pop("WFCTL_STATE_DIR", None)
+        else:
+            os.environ["WFCTL_STATE_DIR"] = before
+
+
+def _verify_rows(root: Path) -> dict[str, list[dict[str, str | None]]]:
+    """One row per reason `verification_block` can return.
+
+    The committed matrix writes no `wfctl.json`, so every row of it takes the
+    "no definition of done" path and all seven blocking reasons went unexercised
+    — the gap the review panel found, and the arms most likely to be broken by a
+    change that recomposes `implement`'s annotation.
+    """
+    out: dict[str, list[dict[str, str | None]]] = {}
+    feature = _feature(root, "verify", {**_ANALYZED, "tasks.md": CLOSED_TASKS})
+    for name, config, record in VERIFY_ROWS:
+        repo = git_repo(root / "verify-repos" / name)
+        if config is not None:
+            (repo / "wfctl.json").write_text(config)
+            # Committed, not just written. `code_identity` counts an untracked
+            # file as a dirty tree, so a config left uncommitted makes every row
+            # here read `stale — uncommitted changes` and the eight other arms
+            # become unreachable.
+            for args in (["add", "-A"], ["commit", "-m", "config"]):
+                subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+        state = root / "verify-state" / name
+        with _state_dir(state):
+            if record is not None:
+                if record["sha"] is None:
+                    # This repo's real HEAD: the rows that must *not* read stale.
+                    head = subprocess.run(
+                        ["git", "rev-parse", "HEAD"], cwd=repo,
+                        capture_output=True, text=True,
+                    )
+                    record = {**record, "sha": head.stdout.strip()}
+                (state / "verify.json").write_text(json.dumps(record))
+            if name == "stale-dirty":
+                (repo / "uncommitted.txt").write_text("x\n")
+            out[f"implement-{name}"] = _dump(feature, repo)
+    return out
 
 
 def build_payload(root: Path) -> dict[str, list[dict[str, str | None]]]:
@@ -163,6 +271,8 @@ def build_payload(root: Path) -> dict[str, list[dict[str, str | None]]]:
 
     # spec_dir=None returns before any predicate runs.
     payload["no-spec-dir"] = _dump(None, plain)
+
+    payload.update(_verify_rows(root))
     return payload
 
 

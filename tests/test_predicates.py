@@ -16,16 +16,23 @@ from __future__ import annotations
 import ast
 import dataclasses
 import inspect
+import subprocess
+import sys
 from pathlib import Path
 from typing import get_args
 
 import pytest
 
-from wfctl import _predicates
+from wfctl import _pipeline, _predicates
 from wfctl._pipeline import _STEP_NAMES, _STEPS
 from wfctl._predicates import Evidence, Reading, State, build_evidence
 
 STATES = set(get_args(State))
+
+
+def _pipeline_source() -> str:
+    """The file `_STEPS` is declared in."""
+    return _pipeline.__file__
 
 
 def _evidence(tmp_path: Path) -> Evidence:
@@ -143,3 +150,70 @@ def test_evidence_is_frozen() -> None:
     ev = Evidence(Path("."), Path("."), "", False, "", False)
     with pytest.raises(dataclasses.FrozenInstanceError):
         ev.tasks_text = "changed"  # type: ignore[misc]
+
+
+@pytest.mark.runs_mypy
+def test_the_step_table_rejects_a_row_without_a_predicate(tmp_path: Path) -> None:
+    """FR-003 is a type error, and this is what re-checks that it still is.
+
+    The invariant was demonstrated by hand when #314 landed — a `_STEPS` row
+    missing its predicate reports `[dict-item]` — but nothing re-ran it, so
+    replacing `Step` with a plain tuple or widening the annotation to
+    `dict[str, tuple]` would pass the whole suite while spending the property
+    the table was chosen for.
+
+    Shelled rather than asserted in prose because the check *is* mypy. Marked so
+    the cost is visible: this is seconds, where the rest of the file is
+    milliseconds.
+    """
+    # Against the real annotation, not a scratch one. A module that declares its
+    # own `dict[str, Step]` type-checks the same whatever `_pipeline` says, so
+    # this asserts the table's own declaration first — re-annotating `_STEPS` as
+    # `dict[str, tuple]` spends the property while leaving a scratch check green.
+    tree = ast.parse(Path(_pipeline_source()).read_text())
+    declared = next(
+        ast.unparse(n.annotation)
+        for n in ast.walk(tree)
+        if isinstance(n, ast.AnnAssign)
+        and isinstance(n.target, ast.Name)
+        and n.target.id == "_STEPS"
+    )
+    assert declared == "dict[str, Step]", f"_STEPS is declared {declared}"
+
+    module = tmp_path / "bad_table.py"
+    module.write_text(
+        "from wfctl._pipeline import Step, _AUTOMATIC\n"
+        "from wfctl import _predicates\n"
+        "rows: dict[str, Step] = {\n"
+        '    "ok": Step("/x", _AUTOMATIC, _predicates.specify),\n'
+        '    "bad": ("/y", _AUTOMATIC),\n'
+        "}\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "mypy", "--no-error-summary", str(module)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent,
+    )
+    assert result.returncode != 0, "a row without a predicate type-checked"
+    assert "dict-item" in result.stdout, result.stdout
+
+
+@pytest.mark.runs_mypy
+def test_a_predicate_cannot_return_a_state_outside_the_four(tmp_path: Path) -> None:
+    """FR-004, re-checked for the reason above.
+
+    `State` narrows `str`, so widening it back — or annotating a predicate's
+    return as `tuple[str, ...]` — is invisible at runtime and to every other
+    test here.
+    """
+    module = tmp_path / "bad_state.py"
+    module.write_text(
+        "from wfctl._predicates import Evidence, Reading\n"
+        "def broken(ev: Evidence) -> Reading:\n"
+        '    return Reading("finished")\n'
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "mypy", "--no-error-summary", str(module)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent,
+    )
+    assert result.returncode != 0, '"finished" type-checked as a state'
+    assert "arg-type" in result.stdout, result.stdout
