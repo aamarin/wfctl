@@ -1551,12 +1551,86 @@ def issue_cmd(
     raise typer.Exit(_tracker.dispatch(agent_dir, repo_root, verb, params))
 
 
+def _render_change_check(
+    repo_root: Path, issue: str, change_id: str
+) -> int:
+    """`wfctl change check` — the composition, and the only impure half.
+
+    `_change.compare` decides what a blank field means and stays pure;
+    `_tracker.read_fields` fetches; this reads the repository and renders. The
+    same split `check-body` uses, and for the same reason its
+    `_verification_finding` gives: the state lives in the command's own module,
+    so neither of the other two learns what a repository is.
+
+    Three markers, three meanings. `⚠` is a verdict that found something, `✓` a
+    verdict that did not, and `ℹ` **no verdict at all** — nothing was expected,
+    or the backend declined to answer. A run that checked nothing must never look
+    like a run that passed, which is the failure this whole command exists to
+    correct, and printing `✓` on an empty check would reproduce it here.
+    """
+    from rich.markup import escape
+
+    from wfctl import _change, _tracker
+
+    required, errs = _change.load_required(repo_root)
+    if errs:
+        for err in errs:
+            console.print(f"[yellow]⚠[/yellow] {err}")
+        return 1
+
+    change_fields, detail = _tracker.read_fields(repo_root, "changes", change_id)
+    if change_fields is None:
+        if detail is None:
+            console.print(f"ℹ No `fields` verb for changes — skipping check of {change_id}")
+            return 0
+        console.print(f"[red]✗[/red] could not read {change_id}: {detail}")
+        return 1
+
+    # A branch with no key has no issue to inherit from, which is a state rather
+    # than a fault — `wfctl change check` is run from worktrees made outside the
+    # naming rule too. What the repository requires is still checked.
+    issue_fields: dict | None = None
+    issue_detail: str | None = None
+    if issue != "unknown":
+        issue_fields, issue_detail = _tracker.read_fields(repo_root, "verbs", issue)
+
+    rows = _change.compare(required, issue_fields, change_fields)
+    findings = [r for r in rows if not r.satisfied]
+
+    if issue_detail is not None:
+        # Reported, and still fatal, and the checkable half still printed below.
+        # A read that was attempted and failed is not a source that had nothing
+        # to say: collapsing the two lets a run that saw half of what it needed
+        # exit like a clean one.
+        console.print(f"[red]✗[/red] could not read #{issue}: {issue_detail}")
+
+    for row in findings:
+        console.print(f"[yellow]⚠[/yellow] {row.key:<14}{escape(_change.describe(row))}")
+    for row in rows:
+        if row.satisfied:
+            console.print(f"[green]✓[/green] {row.key:<14}{escape(_change.describe(row))}")
+
+    if issue_detail is not None:
+        return 1
+    if not rows:
+        where = (
+            "the issue has none set" if issue_fields is not None
+            else "there is no issue to inherit from"
+        )
+        console.print(
+            f"ℹ {change_id}: nothing to check — {_change.CONFIG_PATH} requires no "
+            f"fields, and {where}"
+        )
+        return 0
+    return 1 if findings else 0
+
+
 @app.command("change")
 def change_cmd(
-    verb: str = typer.Argument(..., help="list | view"),
-    change_id: str = typer.Argument(None, help="Change / PR ID (view)"),
+    verb: str = typer.Argument(..., help="list | view | check"),
+    change_id: str = typer.Argument(None, help="Change / PR ID (view, check)"),
 ) -> None:
-    """List or view code changes — GitHub PRs, Gerrit patchsets, etc.
+    """List, view, or check code changes — GitHub PRs, Gerrit patchsets, etc.
 
     The changes backend is defined by the `changes` section of the active
     tracker config (`.agents/trackers/<name>.json`), parallel to `issue`'s
@@ -1566,18 +1640,31 @@ def change_cmd(
     \b
       list        list your open changes
       view  <id>  show one change
+      check <id>  report the fields something expected and the change lacks
 
     \b
     Examples:
       wfctl change list
       wfctl change view 128
+      wfctl change check 128
+
+    `check` is wfctl's own verb, not one the backend implements — it composes
+    the backend's `fields` reads with a comparison wfctl owns. `ALLOWED_CHANGES`
+    rejects a config that declares `check`, so the two can never collide.
 
     Degrades gracefully (exit 0) when no backend is configured or the active
     one does not implement the verb.
     """
     from wfctl import _tracker
 
-    agent_dir, repo_root, _, _ = _resolve_context()
+    agent_dir, repo_root, _, issue = _resolve_context()
+
+    if verb == "check":
+        if change_id is None:
+            console.print("[red]✗ change check needs a change id[/red]")
+            raise typer.Exit(1)
+        raise typer.Exit(_render_change_check(repo_root, issue, change_id))
+
     params = {"id": change_id} if change_id is not None else {}
     raise typer.Exit(
         _tracker.dispatch(agent_dir, repo_root, verb, params, section="changes", event="change")

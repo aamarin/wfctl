@@ -10,12 +10,18 @@
     "label": ["gh", "issue", "edit", "{id}", "--{action}-label", "{label}"],
     "labels": ["gh", "issue", "view", "{id}", "--json", "labels",
                "--jq", ".labels[].name"],
+    "fields": ["gh", "issue", "view", "{id}", "--json",
+               "labels,assignees,milestone,projectItems",
+               "--jq", "{labels:[.labels[].name],assignees:[.assignees[].login],milestone:(.milestone.title//null),projectItems:[.projectItems[].title]}"],
     "start": ["bash", ".agents/trackers/github-board.sh", "{id}", "In Progress"],
     "stop": ["bash", ".agents/trackers/github-board.sh", "{id}", "Todo",
              "--only-from", "In Progress"]
   },
   "changes": {
     "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],
-    "view": ["gh", "pr", "view", "{id}"]
+    "view": ["gh", "pr", "view", "{id}"],
+    "fields": ["gh", "pr", "view", "{id}", "--json",
+               "labels,assignees,milestone,projectItems,reviewRequests",
+               "--jq", "{labels:[.labels[].name],assignees:[.assignees[].login],milestone:(.milestone.title//null),projectItems:[.projectItems[].title],reviewRequests:[.reviewRequests[].login]}"]
   }
 }

@@ -295,15 +295,27 @@ a repository whose readers are all of that kind, an empty reviewer field is the
 finished state, and the way to know which kind you have is to look at a PR you
 did not touch.
 
-Then read it back — the whole sidebar, not the part that was copied:
+Then read it back — and read it back with the check, not by eye:
 
 ```bash
-gh pr view <pr> --json labels,assignees,milestone,projectItems     # copied
-gh pr view <pr> --json closingIssuesReferences,reviewRequests,latestReviews
+wfctl change check <pr>
 ```
 
-The copied set is done when it matches the issue's. The other two are not
-copied, so that sentence does not reach them.
+It reports every field the issue carries that the change does not, plus any your
+repository named in `change_check` in `wfctl.json`, and stays silent about
+everything else. `⚠` is a finding, `✓` a field it verified, and `ℹ` **no verdict
+at all** — nothing was expected, or the backend declines to report fields. Exit 1
+means this step is unfinished.
+
+This exists because the paragraph above it was skipped across several worktrees
+(#302). A run that copied the sidebar and a run that did not produced the same
+observable state, so nothing disagreed. Now something does.
+
+The check does not reach the two below, which are not copied from anywhere:
+
+```bash
+gh pr view <pr> --json closingIssuesReferences,reviewRequests,latestReviews
+```
 
 **Reviewers: every login you requested appears in one of the two lists.**
 `reviewRequests` is the *pending* list and clears the moment a reviewer submits,
