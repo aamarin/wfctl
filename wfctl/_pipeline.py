@@ -230,6 +230,20 @@ def _file_exists(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+def _quoted_out(text: str) -> str:
+    """Markdown with its fenced blocks and inline spans blanked out.
+
+    An artifact that *documents* a syntax must not read as using it — a spec
+    showing what a clarification marker looks like has no marker, and a
+    `tasks.md` showing what a task line looks like holds no task.
+
+    ```.*?``` is non-greedy under DOTALL so two separate fences don't merge into
+    one match spanning the prose between them; `[^`\\n]+` excludes newline so an
+    unpaired backtick can't swallow the rest of the file.
+    """
+    return re.sub(r"```.*?```|`[^`\n]+`", "", text, flags=re.DOTALL)
+
+
 def _task_tally(tasks_text: str) -> tuple[int, int]:
     """How many tasks are ticked, and how many there are.
 
@@ -242,9 +256,16 @@ def _task_tally(tasks_text: str) -> tuple[int, int]:
     is #308: no file means the step has not run, and a file with no box in it
     means the step ran and wrote down no task. Callers that need to tell those
     apart read `tasks_text` themselves.
+
+    Counted over the text with code quoted out, because the total now gates an
+    automatic step: an example box inside a fence would otherwise be a task, and
+    a file whose only box is a worked example would clear the step it documents.
+    Matched anywhere on the line rather than at a list bullet — real files write
+    `**Checkpoint**: [X] T006 …`, and anchoring to `- [ ]` loses those.
     """
-    done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
-    return done, done + len(re.findall(r"\[ \]", tasks_text))
+    text = _quoted_out(tasks_text)
+    done = len(re.findall(r"\[x\]", text, re.IGNORECASE))
+    return done, done + len(re.findall(r"\[ \]", text))
 
 
 def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
@@ -489,14 +510,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     spec_md = spec_dir / "spec.md"
     spec_text = ""
     if _file_exists(spec_md):
-        # Blank out fenced blocks and inline spans before matching, so a spec that
-        # *documents* a marker or a heading doesn't read as having one. Both specify
-        # and clarify match against the result.
-        #
-        # ```.*?``` is non-greedy under DOTALL so two separate fences don't merge
-        # into one match spanning the prose between them; `[^`\n]+` excludes newline
-        # so an unpaired backtick can't swallow the rest of the file.
-        spec_text = re.sub(r"```.*?```|`[^`\n]+`", "", spec_md.read_text(), flags=re.DOTALL)
+        # Both specify and clarify match against the quoted-out text, so a spec
+        # that documents a marker or a heading doesn't read as having one.
+        spec_text = _quoted_out(spec_md.read_text())
 
     # templates emit `[NEEDS CLARIFICATION: <question>]`, so the bracketed literal
     # `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix

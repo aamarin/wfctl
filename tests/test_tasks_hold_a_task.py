@@ -154,6 +154,44 @@ def test_the_tasks_step_is_not_automatic_while_its_file_holds_no_task(
     )
 
 
+def test_a_worked_example_is_not_a_task(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Raised on the open change: the tally now gates an automatic step.
+
+    A file that documents what a task line looks like holds no task, and the
+    unanchored match would have counted the example — clearing the step the
+    example is explaining. The spec arm has read past fences and inline spans
+    since it had markers to find; this is the same reading, on the file whose
+    count became load-bearing.
+
+    The ticked example is the one that matters: an open one leaves `implement`
+    blocked anyway, so only `- [x]` reaches the end of the pipeline on nothing.
+    """
+    fenced = "How to write a task:\n\n```\n- [x] T001 do the thing\n```\n"
+    inline = "A task line reads `- [x] T001 do the thing`.\n"
+
+    for tasks in (fenced, inline):
+        feature = _feature(spec_tree, tasks)
+        assert _states(feature, tmp_path)["tasks"] == "in_progress"
+        assert _states(feature, tmp_path)["implement"] != "done"
+
+
+def test_a_checkpoint_line_counts_as_a_task(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The half of that review comment the store contradicts.
+
+    Anchoring the match to a list bullet was the other half of the fix
+    suggested for the example above. Real files write a merge gate as
+    `**Checkpoint**: [X] T006 …`, and `43-vendor-wf-skills/tasks.md` carries two
+    — so anchoring would drop real work rather than a worked example.
+    """
+    tasks = "**Checkpoint**: [X] T006 Validate setup — merge gate.\n"
+
+    assert _states(_feature(spec_tree, tasks), tmp_path)["tasks"] == "done"
+
+
 def test_a_tasks_file_with_boxes_still_finishes_the_tasks_step(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
