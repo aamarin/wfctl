@@ -95,10 +95,12 @@ _STEP_NAMES = list(_STEPS)
 # (`infer_pipeline`), so an arm reaching it passes the step on none of the evidence
 # its line names.
 #
-#   brainstorm  1, and 6 weakened to "a record was written": a design doc exists and
-#               git says a file outside `<arch>/design/` was touched on this branch —
-#               or git could not say, which proceeds (`ambient`). Never checked to be
-#               about this change, and not read at all once `spec.md` exists.
+#   brainstorm  1, and a gesture at 6 rather than 6 itself: a design doc exists and
+#               git says some path under `<arch>/` outside `design/` changed on this
+#               branch — an edit to a descriptive view, or a deletion, counts as
+#               readily as a new record — or git could not say, which proceeds
+#               (`ambient`). Never checked to be about this change, and not read at
+#               all once `spec.md` exists.
 #   specify     1 + 3. `spec.md` is non-empty and carries no marker. Never 2: its
 #               sections are not read.
 #   clarify     2 + 3. A `## Clarifications` heading, and no marker left; nothing
