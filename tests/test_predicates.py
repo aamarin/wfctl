@@ -70,7 +70,9 @@ def test_a_predicate_takes_exactly_one_argument() -> None:
     """
     for name, step in _STEPS.items():
         params = list(inspect.signature(step.predicate).parameters)
-        assert params == ["ev"], f"{name} takes {params}"
+        # Arity, not the name. `params == ["ev"]` reads the same and fails on a
+        # rename, which is a test about spelling wearing a test about shape.
+        assert len(params) == 1, f"{name} takes {params}"
 
 
 def test_the_annotation_is_the_reason_except_where_a_predicate_says_otherwise() -> None:

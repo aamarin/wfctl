@@ -7,11 +7,12 @@ evidence moves whenever someone decides a rung was too weak, which is four open
 issues at the time of writing (#308, #309, #240, #299). Held in one module those
 were the same diff, and a reviewer could not tell which half a change came from.
 
-Every predicate here has one signature — `(Evidence) -> tuple[State, str | None]`
-— so `_STEPS` can hold it and the walk never names a step. The signature was
-extracted rather than designed: `_implement_verdict` already returned that pair,
-and the six values in `Evidence` are the reads the walk already performed before
-its loop began.
+Every predicate here has one signature — `(Evidence) -> Reading` — so `_STEPS`
+can hold it and the walk never names a step. The signature was extracted rather
+than designed: `_implement_verdict` already returned a state and a reason, and
+the six values in `Evidence` are the reads the walk already performed before its
+loop began. `Reading`'s third field arrived later, to carry the one annotation
+that is not simply a reason.
 
 `_pipeline` imports from here and never the reverse. The step table lives there
 and holds these functions as values, so the arrow only points one way.
@@ -21,8 +22,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, NamedTuple
+from collections.abc import Callable
+from typing import Literal, NamedTuple
 
+from wfctl import _tracker
 from wfctl._paths import arch_root
 
 # What reading one evidence source concluded. Three values rather than a bool
@@ -41,12 +44,14 @@ Source = Literal["repo-declared", "accepted-record", "human", "ambient"]
 # one of these is a missing answer, not the absence of a question.
 _PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record", "human"})
 
+
 # The four names a step's position can take. A closed set rather than `str`
 # because `pipeline-state-is-one-payload` writes these four out by hand and
 # nothing checked them — a predicate returning "finished" type-checked fine and
 # rendered as an unknown glyph. `done` and `skipped` both advance the pipeline;
 # `in_progress` and `pending` both hold it, and differ in whether anything ran.
 State = Literal["done", "in_progress", "pending", "skipped"]
+
 
 class Reading(NamedTuple):
     """What one predicate concluded: the state, why, and what to render.
@@ -104,11 +109,14 @@ def blocks(verdict: Verdict, source: Source) -> bool:
 
 @dataclass(frozen=True)
 class Evidence:
-    """Everything the eight predicates read, gathered once before any of them runs.
+    """The reads the walk already performed before its loop, given a name.
 
-    The walk computed all six of these before its loop already; this only gives
-    them a name so they can cross a function boundary together. Nothing here is
-    a read that did not happen before.
+    Not everything the predicates read, and deliberately not: `decompose` opens
+    `delivery.md` and the tracker config inside itself, `implement` reaches a
+    verification record and git through `verification_block`, and five predicates
+    `stat` their own artifact. Those stay deferred because `cascade` means most
+    runs never reach them — what is gathered here is what the walk paid for
+    unconditionally before this change, and nothing more.
 
     Frozen because a predicate that mutated it would make the step order
     significant, and the order is the walk's business — a predicate decides its
@@ -292,7 +300,7 @@ def verification_block(repo_root: Path) -> str | None:
     return None
 
 
-def design_block(spec_dir: Path | None, repo_root: Path) -> str | None:
+def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     """Why the design step cannot be complete, or None if nothing blocks it.
 
     Shaped like `verification_block` on purpose: both are a step's own evidence
@@ -322,7 +330,7 @@ def design_block(spec_dir: Path | None, repo_root: Path) -> str | None:
     settles the point: the purpose is to stop the question going unanswered, not
     to catch a wrong answer.
     """
-    if spec_dir is None or not _file_exists(spec_dir / "design.md"):
+    if not _file_exists(spec_dir / "design.md"):
         return None
     if _file_exists(spec_dir / "spec.md"):
         # Past the boundary. "Advance past the design step" is one transition,
@@ -343,6 +351,60 @@ def design_block(spec_dir: Path | None, repo_root: Path) -> str | None:
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
     )
     return DESIGN_BLOCK_REASON if blocks(verdict, "ambient") else None
+
+
+# What each predicate proves (#300, epic #100 scope 5). The rungs, weakest first:
+# 1 an artifact was written; 2 the artifact has structure; 3 known questions were
+# addressed, syntactically; 4 promised external objects exist; 5 executable
+# completion criteria passed; 6 a decision has authority; 7 integration was approved.
+#
+# Beside the predicates by `knowledge-placement`: a fact about one file belongs to
+# that file, and this is a fact about the functions below. It sat in `_pipeline.py`
+# until #314, when the functions moved and it did not — which is exactly the drift
+# its own closing line warns about.
+#
+# The two conditions that hold over all eight are facts about the *walk*, not about
+# any predicate, and they are stated in `_pipeline.py` where the walk is.
+#
+#   brainstorm  1, and a gesture at 6 rather than 6 itself: a design doc exists and
+#               git says some path under `<arch>/` outside `design/` changed on this
+#               branch — an edit to a descriptive view, or a deletion, counts as
+#               readily as a new record — or git could not say, which proceeds
+#               (`ambient`). Never checked to be about this change, and not read at
+#               all once `spec.md` exists.
+#   specify     1 + 3. `spec.md` is non-empty and carries no marker. Never 2: its
+#               sections are not read.
+#   clarify     2 + 3. A `## Clarifications` heading, and no marker left; nothing
+#               under the heading is read. `skipped` where `plan.md` exists and the
+#               heading does not.
+#   plan        1. `plan.md` is non-empty.
+#   tasks       1. `tasks.md` is non-empty — not that it holds a single task.
+#   analyze     1. `checklists/analysis-report.md` is non-empty.
+#   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
+#               and where a tracker is configured and it carries an Issue Grouping
+#               Map, every row names a key — read from the delivery plan's own prose,
+#               so the plan asserts its issues exist rather than the tracker
+#               confirming it. Stops blocking once the tasks read closed, and
+#               `skipped` where no plan exists and they already have. #100 scope 5
+#               records this as rung 4 since #8; it does not reach one.
+#   implement   5, or 1 + 3 where the repo declares no definition of done (FR-002):
+#               the tasks read closed, and a repo-declared verification passed
+#               against this tree.
+#
+# `blocks` is consulted three times, by the three predicates whose evidence has an
+# inconclusive state to judge — `implement` as `repo-declared`, `brainstorm` and
+# `decompose` as `ambient`. The other five read a file that is there or is not.
+# `decompose` was the exception until #314: it resolved two of its own readings —
+# no tracker configured, and a plan carrying no map or no rows — without reaching
+# the rule. Both still proceed; they now proceed because `blocks` says so.
+#
+# Where a rung sits below its flag, that is filed, not fixed. #308 is `tasks` and
+# `implement` cleared by a file holding no task; #309 is `specify` and `plan`
+# automatic on a file's mere existence; `decompose` is argued on #240, the issue that
+# would spend it. `brainstorm` is automatic over a weak rung as well and is not
+# filed: #283 settled that flag on reversibility, and a blocked step is never
+# automatic whatever the table says (`next_step_content`). Nothing pins these lines
+# to the predicates they describe — re-read the function before trusting one.
 
 
 def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
@@ -479,8 +541,6 @@ def decompose(ev: Evidence) -> Reading:
     one — so reading either as a missing answer would strand the pipeline with no
     action that unblocks it.
     """
-    from wfctl import _tracker
-
     delivery_md = ev.spec_dir / "delivery.md"
     if not _file_exists(delivery_md):
         if ev.tasks_text and not ev.tasks_open:

@@ -85,7 +85,7 @@ and the step state becomes a `Literal` rather than `str`:
 
 ```python
 State = Literal["done", "in_progress", "pending", "skipped"]
-Predicate = Callable[[Evidence], tuple[State, str | None]]
+Predicate = Callable[[Evidence], Reading]   # Reading: state, reason, annotation
 
 class Step(NamedTuple):
     command: str
@@ -93,9 +93,10 @@ class Step(NamedTuple):
     predicate: Predicate
 ```
 
-`NamedTuple` rather than a frozen dataclass because the three existing positional
-unpacks keep working unchanged — a `NamedTuple` is a tuple — so naming the fields
-costs no call-site sweep.
+`NamedTuple` rather than a frozen dataclass because it needs no import and no
+`__init__` to write. Tuple compatibility was the reason given when this was
+written, and the implementation falsified it: all three positional unpacks were
+swept anyway, so nothing relies on a `Step` being a tuple.
 
 `Evidence` is a frozen dataclass holding the six values the loop already computes
 before it starts. It is the existing prologue given a name, not new work.
@@ -146,8 +147,8 @@ stable    ┌──────────────────────�
                       ▼
           ┌──────────────────────────┐          ┌──────────────────────────┐
           │  eight predicates        │──calls──►│  blocks(verdict, source) │
-          │  (Evidence) -> (State,   │  (8 of 8)└──────────────────────────┘
-          │   str | None)            │
+          │  (Evidence) -> Reading   │  (3 of 3)└──────────────────────────┘
+          │                          │
           └───────────▲──────────────┘
                       │ calls
           ┌───────────┴──────────────┐
@@ -241,14 +242,22 @@ that field lazy rather than to widen `Evidence`.
   eight steps, before and after. The baseline is captured before the first edit,
   because the suite asserts on step states and cannot see the restructure — a
   refactor that broke the shape while preserving every assertion would pass it.
-- `grep -rn '_decompose' wfctl/` finds both the function and its `_STEPS` row.
-  Zero hits in either place means the registry was rebuilt as strings.
+- `grep -rn 'decompose' wfctl/_pipeline.py wfctl/_predicates.py` finds both the
+  predicate and its `_STEPS` row. Written first as `grep '_decompose'`, which
+  returns zero hits against the shipped names and would have read as its own
+  failure signal — the predicates are named without the underscore.
 - `decompose`'s verdict is unchanged after routing through `blocks` — checked by
   the existing tests over unkeyed delivery rows, which assert the reason text and
   the `in_progress` / `done` split on `tasks_open`.
 
 ## Log
 
+- 2026-09-09  revised   — return type is `Reading`, not `tuple[State, str | None]`.
+  SC-005 asked for no step-name branch in the walk, and the task tally was the
+  last one; carrying it on the predicate's own return is what removed it. The
+  decision this record makes — the table holds the predicate — is unchanged.
+  Also corrected: the `NamedTuple` rationale, which the implementation falsified,
+  and a verification `grep` that would have reported its own failure signal.
 - 2026-09-09  proposed  — #314 scope item 2: what holds the eight predicates,
   once they share a signature. Written before the implementation, so the code is
   written against the record rather than the record against the code.

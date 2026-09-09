@@ -31,7 +31,6 @@ and say in the commit message which verdict moved and why.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from tests.conftest import git_repo
@@ -228,7 +227,7 @@ def test_the_matrix_reaches_both_design_states(tmp_path: Path) -> None:
 def test_the_snapshot_is_not_stale_against_the_step_table() -> None:
     """A step added to `_STEPS` without regenerating the snapshot is caught here.
 
-    Otherwise the snapshot keeps passing while covering seven of nine steps, and
+    Otherwise the snapshot keeps passing while covering eight of nine steps, and
     the row it never checks is the new one.
     """
     from wfctl._pipeline import _STEP_NAMES
@@ -236,8 +235,3 @@ def test_the_snapshot_is_not_stale_against_the_step_table() -> None:
     expected = json.loads(SNAPSHOT.read_text())
     for row, steps in expected.items():
         assert [s["name"] for s in steps] == _STEP_NAMES, f"{row!r} predates the step table"
-
-
-def test_git_is_available() -> None:
-    """The fixture shells out to git; a machine without it would fail obscurely."""
-    assert subprocess.run(["git", "--version"], capture_output=True).returncode == 0

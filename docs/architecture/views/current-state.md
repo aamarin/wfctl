@@ -21,7 +21,7 @@ when this drawing stops matching it. See **Staleness** below.
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 485   _predicates 511   _arch 458   _archive 339   │      ┊
+   │ _pipeline 439   _predicates 603   _arch 458   _archive 339   │      ┊
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _body 399       _change 199                                  │      ┊
