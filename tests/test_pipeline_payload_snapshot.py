@@ -47,6 +47,13 @@ MARKED_SPEC = "# Spec\n\n[NEEDS CLARIFICATION: which one?]\n"
 CLARIFIED_SPEC = "# Spec\n\n## Clarifications\n\n### Session 2026-01-01\n\n- none\n"
 OPEN_TASKS = "- [x] T001 done\n- [ ] T002 open\n"
 CLOSED_TASKS = "- [x] T001 done\n- [x] T002 done\n"
+# #308: a file that exists and holds no task, and one whose only box is a worked
+# example inside a fence. Both cleared `tasks` and `implement` before #308 while
+# proving nothing, so a snapshot that cannot tell them from a real task list
+# cannot see that change at all.
+NO_TASKS = "# Tasks\n\nProse, and not one box.\n"
+FENCED_TASKS = "# Tasks\n\n```\n- [ ] T001 what a task looks like\n```\n"
+SENTINEL = {"checklists/implement-complete.md": "x"}
 
 KEYED_DELIVERY = """# Delivery
 
@@ -94,6 +101,19 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ),
     ("decompose-no-map", {**_ANALYZED, "delivery.md": NO_MAP_DELIVERY}),
     ("decompose-skipped", {**_ANALYZED, "tasks.md": CLOSED_TASKS}),
+    ("tasks-no-checkbox", {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": NO_TASKS}),
+    (
+        "tasks-only-a-fenced-example",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": FENCED_TASKS},
+    ),
+    (
+        "tasks-no-checkbox-but-implemented",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": NO_TASKS, **SENTINEL},
+    ),
+    (
+        "tasks-open-but-implemented",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": OPEN_TASKS, **SENTINEL},
+    ),
     # The design gate's other early return: past the boundary, so a `design.md`
     # with no record still reads `done` once `spec.md` exists.
     ("design-past-boundary", {"design.md": "x", "spec.md": CLARIFIED_SPEC}),
