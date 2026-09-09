@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # wfctl pins the sections a spec and a plan must carry, and checks them against the template it ships
@@ -133,3 +133,6 @@ document.
 ## Log
 
 - 2026-09-09  proposed    — the level-2 gate for #309
+- 2026-09-09  accepted    — agreed by the maintainer on #318, with the
+  obligation it carries named: an upstream rename fails wfctl's build and is
+  reconciled in the change that pulls it
