@@ -107,7 +107,9 @@ _STEP_NAMES = list(_STEPS)
 #               under the heading is read. `skipped` where `plan.md` exists and the
 #               heading does not.
 #   plan        1. `plan.md` is non-empty.
-#   tasks       1. `tasks.md` is non-empty — not that it holds a single task.
+#   tasks       2. `tasks.md` is non-empty and holds at least one checkbox (#308).
+#               Never 3: what a task says is not read, and neither is whether it
+#               is ticked — a file of open boxes finishes this step.
 #   analyze     1. `checklists/analysis-report.md` is non-empty.
 #   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
 #               and where a tracker is configured and it carries an Issue Grouping
@@ -122,15 +124,16 @@ _STEP_NAMES = list(_STEPS)
 #
 # `blocks` is consulted twice — `implement` as `repo-declared`, `brainstorm` as
 # `ambient`. Five of the other six read a file that is there or is not, which has no
-# inconclusive state for the rule to judge. `decompose` is the exception, and
-# resolves two of its own without reaching the rule: no tracker configured, and a
-# plan carrying no map or no rows. Both proceed.
+# inconclusive state for the rule to judge. `tasks` reads inside its file and still
+# reaches none: the file is read or it is absent, and one holding no task is
+# `unsatisfied`, which stops the step whoever owed the evidence. `decompose` is the
+# exception, and resolves two of its own without reaching the rule: no tracker
+# configured, and a plan carrying no map or no rows. Both proceed.
 #
-# Where a rung sits below its flag, that is filed, not fixed. #308 is `tasks` and
-# `implement` cleared by a file holding no task; #309 is `specify` and `plan`
-# automatic on a file's mere existence; `decompose` is argued on #240, the issue that
-# would spend it. `brainstorm` is automatic over a weak rung as well and is not
-# filed: #283 settled that flag on reversibility, and a blocked step is never
+# Where a rung sits below its flag, that is filed, not fixed. #309 is `specify` and
+# `plan` automatic on a file's mere existence; `decompose` is argued on #240, the
+# issue that would spend it. `brainstorm` is automatic over a weak rung as well and
+# is not filed: #283 settled that flag on reversibility, and a blocked step is never
 # automatic whatever the table says (`next_step_content`). Nothing pins these lines
 # to the arms they describe — re-read the arm before trusting one.
 
@@ -177,6 +180,15 @@ def next_step_file(command: str, auto: bool, blocked: str | None, remedy: str | 
 # `DESIGN_BLOCK_HELP`, which is formatted with a location resolved per repo.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
+# The tasks step's annotation when its file holds no task (#308). Names the file
+# rather than the step, because `status` prints it on the `tasks` row and "no
+# tasks" there reads as a judgement about the work rather than about the artifact.
+#
+# Private, unlike the constant above it, by the rule this file states at its
+# step table: names cross out of here because `cli` imports them, and no caller
+# outside this module reads a reason string — they read the payload it lands in.
+_TASKS_EMPTY_REASON = "tasks.md holds no task"
+
 # Both escapes, because both are legitimate answers: `design-levels` excludes
 # changes that draw no new state, and a check with only one exit turns those into
 # records that say nothing.
@@ -217,13 +229,32 @@ def _file_exists(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
-def _has_open_checkboxes(text: str) -> bool:
-    return bool(re.search(r"\[ \]", text))
+def _task_tally(tasks_text: str) -> tuple[int, int]:
+    """How many tasks are ticked, and how many there are.
+
+    One spelling for the three readers that need it — `_tasks_open`, the `tasks`
+    arm, and the tally `implement` annotates with. The count is what they would
+    each have written out, and #262 is what two hand-written copies of a tasks
+    predicate cost.
+
+    A total of zero is not the same fact as an empty string, and the difference
+    is #308: no file means the step has not run, and a file with no box in it
+    means the step ran and wrote down no task. Callers that need to tell those
+    apart read `tasks_text` themselves.
+    """
+    done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
+    return done, done + len(re.findall(r"\[ \]", tasks_text))
 
 
 def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     """Whether the tasks are still open, by the two routes `implement` reads as
     finished: every box ticked, or the sentinel that says so over one left open.
+
+    A file holding no box at all takes neither route. It was read as the first
+    one — nothing was left open, because nothing was written down — and that is
+    what carried `implement` to its verification read at `0/0 done` having
+    proved nothing (#308). Zero ticked out of zero is the absence of evidence,
+    not evidence of completion.
 
     Only the tasks. A caller asking whether *implementation* is finished wants
     this and `verification_block` — a definition of done gets the last word over
@@ -241,9 +272,15 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     and a second read inside here let the tally and this answer come from two
     versions of a file an implementing agent may be rewriting.
     """
-    return _has_open_checkboxes(tasks_text) and not _file_exists(
-        spec_dir / "checklists" / "implement-complete.md"
-    )
+    if _file_exists(spec_dir / "checklists" / "implement-complete.md"):
+        return False
+    done, total = _task_tally(tasks_text)
+    if total:
+        return done < total
+    # No box anywhere. An absent file is not this function's question — the arms
+    # that care read `tasks_text` and report `pending` before asking — so the
+    # remaining case is the file that exists and holds no task.
+    return bool(tasks_text)
 
 
 # The Issue Grouping Map, and the `|---|---|` line markdown puts under every
@@ -465,6 +502,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     implement_reason: str | None = None
     decompose_reason: str | None = None
     design_reason: str | None = None
+    tasks_reason: str | None = None
 
     for name in _STEP_NAMES:
         if cascade:
@@ -532,7 +570,22 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             state = "done" if _file_exists(spec_dir / "plan.md") else "pending"
 
         elif name == "tasks":
-            state = "done" if tasks_text else "pending"
+            if not tasks_text:
+                state = "pending"
+            elif _task_tally(tasks_text)[1]:
+                state = "done"
+            else:
+                # The step wrote its artifact and put no task in it, which is the
+                # same shape `brainstorm` reads when `design.md` exists with no
+                # record behind it: a file produced, an answer not.
+                #
+                # The sentinel is not consulted here, and `_tasks_open` does
+                # consult it. It declares *implementation* complete and says
+                # nothing about whether this step produced tasks — so clearing
+                # this arm with it would be one file clearing two automatic
+                # steps again, with a different file in the role.
+                state = "in_progress"
+                tasks_reason = _TASKS_EMPTY_REASON
 
         elif name == "analyze":
             state = (
@@ -591,12 +644,17 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             annotation = design_reason
         elif name == "decompose":
             annotation = decompose_reason
+        elif name == "tasks":
+            annotation = tasks_reason
         elif name == "implement" and tasks_text:
-            done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
-            total = done + len(re.findall(r"\[ \]", tasks_text))
-            annotation = f"{done}/{total} done"
+            done, total = _task_tally(tasks_text)
+            # No tally where there is nothing to tally. `0/0 done` is how #308
+            # was reported, and beside any state it reads as a count of work
+            # rather than as the absence of anything to count.
+            parts = [f"{done}/{total} done"] if total else []
             if implement_reason:
-                annotation = f"{annotation}  {implement_reason}"
+                parts.append(implement_reason)
+            annotation = "  ".join(parts) or None
 
         # Every arm that can set `state = "in_progress"` from evidence puts its
         # reason here. `decompose` was the one left out, so a delivery plan with
@@ -607,6 +665,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             "implement": implement_reason,
             "brainstorm": design_reason,
             "decompose": decompose_reason,
+            "tasks": tasks_reason,
         }.get(name)
         step = _PipelineStep(name, state, annotation, reason)
         step.remedy = _design_remedy(step, repo_root)
