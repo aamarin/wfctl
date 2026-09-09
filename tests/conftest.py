@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from wfctl._predicates import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+
 # Set before any wfctl import: `wfctl.cli` builds its `Console()` at module
 # scope, and rich resolves the color system there — a fixture would run too
 # late. Without this, rich emits ANSI whenever the terminal supports color, so
@@ -154,11 +156,71 @@ def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return d
 
 
-# A spec that satisfies both `specify` and `clarify`: no markers, and the
-# `## Clarifications` section clarify writes on every run, including a clean scan.
+# The sections `specify` requires, as the template writes them — suffix and all,
+# because that is the form that reaches a real spec and the form the stem match
+# has to tolerate. Built from the constant rather than typed out, so a change to
+# the required list moves the fixtures with it instead of failing 39 tests that
+# are about something else.
+SPEC_SECTIONS = "".join(
+    f"## {name} _(mandatory)_\n\nPlaceholder.\n\n" for name in _REQUIRED_SPEC_SECTIONS
+)
+
+# The same for `plan`. No suffix: `plan-template.md` marks nothing mandatory,
+# which is why the two constants are spelled differently here as well as in the
+# drift test.
+PLAN_SECTIONS = "".join(
+    f"## {name}\n\nPlaceholder.\n\n" for name in _REQUIRED_PLAN_SECTIONS
+)
+
+
+def structured(body: str) -> str:
+    """`body` plus the sections `specify` requires, for a test about something else.
+
+    A test asserting on markers, fenced blocks or the Clarifications section is
+    not asserting on structure, and since #309 it needs the structure anyway or
+    the step it is about never reports `done`. Wrapping keeps the test's own text
+    the thing the reader sees — the sections are appended, not interleaved.
+    """
+    return body + "\n" + SPEC_SECTIONS
+
+
+def _default_body(filename: str) -> str:
+    """What an artifact holds when a test names it but not its text.
+
+    `_file_exists` treats an empty file as absent, so this used to be the single
+    character `x` — enough to be present and nothing more. Since #309 `specify`
+    and `plan` read their artifact's sections, so `x` is no longer a spec or a
+    plan: a fixture writing it produces a document the pipeline correctly refuses,
+    and 39 tests about unrelated steps fail on it.
+
+    So the default is the smallest document that satisfies the step reading it —
+    for `spec.md` that is `CLEAN_SPEC`, which clears `clarify` as well, because a
+    spec.md that held `specify` open used to be the fixture's problem and is now
+    the pipeline's answer.
+    Tests that want the shapeless case pass `content=` and say so — that case is
+    the subject of `test_pipeline_sections.py`, and it should be written down
+    where it is being asserted rather than inherited from a fixture default.
+    """
+    if filename == "spec.md":
+        return CLEAN_SPEC
+    if filename == "plan.md":
+        return CLEAN_PLAN
+    return "x"
+
+
+# A plan that satisfies `plan`: every required section, and none of the template's
+# `ACTION REQUIRED` placeholder text. Named beside `CLEAN_SPEC` because the two
+# are the same idea one step apart, and a test staging upstream artifacts needs
+# both since #309.
+CLEAN_PLAN = "# Plan\n\n" + PLAN_SECTIONS
+
+# A spec that satisfies both `specify` and `clarify`: every required section, no
+# markers, and the `## Clarifications` section clarify writes on every run
+# including a clean scan.
 CLEAN_SPEC = (
     "# Spec\n\nClean.\n\n"
-    "## Clarifications\n\n### Session 2026-08-25\n\n"
+    + SPEC_SECTIONS
+    + "## Clarifications\n\n### Session 2026-08-25\n\n"
     "- No critical ambiguities detected.\n"
 )
 
@@ -221,10 +283,10 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(tmp_path / "specs"))
     monkeypatch.setenv("WFCTL_REPO_ROOT", str(tmp_path))
 
-    def make_spec_artifact(step: str, content: str = "x") -> Path:
+    def make_spec_artifact(step: str, content: str | None = None) -> Path:
         artifact: Path = _STEP_ARTIFACTS[step](tmp_path, spec_dir)  # type: ignore[operator]
         artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.write_text(content)
+        artifact.write_text(content if content is not None else _default_body(artifact.name))
         return artifact
 
     def stage_upstream_of(step: str, tasks: str = "- [x] T001 done\n") -> None:
@@ -271,10 +333,14 @@ def spec_tree(tmp_path: Path) -> Callable[..., Path]:
     to look for what else got written. Suitable only for the pure inference
     functions, which take a directory and never resolve one.
 
-    Content defaults to a non-empty placeholder because `_file_exists` treats an
-    empty file as absent. Pass `content=` for the two artifacts whose text is
-    read rather than counted — `spec.md` (markers, the Clarifications section)
-    and `tasks.md` (checkbox tallies).
+    Content defaults to whatever `_default_body` gives the artifact: for most, a
+    non-empty placeholder, because `_file_exists` treats an empty file as absent;
+    for `spec.md` and `plan.md`, the smallest document their step accepts, because
+    since #309 those two are read for their sections and a placeholder is not one.
+    Pass `content=` for the artifacts whose text the test is actually about —
+    `spec.md` (markers, the Clarifications section, missing sections), `plan.md`
+    (missing sections) and `tasks.md` (checkbox tallies). An explicit `""` is
+    honoured as the caller's choice, not treated as an omission.
     """
     def build(*names: str, content: dict[str, str] | None = None) -> Path:
         feature = tmp_path / "specs" / "74-feature"
@@ -283,7 +349,8 @@ def spec_tree(tmp_path: Path) -> Callable[..., Path]:
         for name in (*names, *text):
             artifact = feature / name
             artifact.parent.mkdir(parents=True, exist_ok=True)
-            artifact.write_text(text.get(name, "x"))
+            body = text.get(name)
+            artifact.write_text(_default_body(artifact.name) if body is None else body)
         return feature
 
     return build

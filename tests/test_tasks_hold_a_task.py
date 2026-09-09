@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import CLEAN_SPEC
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC
 from wfctl._pipeline import _infer_steps, _PipelineStep, build_report
 
 # The issue's file: a `tasks.md` a step wrote and no task in it.
@@ -38,7 +38,7 @@ def _feature(spec_tree: Callable[..., Path], tasks: str, **extra: str) -> Path:
     return spec_tree(
         content={
             "spec.md": CLEAN_SPEC,
-            "plan.md": "a plan\n",
+            "plan.md": CLEAN_PLAN,
             "checklists/analysis-report.md": "a report\n",
             "tasks.md": tasks,
             **extra,

@@ -269,6 +269,21 @@ def _current_step_name(steps: list[_PipelineStep]) -> str:
 
     Markers in spec.md leave specify `in_progress`, but clarify is the step that
     resolves them — so skip specify when clarify is also unfinished.
+
+    **Only for markers.** Since #309 specify has other ways to be `in_progress` —
+    sections missing from `spec.md`, or a document still carrying its template's
+    `ACTION REQUIRED` — and clarify resolves none of them. Routing a shapeless
+    spec to `/speckit.clarify` sends it to the one command that cannot fix it,
+    which then writes its `## Clarifications` into a one-character document;
+    clarify goes `done`, specify becomes current, and `/speckit.specify`
+    regenerates the file from the template and destroys the section just written.
+    `_predicates.clarify` names that sequence as the thing its own marker branch
+    exists to prevent.
+
+    `reason` is what tells them apart, and it is not a proxy: the marker branch
+    deliberately returns none, and every other held branch returns the string
+    `status` renders. So the skip asks the question it means — *is specify held
+    for something clarify can clear* — rather than asking whether it is held.
     """
     step_map = {s.name: s.state for s in steps}
     for s in steps:
@@ -277,6 +292,7 @@ def _current_step_name(steps: list[_PipelineStep]) -> str:
         if (
             s.name == "specify"
             and s.state == "in_progress"
+            and s.reason is None
             and step_map.get("clarify") == "in_progress"
         ):
             continue

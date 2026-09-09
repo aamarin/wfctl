@@ -2103,7 +2103,7 @@
       "state": "done"
     },
     {
-      "annotation": null,
+      "annotation": "scan never ran",
       "name": "clarify",
       "reason": null,
       "remedy": null,
@@ -2161,7 +2161,7 @@
       "state": "done"
     },
     {
-      "annotation": null,
+      "annotation": "scan never ran",
       "name": "clarify",
       "reason": null,
       "remedy": null,

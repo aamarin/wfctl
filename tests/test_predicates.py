@@ -147,7 +147,7 @@ def test_evidence_is_frozen() -> None:
     walk's business. Each predicate decides its own step from evidence, and
     nothing else.
     """
-    ev = Evidence(Path("."), Path("."), "", False, "", False, 0, 0)
+    ev = Evidence(Path("."), Path("."), "", False, "", "", False, 0, 0)
     with pytest.raises(dataclasses.FrozenInstanceError):
         ev.tasks_text = "changed"  # type: ignore[misc]
 

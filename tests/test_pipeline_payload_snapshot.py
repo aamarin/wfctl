@@ -38,13 +38,26 @@ import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
-from tests.conftest import git_repo
+from tests.conftest import CLEAN_PLAN, SPEC_SECTIONS, git_repo
 from wfctl._pipeline import _infer_steps
 
 SNAPSHOT = Path(__file__).parent / "pipeline_payload_snapshot.json"
 
-MARKED_SPEC = "# Spec\n\n[NEEDS CLARIFICATION: which one?]\n"
-CLARIFIED_SPEC = "# Spec\n\n## Clarifications\n\n### Session 2026-01-01\n\n- none\n"
+# Every spec here carries its mandatory sections and every plan its own, because
+# since #309 those are what `specify` and `plan` read. Without them all 41 rows
+# hold at specify with `missing: …` — which the matrix would happily freeze, and
+# a snapshot asserting that every feature in it is malformed cannot notice one
+# becoming so.
+#
+# `WRITTEN_SPEC` rather than a bare `# Spec\n` for the same reason the fixtures
+# in `conftest.py` stopped writing `x`: an artifact no pipeline would produce
+# tests the predicate against an input it will never see.
+WRITTEN_SPEC = "# Spec\n\n" + SPEC_SECTIONS
+WRITTEN_PLAN = CLEAN_PLAN
+MARKED_SPEC = WRITTEN_SPEC + "\n[NEEDS CLARIFICATION: which one?]\n"
+CLARIFIED_SPEC = (
+    WRITTEN_SPEC + "\n## Clarifications\n\n### Session 2026-01-01\n\n- none\n"
+)
 OPEN_TASKS = "- [x] T001 done\n- [ ] T002 open\n"
 CLOSED_TASKS = "- [x] T001 done\n- [x] T002 done\n"
 # #308: a file that exists and holds no task, and one whose only box is a worked
@@ -76,7 +89,7 @@ NO_MAP_DELIVERY = "# Delivery\n\nNo grouping table here.\n"
 
 _ANALYZED = {
     "spec.md": CLARIFIED_SPEC,
-    "plan.md": "x",
+    "plan.md": WRITTEN_PLAN,
     "tasks.md": OPEN_TASKS,
     "checklists/analysis-report.md": "x",
 }
@@ -86,12 +99,12 @@ _ANALYZED = {
 MATRIX: list[tuple[str, dict[str, str]]] = [
     ("empty", {}),
     ("design-only", {"design.md": "x"}),
-    ("spec-only", {"spec.md": "# Spec\n"}),
+    ("spec-only", {"spec.md": WRITTEN_SPEC}),
     ("spec-marked", {"spec.md": MARKED_SPEC}),
     ("spec-clarified", {"spec.md": CLARIFIED_SPEC}),
-    ("spec-plan-unclarified", {"spec.md": "# Spec\n", "plan.md": "x"}),
-    ("tasks-open", {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": OPEN_TASKS}),
-    ("tasks-closed", {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": CLOSED_TASKS}),
+    ("spec-plan-unclarified", {"spec.md": WRITTEN_SPEC, "plan.md": WRITTEN_PLAN}),
+    ("tasks-open", {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS}),
+    ("tasks-closed", {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": CLOSED_TASKS}),
     ("analyzed", _ANALYZED),
     ("decompose-keyed", {**_ANALYZED, "delivery.md": KEYED_DELIVERY}),
     ("decompose-unkeyed-tasks-open", {**_ANALYZED, "delivery.md": UNKEYED_DELIVERY}),
@@ -101,18 +114,18 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ),
     ("decompose-no-map", {**_ANALYZED, "delivery.md": NO_MAP_DELIVERY}),
     ("decompose-skipped", {**_ANALYZED, "tasks.md": CLOSED_TASKS}),
-    ("tasks-no-checkbox", {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": NO_TASKS}),
+    ("tasks-no-checkbox", {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS}),
     (
         "tasks-only-a-fenced-example",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": FENCED_TASKS},
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": FENCED_TASKS},
     ),
     (
         "tasks-no-checkbox-but-implemented",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": NO_TASKS, **SENTINEL},
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS, **SENTINEL},
     ),
     (
         "tasks-open-but-implemented",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": "x", "tasks.md": OPEN_TASKS, **SENTINEL},
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS, **SENTINEL},
     ),
     # The design gate's other early return: past the boundary, so a `design.md`
     # with no record still reads `done` once `spec.md` exists.

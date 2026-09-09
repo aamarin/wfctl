@@ -5,6 +5,7 @@ import types
 
 from typer.testing import CliRunner
 
+from tests.conftest import CLEAN_SPEC, structured
 from wfctl._pipeline import _current_step_name, infer_pipeline
 from wfctl._pipeline import _infer_steps as _infer_pipeline
 from wfctl.cli import app
@@ -23,16 +24,6 @@ STEP_NAMES = [
     "brainstorm", "specify", "clarify", "plan",
     "tasks", "analyze", "decompose", "implement",
 ]
-
-# A spec that has been through /speckit.clarify: no markers left, and the
-# `## Clarifications` section the skill writes on every run. Downstream steps
-# only become reachable once clarify is done, so they all start from this.
-CLEAN_SPEC = (
-    "# Spec\n\nClean.\n\n"
-    "## Clarifications\n\n### Session 2026-08-03\n\n"
-    "- No critical ambiguities detected.\n"
-)
-
 
 class TestInferPipeline:
     def test_step_names_always_present(self, storyctl_dir: NS) -> None:
@@ -87,7 +78,7 @@ class TestInferPipeline:
     # specify
     def test_specify_done_when_spec_md_has_no_markers(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo markers here.\n")
+        storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nNo markers here.\n"))
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "done"
 
@@ -97,7 +88,7 @@ class TestInferPipeline:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
             "specify",
-            content="# Spec\n\ntest text [NEEDS CLARIFICATION: this question text is ignored]\n",
+            content=structured("# Spec\n\ntest text [NEEDS CLARIFICATION: this question text is ignored]\n"),
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "in_progress"
@@ -105,7 +96,7 @@ class TestInferPipeline:
     def test_specify_in_progress_when_bare_marker_present(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
-            "specify", content="# Spec\n\n[NEEDS CLARIFICATION] something\n"
+            "specify", content=structured("# Spec\n\n[NEEDS CLARIFICATION] something\n")
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "in_progress"
@@ -122,7 +113,7 @@ class TestInferPipeline:
     ) -> None:
         # the regression: a confidently written spec used to skip clarify entirely
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nClean.\n")
+        storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nClean.\n"))
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "done"
         assert steps[2].state == "in_progress"
@@ -142,7 +133,7 @@ class TestInferPipeline:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
             "specify",
-            content="# Spec\n\n[NEEDS CLARIFICATION: still open]\n\n## Clarifications\n\n- Q: a\n",
+            content=structured("# Spec\n\n[NEEDS CLARIFICATION: still open]\n\n## Clarifications\n\n- Q: a\n"),
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].state == "in_progress"
@@ -152,7 +143,7 @@ class TestInferPipeline:
         self, storyctl_dir: NS
     ) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\n##\nClarifications\n")
+        storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\n##\nClarifications\n"))
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].state == "in_progress"
 
@@ -161,7 +152,7 @@ class TestInferPipeline:
         # in-flight story keeps moving instead of being sent back to clarify a spec
         # its implementation is already built on
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo section.\n")
+        storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nNo section.\n"))
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [ ] t2\n")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
@@ -174,7 +165,7 @@ class TestInferPipeline:
         # what keeps _current_step_name routing here instead of back to specify
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
-            "specify", content="# Spec\n\n[NEEDS CLARIFICATION: open]\n\n## Clarifications\n"
+            "specify", content=structured("# Spec\n\n[NEEDS CLARIFICATION: open]\n\n## Clarifications\n")
         )
         storyctl_dir.make_spec_artifact("plan")
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
@@ -184,7 +175,7 @@ class TestInferPipeline:
     def test_clarify_in_progress_when_no_plan_yet(self, storyctl_dir: NS) -> None:
         # same spec without plan.md is a new story, not an in-flight one — it stops
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo section.\n")
+        storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nNo section.\n"))
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].state == "in_progress"
 
@@ -196,7 +187,7 @@ class TestInferPipeline:
     def test_clarify_ignores_section_heading_in_fenced_block(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
-            "specify", content="# Spec\n\n```\n## Clarifications\n```\n"
+            "specify", content=structured("# Spec\n\n```\n## Clarifications\n```\n")
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[2].state == "in_progress"
@@ -363,7 +354,7 @@ class TestInferPipeline:
     def test_specify_done_when_marker_in_inline_code(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
-            "specify", content="Use `[NEEDS CLARIFICATION]` as the marker pattern.\n"
+            "specify", content=structured("Use `[NEEDS CLARIFICATION]` as the marker pattern.\n")
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "done"
@@ -372,7 +363,7 @@ class TestInferPipeline:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
             "specify",
-            content="```\nExample: [NEEDS CLARIFICATION] goes here\n```\n",
+            content=structured("```\nExample: [NEEDS CLARIFICATION] goes here\n```\n"),
         )
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "done"
@@ -439,7 +430,7 @@ class TestStatus:
     def test_next_routes_to_clarify_on_marker_free_spec(self, storyctl_dir: NS) -> None:
         # used to route straight to /speckit.plan, skipping the clarify gate
         storyctl_dir.make_spec_artifact("brainstorm")
-        storyctl_dir.make_spec_artifact("specify", content="# Spec\n\nNo markers.\n")
+        storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nNo markers.\n"))
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "/speckit.clarify" in content

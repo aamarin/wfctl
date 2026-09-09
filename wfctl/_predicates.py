@@ -25,7 +25,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Literal, NamedTuple
 
-from wfctl import _tracker
+from wfctl import _md, _tracker
 from wfctl._paths import arch_root
 
 # What reading one evidence source concluded. Three values rather than a bool
@@ -139,6 +139,11 @@ class Evidence:
     # the file is absent.
     spec_text: str
     has_markers: bool
+    # `plan.md`, blanked the same way and for the same reason: since #309 the
+    # plan predicate reads its sections, and `plan-template.md` carries `#` lines
+    # inside fenced blocks — so an unblanked read would count a section the
+    # document only illustrates. Empty when the file is absent.
+    plan_text: str
     tasks_text: str
     tasks_open: bool
     # The tally, taken beside the one read of the file rather than recomputed by
@@ -153,18 +158,141 @@ def _file_exists(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+# The sections each artifact must carry for its step to pass. wfctl's own list,
+# not one read from the template — `required-sections-are-wfctls`. Inference
+# reads a spec directory and nothing else, and the template it would otherwise
+# consult need not be installed in the repository under inspection: a repo that
+# never ran `install-skills` has no `.specify/`, and neither answer to its
+# absence is acceptable. `tests/test_pipeline_sections.py` holds these against
+# the templates the same wheel ships, which is the condition the record accepted
+# the coupling under — a rename fails the build here rather than changing a
+# verdict in the field.
+#
+# Stems rather than whole lines. The template's own `_(mandatory)_` suffix
+# reaches real specs verbatim, so a whole-line match would reject the corpus
+# these were measured against. Template order, because the annotation lists what
+# is missing and that is the order the reader will look for them in.
+_REQUIRED_SPEC_SECTIONS: tuple[str, ...] = (
+    "User Scenarios & Testing",
+    "Requirements",
+    "Success Criteria",
+    "Validation Strategy",
+)
+
+# `plan-template.md` marks nothing `_(mandatory)_`, so this is wfctl's choice
+# from the headings that template does carry — which is why the drift test
+# asserts the two halves differently, and says so in its own docstring.
+#
+# `Complexity Tracking` is carried by 23 of the 24 plans on disk and is still not
+# here. The template's own line above that section reads "Fill ONLY if
+# Constitution Check has violations that must be justified", so a plan with no
+# violations is *instructed* to delete it — and requiring it would leave that
+# author unable to clear the step by following the template they were given. A
+# required list may be stricter than what authors happen to do; it may not
+# contradict the document it is derived from.
+_REQUIRED_PLAN_SECTIONS: tuple[str, ...] = (
+    "Summary",
+    "Technical Context",
+    "Constitution Check",
+    "Project Structure",
+)
+
+# The templates' own instruction to the author, which they also tell the author to
+# delete: "ACTION REQUIRED: Replace the content in this section", inside an HTML
+# comment. Its presence means the document is still the template.
+#
+# This exists because structure alone could not tell the two apart, and on the
+# path the tool itself takes they are the same document: `setup-plan.sh` runs
+# `cp plan-template.md plan.md`, so the first act of `/speckit.plan` creates a
+# file carrying every required heading and nothing else. `spec.md` was already
+# covered — its template ships `[NEEDS CLARIFICATION` markers and the marker
+# check catches them — and the plan template has no equivalent, so a rung this
+# step claimed was not reached in the one case that always happens.
+#
+# The string rather than `NEEDS CLARIFICATION`, which would have been the
+# symmetric choice: three plans on disk discuss clarification markers in prose,
+# so it rejects real work. No spec or plan on disk carries this one, and both
+# templates do — which is the pair a placeholder marker needs.
+#
+# Blanking leaves it alone: `_quoted_out` removes fences and inline spans, and
+# this lives in an HTML comment. That is deliberate. A document quoting this
+# constant inside a fence is discussing it, not carrying it.
+TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"
+
+# Short, because they render inline in the step table beside the step's name.
+UNWRITTEN_TEMPLATE = "still the template"
+
+# clarify passed because a plan already exists, not because a scan ran.
+CLARIFY_UNSCANNED = "scan never ran"
+
+
+def _missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
+    r"""Which of `required` the document does not carry, in the order given.
+
+    `^##[ \t]+<name>(?!\w)` is `clarify`'s idiom for its own heading, reused
+    rather than reinvented so the structural reads in this module cannot drift
+    apart. MULTILINE anchors `^` to a line rather than the file. `[ \t]` rather
+    than `\s` so a bare `##` line followed by the name on the next line is not a
+    match. The lookahead rejects `## RequirementsTODO`, and also rejects
+    `## Functional Requirements` — the second is the strictness the list was
+    chosen for, and why three spec directories written before this pipeline
+    existed do not satisfy it.
+
+    `(?!\w)` and not `\b`, which is the same assertion only while every name
+    ends in a word character. One ending in `)` or `_` — `Requirements (v2)`,
+    say, after an upstream rename the constants were updated to follow — makes
+    `\b` require a word character *next*, so the heading never matches, the
+    drift test still passes because the strings agree, and `specify` becomes
+    unpassable in the field. That is precisely the silent verdict change SC-004
+    claims the build catches, arriving through the one door the build does not
+    watch.
+    """
+    return tuple(
+        name
+        for name in required
+        if not re.search(rf"^##[ \t]+{re.escape(name)}(?!\w)", text, re.MULTILINE)
+    )
+
+
+def _missing_reason(missing: tuple[str, ...]) -> str | None:
+    """The held step's line, or None when nothing is missing.
+
+    Names them rather than counting them: the reader fixes the artifact without
+    opening it, which is what the annotation slot is for. Template order comes
+    from the constant, so the list reads in the order the document declares.
+    """
+    return f"missing: {', '.join(missing)}" if missing else None
+
+
 def _quoted_out(text: str) -> str:
     """Markdown with its fenced blocks and inline spans blanked out.
 
     An artifact that *documents* a syntax must not read as using it — a spec
     showing what a clarification marker looks like has no marker, and a
-    `tasks.md` showing what a task line looks like holds no task.
+    `tasks.md` showing what a task line looks like holds no task. Every artifact
+    read here quotes the rules it is checked against, so that is the common case
+    rather than the exotic one.
 
-    ```.*?``` is non-greedy under DOTALL so two separate fences don't merge into
-    one match spanning the prose between them; `[^`\n]+` excludes newline so an
-    unpaired backtick can't swallow the rest of the file.
+    Fences come from `_md.walk` and not from a regex of our own. The regex this
+    replaced was a fourth private implementation in a package whose one fence
+    walker exists because three modules each carrying their own answered
+    differently — and it failed open on the three shapes that matter: `~~~`
+    fences, a ```-block nested inside a ````-fence, and an unclosed fence. Each
+    let an *illustrated* heading or marker read as a written one, which since
+    #309 decides whether a step passes rather than only how a marker is counted.
+
+    Lines are blanked rather than dropped so line structure survives: `^##` under
+    MULTILINE is what the callers match with, and deleting lines would join a
+    fenced block's neighbours into one.
+
+    Inline spans stay a local regex. `_md` answers a question about lines and
+    this one is within a line; `[^`\n]+` excludes newline so an unpaired
+    backtick cannot swallow the rest of the file.
     """
-    return re.sub(r"```.*?```|`[^`\n]+`", "", text, flags=re.DOTALL)
+    return "\n".join(
+        "" if line.inside or line.fence else re.sub(r"`[^`\n]+`", "", line.text)
+        for line in _md.walk(text)
+    )
 
 
 def _task_tally(tasks_text: str) -> tuple[int, int]:
@@ -429,12 +557,18 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 #               readily as a new record — or git could not say, which proceeds
 #               (`ambient`). Never checked to be about this change, and not read at
 #               all once `spec.md` exists.
-#   specify     1 + 3. `spec.md` is non-empty and carries no marker. Never 2: its
-#               sections are not read.
+#   specify     1 + 2 + 3. `spec.md` carries every section in
+#               `_REQUIRED_SPEC_SECTIONS`, is not still its own template, and has
+#               no marker left. Nothing under a heading is read, so 2 is the
+#               heading and not its contents.
 #   clarify     2 + 3. A `## Clarifications` heading, and no marker left; nothing
 #               under the heading is read. `skipped` where `plan.md` exists and the
-#               heading does not.
-#   plan        1. `plan.md` is non-empty.
+#               heading does not — annotated `scan never ran`, because that pass
+#               is on the plan's existence and not on evidence a scan happened.
+#   plan        1 + 2. `plan.md` carries every section in `_REQUIRED_PLAN_SECTIONS`
+#               and is not still its own template — which structure alone cannot
+#               tell, since `setup-plan.sh` makes the file by copying the
+#               template. Never 3: a plan has no marker to carry.
 #   tasks       2. `tasks.md` is non-empty and holds at least one checkbox (#308).
 #               Never 3: what a task says is not read, and neither is whether it
 #               is ticked — a file of open boxes finishes this step. `skipped`
@@ -461,8 +595,8 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # no tracker configured, and a plan carrying no map or no rows — without reaching
 # the rule. Both still proceed; they now proceed because `blocks` says so.
 #
-# Where a rung sits below its flag, that is filed, not fixed. #309 is `specify` and
-# `plan` automatic on a file's mere existence; `decompose` is argued on #240, the
+# Where a rung sits below its flag, that is filed, not fixed. `decompose` is argued
+# on #240, the
 # issue that would spend it. `brainstorm` is automatic over a weak rung as well and is not
 # filed: #283 settled that flag on reversibility, and a blocked step is never
 # automatic whatever the table says (`next_step_content`). Nothing pins these lines
@@ -496,11 +630,15 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         # tasks file documenting a task line are the same hazard.
         spec_text = _quoted_out(spec_md.read_text())
 
+    plan_md = spec_dir / "plan.md"
+    plan_text = _quoted_out(plan_md.read_text()) if _file_exists(plan_md) else ""
+
     done, total = _task_tally(tasks_text)
     return Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
         spec_text=spec_text,
+        plan_text=plan_text,
         # templates emit `[NEEDS CLARIFICATION: <question>]`, so the bracketed
         # literal `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix
         has_markers="[NEEDS CLARIFICATION" in spec_text,
@@ -533,10 +671,34 @@ def brainstorm(ev: Evidence) -> Reading:
 
 
 def specify(ev: Evidence) -> Reading:
-    """A spec exists, and carries no unresolved marker."""
+    """A spec exists, carries its mandatory sections, and has no marker left.
+
+    Presence is asked of the file, not of `spec_text`: a spec that is one fenced
+    block blanks to whitespace and is still a file someone wrote. Reading that as
+    `pending` would cascade the whole pipeline and contradict `brainstorm`, which
+    calls the same directory `skipped` from `_file_exists`.
+    """
     if not _file_exists(ev.spec_dir / "spec.md"):
         return Reading("pending")
-    return Reading("in_progress" if ev.has_markers else "done")
+    if TEMPLATE_PLACEHOLDER in ev.spec_text:
+        # Ahead of the marker check, and that ordering is the whole of what it
+        # adds here. The spec template ships `[NEEDS CLARIFICATION` markers of
+        # its own, so an untouched copy is `in_progress` either way — but as a
+        # *marked* spec it routes to `/speckit.clarify`, which cannot write a
+        # spec nobody has written. Reading it as unwritten routes it to the
+        # command that can.
+        #
+        # A spec someone has actually written carries no `ACTION REQUIRED`, so a
+        # real open marker still reaches the branch below.
+        return Reading("in_progress", UNWRITTEN_TEMPLATE)
+    if ev.has_markers:
+        # Keeps priority over the section read: a marked spec is clarify's
+        # business, and naming missing sections beside a marker would route the
+        # reader to the wrong command. No reason, which is what
+        # `_current_step_name` reads to know clarify can clear this one.
+        return Reading("in_progress")
+    reason = _missing_reason(_missing_sections(ev.spec_text, _REQUIRED_SPEC_SECTIONS))
+    return Reading("in_progress" if reason else "done", reason)
 
 
 def clarify(ev: Evidence) -> Reading:
@@ -567,13 +729,34 @@ def clarify(ev: Evidence) -> Reading:
         # clarify now sits. skipped not done: the scan genuinely never ran, and
         # saying otherwise would hide that. Does not block, so an in-flight story
         # is not sent back to clarify a spec its implementation is already built on.
-        return Reading("skipped")
+        #
+        # The annotation is what stops it being silent (#309): `skipped` advances
+        # the pipeline exactly as `done` does, and this branch passes the step on
+        # the plan's existence rather than on any evidence a scan happened. In
+        # `annotation` and not `reason` — a `skipped` step is never
+        # `_current_step_name`, so a reason here would reach no consumer, and it
+        # would widen what that field means in exchange for nothing observable.
+        #
+        # Existence, deliberately, and not the section read `plan` now performs.
+        # The question is whether planning already passed through here, which a
+        # thin plan still answers yes; tightening it would send an in-flight spec
+        # back to re-clarify a document its plan is already built on.
+        return Reading("skipped", annotation=CLARIFY_UNSCANNED)
     return Reading("in_progress")
 
 
 def plan(ev: Evidence) -> Reading:
-    """A plan exists."""
-    return Reading("done" if _file_exists(ev.spec_dir / "plan.md") else "pending")
+    """A plan exists and carries the sections a plan carries."""
+    if not _file_exists(ev.spec_dir / "plan.md"):
+        return Reading("pending")
+    if TEMPLATE_PLACEHOLDER in ev.plan_text:
+        # Ordered before the section read on purpose: `setup-plan.sh` runs
+        # `cp plan-template.md plan.md`, so the document this step most often
+        # meets carries every required heading and no content. Structure alone
+        # has nothing to say about it and would report `done`.
+        return Reading("in_progress", UNWRITTEN_TEMPLATE)
+    reason = _missing_reason(_missing_sections(ev.plan_text, _REQUIRED_PLAN_SECTIONS))
+    return Reading("in_progress" if reason else "done", reason)
 
 
 def tasks(ev: Evidence) -> Reading:
