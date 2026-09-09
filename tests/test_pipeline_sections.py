@@ -26,19 +26,32 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import PLAN_SECTIONS, SPEC_SECTIONS
+from wfctl._paths import spec_root
 from wfctl._pipeline import (
+    CLARIFY_UNSCANNED,
+    _current_step_name,
     _REQUIRED_PLAN_SECTIONS,
     _REQUIRED_SPEC_SECTIONS,
     _STEPS,
     _infer_steps,
+    next_step_content,
+    next_step_file,
 )
 
 _TEMPLATES = Path(str(files("wfctl"))) / "specify" / "templates"
 
-# The durable spec root this repo records, holding every spec the pipeline has
-# written. Not in the repository and absent in CI, which is why the corpus test
-# skips rather than fails on it — see its own docstring.
-_CORPUS = Path.home() / "Development" / "wfctl-specs"
+def _corpus() -> Path | None:
+    """The durable spec root this repo records, or None if there is not one.
+
+    Resolved rather than written down: `WFCTL_SPEC_DIR`, then this repo's
+    manifest, then the main checkout's, then `<repo>/specs` (AGENTS.md, "ask
+    `wfctl feature-paths` rather than assuming a path"). The literal
+    `~/Development/wfctl-specs` this replaced was true on one machine, and the
+    positive half of this file's own argument — that a check rejecting `x` and
+    also rejecting real work has fixed nothing — was bound to it.
+    """
+    root = spec_root(Path(__file__).resolve().parent.parent)
+    return root if root.is_dir() else None
 
 FULL_SPEC = "# Spec\n\nBody.\n\n" + SPEC_SECTIONS
 FULL_PLAN = "# Plan\n\nBody.\n\n" + PLAN_SECTIONS
@@ -192,8 +205,7 @@ def test_a_held_plan_names_the_sections_it_did_not_find(
     """No `_(mandatory)_` suffix on this side: the plan template marks none."""
     spec = spec_tree(content={"spec.md": FULL_SPEC, "plan.md": "x"})
     assert _step(spec, tmp_path, "plan").annotation == (
-        "missing: Summary, Technical Context, Constitution Check, "
-        "Project Structure, Complexity Tracking"
+        "missing: Summary, Technical Context, Constitution Check, Project Structure"
     )
 
 
@@ -222,6 +234,16 @@ def test_a_thin_plan_still_skips_clarify(
 # --------------------------------------------------------------------------
 # US3 — clarify says why it passed
 # --------------------------------------------------------------------------
+
+def test_the_skipped_clarify_annotation_is_the_constant_the_module_exports() -> None:
+    """The literal, tied to the name, so a rename cannot leave a test agreeing.
+
+    Every other assertion here re-types `scan never ran`. Renaming the constant
+    and every rendering of it would leave those green while `CLARIFY_UNSCANNED`
+    named something nothing checks — the string is the interface a reader sees.
+    """
+    assert CLARIFY_UNSCANNED == "scan never ran"
+
 
 def test_a_skipped_clarify_says_the_scan_never_ran(
     spec_tree: Callable[..., Path], tmp_path: Path
@@ -359,7 +381,6 @@ def test_no_step_changed_the_flag_that_says_it_may_run_unattended() -> None:
     }
 
 
-@pytest.mark.skipif(not _CORPUS.is_dir(), reason="the durable spec root is not on this machine")
 def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None:
     """The exercise a negative-only run does not cover, against the real corpus.
 
@@ -378,13 +399,16 @@ def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None
     and this repo records a root outside the working tree, so CI has no copy.
     A skip here is the corpus being unavailable, never the check passing.
     """
+    corpus = _corpus()
+    if corpus is None:
+        pytest.skip("no durable spec root resolves from here")
     legacy = {
         "24-read-artifacts-from-specs",
         "configurable-issue-key",
         "install-config-workmux",
     }
     checked = 0
-    for spec_dir in sorted(p for p in _CORPUS.iterdir() if p.is_dir()):
+    for spec_dir in sorted(p for p in corpus.iterdir() if p.is_dir()):
         if spec_dir.name in legacy or not (spec_dir / "spec.md").is_file():
             continue
         states = {s.name: s.state for s in _infer_steps(spec_dir, tmp_path)}
@@ -403,4 +427,141 @@ def test_the_corpus_test_is_not_silently_skipping(tmp_path: Path) -> None:
     not set it, and a maintainer checking the claim by hand can.
     """
     if os.environ.get("WFCTL_REQUIRE_CORPUS"):
-        assert _CORPUS.is_dir(), f"WFCTL_REQUIRE_CORPUS is set and {_CORPUS} is absent"
+        corpus = _corpus()
+        assert corpus is not None and corpus.is_dir(), (
+            "WFCTL_REQUIRE_CORPUS is set and no durable spec root resolves from here"
+        )
+
+
+# --------------------------------------------------------------------------
+# Routing. The hole the panel's only blocker lived in.
+# --------------------------------------------------------------------------
+
+def test_a_shapeless_spec_routes_to_specify_and_not_to_clarify(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The flagship case, all the way to the file an agent acts on.
+
+    `_current_step_name` skips `specify` when `clarify` is also `in_progress`,
+    which was written when markers were specify's only cause. Missing sections
+    are a second cause and clarify cannot clear it, so the thin spec routed to
+    `/speckit.clarify` — the one command that cannot fix it, and one that would
+    write its `## Clarifications` into a one-character file. `status` was right
+    the whole time; only routing was wrong, and routing is what an unattended
+    run acts on.
+
+    Three reviewers found this independently and no test in the change caught
+    it, because nothing in it called `_current_step_name`. That is what this
+    section is for.
+    """
+    steps = _infer_steps(spec_tree(content={"spec.md": "x"}), tmp_path)
+    assert _current_step_name(steps) == "specify"
+
+
+def test_a_shapeless_spec_carries_its_reason_into_the_agents_file(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """`next-step.md` is where the annotation has to arrive, not just `status`.
+
+    `cli` reads `blocked` off the *current* step, so routing to the wrong step
+    dropped the `missing: …` line entirely — computed, stored, and delivered
+    nowhere. SC-003 is about the reader of this file as much as the table.
+    """
+    steps = _infer_steps(spec_tree(content={"spec.md": "x"}), tmp_path)
+    current = _current_step_name(steps)
+    reason = next(s.reason for s in steps if s.name == current)
+    command, _auto = next_step_content(current, reason)
+    body = next_step_file(command, False, reason, None)
+    assert "/speckit.specify" in body
+    assert "why: missing: User Scenarios & Testing" in body
+
+
+def test_a_marked_spec_still_routes_to_clarify(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The skip the fix had to preserve, not merely narrow.
+
+    A spec with markers standing still belongs to clarify. Sending it back to
+    `/speckit.specify` regenerates the file from the template and destroys the
+    Clarifications section — the sequence this file names twice. The condition
+    keys on `reason` because the marker branch sets none and the section branch
+    sets the rendered string, so the skip asks whether specify is held for
+    something clarify can clear rather than whether it is held at all.
+    """
+    marked = "# Spec\n\n[NEEDS CLARIFICATION: which?]\n"
+    steps = _infer_steps(spec_tree(content={"spec.md": marked}), tmp_path)
+    assert _current_step_name(steps) == "clarify"
+
+
+def test_a_held_step_is_never_handed_out_as_automatic(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The change's other effect on orchestration, pinned rather than assumed.
+
+    `specify` is `automatic` in the table, and a held step is never automatic
+    whatever the table says (`next_step_content`). So tightening the predicate
+    also stops an unattended run where it previously proceeded — which is the
+    point, and was unobserved by any test until this one.
+    """
+    steps = _infer_steps(spec_tree(content={"spec.md": "x"}), tmp_path)
+    current = _current_step_name(steps)
+    reason = next(s.reason for s in steps if s.name == current)
+    _command, auto = next_step_content(current, reason)
+    assert auto is False
+
+
+def test_a_spec_that_is_only_a_fenced_block_is_not_pending(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Presence is a fact about the file, not about what survives blanking.
+
+    A `spec.md` holding one fenced block blanks to whitespace. Testing presence
+    on the blanked text read that as `pending`, cascading the whole pipeline and
+    contradicting `brainstorm`, which calls the same directory `skipped` from
+    `_file_exists` two arms up. Narrow input, and the two arms disagreeing about
+    one directory is the part that would have been hard to diagnose.
+    """
+    only_a_fence = "```\n## Requirements\n```\n"
+    states = {s.name: s.state for s in _infer_steps(
+        spec_tree(content={"spec.md": only_a_fence}), tmp_path)}
+    assert states["specify"] == "in_progress"
+    assert states["brainstorm"] == "skipped"
+
+
+def test_a_heading_only_illustrated_survives_every_fence_shape(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Three fence shapes a private regex got wrong, now the shared walker's job.
+
+    `~~~`, a ```-block nested inside a ````-fence, and an unclosed fence each let
+    an *illustrated* heading read as a written one — the defect class this step
+    exists to reject, arriving through the checker itself. `_md.walk` is the
+    package's one fence walker and exists because three modules carrying their
+    own answered differently; `_prose` had quietly become a fourth.
+    """
+    shapes = {
+        "tilde": "~~~\n" + SPEC_SECTIONS + "~~~\n",
+        "nested": "````\n```\n" + SPEC_SECTIONS + "```\n````\n",
+        "unclosed": "```\n" + SPEC_SECTIONS,
+    }
+    for label, text in shapes.items():
+        step = _step(spec_tree(content={"spec.md": text}), tmp_path, "specify")
+        assert step.state == "in_progress", f"{label}: illustrated heading counted as written"
+
+
+def test_the_required_plan_sections_do_not_contradict_the_template() -> None:
+    """A required list may out-strict its template; it may not contradict it.
+
+    `plan-template.md` says of `Complexity Tracking`: "Fill ONLY if Constitution
+    Check has violations that must be justified". 23 of the 24 plans on disk
+    carry it anyway, which is why requiring it would have passed the corpus — and
+    it would still have left an author who followed the template's own
+    instruction unable ever to clear the step.
+    """
+    template = (_TEMPLATES / "plan-template.md").read_text()
+    for name in _REQUIRED_PLAN_SECTIONS:
+        section = template.split(f"## {name}", 1)
+        assert len(section) == 2, f"{name} is required of a plan and absent from the template"
+        assert "Fill ONLY if" not in section[1].split("\n##", 1)[0], (
+            f"{name} is required, but the template tells the author to delete it"
+        )

@@ -78,10 +78,9 @@ blocks every step in a repository whose only fault is not having run
   above plus staleness against the running wfctl.
 - Require that the document carry *some* sections, without naming which — no
   coupling at all, and it rejects the constructed case. Sound, and it loses on
-  evidence: 22 of the 25 specs on disk carry all four mandatory headings and 23
-  of 24 plans carry all five, so the stricter check is one the corpus already
-  passes. The three exceptions predate the pipeline and were ported in, not
-  written by it.
+  evidence: 22 of the 25 specs on disk carry all four mandatory headings, and the
+  three that do not are the oldest directories there, ported in from before this
+  pipeline existed rather than evidence of ongoing drift.
 - Extend `wfctl.json`'s `verify` to `specify` and `plan` — the one predicate in
   the pipeline not authored by its claimant is `implement`, which reads a
   verification record. "Is this spec adequate" has no executable answer, so the
@@ -95,6 +94,15 @@ blocks every step in a repository whose only fault is not having run
   direction of #100: it trades an unchecked pass for a human pause on every run.
 
 ## Consequences
+
+A required list may be stricter than the template; it may not contradict it.
+`plan-template.md` carries `## Complexity Tracking` and tells the author to fill
+it *only* where the Constitution Check found violations, so a plan with none is
+instructed to delete it. 23 of the 24 plans on disk keep it — enough that
+requiring it would have passed the corpus and still left an author who followed
+their own template unable to clear the step. It is therefore not required, and
+the four that are carry no such instruction. This is the rule the spec side never
+had to state, because that template declares its mandatory sections outright.
 
 A section rename upstream fails wfctl's build rather than changing a verdict in
 the field. Someone reconciles the constants with the template in the same change

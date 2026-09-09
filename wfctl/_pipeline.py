@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from wfctl import _tracker
+from wfctl import _md, _tracker
 from wfctl._paths import arch_root, is_in_tree
 
 # What reading one evidence source concluded. Three values rather than a bool
@@ -134,7 +134,8 @@ _STEP_NAMES = list(_STEPS)
 # issue that would spend it. #309 was `specify` and `plan` automatic on a file's mere
 # existence, and is settled above — the section names are wfctl's under
 # `required-sections-are-wfctls`, held against the shipped templates by
-# `test_pipeline_sections.py` rather than read from them at inference time. `brainstorm` is automatic over a weak rung as well and is not
+# `test_pipeline_sections.py` rather than read from them at inference time.
+# `brainstorm` is automatic over a weak rung as well and is not
 # filed: #283 settled that flag on reversibility, and a blocked step is never
 # automatic whatever the table says (`next_step_content`). Nothing pins these lines
 # to the arms they describe — re-read the arm before trusting one.
@@ -246,12 +247,19 @@ _REQUIRED_SPEC_SECTIONS: tuple[str, ...] = (
 # `plan-template.md` marks nothing `_(mandatory)_`, so this is wfctl's choice
 # from the headings that template does carry — which is why the drift test
 # asserts the two halves differently, and says so in its own docstring.
+#
+# `Complexity Tracking` is carried by 23 of the 24 plans on disk and is still not
+# here. The template's own line above that section reads "Fill ONLY if
+# Constitution Check has violations that must be justified", so a plan with no
+# violations is *instructed* to delete it — and requiring it would leave that
+# author unable to clear the step by following the template they were given. A
+# required list may be stricter than what authors happen to do; it may not
+# contradict the document it is derived from.
 _REQUIRED_PLAN_SECTIONS: tuple[str, ...] = (
     "Summary",
     "Technical Context",
     "Constitution Check",
     "Project Structure",
-    "Complexity Tracking",
 )
 
 # clarify passed because a plan already exists, not because a scan ran.
@@ -275,35 +283,63 @@ def _prose(path: Path) -> str:
     r"""The file's text with fenced blocks and inline spans blanked, or "".
 
     A document that *documents* a heading or a marker does not thereby carry
-    one. ```.*?``` is non-greedy under DOTALL so two separate fences don't merge
-    into one match spanning the prose between them; `[^`\n]+` excludes newline
-    so an unpaired backtick can't swallow the rest of the file.
+    one. Every artifact this file reads quotes the rules it is checked against,
+    so that is the common case here rather than the exotic one.
+
+    Fences come from `_md.walk` and not from a regex of our own. The regex this
+    replaced was a fourth private implementation in a package whose one fence
+    walker exists because three modules each carrying their own answered
+    differently — and it failed open on all three shapes that matters for:
+    `~~~` fences, a ```-block nested inside a ````-fence, and an unclosed fence.
+    Each let an *illustrated* heading read as a written one, which is the defect
+    class this step exists to reject.
+
+    Lines are blanked rather than dropped so line structure survives: `^##`
+    under MULTILINE is what every caller matches with, and deleting lines would
+    join a fenced block's neighbours into one.
+
+    Inline spans stay a local regex. `_md` answers a question about lines and
+    this one is within a line; `[^`\n]+` excludes newline so an unpaired
+    backtick cannot swallow the rest of the file.
 
     Empty and absent collapse to the same "" because `_file_exists` already
-    treats a zero-byte file as absent, and every caller here asks whether there
-    is an artifact rather than whether there is a path.
+    treats a zero-byte file as absent. Callers asking whether the *artifact* is
+    there must ask `_file_exists`, not this — a document that is nothing but a
+    fenced block blanks to whitespace and is still a file someone wrote.
     """
     if not _file_exists(path):
         return ""
-    return re.sub(r"```.*?```|`[^`\n]+`", "", path.read_text(), flags=re.DOTALL)
+    return "\n".join(
+        "" if line.inside or line.fence else re.sub(r"`[^`\n]+`", "", line.text)
+        for line in _md.walk(path.read_text())
+    )
 
 
 def _missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
     r"""Which of `required` the document does not carry, in the order given.
 
-    `^##[ \t]+<name>\b` is the idiom `clarify` already uses for its own
-    heading, and it is reused rather than reinvented so the three structural
-    reads in this file cannot drift apart. MULTILINE anchors `^` to a line
-    rather than the file. `[ \t]` rather than `\s` so a bare `##` line followed
-    by the name on the next line is not a match. `\b` rejects
-    `## RequirementsTODO`, and also rejects `## Functional Requirements` — the
-    second is the strictness the list was chosen for, and the reason three spec
-    directories written before this pipeline existed do not satisfy it.
+    `^##[ \t]+<name>(?!\w)` is `clarify`'s idiom for its own heading, reused
+    rather than reinvented so the structural reads in this file cannot drift
+    apart. MULTILINE anchors `^` to a line rather than the file. `[ \t]` rather
+    than `\s` so a bare `##` line followed by the name on the next line is not a
+    match. The lookahead rejects `## RequirementsTODO`, and also rejects
+    `## Functional Requirements` — the second is the strictness the list was
+    chosen for, and why three spec directories written before this pipeline
+    existed do not satisfy it.
+
+    `(?!\w)` and not `\b`, which is the same assertion only while every name
+    ends in a word character. One ending in `)` or `_` — `Requirements (v2)`,
+    say, after an upstream rename the constants were updated to follow — makes
+    `\b` require a word character *next*, so the heading never matches, the
+    drift test still passes because the strings agree, and `specify` becomes
+    unpassable in the field. That is precisely the silent verdict change SC-004
+    claims the build catches, arriving through the one door the build does not
+    watch.
     """
     return tuple(
         name
         for name in required
-        if not re.search(rf"^##[ \t]+{re.escape(name)}\b", text, re.MULTILINE)
+        if not re.search(rf"^##[ \t]+{re.escape(name)}(?!\w)", text, re.MULTILINE)
     )
 
 
@@ -583,7 +619,12 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 state = "pending"
 
         elif name == "specify":
-            if not spec_text:
+            if not _file_exists(spec_md):
+                # The artifact's presence, not what survived blanking. A spec
+                # that is one fenced block blanks to whitespace and is still a
+                # file someone wrote — reading it as `pending` would cascade the
+                # whole pipeline and contradict `brainstorm`, which calls the
+                # same directory `skipped` two arms up.
                 state = "pending"
             elif has_markers:
                 # Unchanged, and it keeps priority over the section read: a marked
@@ -625,7 +666,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
                 state = "in_progress"
 
         elif name == "plan":
-            if not plan_text:
+            if not _file_exists(spec_dir / "plan.md"):
                 state = "pending"
             else:
                 missing = _missing_sections(plan_text, _REQUIRED_PLAN_SECTIONS)
@@ -835,6 +876,20 @@ def _current_step_name(steps: list[_PipelineStep]) -> str:
 
     Markers in spec.md leave specify `in_progress`, but clarify is the step that
     resolves them — so skip specify when clarify is also unfinished.
+
+    **Only for markers.** Since #309 specify has a second way to be
+    `in_progress` — sections missing from `spec.md` — and clarify cannot resolve
+    that one. Routing a shapeless spec to `/speckit.clarify` sends it to the one
+    command that cannot fix it, which then writes its `## Clarifications` into a
+    one-character document; clarify goes `done`, specify becomes current, and
+    `/speckit.specify` regenerates the file from the template and destroys the
+    section just written. This file already names that sequence twice as the
+    thing the marker branch's priority exists to prevent.
+
+    `reason` is what tells the two apart, and it is not a proxy: the marker
+    branch deliberately sets none, and the section branch sets the string
+    `status` renders. So the skip asks the question it means — *is specify held
+    for something clarify can clear* — rather than asking whether it is held.
     """
     step_map = {s.name: s.state for s in steps}
     for s in steps:
@@ -843,6 +898,7 @@ def _current_step_name(steps: list[_PipelineStep]) -> str:
         if (
             s.name == "specify"
             and s.state == "in_progress"
+            and s.reason is None
             and step_map.get("clarify") == "in_progress"
         ):
             continue
