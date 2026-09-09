@@ -34,6 +34,8 @@ from wfctl._pipeline import (
     _REQUIRED_SPEC_SECTIONS,
     _STEPS,
     _infer_steps,
+    _missing_sections,
+    _prose,
     next_step_content,
     next_step_file,
 )
@@ -319,6 +321,25 @@ def test_the_required_spec_sections_are_the_templates_mandatory_ones() -> None:
     surface rather than to skip.
     """
     assert _REQUIRED_SPEC_SECTIONS == _mandatory_headings(_TEMPLATES / "spec-template.md")
+
+
+def test_the_matcher_finds_every_required_section_in_the_templates_themselves() -> None:
+    """The strings agreeing is not the same as the matcher finding them.
+
+    The list check above compares two sets of names, and a name can match itself
+    while matching nothing in a document — that is exactly how `\b` failed for a
+    name ending in `)`. So run the real matcher over the real templates: if a
+    required section cannot be found in the file that declares it, the field is
+    about to become unpassable and the string comparison would still be green.
+
+    The gap this closes is narrow and silent, which is the pair that gets shipped.
+    """
+    for template, required in (
+        ("spec-template.md", _REQUIRED_SPEC_SECTIONS),
+        ("plan-template.md", _REQUIRED_PLAN_SECTIONS),
+    ):
+        missing = _missing_sections(_prose(_TEMPLATES / template), required)
+        assert missing == (), f"{template}: the matcher cannot find {list(missing)}"
 
 
 def test_the_required_plan_sections_are_headings_the_plan_template_carries() -> None:
