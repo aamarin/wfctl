@@ -98,6 +98,43 @@ def test_a_delivery_plan_does_not_carry_a_task_free_file_into_implement(
     assert states["implement"] != "done"
 
 
+def test_decompose_is_not_passed_by_on_a_task_free_file(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The other transition `_tasks_open` moved, raised by a reviewer as unpinned.
+
+    `skipped` there means the pipeline went past decompose because the tasks
+    were all closed. They were not closed; there were none. `pending` is the
+    state that says so, and it is what cascades `implement` in the reproduction
+    above — so the test one row up would go on passing if this quietly changed
+    back.
+    """
+    assert _states(_feature(spec_tree, _PROSE), tmp_path)["decompose"] == "pending"
+
+
+def test_the_implementation_sentinel_passes_by_a_task_free_tasks_step(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The trap two reviewers found: a shipped story with nowhere left to go.
+
+    `/speckit.tasks` rewrites `tasks.md` from a template, so a story already
+    declared implemented was being sent to a command that cannot help it, with
+    no route to `/end-session` while the step blocked — the same shape #8's
+    review caught on the decompose row.
+
+    `skipped`, never `done`. The step still produced no task, and the sentinel is
+    written by hand at the end of implementation, which is the declaration that
+    was missing when a bare file cleared both steps unattended.
+    """
+    feature = _feature(
+        spec_tree, _PROSE, **{"checklists/implement-complete.md": "done 2026-09-09\n"}
+    )
+    report = build_report(feature, tmp_path, tmp_path)
+
+    assert _states(feature, tmp_path)["tasks"] == "skipped"
+    assert (report.current, report.next_command) == (None, None)
+
+
 def test_the_tasks_step_is_not_automatic_while_its_file_holds_no_task(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:

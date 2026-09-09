@@ -109,7 +109,8 @@ _STEP_NAMES = list(_STEPS)
 #   plan        1. `plan.md` is non-empty.
 #   tasks       2. `tasks.md` is non-empty and holds at least one checkbox (#308).
 #               Never 3: what a task says is not read, and neither is whether it
-#               is ticked — a file of open boxes finishes this step.
+#               is ticked — a file of open boxes finishes this step. `skipped`
+#               where the implementation sentinel stands over a file with no box.
 #   analyze     1. `checklists/analysis-report.md` is non-empty.
 #   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
 #               and where a tracker is configured and it carries an Issue Grouping
@@ -479,6 +480,10 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
+    # One tally for the two arms that need it, taken beside the one read of the
+    # file. `_tasks_open`'s docstring says why the read is not repeated; the count
+    # taken from it is the same argument one step down.
+    tasks_done, tasks_total = _task_tally(tasks_text)
     tasks_open = _tasks_open(tasks_text, spec_dir)
 
     spec_md = spec_dir / "spec.md"
@@ -572,18 +577,24 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         elif name == "tasks":
             if not tasks_text:
                 state = "pending"
-            elif _task_tally(tasks_text)[1]:
+            elif tasks_total:
                 state = "done"
+            elif _file_exists(spec_dir / "checklists" / "implement-complete.md"):
+                # A story declared implemented over a file with no task in it.
+                # `skipped` rather than `done`, for clarify's reason: the step
+                # genuinely produced nothing, and `done` would hide that. It
+                # stops blocking for decompose's reason: `/speckit.tasks`
+                # rewrites this file from a template, so sending a shipped story
+                # there is a pipeline with no route to `/end-session` (#8).
+                #
+                # Not a second escape from #308. The sentinel is written by hand
+                # at the end of implementation, which is the declaration that was
+                # missing when a bare file cleared both steps unattended.
+                state = "skipped"
             else:
                 # The step wrote its artifact and put no task in it, which is the
                 # same shape `brainstorm` reads when `design.md` exists with no
                 # record behind it: a file produced, an answer not.
-                #
-                # The sentinel is not consulted here, and `_tasks_open` does
-                # consult it. It declares *implementation* complete and says
-                # nothing about whether this step produced tasks — so clearing
-                # this arm with it would be one file clearing two automatic
-                # steps again, with a different file in the role.
                 state = "in_progress"
                 tasks_reason = _TASKS_EMPTY_REASON
 
@@ -647,11 +658,10 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
         elif name == "tasks":
             annotation = tasks_reason
         elif name == "implement" and tasks_text:
-            done, total = _task_tally(tasks_text)
             # No tally where there is nothing to tally. `0/0 done` is how #308
             # was reported, and beside any state it reads as a count of work
             # rather than as the absence of anything to count.
-            parts = [f"{done}/{total} done"] if total else []
+            parts = [f"{tasks_done}/{tasks_total} done"] if tasks_total else []
             if implement_reason:
                 parts.append(implement_reason)
             annotation = "  ".join(parts) or None
