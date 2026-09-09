@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Literal, NamedTuple
 
 from wfctl._paths import arch_root
 
@@ -48,10 +48,32 @@ _PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record", "h
 # `in_progress` and `pending` both hold it, and differ in whether anything ran.
 State = Literal["done", "in_progress", "pending", "skipped"]
 
-# What every step's predicate is. The state, and the reason it is not complete —
-# a reason rather than a bool because the caller renders the string, and a caller
-# that only needs to know *whether* the step is blocked reads it as truthy.
-Predicate = Callable[["Evidence"], tuple[State, "str | None"]]
+class Reading(NamedTuple):
+    """What one predicate concluded: the state, why, and what to render.
+
+    `reason` rather than a bool because the caller renders the string, and a
+    caller that only needs to know *whether* the step is blocked reads it as
+    truthy.
+
+    `annotation` defaults to `None`, which means "the reason is what renders" —
+    true of seven steps. `implement` is the eighth: it prefixes a task tally, so
+    its annotation carries something its reason cannot be recovered from, and the
+    routing read wants the reason alone. Carried here rather than composed in the
+    walk so the walk never has to know which step is the exception — that branch
+    was the last `if name ==` left in it.
+    """
+
+    state: State
+    reason: str | None = None
+    annotation: str | None = None
+
+    def renders(self) -> str | None:
+        """What a view shows for this step."""
+        return self.reason if self.annotation is None else self.annotation
+
+
+# What every step's predicate is.
+Predicate = Callable[["Evidence"], Reading]
 
 # The design step's annotation when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
@@ -363,7 +385,7 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
     )
 
 
-def brainstorm(ev: Evidence) -> tuple[State, str | None]:
+def brainstorm(ev: Evidence) -> Reading:
     """Whether the boundary question was put, and whether it was answered."""
     if _file_exists(ev.spec_dir / "design.md"):
         # A design document is the artifact; the boundary question is the step.
@@ -371,27 +393,27 @@ def brainstorm(ev: Evidence) -> tuple[State, str | None]:
         # file and not its answer — the same shape `implement` reads when every
         # box is ticked and the definition of done has not passed.
         reason = design_block(ev.spec_dir, ev.repo_root)
-        return ("in_progress" if reason else "done"), reason
+        return Reading("in_progress" if reason else "done", reason)
     if _file_exists(ev.spec_dir / "spec.md"):
         # Passed by: the pipeline moved on without one, which `design-levels`
         # explicitly allows for a change that draws no new boundary.
-        return "skipped", None
+        return Reading("skipped")
     # Nothing has happened here yet. Distinct from the branch above, and the two
     # need opposite advice — this is where the reader is sent, that is already
     # behind them. `spec.md` stands in for "a later step ran": every step after
     # this one cascades through specify, so nothing can be past brainstorm
     # without it.
-    return "pending", None
+    return Reading("pending")
 
 
-def specify(ev: Evidence) -> tuple[State, str | None]:
+def specify(ev: Evidence) -> Reading:
     """A spec exists, and carries no unresolved marker."""
     if not _file_exists(ev.spec_dir / "spec.md"):
-        return "pending", None
-    return ("in_progress" if ev.has_markers else "done"), None
+        return Reading("pending")
+    return Reading("in_progress" if ev.has_markers else "done")
 
 
-def clarify(ev: Evidence) -> tuple[State, str | None]:
+def clarify(ev: Evidence) -> Reading:
     """The clarification scan ran, and left nothing standing.
 
     clarify has no file of its own — its artifact is the `## Clarifications`
@@ -408,38 +430,38 @@ def clarify(ev: Evidence) -> tuple[State, str | None]:
     """
     scanned = re.search(r"^##[ \t]+Clarifications\b", ev.spec_text, re.MULTILINE)
     if scanned and not ev.has_markers:
-        return "done", None
+        return Reading("done")
     if ev.has_markers:
         # markers are clarify's actual job — no bypass, whatever else exists.
         # in_progress here also keeps _current_step_name's skip branch firing, so
         # a marked spec routes to clarify rather than back to specify.
-        return "in_progress", None
+        return Reading("in_progress")
     if _file_exists(ev.spec_dir / "plan.md"):
         # a spec that predates the gate — planning already passed through where
         # clarify now sits. skipped not done: the scan genuinely never ran, and
         # saying otherwise would hide that. Does not block, so an in-flight story
         # is not sent back to clarify a spec its implementation is already built on.
-        return "skipped", None
-    return "in_progress", None
+        return Reading("skipped")
+    return Reading("in_progress")
 
 
-def plan(ev: Evidence) -> tuple[State, str | None]:
+def plan(ev: Evidence) -> Reading:
     """A plan exists."""
-    return ("done" if _file_exists(ev.spec_dir / "plan.md") else "pending"), None
+    return Reading("done" if _file_exists(ev.spec_dir / "plan.md") else "pending")
 
 
-def tasks(ev: Evidence) -> tuple[State, str | None]:
+def tasks(ev: Evidence) -> Reading:
     """A task list exists — not that it holds a single task (#308)."""
-    return ("done" if ev.tasks_text else "pending"), None
+    return Reading("done" if ev.tasks_text else "pending")
 
 
-def analyze(ev: Evidence) -> tuple[State, str | None]:
+def analyze(ev: Evidence) -> Reading:
     """An analysis report exists."""
     report = ev.spec_dir / "checklists" / "analysis-report.md"
-    return ("done" if _file_exists(report) else "pending"), None
+    return Reading("done" if _file_exists(report) else "pending")
 
 
-def decompose(ev: Evidence) -> tuple[State, str | None]:
+def decompose(ev: Evidence) -> Reading:
     """A delivery plan exists, and every issue row it groups names a key.
 
     Two questions, deliberately not one. `blocks` answers *is an unkeyed row a
@@ -462,8 +484,8 @@ def decompose(ev: Evidence) -> tuple[State, str | None]:
     delivery_md = ev.spec_dir / "delivery.md"
     if not _file_exists(delivery_md):
         if ev.tasks_text and not ev.tasks_open:
-            return "skipped", None
-        return "pending", None
+            return Reading("skipped")
+        return Reading("pending")
 
     # Writing the plan is not the whole step — `speckit-delivery-plan`'s own
     # checklist requires the issues it groups to exist. Read from the file's text
@@ -479,7 +501,7 @@ def decompose(ev: Evidence) -> tuple[State, str | None]:
         "inconclusive" if unkeyed is None else "unsatisfied" if unkeyed else "satisfied"
     )
     if not blocks(verdict, "ambient"):
-        return "done", None
+        return Reading("done")
 
     # What was read, not what it implies. The rows are the whole evidence:
     # "issues not created" is a claim about the tracker, and it is the wrong one
@@ -487,10 +509,10 @@ def decompose(ev: Evidence) -> tuple[State, str | None]:
     assert unkeyed is not None  # `unsatisfied` is the only arm that blocks here
     plural = "" if unkeyed == 1 else "s"
     reason = f"{unkeyed} issue row{plural} without a key"
-    return ("in_progress" if ev.tasks_open else "done"), reason
+    return Reading("in_progress" if ev.tasks_open else "done", reason)
 
 
-def implement(ev: Evidence) -> tuple[State, str | None]:
+def implement(ev: Evidence) -> Reading:
     """The tasks read closed, and a repo-declared verification passed on this tree.
 
     One owner for a verdict that was composed at two sites — this arm and the
@@ -501,11 +523,21 @@ def implement(ev: Evidence) -> tuple[State, str | None]:
     path.
     """
     if not ev.tasks_text:
-        return "pending", None
+        return Reading("pending")
+
+    # The tally, which is why this step's annotation is not its reason. Counted
+    # from the same text the state is read from, so the two cannot disagree
+    # about a file an implementing agent is rewriting.
+    done = len(re.findall(r"\[x\]", ev.tasks_text, re.IGNORECASE))
+    total = done + len(re.findall(r"\[ \]", ev.tasks_text))
+    tally = f"{done}/{total} done"
+
     if ev.tasks_open:
-        return "in_progress", None
+        return Reading("in_progress", None, tally)
     # Tasks read complete. Before #69 that was the whole check, and both routes
     # to it are written by the agent doing the work. A configured definition of
     # done gets the last word.
     blocked = verification_block(ev.repo_root)
-    return ("in_progress", blocked) if blocked else ("done", None)
+    if blocked:
+        return Reading("in_progress", blocked, f"{tally}  {blocked}")
+    return Reading("done", None, tally)

@@ -1,4 +1,14 @@
-"""Pipeline step inference and display, and the commands wfctl names.
+"""The step table, the walk over it, and the commands wfctl names.
+
+Two jobs, not the three this said before #314. What each step *reads* is
+`_predicates`; what remains here is the order the steps come in, the cascade,
+and the one payload every view renders.
+
+Inference and display stay together deliberately, and that is the half of the
+old docstring's third job that did not move. `pipeline-state-is-one-payload`
+forbids a view computing a fact of its own, so splitting the payload's shape
+from the inference that fills it would put the boundary in the one place the
+record rules out.
 
 The command inventory lives here rather than at its call sites so one check can
 reach all of it: a slash command that no longer ships is indistinguishable from
@@ -6,7 +16,6 @@ one that does until someone runs it.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -237,26 +246,14 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
             steps.append(_PipelineStep(name, "pending", None))
             continue
 
-        state, reason = step.predicate(ev)
-
-        # Every step's annotation is its reason, except `implement`, which
-        # prefixes a task tally the reason cannot be recovered from. The tally is
-        # a rendering of evidence the predicate already saw, and putting it in
-        # the predicate's return would make one step's signature wider than the
-        # other seven for a string only a view reads.
-        annotation = reason
-        if name == "implement" and ev.tasks_text:
-            done = len(re.findall(r"\[x\]", ev.tasks_text, re.IGNORECASE))
-            total = done + len(re.findall(r"\[ \]", ev.tasks_text))
-            annotation = f"{done}/{total} done"
-            if reason:
-                annotation = f"{annotation}  {reason}"
-
-        step_state = _PipelineStep(name, state, annotation, reason)
+        reading = step.predicate(ev)
+        step_state = _PipelineStep(
+            name, reading.state, reading.renders(), reading.reason
+        )
         step_state.remedy = _design_remedy(step_state, repo_root)
         steps.append(step_state)
 
-        if state == "pending":
+        if reading.state == "pending":
             cascade = True
 
     return steps
