@@ -38,6 +38,13 @@ ALLOWED = {
     # leaves it out; the caller falls back to the surface that needs no tracker
     # at all rather than guessing from whatever `view` happened to print.
     "labels": {"id"},
+    # `fields` reads an issue's or a change's attributes as data, where `view`
+    # returns whatever the backend's client prints for a human. Separate from
+    # `view` for the reason `labels` is separate from `label`: reading is the
+    # half a backend can decline, and a caller that fell back to parsing `view`
+    # would read every other backend as having nothing set — silently, which is
+    # the mistake the `labels` read above already made once.
+    "fields": {"id"},
     # `start`/`stop` say when work on an issue began and stopped; what a backend
     # does with that is its own business. A tracker with a board moves a column,
     # one without it declines the verb and the caller carries on — which is why
@@ -46,7 +53,7 @@ ALLOWED = {
     "start": {"id"}, "stop": {"id"},
 }
 # The `changes` section (PRs / patchsets) supports a smaller verb set.
-ALLOWED_CHANGES = {"list": set(), "view": {"id"}}
+ALLOWED_CHANGES = {"list": set(), "view": {"id"}, "fields": {"id"}}
 
 
 # The verbs that tell someone outside the repo, from the middle row of
@@ -369,20 +376,42 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     whole output instead would have let an issue *about* a label grant that
     label — #280's own body names `authority:notify` several times.
     """
+    out, detail = _read_verb(repo_root, "verbs", "labels", issue)
+    if out is None:
+        return None, detail
+    return {line.strip() for line in out.splitlines() if line.strip()}, None
+
+
+def _read_verb(
+    repo_root: Path, section: str, verb: str, item_id: str
+) -> tuple[str | None, str | None]:
+    """One reading verb's stdout, or why there is none. Never raises.
+
+    The half `dispatch` cannot do. That one prints stdout and hands back an exit
+    code, which is right for a verb whose output a person reads and useless for
+    one whose output a caller parses — so a reading verb comes through here
+    instead of gaining a capture flag on the writer's path.
+
+    Returns `(stdout, detail)`, and the two None cases are not the same fact.
+    `(None, None)` is nobody answered: no tracker, an unreadable config, or a
+    backend that declines the verb — the ordinary state of a repo that opted
+    out. `(None, detail)` is the answer did not arrive, which decides the run
+    that asked. A caller that collapses them reports a silence as a pass.
+    """
     name = load_manifest(repo_root).get("tracker")
     if not name:
         return None, None
     config = _load_tracker_config(repo_root, name)
     if config is None:
         return None, None
-    # `.get("verbs", {})` returns the value when the key is present, so a config
+    # `.get(section, {})` returns the value when the key is present, so a config
     # carrying `"verbs": null` hands back None and the membership test below
     # raises. Nothing validates a hand-edited config at load, and with no local
     # grant every `wfctl start` reaches this line — so the crash lands on the
     # command a session opens with. `validate_config` already guards the shape
     # this way; this reader had not.
-    verbs = config.get("verbs")
-    if not isinstance(verbs, dict) or "labels" not in verbs:
+    verbs = config.get(section)
+    if not isinstance(verbs, dict) or verb not in verbs:
         return None, None
 
     # A config that parsed is a config that is JSON, not one that is well-formed.
@@ -390,23 +419,24 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
     # function whose caller documents that it never raises — taking `wfctl start`
     # down with a traceback on a branch whose only fault was a typo in a file
     # nothing validates at load.
-    template = verbs["labels"]
+    template = verbs[verb]
     if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
-        return None, "'labels' must be a list of strings"
+        return None, f"'{verb}' must be a list of strings"
 
-    params: dict = {"id": issue}
+    params: dict = {"id": item_id}
     identity = config.get("identity")
     if identity is not None:
         params = {"me": identity, **params}
     try:
         argv = [_substitute(tok, params) for tok in template]
     except _MissingParam as e:
-        return None, f"'labels' requires --{e.key}"
+        return None, f"'{verb}' requires --{e.key}"
 
     try:
-        # The one network call on the `start` path. Unbounded, it would hang the
-        # command that every session opens with; refused-on-timeout is the same
-        # verdict an unreachable tracker already gets.
+        # Bounded because callers run unattended: `labels` is the one network
+        # call on the `start` path, and `fields` is invoked by a skill that has
+        # nobody watching it. Unbounded, either hangs forever; refused-on-timeout
+        # is the same verdict an unreachable tracker already gets.
         result = subprocess.run(
             argv, capture_output=True, text=True, cwd=repo_root, timeout=15,
         )
@@ -414,4 +444,54 @@ def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str
         return None, str(e)
     if result.returncode != 0:
         return None, (result.stderr or result.stdout or "").strip()
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}, None
+    return result.stdout, None
+
+
+def _is_flat(value: object) -> bool:
+    """Can this value be compared without knowing what field it belongs to?
+
+    Scalars and arrays of scalars can. An object cannot: telling two of them
+    apart means knowing which key inside identifies it — `name` for a GitHub
+    label, `login` for an assignee — which is one tracker's vocabulary inside
+    wfctl, and the whole reason the verb is contracted to flatten.
+    """
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return True
+    if isinstance(value, list):
+        return all(
+            isinstance(v, (str, int, float, bool)) or v is None for v in value
+        )
+    return False
+
+
+def read_fields(
+    repo_root: Path, section: str, item_id: str
+) -> tuple[dict | None, str | None]:
+    """One issue's or change's attributes as data, through its `fields` verb.
+
+    `section` is `"verbs"` for an issue and `"changes"` for a change; the key
+    names in the payload are the backend's own, and nothing here enumerates
+    them.
+
+    Same three-state return as `read_issue_labels`, and the third state carries
+    one case that reader has no equivalent for: a payload wfctl cannot compare.
+    That is a hand-edited config rather than a tracker being unreachable, so it
+    comes back as a `detail` naming the key — a traceback out of the comparison
+    would send the reader to the wrong file.
+    """
+    out, detail = _read_verb(repo_root, section, "fields", item_id)
+    if out is None:
+        return None, detail
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError as e:
+        return None, f"'fields' did not return JSON: {e}"
+    if not isinstance(payload, dict):
+        return None, "'fields' must return a JSON object"
+    for key, value in payload.items():
+        if not _is_flat(value):
+            return None, (
+                f"'fields' returned a nested value for '{key}' — the verb must "
+                "flatten to scalars or arrays of scalars"
+            )
+    return payload, None

@@ -933,3 +933,110 @@ def test_every_shipped_tracker_script_is_named_by_a_verb() -> None:
         if f.endswith(".sh") and f".agents/trackers/{f}" not in named
     ]
     assert missing == []
+
+
+# --- fields (read_fields) ---
+
+_FIELDS_CONFIG = {
+    "verbs": {
+        "list": ["gh", "issue", "list"],
+        "fields": ["gh", "issue", "view", "{id}", "--json", "labels"],
+    },
+    "changes": {
+        "list": ["gh", "pr", "list"],
+        "fields": ["gh", "pr", "view", "{id}", "--json", "labels"],
+    },
+}
+
+
+def _stub_run(monkeypatch: pytest.MonkeyPatch, *, stdout: str = "", code: int = 0,
+              raises: BaseException | None = None) -> None:
+    """Answer the one subprocess call `read_fields` makes."""
+    def fake_run(argv, **kwargs):
+        if raises is not None:
+            raise raises
+        return subprocess.CompletedProcess(argv, code, stdout=stdout, stderr="boom")
+
+    monkeypatch.setattr(_tracker.subprocess, "run", fake_run)
+
+
+def test_fields_is_a_verb_both_sections_accept(agent_dir: Path) -> None:
+    """A backend cannot declare `fields` unless the contract allows it there.
+
+    Both tables gain it, not one: a check that reads a change's attributes has
+    nothing to compare them against unless the issue side answers too.
+    """
+    assert _tracker.validate_config(_FIELDS_CONFIG) == []
+
+
+def test_check_is_never_a_backend_verb(agent_dir: Path) -> None:
+    """`wfctl change check` is wfctl's verb, and stays wfctl's.
+
+    Nothing new enforces this — `ALLOWED_CHANGES` already rejects what it does
+    not name. Pinned because the command reads as a dispatched verb from the
+    outside, so a later reader could reasonably add it to the table.
+    """
+    errs = _tracker.validate_config(
+        {"verbs": {"list": ["gh"]}, "changes": {"check": ["gh", "pr", "view"]}}
+    )
+    assert any("check" in e for e in errs)
+
+
+def test_read_fields_parses_the_payload(agent_dir: Path, monkeypatch) -> None:
+    _configure_tracker(agent_dir.parent, "github", _FIELDS_CONFIG)
+    _stub_run(monkeypatch, stdout='{"labels":["P1"],"milestone":null}')
+    payload, detail = _tracker.read_fields(agent_dir.parent, "changes", "301")
+    assert payload == {"labels": ["P1"], "milestone": None}
+    assert detail is None
+
+
+def test_read_fields_separates_nobody_asked_from_no_answer(agent_dir: Path, monkeypatch) -> None:
+    """The distinction a caller must not collapse.
+
+    A backend that declines `fields` is a repo that opted out and is fine; a
+    backend whose call failed decides the run. Collapsing them reports a silence
+    as a pass, which is the failure the whole feature exists to prevent.
+    """
+    _configure_tracker(agent_dir.parent, "jira", {"verbs": {"list": ["j", "ls"]}})
+    payload, detail = _tracker.read_fields(agent_dir.parent, "verbs", "7")
+    assert (payload, detail) == (None, None)
+
+    _configure_tracker(agent_dir.parent, "github", _FIELDS_CONFIG)
+    _stub_run(monkeypatch, code=1)
+    payload, detail = _tracker.read_fields(agent_dir.parent, "verbs", "7")
+    assert payload is None and detail == "boom"
+
+
+def test_read_fields_reports_a_timeout_as_a_detail(agent_dir: Path, monkeypatch) -> None:
+    """Bounded because a skill invokes this with nobody watching."""
+    _configure_tracker(agent_dir.parent, "github", _FIELDS_CONFIG)
+    _stub_run(monkeypatch, raises=subprocess.TimeoutExpired(["gh"], 15))
+    payload, detail = _tracker.read_fields(agent_dir.parent, "changes", "301")
+    assert payload is None and detail is not None
+
+
+def test_read_fields_rejects_output_that_is_not_a_json_object(
+    agent_dir: Path, monkeypatch
+) -> None:
+    _configure_tracker(agent_dir.parent, "github", _FIELDS_CONFIG)
+    for stdout in ("not json at all", "[1, 2]"):
+        _stub_run(monkeypatch, stdout=stdout)
+        payload, detail = _tracker.read_fields(agent_dir.parent, "changes", "301")
+        assert payload is None and detail is not None
+
+
+def test_read_fields_names_the_key_whose_value_was_not_flattened(
+    agent_dir: Path, monkeypatch
+) -> None:
+    """The misconfiguration that would otherwise surface as a comparison bug.
+
+    `gh --json` returns a label as an object. A config that forgot to flatten it
+    hands wfctl something it cannot compare without knowing that `name` is the
+    part that matters — so the reader is sent to the config, by key name, rather
+    than to a traceback out of a comparison that names nothing.
+    """
+    _configure_tracker(agent_dir.parent, "github", _FIELDS_CONFIG)
+    _stub_run(monkeypatch, stdout='{"labels":[{"name":"P1","color":"red"}]}')
+    payload, detail = _tracker.read_fields(agent_dir.parent, "changes", "301")
+    assert payload is None
+    assert detail is not None and "labels" in detail

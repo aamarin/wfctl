@@ -145,6 +145,33 @@ reviewer. If a comment only makes sense beside the diff, it belongs in the commi
 message. Existing comments are dense with rationale — match that, and explain
 *why this shape*, not what the line does.
 
+## Declaring what a change must carry
+
+`wfctl.json` holds a `change_check` list beside `verify` — field names
+`wfctl change check <pr>` requires on every open change, whatever its issue
+happens to carry:
+
+```json
+{ "verify": [ … ], "change_check": ["assignees"] }
+```
+
+Leave the key out to inherit from the issue alone, which is the right answer in a
+repo whose triage you do not control. The names are the *backend's* spelling, as
+its `fields` verb emits them — `assignees`, not `assignee` — and a name the
+backend never reports is a finding rather than silence, so a typo shows up on the
+first run instead of never.
+
+It lives in `wfctl.json` and not the tracker config because `.agents/` is
+gitignored and rewritten by `install-skills`: a policy written there works for one
+session and then vanishes with no error.
+
+**An in-place change to a tracker config travels by `--tracker <name>`.** A bare
+`install-skills` fills a missing tracker file and never refreshes a present one,
+deliberately — it cannot tell a stale copy from one the project edited, and the
+copy loop takes no backup for a path already on record. So a verb added upstream
+sits unreachable until `wfctl install-skills --tracker github` is run, and
+`tracker-check` printing a short verb list is the tell.
+
 ## Releasing
 
 **Bumping `version` in `pyproject.toml` on `main` ships a release.** CI tags the
