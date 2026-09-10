@@ -138,9 +138,27 @@ silently contradicts the skill it points at teaches the reader to discount both.
 **File**: `<arch-root>/scans/<issue>-analyze.md`.
 **Detail**: `FEATURE_DIR/checklists/analysis-report.md`.
 
-**Write it after step 8**, not after step 6b. `Acted on` and `Accepted` are not
-knowable until remediation has been settled, and a scan file written between the
-report and that conversation commits counts that are already stale.
+**Write it after step 8, and never leave the step without having written it.**
+Not after step 6b: `Acted on` and `Accepted` are not knowable until remediation
+has been settled, and a scan file written between the report and that
+conversation commits counts that are already stale.
+
+**The two halves of that sentence used to be the same instruction and are not
+since #325.** Step 8 asks the user whether to apply remediation. With nobody
+there to answer, a run that treats it as a stop leaves `analysis-report.md`
+written — which is the whole of what `_predicates.analyze` reads, so the step
+reports `done` — and no scan file at all. That is #307's defect restored on the
+one step whose scan file is cited as earning the flip, and it is reachable only
+now: before #325 the pause happened *outside* this command, with nothing yet
+written.
+
+So where step 8 cannot be answered, settle it rather than waiting on it, and
+write the section with the counts that settlement produced. `Accepted` is the
+honest value for a finding nobody acted on, and it takes a reason — a finding
+fixed and a finding nobody touched read identically as a row in a table, which
+`writing-a-scan-file` already says is the difference a reviewer needs. What the
+policy for settling should be is #331 and is not decided here; that it must not
+end with an unwritten scan file is.
 
 **Coverage rows** — the six detection passes of step 4, in its order, then pass G,
 plus one measurement:

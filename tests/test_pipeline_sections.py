@@ -421,10 +421,13 @@ def test_the_table_pins_every_steps_unattended_flag() -> None:
 def test_no_step_still_waits_for_a_human_once_it_has_finished() -> None:
     """SC-001, which the dict above proves the table changed but not this.
 
-    The criterion is a count reaching zero, not a count falling by two. A test
-    asserting the new dict passes just as well against a table that gained a
-    ninth `review_required` step alongside the two it lost, and #325's claim is
-    about the pipeline rather than about those two rows.
+    The criterion is a count reaching zero, not a count falling by two.
+
+    Not because the dict above would miss a ninth `review_required` step — it is
+    an equality, so a ninth key of any value fails it. The reason is what a dict
+    invites when a step is added: it is updated to match, mechanically, and goes
+    on passing. `waiting == []` cannot be edited into passing without someone
+    writing down that a step waits, which is the claim #325 is about.
     """
     waiting = [name for name, step in _STEPS.items() if step.continuation != "automatic"]
     assert waiting == [], f"steps still stopping a finished pipeline: {waiting}"

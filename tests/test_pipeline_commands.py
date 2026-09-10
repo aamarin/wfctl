@@ -1382,7 +1382,22 @@ def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
     assert "issue row" in written, written
 
 
-def test_clarify_runs_itself_whether_or_not_markers_are_still_standing() -> None:
+def _reported(spec: Path, repo: Path) -> tuple[str | None, str, bool]:
+    """(current step, command, auto) as inference actually reports them.
+
+    Two of the tests below asserted `next_step_content` directly and named a state
+    in `spec.md` they never built, so the argument passed in was the claim rather
+    than the evidence. This runs the walk.
+    """
+    raw = _infer_steps(spec, repo)
+    name = _current_step_name(raw)
+    blocked = next((s.reason for s in raw if s.name == name), None)
+    return (name, *next_step_content(name, blocked))
+
+
+def test_clarify_runs_itself_whether_or_not_markers_are_still_standing(
+    tmp_path: Path,
+) -> None:
     """FR-003, in both states that reach a reader.
 
     `pending` is the obvious one. The second is the one worth a test: a spec
@@ -1395,8 +1410,23 @@ def test_clarify_runs_itself_whether_or_not_markers_are_still_standing() -> None
     `clarify` read `in_progress` with markers up, and the walk picks `clarify`
     deliberately: `/speckit.specify` would rewrite `spec.md` from the template and
     take the Clarifications section with it.
+
+    Inferred from a marked spec rather than asserted against
+    `next_step_content("clarify", None)`. That call cannot see a marker — the
+    `None` is the claim under test, not a check of it — so the version that
+    passed it argued for its own premise.
     """
-    assert next_step_content("clarify", None) == ("/speckit.clarify", True)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "spec.md").write_text(CLEAN_SPEC.replace("## Clarifications", "## Later"))
+    assert _reported(plain, tmp_path) == ("clarify", "/speckit.clarify", True)
+
+    marked = tmp_path / "marked"
+    marked.mkdir()
+    (marked / "spec.md").write_text(
+        CLEAN_SPEC + "\n[NEEDS CLARIFICATION: which of two readings?]\n"
+    )
+    assert _reported(marked, tmp_path) == ("clarify", "/speckit.clarify", True)
 
 
 def test_analyze_runs_itself_when_no_report_has_been_written() -> None:
@@ -1412,11 +1442,18 @@ def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
     payload carries. Nothing fails when a prohibition is only believed, so they
     are stated here as one property over the whole table instead.
 
-    A per-step arm for any step breaks the first assertion. A flip made
-    conditional on anything breaks it too — the property holds with no input but
-    the step's own name, so a branch reading anything else has nowhere to hide.
-    `implement` is the one arm that exists and it lives under `blocked`, which the
-    second assertion covers rather than exempts.
+    A per-step arm for any step breaks the second loop. `implement` is the one arm
+    that exists and it lives under `blocked`, which that loop covers rather than
+    exempts.
+
+    The synthetic row is what makes the first loop mean anything, and it is here
+    because of what #325 removed. Deriving the expectation from the same table the
+    function reads leaves both sides moving together, so
+    `return (row.command, True)` — the function ignoring the table entirely —
+    satisfies it for every real row. Until #325 two steps were `review_required`
+    and that mutant died on them; with the table uniformly automatic, the whole
+    suite passed it. Verified by mutation, not assumed: the constant-`True` form
+    passed 1488 tests before this row existed.
     """
     for name, step in _STEPS.items():
         _, auto = next_step_content(name, None)
@@ -1424,6 +1461,24 @@ def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
 
         _, auto_blocked = next_step_content(name, "some reason")
         assert auto_blocked is False, name
+
+
+def test_a_review_required_step_would_still_be_reported_as_one(monkeypatch) -> None:
+    """The mutant #325 stopped killing: `next_step_content` ignoring the table.
+
+    No step is `review_required` any more, so every real row expects `True` and a
+    function that returns `True` unconditionally is indistinguishable from one
+    that reads the row. This puts a `review_required` row back for the length of
+    one test — the only remaining way to ask whether the value is read.
+
+    `monkeypatch.setitem` rather than a fixture: the row is the subject of this
+    one assertion, and a table mutated for a whole module is a table the next
+    reader has to notice before trusting anything else in it.
+    """
+    monkeypatch.setitem(
+        _STEPS, "clarify", _STEPS["clarify"]._replace(continuation="review_required")
+    )
+    assert next_step_content("clarify", None) == ("/speckit.clarify", False)
 
 
 def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
@@ -1446,4 +1501,7 @@ def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
 
     steps = {s.name: s.state for s in _infer_steps(spec, tmp_path)}
     assert steps["clarify"] == "skipped"
-    assert _current_step_name(_infer_steps(spec, tmp_path)) != "clarify"
+    # The step it lands on, not merely "not clarify". `brainstorm` is `skipped`
+    # here too and comes first, so a walk that wrongly selected skipped steps
+    # would return `brainstorm` and satisfy an inequality against `clarify`.
+    assert _current_step_name(_infer_steps(spec, tmp_path)) == "tasks"

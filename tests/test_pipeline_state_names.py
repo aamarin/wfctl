@@ -288,7 +288,12 @@ def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
     # behind — no step is `review_required` any more, so every `False` now comes
     # from a blocked step, and every blocking read but this one needs git. A bare
     # directory reports `inconclusive`, which `blocks` declines to act on.
-    (tmp_path / "wfctl.json").write_text('{"verify": ["true"]}')
+    # `[["true"]]`, not `["true"]`. A bare string in `verify` is the shape
+    # `_verify.load_config` rejects, so the string form blocks on "definition of
+    # done is malformed" rather than on the unrun one this test means — both
+    # block and both route to `wfctl verify`, so it passed while testing the
+    # wrong branch.
+    (tmp_path / "wfctl.json").write_text('{"verify": [["true"]]}')
     blocked = build_report(
         spec_tree(
             content={
