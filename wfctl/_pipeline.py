@@ -22,7 +22,7 @@ from typing import Literal, NamedTuple
 
 from wfctl import _predicates
 from wfctl._paths import arch_root, is_in_tree
-from wfctl._predicates import DESIGN_BLOCK_REASON, Predicate, State, build_evidence
+from wfctl._predicates import DESIGN_BLOCK_REASON, Fact, Predicate, State, build_evidence
 
 # step → (slash command that advances it, whether speckit-orchestrate may proceed
 # without pausing). The second value is a name rather than a Boolean because a
@@ -174,7 +174,9 @@ class _PipelineStep:
     remedy: str | None = None
 
 
-def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
+def _infer_steps(
+    spec_dir: Path | None, repo_root: Path, ev: _predicates.Evidence | None = None
+) -> list[_PipelineStep]:
     """Internal: return steps carrying `done` / `in_progress` / `pending` / `skipped`.
 
     A name rather than a glyph — not because the glyphs are unreadable. Agents
@@ -196,7 +198,13 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
     if spec_dir is None:
         return [_PipelineStep(name, "pending", None) for name in _STEP_NAMES]
 
-    ev = build_evidence(spec_dir, repo_root)
+    # Accepted from the caller when it has one, because `build_report` needs the
+    # same reads for the four facts. Built here otherwise, so `next` and the
+    # tests that call this directly are unchanged. Optional rather than required
+    # for that reason alone: one read either way, and no call site rewritten to
+    # gain it.
+    if ev is None:
+        ev = build_evidence(spec_dir, repo_root)
     steps: list[_PipelineStep] = []
     cascade = False
 
@@ -386,6 +394,18 @@ class PipelineReport:
     # decision from a failed read (FR-015).
     notify: bool = False
     notify_source: str = "unset"
+    # The four questions that decide whether the branch is ready, each read from
+    # its own owner (`readiness-is-not-a-step-state`). Beside `steps` and never
+    # inside them: three of the four are facts about the branch, so a field on a
+    # step would repeat one value down eight rows and assert a per-step variation
+    # that does not exist.
+    #
+    # Defaulted, like the two above and for their reason: a report built without
+    # them is a report about a feature nobody granted anything to. Outside the
+    # `current`/`next_command`/`auto` triple below, because a finished story's
+    # facts are as true as a running one's — there is no step left to run and the
+    # branch is still ready or not.
+    facts: tuple[Fact, ...] = ()
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
@@ -402,6 +422,33 @@ class PipelineReport:
             )
 
 
+def _corrected_grant(
+    granted: bool, source: str, repo_root: Path, branch: str
+) -> tuple[bool, str]:
+    """The recorded grant, with the two answers only the branch itself can give.
+
+    The trunk is never granted this and a branch that cannot be identified as one
+    or the other is not granted it either — `on_trunk` returns three states and
+    says in its own docstring why the third is not "no".
+
+    Here rather than in `status`, which is where it lived until the facts needed
+    it. A view correcting a payload field is the second inference path
+    `pipeline-state-is-one-payload` rejects, and it survived only because nothing
+    else read the corrected answer. The argument the old call site made is
+    untouched: the *grant* is still read back from the event log once, and the
+    tracker round-trip it avoided is still avoided — what moved is two local git
+    calls, which now every caller of this function pays and only `status` did.
+    """
+    from wfctl._paths import on_trunk
+
+    trunk = on_trunk(repo_root, branch)
+    if trunk is None:
+        return False, "unknown-trunk"
+    if trunk:
+        return False, "trunk"
+    return granted, source
+
+
 def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> PipelineReport:
     """The one inference. Every view of pipeline state is a rendering of this."""
     # Aliased: the report field and the reader are the same word, and
@@ -411,11 +458,19 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     from wfctl._paths import resolve_branch
     from wfctl._session import resolved_notify, session_started
 
+    branch = resolve_branch(repo_root)
     # The branch decides which recorded resolution counts. A state dir shared
     # across worktrees holds every branch's, and reading the newest regardless of
     # whose it was is how one feature's grant answered for another.
-    notify = resolved_notify(agent_dir, resolve_branch(repo_root))
-    raw = _infer_steps(spec_dir, repo_root)
+    notify = resolved_notify(agent_dir, branch)
+    granted, source = _corrected_grant(notify.granted, notify.source, repo_root, branch)
+
+    # One read, two consumers. The step predicates and the artifacts fact ask the
+    # same three files, and two reads of them can disagree while an implementing
+    # agent is writing — the window `build_report` was made to close for the
+    # blocked reason, met again by a field added beside it.
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    raw = _infer_steps(spec_dir, repo_root, ev)
     name = _current_step_name(raw)
     # `_infer_steps` has already asked; `verification_block` reads the config,
     # loads a record and shells out to git, and `status` runs on every session
@@ -450,6 +505,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         # Read back rather than resolved here. `start` asks the tracker once and
         # records the answer; doing it in this function would put a network
         # round-trip inside the one call every view of pipeline state makes.
-        notify=notify.granted,
-        notify_source=notify.source,
+        notify=granted,
+        notify_source=source,
+        facts=_predicates.facts(ev, repo_root, granted, source),
     )

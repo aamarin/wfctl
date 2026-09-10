@@ -69,6 +69,26 @@ _STATE_GLYPH: dict[str, tuple[str, str]] = {
     "skipped":     ("–", "dim"),
 }
 
+# Fact value → (glyph, rich style). A sibling of the table above rather than a
+# widening of it: the four step states and the three fact values are different
+# closed sets, and one table over both would let a fact render as `▶`, a state it
+# cannot hold. What the two share is the rule — a glyph exists for exactly one
+# console line, and inference carries names.
+#
+# `unmet` is yellow and not dim. It names the thing the reader has to act on, and
+# `pending`'s dim would file it beside "not yet". `n/a` borrows `skipped`'s glyph
+# and style because it is the same kind of statement: this one was passed by.
+_FACT_GLYPH: dict[str, tuple[str, str]] = {
+    "met":   ("●", "green"),
+    "unmet": ("○", "yellow"),
+    "n/a":   ("–", "dim"),
+}
+
+# The width of the longest of the four fact names, `integration authorized`. A
+# constant because the block and its tests both need it and a literal in two
+# places is a column that drifts by one space.
+_FACT_NAME_WIDTH = 22
+
 
 def _wfctl_version() -> str:
     """The running wfctl's version — the provenance half the manifest records.
@@ -370,25 +390,19 @@ def status_cmd(
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
-    from wfctl._paths import on_trunk, resolve_spec_dir
+    from wfctl._paths import resolve_spec_dir
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
 
-    # Asked here rather than read back with the rest. The recorded answer says
-    # what `wfctl start` resolved on whichever branch ran it, and on the trunk
-    # before any start there is nothing recorded at all — which rendered as
-    # "nobody has allowed it for this work" and sent the reader looking for the
-    # flag that would fix it. There is none, and the trunk line says so. Costs
-    # two local git calls; the round-trip this design avoids is the tracker's.
+    # Read back, not corrected here. The trunk answer used to be composed at this
+    # call site, which made the console the only place the corrected grant
+    # existed — a view deciding a fact. `build_report` owns it since the
+    # integration fact needed the same answer, and the argument for asking git
+    # rather than the tracker moved with it (`_pipeline._corrected_grant`).
+    notify = report.notify
     notify_source = report.notify_source
-    trunk = on_trunk(repo_root, branch)
-    if trunk is None:
-        notify_source = "unknown-trunk"
-    elif trunk:
-        notify_source = "trunk"
-    notify = report.notify and notify_source == report.notify_source
 
     if as_json:
         # The same object the console branch renders, in the other format. The
@@ -419,6 +433,11 @@ def status_cmd(
             "notify": notify,
             "notify_source": notify_source,
             "steps": report.steps,
+            # Always four, always in order, never filtered. A consumer reading a
+            # short list learns nothing; one reading no `facts` key at all learns
+            # that this wfctl predates the question, which is the distinction
+            # `notify` is present-and-false for.
+            "facts": [f._asdict() for f in report.facts],
         })
         return
 
@@ -462,6 +481,23 @@ def status_cmd(
         ann = f"  [dim]{escape(step['annotation'])}[/dim]" if step["annotation"] else ""
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
+
+    # Between the step table and `next:`, and printed in every state including
+    # the one where all four are met. Rendering it only when something is unmet
+    # would make its *absence* carry meaning, which a reader cannot tell from a
+    # wfctl too old to know the question — the reason `notify` is present and
+    # false rather than omitted, met here on the console side.
+    #
+    # `escape()` for the reason the remedy below is escaped: a record slug and a
+    # repo-declared path both reach these strings, and `[wip]` is legal in both.
+    if report.facts:
+        console.print("[dim]" + "─" * 36 + "[/dim]")
+        for fact in report.facts:
+            glyph, color = _FACT_GLYPH[fact.value]
+            label = fact.name.ljust(_FACT_NAME_WIDTH)
+            console.print(
+                f"{label} [{color}]{glyph}[/{color}]  [dim]{escape(fact.detail)}[/dim]"
+            )
 
     # The completion sentence rather than a second spelling of it: `_pipeline`
     # owns both forms so the file an agent reads and the line a human reads

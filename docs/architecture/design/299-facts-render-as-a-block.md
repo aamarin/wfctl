@@ -44,9 +44,16 @@ above as real. It is the baseline below.
 - Four extra console lines do not make `wfctl status` too long to scan. What
   would falsify it: a reader who starts piping `status` through `head` to find
   the step table, or asks for a flag that hides the block.
-- The longest fact line — a slug plus a detail — fits 80 columns. Falsified by a
-  repo whose record slugs run long enough to wrap; the detail is truncatable and
-  the slug is not.
+- ~~The longest fact line — a slug plus a detail — fits 80 columns.~~
+  **Falsified during implementation, and the line is kept anyway.** One waiting
+  record fits; two do not, because each is named with its own status. The
+  alternative was to truncate the list, and truncating drops which record is
+  waiting — the exact thing this feature exists to say. A wrapped line naming
+  every waiting record beats a short line naming some of them, so what changes is
+  the claim rather than the design.
+- Four extra lines is the block's steady-state height. Falsified by a branch with
+  several un-ruled records, where the architecture line wraps; that branch has a
+  real problem and the extra line is the report of it.
 
 ## Direct baseline
 
