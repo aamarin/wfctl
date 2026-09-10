@@ -80,6 +80,72 @@ class Reading(NamedTuple):
 # What every step's predicate is.
 Predicate = Callable[["Evidence"], Reading]
 
+
+# The three values one readiness fact takes. A closed set for `State`'s reason —
+# mypy is not strict here, so a derivation returning "missing" would type-check
+# and render as an unknown glyph.
+#
+# Three words that appear in neither neighbouring vocabulary, deliberately.
+# `State` grades a step and `Verdict` grades whether evidence could be read at
+# all; borrowing either set here would make one of those rules look applicable to
+# a question it does not answer. `n/a` in particular is not `inconclusive`:
+# `inconclusive` means the evidence was owed and could not be read, and `n/a`
+# means nothing owed it because the question does not arise on this branch.
+FactValue = Literal["met", "unmet", "n/a"]
+
+
+class Fact(NamedTuple):
+    """One of the four questions that decide whether a branch is ready.
+
+    A fact is about the *branch*, not about a step —
+    `readiness-is-not-a-step-state` is the record, and the whole point of it is
+    that a step state answers one question and these answer four. Three of the
+    four are answerable with no spec dir at all.
+
+    `detail` is never None. Every value has something to say — `met` names what
+    was read, `unmet` names what is missing, `n/a` names why the question does
+    not arise — and a nullable field would let a derivation answer without one,
+    which is the state the issue was filed against one level up.
+    """
+
+    name: str
+    value: FactValue
+    detail: str
+
+
+# Statuses a person moved a record to. `proposed` is the one that means nobody
+# has, and a status outside `_arch.STATUSES` parses to "" — so both fall outside
+# this set without being named in it.
+#
+# Not "accepted" alone, which was the first shape and is wrong for a branch that
+# supersedes a record: that leaves the old record at `superseded`, which a human
+# did decide, and requiring `accepted` would hold such a branch forever.
+_RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
+
+# Sources whose answer could not be read, as opposed to answering no. Routed
+# through `blocks` below rather than mapped straight to a value, so the rule that
+# says what unavailable *promised* evidence means stays the one in
+# `promised-evidence-blocks-on-silence` and is not restated here.
+_UNREADABLE_GRANT = frozenset({"unreadable", "corrupt", "unknown-trunk"})
+
+# The right-hand column of the fact block, keyed on which of the seven answers
+# resolved the grant.
+#
+# Not `cli._NOTIFY_LINES`, which says the same things in longer words. That table
+# renders one standalone line, so each entry has to be a complete sentence about
+# what the run will do; these sit beside a name that has already asked the
+# question, so the sentence would repeat it. Two renderings of one fact is what
+# the payload is for — what would be wrong is two *derivations*, and there is one.
+_GRANT_DETAIL = {
+    "local": "you allowed it in this worktree",
+    "label": "you allowed it on the issue",
+    "unset": "nobody has allowed it for this work",
+    "deny": "you turned it off here",
+    "unreadable": "couldn't reach the issue tracker to check",
+    "corrupt": "couldn't read the setting for this work",
+    "unknown-trunk": "couldn't tell which branch is trunk",
+}
+
 # The design step's annotation when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
 # `_pipeline.DESIGN_BLOCK_HELP`, which is formatted with a per-repo location.
@@ -152,6 +218,14 @@ class Evidence:
     # tells those apart, and both predicates check it first.
     tasks_done: int
     tasks_total: int
+    # `verification_block`'s answer, read once. Deferred until #299, on the
+    # argument that `cascade` means most runs never reach `implement` and the
+    # read costs git — an argument that stopped holding the moment
+    # `fact_definition_of_done` began asking the same question on every report.
+    # Two calls per report was the actual cost of leaving it deferred, and
+    # `build_report`'s own seam comment names that as the thing this collapse
+    # exists to prevent.
+    verification: str | None
 
 
 def _file_exists(path: Path) -> bool:
@@ -545,6 +619,15 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # addressed, syntactically; 4 promised external objects exist; 5 executable
 # completion criteria passed; 6 a decision has authority; 7 integration was approved.
 #
+# Rungs are not the four facts above, and the two vocabularies are kept apart on
+# purpose (#299). A rung grades how strongly *one predicate* proves something
+# about *its own step*; a fact is one of four questions about the branch. Only
+# rungs 6 and 7 line up one-to-one, with `fact_architecture_accepted` and
+# `fact_integration_authorized` — the two no predicate here reaches. Rungs 1
+# through 5 are all evidence that a step's artifacts were written and how well,
+# which is a single fact, so a stated mapping would be right about two rows and
+# wrong about five.
+#
 # Beside the predicates by `knowledge-placement`: a fact about one file belongs to
 # that file, and this is a fact about the functions below. It sat in `_pipeline.py`
 # until #314, when the functions moved and it did not — which is exactly the drift
@@ -619,6 +702,213 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # before trusting one.
 
 
+def fact_artifacts_written(ev: Evidence | None) -> Fact:
+    """Did this feature's steps write their artifacts? Owner: the spec dir.
+
+    Reads `Evidence`'s three texts and no step's conclusion. That distinction is
+    the feature: the predicates read these same three files, and reading their
+    *verdicts* instead would be the collapse `readiness-is-not-a-step-state`
+    undoes.
+
+    Takes `Evidence | None` because `_infer_steps` builds none when no spec dir
+    resolved. An empty `Evidence` would have served the type and not the answer —
+    three empty strings cannot be told from a feature directory holding three
+    empty files, and those are different states.
+
+    Stops at the three `Evidence` gathers. Reaching further — `delivery.md`, the
+    checklists — means re-implementing predicates that own those reads, and
+    `Evidence` is this repo's own definition of what the walk already paid for.
+    """
+    name = "artifacts written"
+    if ev is None:
+        return Fact(name, "unmet", "no spec dir for this branch")
+    written = {"spec.md": ev.spec_text, "plan.md": ev.plan_text, "tasks.md": ev.tasks_text}
+    missing = [n for n, text in written.items() if not text]
+    if missing:
+        return Fact(name, "unmet", "missing " + ", ".join(missing))
+    return Fact(name, "met", ", ".join(written))
+
+
+def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
+    """Did the repo's own check pass on this tree? Owner: `wfctl.json` + the record.
+
+    `blocked` is `verification_block`'s answer, handed in rather than asked for.
+    That is a hoist and not a derivation from a step: the string comes from this
+    fact's own owner, and the alternative — calling it here as well — ran the
+    same git and record reads twice per report, which is what `build_report`'s
+    seam comment says the seam exists to prevent.
+
+    `verification_block` holds every reason this can be unmet, in the order a
+    user can act on. What it cannot say is the difference between "passed" and
+    "there was nothing to run": both are `None`, because a repo with no
+    definition of done is never blocked (FR-002) and that degrade path must cost
+    nothing.
+
+    So the config is asked here, for exactly that distinction, and it is not a
+    second opinion — `load_config` returning no commands and no errors is the
+    same first branch `verification_block` already took before it touched git.
+
+    The record is read once more for the sha it verified against. That is a
+    second read of one small file and not a second inference: the verdict is
+    already decided, and this only asks which tree it was decided about.
+    """
+    from wfctl import _verify
+    from wfctl._paths import resolve_agent_dir, resolve_branch
+
+    name = "definition of done"
+    commands, errs = _verify.load_config(repo_root)
+    if not commands and not errs:
+        return Fact(name, "n/a", "no definition of done declared")
+
+    if blocked:
+        return Fact(name, "unmet", blocked)
+
+    record = _verify.load_record(resolve_agent_dir(repo_root, resolve_branch(repo_root)))
+    sha = record["sha"][:7] if record else ""
+    return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
+
+
+def fact_architecture_accepted(repo_root: Path) -> Fact:
+    """Has a human ruled on what this branch decided? Owner: the record's `status`.
+
+    Scoped to the branch and never to the projection. The repository-wide answer
+    is a different question: a repo holding one un-accepted record would report
+    every branch blocked forever, including branches that decided nothing, and a
+    permanently false value is not a fact about the branch.
+
+    Three states in, three states out. `records_on_this_branch` returns an empty
+    list for "nothing touched", for "git could not be asked" and for an arch root
+    outside the tree, and reading all three as the first is the same collapse this
+    feature exists to undo, one level down. So the question is put to
+    `touched_on_this_branch`, whose three states say which — and the git-failed
+    one goes through `blocks` as `accepted-record`, so it blocks for the reason
+    `promised-evidence-blocks-on-silence` gives and not one invented here.
+
+    An arch root outside the working tree is not that case and must not borrow its
+    answer. Nothing failed: git is being asked about a path it does not track, and
+    a repo that keeps its records elsewhere would otherwise read unmet forever.
+
+    `scans/` is excluded by name, which is `AGENTS.md`'s standing instruction to
+    every reader of the arch root — a git pathspec naming a directory is
+    recursive and cannot be made otherwise. The intersection with `load_records`
+    below is what drops `design/`, `views/` and `declarations/`, because that
+    glob is one level deep. It is not enough on its own for `scans/`: it matches
+    on bare stems, so a scan file sharing a stem with a top-level record would
+    read as that record being touched.
+
+    Unmet is `proposed` or a status outside the closed set, not "anything but
+    accepted". A branch that supersedes a record leaves it `superseded`, which a
+    person decided; holding that branch would mean holding it forever.
+    """
+    from wfctl import _arch
+    from wfctl._paths import (
+        SCANS_DIR,
+        is_in_tree,
+        records_on_this_branch,
+        touched_on_this_branch,
+    )
+
+    name = "architecture accepted"
+    arch = arch_root(repo_root)
+    if not is_in_tree(arch, repo_root):
+        return Fact(name, "n/a", "records are kept outside this repository")
+
+    touched = touched_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR)
+    if touched is None:
+        return Fact(name, "unmet", "git cannot say what this branch changed")
+    if not touched:
+        return Fact(name, "n/a", "no level-2 record on this branch")
+
+    slugs = set(records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR))
+    records = {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
+    if not records:
+        # Touched something under the arch root, and none of it a record the
+        # projection reads — a level-3 record, a view, a declaration. The
+        # question this fact asks was not put, and naming the level is what tells
+        # that apart from the branch that touched nothing at all.
+        return Fact(name, "n/a", "no level-2 record on this branch")
+
+    # The status beside every slug, met and unmet alike. Dropped on the met side
+    # it read `accepted` for a record a human had *rejected*, under a label
+    # saying accepted — a ruling, so not waiting, and not the same thing.
+    named = ", ".join(f"{s} ({records[s].status or 'unreadable'})" for s in sorted(records))
+    waiting = [s for s, r in records.items() if r.status not in _RULED_ON]
+    return Fact(name, "unmet" if waiting else "met", named)
+
+
+def fact_outward_actions_authorized(granted: bool, source: str) -> Fact:
+    """May this branch's work reach people outside the repo? Owner: a human's grant.
+
+    Named for what the grant actually covers, which is narrower than the question
+    #299 opens with. `--allow-notify` and the `authority:notify` label permit
+    pushing, commenting, labelling and opening a change; `AGENTS.md` § Safety and
+    the flag's own help say merging, closing and deleting are never covered by
+    either, and `cli._IRREVERSIBLE_NOTICE` prints that on every `status`.
+
+    So *"may this branch be merged?"* has no owner in wfctl, deliberately and
+    permanently — "gating it would refuse the human who is the only actor allowed
+    to run it". A fact answering it from this grant would report `met` for an
+    irreversible action nobody authorized, which is worse than the silence the
+    feature replaces: a wrong answer where there had been none.
+
+    Reads the grant `build_report` resolved, already corrected for the trunk. The
+    trunk is the one `n/a` here: nothing outside the repo is waiting on the trunk,
+    so nothing was asked, and reporting it unmet would send a reader looking for a
+    flag the trunk refuses on purpose.
+
+    Routed through `blocks` rather than mapping each source to a value directly.
+    Three of the seven sources mean the answer could not be read, and what that
+    means for a *promised* source is settled by
+    `promised-evidence-blocks-on-silence`. Restating it here would be a fourth
+    copy of a rule that exists because three copies had already drifted.
+    """
+    name = "outward actions authorized"
+    if source == "trunk":
+        return Fact(name, "n/a", "this is the trunk")
+
+    # A source no wording covers is a source this wfctl cannot read. `.get` with
+    # the `unset` wording was the first shape and could contradict its own value
+    # — "met" beside "nobody has allowed it for this work" — because
+    # `NotifyGrant.source` comes back off `events.jsonl` unvalidated. Named here
+    # rather than answered with someone else's sentence.
+    if source not in _GRANT_DETAIL:
+        return Fact(name, "unmet", f"unrecognised grant source: {source}")
+
+    verdict: Verdict = (
+        "inconclusive" if source in _UNREADABLE_GRANT
+        else "satisfied" if granted
+        else "unsatisfied"
+    )
+    value: FactValue = "unmet" if blocks(verdict, "human") else "met"
+    return Fact(name, value, _GRANT_DETAIL[source])
+
+
+def facts(
+    ev: Evidence | None, repo_root: Path, granted: bool, source: str,
+    verification: str | None,
+) -> tuple[Fact, ...]:
+    """The four, in the fixed order a consumer may index rather than search.
+
+    The order runs from what the branch produced outward to what a human has
+    allowed, which is the order #299 states them in. The fourth is narrower than
+    that issue's own gloss — see `fact_outward_actions_authorized`, which says why
+    "may this be merged" is a question wfctl answers for nobody. Fixed and never filtered: a consumer reading
+    a short list learns nothing, where one reading no `facts` key at all learns
+    that this wfctl predates the question — the distinction `notify` is
+    present-and-false for.
+
+    Four calls, four owners, and none of them is passed another's answer. That is
+    the constraint `readiness-is-not-a-step-state` exists to hold, and this
+    signature is where a future fifth fact would have to break it visibly.
+    """
+    return (
+        fact_artifacts_written(ev),
+        fact_definition_of_done(repo_root, verification),
+        fact_architecture_accepted(repo_root),
+        fact_outward_actions_authorized(granted, source),
+    )
+
+
 def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
     """Read once, for all eight predicates.
 
@@ -662,6 +952,7 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         tasks_open=_tasks_open(tasks_text, spec_dir),
         tasks_done=done,
         tasks_total=total,
+        verification=verification_block(repo_root),
     )
 
 
@@ -881,7 +1172,7 @@ def implement(ev: Evidence) -> Reading:
     # Tasks read complete. Before #69 that was the whole check, and both routes
     # to it are written by the agent doing the work. A configured definition of
     # done gets the last word.
-    blocked = verification_block(ev.repo_root)
+    blocked = ev.verification
     if blocked:
         annotation = f"{tally}  {blocked}" if tally else blocked
         return Reading("in_progress", blocked, annotation)

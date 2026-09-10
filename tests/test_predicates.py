@@ -147,7 +147,10 @@ def test_evidence_is_frozen() -> None:
     walk's business. Each predicate decides its own step from evidence, and
     nothing else.
     """
-    ev = Evidence(Path("."), Path("."), "", False, "", "", False, 0, 0)
+    # Positional, so a field added to `Evidence` breaks this line rather than
+    # silently defaulting — which is how #299's `verification` was caught before
+    # it could ship as an optional the builder might forget to fill.
+    ev = Evidence(Path("."), Path("."), "", False, "", "", False, 0, 0, None)
     with pytest.raises(dataclasses.FrozenInstanceError):
         ev.tasks_text = "changed"  # type: ignore[misc]
 
