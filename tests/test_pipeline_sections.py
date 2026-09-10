@@ -384,7 +384,7 @@ def test_inference_reads_the_spec_directory_and_nothing_else(
     assert states["plan"] == "done"
 
 
-def test_no_step_changed_the_flag_that_says_it_may_run_unattended() -> None:
+def test_the_table_pins_every_steps_unattended_flag() -> None:
     """FR-009, and the one property no run can observe.
 
     #309's out-of-scope section rules out flipping `specify` or `plan` to
@@ -392,17 +392,45 @@ def test_no_step_changed_the_flag_that_says_it_may_run_unattended() -> None:
     run, and #100's direction is to strengthen evidence rather than add gates.
     The flags live in a table, not in a code path, so nothing else in this file
     could notice one had moved.
+
+    #325 moved `clarify` and `analyze` the other way, and this dict is what a
+    reviewer read to see that nothing else went with them. The two were the last
+    steps that stopped a finished pipeline for a human, and what changed is not
+    the judgment about them but the evidence: since #307/#320 both commit a scan
+    file naming what they covered, and since #286/#322 `clarify` records the
+    options it rejected — so a pass that found nothing and a pass that never ran
+    are no longer the same pull request.
+
+    One dict rather than a case per step, and one test rather than two. The
+    failure this guards is a flip that moved one thing and not another, which a
+    reader catches by seeing all eight rows at once and an assertion split across
+    files does not catch at all.
     """
     assert {name: step.continuation for name, step in _STEPS.items()} == {
         "brainstorm": "automatic",
         "specify": "automatic",
-        "clarify": "review_required",
+        "clarify": "automatic",
         "plan": "automatic",
         "tasks": "automatic",
-        "analyze": "review_required",
+        "analyze": "automatic",
         "decompose": "automatic",
         "implement": "automatic",
     }
+
+
+def test_no_step_still_waits_for_a_human_once_it_has_finished() -> None:
+    """SC-001, which the dict above proves the table changed but not this.
+
+    The criterion is a count reaching zero, not a count falling by two.
+
+    Not because the dict above would miss a ninth `review_required` step — it is
+    an equality, so a ninth key of any value fails it. The reason is what a dict
+    invites when a step is added: it is updated to match, mechanically, and goes
+    on passing. `waiting == []` cannot be edited into passing without someone
+    writing down that a step waits, which is the claim #325 is about.
+    """
+    waiting = [name for name, step in _STEPS.items() if step.continuation != "automatic"]
+    assert waiting == [], f"steps still stopping a finished pipeline: {waiting}"
 
 
 def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None:

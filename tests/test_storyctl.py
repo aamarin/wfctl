@@ -417,7 +417,14 @@ class TestStatus:
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "auto: true" in content
 
-    def test_next_auto_false_for_clarify(self, storyctl_dir: NS) -> None:
+    def test_next_auto_true_for_a_marked_spec(self, storyctl_dir: NS) -> None:
+        """A standing marker routes to clarify and lets the run enter it (#325).
+
+        Named for `false` until #325, when the table stopped saying so. The state
+        is the same one and the routing half is unchanged; what moved is whether
+        an unattended run may act on it. Re-entering clarify is what resolves a
+        marker, so pausing here asked a human to do the step's own job.
+        """
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact(
             "specify", content="test text [NEEDS CLARIFICATION: this question text is ignored]\n"
@@ -425,7 +432,7 @@ class TestStatus:
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "/speckit.clarify" in content
-        assert "auto: false" in content
+        assert "auto: true" in content
 
     def test_next_routes_to_clarify_on_marker_free_spec(self, storyctl_dir: NS) -> None:
         # used to route straight to /speckit.plan, skipping the clarify gate
@@ -434,9 +441,18 @@ class TestStatus:
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "/speckit.clarify" in content
-        assert "auto: false" in content
+        # The routing is what this test is named for and is unchanged. The flag
+        # beside it moved in #325 and is asserted here only so a silent flip back
+        # cannot hide behind a test that reads the same file.
+        assert "auto: true" in content
 
-    def test_next_auto_false_for_analyze(self, storyctl_dir: NS) -> None:
+    def test_next_auto_true_for_analyze(self, storyctl_dir: NS) -> None:
+        """#325. Named for `false` until the evidence caught up with the step.
+
+        `analyze` reads three artifacts and writes a report; what it could not do
+        before #307 was leave a reviewer anything to check, so passing it without
+        a human meant passing it on its own word.
+        """
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
@@ -444,7 +460,7 @@ class TestStatus:
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "/speckit.analyze" in content
-        assert "auto: false" in content
+        assert "auto: true" in content
 
     def test_next_auto_true_for_tasks(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")

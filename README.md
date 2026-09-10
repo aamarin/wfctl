@@ -186,11 +186,11 @@ decompose    ○
 implement    ○
 
 $ wfctl resume
-↺ Resumed — step: analyze, next: /speckit.analyze (auto: false)
+↺ Resumed — step: analyze, next: /speckit.analyze (auto: true)
 
 $ wfctl log
 2026-07-15 09:12  start       branch=436-manual-transaction-entry  step=analyze
-2026-07-15 11:03  resume      step=analyze  command=/speckit.analyze  auto=False
+2026-07-15 11:03  resume      step=analyze  command=/speckit.analyze  auto=True
 
 $ wfctl end
 ✓ Session ended. Summary written to ~/.local/state/wfctl/.../session-summary.md

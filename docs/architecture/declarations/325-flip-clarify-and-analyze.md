@@ -1,0 +1,3 @@
+# No new boundary — 325-flip-clarify-and-analyze
+
+The flip changes two values inside _STEPS, which already owns whether speckit-orchestrate may proceed past a finished step. No new state, no derived value, and no second computer of the auto flag — next_step_content keeps its single site at _pipeline.py:345. #100 decided what a gate proves and #287 decided what a gate's silence means; this applies both answers to clarify and analyze without moving either. The evidence that earns the flip already sits outside this change, in the scan files #307/#320 gave both steps and the rejected-options record #286/#322 gave clarify.

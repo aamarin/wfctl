@@ -18,6 +18,38 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 Read `.agents/skills/speckit-clarify/SKILL.md` (or `../skills/speckit-clarify/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete clarification workflow.
 
+## No marker survives the scan
+
+**Every `[NEEDS CLARIFICATION` marker left in `spec.md` is removed before this
+step ends** — either by the answer that resolved it, or by rewriting it as an
+`Outstanding` row in the coverage summary the workflow already produces. A marker
+the scan read and declined to ask about is a decision, and it is recorded as one
+rather than left in the text.
+
+Stated here because the workflow above never mentions the marker syntax — it
+scans a taxonomy, not a token — and its own behaviour rule sends a low-impact
+marker down the "no critical ambiguities detected" path, which writes the
+`## Clarifications` section and suggests advancing. That is the correct judgment
+and the wrong artifact: `wfctl` reads a standing marker as the scan being
+unfinished, so the step reports `in_progress` and the pipeline routes straight
+back here.
+
+Before #325 that cost a stop a human could see. Since the flip it does not stop:
+`clarify` is automatic, a successful pass provably cannot change what the
+predicate reads, and `speckit-orchestrate` re-enters with identical inputs and no
+iteration bound (#332). One rule in this file converges it, where a guard in the
+pipeline would be a second mechanism for a judgment this step already made.
+
+**An `Outstanding` row is not a lesser answer.** The workflow's own reporting
+vocabulary carries it for exactly this — *still Partial or Missing but low
+impact* — and a row a reviewer can disagree with beats a marker that only a
+re-run can find. Say which category it fell under and why it was declined, in the
+same terms the scan file's findings use.
+
+Not in `speckit-clarify/SKILL.md`, which is spec-kit-derived: an in-place edit
+there is reverted by the next upstream pull with no conflict to notice
+(`vendor-upstream-skills`).
+
 ## Write the scan file
 
 Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or

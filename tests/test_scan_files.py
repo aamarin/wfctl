@@ -468,3 +468,43 @@ def test_arch_check_answers_for_a_path_under_scans(
 
     assert result.exit_code == 0, result.output
     assert "this change adds it" in result.output
+
+
+def test_the_clarify_wrapper_requires_every_marker_to_be_gone() -> None:
+    """The loop #325 would otherwise have created, closed where the judgment is made.
+
+    `speckit-clarify/SKILL.md` never mentions the marker syntax — `grep -c` returns
+    zero — and its behaviour rule sends a low-impact marker down the "no critical
+    ambiguities detected" path, which writes the `## Clarifications` section and
+    suggests advancing. `_predicates.clarify` reads a standing marker as the scan
+    being unfinished, so that successful pass leaves the step `in_progress`.
+
+    Before #325 that cost a stop a human could see. After it the step is automatic
+    and `speckit-orchestrate` has no iteration bound (#332), so a pass that cannot
+    change what the predicate reads runs again with identical inputs, forever. The
+    rule lives in the wrapper because the skill is spec-kit-derived, and it is
+    checked here because prose in a generated tree is exactly what the next
+    upstream pull silently drops.
+    """
+    wrapper = _wrapper("clarify")
+    assert "NEEDS CLARIFICATION" in wrapper, "the wrapper must name the token the skill never does"
+    assert "Outstanding" in wrapper, "a declined marker needs somewhere to go"
+    assert "NEEDS CLARIFICATION" not in (
+        _AGENTS / "skills" / "speckit-clarify" / "SKILL.md"
+    ).read_text(), "if upstream gains the rule, this layer is redundant rather than wrong"
+
+
+def test_the_analyze_wrapper_forbids_leaving_without_a_scan_file() -> None:
+    """#307's defect, reachable again through the pause #325 made unattended.
+
+    The wrapper orders the scan file after step 8 so `Acted on` and `Accepted`
+    carry settled counts. Step 8 asks the user whether to apply remediation, and
+    `analysis-report.md` — the whole of what `_predicates.analyze` reads — is
+    already written by 6b. So a run that treats step 8 as a stop reports the step
+    `done` with no scan file at all, on the one step whose scan file #325 cites as
+    earning the flip. Before the flip the pause happened outside this command,
+    with nothing yet written.
+    """
+    section = _section("analyze")
+    assert "never leave the step without having written it" in section
+    assert "#331" in section, "the settling policy is deferred, and the deferral is named"
