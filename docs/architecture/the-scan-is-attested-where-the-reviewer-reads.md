@@ -100,6 +100,24 @@ it ships.
   to notice instead of two. It needs a merge rule, that analyze replaces its own
   section rather than appending, which nothing can check; an agent following
   prose is the reader that gets merge rules wrong.
+- **`wfctl` writes the file, rather than instructing an agent to.** The strongest
+  alternative to how this is *delivered*, and it was not weighed before the
+  instruction shipped — three of the first review's findings were one failure it
+  does not have. A directory nothing created, an abort path the prose never
+  reached, and an out-of-tree root nothing stopped are each a rule that reads
+  correctly and does not run, which is the failure mode of prose and not of a
+  command. `wfctl arch none` is the precedent: it already writes a per-issue
+  markdown file into this same root and refuses when a reviewer would not reach
+  it. `a-rule-is-expressed-as-a-check` points the same way.
+
+  Not taken here, and the reason is scope rather than merit: a command's
+  arguments are a schema for the scan file, and fixing that schema before any
+  step has written one under its own steam decides the format from a design
+  document instead of from use. What only prose can carry is the part wfctl
+  cannot compute — the status each category earned — so a command would take the
+  table as input and own everything around it. That is the shape to build once
+  the table has survived a few real runs, and it supersedes this record's
+  delivery half rather than its ownership half.
 - **Having the `clarify` and `analyze` predicates read the new file** — that is
   #100's call about what a gate proves, not this record's. This decision makes
   the evidence reachable. Whether it is sufficient to gate on is decided where
@@ -143,6 +161,12 @@ by exclusion: a change to the order has to re-check it, and would find
 `touched_on_this_branch(repo_root, arch, exclude=arch / "design")` counting the
 scan directory.
 
+**The instruction is prose, and prose is the weaker half of this.** Everything
+about *where* the file goes is checked — `arch check` answers it and the step
+runs it. Nothing checks that the step wrote the file at all, or wrote it on the
+path where it could not run. That asymmetry is the cost of the delivery choice
+above and is the thing to fix next, not a gap this record failed to see.
+
 A run that never scanned still writes a file, and this decision does not stop it.
 What changes is that its emptiness is in the diff. Refusing the step on it is a
 gate, and gates are #100's.
@@ -151,6 +175,9 @@ gate, and gates are #100's.
 
 - 2026-09-09  proposed    — #307. Two steps that exist to find problems, reporting
   where the reviewer has no path to the report.
+- 2026-09-09  amended     — the automated reviewer's three findings were one
+  failure mode, and it named an alternative nobody had weighed: a command rather
+  than an instruction. Added to `Considered` with why it is not taken yet.
 - 2026-09-09  amended     — three review panellists independently found two
   arch-root readers this record's `Consequences` had missed, both counting scan
   files as architecture records. Amended while `proposed`, which is the status
