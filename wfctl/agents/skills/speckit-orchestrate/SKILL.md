@@ -110,8 +110,8 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    would refuse. `resume` and `status` are two renderings of one inference, so
    there is no answer step 3 has that step 4 lacks.
 
-4. Run `wfctl status --json` and read `next_command` and `auto` off the payload,
-   and the current step's `reason` and `remedy` with them.
+4. Run `wfctl status --json` and read `next_command`, `auto` and `stall` off the
+   payload, and the current step's `reason` and `remedy` with them.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
@@ -119,6 +119,30 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    the whole reason this one is taken again.
 
 5. Branch on the result:
+
+   **`stall` is not `null`** — check this before `auto`, and stop:
+   - Display: "Stopped — `{stall.step}` ran {stall.passes} times and changed
+     nothing." Then, under it, `unchanged` as a list, and one line saying this
+     needs a person because re-entering the step has not moved the work.
+   - Stop. Do not emit `EXECUTE_COMMAND`.
+
+   Ahead of the `auto` branch, and that order is the whole of it: a stalled run
+   has `auto: true` and a `next_command` naming the step that just failed to make
+   progress, so reading `auto` first sends the loop back into it — which is the
+   defect (#332), not a state to recover from.
+
+   You are not deciding this. wfctl counts the passes, from the event log
+   `wfctl resume` writes one line into per pass; the payload carries the verdict
+   and this step renders it (`wfctl-counts-the-passes`). Do not keep your own
+   tally of which command you emitted last, and do not treat the absence of
+   `stall` as a reason to start one — a conversation cleared or compacted
+   mid-run loses a tally like that at exactly the moment the bound is for.
+
+   **A stall is not a blocked step**, and the two are told apart by which field
+   carries the answer. A `reason` names something re-entering the step can fix
+   once someone supplies it; a stall says re-entering has already been tried and
+   changed nothing. Both stop the loop, and only one of them is worth trying
+   again after a person looks.
 
    **Story complete** (`next_command` is `null`):
    - Display: "Story complete — open PR or run `/end-session`."
