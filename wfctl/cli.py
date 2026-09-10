@@ -1312,10 +1312,12 @@ def arch_accept_cmd(
     slug = slug.strip()
     record = next((r for r in records if r.slug == slug), None)
     if record is None:
-        # Cutoff 0.6 rather than the default 0.6 spelled implicitly: a slug here
-        # is a sentence with hyphens, so a genuine typo scores high and an
-        # unrelated record scores low. With no match the promotable listing is
-        # the more useful answer than "no such record" alone.
+        # A slug is a sentence with hyphens, so difflib's default ratio separates
+        # these well: a genuine typo scores high against one record and an
+        # unrelated slug scores low against all of them. The cutoff is written out
+        # rather than left implicit because it is the number this behaviour turns
+        # on, and with no match above it the promotable listing is a better answer
+        # than "no such record" alone.
         near = difflib.get_close_matches(slug, [r.slug for r in records], n=3, cutoff=0.6)
         if not near:
             refuse_with_listing(f"[red]✗[/red] No record '{escape(slug)}'.")
@@ -1347,6 +1349,20 @@ def arch_accept_cmd(
             soft_wrap=True,
         )
         raise typer.Exit(1)
+    # `_set_status` refuses this too, and that guard is the invariant — every
+    # caller gets it. This one exists for the wording: a citation pasted from a
+    # review thread arrives multi-line without anyone intending anything, and the
+    # module's message has to be true for `supersede`'s reason as well, so it
+    # cannot name the flag the person actually typed.
+    if "\n" in agreed or "\r" in agreed:
+        console.print(
+            "[red]✗[/red] --agreed must be one line. A citation carrying a line "
+            "break would write a\n  second log entry nothing distinguishes from a "
+            "real one — say where in one line,\n  and put the quote in the change "
+            "instead.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
 
     citation = agreed.strip()
     # UTC, like every other timestamp wfctl writes (`_session.py`, `_verify.py`,
@@ -1355,17 +1371,33 @@ def arch_accept_cmd(
     # that is local for one contributor and UTC for another is not orderable,
     # which is the larger of the two costs.
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    _arch.accept(record, date, citation)
+    try:
+        entry = _arch.accept(record, date, citation)
+    except ValueError as e:
+        # The three refusals above are chosen from `record.status`, which this
+        # command holds. These are the ones only the write can discover — a record
+        # with no `## Log` section to append to, or no `status:` line to change.
+        # Uncaught they arrive as a traceback, which is the one output shape that
+        # tells a reader nothing about what to do next, in a command whose other
+        # five failures each say it in a sentence.
+        # The path shortened the way every other line this command prints shows
+        # one. `_arch` raises with the absolute path because it has no repo to be
+        # relative to; leaving it that way puts a 120-character path in front of
+        # the sentence that says what to do.
+        detail = str(e).replace(str(record.path), _arch_location(record.path, repo_root))
+        console.print(f"[red]✗[/red] {escape(detail)}", soft_wrap=True)
+        raise typer.Exit(1) from None
 
     console.print(
-        f"[green]✓[/green] {escape(record.slug)} is accepted — {escape(citation)}"
+        f"[green]✓[/green] {escape(record.slug)} is accepted — {escape(citation)}",
+        soft_wrap=True,
     )
-    # The line it wrote, quoted back. That line is the entire artifact of this
-    # command, and a ✓ that does not show it leaves the one thing worth checking
-    # to a second command.
-    console.print(
-        f"  [dim]Logged:[/dim] {date}  accepted    — {escape(citation)}", soft_wrap=True
-    )
+    # The line the write returned, not a second spelling of it. That line is the
+    # entire artifact of this command, and composing it again here from the same
+    # parts is two renderings of one string — which is exactly what
+    # `_LOG_STATUS_WIDTH` was named to stop, at the caller that would have got it
+    # wrong first.
+    console.print(f"  [dim]Logged:[/dim] {escape(entry)}", soft_wrap=True)
 
 
 def _not_promotable(record: "Record") -> str:

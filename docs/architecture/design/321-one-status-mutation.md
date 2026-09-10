@@ -45,9 +45,13 @@ wfctl records; whether that is one function or two is this record's question.
   behaviour rather than a different word — at which point the parameter is the
   wrong seam and a per-transition function is right.
 - The 12-column `Log` field is a convention worth preserving rather than an
-  accident of the first record. Falsified by finding a record whose column is a
-  different width and was written by hand deliberately; a `grep` over the
-  existing records found none.
+  accident of the first record. Counted, in the tier `_set_status` writes to: all
+  48 `Log` lines across `docs/architecture/*.md` use it. The `design/` tier
+  underneath does not — its 11 lines use a 10-column field, this record's own
+  entry included — so the convention is per-tier and the claim is about the top
+  one. `load_records` globs one level, so nothing this function touches reads the
+  other. Falsified by a *top-level* record whose column differs and was written
+  that way deliberately.
 
 ## Direct baseline
 

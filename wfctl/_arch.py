@@ -410,7 +410,7 @@ def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
 _LOG_STATUS_WIDTH = 12
 
 
-def _set_status(record: Record, status: str, date: str, note: str) -> None:
+def _set_status(record: Record, status: str, date: str, note: str) -> str:
     """Change `record`'s status to `status` and append one `Log` line saying so.
 
     The whole of a status transition, shared by the two that exist. Not because
@@ -426,12 +426,31 @@ def _set_status(record: Record, status: str, date: str, note: str) -> None:
     the decision as it was agreed — git holds the edit history, and the file
     holds only what git cannot answer.
 
-    Raises rather than half-applying, writing nothing in either case: a record
-    whose frontmatter declares no `status:`, and one with no `## Log` section to
-    append to. The log is where a transition becomes visible, so changing a
-    status with nowhere to record it is the silent edit this function exists to
-    prevent.
+    Raises rather than half-applying, writing nothing in any case: a record whose
+    frontmatter declares no `status:`, one with no `## Log` section to append to,
+    and a `note` carrying a line break. The log is where a transition becomes
+    visible, so changing a status with nowhere to record it is the silent edit
+    this function exists to prevent.
+
+    A line break in `note` is the sharpest of the three, because it does not look
+    like a failure. One `Log` entry is one line, so a note carrying a break writes
+    a *second* entry — well-formed, indistinguishable from a real one, and dated
+    by whoever supplied the note. `accepted_on` then reports that date, which is
+    the one thing about a transition nobody can re-derive from the file. Refused
+    here rather than at each caller so `supersede`'s reason is covered by the same
+    rule: neither caller's field is more trusted than the other's, and a citation
+    pasted from a review thread is multi-line without anyone intending anything.
+
+    Returns the entry it wrote, so a caller reporting the transition quotes the
+    line rather than re-composing it from the same parts — two spellings of one
+    line are two spellings that can drift.
     """
+    if "\n" in note or "\r" in note:
+        raise ValueError(
+            f"{record.path}: a log entry is one line, and this note carries a "
+            "line break — it would write a second entry nothing distinguishes "
+            "from a real one"
+        )
     # newline="": `read_text` translates CRLF to LF, which would rewrite every
     # line in a CRLF record — a whole-body diff from a function contracted to
     # change one field and add one line.
@@ -466,16 +485,18 @@ def _set_status(record: Record, status: str, date: str, note: str) -> None:
     # and the predecessor's entry destroyed.
     if insert_at > 0 and not lines[insert_at - 1].endswith(("\n", "\r")):
         lines[insert_at - 1] += eol
-    lines.insert(insert_at, f"- {date}  {status:<{_LOG_STATUS_WIDTH}}— {note}{eol}")
+    entry = f"- {date}  {status:<{_LOG_STATUS_WIDTH}}— {note}"
+    lines.insert(insert_at, entry + eol)
 
     # Atomic, like every other markdown wfctl rewrites (`_session.py:88`). This
     # one matters more than those: a session summary is re-derivable, while an
     # accepted record is hand-authored and committed, so a torn write loses a
     # decision no later run can reconstruct.
     write_atomic(record.path, "".join(lines), newline="")
+    return entry
 
 
-def supersede(record: Record, date: str, reason: str) -> None:
+def supersede(record: Record, date: str, reason: str) -> str:
     """Mark `record` superseded: change `status`, append one `Log` line.
 
     No guard on the current status, unlike `accept`. What a `Log` line here names
@@ -483,7 +504,7 @@ def supersede(record: Record, date: str, reason: str) -> None:
     successor — a claim that may be wrong but is not self-contradictory. Which
     statuses may be superseded is a question nothing has yet had to answer.
     """
-    _set_status(record, "superseded", date, reason)
+    return _set_status(record, "superseded", date, reason)
 
 
 def accepted_on(record: Record) -> str:
@@ -501,10 +522,20 @@ def accepted_on(record: Record) -> str:
 
     The last such line wins, matching `_frontmatter`'s rule for a repeated key: a
     log is appended to, so the last entry is the current one.
+
+    Scoped to the `## Log` section rather than run over the body, for the reason
+    `_log_bounds` exists at all: a record is free to *show* a log entry above its
+    own log — a format being documented, a predecessor being quoted — and outside
+    a fence that line is indistinguishable from the real thing. `_unfenced` covers
+    the fenced case and only that one.
     """
-    lines = record.body.splitlines()
+    lines = record.body.splitlines(keepends=True)
+    bounds = _log_bounds(lines)
+    if bounds is None:
+        return ""
+    heading, end = bounds
     found = ""
-    for _, stripped in _unfenced(lines):
+    for _, stripped in _unfenced(lines[heading:end]):
         # The rendered shape `_set_status` writes, matched loosely enough to also
         # catch the hand-written entries that predate it — those pad to the same
         # column but were typed, so a stricter match would silently read them as
@@ -515,7 +546,7 @@ def accepted_on(record: Record) -> str:
     return found
 
 
-def accept(record: Record, date: str, citation: str) -> None:
+def accept(record: Record, date: str, citation: str) -> str:
     """Mark `record` accepted: change `status`, append one `Log` line.
 
     The transition `a-human-accepts-a-decision` gives a human. wfctl performs it
@@ -523,17 +554,19 @@ def accept(record: Record, date: str, citation: str) -> None:
     `citation` is written into the log and never read back — whether it is true
     has no objective test, and the record says so rather than implying a check.
 
-    Only `proposed` promotes, and the current status travels out on the exception
-    so the caller can say which of three things went wrong: a record already
-    accepted has nothing to do, one that is superseded, rejected or retired needs
-    a new record rather than a reopened one, and one whose status will not parse
-    needs its frontmatter fixed before anything overwrites it.
+    Only `proposed` promotes. Refusing an already-accepted record is the guard
+    `supersede` does not carry, and it is not symmetry for its own sake: a second
+    `accepted` line asserts a second agreement that never happened, in the one
+    field this whole transition exists to make trustworthy.
 
-    Refusing an already-accepted record is the guard `supersede` does not carry,
-    and it is not symmetry for its own sake: a second `accepted` line asserts a
-    second agreement that never happened, in the one field this whole transition
-    exists to make trustworthy.
+    The exception carries the refused status and no message. `wfctl arch accept`
+    does not read it — it holds the record already and picks its wording from
+    `record.status` before calling, because three statuses need three different
+    sentences and only the console knows what they are. What the payload is for is
+    the caller that is not that one: a status is the only thing about this refusal
+    that cannot be recovered from the record afterwards, since by then it is
+    whatever the caller decided to do next.
     """
     if record.status != "proposed":
         raise ValueError(record.status)
-    _set_status(record, IN_FORCE, date, citation)
+    return _set_status(record, IN_FORCE, date, citation)

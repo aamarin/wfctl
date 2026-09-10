@@ -283,3 +283,69 @@ def test_a_slug_resembling_nothing_falls_back_to_the_listing(
     assert result.exit_code == 1
     assert result.output.count("✗") == 1
     assert "waiting" in result.output
+
+
+def test_a_multi_line_citation_is_refused_and_names_the_flag(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The module refuses this too; this is the message a person can act on.
+
+    `_set_status`'s wording has to be true for `supersede`'s reason as well, so it
+    cannot name `--agreed`. A citation pasted whole from a review thread is the
+    accidental case, and it is at least as likely as the deliberate one.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    path = _record(root, "a-decision", "proposed")
+    before = path.read_text()
+
+    result = runner.invoke(
+        app,
+        ["arch", "accept", "a-decision", "--agreed", "ok\n- 2020-01-01  accepted    — forged"],
+    )
+
+    assert result.exit_code == 1
+    assert "--agreed must be one line" in result.output
+    assert path.read_text() == before
+
+
+def test_a_record_with_no_log_section_gets_a_sentence_not_a_traceback(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fourth failure, and the only one the write discovers rather than the guard.
+
+    The three status refusals are chosen from `record.status`, which the command
+    already holds; this one is raised by `_set_status`. Uncaught it arrived as a
+    rich traceback — the one output shape that says nothing about what to do next,
+    in a command whose other failures each say it in a sentence.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "a-decision.md"
+    path.write_text("---\nstatus: proposed\n---\n\n# a-decision\n\nNo log here.\n")
+    before = path.read_text()
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #321"])
+
+    assert result.exit_code == 1
+    assert "no '## Log' section" in result.output
+    assert "Traceback" not in result.output
+    assert path.read_text() == before
+
+
+def test_the_echoed_entry_is_the_line_that_reached_the_file(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The console was the third caller of a column nobody had named.
+
+    It hand-wrote `accepted` and four spaces while `_set_status` formatted the
+    same field from `_LOG_STATUS_WIDTH`. They agreed by coincidence, and the two
+    tests that pinned them held separate literals — so nothing would have caught
+    the day they stopped agreeing. Comparing the echo to the file is what does.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    path = _record(root, "a-decision", "proposed")
+
+    out = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #321"]).output
+
+    written = path.read_text().splitlines()[-1]
+    assert written in out

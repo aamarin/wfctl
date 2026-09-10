@@ -898,3 +898,76 @@ def test_accepted_on_is_empty_when_the_log_records_no_acceptance(tmp_path: Path)
     )
 
     assert _arch.accepted_on(_arch.parse_record(path)) == ""
+
+
+def test_a_note_carrying_a_line_break_writes_nothing(tmp_path: Path) -> None:
+    """The forgery that does not look like one.
+
+    One `Log` entry is one line, so a note with a break in it writes a second
+    entry — well-formed, and dated by whoever supplied the note. `accepted_on`
+    takes the last match, so that date becomes the record's reported acceptance:
+    the one fact about a transition nobody can re-derive from the file.
+
+    Found by two reviewers independently on #321, and reproduced before the fix:
+    `--agreed "ok\\n- 2020-01-01  accepted    — forged"` wrote both lines.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="one line"):
+        _arch.accept(
+            _arch.parse_record(path),
+            "2026-09-10",
+            "ok\n- 2020-01-01  accepted    — forged",
+        )
+
+    assert path.read_text() == before
+
+
+def test_supersede_refuses_a_multi_line_reason_too(tmp_path: Path) -> None:
+    """The guard is the file format's, not one transition's.
+
+    `supersede`'s reason reaches the same line through the same interpolation, and
+    neither caller's field is more trusted than the other's — so a rule held in
+    `accept` alone would leave the identical hole one function away.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="accepted"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="one line"):
+        _arch.supersede(_arch.parse_record(path), "2026-09-10", "a\nb")
+
+    assert path.read_text() == before
+
+
+def test_the_transition_returns_the_entry_it_wrote(tmp_path: Path) -> None:
+    """So a caller reporting the transition quotes the line instead of rebuilding it.
+
+    The console used to compose its own `accepted` + four spaces, which is the
+    third caller `_LOG_STATUS_WIDTH` was named to stop — the two agreed only by
+    coincidence and no test compared them.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+
+    entry = _arch.accept(_arch.parse_record(path), "2026-09-10", "on #321")
+
+    assert entry == "- 2026-09-10  accepted    — on #321"
+    assert path.read_text().splitlines()[-1] == entry
+
+
+def test_accepted_on_ignores_a_log_entry_quoted_outside_the_log(tmp_path: Path) -> None:
+    """A record is free to show a log entry above its own log.
+
+    `_unfenced` covers the fenced case only, so an entry quoted in prose — a
+    format being documented, a predecessor being cited — read as the record's own
+    acceptance while the scan ran over the whole body.
+    """
+    path = _write(
+        tmp_path,
+        "a-decision",
+        "---\nstatus: accepted\n---\n\n# A\n\n## Context\n\n"
+        "The predecessor's log read - 2019-01-01  accepted    — long ago\n\n"
+        "## Log\n\n- 2026-03-03  accepted    — the real one\n",
+    )
+
+    assert _arch.accepted_on(_arch.parse_record(path)) == "2026-03-03"

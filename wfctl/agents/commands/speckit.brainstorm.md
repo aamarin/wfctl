@@ -48,9 +48,16 @@ than refusing the command: the step reads `in_progress` with the reason on it,
 and `status`, `next` and `resume` all say so. Under `auto_approve` that is the
 same stop it always was, arriving as state rather than as an exit code.
 
-**Records land `proposed`.** An agent never writes `approved` — that transition
+**Records land `proposed`.** An agent never writes `accepted` — that transition
 is a human's, and it is what makes "come back and change this later" real rather
 than a re-litigation. Do not paraphrase the mode as approval you were given.
+
+The transition has a command, `wfctl arch accept <slug> --agreed "<where>"`, and
+having one does not make it yours to run. It records where a person agreed; under
+`auto_approve` nobody has, and the citation is the field that would have to say
+so falsely. `a-human-accepts-a-decision` is the record, and this is the one thing
+the mode moves nothing about — the approval it relocates to the PR *is* this
+transition.
 
 Create the destination directory:
 
