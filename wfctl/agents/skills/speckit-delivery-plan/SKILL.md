@@ -21,7 +21,8 @@ This is the enforced order. Do not skip steps.
 brainstorm → specify → clarify → plan → tasks → analyze → decompose
      ↓          ↓         ↓        ↓       ↓        ↓          ↓
 design.md   spec.md  clarified plan.md tasks.md quality  delivery.md
-                     spec.md                    gate     + GH issues
+                     spec.md                    gate     + issues,
+                                                         if granted
 ```
 
 **`brainstorm` is the recommended entry point** — run `/speckit.brainstorm`
@@ -128,6 +129,14 @@ skipped the half of it that reaches people.
 **Step 7 — Create the issues and write their keys back**, once step 6 says you
 may. Each created key replaces the placeholder in the Issue Grouping Map's
 `Issue` column.
+
+```bash
+wfctl issue create --title "<title>" --body "<context>"
+```
+
+That verb and not `gh issue create`: wfctl refuses a notifying verb the run was
+never granted, and the refusal is the only part of step 6 that holds when nobody
+read step 6. Reaching for `gh` directly is outside it.
 
 ---
 
@@ -242,8 +251,9 @@ Before marking decompose complete:
 - [ ] PR count justified with rationale (single vs. multiple)
 - [ ] Issue count equals PR count — one issue per PR, no exceptions
 - [ ] Every task assigned to exactly one wave
-- [ ] Issues created and numbered, or step 6 said this run may not create
-      them and none were
+- [ ] Issues created and numbered, or none were and the reason is on record —
+      step 6 refused the run, or a `wfctl notify issue-create --declined` says
+      why you stopped
 - [ ] Each created key written back into the Issue Grouping Map's `Issue`
       column, replacing the placeholder it was drafted with — `wfctl status`
       reads decompose as unfinished while any row still lacks a key, and

@@ -1,8 +1,9 @@
 """decompose's definition of done includes the issues its plan promises (#8).
 
 `delivery.md` existing used to be the whole check, and the file is written
-*before* the issues exist by design — creating them is notifying and waits
-for a human. So the one state these tests care about is the middle one: a plan
+*before* the issues exist by design — creating them tells people outside the
+repo, so it waits on the notify grant (#280) rather than on this step. So the
+one state these tests care about is the middle one: a plan
 on disk whose Issue Grouping Map still carries placeholders. It read `done`, and
 `implement` advances unattended since #148, so a run flowed into implementation
 against PRs with no issue to close.
@@ -10,9 +11,10 @@ against PRs with no issue to close.
 Observed on PFMS `490-budget-actuals-wiring`: three `_(TBD)_` rows, `decompose ●`,
 `implement ▶ 0/42 done`. The fixtures below are that file's shape.
 
-Every test configures a tracker first. That is the precondition, not fixture
-noise — a repo that declined one has no key to wait for, and the last test here
-is the one that pins it.
+Every test that reads a delivery plan configures a tracker first. That is the
+precondition, not fixture noise — a repo that declined one has no key to wait
+for, and the last test here is the one that pins it. The one test with no plan
+to read carries the call for uniformity and nothing turns on it.
 """
 from __future__ import annotations
 
@@ -263,17 +265,18 @@ def test_a_key_pattern_that_opens_with_an_inline_flag_does_not_crash_status(
     assert _states(mixed, tmp_path)["decompose"] == "in_progress"
 
 
-def test_an_unkeyed_map_stops_the_loop_the_flag_now_lets_run(
+def test_an_unkeyed_map_stops_a_loop_the_flag_now_lets_through(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
     """What flipping decompose to `automatic` had to not cost (#240).
 
-    The test above pins `next_command`, which is the reader's view. This pins
-    `auto`, which is `speckit-orchestrate`'s: it branches on that flag and never
-    reads `state`, so between #240 and here the step's own table entry says the
-    loop may proceed. What holds it is that a blocked step is never automatic
-    whatever the table says — and nothing else does, which is why the assertion
-    is on the flag rather than on the state that produced it.
+    `test_a_half_decomposed_feature_is_not_routed_to_implement` pins
+    `next_command`, which is the reader's view. This pins `auto`, which is
+    `speckit-orchestrate`'s: it branches on that flag and never reads `state`, so
+    since #240 the step's own table entry says the loop may proceed. What holds
+    it is that a blocked step is never automatic whatever the table says — and
+    nothing else does, which is why the assertion is on the flag rather than on
+    the state that produced it.
     """
     _use_tracker(tmp_path)
     feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
@@ -293,7 +296,7 @@ def test_a_feature_that_has_analyzed_enters_decompose_without_a_prompt(
 
     The step it now enters unattended is the one that reaches the tracker. It is
     step 6 of `speckit-delivery-plan` that stops there without a notify grant,
-    not this flag — see the flag's own row in `_STEPS`.
+    not this flag — argued at the rung annotation in `_predicates`.
     """
     _use_tracker(tmp_path)
     feature = spec_tree(
@@ -312,9 +315,11 @@ def test_a_fully_keyed_plan_leaves_decompose_behind(
     """The other half of #240's exercise: the loop reaches implement, unprompted.
 
     `test_a_plan_whose_issues_all_carry_a_key_is_done` asserts the state; this
-    asserts what the loop does with it. Worth its own test because a flip that
-    routed *through* decompose a second time would leave that state untouched
-    and still be wrong — the failure would show up here and nowhere else.
+    asserts the payload the loop acts on. It pins no property of the flag and is
+    not meant to — `current` is computed from step states alone, so decompose's
+    own row is never read once its evidence is complete. What it covers is the
+    claim #240's definition of done asks for in those words: a plan whose rows
+    all carry keys hands the run `implement` with nothing to prompt about.
     """
     _use_tracker(tmp_path)
     feature = _feature(spec_tree, _delivery("#251", "#252", "#253"))

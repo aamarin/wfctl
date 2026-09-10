@@ -597,15 +597,26 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # no tracker configured, and a plan carrying no map or no rows — without reaching
 # the rule. Both still proceed; they now proceed because `blocks` says so.
 #
-# Two steps run automatic over a rung this low, and neither is a gap left open.
-# #283 settled `brainstorm` on reversibility. #240 settled `decompose` on a
-# narrower claim: the part of that step which reaches people is creating the
-# issues, and what stands in front of that is the notify grant
+# Two steps run automatic over a rung that sits below the flag, and neither is a
+# gap left open. #283 settled `brainstorm` on reversibility. #240 settled
+# `decompose` on a narrower claim: the part of that step which reaches people is
+# creating the issues, and what stands in front of that is the notify grant
 # `speckit-delivery-plan` reads before it creates any (#280) — never this flag.
 # What the rung has to carry is therefore only the local half. A blocked step is
 # never automatic whatever the table says (`next_step_content`), which is what an
-# unkeyed map still stops. Nothing pins these lines to the predicates they
-# describe — re-read the function before trusting one.
+# unkeyed map still stops.
+#
+# What it does not stop is either `ambient` reading above, and the second changed
+# company when the flag moved: a `delivery.md` whose Issue Grouping Map is absent
+# or misspelled reads `done`, and the run carries on to `implement`. The states
+# either side of the flip are identical — a step reading `done` was never a pause
+# — but the plan is now written with nobody there to see it come out malformed.
+# Accepted on the ground the reading itself stands on: a plan predating the map
+# and one written wrong are one file to this check, and refusing both strands
+# every feature written before the map existed.
+#
+# Nothing pins these lines to the predicates they describe — re-read the function
+# before trusting one.
 
 
 def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
