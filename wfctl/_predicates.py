@@ -373,9 +373,11 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     """How many rows of a delivery plan promise an issue that does not exist yet.
 
     The Issue Grouping Map is authored with placeholder keys and filled in once
-    the issues are created, because creating them is notifying and waits for
-    a human. An unkeyed row is therefore a legitimate mid-decompose state; what
-    was wrong was reading it as a finished one (#8).
+    the issues are created. Creating them tells people outside the repo, so what
+    it waits on is the notify grant (#280) rather than this step, which since
+    #240 runs unattended — ungranted, the run writes the plan and stops before
+    the tracker. An unkeyed row is therefore a legitimate mid-decompose state;
+    what was wrong was reading it as a finished one (#8).
 
     None means there is nothing here to judge — no map, or a map with no rows. A
     delivery plan predating the table is not evidence that issues are missing, so
@@ -595,12 +597,26 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # no tracker configured, and a plan carrying no map or no rows — without reaching
 # the rule. Both still proceed; they now proceed because `blocks` says so.
 #
-# Where a rung sits below its flag, that is filed, not fixed. `decompose` is argued
-# on #240, the
-# issue that would spend it. `brainstorm` is automatic over a weak rung as well and is not
-# filed: #283 settled that flag on reversibility, and a blocked step is never
-# automatic whatever the table says (`next_step_content`). Nothing pins these lines
-# to the predicates they describe — re-read the function before trusting one.
+# Two steps run automatic over a rung that sits below the flag, and neither is a
+# gap left open. #283 settled `brainstorm` on reversibility. #240 settled
+# `decompose` on a narrower claim: the part of that step which reaches people is
+# creating the issues, and what stands in front of that is the notify grant
+# `speckit-delivery-plan` reads before it creates any (#280) — never this flag.
+# What the rung has to carry is therefore only the local half. A blocked step is
+# never automatic whatever the table says (`next_step_content`), which is what an
+# unkeyed map still stops.
+#
+# What it does not stop is either `ambient` reading above, and the second changed
+# company when the flag moved: a `delivery.md` whose Issue Grouping Map is absent
+# or misspelled reads `done`, and the run carries on to `implement`. The states
+# either side of the flip are identical — a step reading `done` was never a pause
+# — but the plan is now written with nobody there to see it come out malformed.
+# Accepted on the ground the reading itself stands on: a plan predating the map
+# and one written wrong are one file to this check, and refusing both strands
+# every feature written before the map existed.
+#
+# Nothing pins these lines to the predicates they describe — re-read the function
+# before trusting one.
 
 
 def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:

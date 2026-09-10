@@ -400,7 +400,7 @@ def test_no_step_changed_the_flag_that_says_it_may_run_unattended() -> None:
         "plan": "automatic",
         "tasks": "automatic",
         "analyze": "review_required",
-        "decompose": "review_required",
+        "decompose": "automatic",
         "implement": "automatic",
     }
 

@@ -188,6 +188,29 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
         assert f"Bash({needed}*)" in allowed, needed
 
 
+def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
+    """Same ceiling as brainstorm's, on the step #240 made unattended.
+
+    The list was `Read Glob`, which names neither the `Write` that puts
+    `delivery.md` on disk nor the read that decides whether this run may create
+    issues. Attended that cost a permission prompt someone answered. Unattended
+    the two halves fail differently and only one of them is safe: the step-6 read
+    fails closed, so no issue is created — but an unwritten `delivery.md` leaves
+    decompose `pending` and unblocked, which is `auto: true` again, and
+    `speckit-orchestrate` re-emits the command with nothing counting the
+    attempts.
+
+    `wfctl notify` is here for the arm nobody reaches on the happy path: a run
+    that *was* granted and declined records why, and a decline it cannot record
+    is indistinguishable from a refusal it never met.
+    """
+    front = (_AGENTS / "commands" / "speckit.decompose.md").read_text().split("---")[1]
+    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+    assert "Write" in allowed, "delivery.md is this step's own artifact"
+    for needed in ("wfctl status", "wfctl issue create", "wfctl notify"):
+        assert f"Bash({needed}*)" in allowed, needed
+
+
 def test_the_design_record_skill_is_model_invocable() -> None:
     """It ships no command wrapper, so the mirror is the only route in.
 
