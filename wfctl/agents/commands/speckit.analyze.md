@@ -16,57 +16,15 @@ Read `.agents/skills/speckit-analyze/SKILL.md` (or `../skills/speckit-analyze/SK
 
 ## Read this feature's design records
 
-**Before step 4's detection passes**, because one of them consumes the result.
+Follow `.agents/skills/reading-design-records/SKILL.md` (or
+`../skills/reading-design-records/SKILL.md` relative to this file, if
+`.agents/skills` isn't present). It owns how the list is resolved, the four
+states, and how they are reported. What it does not own is when this step reads
+them, which is below.
 
-```bash
-wfctl feature-paths      # read FEATURE_DIR from the output
-```
-
-Read `<FEATURE_DIR>/design.md` and take the section headed
-`## Software design decisions`. Every **list item** of the form
-`- <path> — <text>` names a record; read each one.
-
-**Prose in that section names no records.** The section carries prose by design —
-`/speckit.brainstorm` requires a level answered with no record to say so in one
-line rather than delete the heading — and that prose may name a *level-2* record.
-A level-2 record read as level-3 binds nothing while looking like it does.
-
-**Do not glob `<arch-root>/design/` by issue number instead.** That was the first
-mechanism and it is silently wrong on any branch cut from an epic: the worktree
-carries the epic's number, the record carries the child issue's, so the glob
-loads another feature's record and misses this one. Neither failure raises
-anything. `docs/architecture/design-md-indexes-the-records.md` carries the
-argument.
-
-**Report what was read, always** — including when there was nothing:
-
-```
-Design records: 2 listed in design.md
-  <path>
-  <path>
-
-Design records: none — design.md records no level-3 decision
-
-Design records: unknown — no design.md at <FEATURE_DIR>
-```
-
-The last two are different facts and are never collapsed. One says a design pass
-ran and recorded no structural decision; the other says no design pass ran. A
-step that reports neither reproduces #307's defect one directory over.
-
-A listed path that will not read — missing, or outside the working tree — gets
-its own line, `<path> — listed, not found`, and does not stop the step. Pass G
-produces **no finding** for such a record: one nobody could open is not one a
-task can be shown to contradict.
-
-Report paths, never a summary. A digest of a record is a second copy of it, and
-the copy is what drifts.
-
-**Here rather than in `speckit-analyze/SKILL.md`**: that skill is
-`github/spec-kit`-derived (`vendor-upstream-skills`), so an in-place edit is
-reverted by the next upstream pull with no conflict to notice, and the behaviour
-then regresses at a moment whose diff mentions neither the skill nor this file.
-Same layer, and the same reason, as the scan-file instruction below.
+**Before step 4's detection passes**, because pass G below consumes the result.
+A record that will not read produces no pass G finding: one nobody could open is
+not one a task can be shown to contradict.
 
 ## Pass G — design-record contradiction
 
@@ -88,14 +46,23 @@ double every finding.
 | `status` | A task reversing it |
 | --- | --- |
 | `approved` | CRITICAL |
-| `proposed` | warning |
+| `proposed` | HIGH |
 | `superseded` | no finding |
 | `rejected` | no finding |
+| absent or unrecognised | HIGH, and say the status was unreadable |
 
-`approved` means a human ratified the decision, so reversing it is a defect
-rather than a change of mind. `proposed` means the decision was put and not
-ratified, so a task reversing it may be the design moving — worth reporting, not
-worth blocking. A retired decision is not one a task can violate.
+Both severities are step 5's own — the scale is CRITICAL / HIGH / MEDIUM / LOW
+and pass G invents nothing. `approved` means a human ratified the decision, so
+reversing it is a defect rather than a change of mind, and it reaches CRITICAL by
+step 5's first clause. `proposed` means the decision was put and not ratified, so
+a task reversing it may be the design moving: HIGH, which is where step 5 already
+files a conflicting requirement. A retired decision is not one a task can
+violate.
+
+A record whose `status` is missing or is not one of the four is read as
+`proposed` for severity and reported as unreadable, rather than skipped. A record
+nobody can classify is the one most likely to have been hand-written outside the
+template.
 
 **Do not gate on `approved` alone.** It is the literal reading of #121 item 6 and
 it ships the pass dead: only a human moves a record past `proposed`, an
@@ -173,20 +140,31 @@ reader comparing thoroughness reads them together. Pass G sits between
 `F · Inconsistency` and that row, so the statuses stay contiguous and the one
 measurement stays last.
 
-**Pass G's row is written on every run, including one that read no records.**
-Its two empty values are distinct — `None listed` and `No design.md` — for the
-reason the whole file exists: a run that found nothing, a run whose input was
-missing, and a run nobody started must not render identically. That is #307's
-argument met one directory over, and it is why this is a coverage row rather
+**Pass G's row is written on every run, including one that read no records** —
+`Deferred` with its reason when the pass could not run, never absent, which is
+the shared skill's rule and not a new one. A run that found nothing, a run whose
+input was missing and a run nobody started must not render identically; that is
+#307's argument one directory over, and it is why this is a coverage row rather
 than a findings line.
 
+Its status is one of the same four every other row carries. The count goes in a
+parenthetical, because the row above about `Requirement-to-task coverage` being
+the only one carrying a measurement stays true:
+
 ```
-| G · Design-record contradiction | Clear (N records read) |
-| G · Design-record contradiction | N CRITICAL             |
-| G · Design-record contradiction | N warning              |
-| G · Design-record contradiction | None listed            |
-| G · Design-record contradiction | No design.md           |
+| G · Design-record contradiction | Clear (2 records read)        |
+| G · Design-record contradiction | Outstanding (1 CRITICAL)      |
+| G · Design-record contradiction | Outstanding (2 HIGH)          |
+| G · Design-record contradiction | Resolved (1 HIGH, task fixed) |
+| G · Design-record contradiction | Clear (design.md lists none)  |
+| G · Design-record contradiction | Deferred (no design.md)       |
+| G · Design-record contradiction | Deferred (no records section) |
 ```
+
+`Clear` twice, and they are different facts: the pass read N records and found
+nothing, or it ran against a `design.md` that lists none. Both mean the pass
+reached its answer. The two `Deferred` rows mean it could not — no `design.md`,
+or one predating the section — which the shared skill calls `unknown`.
 
 **Verdict, for this step**: `satisfied` — all three artifacts were read and no
 CRITICAL finding stands. `unsatisfied` — at least one CRITICAL finding is open.

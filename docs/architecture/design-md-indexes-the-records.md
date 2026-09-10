@@ -94,16 +94,37 @@ Harder: `speckit-plan` gains a read it did not have. Its Outline step 2 loads
 `FEATURE_SPEC` and the constitution; `design.md` becomes a third input, reached
 through `wfctl feature-paths` rather than assumed at `specs/<branch>/`.
 
-The failure mode this introduces: a feature whose `design.md` is absent gets no
-records, silently. That case is close to degenerate — records are written by the
-brainstorm pass that also writes `design.md` — but "close to" is not "never",
-because a record can be written by hand. The empty-set rendering required at
-level 1 is what keeps it visible: a step that found no records says so.
+The failure mode this introduces: a feature whose `design.md` is absent, or
+predates the section, gets no records. The first case is close to degenerate —
+records are written by the brainstorm pass that also writes `design.md` — but the
+second is the *majority* state, and this record first said otherwise. A reviewer
+counted it: 19 of the 27 `design.md` files under this repo's spec root carry no
+`## Software design decisions` heading at all. So the rendering that distinguishes
+"recorded nothing" from "nothing is known" is not a nicety for a rare path; it is
+what most existing features will hit on the first run.
 
 `## Software design decisions` becomes load-bearing rather than documentary. The
 `/speckit.brainstorm` wrapper already requires it and already says a level
-answered with no record says so in one line rather than deleting the section — a
-rule that now has a second reason to exist.
+answered with no record says so in one line rather than deleting the section,
+because "a missing section reads as a level nobody ran" — which is also the
+ruling that decides a missing section is `unknown` and not `none`. That rule now
+has a second reason to exist and a consumer that depends on it.
+
+`_observe` in `cli.py` and the `record:` listing beside it exclude
+`<arch-root>/scans/` and not `<arch-root>/design/`. The comment above the first
+names this as a pre-existing open question and leaves it. This decision changes
+its weight rather than its answer: making downstream consumption real is what
+makes level-3 records routine on a branch, which turns `boundary` into a
+constant-true observation — the #307 failure that comment cites, one directory
+over. Tracked as **#327**, not resolved here: the two call sites want opposite
+answers, and `touched_on_this_branch` takes one `exclude` subtree.
+
+That last paragraph was written into this record, lost when the record was
+rewritten during the reversal below, and restored when a reviewer found that
+`grep -rn 327` over the tree returned nothing. Its only other home was `spec.md`,
+which resolves outside the working tree — so a deferral this change is
+responsible for had become invisible to precisely the reader it was written for,
+which is the defect this whole epic exists to prevent.
 
 ## Log
 

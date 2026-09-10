@@ -4,20 +4,24 @@
 `design.md`, and until #326 the chain stopped there: `speckit-plan` loads
 `FEATURE_SPEC` and the constitution, `speckit-tasks` loads `plan.md`,
 `speckit-implement` loads `tasks.md`, and `speckit-analyze` ran six detection
-passes over those three artifacts. Seven records sat in `docs/architecture/design/`
+passes over those three artifacts. Eight records sat in `docs/architecture/design/`
 and no step in the pipeline read any of them.
 
-The instruction that closes it is prose under `wfctl/agents/commands/`, which is
-the one thing the suite cannot otherwise see — `install-skills` copies it, no test
-reads it, and a wrapper that lost a rule would ship green. So every assertion here
-is about the shipped bundle rather than about `wfctl/`, which this feature does
-not touch at all.
+The instruction that closes it is prose under `wfctl/agents/`, which is the one
+thing the suite cannot otherwise see — `install-skills` copies it, no test reads
+it, and a wrapper that lost a rule would ship green. So every assertion here is
+about the shipped bundle rather than about `wfctl/`, which this feature does not
+touch at all.
 
-`wfctl/agents/commands/` and not the four `speckit-*` skills, deliberately: those
-are `github/spec-kit`-derived, and `vendor-upstream-skills` prefers a layer to an
-edit because an in-place change is reverted by the next upstream pull with no
-conflict to notice. `test_no_speckit_skill_carries_the_instruction` is what keeps
-that true after someone finds the wrapper indirection annoying.
+**The split under test is the point.** The shared rule lives once, in
+`reading-design-records/SKILL.md`; each wrapper carries a pointer to it and only
+the part the four steps do not share. It did not start that way — it started as
+forty-odd lines pasted into four wrappers, which a review panel found had
+*already* drifted on the commit that introduced them, one copy carrying three
+sentences the others had lost. So the assertions are split the same way the
+instruction is: the rule is asserted once against the skill, and four times only
+that each wrapper still points at it. A test that asserted the rule four times
+would pass on four copies again.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ _AGENTS = Path(str(files("wfctl"))) / "agents"
 # other three do not, so it appears in both this tuple and its own tests.
 _CONSUMERS = ("plan", "tasks", "implement", "analyze")
 
+_SHARED = _AGENTS / "skills" / "reading-design-records" / "SKILL.md"
 _SECTION = "## Read this feature's design records"
 
 
@@ -51,53 +56,71 @@ def _record_section(step: str) -> str:
     other things.
     """
     body = _wrapper(step).split(_SECTION)[1]
-    # `analyze` carries pass G and the scan-file instruction after this section;
-    # the other three end the file with it.
     return body.split("\n## ")[0]
 
 
-# --- the shared instruction, in all four -------------------------------------
+# --- the shared rule, asserted once ------------------------------------------
 
 
-@pytest.mark.parametrize("step", _CONSUMERS)
-def test_every_consumer_reads_the_record_list_from_design_md(step: str) -> None:
-    """Each of the four asks the feature's own document, not the filesystem.
+def test_the_shared_record_skill_ships() -> None:
+    """Four wrappers point at it, and a pointer to a missing skill fails silently.
 
-    This is the whole feature in one assertion, and the ordering matters: a
-    wrapper that names `design.md` but resolves it as `specs/<branch>/` finds
+    That is `test_skill_cross_references`' subject one directory over; this
+    asserts the specific one the feature cannot work without.
+    """
+    assert _SHARED.exists()
+
+
+def test_the_shared_rule_reads_the_list_from_design_md() -> None:
+    """The whole feature in one assertion, and the ordering inside it matters.
+
+    A rule that names `design.md` but resolves it as `specs/<branch>/` finds
     nothing in this repository, which records a spec root outside the working
     tree.
     """
-    section = _record_section(step)
+    shared = _SHARED.read_text()
 
-    assert "wfctl feature-paths" in section
-    assert "design.md" in section
-    assert "## Software design decisions" in section
+    assert "wfctl feature-paths" in shared
+    assert "## Software design decisions" in shared
 
 
-@pytest.mark.parametrize("step", _CONSUMERS)
-def test_every_consumer_states_the_bullet_only_parse_rule(step: str) -> None:
+def test_the_shared_rule_takes_bullet_entries_only() -> None:
     """The rule with the most consequence and the smallest surface.
 
     `## Software design decisions` legitimately carries prose as well as entries:
-    `/speckit.brainstorm` requires a level answered with no record to say so in one
-    line rather than delete the heading. That prose may name a *level-2* record —
-    this feature's own `design.md` does. A wrapper that says "the paths listed in
-    the section" without saying "list items only" is read as *every path*, and a
-    level-2 record then loads as level-3, binding nothing while looking like it
-    does.
+    `/speckit.brainstorm` requires a level answered with no record to say so in
+    one line rather than delete the heading. That prose may name a *level-2*
+    record — this feature's own `design.md` does. A rule that says "the paths
+    listed in the section" without saying "list items only" is read as *every
+    path*, and a level-2 record then loads as level-3, binding nothing while
+    looking like it does.
 
     Caught by `/speckit.clarify` on this feature rather than by a run: the defect
     was in the artifact the pipeline was about to consume.
     """
-    section = _record_section(step)
+    shared = _SHARED.read_text()
 
-    assert "list item" in section
-    assert "Prose in that section names no records." in section
+    assert "**list item**" in shared
+    assert "Prose in that section names no records." in shared
 
 
-@pytest.mark.parametrize("step", _CONSUMERS)
-def test_every_consumer_refuses_the_issue_prefixed_glob(step: str) -> None:
+def test_the_shared_rule_says_what_a_relative_path_resolves_against() -> None:
+    """Two reviewers found this independently, and it disabled the feature.
+
+    The producer's template emits `<arch-root>/…`, which `wfctl arch-root` prints
+    absolute; the one real entry ever written is repo-relative and backticked.
+    With no stated base, the natural reading for an agent that just opened
+    `<FEATURE_DIR>/design.md` is that directory — which is outside the working
+    tree, so every record resolves to nothing and reports as `listed, not found`.
+    The feature would have failed on its own single test case.
+    """
+    shared = _SHARED.read_text()
+
+    assert "REPO_ROOT" in shared
+    assert "never against the directory holding" in shared
+
+
+def test_the_shared_rule_refuses_the_issue_prefixed_glob() -> None:
     """The mechanism this feature shipped with first, and it was silently wrong.
 
     A worktree is named for the issue that existed when it was created; a record
@@ -107,67 +130,117 @@ def test_every_consumer_refuses_the_issue_prefixed_glob(step: str) -> None:
     feature's record and misses this one, with no error either way — observed on
     `121-level3-downstream`, where `design/121-*.md` matched #122's record.
 
-    Stated as a refusal in each wrapper because the glob is the obvious
-    implementation, and an instruction that only says what to do leaves the
-    obvious wrong thing available.
+    Stated as a refusal because the glob is the obvious implementation, and a
+    rule that only says what to do leaves the obvious wrong thing available.
     """
-    section = _record_section(step)
+    shared = _SHARED.read_text()
 
-    assert "Do not glob" in section
-    assert "design-md-indexes-the-records" in section
+    assert "Do not glob" in shared
+    assert "design-md-indexes-the-records" in shared
 
 
-@pytest.mark.parametrize("step", _CONSUMERS)
-def test_every_consumer_names_all_three_record_states(step: str) -> None:
+def test_the_shared_rule_names_four_states_not_three() -> None:
+    """The fourth state is the majority one, and the first draft had no name for it.
+
+    A `design.md` with no `## Software design decisions` heading is neither
+    `listed` nor `none`. A reviewer counted the tree: 19 of 27 `design.md` files
+    under this repo's spec root have no such heading, so reading it as `none`
+    asserts "the design pass recorded no decision" about a pass that predates the
+    section — for most features, on the first run.
+
+    `/speckit.brainstorm` supplies the ruling: a missing section "reads as a level
+    nobody ran", which is `unknown`.
+    """
+    shared = _SHARED.read_text()
+
+    assert "no such section" in shared
+    assert "a missing section reads as a level nobody" in shared.lower()
+    for state in ("`listed`", "`none`", "`unknown`"):
+        assert state in shared
+
+
+def test_the_shared_rule_reports_every_state(  ) -> None:
     """A run that found nothing and a run that never looked must not read alike.
 
-    #307's argument one directory over. `none` says a design pass ran and recorded
-    no structural decision, which is a legitimate answer — the record threshold
-    exists so that not every choice earns a file. `unknown` says no design pass
-    ran. A wrapper that describes only the populated case leaves both empty states
-    to the model's judgement, and they collapse into one.
+    #307's argument one directory over. A rule that describes only the populated
+    case leaves the empty states to the model's judgement, and they collapse.
     """
-    section = _record_section(step)
+    shared = _SHARED.read_text()
 
-    assert "listed in design.md" in section
-    assert "none — design.md records no level-3 decision" in section
-    assert "unknown — no design.md at" in section
+    assert "listed in design.md" in shared
+    assert "none — design.md records no level-3 decision" in shared
+    assert "unknown — no design.md at" in shared
 
 
-@pytest.mark.parametrize("step", _CONSUMERS)
-def test_every_consumer_reports_a_listed_path_it_could_not_read(step: str) -> None:
+def test_the_shared_rule_reports_a_listed_path_it_could_not_read() -> None:
     """A record that moved is a broken reference, not an absence.
 
     Silently skipping it produces the `N listed` line with fewer than N paths
-    under it, which reads as a miscount rather than as a missing file — so the one
-    state that needs a reader's attention is the one that looks like a bug in the
-    step.
+    under it, which reads as a miscount rather than a missing file — so the one
+    state needing a reader's attention looks like a bug in the step.
     """
-    section = _record_section(step)
+    assert "listed, not found" in _SHARED.read_text()
 
-    assert "listed, not found" in section
+
+def test_an_out_of_tree_record_is_not_reported_as_missing() -> None:
+    """`arch_root` outside the working tree is supported, not broken.
+
+    `wfctl arch-root` warns and exits 0 there, and the records read fine. An
+    earlier draft folded that case into `listed, not found` — which applies to
+    the records the very argument `design-md-indexes-the-records` rejects for
+    `design.md`, in the change that record justifies.
+    """
+    shared = _SHARED.read_text()
+
+    assert "does **not** cover a path outside the working" in shared
+
+
+def test_the_shared_rule_says_why_it_is_not_in_the_speckit_skills() -> None:
+    """The reason has to travel with the rule, or the rule gets moved.
+
+    Someone will reasonably want it in the four skills the wrappers point at. The
+    answer is that those are upstream-derived and the edit would be reverted by
+    the next pull with no conflict to notice — invisible unless it is written
+    down.
+    """
+    shared = _SHARED.read_text()
+
+    assert "vendor-upstream-skills" in shared
+    assert "reverted by the next upstream pull" in shared
+
+
+# --- the four wrappers, asserted only as pointers ----------------------------
 
 
 @pytest.mark.parametrize("step", _CONSUMERS)
-def test_every_consumer_says_why_the_rule_is_in_the_wrapper(step: str) -> None:
-    """The reason has to travel with the rule, or the rule gets moved.
+def test_every_consumer_points_at_the_shared_record_skill(step: str) -> None:
+    """Half the instruction lives in one file so it cannot drift between four.
 
-    Someone reading four near-identical sections will reasonably want them in the
-    skill they all point at. The answer is that the skill is upstream-derived and
-    the edit would be reverted by the next pull with no conflict to notice — which
-    is invisible from the wrapper unless the wrapper says it.
+    It had already drifted before the split existed: the same paste went into
+    four wrappers and three of them lost sentences the fourth kept, on the
+    commit that introduced them.
+    """
+    assert ".agents/skills/reading-design-records/SKILL.md" in _record_section(step)
+
+
+@pytest.mark.parametrize("step", _CONSUMERS)
+def test_every_consumer_says_when_it_reads_them(step: str) -> None:
+    """The one thing the shared skill cannot say for any of the four.
+
+    A step that reads the records after doing its work has read them for nothing
+    — the plan is already written, the tasks already generated. The timing is the
+    step's own and is why each wrapper still carries prose at all.
     """
     section = _record_section(step)
 
-    assert "vendor-upstream-skills" in section
-    assert "reverted by the next upstream pull" in section
+    assert "**Before" in section
 
 
 @pytest.mark.parametrize("step", _CONSUMERS)
 def test_every_consumer_may_run_feature_paths(step: str) -> None:
     """An instruction to run a command the frontmatter does not allow is inert.
 
-    The wrapper would ship, the test above would pass, and the step would be
+    The wrapper would ship, every test above would pass, and the step would be
     unable to resolve `FEATURE_DIR` at runtime — a failure that appears only when
     someone runs it, and looks like a permissions problem rather than a missing
     line in this file.
@@ -176,16 +249,31 @@ def test_every_consumer_may_run_feature_paths(step: str) -> None:
 
 
 def test_no_speckit_skill_carries_the_instruction() -> None:
-    """`vendor-upstream-skills` is the reason all four copies live in wrappers.
+    """`vendor-upstream-skills` is the reason none of this is in the four skills.
 
-    The pull toward deduplicating them into the skills is real and this is what
-    resists it. A rule moved there survives until the next upstream pull, then
-    vanishes in a diff that mentions neither the rule nor the feature.
+    The pull toward moving it there is real and this is what resists it. A rule
+    moved there survives until the next upstream pull, then vanishes in a diff
+    that mentions neither the rule nor the feature.
     """
     for step in _CONSUMERS:
         skill = _AGENTS / "skills" / f"speckit-{step}" / "SKILL.md"
 
         assert "## Software design decisions" not in skill.read_text()
+
+
+def test_the_producer_warns_that_only_bullets_are_read() -> None:
+    """The producer and the consumers had no agreed format, and still emit two.
+
+    `/speckit.brainstorm` requires a level answered with no record to say so in
+    one line. Written as a bullet, that line is a record entry with no resolvable
+    path — indistinguishable from a record that has gone missing. The rule holds
+    on this repo's own `design.md` only because its author happened to write that
+    note as prose.
+    """
+    brainstorm = _wrapper("brainstorm")
+
+    assert "prose in this section is not" in brainstorm
+    assert "REPO_ROOT" in brainstorm
 
 
 # --- pass G, in analyze only -------------------------------------------------
@@ -199,9 +287,8 @@ def test_analyze_names_all_seven_detection_passes() -> None:
     """Six were listed by letter; a seventh added in prose alone is not run.
 
     The wrapper's coverage-row block is what the scan file is written from, so a
-    pass described above it and missing from it produces a table that is silent
-    about work the step did — which is the state #307's whole mechanism exists to
-    replace.
+    pass described above it and missing from it produces a table silent about
+    work the step did — the state #307's mechanism exists to replace.
     """
     analyze = _analyze()
 
@@ -238,21 +325,47 @@ def test_pass_g_sits_between_inconsistency_and_the_measurement() -> None:
     assert inconsistency < pass_g < measurement
 
 
-def test_pass_g_splits_severity_on_the_records_status() -> None:
-    """Gating on `approved` alone is the literal reading of #121 item 6.
+def test_pass_g_uses_only_severities_the_step_already_has() -> None:
+    """`warning` was a fifth severity in a scale of four, found by all three reviewers.
 
-    It ships the pass dead: only a human moves a record past `proposed`, an
-    unattended run moves none, and all seven records in this repository are
-    `proposed`. The four-row table is what keeps the ratification distinction
-    without making the check fire on nothing.
+    `speckit-analyze` step 5 defines CRITICAL / HIGH / MEDIUM / LOW, and step 6's
+    report table has a Severity column that takes one of them. `warning` had no
+    cell to sit in — and since every record on disk is `proposed`, it was the only
+    value pass G could emit.
     """
     analyze = _analyze()
 
     assert "| `approved` | CRITICAL |" in analyze
-    assert "| `proposed` | warning |" in analyze
+    assert "| `proposed` | HIGH |" in analyze
     assert "| `superseded` | no finding |" in analyze
     assert "| `rejected` | no finding |" in analyze
-    assert "Do not gate on `approved` alone." in analyze
+    assert "warning" not in analyze.split("**Severity comes from")[1][:1200]
+
+
+def test_pass_g_rows_use_the_shared_status_vocabulary() -> None:
+    """A coverage row is one of four words, and pass G had invented five more.
+
+    `writing-a-scan-file` fixes the vocabulary at `Clear`, `Resolved`, `Deferred`,
+    `Outstanding`, and this same wrapper says the coverage-percentage row "is the
+    only row" carrying anything else. Rows reading `1 CRITICAL` or `No design.md`
+    made both sentences false at once. The count belongs in a parenthetical on a
+    real status.
+    """
+    rows = _analyze().split("**Coverage rows**")[1]
+
+    for value in ("Clear (2 records read)", "Outstanding (1 CRITICAL)", "Deferred (no design.md)"):
+        assert value in rows
+
+
+def test_pass_g_handles_a_record_whose_status_is_unreadable() -> None:
+    """A record nobody can classify is the one most likely to be hand-written.
+
+    Left undefined, the four-row table says nothing about a record with no
+    `status` or an unrecognised one, and the safe-looking reading — skip it — is
+    the one that silently drops the record least likely to have followed the
+    template.
+    """
+    assert "absent or unrecognised" in _analyze()
 
 
 def test_pass_g_compares_tasks_and_not_the_plan() -> None:
@@ -276,7 +389,7 @@ def test_a_pass_g_finding_carries_the_record_and_the_task() -> None:
     analyze = _analyze()
 
     assert "Record: `<arch-root>/design/<issue>-<decision>.md`" in analyze
-    assert "Task: \"<the task, quoted>\"" in analyze
+    assert 'Task: "<the task, quoted>"' in analyze
 
 
 def test_pass_g_reports_and_never_gates() -> None:
@@ -293,12 +406,12 @@ def test_pass_g_writes_its_row_on_a_run_that_read_no_records() -> None:
     """The failure this row exists to prevent, met on its own empty path.
 
     A findings list renders identically for a thorough pass over clean artifacts
-    and for a pass that never ran. So does a coverage row that is emitted only
-    when something was found — which is the shape an implementer reaches for
-    first, because writing a row about nothing feels like noise.
+    and for a pass that never ran. So does a coverage row emitted only when
+    something was found — the shape an implementer reaches for first, because
+    writing a row about nothing feels like noise.
     """
     analyze = _analyze()
 
     assert "written on every run, including one that read no records" in analyze
-    assert "| G · Design-record contradiction | None listed            |" in analyze
-    assert "| G · Design-record contradiction | No design.md           |" in analyze
+    assert "Clear (design.md lists none)" in analyze
+    assert "Deferred (no records section)" in analyze

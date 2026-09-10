@@ -11,7 +11,7 @@
 
 | Category | Status |
 | --- | --- |
-| Functional Scope & Behavior | Clear |
+| Functional Scope & Behavior | Deferred |
 | Domain & Data Model | Resolved |
 | Interaction & UX Flow | Clear |
 | Non-Functional Quality Attributes | Deferred |
@@ -21,6 +21,12 @@
 | Terminology & Consistency | Clear |
 | Completion Signals | Clear |
 | Misc / Placeholders | Clear |
+
+Two rows read `Deferred` and the header counts two, which it did not when this
+was first written: `Functional Scope & Behavior` said `Clear` while the Deferred
+section below deferred a corner of that same category. A review panel found the
+row and its own file disagreeing — which is the one thing a coverage table exists
+to make impossible.
 
 ### Findings
 

@@ -20,6 +20,11 @@
 | G · Design-record contradiction | Clear (1 record read) |
 | Requirement-to-task coverage | 100% |
 
+That row is `Clear` with a parenthetical rather than a bare count, because a
+coverage row is one of four words and the count is not one of them. The first
+version of pass G's row vocabulary broke that rule and a review panel caught it
+unanimously; this file is what the wrapper now instructs.
+
 **Pass G ran after the other six, and after the change that created it.** The
 first pass of this session had no pass G, because the feature that adds it had
 not been implemented — so the row above was written by re-running G alone against
