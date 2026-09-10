@@ -17,7 +17,23 @@
 | D · Constitution alignment | Clear |
 | E · Coverage gaps | Resolved |
 | F · Inconsistency | Resolved |
+| G · Design-record contradiction | Clear (1 record read) |
 | Requirement-to-task coverage | 100% |
+
+**Pass G ran after the other six, and after the change that created it.** The
+first pass of this session had no pass G, because the feature that adds it had
+not been implemented — so the row above was written by re-running G alone against
+this feature's `tasks.md` once `speckit.analyze.md` carried it. Extending this
+session rather than opening a second: the sessions a reviewer distinguishes are
+separated by the pipeline advancing, not by the clock, and nothing advanced.
+
+Its input was the one record `design.md` lists,
+`docs/architecture/design/326-contradiction-is-a-seventh-pass.md`
+(`status: proposed`). Its `Decision` is that contradiction detection is a model
+pass beside the other six rather than a `wfctl` command comparing declared
+invariants. No task reverses it — T012 through T016 implement exactly that shape,
+and no task adds a command. Hence `Clear`, and the record count is stated so that
+a reader can tell this from a run that had nothing to read.
 
 Pass D reads Clear against substituted gates rather than a constitution: this
 repository ships no `.specify/memory/constitution.md`, so `plan.md`'s Constitution
