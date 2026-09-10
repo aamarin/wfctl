@@ -5,7 +5,7 @@ handoffs:
   - label: Build Technical Plan
     agent: speckit.plan
     prompt: Create a plan for the spec. I am building with...
-allowed-tools: Read Glob Bash(.specify/scripts/bash/check-prerequisites.sh*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
 
 ## User Input
@@ -17,3 +17,73 @@ $ARGUMENTS
 You **MUST** consider the user input before proceeding (if not empty).
 
 Read `.agents/skills/speckit-clarify/SKILL.md` (or `../skills/speckit-clarify/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete clarification workflow.
+
+## Write the scan file
+
+Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
+`../skills/writing-a-scan-file/SKILL.md` relative to this file, if
+`.agents/skills` isn't present). It owns the destination, the session rule, the
+commit and the check. What it does not own is what *this* step scanned, which is
+below.
+
+**The scan file is written on every exit path, including an abort.** The workflow
+above stops early when `spec.md` is missing or `check-prerequisites.sh` cannot be
+parsed, and tells the reader to run `/speckit.specify`. That is exactly the
+`inconclusive` case below, and reaching the abort without writing the file leaves
+a scan that *could not run* looking identical to one nobody started — which is the
+defect #307 is about, met on the failure path instead of the success one. Write
+the section with `Verdict: inconclusive` naming what was missing, then stop.
+
+**File**: `<arch-root>/scans/<issue>-clarify.md`.
+**Detail**: `FEATURE_DIR/spec.md` § Clarifications.
+
+**Coverage rows** — the ten taxonomy categories the workflow above scans, in its
+order, every one of them present:
+
+```
+Functional Scope & Behavior          Edge Cases & Failure Handling
+Domain & Data Model                  Constraints & Tradeoffs
+Interaction & UX Flow                Terminology & Consistency
+Non-Functional Quality Attributes    Completion Signals
+Integration & External Dependencies  Misc / Placeholders
+```
+
+The map behind them already exists: step 2 above builds it on every run and
+discards it unless no question is asked. Writing it down is what this step stops
+throwing away.
+
+Its scanning vocabulary is Clear / Partial / Missing and its reporting vocabulary
+is Clear / Resolved / Deferred / Outstanding. **The reported one is what goes in
+the file** — a reader wants what the scan concluded, not what it saw first.
+
+**Verdict, for this step**: `satisfied` — the scan ran and nothing material is
+open. `unsatisfied` — a category is Outstanding, or a high-impact one is
+Deferred. `inconclusive` — the scan could not run: no `spec.md`, or one still
+carrying its template.
+
+**Section shape**:
+
+```markdown
+## Session YYYY-MM-DD
+
+- Verdict: satisfied
+- Scanned: spec.md
+- Asked: N · Answered: N · Outstanding: N · Deferred: N
+- Detail: <FEATURE_DIR>/spec.md § Clarifications
+
+### Coverage
+
+| Category | Status |
+| --- | --- |
+| Functional Scope & Behavior | Clear |
+| … the nine others |
+
+### Findings
+
+- **<category>** — what was ambiguous.
+  Q: <the question> → A: <the answer>. Decided against <the alternative>: <why>.
+
+### Deferred
+
+- **<category>** — <what was not asked, and why it belongs to a later step>.
+```
