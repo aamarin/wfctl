@@ -81,9 +81,42 @@ carrying its template.
 ### Findings
 
 - **<category>** — what was ambiguous.
-  Q: <the question> → A: <the answer>. Decided against <the alternative>: <why>.
+  Q: <the question> → A: <the answer>.
+  Decided against **<option>**: <why it lost>.
+  Decided against **<option>**: <why it lost>.
 
 ### Deferred
 
 - **<category>** — <what was not asked, and why it belongs to a later step>.
 ```
+
+## The options the answer was chosen over
+
+**One `Decided against` line per option the question offered and the answer did
+not take.** Step 4 above renders each multiple-choice question as 2–5 options and
+takes one; the others are what the step considered, and they exist nowhere but
+the run's working memory. So keep each question's option table until this file is
+written — the workflow discards it once the answer is recorded, and nothing left
+in the run can reconstruct it.
+
+A single line naming one representative alternative reports a two-option question
+and a five-option one identically, and *what else was on the table, and why not
+that* is the only question a reviewer can ask of a resolved ambiguity (#286).
+
+**The reason an option lost is the reason it actually lost.** Losing on fit is a
+reason; a weakness the option does not have is never one — the standard
+`architecture-decisions` holds its own `Considered` to. An option invented to be
+knocked down is worse than no record, because a reviewer cannot tell it from one
+that was really on the table.
+
+**A short-answer question offered no options and writes none.** Step 4's other
+branch takes a free-form answer of five words or fewer, so there is nothing
+rejected to name. Write `No options offered — short answer.` on its own line
+under the finding. Inventing a set to reject is the straw the paragraph above
+rules out, reached from the side where the instruction itself invites it.
+
+**This holds however the answer was chosen.** A human picking option B destroys A
+and C exactly as thoroughly as an unattended run does, and the reviewer reading
+the change is equally unable to see them — so the rule is not conditional on the
+mode. That is the one respect this layer differs from `speckit.brainstorm.md`'s,
+whose auto-approve branch fires only when nobody is there to be asked.

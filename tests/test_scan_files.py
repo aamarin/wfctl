@@ -270,6 +270,58 @@ def test_each_review_wrapper_allows_the_commands_the_scan_file_needs(step: str) 
         assert grant in allowed, f"speckit.{step}.md cannot run its own instruction: {grant}"
 
 
+def test_the_clarify_wrapper_keeps_every_rejected_option_rather_than_one() -> None:
+    """The grain #307 shipped was per finding; clarify's questions are per option.
+
+    The first version of the findings line read "Decided against <the
+    alternative>: <why>" — one alternative, however many the question offered. A
+    two-option question and a five-option one rendered identically, so the reader
+    could not tell four discarded options from one (#286).
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "One `Decided against` line per option the question offered" in flowed
+
+
+def test_the_clarify_wrapper_refuses_a_straw_option() -> None:
+    """A record of options nobody weighed is worse than no record.
+
+    `architecture-decisions` already holds its own `Considered` to this and the
+    wrapper borrows the standard rather than restating a weaker one: an instruction
+    to name what lost, with no rule about *why*, is answerable by inventing a bad
+    option — and a reviewer cannot tell that from a real one.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "a weakness the option does not have is never one" in flowed
+
+
+def test_the_clarify_wrapper_exempts_a_short_answer_question() -> None:
+    """Step 4's other branch has no option set, and a rule that ignores it invites the straw.
+
+    An unconditional "name every rejected option" meets a free-form answer with
+    nothing to name, and the cheapest way out is to invent some — the failure the
+    test above guards, reached from the side where the instruction itself asks for
+    it.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "short-answer question offered no options and writes none" in flowed
+
+
+def test_the_clarify_wrapper_is_not_conditional_on_the_mode() -> None:
+    """`speckit.brainstorm.md`'s layer fires only under auto-approve, and copying its
+    shape would have inherited a condition this rule does not want.
+
+    A human picking option B destroys A and C as thoroughly as an unattended run
+    does. #286 flagged the question rather than answering it; the wrapper answers
+    it, so the next reader finds a decision instead of an omission.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "This holds however the answer was chosen" in flowed
+
+
 # --- what the destination changed -------------------------------------------
 
 
