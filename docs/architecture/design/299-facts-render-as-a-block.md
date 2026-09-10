@@ -54,6 +54,14 @@ above as real. It is the baseline below.
 - Four extra lines is the block's steady-state height. Falsified by a branch with
   several un-ruled records, where the architecture line wraps; that branch has a
   real problem and the extra line is the report of it.
+- ~~Resolving the arch root and asking git per `status` is cheap enough to leave
+  unconditional.~~ **Measured by the review panel, and it was not.** The first
+  implementation took `build_report` from 10 git subprocesses to 19, because the
+  `implement` predicate and the definition-of-done fact each asked
+  `verification_block` — the seam `build_report`'s own comment says it exists to
+  collapse. Hoisting that read onto `Evidence` removes the duplicate. What is
+  still spent is the branch's record set and the trunk question, both local, on
+  every caller of `build_report` rather than on `status` alone.
 
 ## Direct baseline
 

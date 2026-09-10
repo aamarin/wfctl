@@ -471,6 +471,13 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # blocked reason, met again by a field added beside it.
     ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
     raw = _infer_steps(spec_dir, repo_root, ev)
+    # One read, whether or not a feature directory resolved. `Evidence` carries
+    # it when there is one; with none there is no evidence to carry it and the
+    # fact's owner is asked directly. Either way it is asked once — two calls per
+    # report was the cost the panel measured, and the seam below says why.
+    verification = (
+        _predicates.verification_block(repo_root) if ev is None else ev.verification
+    )
     name = _current_step_name(raw)
     # `_infer_steps` has already asked; `verification_block` reads the config,
     # loads a record and shells out to git, and `status` runs on every session
@@ -507,5 +514,5 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         # round-trip inside the one call every view of pipeline state makes.
         notify=granted,
         notify_source=source,
-        facts=_predicates.facts(ev, repo_root, granted, source),
+        facts=_predicates.facts(ev, repo_root, granted, source, verification),
     )

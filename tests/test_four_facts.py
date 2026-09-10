@@ -122,7 +122,7 @@ def test_a_branch_that_touched_no_record_is_not_reported_as_blocked(
     storyctl_dir.stage_upstream_of("tasks")
     fact = _facts()["architecture accepted"]
     assert fact["value"] == "n/a"
-    assert fact["detail"] == "no record on this branch"
+    assert fact["detail"] == "no level-2 record on this branch"
 
 
 def test_a_superseded_record_does_not_hold_the_branch_forever(
@@ -391,3 +391,164 @@ def test_the_block_prints_even_when_nothing_is_outstanding(
     out = _console()
     for name in FACT_NAMES:
         assert name in out
+
+
+def test_git_being_unable_to_answer_is_not_the_same_as_nothing_to_accept(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-013, on the fact that read `[]` three ways and called all three `n/a`.
+
+    `records_on_this_branch` returns an empty list for "nothing touched", for
+    "git could not be asked", and for an arch root outside the tree. Reading the
+    second as the first reports a branch with an un-ruled record as having
+    nothing pending — the same collapse the feature exists to undo, one level
+    down, and reachable in any repo whose trunk cannot be named.
+    """
+    storyctl_dir.stage_upstream_of("tasks")
+    repo = storyctl_dir.repo_root
+    _record(repo, "a-decision", "proposed")
+    subprocess.run(["git", "-C", str(repo), "add", "docs"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "record"],
+                   check=True, capture_output=True)
+    # No `main`, `master`, `dev` or `origin/HEAD` left to find, which is what
+    # `_trunk_branch` looks for and the only way it answers None.
+    subprocess.run(["git", "-C", str(repo), "branch", "-M", "418-storyctl"],
+                   check=True, capture_output=True)
+    monkeypatch.setenv("WFCTL_BRANCH", "418-storyctl")
+
+    fact = _facts()["architecture accepted"]
+    assert fact["value"] == "unmet"
+    assert "git cannot say" in fact["detail"]
+
+
+def test_records_kept_outside_the_repo_are_not_reported_unmet_forever(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The case that must not borrow the answer above, though git returns the same.
+
+    `arch_root`'s own docstring says a repo may declare its records elsewhere.
+    Nothing failed there — git is being asked about a path it does not track — and
+    routing it to `unmet` would hold every branch in such a repo with no command
+    that clears it.
+    """
+    storyctl_dir.stage_upstream_of("tasks")
+    outside = tmp_path.parent / "records-elsewhere"
+    outside.mkdir(exist_ok=True)
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+
+    fact = _facts()["architecture accepted"]
+    assert fact["value"] == "n/a"
+    assert "outside this repository" in fact["detail"]
+
+
+def test_a_scan_file_is_not_a_record_even_when_it_shares_a_slug(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`scans/` is excluded by name, which `AGENTS.md` requires of every reader.
+
+    The intersection with `load_records` looks like it covers this and does not:
+    it matches bare stems, so a scan sharing a stem with a top-level record reads
+    as that record being touched — blocking a branch on a decision it never made.
+    """
+    storyctl_dir.stage_upstream_of("tasks")
+    arch = storyctl_dir.repo_root / "docs" / "architecture"
+    (arch / "scans").mkdir(parents=True, exist_ok=True)
+    (arch / "a-decision.md").write_text(RECORD.format(status="proposed"))
+    subprocess.run(["git", "-C", str(storyctl_dir.repo_root), "add", "docs"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(storyctl_dir.repo_root), "commit", "-m", "record"],
+                   check=True, capture_output=True)
+    # Only the scan is this branch's work. The record beside it is history.
+    (arch / "scans" / "a-decision.md").write_text("# a scan, not a record\n")
+
+    fact = _facts()["architecture accepted"]
+    assert fact["value"] == "n/a"
+    assert "a-decision" not in fact["detail"]
+
+
+def test_a_rejected_record_does_not_render_as_an_accepted_one(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The met detail names every status, not only the ones that are waiting.
+
+    Dropped, a `rejected` record printed the same line as an accepted one under a
+    label reading "architecture accepted". Both are rulings, so neither holds the
+    branch — and they are not the same thing to say about it.
+    """
+    storyctl_dir.stage_upstream_of("tasks")
+    _record(storyctl_dir.repo_root, "a-decision", "rejected")
+    fact = _facts()["architecture accepted"]
+    assert fact["value"] == "met"
+    assert "a-decision (rejected)" in fact["detail"]
+
+
+def test_a_passing_definition_of_done_names_the_tree_it_passed_on(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The one branch of this fact that reads something the gate does not.
+
+    `verification_block` returns None for a clean pass and says nothing about
+    which commit it ran against, so the sha comes from the record itself — the
+    diff's only index into another module's dict schema. Untested it rendered in
+    real use and in no assertion, and a field rename would reach `wfctl status`
+    as a `KeyError` over a green suite.
+    """
+    from wfctl import _verify
+
+    storyctl_dir.stage_upstream_of("tasks")
+    repo = storyctl_dir.repo_root
+    (repo / "wfctl.json").write_text('{"verify": [["true"]]}\n')
+    subprocess.run(["git", "-C", str(repo), "add", "wfctl.json"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "declare a check"],
+                   check=True, capture_output=True)
+    assert _verify.perform(storyctl_dir.agent_dir, repo) == 0
+
+    sha, _ = _verify.code_identity(repo)
+    fact = _facts()["definition of done"]
+    assert fact["value"] == "met"
+    assert fact["detail"] == f"passed at {sha[:7]}"
+
+
+def test_an_unrecognised_grant_source_never_claims_someone_allowed_it(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`NotifyGrant.source` is read off `events.jsonl` without validation.
+
+    Answered with the `unset` wording, a source this wfctl has never heard of
+    produced `met` beside "nobody has allowed it for this work" — a value and a
+    detail contradicting each other, about a human.
+    """
+    storyctl_dir.stage_upstream_of("tasks")
+    record_notify_resolved(
+        storyctl_dir.agent_dir, NotifyGrant(True, "from-the-future"), "418-storyctl"
+    )
+    fact = _facts()["integration authorized"]
+    assert fact["value"] == "unmet"
+    assert "from-the-future" in fact["detail"]
+
+
+def test_the_verification_answer_is_read_once_per_report(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The seam `build_report`'s own comment says it exists to collapse.
+
+    Adding the fact reintroduced the second call the seam had closed: the
+    `implement` predicate and this fact both asked, so every report ran the git
+    and record reads twice. Counted rather than measured — a timing assertion
+    would be machine-dependent, and the count is the thing that regressed.
+    """
+    from wfctl import _predicates as pred
+
+    calls = []
+    real = pred.verification_block
+    monkeypatch.setattr(
+        pred, "verification_block", lambda root: (calls.append(root), real(root))[1]
+    )
+    storyctl_dir.stage_upstream_of("tasks")
+    build_report(storyctl_dir.spec_dir, storyctl_dir.repo_root, storyctl_dir.agent_dir)
+    assert len(calls) == 1

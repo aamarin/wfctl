@@ -218,6 +218,14 @@ class Evidence:
     # tells those apart, and both predicates check it first.
     tasks_done: int
     tasks_total: int
+    # `verification_block`'s answer, read once. Deferred until #299, on the
+    # argument that `cascade` means most runs never reach `implement` and the
+    # read costs git — an argument that stopped holding the moment
+    # `fact_definition_of_done` began asking the same question on every report.
+    # Two calls per report was the actual cost of leaving it deferred, and
+    # `build_report`'s own seam comment names that as the thing this collapse
+    # exists to prevent.
+    verification: str | None
 
 
 def _file_exists(path: Path) -> bool:
@@ -721,22 +729,28 @@ def fact_artifacts_written(ev: Evidence | None) -> Fact:
     return Fact(name, "met", ", ".join(written))
 
 
-def fact_definition_of_done(repo_root: Path) -> Fact:
+def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     """Did the repo's own check pass on this tree? Owner: `wfctl.json` + the record.
 
-    `verification_block` already holds every reason this can be unmet, in the
-    order a user can act on. What it cannot say is the difference between "passed"
-    and "there was nothing to run": both are `None`, because a repo with no
+    `blocked` is `verification_block`'s answer, handed in rather than asked for.
+    That is a hoist and not a derivation from a step: the string comes from this
+    fact's own owner, and the alternative — calling it here as well — ran the
+    same git and record reads twice per report, which is what `build_report`'s
+    seam comment says the seam exists to prevent.
+
+    `verification_block` holds every reason this can be unmet, in the order a
+    user can act on. What it cannot say is the difference between "passed" and
+    "there was nothing to run": both are `None`, because a repo with no
     definition of done is never blocked (FR-002) and that degrade path must cost
     nothing.
 
-    So the config is asked first, for exactly that distinction, and the answer is
-    not a second opinion — `load_config` returning no commands and no errors is
-    the same first branch `verification_block` takes before it touches git.
+    So the config is asked here, for exactly that distinction, and it is not a
+    second opinion — `load_config` returning no commands and no errors is the
+    same first branch `verification_block` already took before it touched git.
 
     The record is read once more for the sha it verified against. That is a
     second read of one small file and not a second inference: the verdict is
-    already decided above, and this only asks which tree it was decided about.
+    already decided, and this only asks which tree it was decided about.
     """
     from wfctl import _verify
     from wfctl._paths import resolve_agent_dir, resolve_branch
@@ -746,7 +760,6 @@ def fact_definition_of_done(repo_root: Path) -> Fact:
     if not commands and not errs:
         return Fact(name, "n/a", "no definition of done declared")
 
-    blocked = verification_block(repo_root)
     if blocked:
         return Fact(name, "unmet", blocked)
 
@@ -763,35 +776,64 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     every branch blocked forever, including branches that decided nothing, and a
     permanently false value is not a fact about the branch.
 
-    `design/`, `scans/`, `views/` and `declarations/` drop out for free rather
-    than by a second exclusion to maintain: `load_records` globs one level, which
-    is already what keeps them out of `wfctl arch context`, so intersecting the
-    touched slugs with the loaded ones excludes every subtree at once. Slugs
-    cannot do that job alone — `records_on_this_branch` returns a bare stem, so a
-    level-3 record and a top-level one of the same name look identical to it.
+    Three states in, three states out. `records_on_this_branch` returns an empty
+    list for "nothing touched", for "git could not be asked" and for an arch root
+    outside the tree, and reading all three as the first is the same collapse this
+    feature exists to undo, one level down. So the question is put to
+    `touched_on_this_branch`, whose three states say which — and the git-failed
+    one goes through `blocks` as `accepted-record`, so it blocks for the reason
+    `promised-evidence-blocks-on-silence` gives and not one invented here.
+
+    An arch root outside the working tree is not that case and must not borrow its
+    answer. Nothing failed: git is being asked about a path it does not track, and
+    a repo that keeps its records elsewhere would otherwise read unmet forever.
+
+    `scans/` is excluded by name, which is `AGENTS.md`'s standing instruction to
+    every reader of the arch root — a git pathspec naming a directory is
+    recursive and cannot be made otherwise. The intersection with `load_records`
+    below is what drops `design/`, `views/` and `declarations/`, because that
+    glob is one level deep. It is not enough on its own for `scans/`: it matches
+    on bare stems, so a scan file sharing a stem with a top-level record would
+    read as that record being touched.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
     accepted". A branch that supersedes a record leaves it `superseded`, which a
     person decided; holding that branch would mean holding it forever.
     """
     from wfctl import _arch
-    from wfctl._paths import records_on_this_branch
+    from wfctl._paths import (
+        SCANS_DIR,
+        is_in_tree,
+        records_on_this_branch,
+        touched_on_this_branch,
+    )
 
     name = "architecture accepted"
     arch = arch_root(repo_root)
-    touched = set(records_on_this_branch(repo_root, arch))
-    records = {r.slug: r for r in _arch.load_records(arch) if r.slug in touched}
-    if not records:
-        return Fact(name, "n/a", "no record on this branch")
+    if not is_in_tree(arch, repo_root):
+        return Fact(name, "n/a", "records are kept outside this repository")
 
-    waiting = sorted(s for s, r in records.items() if r.status not in _RULED_ON)
-    if waiting:
-        # The status beside each slug, because "unmet" alone sends a reader to
-        # accept a record that may instead be unreadable. `or "unreadable"` is
-        # `parse_record`'s answer for a file it could not read, spelled out.
-        named = ", ".join(f"{s} ({records[s].status or 'unreadable'})" for s in waiting)
-        return Fact(name, "unmet", named)
-    return Fact(name, "met", ", ".join(sorted(records)))
+    touched = touched_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR)
+    if touched is None:
+        return Fact(name, "unmet", "git cannot say what this branch changed")
+    if not touched:
+        return Fact(name, "n/a", "no level-2 record on this branch")
+
+    slugs = set(records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR))
+    records = {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
+    if not records:
+        # Touched something under the arch root, and none of it a record the
+        # projection reads — a level-3 record, a view, a declaration. The
+        # question this fact asks was not put, and naming the level is what tells
+        # that apart from the branch that touched nothing at all.
+        return Fact(name, "n/a", "no level-2 record on this branch")
+
+    # The status beside every slug, met and unmet alike. Dropped on the met side
+    # it read `accepted` for a record a human had *rejected*, under a label
+    # saying accepted — a ruling, so not waiting, and not the same thing.
+    named = ", ".join(f"{s} ({records[s].status or 'unreadable'})" for s in sorted(records))
+    waiting = [s for s, r in records.items() if r.status not in _RULED_ON]
+    return Fact(name, "unmet" if waiting else "met", named)
 
 
 def fact_integration_authorized(granted: bool, source: str) -> Fact:
@@ -812,17 +854,26 @@ def fact_integration_authorized(granted: bool, source: str) -> Fact:
     if source == "trunk":
         return Fact(name, "n/a", "this is the trunk")
 
+    # A source no wording covers is a source this wfctl cannot read. `.get` with
+    # the `unset` wording was the first shape and could contradict its own value
+    # — "met" beside "nobody has allowed it for this work" — because
+    # `NotifyGrant.source` comes back off `events.jsonl` unvalidated. Named here
+    # rather than answered with someone else's sentence.
+    if source not in _GRANT_DETAIL:
+        return Fact(name, "unmet", f"unrecognised grant source: {source}")
+
     verdict: Verdict = (
         "inconclusive" if source in _UNREADABLE_GRANT
         else "satisfied" if granted
         else "unsatisfied"
     )
     value: FactValue = "unmet" if blocks(verdict, "human") else "met"
-    return Fact(name, value, _GRANT_DETAIL.get(source, _GRANT_DETAIL["unset"]))
+    return Fact(name, value, _GRANT_DETAIL[source])
 
 
 def facts(
-    ev: Evidence | None, repo_root: Path, granted: bool, source: str
+    ev: Evidence | None, repo_root: Path, granted: bool, source: str,
+    verification: str | None,
 ) -> tuple[Fact, ...]:
     """The four, in the fixed order a consumer may index rather than search.
 
@@ -838,7 +889,7 @@ def facts(
     """
     return (
         fact_artifacts_written(ev),
-        fact_definition_of_done(repo_root),
+        fact_definition_of_done(repo_root, verification),
         fact_architecture_accepted(repo_root),
         fact_integration_authorized(granted, source),
     )
@@ -887,6 +938,7 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         tasks_open=_tasks_open(tasks_text, spec_dir),
         tasks_done=done,
         tasks_total=total,
+        verification=verification_block(repo_root),
     )
 
 
@@ -1106,7 +1158,7 @@ def implement(ev: Evidence) -> Reading:
     # Tasks read complete. Before #69 that was the whole check, and both routes
     # to it are written by the agent doing the work. A configured definition of
     # done gets the last word.
-    blocked = verification_block(ev.repo_root)
+    blocked = ev.verification
     if blocked:
         annotation = f"{tally}  {blocked}" if tally else blocked
         return Reading("in_progress", blocked, annotation)
