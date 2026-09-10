@@ -106,7 +106,8 @@ names this as a pre-existing open question and leaves it. This decision changes
 its weight rather than its answer: making downstream consumption real is what
 makes level-3 records routine on a branch, which is what turns `boundary` into a
 constant-true observation — the #307 failure the comment cites, one directory
-over. Tracked separately; not resolved here.
+over. Tracked as #327, not resolved here: the two call sites want opposite
+answers, and `touched_on_this_branch` takes one `exclude` subtree.
 
 ## Log
 
