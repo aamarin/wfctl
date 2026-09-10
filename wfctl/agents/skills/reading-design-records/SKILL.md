@@ -40,6 +40,13 @@ line rather than delete the heading — and that prose may name a *level-2* reco
 A level-2 record read as level-3 binds nothing while looking like it does, which
 is the failure `software-design-decisions` names in its own Escalation section.
 
+**An entry is one list item, not one line.** The `<text>` after the em dash is
+prose and wraps; so the entry commonly runs three or four lines, with the path on
+the first and the description continuing under it. Read the item, not the line —
+a line-oriented parse finds the path either way, but a check that the item
+"matches `- <path> — <text>`" fails on every wrapped entry, which is most of
+them.
+
 **A path may be written absolute or repo-relative, and may be wrapped in
 backticks.** Strip the backticks; resolve a relative path against `REPO_ROOT`,
 never against the directory holding `design.md`. That directory is the one base
@@ -56,8 +63,9 @@ already written.
 mechanism and it is silently wrong on any branch cut from an epic: the worktree
 carries the epic's number, the record carries the child issue's, so the glob
 loads another feature's record and misses this one. Neither failure raises
-anything. `docs/architecture/design-md-indexes-the-records.md` carries the
-argument.
+anything. The decision is `design-md-indexes-the-records`, in wfctl's own arch
+root — named by slug rather than by path, because `docs/architecture` is this
+repo's default and a consuming project can declare `arch_root` anywhere.
 
 ## Four states, and none of them is silence
 

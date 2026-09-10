@@ -32,9 +32,12 @@ are both on disk — and the violation is visible in them only to a reader.
 - The same section named the scan file `<arch-root>/scans/<issue>-analyze.md`,
   whose coverage table already carried one row per pass plus
   `| Requirement-to-task coverage | N% |`.
-- All seven records under `docs/architecture/design/` carry `status: proposed`.
-  `head -4 docs/architecture/design/*.md` returns `status: proposed` seven times
-  and `approved` zero times.
+- Every record under `docs/architecture/design/` carries `status: proposed`.
+  `head -4 docs/architecture/design/*.md` returns `status: proposed` on all of
+  them and `approved` zero times. The count was written as seven and is eight:
+  this record's own arrival changed it, which is why the claim is stated as
+  "every" — a count in a record is stale the moment the record lands beside the
+  files it counted.
 - `wfctl/agents/skills/software-design-decisions/design-record-template.md:16`
   — "`status` runs proposed -> approved -> superseded | rejected. Only a human
   moves it past proposed."
@@ -77,8 +80,12 @@ The baseline. Contradiction detection is a seventh pass beside the six that
 already exist, reading the record list as one more input to the same read.
 
 Severity is taken from the record's frontmatter `status`: contradicting an
-`approved` record is CRITICAL, contradicting a `proposed` one is a warning. The
-pass emits its coverage row on every run, including the run that found no
+`approved` record is CRITICAL, contradicting a `proposed` one is HIGH. Both are
+`speckit-analyze` step 5's own values — the scale is CRITICAL / HIGH / MEDIUM /
+LOW, and a pass that invents a fifth has no cell to write it in. The first
+version of this record said "warning", which a review panel caught unanimously.
+
+The pass emits its coverage row on every run, including the run that found no
 records.
 
 ## Diagram
@@ -96,8 +103,8 @@ stable   ┌──────────────────┐           
                     ▲                      └──────────────────┘
                     │ reads                          ▲
                     │                                │ parses
-═══ design.md owns which records ═══════════╪════════╪══════════════
-    apply (level 2)                                  │
+════════════════════╪════════════════════════════════╪══════════════
+   design.md owns which records apply  (level 2, already in force)
                     │                                │
 volatile  ┌─────────┴────────┐            ┌──────────┴───────┐
           │ analyze — passes │            │ wfctl design     │
@@ -126,7 +133,7 @@ vocabulary nobody has yet had to write one of, and a second reader of a schema
   `a-rule-is-expressed-as-a-check` prefers rules to live. It loses on the
   question that record actually asks. The violation is not visible in an
   artifact the work already produces; making it visible means inventing an
-  `invariant:` vocabulary and writing it into seven existing records before the
+  `invariant:` vocabulary and writing it into every existing record before the
   first one has been contradicted. #121's out-of-scope section refuses the
   command for the same reason one level up.
 - **A standalone pass run separately from analyze's six** — sound, and it would
@@ -135,7 +142,7 @@ vocabulary nobody has yet had to write one of, and a second reader of a schema
   distinguishable in the PR, and a seventh pass reported outside that table is
   the one whose absence nobody notices.
 - **Gating the pass on `approved` only** — the literal reading of #121 item 6.
-  Rejected on evidence rather than on principle: zero of seven records are
+  Rejected on evidence rather than on principle: no record in this repository is
   approved, and an unattended run approves none, so the pass would ship correct
   and dead.
 - **Strategy, for the severity split** — one comparison with two outcomes, read
@@ -145,7 +152,7 @@ vocabulary nobody has yet had to write one of, and a second reader of a schema
 ## Consequences
 
 Gained: the pass costs one row in a table a reader already reads, and the record
-format is unchanged — the seven records that exist are inputs to it today,
+format is unchanged — every record that exists is an input to it today,
 without migration.
 
 Harder: the verdict is a model's judgment, so two runs over the same tasks can

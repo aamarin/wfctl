@@ -87,6 +87,12 @@ pass misread the record needs both to say so.
 nothing here refuses a transition. A CRITICAL finding is a CRITICAL finding, not
 a stop.
 
+That is not in tension with the verdict rule below, which reads `unsatisfied`
+while a CRITICAL stands. A verdict is a *statement about this scan*, written into
+the scan file for a reviewer; a gate is a refusal to advance the pipeline.
+`unsatisfied` records that a CRITICAL is open and lets the run continue — which
+is what makes it worth writing down rather than worth arguing with.
+
 **Here rather than in `speckit-analyze/SKILL.md`**: that skill is
 `github/spec-kit`-derived (`vendor-upstream-skills`), so an in-place edit is
 reverted by the next upstream pull with no conflict to notice. Same layer, and
