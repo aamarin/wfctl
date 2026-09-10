@@ -114,6 +114,20 @@ Not here. `wfctl arch context` prints the in-force set; the records live in
 fall into. It describes rather than constrains, and says in its own opening
 paragraph why it sits below the records rather than among them.
 
+`docs/architecture/scans/` is a third thing again — one file per review step per
+issue, written by `/speckit.clarify` and `/speckit.analyze`, carrying what that
+step's scan covered and what it found. It is there because everything else those
+two steps write lands in `FEATURE_DIR`, which resolves outside the working tree,
+so a scan that found six problems and one that never ran are the same pull
+request. The instruction lives in the command wrappers under
+`wfctl/agents/commands/` rather than in `speckit-clarify/SKILL.md` or
+`speckit-analyze/SKILL.md`, which are spec-kit-derived: an in-place edit there is
+reverted by the next upstream pull with no conflict to notice. Ask
+`wfctl arch-root` for the parent rather than writing `docs/architecture` in — a
+repo can declare it elsewhere. Subdirectories of the arch root are invisible to
+`wfctl arch context`, which globs one level, so nothing here joins the set of
+decisions in force.
+
 ## Testing conventions
 
 Tests assert on console output, so anything touching output pins `NO_COLOR` —

@@ -1,11 +1,13 @@
 # Analysis scan — #307
 
+## Session 2026-09-09
+
 - Verdict: satisfied
 - Scanned: spec.md, plan.md, tasks.md — all three present and read
 - Findings: 6 · Critical: 0 · Acted on: 3 · Accepted: 3
 - Detail: `<spec-root>/307-clarify-findings-in-repo/checklists/analysis-report.md`
 
-## Coverage
+### Coverage
 
 | Pass | Status |
 | --- | --- |
@@ -17,7 +19,7 @@
 | F · Inconsistency | Deferred |
 | Requirement-to-task coverage | 64% before, 100% after C1 |
 
-## Findings
+### Findings
 
 - **B · Ambiguity, MEDIUM** — FR-004 required a coverage table with "the status the
   scan assigned it" and named no vocabulary, while `speckit-clarify` carries two:
@@ -55,7 +57,7 @@
   generated the level-3 requirement. Deferred rather than clear, so the staleness
   is on record rather than discovered later.
 
-## Deferred
+### Deferred
 
 - **F · Inconsistency** — as above. One known stale sentence in a gitignored
   upstream document, left where it is with the reason stated.
