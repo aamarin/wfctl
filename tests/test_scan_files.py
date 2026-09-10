@@ -183,6 +183,48 @@ def test_the_shared_skill_extends_a_session_rather_than_replacing_it() -> None:
     assert "extends that section rather than opening a new one" in flowed
 
 
+def test_the_shared_skill_creates_the_directory_before_writing() -> None:
+    """`arch-root` neither checks the root exists nor creates it, and nothing seeds `scans/`.
+
+    So the first scan in any project writes into a parent that is not there, and
+    an agent whose `Write` needs an existing directory fails before the commit
+    that would have made the file visible. The instruction read correctly and
+    could not run — the shape this repo keeps meeting.
+    """
+    assert "mkdir -p <root>/scans" in _SHARED.read_text()
+
+
+def test_the_shared_skill_refuses_an_out_of_tree_arch_root() -> None:
+    """`wfctl arch-root` exits 0 with a warning when the root is outside the tree.
+
+    Nothing downstream stops on its own, so the step would write a file `git add`
+    refuses and no reviewer reaches — the exact state this skill exists to leave
+    behind, produced by the skill itself. Falling back to a repository-local path
+    is the wrong repair and is named as such: `arch_root` is the single authority
+    for where records live.
+    """
+    flowed = " ".join(_SHARED.read_text().split())
+
+    assert "outside the working tree is the same answer" in flowed
+    assert "Do not fall back to a repository-local path" in flowed
+
+
+@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
+def test_each_review_wrapper_writes_a_scan_file_on_the_abort_path(step: str) -> None:
+    """`inconclusive` was defined and unreachable.
+
+    Both workflows halt early on a missing artifact, and the scan-file section
+    sits after the pointer to them — so the one verdict meaning "could not run"
+    was never written by any run that could not run. A failed scan and a skipped
+    one stayed identical, which is #307 met on the failure path.
+    """
+    section = _section(step)
+    flowed = " ".join(section.split())
+
+    assert "written on every exit path, including an abort" in flowed
+    assert "inconclusive" in section
+
+
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
 def test_no_review_skill_carries_the_instruction(step: str) -> None:
     """`vendor-upstream-skills`: prefer layering to editing.
@@ -222,7 +264,9 @@ def test_each_review_wrapper_allows_the_commands_the_scan_file_needs(step: str) 
     front = _wrapper(step).split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
 
-    for grant in ("Write", "Edit", "wfctl arch-root", "wfctl arch check", "git commit"):
+    for grant in (
+        "Write", "Edit", "wfctl arch-root", "wfctl arch check", "mkdir", "git commit",
+    ):
         assert grant in allowed, f"speckit.{step}.md cannot run its own instruction: {grant}"
 
 

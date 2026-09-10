@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the repository recording what it covered.
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
 
 ## User Input
@@ -21,6 +21,14 @@ Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
 `.agents/skills` isn't present). It owns the destination, the session rule, the
 commit and the check. What it does not own is what *this* step scanned, which is
 below.
+
+**The scan file is written on every exit path, including an abort.** Step 1 above
+halts when `spec.md`, `plan.md` or `tasks.md` is missing. That is exactly the
+`inconclusive` case below, and reaching the abort without writing the file leaves
+an analysis that *could not run* looking identical to one nobody started — which
+is the defect #307 is about, met on the failure path instead of the success one.
+Write the section with `Verdict: inconclusive` naming which artifact was missing,
+then stop.
 
 **This overrides the skill's read-only rule, and only here.** `speckit-analyze`
 says **STRICTLY READ-ONLY** twice — of the artifacts it analyses, which stays

@@ -44,6 +44,26 @@ there is no fallback: the file has no name, so write none and say so in one line
 rather than inventing one. A scan file under a made-up key is worse than none —
 it claims a change nobody can match it to.
 
+**`arch-root` warning that the root is outside the working tree is the same
+answer.** It exits 0 and prints the warning, so nothing downstream stops on its
+own — but a file written there is one `git add` refuses and no reviewer reaches,
+which is the state this whole skill exists to leave behind. Say so in one line and
+write nothing. Do not fall back to a repository-local path: `arch_root` is the
+single authority for where records live, and a second destination invented here
+would put scan files somewhere the repo never declared.
+
+**Create the directory before writing into it.** `wfctl arch-root` neither checks
+that the root exists nor creates it — deliberately, since a repo has no records
+until it writes its first one — and nothing seeds `scans/`. So the first scan in
+any project writes into a parent that is not there:
+
+```bash
+mkdir -p <root>/scans
+```
+
+Cheap and unconditional, rather than a check: `mkdir -p` on an existing directory
+is a no-op, and the run that needs it is the one where nobody is watching.
+
 ## The coverage table is the body
 
 This is the whole point of the file, and the part an instruction most easily
@@ -102,6 +122,7 @@ record.
 Write it, then commit that path and nothing else:
 
 ```bash
+mkdir -p <root>/scans
 git add <root>/scans/<issue>-<step>.md
 git commit -m "docs(scans): <step> scan for #<issue>" -- <root>/scans/<issue>-<step>.md
 wfctl arch check <root>/scans/<issue>-<step>.md

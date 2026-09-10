@@ -5,7 +5,7 @@ handoffs:
   - label: Build Technical Plan
     agent: speckit.plan
     prompt: Create a plan for the spec. I am building with...
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
 
 ## User Input
@@ -25,6 +25,14 @@ Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
 `.agents/skills` isn't present). It owns the destination, the session rule, the
 commit and the check. What it does not own is what *this* step scanned, which is
 below.
+
+**The scan file is written on every exit path, including an abort.** The workflow
+above stops early when `spec.md` is missing or `check-prerequisites.sh` cannot be
+parsed, and tells the reader to run `/speckit.specify`. That is exactly the
+`inconclusive` case below, and reaching the abort without writing the file leaves
+a scan that *could not run* looking identical to one nobody started — which is the
+defect #307 is about, met on the failure path instead of the success one. Write
+the section with `Verdict: inconclusive` naming what was missing, then stop.
 
 **File**: `<arch-root>/scans/<issue>-clarify.md`.
 **Detail**: `FEATURE_DIR/spec.md` § Clarifications.
