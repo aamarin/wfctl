@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_SPEC, structured
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, SPEC_SECTIONS, structured
 from wfctl import _verify
 from wfctl.cli import app
 from wfctl._pipeline import (
@@ -23,6 +23,7 @@ from wfctl._pipeline import (
     _LOOSE_COMMANDS,
     _STEP_NAMES,
     _STEPS,
+    _current_step_name,
     _infer_steps,
     next_step_content,
 )
@@ -44,10 +45,10 @@ _COMMANDS = Path(str(files("wfctl"))) / "agents" / "commands"
 _EXPECTED_STEPS = [
     ("brainstorm", "/speckit.brainstorm", True),
     ("specify",    "/speckit.specify",    True),
-    ("clarify",    "/speckit.clarify",    False),
+    ("clarify",    "/speckit.clarify",    True),
     ("plan",       "/speckit.plan",       True),
     ("tasks",      "/speckit.tasks",      True),
-    ("analyze",    "/speckit.analyze",    False),
+    ("analyze",    "/speckit.analyze",    True),
     ("decompose",  "/speckit.decompose",  True),
     ("implement",  "/speckit.implement",  True),
 ]
@@ -393,6 +394,12 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     entering the design step, whose output lands in the working tree. The pause
     that matters sits one step later and belongs to `design_gate` rather than to
     the table — `test_resume_is_gated_too` is where that half is pinned.
+
+    Since #325 the false half comes from that gate rather than from the table.
+    No step is `review_required` any more, so a run only reports `auto: false`
+    when the current step is blocked — and this test is now one of the places
+    that would notice if `next_step_content`'s guard above the table lookup ever
+    stopped firing.
     """
     _arch_root(storyctl_dir, monkeypatch)
     runner.invoke(app, ["start"])
@@ -402,13 +409,16 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     assert "step: brainstorm" in advances.output
     assert "auto: true" in advances.output
 
-    # A marked spec, which is clarify's own job — and clarify is the earliest
-    # step the table flags `False`, so the second read disagrees with the first.
-    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
+    # A design step with no record behind it. Until #325 this half used a marked
+    # spec, because `clarify` was then the earliest step the table flagged
+    # `False`; the flip left no step that does, so the only remaining source of
+    # `auto: false` is a blocked one — which is the property #325 rests on rather
+    # than a workaround for having removed the old source.
+    storyctl_dir.make_spec_artifact("brainstorm")
 
     stops = runner.invoke(app, ["resume"])
 
-    assert "/speckit.clarify" in stops.output
+    assert "/speckit.brainstorm" in stops.output
     assert "auto: false" in stops.output
     assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
 
@@ -1370,3 +1380,70 @@ def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
     written = (storyctl_dir.agent_dir / "next-step.md").read_text()
 
     assert "issue row" in written, written
+
+
+def test_clarify_runs_itself_whether_or_not_markers_are_still_standing() -> None:
+    """FR-003, in both states that reach a reader.
+
+    `pending` is the obvious one. The second is the one worth a test: a spec
+    whose `[NEEDS CLARIFICATION]` markers are still standing reads `in_progress`,
+    and the natural expectation is that it blocks. It does not, because
+    `_predicates.clarify` sets no reason there — re-entering the step is what
+    resolves a marker, so routing to it is the answer rather than the problem.
+
+    That is also the state where routing matters most. Both `specify` and
+    `clarify` read `in_progress` with markers up, and the walk picks `clarify`
+    deliberately: `/speckit.specify` would rewrite `spec.md` from the template and
+    take the Clarifications section with it.
+    """
+    assert next_step_content("clarify", None) == ("/speckit.clarify", True)
+
+
+def test_analyze_runs_itself_when_no_report_has_been_written() -> None:
+    """FR-004. `analyze` has one reachable current-state and this is it."""
+    assert next_step_content("analyze", None) == ("/speckit.analyze", True)
+
+
+def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
+    """FR-006 and FR-007, which are prohibitions and so cover nothing on their own.
+
+    Both say what may not be built: no second site computing the flag, and no
+    dependence on branch state, on a grant, or on any of the four facts the
+    payload carries. Nothing fails when a prohibition is only believed, so they
+    are stated here as one property over the whole table instead.
+
+    A per-step arm for any step breaks the first assertion. A flip made
+    conditional on anything breaks it too — the property holds with no input but
+    the step's own name, so a branch reading anything else has nowhere to hide.
+    `implement` is the one arm that exists and it lives under `blocked`, which the
+    second assertion covers rather than exempts.
+    """
+    for name, step in _STEPS.items():
+        _, auto = next_step_content(name, None)
+        assert auto == (step.continuation == "automatic"), name
+
+        _, auto_blocked = next_step_content(name, "some reason")
+        assert auto_blocked is False, name
+
+
+def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
+    """An edge case the spec names, and the reason it needs no guard of its own.
+
+    `clarify` reads `skipped` for a spec that predates the gate — one where
+    `plan.md` already exists. #325 flipped its continuation value, and the worry
+    that invites is a skipped step being run by an unattended pass. It cannot be:
+    `_current_step_name` never selects a `skipped` step, so the value is never
+    read for one.
+    """
+    spec = tmp_path / "spec"
+    spec.mkdir()
+    # Not `CLEAN_SPEC`: that carries a `## Clarifications` section, which is the
+    # evidence the scan ran, and clears `clarify` to `done`. The skipped arm is
+    # the spec that has no such section and a `plan.md` regardless — planning
+    # already passed through where `clarify` now sits.
+    (spec / "spec.md").write_text("# Spec\n\n" + SPEC_SECTIONS)
+    (spec / "plan.md").write_text(CLEAN_PLAN)
+
+    steps = {s.name: s.state for s in _infer_steps(spec, tmp_path)}
+    assert steps["clarify"] == "skipped"
+    assert _current_step_name(_infer_steps(spec, tmp_path)) != "clarify"

@@ -62,10 +62,10 @@ class Step(NamedTuple):
 _STEPS: dict[str, Step] = {
     "brainstorm": Step("/speckit.brainstorm", _AUTOMATIC,       _predicates.brainstorm),
     "specify":    Step("/speckit.specify",    _AUTOMATIC,       _predicates.specify),
-    "clarify":    Step("/speckit.clarify",    _REVIEW_REQUIRED, _predicates.clarify),
+    "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _predicates.clarify),
     "plan":       Step("/speckit.plan",       _AUTOMATIC,       _predicates.plan),
     "tasks":      Step("/speckit.tasks",      _AUTOMATIC,       _predicates.tasks),
-    "analyze":    Step("/speckit.analyze",    _REVIEW_REQUIRED, _predicates.analyze),
+    "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _predicates.analyze),
     "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _predicates.decompose),
     "implement":  Step("/speckit.implement",  _AUTOMATIC,       _predicates.implement),
 }

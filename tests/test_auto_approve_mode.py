@@ -224,12 +224,16 @@ def test_resume_says_the_mode_on_its_own_line(
     unprompted. Folding the mode into that parenthetical is what the issue says
     will make the two read as one axis.
 
-    The step is `clarify`, so the two values disagree. On a step both of them
-    call `true` a `resume` that printed the mode into the `(auto: …)` slot — the
-    fold this test forbids — reads identical to one that did not.
+    The two values have to disagree, or a `resume` that printed the mode into the
+    `(auto: …)` slot — the fold this test forbids — reads identical to one that
+    did not. `clarify` supplied the disagreement until #325 flipped it; no step is
+    `review_required` now, so it comes from a blocked step instead. A design
+    document with no record behind it is the cheapest one, and it is also the
+    sharper case for this test's own subject: `auto_approve` moves where a design
+    gate is answered, and a gate nobody answered at all still blocks under it.
     """
     runner.invoke(app, ["start", "--auto-approve"])
-    storyctl_dir.make_spec_artifact("specify", "# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
+    storyctl_dir.make_spec_artifact("brainstorm")
 
     output = runner.invoke(app, ["resume"]).output
 

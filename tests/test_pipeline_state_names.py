@@ -21,7 +21,7 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_SPEC, structured
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC
 from wfctl import cli
 from wfctl.cli import app
 from wfctl._pipeline import PipelineReport, _infer_steps, build_report
@@ -172,15 +172,15 @@ def test_the_json_view_carries_the_auto_flag(
     """
     assert json.loads(runner.invoke(app, ["status", "--json"]).output)["auto"] is True
 
-    # A marked spec, because `clarify` is the earliest step the table flags
-    # `False` — a payload asserted at one value twice cannot show the field is
-    # read rather than emitted.
-    storyctl_dir.make_spec_artifact(
-        "specify", content=structured("# Spec\n\n[NEEDS CLARIFICATION: which?]\n")
-    )
+    # A design step with no record for it. Until #325 this used a marked spec,
+    # because `clarify` was then the earliest step the table flagged `False`.
+    # The flip left no step that does, so the only `False` left is a blocked one —
+    # and a payload asserted at one value twice cannot show the field is read
+    # rather than emitted.
+    storyctl_dir.make_spec_artifact("brainstorm")
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
-    assert (payload["next_command"], payload["auto"]) == ("/speckit.clarify", False)
+    assert (payload["next_command"], payload["auto"]) == ("/speckit.brainstorm", False)
 
 
 def test_the_json_view_names_the_feature_it_counted(
@@ -280,11 +280,27 @@ def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
 
     # `spec_tree` builds into one directory, so the second call adds to the
     # first — an empty feature has to be asserted before anything is written.
-    # A marked spec, so the step that comes back is one the table flags `False`:
-    # two reports that agree on the value cannot show the flag was read at all.
-    marked = build_report(
-        spec_tree(content={"spec.md": "# Spec\n\n[NEEDS CLARIFICATION: which?]\n"}),
+    #
+    # A finished task list with the definition of done unrun, so the step that
+    # comes back is blocked: two reports that agree on the value cannot show the
+    # flag was read at all. This was a marked spec until #325 flipped `clarify`,
+    # and the replacement costs a `wfctl.json` because of what that flip left
+    # behind — no step is `review_required` any more, so every `False` now comes
+    # from a blocked step, and every blocking read but this one needs git. A bare
+    # directory reports `inconclusive`, which `blocks` declines to act on.
+    (tmp_path / "wfctl.json").write_text('{"verify": ["true"]}')
+    blocked = build_report(
+        spec_tree(
+            content={
+                "spec.md": CLEAN_SPEC,
+                "plan.md": CLEAN_PLAN,
+                "tasks.md": "- [x] T001 done\n",
+                "delivery.md": "# Delivery\n",
+                "checklists/analysis-report.md": "# Report\n",
+            }
+        ),
         tmp_path,
         tmp_path,
     )
-    assert (marked.current, marked.auto) == ("clarify", False)
+    assert (blocked.current, blocked.next_command) == ("implement", "wfctl verify")
+    assert blocked.auto is False
