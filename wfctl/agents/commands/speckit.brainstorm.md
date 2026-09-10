@@ -97,6 +97,20 @@ section `idea-refine` does not itself carry:
 - <arch-root>/design/<issue>-<decision>.md — <the decision in one line>
 ```
 
+**A bullet is what a consumer reads; prose in this section is not.** Four
+pipeline steps now take their record list from these entries
+(`.agents/skills/reading-design-records/SKILL.md`), and they take **only** the
+`- <path> — <text>` lines. So the one-line statement below, saying a level was
+answered with no record, must not be written as a bullet — a bullet with no
+resolvable path reads as a record that has gone missing. Prose is what that line
+is for, and it is why the two forms are distinguished rather than being a style
+preference.
+
+Either an absolute path or one relative to the repository root is read; a
+relative path resolves against `REPO_ROOT`, never against the directory holding
+`design.md`, which is outside the working tree in any repo with a declared
+`spec_root`.
+
 `wfctl arch-root` prints that root. Writing the default in is the assumption this
 feature exists to remove: a repo can declare `arch_root` elsewhere, and a
 one-pager naming a path no record was written to points at nothing.
