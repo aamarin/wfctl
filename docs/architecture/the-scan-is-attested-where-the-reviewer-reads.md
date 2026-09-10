@@ -110,14 +110,22 @@ it ships.
   markdown file into this same root and refuses when a reviewer would not reach
   it. `a-rule-is-expressed-as-a-check` points the same way.
 
-  Not taken here, and the reason is scope rather than merit: a command's
-  arguments are a schema for the scan file, and fixing that schema before any
-  step has written one under its own steam decides the format from a design
-  document instead of from use. What only prose can carry is the part wfctl
-  cannot compute — the status each category earned — so a command would take the
-  table as input and own everything around it. That is the shape to build once
-  the table has survived a few real runs, and it supersedes this record's
-  delivery half rather than its ownership half.
+  Not taken here, and the reason is timing rather than merit. A command's flags
+  *are* the file's format. Two scan files exist, both written by hand on the day
+  this record was drafted, so the format is a guess — and the two guesses cost
+  very different amounts to correct:
+
+  ```
+  format in a skill    →  wrong guess costs an edit to one markdown file
+  format in flags      →  wrong guess costs a CLI change, and every repo that
+                          already ran the command holds files in the old shape
+  ```
+
+  So the prose version is the cheap way to be wrong, and being wrong is the
+  expected case this early. What only prose can carry either way is the part
+  wfctl cannot compute — the status each category earned — so the command, when
+  it comes, takes the table as input and owns everything around it. It supersedes
+  this record's delivery half and leaves its ownership half standing.
 - **Having the `clarify` and `analyze` predicates read the new file** — that is
   #100's call about what a gate proves, not this record's. This decision makes
   the evidence reachable. Whether it is sufficient to gate on is decided where
