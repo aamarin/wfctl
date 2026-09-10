@@ -134,6 +134,48 @@ def test_a_branch_parked_overnight_does_not_halt_on_arrival(tmp_path: Path) -> N
     assert find_stall(agent_dir) is None
 
 
+def test_reopening_a_session_ends_the_previous_run(storyctl_dir) -> None:
+    """The boundary has to be written on the path that carries most sittings.
+
+    `wfctl start` returns at its already-initialized guard on every sitting after
+    the first, so before #338's review it recorded nothing — and the parked-branch
+    protection was inert for exactly the case it was written for. Driven through
+    the real command, because the defect was that the event never existed.
+    """
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    runner = CliRunner()
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    for _ in range(3):
+        assert runner.invoke(app, ["resume"]).exit_code == 0
+
+    # A second sitting on a branch that was left parked, nothing having moved.
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    assert runner.invoke(app, ["resume"]).exit_code == 0
+    assert "changed nothing" not in runner.invoke(app, ["status"]).output
+
+
+def test_another_branch_boundary_does_not_clear_this_one(tmp_path: Path) -> None:
+    """A shared state dir means another branch's sitting is not ours.
+
+    Clearing on it would delay or suppress a stall this branch's own run never
+    interrupted — the same leak as counting another branch's passes, met on the
+    boundary rather than on the observation.
+    """
+    agent_dir = _log(
+        tmp_path,
+        *[dict(_pass("clarify", "aaa", f"2026-09-10T10:0{i}:00Z"), branch="a") for i in range(2)],
+        {"ts": "2026-09-10T10:05:00Z", "event": "start", "branch": "b", "step": "clarify"},
+        *[dict(_pass("clarify", "aaa", f"2026-09-10T10:1{i}:00Z"), branch="a") for i in range(2)],
+    )
+    found = find_stall(agent_dir, branch="a")
+    assert found is not None
+    assert found.passes == STALL_AFTER
+
+
 def test_another_branch_passes_are_not_counted(tmp_path: Path) -> None:
     """`WFCTL_STATE_DIR` can point several branches at one log.
 

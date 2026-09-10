@@ -309,6 +309,20 @@ def start_cmd(
 
     if report.session_started and not force:
         report_notify()
+        # The sitting boundary, on the path that carries almost every sitting
+        # after the first. `session_started` reads the *first* of these, so this
+        # changes nothing it answers; what it records is that a new sitting opened
+        # over work already done, which nothing else in the log says and #332's
+        # bound cannot infer. Conditional, because `start` is idempotent in the
+        # log on purpose — `/start-session` runs it on every handoff, and an
+        # unconditional append would grow the file with lines repeating the
+        # previous one. A sitting that ran nothing writes nothing.
+        from wfctl._stall import opens_a_new_sitting
+
+        if opens_a_new_sitting(agent_dir, branch):
+            append_event(
+                agent_dir, "start", branch=branch, step=report.current or "complete"
+            )
         console.print("ℹ Already initialized (use --force to reset)")
         return
 

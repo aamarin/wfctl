@@ -119,12 +119,15 @@ def _passes_this_sitting(events: Path, branch: str | None) -> list[dict]:
     which slows the bound by nothing and stops a damaged log from halting a run
     that is working.
 
-    **A `start` event ends the previous sitting.** Two unchanged passes yesterday
+    **A sitting boundary ends the previous run.** Two unchanged passes yesterday
     plus today's arrival at the same step is a run of three identical lines, and
     reading straight back through it halts a session before the step has been
     entered once. That is the spec's fourth edge case, and the branch is parked
     rather than stuck. `/start-session` writes the boundary into this same log, so
-    it costs a comparison to honour.
+    it costs a comparison to honour — and `wfctl start` writes one on the path
+    that carries almost every sitting after the first, where it used to return at
+    its already-initialized guard having recorded nothing. `end` counts too, for
+    the sitting that closed properly rather than being abandoned.
 
     **Filtered by branch**, because `WFCTL_STATE_DIR` can point several branches
     at one log — which is exactly how a notify grant made on a feature branch once
@@ -153,15 +156,55 @@ def _passes_this_sitting(events: Path, branch: str | None) -> list[dict]:
             continue
         if not isinstance(record, dict):
             continue
-        if record.get("event") == "start":
+        if branch is not None and record.get("branch") not in (None, branch):
+            # Ahead of both reads below, so a *boundary* is branch-scoped too.
+            # Under a shared state dir another branch opening a sitting would
+            # otherwise clear this branch's history, which delays or suppresses a
+            # stall its own run never interrupted.
+            continue
+        if record.get("event") in ("start", "end"):
             out.clear()
             continue
         if record.get("event") != "resume":
             continue
-        if branch is not None and record.get("branch") not in (None, branch):
-            continue
         out.append(record)
     return out
+
+
+def opens_a_new_sitting(agent_dir: Path, branch: str | None = None) -> bool:
+    """Whether a boundary is worth recording, for `start`'s already-initialized path.
+
+    `wfctl start` is deliberately idempotent in the log — `/start-session` runs it
+    on every handoff, so an unconditional append would grow the file with lines
+    repeating the previous one, and two tests hold that contract. But the bound
+    needs a boundary somewhere: without one, yesterday's unchanged passes stay
+    contiguous with today's first, and a branch parked overnight halts before its
+    step has been attempted at all in this sitting.
+
+    Both hold if the boundary is written only when the previous sitting actually
+    ran something. A second `start` moments after the first has no `resume`
+    between them and appends nothing, which is the case those tests pin; a
+    session opened over yesterday's work does, and records that it is new.
+    """
+    events = agent_dir / "events.jsonl"
+    if not events.exists():
+        return False
+    worked = False
+    for line in events.read_text().splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        if branch is not None and record.get("branch") not in (None, branch):
+            continue
+        event = record.get("event")
+        if event in ("start", "end"):
+            worked = False
+        elif event == "resume":
+            worked = True
+    return worked
 
 
 def find_stall(
