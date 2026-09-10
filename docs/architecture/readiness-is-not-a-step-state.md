@@ -19,7 +19,7 @@ four different owners:
 | were this step's artifacts written? | the spec dir |
 | did the definition of done pass on this tree? | `wfctl.json` + the verify record |
 | is the architecture binding, or still proposed? | the record's `status` field |
-| may this branch be integrated? | a human's grant |
+| may this branch's work reach people outside the repo? | a human's grant |
 
 Only the first two reach the payload, and the second reaches it folded into the
 first: `implement` is `in_progress` both when tasks are open and when
@@ -83,10 +83,21 @@ computing any:
   cannot compute it: a record's existence is a fact about the filesystem, and
   its bindingness is a fact about whether a human agreed. `a-human-accepts-a-decision`
   makes that transition a person's, so the only honest read is the field they set.
-- A human's grant owns "may this branch be integrated?". The pipeline cannot
-  compute it for the reason #280 gives for the grant existing at all: the
-  consequences reach people outside the repository, and no artifact in the repo
-  can stand in for someone agreeing to that.
+- A human's grant owns "may this branch's work reach people outside the repo?".
+  The pipeline cannot compute it for the reason #280 gives for the grant existing
+  at all: the consequences reach people outside the repository, and no artifact in
+  the repo can stand in for someone agreeing to that.
+
+**"May this branch be merged?" is deliberately not among the four.** #299 opens
+with that phrasing and its own Dependencies section says what it meant — #280's
+grant, which covers pushing, commenting and labelling. `AGENTS.md` § Safety and
+the flag's own help are explicit that merging, closing and deleting are covered
+by no grant and never will be, "gating it would refuse the human who is the only
+actor allowed to run it". So the question has no owner here by design, and a fact
+answering it from the notify grant would report authority for an irreversible
+action nobody gave. That is worse than the silence this record replaces: a wrong
+answer where there had been none. The fourth fact is named for the grant it
+actually reads.
 
 **What the payload owns is that these are four answers and not one.** A view may
 render them in any arrangement; it may not fold two of them into a single value,
@@ -148,3 +159,7 @@ the rule already says for a promised source.
 
 - 2026-09-10  proposed    — #299, #100 scope item 4. Four questions, four owners,
   one value carrying all of them.
+- 2026-09-10  proposed    — body revised before any agreement, after review of
+  the implementation: the fourth fact was named `integration authorized` and read
+  off a grant that does not cover merging. Narrowed to what the grant owns, and
+  the unowned question named rather than answered.

@@ -836,13 +836,25 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     return Fact(name, "unmet" if waiting else "met", named)
 
 
-def fact_integration_authorized(granted: bool, source: str) -> Fact:
-    """May this branch be integrated? Owner: a human's recorded grant.
+def fact_outward_actions_authorized(granted: bool, source: str) -> Fact:
+    """May this branch's work reach people outside the repo? Owner: a human's grant.
+
+    Named for what the grant actually covers, which is narrower than the question
+    #299 opens with. `--allow-notify` and the `authority:notify` label permit
+    pushing, commenting, labelling and opening a change; `AGENTS.md` § Safety and
+    the flag's own help say merging, closing and deleting are never covered by
+    either, and `cli._IRREVERSIBLE_NOTICE` prints that on every `status`.
+
+    So *"may this branch be merged?"* has no owner in wfctl, deliberately and
+    permanently — "gating it would refuse the human who is the only actor allowed
+    to run it". A fact answering it from this grant would report `met` for an
+    irreversible action nobody authorized, which is worse than the silence the
+    feature replaces: a wrong answer where there had been none.
 
     Reads the grant `build_report` resolved, already corrected for the trunk. The
-    trunk is the one `n/a` here: there is no branch to integrate, so nothing was
-    ever asked, and reporting it unmet would send a reader looking for a flag that
-    the trunk refuses on purpose.
+    trunk is the one `n/a` here: nothing outside the repo is waiting on the trunk,
+    so nothing was asked, and reporting it unmet would send a reader looking for a
+    flag the trunk refuses on purpose.
 
     Routed through `blocks` rather than mapping each source to a value directly.
     Three of the seven sources mean the answer could not be read, and what that
@@ -850,7 +862,7 @@ def fact_integration_authorized(granted: bool, source: str) -> Fact:
     `promised-evidence-blocks-on-silence`. Restating it here would be a fourth
     copy of a rule that exists because three copies had already drifted.
     """
-    name = "integration authorized"
+    name = "outward actions authorized"
     if source == "trunk":
         return Fact(name, "n/a", "this is the trunk")
 
@@ -877,8 +889,10 @@ def facts(
 ) -> tuple[Fact, ...]:
     """The four, in the fixed order a consumer may index rather than search.
 
-    The order runs from what the branch produced to who agreed it may land, which
-    is the order #299 states them in. Fixed and never filtered: a consumer reading
+    The order runs from what the branch produced outward to what a human has
+    allowed, which is the order #299 states them in. The fourth is narrower than
+    that issue's own gloss — see `fact_outward_actions_authorized`, which says why
+    "may this be merged" is a question wfctl answers for nobody. Fixed and never filtered: a consumer reading
     a short list learns nothing, where one reading no `facts` key at all learns
     that this wfctl predates the question — the distinction `notify` is
     present-and-false for.
@@ -891,7 +905,7 @@ def facts(
         fact_artifacts_written(ev),
         fact_definition_of_done(repo_root, verification),
         fact_architecture_accepted(repo_root),
-        fact_integration_authorized(granted, source),
+        fact_outward_actions_authorized(granted, source),
     )
 
 

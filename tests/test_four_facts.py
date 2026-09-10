@@ -30,7 +30,7 @@ FACT_NAMES = (
     "artifacts written",
     "definition of done",
     "architecture accepted",
-    "integration authorized",
+    "outward actions authorized",
 )
 
 RECORD = """---
@@ -214,14 +214,14 @@ def test_nobody_granting_authority_reads_differently_from_a_failed_read(
     on. The detail is where it survives into this block.
     """
     storyctl_dir.stage_upstream_of("tasks")
-    assert _facts()["integration authorized"]["detail"] == (
+    assert _facts()["outward actions authorized"]["detail"] == (
         "nobody has allowed it for this work"
     )
 
     record_notify_resolved(
         storyctl_dir.agent_dir, NotifyGrant(False, "unreadable"), "418-storyctl"
     )
-    fact = _facts()["integration authorized"]
+    fact = _facts()["outward actions authorized"]
     assert fact["value"] == "unmet"
     assert "tracker" in fact["detail"]
 
@@ -238,7 +238,7 @@ def test_a_granted_branch_reports_integration_authorized_met(
     record_notify_resolved(
         storyctl_dir.agent_dir, NotifyGrant(True, "local"), "418-storyctl"
     )
-    fact = _facts()["integration authorized"]
+    fact = _facts()["outward actions authorized"]
     assert fact["value"] == "met"
     assert fact["detail"] == "you allowed it in this worktree"
 
@@ -259,7 +259,7 @@ def test_the_trunk_has_no_integration_question_to_answer(
                    check=True, capture_output=True)
     monkeypatch.setenv("WFCTL_BRANCH", "main")
 
-    fact = _facts()["integration authorized"]
+    fact = _facts()["outward actions authorized"]
     assert fact["value"] == "n/a"
     assert fact["detail"] == "this is the trunk"
 
@@ -319,7 +319,7 @@ def test_no_fact_is_derived_from_a_step(storyctl_dir: types.SimpleNamespace) -> 
         _predicates.fact_artifacts_written,
         _predicates.fact_definition_of_done,
         _predicates.fact_architecture_accepted,
-        _predicates.fact_integration_authorized,
+        _predicates.fact_outward_actions_authorized,
     ):
         annotations = str(inspect.signature(fn))
         assert "Reading" not in annotations
@@ -526,7 +526,7 @@ def test_an_unrecognised_grant_source_never_claims_someone_allowed_it(
     record_notify_resolved(
         storyctl_dir.agent_dir, NotifyGrant(True, "from-the-future"), "418-storyctl"
     )
-    fact = _facts()["integration authorized"]
+    fact = _facts()["outward actions authorized"]
     assert fact["value"] == "unmet"
     assert "from-the-future" in fact["detail"]
 
@@ -552,3 +552,27 @@ def test_the_verification_answer_is_read_once_per_report(
     storyctl_dir.stage_upstream_of("tasks")
     build_report(storyctl_dir.spec_dir, storyctl_dir.repo_root, storyctl_dir.agent_dir)
     assert len(calls) == 1
+
+
+def test_the_grant_fact_never_claims_authority_to_merge(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The defect a reviewer caught after this PR was opened.
+
+    The first shape called this fact `integration authorized` and read it off the
+    notify grant, which `AGENTS.md` § Safety says covers pushing, commenting and
+    labelling and never merging, closing or deleting. A granted branch therefore
+    reported `integration authorized: met` — a claim of authority for an
+    irreversible action no human gave, which is worse than the silence the
+    feature replaces, because a consumer keys on the name.
+
+    `may this branch be merged?` has no owner in wfctl and is meant not to: the
+    payload must not answer it under any spelling.
+    """
+    storyctl_dir.stage_upstream_of("tasks")
+    record_notify_resolved(
+        storyctl_dir.agent_dir, NotifyGrant(True, "local"), "418-storyctl"
+    )
+    names = tuple(f["name"] for f in _payload()["facts"])
+    assert not any("integration" in n or "merge" in n for n in names), names
+    assert "outward actions authorized" in names

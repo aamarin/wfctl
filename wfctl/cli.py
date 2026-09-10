@@ -84,10 +84,10 @@ _FACT_GLYPH: dict[str, tuple[str, str]] = {
     "n/a":   ("–", "dim"),
 }
 
-# The width of the longest of the four fact names, `integration authorized`. A
-# constant because the block and its tests both need it and a literal in two
+# The width of the longest of the four fact names, `outward actions authorized`.
+# A constant because the block and its tests both need it and a literal in two
 # places is a column that drifts by one space.
-_FACT_NAME_WIDTH = 22
+_FACT_NAME_WIDTH = 26
 
 
 def _wfctl_version() -> str:
