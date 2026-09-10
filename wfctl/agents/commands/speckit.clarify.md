@@ -128,9 +128,19 @@ above rules out.
 
 **A multiple-choice question is not that case, however it was answered.** Step 4
 lets an A/B/C question be answered in free-form words instead of by letter, and
-the options it offered were still offered and still lost. Write a `Decided
-against` line for every lettered option — all of them, since the answer took
-none — and say what the free-form answer was. This is the one path on which both
+the options it offered were still offered. *Which* of them lost is what the
+wording hides, and Step 4 has already settled it — it accepts a free-form answer
+only once that answer maps to one of the offered options or stands as a short
+answer of its own:
+
+- **It mapped to an option.** That option is the answer, whatever words carried
+  it, so it gets no line and the rest do. `Decided against` naming the option the
+  answer chose contradicts the `A:` recorded two lines above it, and a reader has
+  nothing left to settle which of the two is the decision.
+- **It stood on its own.** No lettered option was taken, so every one of them
+  gets a line, and the finding records what the free-form answer was.
+
+Neither branch is the short-answer exemption. This is the one path on which both
 rules above look like they apply, and taking the exemption here destroys exactly
 the evidence this section exists to keep.
 

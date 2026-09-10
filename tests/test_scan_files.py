@@ -325,6 +325,21 @@ def test_the_clarify_wrapper_keys_the_exemption_on_the_table_not_the_answer() ->
     assert "A multiple-choice question is not that case, however it was answered" in flowed
 
 
+def test_the_clarify_wrapper_does_not_reject_the_option_the_answer_mapped_to() -> None:
+    """A free-form answer to an A/B/C question can still take one of the options.
+
+    Step 4 accepts free-form words only once they "map to one option" or fit the
+    short-answer constraint, so answering `30 days` to a question whose option A
+    *was* 30 days chooses A. The first version read that whole path as taking no
+    option, and wrote `Decided against **A**` about the option that won —
+    evidence contradicting the answer recorded two lines above it (#322 review).
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "maps to one of the offered options or stands as a short answer of its own" in flowed
+    assert "That option is the answer, whatever words carried it, so it gets no line" in flowed
+
+
 def test_the_clarify_wrapper_is_not_conditional_on_the_mode() -> None:
     """`speckit.brainstorm.md`'s layer is conditional on `auto_approve`, and copying its
     shape would have inherited a condition this rule does not want.
