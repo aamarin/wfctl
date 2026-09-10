@@ -7,6 +7,7 @@ because those are the two things a reader cannot get right by eye.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -401,13 +402,29 @@ def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
     return heading, end
 
 
-def supersede(record: Record, date: str, reason: str) -> None:
-    """Mark `record` superseded: change `status`, append one `Log` line.
+# The width every `Log` line in this repository's records already pads its status
+# word to — `accepted` and four spaces, `superseded` and two. It was two literal
+# spaces inside `supersede`'s f-string while there was one transition and nothing
+# to align against; a second transition is what makes it a column, and a column
+# nobody names is one the third caller gets wrong.
+_LOG_STATUS_WIDTH = 12
+
+
+def _set_status(record: Record, status: str, date: str, note: str) -> None:
+    """Change `record`'s status to `status` and append one `Log` line saying so.
+
+    The whole of a status transition, shared by the two that exist. Not because
+    the two are the same decision — `supersede` and `accept` differ in who may
+    call them and on what — but because the *file* is the same file, and four of
+    the things that go wrong here are properties of the format rather than of the
+    transition. `_frontmatter_end` and `_key_value` each say in their own
+    docstring that they exist so the parser and `supersede` cannot disagree; a
+    second hand-written copy of this body is where that agreement would be lost,
+    silently, one hazard at a time.
 
     Nothing else in the file is touched (VR-005). An accepted record's body is
     the decision as it was agreed — git holds the edit history, and the file
-    holds only what git cannot answer. A changed decision is a new record, so
-    rewriting this one would destroy the predecessor the successor points at.
+    holds only what git cannot answer.
 
     Raises rather than half-applying, writing nothing in either case: a record
     whose frontmatter declares no `status:`, and one with no `## Log` section to
@@ -427,14 +444,14 @@ def supersede(record: Record, date: str, reason: str) -> None:
     # Backwards, because `_frontmatter` takes the last of a repeated key. Editing
     # the first would change a line the parser ignores: the log would record a
     # transition and the record would still read as it did before.
-    status = next(
+    status_line = next(
         (
             i for i in reversed(range(1, end))
             if (kv := _key_value(lines[i])) is not None and kv[0] == "status"
         ),
         None,
     )
-    if status is None:
+    if status_line is None:
         raise ValueError(f"{record.path}: no status line to change")
 
     bounds = _log_bounds(lines)
@@ -443,16 +460,80 @@ def supersede(record: Record, date: str, reason: str) -> None:
     _, insert_at = bounds
 
     eol = "\r\n" if lines[0].endswith("\r\n") else "\n"
-    lines[status] = f"status: superseded{eol}"
+    lines[status_line] = f"status: {status}{eol}"
     # A file need not end in a newline, and joining onto one that doesn't would
     # weld the new entry onto the previous line — two transitions on one line,
     # and the predecessor's entry destroyed.
     if insert_at > 0 and not lines[insert_at - 1].endswith(("\n", "\r")):
         lines[insert_at - 1] += eol
-    lines.insert(insert_at, f"- {date}  superseded  — {reason}{eol}")
+    lines.insert(insert_at, f"- {date}  {status:<{_LOG_STATUS_WIDTH}}— {note}{eol}")
 
     # Atomic, like every other markdown wfctl rewrites (`_session.py:88`). This
     # one matters more than those: a session summary is re-derivable, while an
     # accepted record is hand-authored and committed, so a torn write loses a
     # decision no later run can reconstruct.
     write_atomic(record.path, "".join(lines), newline="")
+
+
+def supersede(record: Record, date: str, reason: str) -> None:
+    """Mark `record` superseded: change `status`, append one `Log` line.
+
+    No guard on the current status, unlike `accept`. What a `Log` line here names
+    is the successor that replaced this record, so a second one is a second
+    successor — a claim that may be wrong but is not self-contradictory. Which
+    statuses may be superseded is a question nothing has yet had to answer.
+    """
+    _set_status(record, "superseded", date, reason)
+
+
+def accepted_on(record: Record) -> str:
+    """The date this record's `Log` says it was accepted, or "" when it says none.
+
+    Read out of the log rather than out of git, because the log is the answer the
+    file itself gives and git's is a different question — when the *file* changed,
+    which for a record moved between repositories or committed late is not when
+    anyone agreed to it.
+
+    Empty for every record accepted before there was a command to log it, which is
+    most of the ones already in force. That is a real answer and the caller renders
+    it as one; the alternative is a date inferred from somewhere the record does
+    not point at, which is the substitution this whole transition exists to refuse.
+
+    The last such line wins, matching `_frontmatter`'s rule for a repeated key: a
+    log is appended to, so the last entry is the current one.
+    """
+    lines = record.body.splitlines()
+    found = ""
+    for _, stripped in _unfenced(lines):
+        # The rendered shape `_set_status` writes, matched loosely enough to also
+        # catch the hand-written entries that predate it — those pad to the same
+        # column but were typed, so a stricter match would silently read them as
+        # absent and report every pre-existing record as unlogged.
+        m = re.match(r"-\s+(\d{4}-\d{2}-\d{2})\s+accepted\b", stripped)
+        if m:
+            found = m.group(1)
+    return found
+
+
+def accept(record: Record, date: str, citation: str) -> None:
+    """Mark `record` accepted: change `status`, append one `Log` line.
+
+    The transition `a-human-accepts-a-decision` gives a human. wfctl performs it
+    and records where the agreement happened; it never decides that one did.
+    `citation` is written into the log and never read back — whether it is true
+    has no objective test, and the record says so rather than implying a check.
+
+    Only `proposed` promotes, and the current status travels out on the exception
+    so the caller can say which of three things went wrong: a record already
+    accepted has nothing to do, one that is superseded, rejected or retired needs
+    a new record rather than a reopened one, and one whose status will not parse
+    needs its frontmatter fixed before anything overwrites it.
+
+    Refusing an already-accepted record is the guard `supersede` does not carry,
+    and it is not symmetry for its own sake: a second `accepted` line asserts a
+    second agreement that never happened, in the one field this whole transition
+    exists to make trustworthy.
+    """
+    if record.status != "proposed":
+        raise ValueError(record.status)
+    _set_status(record, IN_FORCE, date, citation)
