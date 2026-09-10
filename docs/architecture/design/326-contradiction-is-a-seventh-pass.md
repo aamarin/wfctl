@@ -62,10 +62,14 @@ form guaranteed to be stale on arrival.
   a task deliberately written to reverse an approved record and getting a clean
   verdict. This is the bet the whole decision rests on, and #326's definition of
   done tests exactly it.
-- That the record's `Decision` section is where a contradiction is detectable.
-  Falsified by a record whose binding content lives in `Consequences` or
-  `Diagram` and whose `Decision` reads as a summary — in which case the pass has
-  to take the whole record, not one section.
+- That `Decision` and `Consequences` are the two sections a contradiction is
+  detectable in. Narrowed from `Decision` alone after review: a decision's
+  constraints do not all fit in its first paragraph, and "what is now harder" is
+  as binding as the summary above it. Falsified by a record whose binding content
+  lives somewhere else again — and the repair is another named section, never
+  "the whole record". `Considered`, `Direct baseline` and the baseline half of
+  `Diagram` describe what was *rejected*, so comparing a task against them makes
+  every correctly-implemented record a finding.
 
 ## Direct baseline
 

@@ -84,6 +84,25 @@ def test_the_shared_rule_reads_the_list_from_design_md() -> None:
     assert "## Software design decisions" in shared
 
 
+def test_the_shared_rule_does_not_eval_feature_paths() -> None:
+    """A shell does not outlive the command it ran, and the path crosses tool calls.
+
+    The first draft opened with `eval "$(wfctl feature-paths)"`, copied from
+    `fanning-out-code-review` — which uses that form correctly, inside a single
+    shell command, and re-evals in every step that needs it. Here the value is
+    handed to a *reader*, one tool call later, by which time the binding is gone
+    and `<FEATURE_DIR>/design.md` resolves against the working directory instead.
+
+    The failure is silent in the direction that matters: no `design.md` there, so
+    the step reports `unknown` on a feature that has records. The repo's own idiom
+    — `speckit.brainstorm.md` — prints the assignments and reads the value out.
+    """
+    shared = _SHARED.read_text()
+
+    assert 'eval "$(wfctl feature-paths)"    #' not in shared
+    assert "Read both values out of that output" in shared
+
+
 def test_the_shared_rule_takes_bullet_entries_only() -> None:
     """The rule with the most consequence and the smallest surface.
 
@@ -366,6 +385,26 @@ def test_pass_g_handles_a_record_whose_status_is_unreadable() -> None:
     template.
     """
     assert "absent or unrecognised" in _analyze()
+
+
+def test_pass_g_compares_two_named_sections_and_names_the_three_it_must_not() -> None:
+    """Half a record describes what was rejected, and comparing against it inverts the pass.
+
+    `Considered` lists alternatives with the reason each fell; `Direct baseline`
+    describes the implementation that was not built; the left graph in `Diagram`
+    is the same. A task implementing the shape that *won* contradicts all three by
+    construction, so a pass reading the whole record reports every correctly
+    implemented decision as a finding.
+
+    Raised as "take the whole record" by a review bot, from a line in the record's
+    own `Assumed` that is conditional rather than mandatory. The concern under it
+    was real — a constraint in `Consequences` binds as much as the summary above
+    it — so the fix widened by one named section rather than to everything.
+    """
+    analyze = _analyze()
+
+    assert "Compare against\n`Decision` and `Consequences`" in analyze
+    assert "Never compare against `Considered`, `Direct baseline`" in analyze
 
 
 def test_pass_g_compares_tasks_and_not_the_plan() -> None:

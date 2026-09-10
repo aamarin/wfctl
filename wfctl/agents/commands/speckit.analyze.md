@@ -31,11 +31,24 @@ not one a task can be shown to contradict.
 A seventh detection pass, run beside step 4's six and reported with them.
 
 **What it asks**: for each task in `tasks.md`, and each record in the list above,
-does the task do the opposite of what the record's `Decision` section says?
+does the task do the opposite of what the record binds?
 
 Not *is the task unrelated to the record* — most are. Not *does the task fail to
 cite the record* — a record is not a checklist. The question is reversal: the
 record says the strategy is chosen at the call site, the task says inject it.
+
+**Two sections bind, and the rest of the record does not.** Compare against
+`Decision` and `Consequences`. A decision's constraints do not all fit in its
+first paragraph — "this is now harder", "the failure mode this introduces" — and
+a task reversing one of those reverses the decision as surely as one contradicting
+its summary.
+
+Never compare against `Considered`, `Direct baseline`, or the baseline half of
+`Diagram`. Those describe what was **rejected**, so a task implementing the shape
+that won reads as contradicting them — which turns every correctly-implemented
+record into a finding. This is why pass G reads two named sections rather than
+the whole record: more text is not more signal when half of it is the road not
+taken.
 
 **Tasks, and not `plan.md`.** The plan is what the tasks were derived from, so a
 contradiction there surfaces as the tasks that carry it; reporting both would

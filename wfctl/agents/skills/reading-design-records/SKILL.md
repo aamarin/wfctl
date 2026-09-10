@@ -27,8 +27,20 @@ is the precedent this follows.
 ## Resolve the list
 
 ```bash
-eval "$(wfctl feature-paths)"    # binds FEATURE_DIR and REPO_ROOT
+wfctl feature-paths      # prints FEATURE_DIR='…' and REPO_ROOT='…'
 ```
+
+**Read both values out of that output and substitute the real paths below.** Do
+not `eval` it and expect the bindings to survive: a shell does not outlive the
+command it ran, so `$FEATURE_DIR` is empty by the time the next tool call opens a
+file, and the read then lands on a relative path that resolves against the
+working directory. That failure is silent in the direction that matters — no
+`design.md` there, so the step reports `unknown` on a feature that has records.
+
+`eval "$(wfctl feature-paths)"` is correct where the *same* command goes on to
+use it, which is why `fanning-out-code-review` uses that form and re-evals in
+every step. It is the wrong form here, where the path is handed to a reader
+rather than to a shell.
 
 Read `<FEATURE_DIR>/design.md` and find the section headed
 `## Software design decisions`. Every **list item** of the form
