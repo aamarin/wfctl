@@ -31,12 +31,16 @@
 
 - **F · Inconsistency, MEDIUM** — User Story 2 scenario 1 requires the
   already-accepted refusal to say *when*; the contract allowed the date to be
-  dropped for a record carrying no `accepted` `Log` line, which is seven of this
-  repository's ten accepted records.
+  dropped for a record carrying no `accepted` `Log` line.
   → Fixed: the message answers the question instead of dropping it —
   `(no acceptance logged)`. Decided against reading a date from git history: the
   record's `Log` is the durable answer this feature exists to create, and a
   message asserting what the file does not say is the failure in miniature.
+  Corrected after writing: this section first said seven of the ten accepted
+  records carry no such line. All ten carry one — the number was written from
+  memory and the count says otherwise. The finding stands on narrower ground,
+  since `_set_status` requires a `## Log` section rather than an `accepted` entry
+  inside it, so a hand-edited status still reaches the branch.
 
 - **E · Coverage gaps, LOW** — FR-008, "MUST NOT infer acceptance", is carried by
   no task.
