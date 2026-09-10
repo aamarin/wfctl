@@ -349,3 +349,23 @@ def test_the_echoed_entry_is_the_line_that_reached_the_file(
 
     written = path.read_text().splitlines()[-1]
     assert written in out
+
+
+def test_a_proposed_record_with_no_log_section_is_not_listed_as_promotable(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The listing's own suggested command must not fail.
+
+    A record was `proposed` and appeared under "Proposed, and promotable" with
+    no `## Log` section — its own suggested `wfctl arch accept <slug> --agreed`
+    then raised. Found by Codex reviewing this diff.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "malformed.md").write_text("---\nstatus: proposed\n---\n\n# malformed\n\nNo log.\n")
+    _record(root, "well-formed", "proposed")
+
+    result = runner.invoke(app, ["arch", "accept"])
+
+    assert "malformed" not in result.output
+    assert "well-formed" in result.output

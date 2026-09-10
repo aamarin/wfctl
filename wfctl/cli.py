@@ -1278,7 +1278,7 @@ def arch_accept_cmd(
     _, repo_root, _, _ = _resolve_context()
     root = arch_root(repo_root)
     records = _arch.load_records(root)
-    promotable = [r for r in records if r.status == "proposed"]
+    promotable = [r for r in records if _arch.acceptable(r)]
 
     def refuse_with_listing(headline: str) -> None:
         """Print `headline`, then what could be accepted, and exit 1.

@@ -507,6 +507,25 @@ def supersede(record: Record, date: str, reason: str) -> str:
     return _set_status(record, "superseded", date, reason)
 
 
+def acceptable(record: Record) -> bool:
+    """Whether `accept` could act on this record without raising.
+
+    `proposed` is necessary but not sufficient — `accept` also needs a `## Log`
+    section to append the transition to. A listing built from status alone names
+    a record whose own suggested command then fails with "no '## Log' section to
+    append to", which is `_set_status`'s refusal and not a sentence anyone reading
+    a list of "promotable" records was told to expect.
+
+    Exported rather than left for `cli` to reimplement: `_log_bounds` is a module
+    member (`the-underscore-is-the-module-contract`), and a second scan for the
+    heading, written at the call site, is the kind of copy that stops agreeing
+    with this one silently.
+    """
+    if record.status != "proposed":
+        return False
+    return _log_bounds(record.body.splitlines(keepends=True)) is not None
+
+
 def accepted_on(record: Record) -> str:
     """The date this record's `Log` says it was accepted, or "" when it says none.
 

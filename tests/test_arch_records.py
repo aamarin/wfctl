@@ -971,3 +971,29 @@ def test_accepted_on_ignores_a_log_entry_quoted_outside_the_log(tmp_path: Path) 
     )
 
     assert _arch.accepted_on(_arch.parse_record(path)) == "2026-03-03"
+
+
+def test_a_proposed_record_with_no_log_section_is_not_acceptable(tmp_path: Path) -> None:
+    """`acceptable` is necessary-and-sufficient, not just the status check.
+
+    A listing built from status alone named a record whose own suggested command
+    then failed — found by Codex on #323, reviewing the diff this function is
+    part of.
+    """
+    path = _write(tmp_path, "a-decision", "---\nstatus: proposed\n---\n\n# A\n\nNo log here.\n")
+
+    assert _arch.acceptable(_arch.parse_record(path)) is False
+
+
+def test_a_proposed_record_with_a_log_section_is_acceptable(tmp_path: Path) -> None:
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+
+    assert _arch.acceptable(_arch.parse_record(path)) is True
+
+
+@pytest.mark.parametrize("status", ["accepted", "superseded", "rejected", "retired", ""])
+def test_a_non_proposed_record_is_never_acceptable_whatever_its_log(tmp_path: Path, status: str) -> None:
+    body = RECORD.format(status=status) if status else "---\ntitle: x\n---\n\n# A\n\n## Log\n\n- x\n"
+    path = _write(tmp_path, "a-decision", body)
+
+    assert _arch.acceptable(_arch.parse_record(path)) is False
