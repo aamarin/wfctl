@@ -76,7 +76,7 @@ records.
 ## Diagram
 
 The two graphs share the same components. The divider is the one
-`downstream-asks-the-record-store` already drew and is not new here.
+`design-md-indexes-the-records` already drew and is not new here.
 
 ```
               baseline                          strongest alternative
@@ -88,8 +88,8 @@ stable   ┌──────────────────┐           
                     ▲                      └──────────────────┘
                     │ reads                          ▲
                     │                                │ parses
-═══ the record store owns which ════════════╪════════╪══════════════
-    records apply (level 2)                          │
+═══ design.md owns which records ═══════════╪════════╪══════════════
+    apply (level 2)                                  │
                     │                                │
 volatile  ┌─────────┴────────┐            ┌──────────┴───────┐
           │ analyze — passes │            │ wfctl design     │
@@ -166,3 +166,6 @@ read rather than only its status.
 - 2026-09-10  proposed  — written at #326's level-3 gate, deciding whether
   contradiction detection is a model pass or a command, while the alternative
   was still being argued rather than after the wrapper was edited.
+- 2026-09-10  amended   — the level-2 divider was relabelled when
+  `design-md-indexes-the-records` was revised. The decision here is unchanged:
+  where the record set comes from is not what this record chose between.
