@@ -25,12 +25,13 @@ are both on disk — and the violation is visible in them only to a reader.
 
 ## Verified
 
-- `wfctl/agents/commands/speckit.analyze.md:52` lists six detection passes,
-  `A · Duplication` through `F · Inconsistency`, and step 4 of the skill runs
-  them over `spec.md`, `plan.md` and `tasks.md` in one read.
-- `wfctl/agents/commands/speckit.analyze.md:41` — the scan file is
-  `<arch-root>/scans/<issue>-analyze.md`, and its coverage table already carries
-  one row per pass plus `| Requirement-to-task coverage | N% |`.
+- `wfctl/agents/commands/speckit.analyze.md`, § *Write the scan file*, listed six
+  detection passes under **Coverage rows** — `A · Duplication` through
+  `F · Inconsistency` — and step 4 of the skill runs them over `spec.md`,
+  `plan.md` and `tasks.md` in one read.
+- The same section named the scan file `<arch-root>/scans/<issue>-analyze.md`,
+  whose coverage table already carried one row per pass plus
+  `| Requirement-to-task coverage | N% |`.
 - All seven records under `docs/architecture/design/` carry `status: proposed`.
   `head -4 docs/architecture/design/*.md` returns `status: proposed` seven times
   and `approved` zero times.
@@ -40,9 +41,16 @@ are both on disk — and the violation is visible in them only to a reader.
 - `wfctl/_arch.py` contains no reference to `design`; `load_records` reads
   `root.glob("*.md")`, non-recursive, so nothing in `wfctl` parses a level-3
   record today.
-- `wfctl/agents/commands/speckit.analyze.md:24` states the override to the
-  skill's read-only rule out loud — the precedent for adding an instruction in a
-  wrapper rather than in the spec-kit-derived skill.
+- `wfctl/agents/commands/speckit.analyze.md`, § *Write the scan file*, states the
+  override to the skill's read-only rule out loud — the precedent for adding an
+  instruction in a wrapper rather than in the spec-kit-derived skill.
+
+These three cite a section rather than a line, and did not start that way. The
+first version gave `speckit.analyze.md:52`, `:41` and `:24` — and this decision's
+own implementation edits that file, so all three had moved before anyone could
+follow them. A record's `Verified` section is read after the change it describes
+has landed, which makes a line number in the file being changed the one citation
+form guaranteed to be stale on arrival.
 
 ## Assumed
 
@@ -59,14 +67,14 @@ are both on disk — and the violation is visible in them only to a reader.
 ## Direct baseline
 
 Add pass `G · Design-record contradiction` to the list of detection passes in
-`speckit.analyze.md`, with the record set as an input alongside `spec.md`,
+`speckit.analyze.md`, with the record list as an input alongside `spec.md`,
 `plan.md` and `tasks.md`. One row in the coverage table, one severity rule. No
 new file, no new command, no new field on the record.
 
 ## Decision
 
 The baseline. Contradiction detection is a seventh pass beside the six that
-already exist, reading the record set as one more input to the same read.
+already exist, reading the record list as one more input to the same read.
 
 Severity is taken from the record's frontmatter `status`: contradicting an
 `approved` record is CRITICAL, contradicting a `proposed` one is a warning. The
@@ -122,7 +130,7 @@ vocabulary nobody has yet had to write one of, and a second reader of a schema
   first one has been contradicted. #121's out-of-scope section refuses the
   command for the same reason one level up.
 - **A standalone pass run separately from analyze's six** — sound, and it would
-  keep the record set out of a read that is already large. It loses on fit: the
+  keep the record list out of a read that is already large. It loses on fit: the
   scan file exists so that a thorough analysis and a skipped one are
   distinguishable in the PR, and a seventh pass reported outside that table is
   the one whose absence nobody notices.
@@ -168,4 +176,8 @@ read rather than only its status.
   was still being argued rather than after the wrapper was edited.
 - 2026-09-10  amended   — the level-2 divider was relabelled when
   `design-md-indexes-the-records` was revised. The decision here is unchanged:
-  where the record set comes from is not what this record chose between.
+  where the record list comes from is not what this record chose between.
+- 2026-09-10  amended   — `Verified` moved from line numbers to section names
+  once the implementation edited the file it cites, and "record set" was
+  normalised to "record list" after `/speckit.analyze` found three names for one
+  thing. Neither touches the decision.
