@@ -270,6 +270,117 @@ def test_each_review_wrapper_allows_the_commands_the_scan_file_needs(step: str) 
         assert grant in allowed, f"speckit.{step}.md cannot run its own instruction: {grant}"
 
 
+def test_the_clarify_wrapper_keeps_every_rejected_option_rather_than_one() -> None:
+    """The grain #307 shipped was per finding; clarify's questions are per option.
+
+    The first version of the findings line read "Decided against <the
+    alternative>: <why>" — one alternative, however many the question offered. A
+    two-option question and a five-option one rendered identically, so the reader
+    could not tell four discarded options from one (#286).
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "One `Decided against` line per lettered option the question offered" in flowed
+
+
+def test_the_clarify_wrapper_counts_only_the_lettered_options() -> None:
+    """Step 4's rendered table carries a trailing `Short` row, and it is not an option.
+
+    Three panel reviewers found the same thing: "every option the question
+    offered" reads onto that row, no true reason exists for rejecting an escape
+    hatch, and the anti-straw rule then forces one to be invented — the rule
+    breaking the rule beside it.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "`Short` row, which is an escape hatch from the options" in flowed
+
+
+def test_the_clarify_wrapper_refuses_a_straw_option() -> None:
+    """A record of options nobody weighed is worse than no record.
+
+    `architecture-decisions` already holds its own `Considered` to this and the
+    wrapper borrows the standard rather than restating a weaker one: an instruction
+    to name what lost, with no rule about *why*, is answerable by inventing a bad
+    option — and a reviewer cannot tell that from a real one.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "The reason an option lost is the reason it actually lost" in flowed
+    assert "a weakness the option does not have is never one" in flowed
+
+
+def test_the_clarify_wrapper_keys_the_exemption_on_the_table_not_the_answer() -> None:
+    """Step 4 lets an A/B/C question be answered in free-form words.
+
+    The exemption first read "a short-answer question offered no options", which
+    is a sentence about the answer as easily as about the question — so the one
+    path where options were offered and none was taken would have written "no
+    options offered" and discarded all of them. That is the evidence #286 was
+    filed over, destroyed by the sentence added to protect it.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "Only a question that rendered no option table writes" in flowed
+    assert "A multiple-choice question is not that case, however it was answered" in flowed
+
+
+def test_the_clarify_wrapper_does_not_reject_the_option_the_answer_mapped_to() -> None:
+    """A free-form answer to an A/B/C question can still take one of the options.
+
+    Step 4 accepts free-form words only once they "map to one option" or fit the
+    short-answer constraint, so answering `30 days` to a question whose option A
+    *was* 30 days chooses A. The first version read that whole path as taking no
+    option, and wrote `Decided against **A**` about the option that won —
+    evidence contradicting the answer recorded two lines above it (#322 review).
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "maps to one of the offered options or stands as a short answer of its own" in flowed
+    assert "That option is the answer, whatever words carried it, so it gets no line" in flowed
+
+
+def test_the_clarify_wrapper_is_not_conditional_on_the_mode() -> None:
+    """`speckit.brainstorm.md`'s layer is conditional on `auto_approve`, and copying its
+    shape would have inherited a condition this rule does not want.
+
+    A human picking option B destroys A and C as thoroughly as an unattended run
+    does. #286 flagged the question rather than answering it; the wrapper answers
+    it, so the next reader finds a decision instead of an omission.
+    """
+    flowed = " ".join(_section("clarify").split())
+
+    assert "This holds however the answer was chosen" in flowed
+
+
+def test_the_clarify_template_shows_both_findings_shapes() -> None:
+    """The rationale is what a reader checks; the template is what an agent copies.
+
+    Every other assertion here matches prose, so reverting the template block to
+    one `Decided against` line — and dropping the short-answer line, whose exact
+    wording appears nowhere else — ships green while the copyable shape says the
+    opposite of the rule above it.
+    """
+    template = _section("clarify").split("```markdown")[1].split("```")[0]
+
+    assert template.count("Decided against") == 2
+    assert "No options offered — short answer." in template
+
+
+def test_the_shared_skill_defers_the_findings_count_to_the_wrapper() -> None:
+    """Two rules in one bundle disagreeing about a count is worse than either alone.
+
+    The skill is read first and its delegation clause lists what it does not own;
+    the findings-line shape was not on that list, so it went on stating the
+    singular while the clarify wrapper required one line per option. It is also
+    where #286's third open question lands: `analyze` reaches a finding with no
+    option set to discard, so the count cannot be shared.
+    """
+    flowed = " ".join(_SHARED.read_text().split())
+
+    assert "How many alternatives that is belongs to the wrapper that sent you here" in flowed
+
+
 # --- what the destination changed -------------------------------------------
 
 

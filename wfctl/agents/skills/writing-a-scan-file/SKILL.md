@@ -107,7 +107,13 @@ neither ever edits the other's.
 - **Findings** — what was found, and for each, the alternative the answer was
   decided against. A finding you did not act on says why it stands: a finding
   fixed and a finding nobody touched read identically as a row in a table, and the
-  difference is the only thing a reviewer can disagree with.
+  difference is the only thing a reviewer can disagree with. **How many
+  alternatives that is belongs to the wrapper that sent you here**, for the same
+  reason the coverage rows do: `clarify` decides each finding by picking one of a
+  set of options it generated, and every option it did not pick lost for a reason
+  a reader would ask about, while `analyze` reaches a finding without an option
+  set to discard. One line here would understate the first step or invent a
+  requirement for the second.
 - **A run that found nothing still writes the section**, with every row read and a
   findings line saying so in words a reader can dispute — "no question met the
   bar; every category above was read and found Clear." An empty section is nothing

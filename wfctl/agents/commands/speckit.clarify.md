@@ -81,9 +81,71 @@ carrying its template.
 ### Findings
 
 - **<category>** — what was ambiguous.
-  Q: <the question> → A: <the answer>. Decided against <the alternative>: <why>.
+  Q: <the question> → A: <the answer>.
+  Decided against **<option B>**: <why it lost>.
+  Decided against **<option C>**: <why it lost>.
+- **<category>** — what was ambiguous.
+  Q: <the question> → A: <the answer>.
+  No options offered — short answer.
 
 ### Deferred
 
 - **<category>** — <what was not asked, and why it belongs to a later step>.
 ```
+
+### The options the answer was chosen over
+
+**One `Decided against` line per lettered option the question offered and the
+answer did not take.** Step 4 above renders each multiple-choice question as 2–5
+lettered options and takes one; the others are what the step considered, and
+nothing but this file carries them past the run. So keep each question's option
+table until the file is written — the workflow records only the answer, and the
+table is gone from every later step.
+
+*Lettered* is the whole of what counts. The rendered table can carry a trailing
+`Short` row, which is an escape hatch from the options rather than one of them —
+a `Decided against **Short**` line has no true reason to give, and the rule below
+then forces one to be invented.
+
+A single line naming one representative alternative reports a two-option question
+and a five-option one identically, and *what else was on the table, and why not
+that* is the only question a reviewer can ask of a resolved ambiguity (#286).
+**Do not narrow a question to shorten this section.** Step 4 chooses the options
+and this step reports them, and an option dropped before the question is asked is
+the one loss no reader of this file can see.
+
+**The reason an option lost is the reason it actually lost.** Losing on fit is a
+reason; a weakness the option does not have is never one — the standard
+`architecture-decisions` holds its own `Considered` to. An option invented to be
+knocked down is worse than no record, because a reviewer cannot tell it from one
+that was really on the table.
+
+**Only a question that rendered no option table writes `No options offered —
+short answer.`** — on its own line under the finding, in place of the `Decided
+against` lines. Step 4's short-answer branch renders no table, so there is
+nothing rejected to name and inventing a set to reject is the straw the paragraph
+above rules out.
+
+**A multiple-choice question is not that case, however it was answered.** Step 4
+lets an A/B/C question be answered in free-form words instead of by letter, and
+the options it offered were still offered. *Which* of them lost is what the
+wording hides, and Step 4 has already settled it — it accepts a free-form answer
+only once that answer maps to one of the offered options or stands as a short
+answer of its own:
+
+- **It mapped to an option.** That option is the answer, whatever words carried
+  it, so it gets no line and the rest do. `Decided against` naming the option the
+  answer chose contradicts the `A:` recorded two lines above it, and a reader has
+  nothing left to settle which of the two is the decision.
+- **It stood on its own.** No lettered option was taken, so every one of them
+  gets a line, and the finding records what the free-form answer was.
+
+Neither branch is the short-answer exemption. This is the one path on which both
+rules above look like they apply, and taking the exemption here destroys exactly
+the evidence this section exists to keep.
+
+**This holds however the answer was chosen.** A human picking option B destroys A
+and C exactly as thoroughly as an unattended run does, and the reviewer reading
+the change is equally unable to see them — so the rule is not conditional on the
+mode. That is the one respect this layer differs from `speckit.brainstorm.md`'s,
+whose layer is conditional on `auto_approve` and moves where an approval happens.
