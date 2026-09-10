@@ -675,3 +675,325 @@ def test_a_mismatched_closer_leaves_the_fence_open_and_hides_the_log(tmp_path: P
     path = _write(tmp_path, "r", body)
     with pytest.raises(ValueError, match="no '## Log' section"):
         _arch.supersede(_arch.parse_record(path), "2026-09-07", "mismatched closer")
+
+
+# --- acceptance (#321) ------------------------------------------------------
+
+
+def test_accepting_a_proposed_record_changes_the_status_and_appends_one_log_line(
+    tmp_path: Path,
+) -> None:
+    """VR-005 in the direction promotion takes it.
+
+    `supersede` has protected the body since #69 and `accept` writes the status
+    that *makes* a body immutable — so a promotion that edited anything else
+    would be the one transition able to change a decision on its way to becoming
+    binding.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+    before = path.read_text().splitlines()
+
+    _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    after = path.read_text().splitlines()
+    assert after[1] == "status: accepted"
+    assert after[-1] == "- 2026-09-10  accepted    — agreed on #321"
+    # Every line but the status and the new last one, unchanged and in order.
+    assert after[:1] + after[2:-1] == before[:1] + before[2:]
+
+
+def test_the_log_column_matches_what_supersede_already_writes(tmp_path: Path) -> None:
+    """The padding was two literal spaces before `_set_status` named a width.
+
+    A constant that reproduced the old output for `accepted` and not for
+    `superseded` would realign every future supersession against the entries
+    above it, in a file whose whole readability is the column.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="accepted"))
+    _arch.supersede(_arch.parse_record(path), "2026-09-10", "replaced")
+
+    assert path.read_text().splitlines()[-1] == "- 2026-09-10  superseded  — replaced"
+
+
+def test_accepting_a_crlf_record_keeps_its_line_endings(tmp_path: Path) -> None:
+    """The hazard a copied mutation body loses first.
+
+    `read_text` translates CRLF to LF, so a promotion that reached for it would
+    rewrite every line of the record and call it a status change. Caught here
+    rather than in review because the diff of such a change looks like a
+    whole-file reformat, which reviewers skim.
+    """
+    path = tmp_path / "a-decision.md"
+    path.write_bytes(RECORD.format(status="proposed").replace("\n", "\r\n").encode())
+
+    _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    raw = path.read_bytes()
+    assert b"status: accepted\r\n" in raw
+    assert raw.endswith("- 2026-09-10  accepted    — agreed on #321\r\n".encode())
+    assert b"\n" not in raw.replace(b"\r\n", b"")
+
+
+def test_accepting_changes_the_status_line_the_parser_reads(tmp_path: Path) -> None:
+    """A repeated key is why the scan runs backwards.
+
+    `_frontmatter` takes the last `status:`, so changing the first would leave a
+    record logging a promotion and still parsing as proposed — accepted in its
+    own history and withheld from the projection, with nothing to say why.
+    """
+    path = _write(
+        tmp_path,
+        "a-decision",
+        "---\nstatus: retired\nstatus: proposed\n---\n\n# A decision\n\n## Log\n\n- 2026-03-14  proposed    — x\n",
+    )
+
+    _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    lines = path.read_text().splitlines()
+    assert lines[1] == "status: retired"
+    assert lines[2] == "status: accepted"
+    assert _arch.parse_record(path).status == "accepted"
+
+
+def test_accepting_a_record_with_no_log_section_writes_nothing(tmp_path: Path) -> None:
+    """The log is where a transition becomes visible.
+
+    Changing a status with nowhere to record it is the silent edit both
+    transitions exist to prevent, so the refusal has to leave the file alone
+    rather than flip the key and report the missing section afterwards.
+    """
+    path = _write(tmp_path, "a-decision", "---\nstatus: proposed\n---\n\n# A decision\n")
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="no '## Log' section"):
+        _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    assert path.read_text() == before
+
+
+def test_accepting_a_record_with_no_status_key_writes_nothing(tmp_path: Path) -> None:
+    """Frontmatter without a `status:` line has nothing to change.
+
+    Refused by `accept`'s own guard rather than by `_set_status`, which is why the
+    exception carries "" and not "no status line to change": an absent key parses
+    to the same empty status an unrecognised one does, so both reach the reader as
+    "fix the frontmatter" — the action that is in fact the same for either.
+    `supersede` on this file still raises `_set_status`'s message, because it has
+    no guard in front of it. Two messages for one file, and each is the accurate
+    one for the transition that produced it.
+    """
+    path = _write(tmp_path, "a-decision", "---\ntitle: x\n---\n\n# A\n\n## Log\n\n- 2026-03-14  proposed    — x\n")
+    before = path.read_text()
+
+    with pytest.raises(ValueError) as caught:
+        _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    assert str(caught.value) == ""
+    assert path.read_text() == before
+
+    with pytest.raises(ValueError, match="no status line to change"):
+        _arch.supersede(_arch.parse_record(path), "2026-09-10", "x")
+
+    assert path.read_text() == before
+
+
+def test_accepting_an_already_accepted_record_appends_no_second_log_line(
+    tmp_path: Path,
+) -> None:
+    """The lie this guard exists to stop.
+
+    A second `accepted` entry asserts a second agreement that never happened, in
+    the one field the whole transition exists to make trustworthy — and unlike a
+    wrong citation it needs nobody to write anything false, only to run the
+    command twice.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="accepted"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError):
+        _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed again")
+
+    assert path.read_text() == before
+
+
+@pytest.mark.parametrize("status", ["superseded", "rejected", "retired"])
+def test_an_ended_record_is_not_reopened_by_accepting_it(tmp_path: Path, status: str) -> None:
+    """A decision binding again is a new record.
+
+    Flipping an ended record back to accepted would strand every `supersedes:`
+    pointing at it — two records in force claiming the same ground, with the
+    successor's own frontmatter saying one of them should not be.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status=status))
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match=status):
+        _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    assert path.read_text() == before
+
+
+def test_a_record_with_an_unreadable_status_is_refused_not_overwritten(
+    tmp_path: Path,
+) -> None:
+    """An unparseable status is a question, not an absence.
+
+    `parse_record` reports it as "" so the projection can exclude it; accepting
+    on that basis would overwrite whatever the author actually wrote, which is
+    the one thing nobody can recover from the file afterwards.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="banana"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError):
+        _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")
+
+    assert path.read_text() == before
+
+
+def test_the_refused_status_travels_out_on_the_exception(tmp_path: Path) -> None:
+    """Three refusals need one read of the record, not three.
+
+    The console distinguishes already-accepted from ended from unreadable, and
+    re-parsing the file to find out which would let the message describe a
+    different state than the one the guard refused.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="superseded"))
+
+    with pytest.raises(ValueError) as caught:
+        _arch.accept(_arch.parse_record(path), "2026-09-10", "x")
+
+    assert str(caught.value) == "superseded"
+
+
+def test_accepted_on_reads_the_last_acceptance_the_log_carries(tmp_path: Path) -> None:
+    """A log is appended to, so the last entry is the current one.
+
+    Same rule as `_frontmatter`'s for a repeated key, and it matters here because
+    a record superseded and later accepted again by hand carries two.
+    """
+    path = _write(
+        tmp_path,
+        "a-decision",
+        "---\nstatus: accepted\n---\n\n# A\n\n## Log\n\n"
+        "- 2026-01-01  accepted    — first\n"
+        "- 2026-02-02  superseded  — replaced\n"
+        "- 2026-03-03  accepted    — again\n",
+    )
+
+    assert _arch.accepted_on(_arch.parse_record(path)) == "2026-03-03"
+
+
+def test_accepted_on_is_empty_when_the_log_records_no_acceptance(tmp_path: Path) -> None:
+    """Reachable because `_set_status` requires a `## Log`, not an entry in it.
+
+    A status edited by hand leaves the section intact and the acceptance
+    unlogged, and the console renders the empty answer rather than inventing a
+    date from git — which would make the message assert what the file does not.
+    """
+    path = _write(
+        tmp_path,
+        "a-decision",
+        "---\nstatus: accepted\n---\n\n# A\n\n## Log\n\n- 2026-01-01  proposed    — x\n",
+    )
+
+    assert _arch.accepted_on(_arch.parse_record(path)) == ""
+
+
+def test_a_note_carrying_a_line_break_writes_nothing(tmp_path: Path) -> None:
+    """The forgery that does not look like one.
+
+    One `Log` entry is one line, so a note with a break in it writes a second
+    entry — well-formed, and dated by whoever supplied the note. `accepted_on`
+    takes the last match, so that date becomes the record's reported acceptance:
+    the one fact about a transition nobody can re-derive from the file.
+
+    Found by two reviewers independently on #321, and reproduced before the fix:
+    `--agreed "ok\\n- 2020-01-01  accepted    — forged"` wrote both lines.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="one line"):
+        _arch.accept(
+            _arch.parse_record(path),
+            "2026-09-10",
+            "ok\n- 2020-01-01  accepted    — forged",
+        )
+
+    assert path.read_text() == before
+
+
+def test_supersede_refuses_a_multi_line_reason_too(tmp_path: Path) -> None:
+    """The guard is the file format's, not one transition's.
+
+    `supersede`'s reason reaches the same line through the same interpolation, and
+    neither caller's field is more trusted than the other's — so a rule held in
+    `accept` alone would leave the identical hole one function away.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="accepted"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="one line"):
+        _arch.supersede(_arch.parse_record(path), "2026-09-10", "a\nb")
+
+    assert path.read_text() == before
+
+
+def test_the_transition_returns_the_entry_it_wrote(tmp_path: Path) -> None:
+    """So a caller reporting the transition quotes the line instead of rebuilding it.
+
+    The console used to compose its own `accepted` + four spaces, which is the
+    third caller `_LOG_STATUS_WIDTH` was named to stop — the two agreed only by
+    coincidence and no test compared them.
+    """
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+
+    entry = _arch.accept(_arch.parse_record(path), "2026-09-10", "on #321")
+
+    assert entry == "- 2026-09-10  accepted    — on #321"
+    assert path.read_text().splitlines()[-1] == entry
+
+
+def test_accepted_on_ignores_a_log_entry_quoted_outside_the_log(tmp_path: Path) -> None:
+    """A record is free to show a log entry above its own log.
+
+    `_unfenced` covers the fenced case only, so an entry quoted in prose — a
+    format being documented, a predecessor being cited — read as the record's own
+    acceptance while the scan ran over the whole body.
+    """
+    path = _write(
+        tmp_path,
+        "a-decision",
+        "---\nstatus: accepted\n---\n\n# A\n\n## Context\n\n"
+        "The predecessor's log read - 2019-01-01  accepted    — long ago\n\n"
+        "## Log\n\n- 2026-03-03  accepted    — the real one\n",
+    )
+
+    assert _arch.accepted_on(_arch.parse_record(path)) == "2026-03-03"
+
+
+def test_a_proposed_record_with_no_log_section_is_not_acceptable(tmp_path: Path) -> None:
+    """`acceptable` is necessary-and-sufficient, not just the status check.
+
+    A listing built from status alone named a record whose own suggested command
+    then failed — found by Codex on #323, reviewing the diff this function is
+    part of.
+    """
+    path = _write(tmp_path, "a-decision", "---\nstatus: proposed\n---\n\n# A\n\nNo log here.\n")
+
+    assert _arch.acceptable(_arch.parse_record(path)) is False
+
+
+def test_a_proposed_record_with_a_log_section_is_acceptable(tmp_path: Path) -> None:
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+
+    assert _arch.acceptable(_arch.parse_record(path)) is True
+
+
+@pytest.mark.parametrize("status", ["accepted", "superseded", "rejected", "retired", ""])
+def test_a_non_proposed_record_is_never_acceptable_whatever_its_log(tmp_path: Path, status: str) -> None:
+    body = RECORD.format(status=status) if status else "---\ntitle: x\n---\n\n# A\n\n## Log\n\n- x\n"
+    path = _write(tmp_path, "a-decision", body)
+
+    assert _arch.acceptable(_arch.parse_record(path)) is False

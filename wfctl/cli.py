@@ -44,6 +44,7 @@ from wfctl._paths import (
 
 if TYPE_CHECKING:
     from wfctl import _session
+    from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport
 
 app = typer.Typer(no_args_is_help=True)
@@ -1236,6 +1237,207 @@ def arch_none_cmd(
         raise typer.Exit(1)
 
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
+
+
+@arch_app.command("accept")
+def arch_accept_cmd(
+    slug: str = typer.Argument(
+        "", help="The record to accept. Omit to list what could be accepted."
+    ),
+    agreed: str = typer.Option(
+        "", "--agreed", help="Where the human agreed to this decision."
+    ),
+) -> None:
+    """Accept a record: mark it in force, and record where that was agreed.
+
+    The transition `a-human-accepts-a-decision` gives a human. This command
+    writes it down; it never decides that an agreement happened. Nothing wfctl
+    can compute is evidence of one — a merge, a passing step and a shipped
+    command all say the decision was *implemented*, and a record promoted on its
+    own implementation can never disagree with the implementation.
+
+    `--agreed` is required and is not declared required, because the two are
+    different commands to the option parser. Declared, the bare `wfctl arch
+    accept` that lists what is promotable would be refused for a missing citation
+    it has no record to attach one to — a refusal about the wrong thing, arriving
+    before the one the reader can act on.
+
+    The citation is checked for presence and for not being a placeholder, and
+    never for being true. That has no objective test, which is the same ceiling
+    `arch none --reason` names for its own claim: the check is tamper-evident,
+    not unforgeable, and what it buys is that a promotion with nothing behind it
+    must state something false in the file a reviewer reads.
+    """
+    import difflib
+    from datetime import datetime, timezone
+
+    from rich.markup import escape
+
+    from wfctl import _arch
+
+    _, repo_root, _, _ = _resolve_context()
+    root = arch_root(repo_root)
+    records = _arch.load_records(root)
+    promotable = [r for r in records if _arch.acceptable(r)]
+
+    def refuse_with_listing(headline: str) -> None:
+        """Print `headline`, then what could be accepted, and exit 1.
+
+        Two callers reach it — no slug at all, and a slug close to nothing — and
+        each owns its own first line. A shared headline was the first shape and it
+        printed two `✗` markers for one refusal, which reads as two failures.
+
+        Exit 1 in every branch, the empty backlog included. A caller that asked to
+        accept and accepted nothing has failed whatever the reason, and reporting
+        an empty backlog as success is green over a no-op — the reading `doctor`,
+        `verify` and `arch none` each refuse in their own way.
+        """
+        console.print(headline)
+        if not promotable:
+            console.print(
+                "  Every record is already accepted or ended — nothing is promotable."
+            )
+            raise typer.Exit(1)
+        console.print("\n  [dim]Proposed, and promotable:[/dim]")
+        for r in promotable:
+            console.print(f"    {escape(r.slug)}")
+        console.print(
+            '\n  wfctl arch accept <slug> --agreed "<where the human agreed>"'
+        )
+        raise typer.Exit(1)
+
+    if not slug.strip():
+        refuse_with_listing("[red]✗[/red] Name the record to accept.")
+
+    slug = slug.strip()
+    record = next((r for r in records if r.slug == slug), None)
+    if record is None:
+        # A slug is a sentence with hyphens, so difflib's default ratio separates
+        # these well: a genuine typo scores high against one record and an
+        # unrelated slug scores low against all of them. The cutoff is written out
+        # rather than left implicit because it is the number this behaviour turns
+        # on, and with no match above it the promotable listing is a better answer
+        # than "no such record" alone.
+        near = difflib.get_close_matches(slug, [r.slug for r in records], n=3, cutoff=0.6)
+        if not near:
+            refuse_with_listing(f"[red]✗[/red] No record '{escape(slug)}'.")
+        console.print(
+            f"[red]✗[/red] No record '{escape(slug)}' — did you mean one of these?"
+        )
+        for candidate in near:
+            console.print(f"    {escape(candidate)}")
+        raise typer.Exit(1)
+
+    if record.status != "proposed":
+        console.print(_not_promotable(record))
+        raise typer.Exit(1)
+
+    if not agreed.strip():
+        console.print(
+            "[red]✗[/red] --agreed is required: say where the human agreed to this."
+        )
+        raise typer.Exit(1)
+    # The same placeholder shape `arch none` refuses, and for its reason: `<where>`
+    # is what the help text and this docstring both write, so a reader who pastes
+    # the example back would otherwise get a committed record whose evidence is
+    # the word `where` in angle brackets — the un-auditable transition wearing the
+    # command that exists to prevent it.
+    if re.fullmatch(r"<[^>]*>", agreed.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(agreed.strip())}" is a placeholder, not a '
+            "citation — say where the decision was agreed.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    # `_set_status` refuses this too, and that guard is the invariant — every
+    # caller gets it. This one exists for the wording: a citation pasted from a
+    # review thread arrives multi-line without anyone intending anything, and the
+    # module's message has to be true for `supersede`'s reason as well, so it
+    # cannot name the flag the person actually typed.
+    if "\n" in agreed or "\r" in agreed:
+        console.print(
+            "[red]✗[/red] --agreed must be one line. A citation carrying a line "
+            "break would write a\n  second log entry nothing distinguishes from a "
+            "real one — say where in one line,\n  and put the quote in the change "
+            "instead.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    citation = agreed.strip()
+    # UTC, like every other timestamp wfctl writes (`_session.py`, `_verify.py`,
+    # `_io.py`, `_archive.py`). The cost is named rather than hidden: a maintainer
+    # west of UTC accepting late in the evening records tomorrow's date. A column
+    # that is local for one contributor and UTC for another is not orderable,
+    # which is the larger of the two costs.
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        entry = _arch.accept(record, date, citation)
+    except ValueError as e:
+        # The three refusals above are chosen from `record.status`, which this
+        # command holds. These are the ones only the write can discover — a record
+        # with no `## Log` section to append to, or no `status:` line to change.
+        # Uncaught they arrive as a traceback, which is the one output shape that
+        # tells a reader nothing about what to do next, in a command whose other
+        # five failures each say it in a sentence.
+        # The path shortened the way every other line this command prints shows
+        # one. `_arch` raises with the absolute path because it has no repo to be
+        # relative to; leaving it that way puts a 120-character path in front of
+        # the sentence that says what to do.
+        detail = str(e).replace(str(record.path), _arch_location(record.path, repo_root))
+        console.print(f"[red]✗[/red] {escape(detail)}", soft_wrap=True)
+        raise typer.Exit(1) from None
+
+    console.print(
+        f"[green]✓[/green] {escape(record.slug)} is accepted — {escape(citation)}",
+        soft_wrap=True,
+    )
+    # The line the write returned, not a second spelling of it. That line is the
+    # entire artifact of this command, and composing it again here from the same
+    # parts is two renderings of one string — which is exactly what
+    # `_LOG_STATUS_WIDTH` was named to stop, at the caller that would have got it
+    # wrong first.
+    console.print(f"  [dim]Logged:[/dim] {escape(entry)}", soft_wrap=True)
+
+
+def _not_promotable(record: "Record") -> str:
+    """Why this record cannot be accepted, in the words its own status calls for.
+
+    Three sentences and not one, because the reader's next action differs by
+    status: an accepted record needs nothing, an ended one needs a new record,
+    and an unreadable one needs its frontmatter fixed before anything overwrites
+    it. Collapsed into "not proposed" all three read as the same dead end.
+    """
+    from rich.markup import escape
+
+    from wfctl import _arch
+
+    slug = escape(record.slug)
+    if record.status == _arch.IN_FORCE:
+        # Read off the record rather than from git. The `Log` is the durable
+        # answer this whole transition exists to create, so a date taken from
+        # anywhere else would make this message assert what the file does not
+        # say.
+        #
+        # Every record accepted by hand before this command existed happens to
+        # carry the line anyway, so the empty branch below fires for nothing in
+        # this repository today. It is not dead: `_set_status` requires a `## Log`
+        # section and not an `accepted` entry within it, so a record whose status
+        # was edited without one reaches here. Answering the question is what
+        # keeps that case legible — a silently shortened sentence leaves a reader
+        # unsure whether the date was missing or the record was accepted today.
+        when = _arch.accepted_on(record)
+        detail = when if when else "no acceptance logged"
+        return f"[red]✗[/red] {slug} is already accepted ({detail}). Nothing to do."
+    if record.status:
+        return (
+            f"[red]✗[/red] {slug} is {record.status}, not proposed. A decision that "
+            "is\n  binding again is a new record, not a reopened one."
+        )
+    return (
+        f"[red]✗[/red] {slug} has no readable status. Fix its frontmatter first —\n"
+        "  accepting it would overwrite whatever it says."
+    )
 
 
 @arch_app.command("check")
