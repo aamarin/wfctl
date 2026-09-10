@@ -242,7 +242,8 @@ Before marking decompose complete:
 - [ ] PR count justified with rationale (single vs. multiple)
 - [ ] Issue count equals PR count — one issue per PR, no exceptions
 - [ ] Every task assigned to exactly one wave
-- [ ] GitHub issues created and numbered
+- [ ] Issues created and numbered, or step 6 said this run may not create
+      them and none were
 - [ ] Each created key written back into the Issue Grouping Map's `Issue`
       column, replacing the placeholder it was drafted with — `wfctl status`
       reads decompose as unfinished while any row still lacks a key, and

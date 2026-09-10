@@ -1,6 +1,6 @@
 ---
 disable-model-invocation: true
-description: Delivery decomposition for a speckit feature. Analyzes tasks.md to determine PR boundaries, group tasks into GitHub issues, and map parallelization waves. Writes delivery.md and creates GitHub issues using the grouping plan. Replaces /speckit.taskstoissues as the default terminus for features.
+description: Delivery decomposition for a speckit feature. Analyzes tasks.md to determine PR boundaries, group tasks into GitHub issues, and map parallelization waves. Writes delivery.md, and creates the issues where the run was granted the authority to notify. Replaces /speckit.taskstoissues as the default terminus for features.
 handoffs:
   - label: Begin Implementation
     agent: speckit.implement

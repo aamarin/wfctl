@@ -261,3 +261,64 @@ def test_a_key_pattern_that_opens_with_an_inline_flag_does_not_crash_status(
 
     mixed = _feature(spec_tree, _delivery("proj-4", "_(TBD)_", "PROJ-6"))
     assert _states(mixed, tmp_path)["decompose"] == "in_progress"
+
+
+def test_an_unkeyed_map_stops_the_loop_the_flag_now_lets_run(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """What flipping decompose to `automatic` had to not cost (#240).
+
+    The test above pins `next_command`, which is the reader's view. This pins
+    `auto`, which is `speckit-orchestrate`'s: it branches on that flag and never
+    reads `state`, so between #240 and here the step's own table entry says the
+    loop may proceed. What holds it is that a blocked step is never automatic
+    whatever the table says — and nothing else does, which is why the assertion
+    is on the flag rather than on the state that produced it.
+    """
+    _use_tracker(tmp_path)
+    feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.next_command, report.auto) == ("/speckit.decompose", False)
+
+
+def test_a_feature_that_has_analyzed_enters_decompose_without_a_prompt(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The flip itself, and the one payload that shows it (#240).
+
+    No `delivery.md` yet, which is the state a run is in the moment
+    `/speckit.analyze` finishes — decompose current, nothing blocking it. That
+    payload answered `auto: false` before the flip, so the run stopped at a step
+    whose evidence was complete and printed "run /speckit.decompose when ready".
+
+    The step it now enters unattended is the one that reaches the tracker. It is
+    step 6 of `speckit-delivery-plan` that stops there without a notify grant,
+    not this flag — see the flag's own row in `_STEPS`.
+    """
+    _use_tracker(tmp_path)
+    feature = spec_tree(
+        "design.md", "plan.md", "checklists/analysis-report.md",
+        content={"spec.md": CLEAN_SPEC, "tasks.md": "- [ ] T001 open\n"},
+    )
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.current, report.next_command, report.auto) == (
+        "decompose", "/speckit.decompose", True,
+    )
+
+
+def test_a_fully_keyed_plan_leaves_decompose_behind(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The other half of #240's exercise: the loop reaches implement, unprompted.
+
+    `test_a_plan_whose_issues_all_carry_a_key_is_done` asserts the state; this
+    asserts what the loop does with it. Worth its own test because a flip that
+    routed *through* decompose a second time would leave that state untouched
+    and still be wrong — the failure would show up here and nowhere else.
+    """
+    _use_tracker(tmp_path)
+    feature = _feature(spec_tree, _delivery("#251", "#252", "#253"))
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.current, report.next_command, report.auto) == (
+        "implement", "/speckit.implement", True,
+    )

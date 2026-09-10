@@ -66,7 +66,7 @@ _STEPS: dict[str, Step] = {
     "plan":       Step("/speckit.plan",       _AUTOMATIC,       _predicates.plan),
     "tasks":      Step("/speckit.tasks",      _AUTOMATIC,       _predicates.tasks),
     "analyze":    Step("/speckit.analyze",    _REVIEW_REQUIRED, _predicates.analyze),
-    "decompose":  Step("/speckit.decompose",  _REVIEW_REQUIRED, _predicates.decompose),
+    "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _predicates.decompose),
     "implement":  Step("/speckit.implement",  _AUTOMATIC,       _predicates.implement),
 }
 
