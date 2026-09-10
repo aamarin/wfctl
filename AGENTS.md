@@ -20,7 +20,7 @@ There is no setup step. `uv run` resolves the environment from `uv.lock` on
 first use:
 
 ```bash
-uv run pytest -q          # 653 tests, ~45s
+uv run pytest -q          # 1393 tests, ~2min
 uv run ruff check wfctl/ tests/
 uv run mypy wfctl/
 ```
@@ -124,9 +124,17 @@ request. The instruction lives in the command wrappers under
 `speckit-analyze/SKILL.md`, which are spec-kit-derived: an in-place edit there is
 reverted by the next upstream pull with no conflict to notice. Ask
 `wfctl arch-root` for the parent rather than writing `docs/architecture` in — a
-repo can declare it elsewhere. Subdirectories of the arch root are invisible to
-`wfctl arch context`, which globs one level, so nothing here joins the set of
-decisions in force.
+repo can declare it elsewhere.
+
+A scan file is not a record, and three readers of the arch root have to agree
+about that. `wfctl arch context` does so for free — `load_records` globs one
+level, which is what already keeps `design/`, `declarations/` and `views/` out of
+the projection. The other two ask git about the whole root, and a git pathspec
+naming a directory is recursive, so both are told to skip `scans/` by name:
+`records_on_this_branch`, which prints `record:` lines saying what an unattended
+run decided, and `_observe`, whose `boundary` says whether the boundary question
+was answered. A fourth reader added later has to make the same exclusion, and
+`_paths.SCANS_DIR` is where it finds out.
 
 ## Testing conventions
 

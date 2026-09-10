@@ -306,6 +306,13 @@ def arch_root(repo_root: Path) -> Path:
     return found[0] if found is not None else repo_root / "docs" / "architecture"
 
 
+# The arch-root subtree holding what a review step's scan covered, rather than
+# what a run decided (#307). A name and not a literal at each call site, because
+# three readers of the arch root now have to agree about which corner of it is
+# not a record, and a fourth added later has one place to find that out.
+SCANS_DIR = "scans"
+
+
 def touched_on_this_branch(
     repo_root: Path, path: Path, exclude: Path | None = None
 ) -> bool | None:
@@ -354,7 +361,9 @@ def touched_on_this_branch(
     return None if committed is None else bool(committed)
 
 
-def records_on_this_branch(repo_root: Path, arch: Path) -> list[str]:
+def records_on_this_branch(
+    repo_root: Path, arch: Path, exclude: Path | None = None
+) -> list[str]:
     """The record slugs this branch adds or modifies, uncommitted work included.
 
     A sibling of `touched_on_this_branch` rather than a widening of it, because
@@ -367,6 +376,13 @@ def records_on_this_branch(repo_root: Path, arch: Path) -> list[str]:
     Slugs rather than paths: a record's identity *is* its slug
     (`architecture-decisions`), and a reader scanning a PR for what a run decided
     is matching names, not directories.
+
+    `exclude` drops one subtree, for its sibling's reason and one of its own. A
+    git pathspec naming a directory is recursive and cannot be made otherwise, and
+    the arch root now holds a subtree of documents that decided nothing:
+    `scans/` is what a review step covered, not what a run chose. Listed as a
+    record it answers the caller's question wrongly in the one mode that has no
+    reader to notice (#307).
     """
     if not is_in_tree(arch, repo_root):
         return []
@@ -380,16 +396,22 @@ def records_on_this_branch(repo_root: Path, arch: Path) -> list[str]:
         # the path in both, and a record path never contains one.
         return [line.split()[-1] for line in r.stdout.splitlines() if line.strip()]
 
-    spec = str(arch)
+    spec = [str(arch)]
+    if exclude is not None:
+        # `:(exclude)` is magic-pathspec syntax and takes a repo-relative path —
+        # the same constraint `touched_on_this_branch` documents, and the same
+        # direction of failure: an absolute path is read as a literal name,
+        # matches nothing, and the subtree comes back in the listing.
+        spec.append(f":(exclude){exclude.resolve().relative_to(repo_root.resolve())}")
     # `-uall`, unlike `touched_on_this_branch`'s bare `--porcelain`. Git collapses
     # an untracked *directory* to one entry, so the first record written into a
     # repo that has none reports `docs/architecture/` and no filename — which a
     # caller asking "did anything change" can still read as yes, and a caller
     # asking "which records" reads as none.
-    found = names("status", "--porcelain", "-uall", "--", spec)
+    found = names("status", "--porcelain", "-uall", "--", *spec)
     trunk = _trunk_branch(repo_root)
     if trunk is not None:
-        found += names("diff", "--name-only", f"{trunk}...HEAD", "--", spec)
+        found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
 
     slugs = {Path(p).stem for p in found if p.endswith(".md")}
     return sorted(slugs)

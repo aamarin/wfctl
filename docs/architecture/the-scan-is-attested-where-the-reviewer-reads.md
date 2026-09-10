@@ -118,6 +118,23 @@ projection of decisions in force — `load_records` globs `<root>/*.md` one leve
 deep (`_arch.py:146`), which is the same reason `design/`, `declarations/` and
 `views/` stay out of `wfctl arch context`.
 
+**Two other readers ask git about the whole root, and both had to be told.** A
+git pathspec naming a directory is recursive and cannot be made otherwise, so
+neither inherits `load_records`' protection: `records_on_this_branch` prints the
+`record:` lines that tell an unattended run's reader what it decided, and
+`_observe` computes the `boundary` line in `wfctl end`'s handoff. Left alone,
+every branch that ran clarify reported two records that chose nothing, and
+`boundary` became constant-true against `_BOUNDARY`'s own comment about #70 —
+because these two steps run on nearly every branch. Both now exclude
+`_paths.SCANS_DIR`.
+
+That is the one respect in which this decision is not free, and it is worth
+stating as a property rather than a repair: **a subdirectory of the arch root is
+invisible to a reader that globs and visible to a reader that asks git.** A fifth
+reader added later inherits the question, not the answer. The list above was
+written twice — once naming the three readers that are unaffected, and once, after
+a review panel measured it, naming the two that were.
+
 A scan file cannot spuriously satisfy the design gate. `design_block` returns
 `None` once `spec.md` exists (`_predicates.py:520`), and both steps run after
 `specify`, so a file written under the arch root by either can never be the
@@ -134,3 +151,7 @@ gate, and gates are #100's.
 
 - 2026-09-09  proposed    — #307. Two steps that exist to find problems, reporting
   where the reviewer has no path to the report.
+- 2026-09-09  amended     — three review panellists independently found two
+  arch-root readers this record's `Consequences` had missed, both counting scan
+  files as architecture records. Amended while `proposed`, which is the status
+  for a decision nobody has ratified.

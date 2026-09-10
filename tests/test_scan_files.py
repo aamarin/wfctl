@@ -5,16 +5,16 @@ Both steps exist to find problems and both wrote everything they found into
 default `<repo>/specs`. A reviewer opening the change saw none of it, so a
 thorough scan and one that never ran were the same pull request (#307).
 
-The instruction that fixes that is prose in two command wrappers, and prose under
-`wfctl/agents/` is the one thing the suite cannot otherwise see: `install-skills`
-copies it, no test reads it, and a wrapper that lost the section would ship green.
-So the assertions here are about the shipped bundle rather than about `wfctl/`.
+The instruction that fixes that is prose under `wfctl/agents/`, which is the one
+thing the suite cannot otherwise see: `install-skills` copies it, no test reads
+it, and a wrapper that lost a rule would ship green. So most assertions here are
+about the shipped bundle rather than about `wfctl/`.
 
-The other two tests hold the claims the destination rests on — that a file under
-`<arch-root>/scans/` is reachable by `wfctl arch check` and invisible to
-`wfctl arch context`. Both are true today by properties of code this change does
-not touch, which is exactly why they are asserted rather than assumed: nothing
-would report it if either moved.
+The exception is `scans_are_not_records`, which holds the one behaviour change the
+destination forced. Three panel reviewers independently found that two callers
+read the arch root recursively and had begun counting scan files as architecture
+records — the record's own `Consequences` had enumerated the readers and missed
+these two.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl import _arch
+from wfctl._paths import SCANS_DIR, records_on_this_branch, touched_on_this_branch
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -34,110 +35,198 @@ runner = CliRunner()
 # Resolved through `files("wfctl")` for `test_skill_cross_references`' reason:
 # conftest's autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake
 # tree, and reading the real shipped one is this file's whole purpose.
-_COMMANDS = Path(str(files("wfctl"))) / "agents" / "commands"
+_AGENTS = Path(str(files("wfctl"))) / "agents"
 
 # One per review step. The step name is also the scan file's suffix, so a wrapper
 # and the file it writes are named from the same word.
 _REVIEW_WRAPPERS = ("clarify", "analyze")
 
+# What the shared discipline lives in, and what each wrapper must still carry
+# itself. The split is the design: a rule in the skill is written once, and a rule
+# about what *this* step scanned cannot be.
+_SHARED = _AGENTS / "skills" / "writing-a-scan-file" / "SKILL.md"
 
-@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
-def test_each_review_wrapper_ships(step: str) -> None:
-    """A dropped wrapper takes the instruction with it and nothing else notices.
 
-    The skill it points at is not mirrored, so the wrapper is the only route in:
-    `_MIRRORED_SKILLS` names neither `speckit-clarify` nor `speckit-analyze`, and
-    a skill absent from both routes is reachable by nobody.
+def _wrapper(step: str) -> str:
+    return (_AGENTS / "commands" / f"speckit.{step}.md").read_text()
+
+
+def _section(step: str) -> str:
+    return _wrapper(step).split("## Write the scan file")[1]
+
+
+def _repo(root: Path) -> Path:
+    """A git repo with one commit on `main`, so a trunk exists to compare to.
+
+    Deliberately not imported from `test_arch_check`, which ships the same
+    helper: a test module importing another test module couples two files whose
+    only relation is that both need a repo, and the next edit to that one has to
+    know about this one. Six lines is the cheaper side of that trade.
     """
-    assert (_COMMANDS / f"speckit.{step}.md").exists()
+    root.mkdir(parents=True, exist_ok=True)
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "t@example.com"],
+        ["config", "user.name", "t"],
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True)
+    (root / "README.md").write_text("x\n")
+    subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    return root
 
 
-@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
-def test_each_review_wrapper_tells_the_step_to_write_a_scan_file(step: str) -> None:
-    """The section, its destination, and the reason the destination is asked for.
+# --- the shipped instruction -------------------------------------------------
 
-    Three assertions and not one, because each fails on its own: a wrapper can
-    keep the heading and lose the path, or keep both and hard-code
-    `docs/architecture`, which is the default and not the truth — a repo that
-    declares `arch_root` elsewhere would then have its scan files written where no
-    reviewer reads them, silently, which is the defect this feature closes.
+
+def test_the_shared_scan_skill_ships() -> None:
+    """Both wrappers point at it, and a pointer to a missing skill fails silently.
+
+    That is `test_skill_cross_references`' whole subject one directory over; this
+    asserts the specific one the feature cannot work without.
     """
-    text = (_COMMANDS / f"speckit.{step}.md").read_text()
-
-    assert "## Write the scan file" in text
-    assert f"scans/<issue>-{step}.md" in text
-    assert "wfctl arch-root" in text
+    assert _SHARED.exists()
 
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
-def test_each_review_wrapper_makes_the_step_commit_before_checking(step: str) -> None:
-    """`arch check` refuses a file that is only staged, so the order is load-bearing.
+def test_each_review_wrapper_points_at_the_shared_scan_skill(step: str) -> None:
+    """Half the instruction lives in one file so it cannot drift between two.
 
-    A wrapper that told the step to check before committing would fail on every
-    run and teach the reader that the check is broken rather than that the file is
-    (FR-013).
-
-    Scoped to the section, not the file. `wfctl arch check` also appears in
-    `allowed-tools`, which is frontmatter and therefore earlier than everything —
-    reading the whole file makes this assertion fail on a correct wrapper.
+    It drifted before this split existed: the same paste went into both wrappers
+    and both lost the `git commit` pathspec together, which a panel found and no
+    test could have.
     """
-    section = (_COMMANDS / f"speckit.{step}.md").read_text().split("## Write the scan file")[1]
-    commit = section.index("git commit")
-    check = section.index("wfctl arch check")
-
-    assert commit < check, "the wrapper checks before it commits"
+    assert ".agents/skills/writing-a-scan-file/SKILL.md" in _section(step)
 
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
-def test_each_review_wrapper_requires_the_empty_run_to_write_a_file(step: str) -> None:
+def test_each_review_wrapper_names_its_own_destination(step: str) -> None:
+    """The one thing the shared skill cannot say for either step.
+
+    Hard-coding `docs/architecture` instead of asking `wfctl arch-root` is the
+    silent failure this pair guards: a repo that declares the root elsewhere would
+    get its scan files written where no reviewer reads them, with no error.
+    """
+    section = _section(step)
+
+    assert f"scans/<issue>-{step}.md" in section
+    assert "arch-root" in section
+
+
+@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
+def test_each_review_wrapper_carries_its_own_coverage_rows(step: str) -> None:
+    """The coverage table is the file's body, and its rows are step-specific.
+
+    A wrapper that inherited generic rows would produce a table nobody could check
+    against what the step actually scans — which is the table's only value.
+    """
+    section = _section(step)
+    first_row = "Functional Scope & Behavior" if step == "clarify" else "A · Duplication"
+
+    assert first_row in section
+
+
+def test_the_shared_skill_requires_the_empty_run_to_write_a_section() -> None:
     """The case #307 was filed over, and the one an instruction most easily loses.
 
     Told to auto-choose, an agent stops generating questions at all — so "no
     findings" is what a thorough scan over a clean spec and a scan that never ran
-    both produce. A wrapper that says to write a scan file *when there is
+    both produce. An instruction that says to write a scan file *when there is
     something to report* has re-created the defect while looking fixed.
     """
-    text = (_COMMANDS / f"speckit.{step}.md").read_text()
-
-    assert "A run that found nothing still writes the file" in text
+    assert "A run that found nothing still writes the section" in _SHARED.read_text()
 
 
-@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
-def test_each_review_wrapper_appends_a_session_rather_than_replacing(step: str) -> None:
+def test_the_shared_skill_scopes_the_commit_to_the_scan_file() -> None:
+    """A bare `git commit` writes the whole index, mid-pipeline, where staged code is normal.
+
+    The first version of this instruction had the pathspec on `add` and not on
+    `commit`, so an author's staged work would land in a commit whose subject says
+    it holds a scan file. This repo had already met and written down that exact
+    failure in `software-design-decisions/SKILL.md`; the new block was that block
+    with the pathspec dropped.
+    """
+    line = next(
+        ln for ln in _SHARED.read_text().splitlines() if ln.strip().startswith("git commit")
+    )
+
+    assert " -- " in line, f"commit is unscoped: {line.strip()}"
+
+
+def test_the_shared_skill_commits_before_it_checks() -> None:
+    """`arch check` refuses a file that is only staged, so the order is load-bearing.
+
+    Checking first would fail on every run and teach the reader that the check is
+    broken rather than that the file is.
+    """
+    text = _SHARED.read_text()
+
+    assert text.index("git commit") < text.index("wfctl arch check")
+
+
+def test_the_shared_skill_extends_a_session_rather_than_replacing_it() -> None:
     """Found by running the step, not by reading it.
 
     The instruction first said to write the file whole on every run, which reads
     as the simpler rule and is wrong for the only case that matters: this branch
     asked three questions, then re-scanned a spec that no longer had any, and
-    replacing would have deleted the three answers the requirements were written
-    from. A second scan finding nothing is only meaningful given what the first
-    one found.
+    replacing would have deleted the three answers FR-013 through FR-015 were
+    written from.
 
-    What is still never merged is two *steps* into one file — that is the
-    coordination the destination was chosen to avoid, and the level-2 record's
-    `Considered` argues it.
+    Both halves are asserted because they are separate rules that were settled
+    separately — append across sessions, and extend rather than open a second
+    section when the date is already present.
     """
-    section = (_COMMANDS / f"speckit.{step}.md").read_text().split("## Write the scan file")[1]
-    # Whitespace-normalised: the prose is hard-wrapped, so a phrase that happens
-    # to straddle a line break is present and unmatchable as written.
-    flowed = " ".join(section.split())
+    flowed = " ".join(_SHARED.read_text().split())
 
-    assert "## Session YYYY-MM-DD" in section
     assert "never discards an earlier session" in flowed
+    assert "extends that section rather than opening a new one" in flowed
 
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
 def test_no_review_skill_carries_the_instruction(step: str) -> None:
     """`vendor-upstream-skills`: prefer layering to editing.
 
-    Both skills are `github/spec-kit`-derived. An edit made in the `SKILL.md` is
-    reverted by the next upstream pull with no conflict to notice, and the
-    behaviour then regresses at a moment whose diff mentions neither step. This
-    fails on the repair, not on the original mistake.
+    Both are `github/spec-kit`-derived. An edit made in the `SKILL.md` is reverted
+    by the next upstream pull with no conflict to notice, and the behaviour then
+    regresses at a moment whose diff mentions neither step. This fails on the
+    repair, not on the original mistake.
     """
-    skill = Path(str(files("wfctl"))) / "agents" / "skills" / f"speckit-{step}" / "SKILL.md"
+    skill = _AGENTS / "skills" / f"speckit-{step}" / "SKILL.md"
 
     assert "## Write the scan file" not in skill.read_text()
+
+
+def test_the_analyze_wrapper_names_the_read_only_rule_it_overrides() -> None:
+    """`speckit-analyze` says STRICTLY READ-ONLY twice, and now it writes a file.
+
+    `speckit.brainstorm.md` is the precedent and it names every upstream pause it
+    overrides. A wrapper that silently contradicts the skill it points at teaches
+    the reader to discount both, which costs more than the one rule it bent.
+    """
+    assert "READ-ONLY" in (_AGENTS / "skills" / "speckit-analyze" / "SKILL.md").read_text()
+    assert "read-only rule" in _section("analyze")
+
+
+@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
+def test_each_review_wrapper_allows_the_commands_the_scan_file_needs(step: str) -> None:
+    """`allowed-tools` is a ceiling on the whole turn, so a rule without its grant
+    is a rule that reads correctly and cannot run.
+
+    Silent in the worst way: the agent reports a tool refusal, not a missing
+    instruction. `test_skill_cross_references` already holds this for
+    `speckit.brainstorm.md`, which is where the shape comes from. `Edit` is in the
+    list because appending a session to an existing file through `Write` means
+    rewriting it whole, which is the operation most likely to drop what was there.
+    """
+    front = _wrapper(step).split("---")[1]
+    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+
+    for grant in ("Write", "Edit", "wfctl arch-root", "wfctl arch check", "git commit"):
+        assert grant in allowed, f"speckit.{step}.md cannot run its own instruction: {grant}"
+
+
+# --- what the destination changed -------------------------------------------
 
 
 def test_a_scan_file_is_not_a_decision_in_force(tmp_path: Path) -> None:
@@ -150,8 +239,8 @@ def test_a_scan_file_is_not_a_decision_in_force(tmp_path: Path) -> None:
     files to the root would file every scan among the accepted records.
     """
     root = tmp_path / "docs" / "architecture"
-    (root / "scans").mkdir(parents=True)
-    (root / "scans" / "307-clarify.md").write_text("# Clarification scan — #307\n")
+    (root / SCANS_DIR).mkdir(parents=True)
+    (root / SCANS_DIR / "307-clarify.md").write_text("# Clarification scan — #307\n")
     (root / "a-decision.md").write_text(
         "---\nstatus: accepted\n---\n\n# A decision\n\n## Log\n\n- 2026-01-01  accepted  — x\n"
     )
@@ -161,30 +250,58 @@ def test_a_scan_file_is_not_a_decision_in_force(tmp_path: Path) -> None:
     assert slugs == ["a-decision"]
 
 
+def test_a_scan_file_is_not_a_record_this_branch_decided(tmp_path: Path) -> None:
+    """The defect three reviewers found, written as the outcome it must not produce.
+
+    `records_on_this_branch` asks git about the arch root, and a git pathspec
+    naming a directory is recursive. Before the exclusion, every branch that ran
+    clarify reported two `record:` lines for documents that decided nothing —
+    under the `auto-approve` notice, whose whole job is telling an unattended run's
+    reader what it chose.
+    """
+    repo = _repo(tmp_path / "r")
+    arch = repo / "docs" / "architecture"
+    (arch / SCANS_DIR).mkdir(parents=True)
+    (arch / SCANS_DIR / "307-clarify.md").write_text("# scan\n")
+    (arch / "a-decision.md").write_text("---\nstatus: accepted\n---\n\n# A decision\n")
+    subprocess.run(["git", "checkout", "-qb", "307-x"], cwd=repo, check=True)
+
+    slugs = records_on_this_branch(repo, arch, exclude=arch / SCANS_DIR)
+
+    assert slugs == ["a-decision"]
+
+
+def test_a_scan_file_alone_does_not_answer_the_boundary_question(tmp_path: Path) -> None:
+    """`wfctl end`'s handoff says whether the boundary question was answered.
+
+    Clarify and analyze run on nearly every branch, so a scan file counted here
+    makes that observation constant-true and it stops carrying anything —
+    `_BOUNDARY`'s own comment calls naming a missing answer "answered" the kind of
+    claim #70 is about.
+    """
+    repo = _repo(tmp_path / "r")
+    arch = repo / "docs" / "architecture"
+    (arch / SCANS_DIR).mkdir(parents=True)
+    (arch / SCANS_DIR / "307-clarify.md").write_text("# scan\n")
+    subprocess.run(["git", "checkout", "-qb", "307-x"], cwd=repo, check=True)
+
+    assert touched_on_this_branch(repo, arch) is True
+    assert touched_on_this_branch(repo, arch, exclude=arch / SCANS_DIR) is False
+
+
 def test_arch_check_answers_for_a_path_under_scans(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The claim the whole destination rests on: the check takes any path.
 
     `arch check` was built for a level-3 record and never asked whether its
-    argument sits under the arch root (`cli.py`), so a scan file gets the same
-    answer for free and this feature adds no wfctl code. Asserted because that is
-    an absence — nothing in the command says it is deliberate, and a containment
-    guard added later would silently strand every scan file.
+    argument sits under the arch root, so a scan file gets the same answer for
+    free and this feature adds no command. Asserted because that is an absence —
+    nothing in the command says it is deliberate, and a containment guard added
+    later would silently strand every scan file.
     """
-    repo = tmp_path / "r"
-    repo.mkdir()
-    for args in (
-        ["init", "-q", "-b", "main"],
-        ["config", "user.email", "t@example.com"],
-        ["config", "user.name", "t"],
-    ):
-        subprocess.run(["git", *args], cwd=repo, check=True)
-    (repo / "README.md").write_text("x\n")
-    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
-
-    scan = repo / "docs" / "architecture" / "scans" / "307-clarify.md"
+    repo = _repo(tmp_path / "r")
+    scan = repo / "docs" / "architecture" / SCANS_DIR / "307-clarify.md"
     scan.parent.mkdir(parents=True)
     scan.write_text("# Clarification scan — #307\n")
     subprocess.run(["git", "checkout", "-qb", "307-x"], cwd=repo, check=True)

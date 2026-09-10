@@ -24,6 +24,7 @@ from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
+    SCANS_DIR,
     arch_root,
     claim_conflicts,
     is_in_tree,
@@ -440,7 +441,12 @@ def status_cmd(
         # `check-body`, which already reads a PR description before `gh pr
         # create` sees it and could refuse one that omits them — a rule expressed
         # as a check rather than as a line someone has to read.
-        for slug in records_on_this_branch(repo_root, arch_root(repo_root)):
+        arch = arch_root(repo_root)
+        # `scans/` excluded: this listing says what an unattended run *decided*,
+        # and a scan file records what a review step covered. Left in, every
+        # branch that ran clarify reports two records that chose nothing, in the
+        # one mode with no reader to catch it (#307).
+        for slug in records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR):
             console.print(f"[dim]  record:[/dim] {slug}")
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
@@ -636,7 +642,18 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
     _, dirty = _verify.code_identity(repo_root)
     return _session.Observations(
         step=step,
-        boundary=_BOUNDARY[touched_on_this_branch(repo_root, arch_root(repo_root))],
+        # `scans/` excluded for the reason the listing above excludes it, met
+        # here as a sharper failure: clarify and analyze run on nearly every
+        # branch, so a scan file counted here makes `boundary` constant-true and
+        # the observation stops carrying anything (#307). The pre-existing
+        # question of whether a level-3 record under `design/` should count here
+        # — `design_block` excludes it and this call does not — is older than
+        # this change and is left where it was found.
+        boundary=_BOUNDARY[
+            touched_on_this_branch(
+                repo_root, arch_root(repo_root), exclude=arch_root(repo_root) / SCANS_DIR
+            )
+        ],
         tree="dirty" if dirty else "clean",
     )
 

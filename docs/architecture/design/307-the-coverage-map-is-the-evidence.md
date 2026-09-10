@@ -102,12 +102,14 @@ run that never scanned has no rows to write.
 ```markdown
 # Clarification scan — #307
 
+## Session 2026-09-09
+
 - Verdict: satisfied
 - Scanned: spec.md
 - Asked: 0 · Answered: 0 · Outstanding: 0
 - Detail: <spec-root>/307-…/spec.md § Clarifications
 
-## Coverage
+### Coverage
 
 | Category | Status |
 | --- | --- |
@@ -122,10 +124,16 @@ run that never scanned has no rows to write.
 | Completion Signals | Clear |
 | Misc / Placeholders | Clear |
 
-## Findings
+### Findings
 
 No question met the bar. Every category above was read and found Clear.
 ```
+
+The `## Session` heading arrived after this record was first written, from running
+the step rather than reading it: a re-scan of a spec whose questions were already
+answered would, under a write-it-whole rule, have deleted the session that
+answered them. A second run on a date already present extends that section rather
+than opening another.
 
 The verdict is `satisfied` when the scan ran and nothing is outstanding,
 `unsatisfied` when a category is left Outstanding or a high-impact one Deferred,

@@ -27,7 +27,7 @@
   Outstanding for the report. Two implementers would have picked differently.
   → Fixed. FR-004 now fixes the reporting set, and says why the scanning set is not
   the one written down.
-- **C · Coverage gap, MEDIUM** — two tasks, "add the instruction", stood in for
+- **E · Coverage gaps, MEDIUM** — two tasks, "add the instruction", stood in for
   eight functional requirements. Nothing in `tasks.md` would have told an
   implementer that FR-011 or FR-014 existed.
   → Fixed. T007 and T008 now name one line per requirement they carry; requirement
