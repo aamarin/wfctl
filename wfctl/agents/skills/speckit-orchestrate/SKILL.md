@@ -120,18 +120,32 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 5. Branch on the result:
 
-   **`stall` is not `null`** — check this before `auto`, and stop:
-   - Display: "Stopped — `{stall.step}` ran {stall.passes} times and changed
-     nothing." Then, under it, `unchanged` as a list, and one line saying this
-     needs a person because re-entering the step has not moved the work.
+   **Story complete** (`next_command` is `null`):
+   - Display: "Story complete — open PR or run `/end-session`."
+   - Stop.
+
+   **`stall` is not `null`** — after the story-complete check above, and before
+   `auto`:
+   - Display: "Stopped — `{stall.step}` was attempted {stall.passes} times and
+     changed nothing." Then `unchanged` as a list where it is non-empty, and one
+     line saying this needs a person because re-entering the step has not moved
+     the work.
+   - Where the current step also carries a `reason`, display it and its `remedy`
+     below that. The two answer different halves — the reason is what re-entering
+     had to supply, and the stall is that re-entering has already been tried — and
+     a stop that prints only the second sends the reader looking for a cause the
+     payload was holding.
    - Stop. Do not emit `EXECUTE_COMMAND`.
 
-   Ahead of the `auto` branch, and that order is the whole of it: a stalled run
-   has `auto: true` and a `next_command` naming the step that just failed to make
-   progress, so reading `auto` first sends the loop back into it — which is the
-   defect (#332), not a state to recover from.
+   **After story complete, and before `auto`.** Both orderings are load-bearing.
+   A finished story stops moving its artifacts by definition, so a run that ends
+   and is then resumed reports a stall on the pseudo-step `complete` — announcing
+   a stopped run on finished work inverts the one distinction this payload exists
+   to draw. And a stalled run has `auto: true` with a `next_command` naming the
+   step that just failed to make progress, so reading `auto` first sends the loop
+   straight back into it, which is the defect (#332).
 
-   You are not deciding this. wfctl counts the passes, from the event log
+   You are not deciding this. wfctl counts the attempts, from the event log
    `wfctl resume` writes one line into per pass; the payload carries the verdict
    and this step renders it (`wfctl-counts-the-passes`). Do not keep your own
    tally of which command you emitted last, and do not treat the absence of
@@ -143,10 +157,6 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    once someone supplies it; a stall says re-entering has already been tried and
    changed nothing. Both stop the loop, and only one of them is worth trying
    again after a person looks.
-
-   **Story complete** (`next_command` is `null`):
-   - Display: "Story complete — open PR or run `/end-session`."
-   - Stop.
 
    **`auto` is `true`**:
    - Strip the leading `/` from `next_command` (e.g. `/speckit.plan` → `speckit.plan`)

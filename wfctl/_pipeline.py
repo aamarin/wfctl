@@ -497,6 +497,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
     command, auto = next_step_content(name, blocked)
+    digest_now = None if ev is None else _stall.digest(ev)
     return PipelineReport(
         steps=[
             {
@@ -531,6 +532,17 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.
-        stall=_stall.find_stall(agent_dir),
-        evidence_digest=None if ev is None else _stall.digest(ev),
+        #
+        # `branch` because one state dir can serve several branches; `current`
+        # because a verdict that outlived the artifacts it describes is a false
+        # claim on the screen a person reads right after acting on it; `covered`
+        # so the report names the files that are there rather than three
+        # constants, two of which `status` may be reporting as missing.
+        stall=_stall.find_stall(
+            agent_dir,
+            branch=branch,
+            current=digest_now,
+            covered=tuple(n for n in _stall.COVERED if spec_dir and (spec_dir / n).exists()),
+        ),
+        evidence_digest=digest_now,
     )

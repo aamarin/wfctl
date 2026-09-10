@@ -65,18 +65,101 @@ def test_text_moving_between_artifacts_moves_the_digest() -> None:
     assert digest(_evidence("ab", "", "")) != digest(_evidence("a", "b", ""))
 
 
-def test_three_passes_with_the_evidence_unchanged_is_a_stall(tmp_path: Path) -> None:
-    """The defect in #332: the same step, the same inputs, no reason to stop."""
+def test_three_attempts_that_changed_nothing_is_a_stall(tmp_path: Path) -> None:
+    """The defect in #332: the same step, the same inputs, no reason to stop.
+
+    Four observations, not three. The line written when the pipeline arrives at a
+    step precedes any attempt at it, so an attempt is what sits *between* two
+    identical observations — the off-by-one all three reviewers found in the first
+    version of this file, which stopped a step after two real runs.
+    """
+    agent_dir = _log(
+        tmp_path,
+        _pass("clarify", "aaa", "2026-09-10T10:00:00Z"),
+        _pass("clarify", "aaa", "2026-09-10T10:01:00Z"),
+        _pass("clarify", "aaa", "2026-09-10T10:02:00Z"),
+        _pass("clarify", "aaa", "2026-09-10T10:03:00Z"),
+    )
+    found = find_stall(agent_dir)
+    assert found is not None
+    assert found.step == "clarify"
+    assert found.passes == STALL_AFTER
+
+
+def test_arriving_at_a_step_is_not_an_attempt_at_it(tmp_path: Path) -> None:
+    """Three identical observations carry two attempts, which is under the bound.
+
+    `resume` records the step that is *about to* run, so counting lines as runs
+    stops a step after it has executed twice — the "fires on the first repeat"
+    failure `STALL_AFTER` was chosen to avoid.
+    """
     agent_dir = _log(
         tmp_path,
         _pass("clarify", "aaa", "2026-09-10T10:00:00Z"),
         _pass("clarify", "aaa", "2026-09-10T10:01:00Z"),
         _pass("clarify", "aaa", "2026-09-10T10:02:00Z"),
     )
-    found = find_stall(agent_dir)
-    assert found is not None
-    assert found.step == "clarify"
-    assert found.passes == STALL_AFTER
+    assert find_stall(agent_dir) is None
+
+
+def test_a_finished_story_is_never_a_stall(tmp_path: Path) -> None:
+    """A completed story stops moving its artifacts by definition.
+
+    `resume` writes `complete` into the same field a real step goes in, so without
+    the carve-out every finished branch reports as stalled — inverting the one
+    distinction the payload exists to draw.
+    """
+    agent_dir = _log(
+        tmp_path,
+        *[_pass("complete", "aaa", f"2026-09-10T10:0{i}:00Z") for i in range(5)],
+    )
+    assert find_stall(agent_dir) is None
+
+
+def test_a_branch_parked_overnight_does_not_halt_on_arrival(tmp_path: Path) -> None:
+    """Yesterday's unchanged passes plus today's arrival is a parked branch.
+
+    The spec's fourth edge case. `/start-session` writes the sitting boundary into
+    this same log, so honouring it costs a comparison — and without it a session
+    stops before the step has been entered once.
+    """
+    agent_dir = _log(
+        tmp_path,
+        _pass("clarify", "aaa", "2026-09-09T10:00:00Z"),
+        _pass("clarify", "aaa", "2026-09-09T10:01:00Z"),
+        _pass("clarify", "aaa", "2026-09-09T10:02:00Z"),
+        {"ts": "2026-09-10T09:00:00Z", "event": "start", "step": "clarify"},
+        _pass("clarify", "aaa", "2026-09-10T10:00:00Z"),
+    )
+    assert find_stall(agent_dir) is None
+
+
+def test_another_branch_passes_are_not_counted(tmp_path: Path) -> None:
+    """`WFCTL_STATE_DIR` can point several branches at one log.
+
+    Sub-issue branches of one epic are the sharp case: a grouping map resolves
+    them to a single spec dir, so their digests match and their step names usually
+    do too. This is the leak `notify-resolved` already carries a branch for.
+    """
+    mine = [dict(_pass("clarify", "aaa", f"2026-09-10T10:0{i}:00Z"), branch="a") for i in range(2)]
+    theirs = [dict(_pass("clarify", "aaa", f"2026-09-10T10:1{i}:00Z"), branch="b") for i in range(3)]
+    agent_dir = _log(tmp_path, *(mine + theirs))
+    assert find_stall(agent_dir, branch="a") is None
+
+
+def test_a_verdict_does_not_outlive_the_artifacts_it_describes(tmp_path: Path) -> None:
+    """The screen a person reads straight after fixing what the stall asked for.
+
+    `find_stall` reads the log; the current digest is computed by the same report
+    two lines away. Without comparing them, `status` goes on saying the files are
+    unchanged after they have been changed.
+    """
+    agent_dir = _log(
+        tmp_path,
+        *[_pass("clarify", "aaa", f"2026-09-10T10:0{i}:00Z") for i in range(4)],
+    )
+    assert find_stall(agent_dir) is not None
+    assert find_stall(agent_dir, current="zzz") is None
 
 
 def test_a_pass_that_advanced_the_work_resets_the_count(tmp_path: Path) -> None:
@@ -91,11 +174,12 @@ def test_a_pass_that_advanced_the_work_resets_the_count(tmp_path: Path) -> None:
         _pass("clarify", "aaa", "2026-09-10T10:00:00Z"),
         _pass("clarify", "bbb", "2026-09-10T10:01:00Z"),
         _pass("clarify", "ccc", "2026-09-10T10:02:00Z"),
+        _pass("clarify", "ddd", "2026-09-10T10:03:00Z"),
     )
     assert find_stall(agent_dir) is None
 
 
-def test_two_unchanged_passes_are_not_yet_a_stall(tmp_path: Path) -> None:
+def test_two_unchanged_observations_are_not_yet_a_stall(tmp_path: Path) -> None:
     """A step legitimately taking a second run is common; stopping there is wrong."""
     agent_dir = _log(
         tmp_path,
@@ -132,26 +216,43 @@ def test_an_unreadable_line_is_skipped_rather_than_ending_the_run(tmp_path: Path
         "{not json at all",
         _pass("clarify", "aaa", "2026-09-10T10:01:00Z"),
         _pass("clarify", "aaa", "2026-09-10T10:02:00Z"),
+        _pass("clarify", "aaa", "2026-09-10T10:03:00Z"),
     )
     found = find_stall(agent_dir)
     assert found is not None
     assert found.passes == STALL_AFTER
 
 
-def test_the_legacy_double_write_counts_as_one_pass(tmp_path: Path) -> None:
-    """Older wfctl wrote two resume lines per pass sharing a timestamp.
+def test_a_legacy_double_written_history_never_produces_a_stall(tmp_path: Path) -> None:
+    """Older wfctl wrote two resume lines per pass at one timestamp.
 
-    Verified in the `59-deployment-key-metadata` log. Counting them separately
-    would fire the bound a pass early on any branch carrying that history.
+    Verified in the `59-deployment-key-metadata` log. They need no special
+    handling because they predate the digest field, so the run breaks at them
+    regardless — and the collapse rule written for them cost real observations
+    the moment a loop turned twice inside a second.
+    """
+    legacy = [
+        {"ts": "2026-09-10T10:00:00Z", "event": "resume", "branch": "a", "step": "clarify"},
+        {"ts": "2026-09-10T10:00:00Z", "event": "resume", "step": "clarify",
+         "command": "/clarify", "auto": True},
+    ] * 3
+    assert find_stall(_log(tmp_path, *legacy)) is None
+
+
+def test_four_observations_inside_one_second_still_count(tmp_path: Path) -> None:
+    """A loop fast enough to turn twice in a second must not lose passes.
+
+    The regression the timestamp-collapse rule caused: the end-to-end test drove
+    four real resumes inside one second, they counted as two, and the bound never
+    fired while every hand-seeded test stayed green.
     """
     agent_dir = _log(
         tmp_path,
-        _pass("clarify", "aaa", "2026-09-10T10:00:00Z"),
-        _pass("clarify", "aaa", "2026-09-10T10:00:00Z"),
-        _pass("clarify", "aaa", "2026-09-10T10:01:00Z"),
-        _pass("clarify", "aaa", "2026-09-10T10:01:00Z"),
+        *[_pass("clarify", "aaa", "2026-09-10T10:00:00Z") for _ in range(4)],
     )
-    assert find_stall(agent_dir) is None
+    found = find_stall(agent_dir)
+    assert found is not None
+    assert found.passes == STALL_AFTER
 
 
 def test_passes_carrying_no_digest_are_never_a_stall(tmp_path: Path) -> None:
@@ -174,47 +275,80 @@ def test_a_branch_with_no_event_log_is_not_a_stall(tmp_path: Path) -> None:
     assert find_stall(tmp_path) is None
 
 
-def _seed(agent_dir: Path, step: str, marks: list[str]) -> None:
-    """A started session, then one resume line per pass."""
-    lines = [json.dumps({"ts": "2026-09-10T09:00:00Z", "event": "start", "step": step})]
-    lines += [
-        json.dumps(_pass(step, mark, f"2026-09-10T10:0{i}:00Z"))
-        for i, mark in enumerate(marks)
+def _events(agent_dir: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (agent_dir / "events.jsonl").read_text().splitlines()
+        if line.strip()
     ]
-    (agent_dir / "events.jsonl").write_text("\n".join(lines) + "\n")
 
 
-def test_status_names_the_repeated_step_and_what_did_not_move(storyctl_dir, monkeypatch) -> None:
-    """A run that halts silently is a run that looks finished (#332).
+def _resumes(agent_dir: Path) -> list[dict]:
+    return [e for e in _events(agent_dir) if e.get("event") == "resume"]
 
-    The stopping is the interesting half and the reporting is the half that gets
-    dropped, so this asserts on the sentence a person actually reads — not only
-    that inference reached the verdict.
+
+def test_resume_writes_a_digest_and_it_moves_when_an_artifact_does(storyctl_dir) -> None:
+    """The write side, which nothing else in this file reaches.
+
+    Every other test hand-seeds a log with a hardcoded `digest` key, so renaming
+    the field in `cli.py` leaves them all green while the bound is inert. This is
+    the test that fails if the event stops carrying what `find_stall` reads.
     """
     from typer.testing import CliRunner
 
     from wfctl.cli import app
 
+    runner = CliRunner()
     storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
-    _seed(storyctl_dir.agent_dir, "implement", ["aaa", "aaa", "aaa"])
+    assert runner.invoke(app, ["start"]).exit_code == 0
 
-    out = CliRunner().invoke(app, ["status"]).output
-    assert "implement ran 3 times and changed nothing" in out
-    assert "unchanged: spec.md, plan.md, tasks.md" in out
-    assert "this needs a person" in out
+    assert runner.invoke(app, ["resume"]).exit_code == 0
+    first = _resumes(storyctl_dir.agent_dir)[-1]
+    assert "digest" in first, "resume must record what this pass saw"
+
+    (storyctl_dir.spec_dir / "tasks.md").write_text("- [x] T001 done\n- [ ] T002 open\n")
+    assert runner.invoke(app, ["resume"]).exit_code == 0
+    assert _resumes(storyctl_dir.agent_dir)[-1]["digest"] != first["digest"]
 
 
-def test_status_says_nothing_about_a_run_that_is_progressing(storyctl_dir) -> None:
-    """The line must not become furniture a reader learns to skip past."""
+def test_the_bound_fires_end_to_end_through_the_real_commands(storyctl_dir) -> None:
+    """`resume` four times with nothing touched, then `status` reports the stall.
+
+    The path a stuck loop actually takes, with no log hand-written by the test —
+    the spec's Validation Strategy asks for the bound to be watched firing rather
+    than asserted about.
+    """
     from typer.testing import CliRunner
 
     from wfctl.cli import app
 
+    runner = CliRunner()
     storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
-    _seed(storyctl_dir.agent_dir, "implement", ["aaa", "bbb", "ccc"])
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    for _ in range(4):
+        assert runner.invoke(app, ["resume"]).exit_code == 0
 
-    out = CliRunner().invoke(app, ["status"]).output
-    assert "changed nothing" not in out
+    out = runner.invoke(app, ["status"]).output
+    assert "was attempted 3 times and changed nothing" in out
+    assert "unchanged (outside quoted blocks)" in out
+    assert "this needs a person" in out
+
+
+def test_the_stall_clears_when_the_work_moves(storyctl_dir) -> None:
+    """The screen a person reads straight after doing what the stall asked for."""
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    runner = CliRunner()
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    for _ in range(4):
+        assert runner.invoke(app, ["resume"]).exit_code == 0
+    assert "changed nothing" in runner.invoke(app, ["status"]).output
+
+    (storyctl_dir.spec_dir / "tasks.md").write_text("- [x] T001 done\n- [ ] T002 open\n")
+    assert "changed nothing" not in runner.invoke(app, ["status"]).output
 
 
 def test_the_json_payload_carries_the_verdict_as_null_when_progressing(storyctl_dir) -> None:
@@ -227,9 +361,29 @@ def test_the_json_payload_carries_the_verdict_as_null_when_progressing(storyctl_
 
     from wfctl.cli import app
 
+    runner = CliRunner()
     storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
-    _seed(storyctl_dir.agent_dir, "implement", ["aaa", "bbb"])
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    assert runner.invoke(app, ["resume"]).exit_code == 0
 
-    payload = json.loads(CliRunner().invoke(app, ["status", "--json"]).output)
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
     assert "stall" in payload
     assert payload["stall"] is None
+
+
+def test_the_json_payload_carries_the_verdict_body_when_stalled(storyctl_dir) -> None:
+    """The populated shape orchestrate reads, which the null case cannot pin."""
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    runner = CliRunner()
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    for _ in range(4):
+        assert runner.invoke(app, ["resume"]).exit_code == 0
+
+    stall = json.loads(runner.invoke(app, ["status", "--json"]).output)["stall"]
+    assert stall["step"] == "implement"
+    assert stall["passes"] == STALL_AFTER
+    assert stall["unchanged"] == ["spec.md", "plan.md", "tasks.md"]

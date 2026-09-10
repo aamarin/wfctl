@@ -16,6 +16,29 @@ per pass; what it gained is a digest of the evidence that pass saw, which is
 history rather than cached state — a past pass's artifacts cannot be re-derived,
 because they have moved since. That is what `session-state-is-re-derived` reserves
 for a session file.
+
+**A `resume` line is an observation, not an execution.** It records the step that
+is *about to* run, so the line written when the pipeline arrives at a step
+predates any attempt at it. Three reviewers each found the same off-by-one in the
+first version of this file, which counted lines and called them attempts. What
+sits between two identical observations is one attempt that changed nothing, so
+`n` identical lines carry `n - 1` attempts — and that difference is the whole of
+what `find_stall` returns.
+
+What follows from an observation not being an execution: nothing here can tell a
+`resume` that followed a step from one a person ran by hand. Four bare
+`wfctl resume` calls in a sitting therefore read as three attempts that changed
+nothing, and the next real loop refuses a step that never ran. The remedy is the
+same one the report names — move an artifact, or start a new session, since a
+`start` event ends the run — and it is written down rather than designed away
+because the alternative is the agent reporting its own executions, which is the
+tally `wfctl-counts-the-passes` rejects.
+
+A branch with no resolved spec directory records no digest and is therefore
+outside the bound entirely: there is nothing to compare. That is correct rather
+than a gap — a loop wedged before any feature directory exists is wedged on
+something this fingerprint cannot see — but it is wider than the `decompose`
+carve-out the design record names, so it is written down here too.
 """
 
 from __future__ import annotations
@@ -29,15 +52,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from wfctl._predicates import Evidence
 
-# Three rather than two. A step legitimately taking a second run is common, and a
-# bound that fires on the first repeat would stop working automation — the
-# failure this feature is least able to afford, because it happens at the hour
-# nobody is watching and looks like the feature working.
+# Attempts that changed nothing, not observations of them. Three rather than two
+# because a step legitimately taking a second run is common, and a bound that
+# fires on the first repeat would stop working automation — the failure this
+# feature is least able to afford, since it happens at the hour nobody is
+# watching and looks like the feature working.
 STALL_AFTER = 3
 
-# What the digest covers, in the order it covers them. Named here rather than at
-# the call site so the report can say which artifacts did not move without
-# re-deriving the list from the hash it cannot read.
+# What the digest covers, in the order it covers them.
 COVERED = ("spec.md", "plan.md", "tasks.md")
 
 # Between the artifacts, so that a byte moving from the end of one file to the
@@ -45,14 +67,20 @@ COVERED = ("spec.md", "plan.md", "tasks.md")
 # one stream and a move between them is invisible.
 _SEP = b"\x00"
 
+# The pipeline's name for "no step left". `resume` writes it into the same field
+# a real step goes in, and the artifacts of a finished story stop moving by
+# definition — so without this the bound reports every completed branch as
+# stalled, which inverts the one distinction the payload exists to draw.
+_COMPLETE = "complete"
+
 
 @dataclass(frozen=True)
 class Stall:
-    """A step that ran `passes` times with the evidence unchanged between them."""
+    """A step that was attempted `passes` times with the evidence unchanged."""
 
     step: str
     passes: int
-    unchanged: tuple[str, ...] = COVERED
+    unchanged: tuple[str, ...]
 
 
 def digest(ev: "Evidence") -> str:
@@ -63,6 +91,12 @@ def digest(ev: "Evidence") -> str:
     both return `Reading("in_progress")` with no reason and no annotation while
     markers stand, so a pass resolving two of six markers renders identically to
     one resolving none. The bytes distinguish them; the rendering cannot.
+
+    `Evidence` holds the *blanked* text — fenced blocks and inline spans are
+    replaced before it is built, so an edit confined to a fenced block reads as no
+    progress here. That is the same read every predicate makes, which is why it is
+    the right one to compare; what it costs is that "unchanged" means unchanged
+    outside quoted blocks, and the render sites say so.
 
     Truncated, because the only question asked of it is whether two passes match.
     A collision costs one missed stop, which a person still catches; carrying the
@@ -75,8 +109,8 @@ def digest(ev: "Evidence") -> str:
     return h.hexdigest()[:12]
 
 
-def _resume_events(events: Path) -> list[dict]:
-    """Every `resume` line, oldest first, with the legacy double-write collapsed.
+def _passes_this_sitting(events: Path, branch: str | None) -> list[dict]:
+    """This sitting's `resume` lines, oldest first, for this branch.
 
     A malformed line is skipped rather than raising, for the reason
     `session_started` gives about the same file: it is appended to by every
@@ -85,11 +119,29 @@ def _resume_events(events: Path) -> list[dict]:
     which slows the bound by nothing and stops a damaged log from halting a run
     that is working.
 
-    Older wfctl wrote two lines per `resume` carrying the same timestamp, so a
-    single pass reads as two and the bound would fire a pass early. Adjacent
-    lines sharing a timestamp are therefore one pass. Two genuine passes inside
-    one second would also collapse, which undercounts — the bound fires late
-    rather than early, and late is the direction this feature already chose.
+    **A `start` event ends the previous sitting.** Two unchanged passes yesterday
+    plus today's arrival at the same step is a run of three identical lines, and
+    reading straight back through it halts a session before the step has been
+    entered once. That is the spec's fourth edge case, and the branch is parked
+    rather than stuck. `/start-session` writes the boundary into this same log, so
+    it costs a comparison to honour.
+
+    **Filtered by branch**, because `WFCTL_STATE_DIR` can point several branches
+    at one log — which is exactly how a notify grant made on a feature branch once
+    answered for the trunk, and why `notify-resolved` has carried a branch since.
+    Sub-issue branches of one epic are the sharp case here: a grouping map
+    resolves them to a single spec dir, so their digests are identical and their
+    step names usually are too. A line written before this field existed carries
+    no branch and is kept, since dropping it would silently shorten every run on
+    an established branch.
+
+    Older wfctl wrote two lines per `resume` at one timestamp, so a single
+    observation reads as two on any branch carrying that history — and nothing
+    here special-cases it, deliberately. Those lines predate the digest field
+    entirely, so the trailing run breaks at the first of them whatever the count
+    says. The first version of this file collapsed same-timestamp neighbours to
+    handle them, which cost real observations the moment a loop turned twice
+    inside one second: four passes counted as two and the bound never fired.
     """
     if not events.exists():
         return []
@@ -97,41 +149,54 @@ def _resume_events(events: Path) -> list[dict]:
     for line in events.read_text().splitlines():
         try:
             record = json.loads(line)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError:
             continue
-        if not isinstance(record, dict) or record.get("event") != "resume":
+        if not isinstance(record, dict):
             continue
-        if out and out[-1].get("ts") == record.get("ts"):
-            # The later line of a legacy pair carries the richer fields.
-            out[-1] = record
+        if record.get("event") == "start":
+            out.clear()
+            continue
+        if record.get("event") != "resume":
+            continue
+        if branch is not None and record.get("branch") not in (None, branch):
             continue
         out.append(record)
     return out
 
 
-def find_stall(agent_dir: Path) -> Stall | None:
-    """The trailing run of passes sharing a step and a digest, when it is long enough.
+def find_stall(
+    agent_dir: Path,
+    branch: str | None = None,
+    current: str | None = None,
+    covered: tuple[str, ...] = COVERED,
+) -> Stall | None:
+    """The attempts behind the trailing run of identical observations.
 
-    Read from the end, because only consecutive passes count: a branch resumed
-    days later, or a step returned to after the pipeline moved on, is not the same
-    situation as a step that cannot get out of its own way. The run stops at the
-    first pass that differs in either field — which is what resets the count when
-    a pass makes progress — and at the first that carries no digest, since a pass
-    whose evidence was never recorded cannot be compared to one whose was.
+    `current` is this report's own digest, which `build_report` has already
+    computed. Where it differs from the trailing recorded one the artifacts have
+    moved since the last pass, so the run is over — without this, `status` goes on
+    telling a person the files are unchanged on the screen they look at straight
+    after changing them.
     """
-    passes = _resume_events(agent_dir / "events.jsonl")
+    passes = _passes_this_sitting(agent_dir / "events.jsonl", branch)
     if not passes:
         return None
 
     last = passes[-1]
     step, mark = last.get("step"), last.get("digest")
-    if not isinstance(step, str) or not isinstance(mark, str):
+    if not isinstance(step, str) or not isinstance(mark, str) or step == _COMPLETE:
+        return None
+    if current is not None and current != mark:
         return None
 
-    run = 0
+    observations = 0
     for record in reversed(passes):
         if record.get("step") != step or record.get("digest") != mark:
             break
-        run += 1
+        observations += 1
 
-    return Stall(step=step, passes=run) if run >= STALL_AFTER else None
+    # One attempt sits between each pair of identical observations. The arrival
+    # observation is not an attempt, which is why this is a subtraction and not a
+    # rename.
+    attempts = observations - 1
+    return Stall(step=step, passes=attempts, unchanged=covered) if attempts >= STALL_AFTER else None

@@ -521,12 +521,18 @@ def status_cmd(
     # ordinary "next" is the silent halt #332's definition of done rules out.
     if report.stall is not None:
         console.print(
-            f"[yellow]⊘[/yellow] {report.stall.step} ran {report.stall.passes} times "
-            "and changed nothing"
+            f"[yellow]⊘[/yellow] {report.stall.step} was attempted "
+            f"{report.stall.passes} times and changed nothing"
         )
-        console.print(
-            f"  [dim]unchanged: {', '.join(report.stall.unchanged)}[/dim]"
-        )
+        if report.stall.unchanged:
+            # "outside quoted blocks" because the digest reads the same blanked
+            # text every predicate does: an edit confined to a fenced block moves
+            # no predicate's verdict either, and a bare "unchanged" would be a
+            # claim about the file that the comparison never made.
+            console.print(
+                f"  [dim]unchanged (outside quoted blocks): "
+                f"{', '.join(report.stall.unchanged)}[/dim]"
+            )
         console.print(
             "  [dim]this needs a person — re-running it has not moved the work[/dim]"
         )
@@ -679,8 +685,9 @@ def resume_cmd() -> None:
     # by every reader to mean the same thing absence already means.
     mark = report.evidence_digest
     append_event(
-        agent_dir, "resume", step=step_name, command=command or "complete",
-        auto=bool(auto), **({"digest": mark} if mark else {}),
+        agent_dir, "resume", branch=branch, step=step_name,
+        command=command or "complete", auto=bool(auto),
+        **({"digest": mark} if mark else {}),
     )
 
 

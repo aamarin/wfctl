@@ -46,10 +46,18 @@ and a false stop breaks that at the hour nobody is watching.
   enough to ignore. Falsified by a step that rewrites a timestamp or reflows a
   heading on every pass — the digest would move each time and the bound would
   never fire.
-- That the three artifact texts cover every step whose progress matters.
-  Falsified by a step whose only evidence is a file `Evidence` does not carry —
-  `decompose` reads `delivery.md` inside itself, so a stall there would be
-  invisible to this fingerprint.
+- That the three artifact texts cover every step whose progress matters. The
+  exposure runs the other way from the assumption above, and is the sharper of
+  the two: a step whose evidence lives outside `spec`/`plan`/`tasks` leaves the
+  digest unchanged **while it is working**, so consecutive productive passes read
+  as a stall. `decompose` opens `delivery.md` inside its own predicate, and
+  `implement`'s definition-of-done reaches a verification record and git. What
+  those steps risk is a false stop on real work, not a missed one.
+- That a pass with no digest is never compared, which puts a branch with no
+  resolved spec directory outside the bound entirely. Correct rather than a gap —
+  there is nothing to compare — but wider than the `decompose` hole above, and
+  worth naming because a loop wedged before any feature directory exists is
+  unbounded.
 
 ## Direct baseline
 
@@ -132,8 +140,12 @@ rewritten cosmetically each pass resets the count. That is the direction chosen
 deliberately: a missed stop is still caught by a person, while a false stop
 breaks unattended work.
 
-Also harder: `decompose`, whose evidence is a file `Evidence` does not hold, is
-outside this fingerprint. A stall there is not detected.
+Also harder: a step whose evidence is a file `Evidence` does not hold advances
+without moving the digest, so `decompose` and `implement` can read as stalled
+while they are working. That is a false stop, which is the direction this record
+otherwise argues against — it is accepted here only because those two steps write
+`spec`/`plan`/`tasks` often enough in practice that the case is narrow, and
+naming it is what lets a later reader disagree.
 
 ## Verification
 
