@@ -4,7 +4,7 @@
 
 - Verdict: unsatisfied
 - Scanned: spec.md
-- Asked: 3 · Answered: 3 · Outstanding: 0 · Deferred: 2
+- Asked: 4 · Answered: 4 · Outstanding: 0 · Deferred: 2
 - Detail: `<spec-root>/352-session-stopped-not-finished/spec.md` § Clarifications
 - Mode: auto-approve. The three answers below were chosen by the run, not by a
   human. Each is recorded with the options it beat so a reviewer can take any of
@@ -106,3 +106,27 @@ The verdict is `unsatisfied` because the first of those is high-impact and open.
 That is the designed path rather than a gap — but a scan that called it
 `satisfied` would tell a reviewer nothing is owed before `/speckit.plan`, and a
 level-2 gate is.
+
+### Later in the same session — a fourth clarification, not asked by this step
+
+`spec.md` carries four entries and this scan found three. The fourth was put by
+the human in conversation, after `/speckit.implement` had already shipped the
+first rule, and answered there:
+
+- **Functional Scope & Behavior** — is the stop's *kind* the right thing for the
+  next session to branch on, or is it the branch? →
+  A: **the branch, with the kind as the tie-break on trunk.** An issue branch is
+  named for the work and has already answered "what are we working on today?";
+  a session that wrapped up deliberately there left that same issue open. The
+  question belongs to trunk branches, which carry no answer in their name.
+  Decided against **the stop's kind alone**, which was what shipped: it left an
+  issue branch asking after every deliberate wrap-up, on a branch named for the
+  one thing it is for. Decided against **trunk always asks, even after a
+  continued stop** — the reading is available in the words used, and taking it
+  would delete the only routing this feature has left; it is one table row to
+  flip if a reviewer prefers it, and `spec.md`'s clarification says so.
+
+Recorded here rather than left in a transcript because it widened FR-004,
+narrowed FR-005 and added FR-016 — the largest decision on the branch, and
+`FEATURE_DIR` is outside the working tree, so this file is the only place a
+reviewer meets it.

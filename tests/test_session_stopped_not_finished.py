@@ -116,7 +116,12 @@ def test_a_handoff_already_on_disk_is_kept_under_either_kind(
     assert "- [ ] rebase" in summary.read_text()
 
 
-_WARNING = "⚠ the handoff names no first action"
+_WARNING = "the handoff's next-action section is still the template's"
+
+# What `end` writes above the prose, and what `end-session` is told to leave
+# alone when it fills the prose in. A fixture without it is somebody else's
+# document, which `end` does not judge.
+_TEMPLATE_HEAD = "# Session Summary: 2026-09-11 — 418-storyctl\n\n**Step**: plan\n\n"
 
 
 def _end_over_handoff(
@@ -139,15 +144,37 @@ def test_a_fresh_template_is_warned_about(
     assert _WARNING in _start_then_end(storyctl_dir, "--continued")
 
 
-def test_a_missing_section_is_warned_about(
+def test_a_worktree_handoff_is_not_warned_about(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """A handoff someone wrote by hand, with no next-action section at all.
+    """The false positive a review panel caught, on #352's own scenario.
 
-    Absent is not empty and not a placeholder, and all three have to reach the
-    warning — otherwise the shape most likely to be hand-written is the one
-    shape that goes unreported."""
-    handoff = "# Handoff\n\n## What We Accomplished\n\n- rewrote the parser\n"
+    `worktree-handoff` tells handoff authors not to add a `Next Session TODO` —
+    "Do not add a TODO section to get one" — because the sentence step 9 quotes
+    goes in that document's own shape. So every fresh worktree has a complete
+    handoff with no such section, and reading "absent" as "unfilled" warned on
+    exactly the file most likely to be right.
+
+    `end` says nothing here because it did not write this file and has no shape
+    to judge it against. Distinguishing them is what `**Step**:` is for."""
+    handoff = (
+        "# Handoff: #418 — the parser drops trailing commas\n\n"
+        "## Where to start\n\nRun `/start-session`, then open `parser.py:88`.\n"
+    )
+
+    assert _WARNING not in _end_over_handoff(storyctl_dir, handoff, "--continued")
+
+
+def test_a_missing_section_in_a_template_is_warned_about(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The other half of the same discriminator.
+
+    A summary `end` wrote, whose next-action section someone deleted, is still a
+    template with nothing to quote — and the `**Step**:` line says `end` wrote
+    it. Absent is judged here and not judged above, which is the whole of the
+    fix: the question was never "is there a section" but "is this my file"."""
+    handoff = _TEMPLATE_HEAD + "## What We Accomplished\n\n- rewrote the parser\n"
 
     assert _WARNING in _end_over_handoff(storyctl_dir, handoff, "--continued")
 
@@ -157,7 +184,7 @@ def test_an_empty_section_is_warned_about(
 ) -> None:
     """The heading kept and the bullets deleted — what editing down to nothing
     leaves behind."""
-    handoff = "# Handoff\n\n## Next Session TODO\n\n"
+    handoff = _TEMPLATE_HEAD + "## Next Session TODO\n\n"
 
     assert _WARNING in _end_over_handoff(storyctl_dir, handoff, "--continued")
 
@@ -171,7 +198,7 @@ def test_a_filled_section_is_not_warned_about(
     is step 9's gate and `end` cannot reach it. It is the absence of the one
     thing `end` can see, and a warning on filled prose would be the unobservable
     verdict #70 removed, wearing a new word."""
-    handoff = "# Handoff\n\n## Next Session TODO\n\n- [ ] rebase onto main\n"
+    handoff = _TEMPLATE_HEAD + "## Next Session TODO\n\n- [ ] rebase onto main\n"
 
     assert _WARNING not in _end_over_handoff(storyctl_dir, handoff, "--continued")
 
@@ -186,10 +213,27 @@ def test_a_section_filled_below_an_empty_one_does_not_answer_for_it(
     action, and the warning would go quiet on exactly the handoffs with the most
     written in them."""
     handoff = (
-        "# Handoff\n\n## Next Session TODO\n\n\n## Open Questions\n\n- [ ] which db\n"
+        _TEMPLATE_HEAD + "## Next Session TODO\n\n\n## Open Questions\n\n- [ ] which db\n"
     )
 
     assert _WARNING in _end_over_handoff(storyctl_dir, handoff, "--continued")
+
+
+def test_an_unreadable_handoff_does_not_fail_a_stop_that_happened(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The warning is the last thing `end` does, and the stop is already on disk.
+
+    An invalid UTF-8 byte raises `UnicodeDecodeError` — a `ValueError`, not an
+    `OSError`, which is the shape that gets missed. Uncaught, it would end the
+    command non-zero on a stop that was recorded, leaving the operator unable to
+    tell whether it took."""
+    (storyctl_dir.agent_dir / "session-summary.md").write_bytes(b"\xff\xfe not utf-8")
+
+    output = _start_then_end(storyctl_dir, "--continued")
+
+    assert _WARNING not in output
+    assert _stops(storyctl_dir)[-1]["continued"] is True
 
 
 def test_a_wrapped_up_stop_over_a_template_says_nothing(

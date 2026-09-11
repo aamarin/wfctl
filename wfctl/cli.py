@@ -826,11 +826,22 @@ def end_cmd(
     # recorded above. An operator leaving mid-run may be leaving *because* they
     # cannot finish the sentence, and a refusal there turns a stop that degrades
     # to "the next session asks" into one that does not happen at all.
-    if continued and _session.names_no_first_action(summary_path.read_text()):
-        console.print(
-            "  [yellow]⚠[/yellow] the handoff names no first action — "
-            "the next session will ask."
-        )
+    if continued:
+        # Read defensively, and the shape is the one that bites: an invalid UTF-8
+        # byte raises `UnicodeDecodeError`, which is a `ValueError` and not an
+        # `OSError` — the same pair `auto_approve` catches for the same reason.
+        # The stop is already appended above, so an uncaught raise here fails a
+        # stop that *happened*, and the operator is left unable to tell whether
+        # it was recorded.
+        try:
+            handoff = summary_path.read_text()
+        except (OSError, ValueError):
+            handoff = ""
+        if handoff and _session.names_no_first_action(handoff):
+            console.print(
+                "  [yellow]⚠[/yellow] the handoff's next-action section is still "
+                "the template's — fill it in, or the next session will ask."
+            )
 
 
 @app.command("log")

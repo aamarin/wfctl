@@ -4,7 +4,7 @@
 
 - Verdict: satisfied
 - Scanned: spec.md, plan.md, tasks.md — all three present and read
-- Findings: 11 · Critical: 0 · Acted on: 8 · Accepted: 3
+- Findings: 11 · Critical: 0 · Acted on: 8 · Accepted: 3 (plus 6 from a review panel, below)
 - Detail: `<spec-root>/352-session-stopped-not-finished/checklists/analysis-report.md`
 - Mode: auto-approve. Step 8's remediation question was settled by the run rather
   than by a human. The eight edits below land in `tasks.md` only — no spec, plan
@@ -150,3 +150,57 @@ input to the other six passes instead.
   list of level-3 records this feature was written against is `unknown` rather
   than `none`. The pass belongs to whichever step first has a list to read;
   `/speckit.brainstorm` was skipped here and no step downstream creates one.
+
+### Later in the same session — a review panel over the finished change
+
+Three reviewers, fresh context each, the whole `code-review` rubric each, over
+`origin/main..HEAD`. Roster: r1 ✓ r2 ✓ r3 ✓, reports in
+`<spec-root>/352-session-stopped-not-finished/reviews/`. Recorded here because
+the passes above scanned `spec.md`, `plan.md` and `tasks.md` *before* the
+branch-first routing rule existed, so nothing above covers the change as shipped.
+
+Six findings applied, all verified against the code first:
+
+- **Two reviewers, and one called it a blocker — the step prescribes a command
+  the skill is not allowed to run.** `start-session`'s `allowed-tools` lists
+  `Read` and specific `Bash(wfctl …)`/`Bash(git …)` prefixes; the new
+  `grep … | tail -1` matches none. Every other fenced command in the file had an
+  entry. Unattended that is a permission prompt — the stall the feature exists to
+  remove — or an agent improvising with `Read`, which the step warns against four
+  lines below. → Fixed: `Bash(grep*) Bash(tail*)`.
+- **All three — a real routing state had no row.** Trunk, no stop at all, a
+  quotable handoff: row one wanted an issue branch or a continued stop, row two
+  wanted a *last stop*, row three wanted an unquotable handoff. Step 4's read
+  names the outcome and step 9 consumed it nowhere, and the pre-#352 table
+  resolved that same state the opposite way — so an agent filling the gap from
+  precedent begins work against `main`'s accumulated handoff, which is SC-002.
+  → Fixed: row two covers "no stop at all", in the skill, the contract and a
+  test named for the state.
+- **One reviewer, and the most valuable finding — the FR-013 warning was a
+  guaranteed false positive on #352's own scenario.** `worktree-handoff` tells
+  handoff authors "Do not add a TODO section", so every fresh worktree carries a
+  complete handoff with no `## Next Session TODO`, and reading absent as unfilled
+  warned on the file most likely to be right. Both clauses of the printed line
+  were false. → Fixed: `end` judges only a file carrying the `**Step**:` reading
+  it writes itself, which `end-session` already documents as the discriminator.
+  FR-013 and `contracts/wfctl-end.md` were rewritten to match, and the warning
+  reworded.
+- **Two reviewers — an unguarded read could fail a stop that happened.**
+  `summary_path.read_text()` runs after the `end` event is appended, and an
+  invalid UTF-8 byte raises `UnicodeDecodeError`, a `ValueError` and not an
+  `OSError`. → Fixed with the pair `_session.auto_approve` already catches, and a
+  test that the stop survives.
+- **Two reviewers — a duplicate test and two assertions that cannot fail.**
+  `_row` selects a row by its condition column's prefix, and two new tests then
+  asserted substrings of that same prefix; a third was byte-identical in body to
+  an existing one. In the module whose own docstring is about assertions that
+  stay green on a mutated artifact. → Fixed: the duplicate became the missing
+  no-stop case, and the vacuous assertions now compare the two rows.
+- **One reviewer — `--continued` was undocumented** in `using-wfctl`'s command
+  table, which carries flags for every other command. → Fixed.
+
+Accepted, not applied: a `str.partition` shrink in `names_no_first_action`
+(the loop stops at the next heading, which `partition` would not); `# `-vs-`## `
+heading near-misses (the template writes `## ` and nothing else is judged since
+the fix above); README's `wfctl end` example (it demonstrates a session close,
+not the flag set).

@@ -97,7 +97,7 @@ def test_a_branch_that_has_ended_a_session_before_is_still_asked() -> None:
     branch names an issue: `main` accumulates a handoff from every session that
     ever ended on it, and its top TODO is as likely to be last month's as
     today's."""
-    row = _row("a trunk branch whose last stop was not continued")
+    row = _row("a trunk branch with no stop at all, or whose last stop was not continued")
     assert "Ask:" in row
     assert "Do not ask" not in row
 
@@ -151,8 +151,8 @@ def test_a_stop_marked_continued_shares_the_do_not_ask_row() -> None:
     existing behaviour there was already *do not ask*, so this is one row with
     two conditions rather than a fourth row nobody has to keep consistent."""
     row = _row("an issue branch, or a stop marked continued")
-    assert "a stop marked continued" in row
     assert "Do not ask" in row
+    assert "Quote the line" in row
 
 
 def test_a_continued_stop_does_not_relax_the_quote_gate() -> None:
@@ -206,20 +206,22 @@ def test_an_issue_branch_is_never_asked_what_to_work_on() -> None:
     up deliberately on an issue branch left the *same* issue open, and the next
     one is not at liberty to work on something else."""
     row = _row("an issue branch, or a stop marked continued")
-    assert "an issue branch" in row
     assert "Do not ask" in row
+    assert _row("a trunk branch with no stop at all, or whose last stop was not continued") != row
 
 
-def test_a_trunk_branch_is_still_asked() -> None:
-    """#244's criterion (b), which is about `main` and stays about `main`.
+def test_a_trunk_branch_with_no_stop_at_all_is_asked_too() -> None:
+    """The state that matched no row when the branch axis first landed.
 
-    `wfctl end` writes a summary with a filled `Next Session TODO` on every
-    `/end-session`, and a trunk branch collects one from every session that ever
-    ended there. A quotable first action is its steady state rather than a
-    signal, and beginning work on it was the defect the row exists to prevent."""
-    row = _row("a trunk branch whose last stop was not continued")
+    Step 4's table names the outcome — `nothing` comes back from the grep — and
+    step 9's rows consumed it nowhere: row one wanted an issue branch or a
+    continued stop, row two wanted a *last stop*, row three wanted an unquotable
+    handoff. A trunk branch someone handed a filled handoff to fell through all
+    three, and an agent resolving the gap by the pre-#352 table would have begun
+    work against `main`'s accumulated TODO — SC-002 in as many words."""
+    row = _row("a trunk branch with no stop at all, or whose last stop was not continued")
+    assert "no stop at all" in row
     assert "Ask:" in row
-    assert "Do not ask" not in row
 
 
 def test_step_four_says_where_the_branch_kind_comes_from() -> None:

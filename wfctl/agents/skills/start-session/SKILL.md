@@ -1,7 +1,7 @@
 ---
 name: start-session
 description: Use when starting a development session in a git worktree - initializes wfctl session state, loads handoff artifacts from the last session, and reports open work before any code is touched.
-allowed-tools: Read Bash(wfctl start*) Bash(wfctl status*) Bash(wfctl arch context*) Bash(wfctl state-dir*) Bash(wfctl doctor*) Bash(wfctl install-skills*) Bash(wfctl issue list*) Bash(wfctl issue view*) Bash(wfctl change list*) Bash(git status*) Bash(git log*) Bash(git symbolic-ref*)
+allowed-tools: Read Bash(wfctl start*) Bash(wfctl status*) Bash(wfctl arch context*) Bash(wfctl state-dir*) Bash(wfctl doctor*) Bash(wfctl install-skills*) Bash(wfctl issue list*) Bash(wfctl issue view*) Bash(wfctl change list*) Bash(git status*) Bash(git log*) Bash(git symbolic-ref*) Bash(grep*) Bash(tail*)
 compatibility: 'Requires wfctl to be installed'
 ---
 
@@ -288,7 +288,7 @@ memory of it — load them before doing anything else.
    | Step 4 found | This step |
    |---|---|
    | an issue branch, or a stop marked continued — with a summary naming a first action | **Do not ask.** Quote the line that names it, say in one line what you are doing, and leave this skill — the work happens in the session that follows, not inside step 9. |
-   | a trunk branch whose last stop was not continued, with a summary naming a first action | Ask: "What are we working on today?", offering the summary's top **Next Session TODO** item as the default. |
+   | a trunk branch with no stop at all, or whose last stop was not continued — with a summary naming a first action | Ask: "What are we working on today?", offering the summary's top **Next Session TODO** item as the default. |
    | no summary, one whose next action is still `(fill in)`, or one naming no next action | Ask: "What are we working on today?" |
 
    **An issue branch has already answered the question.** `352-session-stopped-not-finished`

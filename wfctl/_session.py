@@ -439,6 +439,12 @@ def record_notify_refused(agent_dir: Path, action: str, source: str) -> None:
 NEXT_SESSION_TODO = "## Next Session TODO"
 NEXT_ACTION_PLACEHOLDER = "- [ ] (fill in)"
 
+# The line that says `end` wrote this file. `end-session` keeps all three
+# readings when it fills the prose in ("leave those lines alone"), and a handoff
+# `worktree-handoff` copied in uses its own shape and carries none of them — so
+# this is what separates a template from somebody else's document.
+_TEMPLATE_MARK = "**Step**:"
+
 
 def _render_session_summary(branch: str, observed: Observations) -> str:
     """The handoff, headed by what `end` could see rather than what it hoped.
@@ -469,18 +475,28 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
 def names_no_first_action(summary: str) -> bool:
     """Is this handoff's next-action section still the template's?
 
-    Beside the renderer above and reading the same two constants, because the
-    only thing that can recognise the placeholder is whatever writes it. A copy
-    of the literal in the command that prints the warning would go on matching
-    the old text after the template moved on, and the warning would die with
-    nothing going red.
+    Beside the renderer above and reading the same constants, because the only
+    thing that can recognise the placeholder is whatever writes it. A copy of the
+    literal in the command that prints the warning would go on matching the old
+    text after the template moved on, and the warning would die with nothing
+    going red.
 
     The question is narrow on purpose: whether the section was *ever filled in*,
     not whether what fills it names a usable first action. The second is step 9's
     judgment — its gate is quoting a literal sentence — and `end` has no way to
     reach it. Answering the narrow one is what lets `end` speak at the last
     moment the operator is still there to fix it (FR-013).
+
+    **A file `end` did not write is not judged at all**, and a missing section is
+    the case that turns on it. `worktree-handoff` tells handoff authors in as
+    many words not to add a `Next Session TODO` — the sentence it can quote goes
+    in that document's own shape — so reading "no section" as "no first action"
+    warns on every fresh worktree, which is #352's own scenario and the one place
+    the handoff is most likely to be complete. `_TEMPLATE_MARK` is the
+    discriminator `end-session` already documents.
     """
+    if _TEMPLATE_MARK not in summary:
+        return False
     if NEXT_SESSION_TODO not in summary:
         return True
     body = summary[summary.index(NEXT_SESSION_TODO) + len(NEXT_SESSION_TODO) :]
