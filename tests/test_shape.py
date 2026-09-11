@@ -108,11 +108,24 @@ def test_a_lead_in_that_follows_the_answer_on_one_line_is_still_flagged() -> Non
     """The coda is the shape `_COUNTED`'s own comment names as the observed one —
     the answer lands, then the lead-in starts a second block — and it is usually
     not the first sentence on its line. Scanning only the opening sentence
-    reports both of these clean, which trades #304 for a silence."""
-    assert _shape.findings("Both landed. Three things worth flagging: a, b, c.",
+    reports these clean, which trades #304 for a silence."""
+    assert _shape.findings("Both landed. Three things worth flagging:", BARE)
+    assert _shape.findings("That is settled. Two problems worth an issue each:",
                            BARE)
-    assert _shape.findings("Two tests pass. One thing I couldn't finish: "
-                           "the migration.", BARE)
+
+
+def test_a_coda_whose_colon_does_not_close_it_is_not_a_lead_in() -> None:
+    """The asymmetry between the opening sentence and the ones after it, and the
+    only thing keeping the coda scan from costing more than it buys. A coda
+    announces and then breaks to its list, so its colon ends the sentence; a
+    colon sitting mid-sentence after the opening one is the count-and-colon class
+    the rule cannot reach, and accepting it added 145 such lines to the corpus
+    against 165 real codas. Both lines here fire when the count opens the line,
+    which is where this rule already accepts that class."""
+    assert not _shape.findings("Fixed. Both come down to one property: the "
+                               "machine has to prove it finished.", BARE)
+    assert _shape.findings("Both come down to one property: the machine has to "
+                           "prove it finished.", BARE)
 
 
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:

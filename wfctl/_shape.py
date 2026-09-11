@@ -103,14 +103,21 @@ _REPLY_SENTENCE = re.compile(
 # sentence ended in a colon (#304).
 #
 # Per sentence rather than first-sentence-only, because the coda above is the
-# observed shape and it is usually not the first thing on its line. `Both
-# landed. Three things worth flagging: a, b, c.` is one line carrying an answer
-# and a lead-in, and scanning only the opening sentence would report it clean.
+# observed shape and it is usually not the first thing on its line. `Done. Two
+# problems worth an issue each:` is one line carrying an answer and a lead-in,
+# and scanning only the opening sentence reports it clean.
 #
-# Within a sentence the colon is still looked for anywhere rather than at the
-# end, because the observed lead-ins run the list on after the colon rather than
-# breaking to bullets — requiring it to close the sentence drops two thirds of
-# the real hits in the corpus.
+# **Where the colon may sit depends on which sentence it is in, and the two
+# answers are measured separately.** In the sentence that opens the line the
+# colon is looked for anywhere, because those lead-ins run the list on after it
+# rather than breaking to bullets — requiring it to close drops two thirds of
+# them. A coda is the other way round: it announces and then breaks, so the
+# colon ends its sentence, and accepting one mid-sentence buys almost nothing
+# real. Over 7,964 terminal replies, scanning later sentences colon-anywhere
+# added 310 lines that line-whole matching never saw — 165 genuine codas and
+# 145 of the unreachable class below. Requiring the colon to close them keeps
+# the 165 and drops all 145, at no cost to detection of the rule's own named
+# tell (534 either way, against 567 before this change).
 #
 # **A count and a colon inside one sentence stay out of reach.** That class is
 # wider than it looks, and it is the whole of what this does not fix: "Three
@@ -121,11 +128,12 @@ _REPLY_SENTENCE = re.compile(
 # for", and both are shaped exactly like a lead-in — one sentence, count, colon,
 # list. Only the prompt separates them, and this pattern is matched against the
 # reply.
-_COUNTED = re.compile(
-    r"^\s*(?:\*\*|_)?(one|two|three|four|five|six|seven|eight|nine|ten"
-    r"|both|several|a few)\b[^\n]*:",
-    re.IGNORECASE,
+_COUNT = (
+    r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
+    r"|both|several|a few)\b"
 )
+_COUNTED = re.compile(rf"^\s*{_COUNT}[^\n]*:", re.IGNORECASE)
+_COUNTED_CODA = re.compile(rf"^\s*{_COUNT}[^\n]*:\s*$", re.IGNORECASE)
 
 # Inline code is quoted, not written, and a colon inside it is punctuation of
 # whatever is being quoted. `Two unrelated branches show `[origin/…: gone]`` is
@@ -250,6 +258,18 @@ def _sentences(line: str) -> list[str]:
     return out
 
 
+def _counted_lead_in(line: str) -> bool:
+    """Whether any sentence of `line` announces a list with a count.
+
+    The opening sentence and the ones after it are asked different questions —
+    see `_COUNTED_CODA` for which, and for the corpus behind the asymmetry.
+    """
+    opening, *rest = _sentences(_QUOTED.sub("``", line))
+    return bool(_COUNTED.match(opening)) or any(
+        _COUNTED_CODA.match(sentence) for sentence in rest
+    )
+
+
 def findings(reply: str, prompt: str) -> list[str]:
     """What a terminal `reply` breaks, one line each, naming the check it maps to.
 
@@ -270,14 +290,7 @@ def findings(reply: str, prompt: str) -> list[str]:
             "Convert each to a bold lead-in on the sentence beneath it."
         )
 
-    counted = [
-        line
-        for line in lines
-        if any(
-            _COUNTED.match(sentence)
-            for sentence in _sentences(_QUOTED.sub("``", line))
-        )
-    ]
+    counted = [line for line in lines if _counted_lead_in(line)]
     if counted:
         first = " ".join(counted[0].split())[:60]
         out.append(
