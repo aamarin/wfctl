@@ -176,6 +176,39 @@ def test_the_analyze_policy_decides_the_case_that_splits_its_candidates() -> Non
     assert "no third door" in flowed
 
 
+def test_the_clarify_withdrawal_still_puts_the_question_to_a_person() -> None:
+    """Step 4 exists to ask a person the questions only a person can answer.
+
+    The first draft made the withdrawal unconditional, on the reasoning that an
+    answer the repository cannot derive is one the spec should have carried. That
+    reasoning holds and the conclusion did not: unattended it withdraws, attended
+    it takes the question away from the only reader who could have closed it, and
+    the stated trigger for this whole section — a pause reached with no answer —
+    has not happened. Caught on review of the branch that wrote it.
+    """
+    flowed = _flowed(_section("clarify"))
+
+    assert "withdrawn only when no answer arrives" in flowed
+    assert "unconditional" not in flowed
+
+
+def test_the_analyze_in_scope_test_counts_the_constitution_as_having_decided() -> None:
+    """Left off the list, the one finding the skill refuses to let stand is filed.
+
+    `speckit-analyze` makes a constitution conflict automatically CRITICAL and
+    says in its own words that it requires adjusting the spec, plan or tasks. A
+    fix that brings a drifted artifact back into line decides nothing — the
+    constitution decided it — but condition 2 named only the three artifacts and
+    the design records, so the fix read as out of scope and got filed.
+    `_predicates.analyze` reads the report's existence, so `implement` would then
+    run over a known CRITICAL.
+    """
+    flowed = _flowed(_section("analyze"))
+
+    assert "the project constitution have not" in flowed
+    assert "Constitution Authority" in _skill("analyze")
+
+
 def test_the_analyze_policy_defers_to_the_notify_gate_rather_than_around_it() -> None:
     """Filing is the one outward-facing action in a policy nobody is watching run.
 

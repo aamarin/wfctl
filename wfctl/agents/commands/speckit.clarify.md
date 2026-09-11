@@ -34,11 +34,10 @@ the layer above it.
 | Step 8, *"recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later"* | Still written, and still a recommendation. What the pipeline does next is `wfctl status`' answer rather than this line's, and the two are allowed to differ — this one is addressed to the reviewer. |
 
 **The trigger is a pause reached with no answer, not a mode read.** Ask each
-question as step 4 renders it, recommendation and all. Where an answer comes
-back, it is the answer and the table above changed nothing about the run. The
-withdrawal rule below is the exception and is unconditional: a question the
-repository cannot settle is not put to anyone, attended or not, because the
-answer a person gives it is the one the spec was supposed to carry.
+question as step 4 renders it, recommendation and all — including the ones the
+withdrawal rule below covers, which are the questions a person is the only
+authoritative source for. Where an answer comes back it is the answer, and
+nothing in this section changed the run.
 
 **Deliberately not conditional on `auto_approve`,** which is one of two respects
 in which this layer differs from `speckit.brainstorm.md`'s — the rejected-options
@@ -65,9 +64,9 @@ A question none of those reach is a question about what somebody wants, and
 deriving an answer to it is the silent decision the first row above rules out,
 reached by a longer route.
 
-Such a question is not asked. It leaves the queue without being put — so it never
-counts against the five, and its slot is refilled by re-running step 3's ranking
-over what is left of step 2's coverage map. Step 3 keeps only five candidates and
+Such a question is put like any other and withdrawn only when no answer arrives.
+Withdrawn, it never counts against the five, and its slot is refilled by
+re-running step 3's ranking over what is left of step 2's coverage map. Step 3 keeps only five candidates and
 holds no sixth, so there is nothing waiting to be promoted; the cap is on
 questions asked, and a withdrawal that spent one would narrow coverage by exactly
 the amount this rule was supposed to protect. Its category takes an `Outstanding`
