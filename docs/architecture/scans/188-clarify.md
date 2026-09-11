@@ -75,3 +75,21 @@
   not observable. A send to this pane during the design pass exited 0 and printed
   nothing, so an exit code distinguishes neither a delivered prompt from a
   dropped one nor either from a missing pane.
+
+### Correction, same session
+
+The Functional Scope answer above is right that the handoff must be written and
+wrong about what writes it. `wfctl end` also appends `{"event": "end"}`, and
+`start-session`'s step 9 routes a branch carrying one into its second row, which
+asks a human what to work on — so the cycle as answered would leave every
+unattended run stopped on a question at the moment its window was freshly empty.
+The skill states the property directly: "a branch that has ended a session once
+is in row two from then on, even unattended".
+
+The answer stands; its mechanism does not. `spec.md` FR-005a now carries the
+constraint, and the choice between a distinct recycle event and a fourth row in
+step 9's table belongs to `/speckit.plan`.
+
+Found by reading, before the acceptance test was driven. Recorded here rather
+than silently amending the finding above, because a scan that corrected itself
+and one that got it right first time should not read the same.
