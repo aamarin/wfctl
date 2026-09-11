@@ -30,7 +30,7 @@ the layer above it.
 | Where it pauses | When no answer arrives |
 |---|---|
 | Step 4, *"Present EXACTLY ONE question at a time"* and *"After the user answers"* | Take the answer the step has already computed — the `**Recommended:** Option X` it renders above a multiple-choice table, the `**Suggested:** …` it renders for a short answer — and record it together with the reasoning it was rendered with. That reasoning is the basis. A recommendation recorded without it is a question decided silently, which is the failure this step exists to prevent, and nobody being there to ask does not make it acceptable. |
-| Step 4's stop conditions, *"User signals completion"*, and the behaviour rule *"Respect user early termination signals"* | None arrives, and none is inferred from the absence of one. The loop ends on its own two remaining conditions: every critical ambiguity resolved, or five questions asked. |
+| Step 4's stop conditions, *"User signals completion"*, and the behaviour rule *"Respect user early termination signals"* | None arrives, and none is inferred from the absence of one. Two of the loop's own conditions remain — every critical ambiguity resolved, or five questions asked — and the withdrawal rule below adds a third: an empty queue with neither of those met. |
 | Step 8, *"recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later"* | Still written, and still a recommendation. What the pipeline does next is `wfctl status`' answer rather than this line's, and the two are allowed to differ — this one is addressed to the reviewer. |
 
 **The trigger is a pause reached with no answer, not a mode read.** Ask each
@@ -70,26 +70,29 @@ counts against the five, and its slot is refilled by re-running step 3's ranking
 over what is left of step 2's coverage map. Step 3 keeps only five candidates and
 holds no sixth, so there is nothing waiting to be promoted; the cap is on
 questions asked, and a withdrawal that spent one would narrow coverage by exactly
-the amount this rule was supposed to protect. Its category is written
-as an `Outstanding` row
-carrying the question and what made it underivable, in the same terms the
-findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
+the amount this rule was supposed to protect. Its category takes an `Outstanding`
+row in the coverage table, and the question and what made it underivable go under
+`### Outstanding` in the scan file, in the same terms the findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
 marker to go with it, so the spec reads the same whether the question was
 declined by the scan or withdrawn by this rule.
 
 **`Outstanding` rather than `Deferred`, and the verdict is the reason.**
 `Deferred` says a later step is the better place to answer it; no later step
-answers this one either, and only a person closes it. `Outstanding` is also what
+answers this one either, and only a person closes it. This widens the status —
+the workflow's own definition is *still Partial or Missing but low impact*, and a
+question the repository cannot settle can be the highest-impact thing the scan
+found. Widened deliberately: the alternative is a high-impact row reported as
+`Deferred`, which leaves the verdict `satisfied`. `Outstanding` is also what
 makes this step's verdict read `unsatisfied` — the true statement about a scan
 that reached a question it could not settle, and the one a `Deferred` row would
 have hidden.
 
-**The row is a status and the question goes below it.** `| Category | Status |`
-is two columns wide and one of them is a single word, so "an `Outstanding` row
-carrying the question" is an instruction the table cannot take. `### Outstanding`
-in the section shape below is where the question and the reason go, and the
-marker rule's own `Outstanding` rows land there too — it is one block, not one
-per rule.
+**One `### Outstanding` block, not one per rule.** `| Category | Status |` is two
+columns wide and one of them is a single word, which is why the question goes to
+the block rather than the row. The marker rule below sends a declined
+`[NEEDS CLARIFICATION` marker to the same block, and the two arrive with
+different things to say — a withdrawn question has no answer to give, a declined
+marker has one nobody judged worth asking for. Say which it is.
 
 **A run that withdrew every candidate did not find a clean spec.** The workflow's
 behaviour rule writes `- No critical ambiguities detected.` whenever no question
@@ -101,10 +104,12 @@ withdrawn and points at the scan file, never that one.
 **A standing `Outstanding` row makes this verdict permanent, and that matters
 once something reads it.** Nothing does today; `writing-a-scan-file` says the
 verdict is there for a later gate to read through `blocks(verdict,
-"repo-declared")`. A gate that blocks on `unsatisfied` would block forever here,
-because no re-run can settle a question the repository does not contain — the
-#332 loop one artifact over. Whichever change wires that gate has to exempt this
-row, and this paragraph is where it finds out.
+"repo-declared")`. A gate that blocks on `unsatisfied` never clears here, because
+no re-run can settle a question the repository does not contain. Since #332
+`speckit-orchestrate` counts passes and stalls rather than looping, so what it
+produces is a stall reported against `clarify` — a pipeline stopped by the step
+correctly saying it did its job. Whichever change wires that gate has to exempt
+this row, and this paragraph is where it finds out.
 
 **A check could see this, and the planned one does not yet.** Every answer this
 section produces lands in `spec.md`'s `## Clarifications` bullet and in the scan
@@ -223,7 +228,8 @@ carrying its template.
 
 ### Outstanding
 
-- **<category>** — <the question, and what made it underivable>.
+- **<category>** — withdrawn: <the question, and what made it underivable>.
+- **<category>** — declined: <the marker, and why it was not worth asking>.
 
 ### Deferred
 

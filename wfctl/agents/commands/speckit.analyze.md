@@ -123,7 +123,7 @@ section is.
 | Where it pauses | When no answer arrives |
 |---|---|
 | Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied or filed, and the counts in the scan file say which each one was. |
-| Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. This is the second stated override in this file — the scan file below is the first — and it is stated for that one's reason: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The skill's rule is unscoped, so both overrides are real overrides rather than readings of it; its own step 6b mandates writing `analysis-report.md` and is the third, which nothing reconciles. |
+| Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. Stated as an override rather than left to be reconciled: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The scan-file section below counts this file's overrides of that rule. |
 | Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. Step 7's three outcomes do not cover what that ordering leaves most often — remediation is what clears CRITICALs, so a standing HIGH with no CRITICAL above it is the normal end state. Say so in its own line: what stands, at what severity, and that it was filed rather than fixed. *"only LOW/MEDIUM"* is false there, and reporting it as proceed-with-suggestions is the one wrong answer. |
 
 **Deliberately not conditional on `auto_approve`.** That grant moves approval
@@ -147,7 +147,8 @@ line that reports it: say what changed, not that something did.
 There is no third door. A finding left neither fixed nor filed is one this step
 found and then lost, and the counts below are what make that visible.
 
-In scope is two conditions, and a fix meets both or it is out:
+In scope is two conditions and a size limit. A fix meets both conditions, and is
+not materially larger in the sense the third paragraph below gives, or it is out:
 
 1. The fix is confined to `spec.md`, `plan.md` and `tasks.md` — the three
    artifacts this step reads, taken as a set. A terminology drift is corrected in
@@ -191,6 +192,12 @@ Nothing on a fresh branch has allowed an outward-facing action
 granted nothing cannot file — and must not look for a way around the refusal,
 which is the gate working rather than a tracker misconfigured.
 
+**Read the grant before filing, rather than learning it from a refusal.**
+`wfctl status` prints it in every state — *outward actions authorized* — and the
+frontmatter already grants that read. Attempting the create and reading what
+comes back reaches the same answer and puts a refusal in the transcript of every
+correctly-behaving unattended run, which is where a reader learns to skip them.
+
 Where filing is refused the finding is still `Accepted`, and its reason carries
 both halves — why it stands, and that nobody was told:
 
@@ -214,9 +221,9 @@ run, so the count alone does not say how much tracker work is outstanding — th
 **A filing that was refused keeps its title and body, in `### Filing`.** The
 reason line says somebody still has to file it; without the text it also says
 they have to write it again, from a report that by then is one of several in the
-same file. Record the command that would have run, verbatim — an unattended run
-that had the grant and one that did not then differ by whether the command was
-executed, rather than by what survives of it.
+same file. Record them as fields rather than as a `wfctl issue create` line — a
+real body is several paragraphs, and a command form either truncates it to fit
+one argument or breaks the block it sits in.
 
 ### The counts say what happened
 
@@ -262,9 +269,12 @@ then stop.
 **This overrides the skill's read-only rule, and it is the narrower of this
 file's two overrides of it.** `speckit-analyze` states the rule twice —
 **STRICTLY READ-ONLY** under Operating Constraints, *"NEVER modify files"* under
-Analysis Guidelines — and neither is scoped to the artifacts it analyses. *When
-nobody answers* above lifts it for a remediation edit and bounds which edits
-qualify; what this section adds is
+Analysis Guidelines — and neither is scoped to the artifacts it analyses, so both
+of this file's overrides are real overrides rather than readings of it. The
+skill's own step 6b mandates writing `analysis-report.md`, which its rule as
+written forbids; nothing reconciles that, and this file does not try to. *When
+nobody answers* above lifts the rule for a remediation edit and bounds which
+edits qualify; what this section adds is
 independent of that and holds on a run that remediates nothing — one new file the
 step writes about its own work, outside `FEATURE_DIR`, and one commit of that
 path. Both are stated rather than left for a reader to reconcile, because a
@@ -411,8 +421,9 @@ status says the gap was both closed and not.
 ### Filing
 
 - **<cause>** — <the findings it covers>. Filed as #<n>.
-- **<cause>** — <the findings it covers>. Not filed:
-  `wfctl issue create --title "<title>" --body "<body>"`
+- **<cause>** — <the findings it covers>. Not filed: <why>.
+  Title: <the title it would have carried>
+  Body: <the body, as many lines as it needs>
 
 ### Deferred
 

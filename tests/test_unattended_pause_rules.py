@@ -29,6 +29,11 @@ import pytest
 
 # The real shipped tree, for `test_skill_cross_references`' reason: conftest's
 # autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake one.
+#
+# `test_scan_files` opens with the same three lines and the same reason. Not
+# shared: a test module importing another couples two files whose only relation
+# is that both read these two wrappers, and that module already rejects the trade
+# in `_repo`'s docstring. This comment is the pointer it costs instead.
 _AGENTS = Path(str(files("wfctl"))) / "agents"
 
 _REVIEW_WRAPPERS = ("clarify", "analyze")
