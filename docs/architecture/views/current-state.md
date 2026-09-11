@@ -24,7 +24,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _pipeline 439   _predicates 603   _arch 458   _archive 339   │      ┊
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
-   │ _body 399       _change 199      _stall 137                  │      ┊
+   │ _change 199     _stall 137                                   │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -36,8 +36,8 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
    │ _io 43                            0 out · 5 in   │      _tracker
    │ _md 98                            0 out · 3 in   │      _verify cli
-   ╰──────────────────────────────────────────────────╯  ◄── _arch _body
-                                                             _shape
+   ╰──────────────────────────────────────────────────╯  ◄── _arch _shape
+                                                             _predicates
 ```
 
 `_entry` is drawn above the two it reaches because it is the only one with no
@@ -112,9 +112,9 @@ having to argue about a word.
 
 Move the line and each is reimplemented per caller, which is where both came
 from. The first caller to write a plain `open(...).write()` loses a
-`next-step.md` to a crash and nothing announces it; the three that each had
-their own fence walker disagreed about what closes one, so a document quoting a
-fenced example had the rest of the quotation scanned as prose.
+`next-step.md` to a crash and nothing announces it; those that each had their
+own fence walker disagreed about what closes one, so a document quoting a fenced
+example had the rest of the quotation scanned as prose.
 
 ## Where the bands do not hold
 
@@ -248,7 +248,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook
-domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _body _change _stall
+domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _change _stall
 resolution  _paths _manifest
 mechanism   _io _md
 ```

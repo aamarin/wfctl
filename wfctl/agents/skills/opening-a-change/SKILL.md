@@ -50,17 +50,16 @@ diff seemed trivial is a decision made silently, per run, by the only party with
 an interest in the answer — which is the shape of the defect this step exists to
 remove, not an exception to it.
 
-**Its reconciled disposition table is content for the body, not a side effect.**
-That is the whole of what makes a skipped panel visible: a body carrying no panel
-was read by nobody, and a body carrying no panel is also what a clean pass looks
-like. The two are told apart in the description or not at all.
+**The panel's output is not content for the description.** A finding you applied
+is a commit on this branch, which the diff already shows; restating it in prose a
+reviewer has to trust adds a second account of the same fact, and the weaker one.
 
-Where the template has a section for it, the table goes there. **Where it has
-none, append one under a `## Review Panel` heading of your own** — most
-repositories are this case, because the template is seeded once and does not
-update when this skill does. This is the one section the skill supplies rather
-than reads, and it is not the red flag below about editing the template: the
-template file is untouched, and what is written is content this step produced.
+What the diff does not show is a finding you **rejected** — a reviewer raised
+something and you decided against it, so nothing in the change records that the
+question was asked. Say those under Additional Context, with the reason, in a
+line each. Nothing checks this and nothing can: whether a panel ran is not
+visible in any artifact the work produces, which is why it is written here as a
+rule and not as a check.
 
 Findings you apply change the branch. **Commit them**, re-run the verification,
 and push again before Step 5 — `git push` moves commits and not a working tree,
@@ -118,19 +117,16 @@ State the shape you are using rather than refusing or improvising:
 ```
 No change-description template in this repo. Using the default shape:
 Summary (context, then the drawing, then what / why / impact) · What changed ·
-How it was tested · Review panel · Issue links.
+How it was tested · Issue links.
 ```
 
-Then fill those five. `wfctl install-config github` seeds a real template — say
+Then fill those four. `wfctl install-config github` seeds a real template — say
 so once, and do not block on it.
 
 ## Step 4: Fill every section
 
 - **Every section the template has, in its order.** A section you have nothing
   for gets "None" or "N/A" — never silent deletion, which reads as an answer.
-  **Review Panel is the exception, and takes no "N/A".** Having nothing to put
-  there does not mean the section does not apply; it means Step 1 has not run
-  yet, and "N/A" is how that becomes invisible while satisfying this bullet.
 - **Answer the comment blocks; then delete them.** They are instructions to the
   author, not part of the description. Placeholders in brackets are replaced,
   not left.
@@ -187,11 +183,7 @@ is the one the reader rejected on #208 — the fix was replacing the fence with 
 markdown table, and the accepted drawings in the same body are hand-aligned too,
 which is why alignment alone is not the finding.
 
-It reads the Review Panel section too, and reports a section that is absent or
-still carrying the placeholders it shipped with — the rule from Step 1, on the
-artifact where breaking it is visible.
-
-**Its third finding is not about the file.** A `verification:` line says the
+**Its second finding is not about the file.** A `verification:` line says the
 repository declares a definition of done and no record of it passing covers this
 tree — never run, failed, left inconclusive, or taken against a commit the branch
 has since moved off:
@@ -358,13 +350,15 @@ attributes.
 
 ## Red flags
 
-- "The reviewers had nothing, so there is nothing to write." A panel that ran and
-  found nothing is a result and is recorded as one — who reviewed, what each
-  checked, no findings. Left out, it is indistinguishable in the body from a panel
-  that never ran, which is the failure the step exists to prevent.
+- "The description has no panel section, so Step 1 is optional." The step is not
+  reached through the body and never was; what the body stopped carrying is the
+  table, not the requirement to run the panel over every change.
+- Writing up the findings you applied. They are commits on the branch, and the
+  reviewer reads the diff. The half worth a line is the one the diff cannot
+  show: what a reviewer raised and you decided against.
 - Running the panel after the PR is open, because the diff is easier to point at
   there. The findings then arrive against a change reviewers have already been
-  asked to read, and the body they read says nothing was found.
+  asked to read, and every fix lands as a commit pushed after they started.
 - Composing a summary first and checking the template afterwards. By then the
   body exists and the template becomes something to reconcile against rather
   than the thing being filled.

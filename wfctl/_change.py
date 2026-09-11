@@ -26,8 +26,8 @@ records that split.
 ## What is pure here and what is not
 
 `compare` is, and stays that way: two payloads and a list in, rows out, no
-repository and no subprocess. That is `_body.py` and `_shape.py`'s shape, and it
-is why every state in `data-model.md` is reachable from a unit test.
+repository and no subprocess. That is `_shape.py`'s shape, and it is why every
+state in `data-model.md` is reachable from a unit test.
 
 `load_required` is not, and is here rather than in `_verify.py` because that
 module's subject is the definition of done. It borrows only `CONFIG_PATH`, so the
@@ -175,7 +175,7 @@ def load_required(repo_root: Path) -> tuple[list[str], list[str]]:
 def describe(row: Field) -> str:
     """The line one row renders as, without its marker.
 
-    Here rather than in the command for the reason `_body.py` gives about its
+    Here rather than in the command for the reason `_shape.py` gives about its
     own findings: the wording is what a reader acts on, and a string built
     inside a print call is a string no test ever reads. The marker stays with
     the command, because it also has to say things no row produced.

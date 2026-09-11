@@ -32,9 +32,10 @@ missed the case.
 ## Direct baseline
 
 Leave both artifacts where they are, and require the agent to paste clarify's
-coverage summary and analyze's findings table into the PR body — the rule
-`opening-a-change` already applies one stage later to the review panel's
-disposition table, for this exact indistinguishability.
+coverage summary and analyze's findings table into the PR body — the shape
+`opening-a-change` once applied one stage later to the review panel's
+disposition table, for this exact indistinguishability, and withdrew in #347 on
+the argument this section reaches below.
 
 It costs no file, no directory and no new concept, and it puts the evidence in
 front of the person who is about to approve the change.
