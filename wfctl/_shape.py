@@ -69,19 +69,86 @@ _TABLE_ROW = re.compile(r"^\s*\|")
 # limit — at four the line is an indented code block and not a header at all.
 _HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
+# A sentence boundary as the reply surface has to see it, which is not how the
+# PR body's `_SENTENCE` sees one. That pattern is deliberately narrow: a missed
+# boundary there only suppresses a finding, and the evidence behind it is a
+# precision claim that holds while it stays narrow. Here a missed boundary
+# *produces* a finding — it is what #304 is — so the two cannot share a pattern
+# without one of them being tuned by the other's accident.
+#
+# What the extra width buys, every row of it a shape this repo's own replies
+# end sentences on: a digit or an acronym before the stop (`in CI.`, `in PR
+# 304.`, `on 3.11.`, and a commit sha, which ends in a digit more often than
+# not), `?` and `!` as stops, and a quote or emphasis marker on either side of
+# the stop — `called it "noisy."` and `**Both routes resolve.**`, the second
+# being the shape `_COUNTED` below accepts a `**` prefix for.
+#
+# What the width costs is a dotted initialism mid-sentence: `Three problems
+# affect the U.S. API: auth and billing` splits after `U.S.`, and neither half
+# then carries both a count and a colon. Left alone deliberately. Guarding it
+# means refusing a boundary, which on this surface can only *add* findings, and
+# the two shapes it decides between are equally absent — 16 of 58,792 assistant
+# lines carry a dotted initialism at all and none is followed by a capital. With
+# nothing to separate them by frequency, the rule's own asymmetry decides: a
+# missed hit costs attention once, a false positive costs the reader's trust in
+# every other finding.
+_REPLY_SENTENCE = re.compile(
+    r"[A-Za-z0-9)\]`\"']"      # the character the sentence ends on
+    r"[\"'*_)\]]*"             # a closing quote or emphasis marker, before the stop
+    r"[.?!]"
+    r"[\"'*_)\]]*"             # or after it
+    r"\s+"
+    r"(?=[\"'*_(\[]*[A-Z])"    # the next sentence, its own opener and all
+)
+
 # Anywhere in the reply, not only the opening: the observed shape is a coda —
 # the answer lands, then "One thing I couldn't finish:" starts a second block.
 #
-# The colon is the whole discriminator, and it is what separates the issue's
-# own pair: `Three things worth flagging:` announces a list and flags,
-# `Three reviewers reported` states a fact and does not. Anywhere in the line
-# rather than at the end, because the observed lead-ins run the list on after
-# the colon rather than breaking to bullets — requiring the colon to close the
-# line drops two thirds of the real hits in the corpus.
-_COUNTED = re.compile(
-    r"^\s*(?:\*\*|_)?(one|two|three|four|five|six|seven|eight|nine|ten"
-    r"|both|several|a few)\b[^\n]*:",
-    re.IGNORECASE,
+# The discriminator is a colon in the *same sentence* as the count, which is why
+# this is matched against each of `_sentences` rather than against the line. A
+# colon anywhere on the line is not one: `Three reviewers reported the same bug.
+# Here is what each said:` puts the count and the colon in different sentences,
+# and the sentence the colon closes carries no count at all — so reading the
+# line whole turned every counted fact into a violation as soon as any later
+# sentence ended in a colon (#304).
+#
+# Per sentence rather than first-sentence-only, because the coda above is the
+# observed shape and it is usually not the first thing on its line. `Done. Two
+# problems worth an issue each:` is one line carrying an answer and a lead-in,
+# and scanning only the opening sentence reports it clean.
+#
+# **Where the colon may sit depends on which sentence it is in, and the two
+# answers are measured separately.** In the sentence that opens the line the
+# colon is looked for anywhere, because those lead-ins run the list on after it
+# rather than breaking to bullets — requiring it to close drops two thirds of
+# them. A coda is the other way round: it announces and then breaks, so the
+# colon ends its sentence, and accepting one mid-sentence buys almost nothing
+# real. Over 7,964 terminal replies, scanning later sentences colon-anywhere
+# added 310 lines that line-whole matching never saw — 165 genuine codas and
+# 145 of the unreachable class below. Requiring the colon to close them keeps
+# the 165 and drops all 145, at no cost to detection of the rule's own named
+# tell (534 either way, against 567 before this change).
+#
+# **A count and a colon inside one sentence stay out of reach.** That class is
+# wider than it looks, and it is the whole of what this does not fix: "Three
+# start today with zero overlap: #324, #305, #335" is a count that *is* the
+# answer to a question whose answer is a set, which the rule exempts; "Both of
+# r1's top findings reproduce: the gate and the corpus" is a counted fact whose
+# colon introduces its own evidence. Neither announces "a list nobody asked
+# for", and both are shaped exactly like a lead-in — one sentence, count, colon,
+# list. Only the prompt separates them, and this pattern is matched against the
+# reply.
+_COUNT = (
+    r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
+    r"|both|several|a few)\b"
+)
+_COUNTED = re.compile(rf"^\s*{_COUNT}[^\n]*:", re.IGNORECASE)
+# "Closes the sentence" has to mean the colon and whatever emphasis closes with
+# it. `Done. **Two things remain:**` is the bold lead-in this project recommends
+# over a heading, so a coda scan that reads `:**` as a colon with text after it
+# is blind to the form its own readers are told to write.
+_COUNTED_CODA = re.compile(
+    rf"^\s*{_COUNT}[^\n]*:[\"'*_)\]]*\s*$", re.IGNORECASE
 )
 
 # Inline code is quoted, not written, and a colon inside it is punctuation of
@@ -90,8 +157,11 @@ _COUNTED = re.compile(
 # produced across ninety transcripts.
 # A bare URL alongside it, for the same reason and one shape further out: the
 # `https:` in a line beginning "Three of these came from https://…" is not a
-# lead-in's colon either.
-_QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S+")
+# lead-in's colon either. It stops short of a trailing `.` or `,` because a
+# URL at the end of a sentence owns neither, and swallowing the period erased
+# the boundary `_REPLY_SENTENCE` needs — which put that very line, the one this
+# comment quotes, back among #304's false positives.
+_QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S*[^\s.,]")
 
 # Words the prompt can use to opt into depth. Not a synonym list to be completed
 # — it is deliberately over-broad, because every word missing from it turns a
@@ -133,7 +203,10 @@ _HAND_ALIGNED = re.compile(r"\S {2,}\S")
 # A sentence end followed by a new one. This is "one cell outgrew its header" in
 # the only form a machine can see it — the rejected drawing's overflowing cell
 # was a three-sentence paragraph, and no accepted drawing in the same PR body
-# contains a single sentence boundary.
+# contains a single sentence boundary. Narrow on purpose, and `_REPLY_SENTENCE`
+# is where the reply surface's wider one lives: widening this in place keeps
+# both verdicts here correct and changes which cell they quote, which is what
+# `test_the_drawing_the_reader_rejected_is_flagged` pins.
 _SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
 
 # Three, because two adjacent aligned lines is a pair of annotations and any
@@ -184,6 +257,35 @@ def _prose(text: str) -> list[str]:
     ]
 
 
+def _sentences(line: str) -> list[str]:
+    """`line` cut at every boundary `_REPLY_SENTENCE` can see, in order.
+
+    Always at least one element, which is the whole line when it holds no
+    boundary. Each cut runs from one sentence's first character to the next
+    one's, so a sentence keeps its own terminal punctuation and its trailing
+    space; the counted lead-in is tested against each, which is what confines
+    the colon deciding it to the sentence carrying the count.
+    """
+    out, start = [], 0
+    for boundary in _REPLY_SENTENCE.finditer(line):
+        out.append(line[start:boundary.end()])
+        start = boundary.end()
+    out.append(line[start:])
+    return out
+
+
+def _counted_lead_in(line: str) -> bool:
+    """Whether any sentence of `line` announces a list with a count.
+
+    The opening sentence and the ones after it are asked different questions —
+    see `_COUNTED_CODA` for which, and for the corpus behind the asymmetry.
+    """
+    opening, *rest = _sentences(_QUOTED.sub("``", line))
+    return bool(_COUNTED.match(opening)) or any(
+        _COUNTED_CODA.match(sentence) for sentence in rest
+    )
+
+
 def findings(reply: str, prompt: str) -> list[str]:
     """What a terminal `reply` breaks, one line each, naming the check it maps to.
 
@@ -204,7 +306,7 @@ def findings(reply: str, prompt: str) -> list[str]:
             "Convert each to a bold lead-in on the sentence beneath it."
         )
 
-    counted = [line for line in lines if _COUNTED.match(_QUOTED.sub("``", line))]
+    counted = [line for line in lines if _counted_lead_in(line)]
     if counted:
         first = " ".join(counted[0].split())[:60]
         out.append(

@@ -58,6 +58,85 @@ def test_a_counted_lead_in_is_flagged_and_a_counted_fact_is_not() -> None:
     assert not _shape.findings("Three reviewers reported the same bug.", BARE)
 
 
+def test_a_colon_in_a_later_sentence_does_not_make_the_count_a_lead_in() -> None:
+    """Every counted fact became a violation the moment any later sentence on the
+    line ended in a colon: the count and the colon belonged to different
+    sentences and the pattern read the line whole (#304). These two are the
+    issue's own reproduction, and they are the easy half — both end their first
+    sentence on a lowercase letter."""
+    for line in ("Three reviewers reported the same bug. Here is what each said:",
+                 "Both routes resolve. The tests now pin each one:"):
+        assert not _shape.findings(line, BARE), line
+
+
+def test_the_boundary_is_found_on_the_endings_replies_actually_use() -> None:
+    """The hard half, and where a first fix stopped: a boundary pattern that sees
+    a period only after a lowercase letter leaves #304 intact on every sentence
+    ending in anything else, and none of these endings is exotic here. The sha
+    line was observed live, and it is the one that showed the defect — it passed
+    only because `dc3387c` happens to end in a letter, and a hex sha ends in a
+    digit more often than not."""
+    for line in ("Both routes resolve in CI. The tests now pin each one:",
+                 "Three reviewers reported the same bug in PR 304. "
+                 "Here is what each said:",
+                 "Both routes resolve? The tests now pin each one:",
+                 "Both routes resolve! The tests now pin each one:",
+                 'Three reviewers called it "noisy." Here is what each said:',
+                 "**Both routes resolve.** The tests now pin each one:",
+                 "Three reviewers dispatched over dc33870. "
+                 "While they run — the state so far:",
+                 "Three of these came from https://x.com/a. Here is the list:"):
+        assert not _shape.findings(line, BARE), line
+
+
+def test_a_lead_in_whose_list_runs_on_after_the_colon_is_still_flagged() -> None:
+    """Narrowing this rule can only remove real hits, and the corpus is mostly
+    made of this shape — the list continues on the same line rather than breaking
+    to bullets, so its first item ends the sentence the colon opened. Confining
+    the colon to the counted sentence must not reach past the sentence itself.
+
+    The second line is what rules out splitting on a bare period instead of a
+    sentence boundary: it is a real lead-in whose only period is inside a version
+    number, and a period split would report it clean."""
+    assert _shape.findings("Two things worth naming: the first is the gate. "
+                           "The second is the corpus behind it.", BARE)
+    assert _shape.findings("Three things broke in v1.2: the gate, the corpus, "
+                           "the hook.", BARE)
+
+
+def test_a_lead_in_that_follows_the_answer_on_one_line_is_still_flagged() -> None:
+    """The coda is the shape `_COUNTED`'s own comment names as the observed one —
+    the answer lands, then the lead-in starts a second block — and it is usually
+    not the first sentence on its line. Scanning only the opening sentence
+    reports these clean, which trades #304 for a silence."""
+    assert _shape.findings("Both landed. Three things worth flagging:", BARE)
+    assert _shape.findings("That is settled. Two problems worth an issue each:",
+                           BARE)
+
+
+def test_a_coda_closes_on_its_emphasis_as_well_as_its_colon() -> None:
+    """The bold lead-in is what `conversation-response-shape` tells the reader to
+    write instead of a heading, so `:**` is the form a coda most often ends on.
+    Reading the `**` as text after the colon made the coda scan blind to exactly
+    the shape the skill recommends, while catching the unemphasised one."""
+    assert _shape.findings("Done. **Two things remain:**", BARE)
+    assert _shape.findings("Done. _Two things remain:_", BARE)
+
+
+def test_a_coda_whose_colon_does_not_close_it_is_not_a_lead_in() -> None:
+    """The asymmetry between the opening sentence and the ones after it, and the
+    only thing keeping the coda scan from costing more than it buys. A coda
+    announces and then breaks to its list, so its colon ends the sentence; a
+    colon sitting mid-sentence after the opening one is the count-and-colon class
+    the rule cannot reach, and accepting it added 145 such lines to the corpus
+    against 165 real codas. Both lines here fire when the count opens the line,
+    which is where this rule already accepts that class."""
+    assert not _shape.findings("Fixed. Both come down to one property: the "
+                               "machine has to prove it finished.", BARE)
+    assert _shape.findings("Both come down to one property: the machine has to "
+                           "prove it finished.", BARE)
+
+
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
     """Q3, and the only finding that looks at length at all."""
     found = _shape.findings("word " * 300, BARE)
