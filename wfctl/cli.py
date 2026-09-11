@@ -309,6 +309,20 @@ def start_cmd(
 
     if report.session_started and not force:
         report_notify()
+        # The sitting boundary, on the path that carries almost every sitting
+        # after the first. `session_started` reads the *first* of these, so this
+        # changes nothing it answers; what it records is that a new sitting opened
+        # over work already done, which nothing else in the log says and #332's
+        # bound cannot infer. Conditional, because `start` is idempotent in the
+        # log on purpose — `/start-session` runs it on every handoff, and an
+        # unconditional append would grow the file with lines repeating the
+        # previous one. A sitting that ran nothing writes nothing.
+        from wfctl._stall import opens_a_new_sitting
+
+        if opens_a_new_sitting(agent_dir, branch):
+            append_event(
+                agent_dir, "start", branch=branch, step=report.current or "complete"
+            )
         console.print("ℹ Already initialized (use --force to reset)")
         return
 
@@ -438,6 +452,19 @@ def status_cmd(
             # that this wfctl predates the question, which is the distinction
             # `notify` is present-and-false for.
             "facts": [f._asdict() for f in report.facts],
+            # Present and null while the run is progressing, never omitted, for
+            # `notify`'s reason (FR-004): a consumer reading a missing key as
+            # "not stalled" cannot tell that from a wfctl too old to count.
+            # `speckit-orchestrate` branches on this, so the distinction is the
+            # difference between a loop that stops and one that never learns to.
+            "stall": (
+                None if report.stall is None
+                else {
+                    "step": report.stall.step,
+                    "passes": report.stall.passes,
+                    "unchanged": list(report.stall.unchanged),
+                }
+            ),
         })
         return
 
@@ -502,6 +529,27 @@ def status_cmd(
     # The completion sentence rather than a second spelling of it: `_pipeline`
     # owns both forms so the file an agent reads and the line a human reads
     # cannot drift apart.
+    # Above `next:` rather than below it, because it changes what that line
+    # means: the command is still what would run, and this says running it again
+    # is what has already failed three times. A stopped run that renders as an
+    # ordinary "next" is the silent halt #332's definition of done rules out.
+    if report.stall is not None:
+        console.print(
+            f"[yellow]⊘[/yellow] {report.stall.step} was attempted "
+            f"{report.stall.passes} times and changed nothing"
+        )
+        if report.stall.unchanged:
+            # "outside quoted blocks" because the digest reads the same blanked
+            # text every predicate does: an edit confined to a fenced block moves
+            # no predicate's verdict either, and a bare "unchanged" would be a
+            # claim about the file that the comparison never made.
+            console.print(
+                f"  [dim]unchanged (outside quoted blocks): "
+                f"{', '.join(report.stall.unchanged)}[/dim]"
+            )
+        console.print(
+            "  [dim]this needs a person — re-running it has not moved the work[/dim]"
+        )
     console.print(f"[dim]next:[/dim] {report.next_command or STORY_COMPLETE_CONSOLE}")
 
     # Rendered from the payload, not composed here. The console used to resolve
@@ -645,8 +693,15 @@ def resume_cmd() -> None:
     # `bool` because the log has carried a Boolean here since `next` wrote the
     # first one, and `auto` is None at story complete. Two shapes for one
     # situation is drift in a record nothing can migrate afterwards.
+    # `digest` is what makes two passes comparable (#332). Omitted rather than
+    # written null where there is no feature directory: `find_stall` compares
+    # only passes that recorded one, and a null would have to be special-cased
+    # by every reader to mean the same thing absence already means.
+    mark = report.evidence_digest
     append_event(
-        agent_dir, "resume", step=step_name, command=command or "complete", auto=bool(auto)
+        agent_dir, "resume", branch=branch, step=step_name,
+        command=command or "complete", auto=bool(auto),
+        **({"digest": mark} if mark else {}),
     )
 
 

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple
 
-from wfctl import _predicates
+from wfctl import _predicates, _stall
 from wfctl._paths import arch_root, is_in_tree
 from wfctl._predicates import DESIGN_BLOCK_REASON, Fact, Predicate, State, build_evidence
 
@@ -406,6 +406,19 @@ class PipelineReport:
     # facts are as true as a running one's — there is no step left to run and the
     # branch is still ready or not.
     facts: tuple[Fact, ...] = ()
+    # Whether the loop has stopped making progress (#332). A field on the one
+    # report rather than a second read by whoever runs the loop: every view of
+    # pipeline state is a rendering of this object, and a verdict the agent
+    # derived for itself would be a source of pipeline truth living outside it.
+    # `None` is the common case — a run that is progressing has nothing to say.
+    stall: "_stall.Stall | None" = None
+    # This pass's own digest, for `resume` to record. On the report rather than
+    # recomputed at the call site because the two reads could disagree while an
+    # implementing agent is writing — the window `build_report`'s own seam
+    # comment exists to close, met again by a second reader of the same files.
+    # `None` where no feature directory resolved: there is no evidence to digest,
+    # and a pass that recorded none is one `find_stall` will not compare.
+    evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
@@ -484,6 +497,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
     command, auto = next_step_content(name, blocked)
+    digest_now = None if ev is None else _stall.digest(ev)
     return PipelineReport(
         steps=[
             {
@@ -515,4 +529,20 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         notify=granted,
         notify_source=source,
         facts=_predicates.facts(ev, repo_root, granted, source, verification),
+        # Read from the event log, which `resume` has already written this pass
+        # into. The count has to outlive the agent's memory of it, which is the
+        # whole of `wfctl-counts-the-passes`.
+        #
+        # `branch` because one state dir can serve several branches; `current`
+        # because a verdict that outlived the artifacts it describes is a false
+        # claim on the screen a person reads right after acting on it; `covered`
+        # so the report names the files that are there rather than three
+        # constants, two of which `status` may be reporting as missing.
+        stall=_stall.find_stall(
+            agent_dir,
+            branch=branch,
+            current=digest_now,
+            covered=tuple(n for n in _stall.COVERED if spec_dir and (spec_dir / n).exists()),
+        ),
+        evidence_digest=digest_now,
     )

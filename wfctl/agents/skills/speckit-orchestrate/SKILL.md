@@ -110,8 +110,8 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    would refuse. `resume` and `status` are two renderings of one inference, so
    there is no answer step 3 has that step 4 lacks.
 
-4. Run `wfctl status --json` and read `next_command` and `auto` off the payload,
-   and the current step's `reason` and `remedy` with them.
+4. Run `wfctl status --json` and read `next_command`, `auto` and `stall` off the
+   payload, and the current step's `reason` and `remedy` with them.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
@@ -123,6 +123,40 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    **Story complete** (`next_command` is `null`):
    - Display: "Story complete — open PR or run `/end-session`."
    - Stop.
+
+   **`stall` is not `null`** — after the story-complete check above, and before
+   `auto`:
+   - Display: "Stopped — `{stall.step}` was attempted {stall.passes} times and
+     changed nothing." Then `unchanged` as a list where it is non-empty, and one
+     line saying this needs a person because re-entering the step has not moved
+     the work.
+   - Where the current step also carries a `reason`, display it and its `remedy`
+     below that. The two answer different halves — the reason is what re-entering
+     had to supply, and the stall is that re-entering has already been tried — and
+     a stop that prints only the second sends the reader looking for a cause the
+     payload was holding.
+   - Stop. Do not emit `EXECUTE_COMMAND`.
+
+   **After story complete, and before `auto`.** Both orderings are load-bearing.
+   A finished story stops moving its artifacts by definition, so a run that ends
+   and is then resumed reports a stall on the pseudo-step `complete` — announcing
+   a stopped run on finished work inverts the one distinction this payload exists
+   to draw. And a stalled run has `auto: true` with a `next_command` naming the
+   step that just failed to make progress, so reading `auto` first sends the loop
+   straight back into it, which is the defect (#332).
+
+   You are not deciding this. wfctl counts the attempts, from the event log
+   `wfctl resume` writes one line into per pass; the payload carries the verdict
+   and this step renders it (`wfctl-counts-the-passes`). Do not keep your own
+   tally of which command you emitted last, and do not treat the absence of
+   `stall` as a reason to start one — a conversation cleared or compacted
+   mid-run loses a tally like that at exactly the moment the bound is for.
+
+   **A stall is not a blocked step**, and the two are told apart by which field
+   carries the answer. A `reason` names something re-entering the step can fix
+   once someone supplies it; a stall says re-entering has already been tried and
+   changed nothing. Both stop the loop, and only one of them is worth trying
+   again after a person looks.
 
    **`auto` is `true`**:
    - Strip the leading `/` from `next_command` (e.g. `/speckit.plan` → `speckit.plan`)
