@@ -69,35 +69,58 @@ _TABLE_ROW = re.compile(r"^\s*\|")
 # limit — at four the line is an indented code block and not a header at all.
 _HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
-# A sentence end followed by a new one. Two surfaces read it. Here it bounds the
-# counted lead-in below; on the PR body it is "one cell outgrew its header" in
-# the only form a machine can see it — the rejected drawing's overflowing cell
-# was a three-sentence paragraph, and no accepted drawing in the same PR body
-# contains a single sentence boundary.
-_SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
+# A sentence boundary as the reply surface has to see it, which is not how the
+# PR body's `_SENTENCE` sees one. That pattern is deliberately narrow: a missed
+# boundary there only suppresses a finding, and the evidence behind it is a
+# precision claim that holds while it stays narrow. Here a missed boundary
+# *produces* a finding — it is what #304 is — so the two cannot share a pattern
+# without one of them being tuned by the other's accident.
+#
+# What the extra width buys, every row of it a shape this repo's own replies
+# end sentences on: a digit or an acronym before the stop (`in CI.`, `in PR
+# 304.`, `on 3.11.`, and a commit sha, which ends in a digit more often than
+# not), `?` and `!` as stops, and a quote or emphasis marker on either side of
+# the stop — `called it "noisy."` and `**Both routes resolve.**`, the second
+# being the shape `_COUNTED` below accepts a `**` prefix for.
+_REPLY_SENTENCE = re.compile(
+    r"[A-Za-z0-9)\]`\"']"      # the character the sentence ends on
+    r"[\"'*_)\]]*"             # a closing quote or emphasis marker, before the stop
+    r"[.?!]"
+    r"[\"'*_)\]]*"             # or after it
+    r"\s+"
+    r"(?=[\"'*_(\[]*[A-Z])"    # the next sentence, its own opener and all
+)
 
 # Anywhere in the reply, not only the opening: the observed shape is a coda —
 # the answer lands, then "One thing I couldn't finish:" starts a second block.
 #
-# The discriminator is a colon in the sentence the count is in, which is why
-# this is matched against `_first_sentence` rather than the line. A colon
-# anywhere on the line is not one: `Three reviewers reported the same bug. Here
-# is what each said:` puts the count and the colon in different sentences, and
-# the sentence the colon closes carries no count at all — so reading the line
-# whole turned every counted fact into a violation as soon as any later sentence
-# ended in a colon.
+# The discriminator is a colon in the *same sentence* as the count, which is why
+# this is matched against each of `_sentences` rather than against the line. A
+# colon anywhere on the line is not one: `Three reviewers reported the same bug.
+# Here is what each said:` puts the count and the colon in different sentences,
+# and the sentence the colon closes carries no count at all — so reading the
+# line whole turned every counted fact into a violation as soon as any later
+# sentence ended in a colon (#304).
 #
-# Within that sentence the colon is still looked for anywhere rather than at its
+# Per sentence rather than first-sentence-only, because the coda above is the
+# observed shape and it is usually not the first thing on its line. `Both
+# landed. Three things worth flagging: a, b, c.` is one line carrying an answer
+# and a lead-in, and scanning only the opening sentence would report it clean.
+#
+# Within a sentence the colon is still looked for anywhere rather than at the
 # end, because the observed lead-ins run the list on after the colon rather than
 # breaking to bullets — requiring it to close the sentence drops two thirds of
 # the real hits in the corpus.
 #
-# **A count that is itself the answer is out of reach from here.** "Three start
-# today with zero overlap: #324, #305, #335" answers a question whose answer is
-# a set, which the rule exempts — it forbids the count that "announces a list
-# nobody asked for" — and it is shaped exactly like a lead-in: one sentence,
-# count, colon, list. Only the prompt separates the two, and this pattern is
-# matched against the reply.
+# **A count and a colon inside one sentence stay out of reach.** That class is
+# wider than it looks, and it is the whole of what this does not fix: "Three
+# start today with zero overlap: #324, #305, #335" is a count that *is* the
+# answer to a question whose answer is a set, which the rule exempts; "Both of
+# r1's top findings reproduce: the gate and the corpus" is a counted fact whose
+# colon introduces its own evidence. Neither announces "a list nobody asked
+# for", and both are shaped exactly like a lead-in — one sentence, count, colon,
+# list. Only the prompt separates them, and this pattern is matched against the
+# reply.
 _COUNTED = re.compile(
     r"^\s*(?:\*\*|_)?(one|two|three|four|five|six|seven|eight|nine|ten"
     r"|both|several|a few)\b[^\n]*:",
@@ -110,8 +133,11 @@ _COUNTED = re.compile(
 # produced across ninety transcripts.
 # A bare URL alongside it, for the same reason and one shape further out: the
 # `https:` in a line beginning "Three of these came from https://…" is not a
-# lead-in's colon either.
-_QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S+")
+# lead-in's colon either. It stops short of a trailing `.` or `,` because a
+# URL at the end of a sentence owns neither, and swallowing the period erased
+# the boundary `_REPLY_SENTENCE` needs — which put that very line, the one this
+# comment quotes, back among #304's false positives.
+_QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S*[^\s.,]")
 
 # Words the prompt can use to opt into depth. Not a synonym list to be completed
 # — it is deliberately over-broad, because every word missing from it turns a
@@ -149,6 +175,15 @@ _LONG_WORDS = 250
 
 # Two or more spaces between two non-spaces: a column boundary someone typed.
 _HAND_ALIGNED = re.compile(r"\S {2,}\S")
+
+# A sentence end followed by a new one. This is "one cell outgrew its header" in
+# the only form a machine can see it — the rejected drawing's overflowing cell
+# was a three-sentence paragraph, and no accepted drawing in the same PR body
+# contains a single sentence boundary. Narrow on purpose, and `_REPLY_SENTENCE`
+# is where the reply surface's wider one lives: widening this in place keeps
+# both verdicts here correct and changes which cell they quote, which is what
+# `test_the_drawing_the_reader_rejected_is_flagged` pins.
+_SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
 
 # Three, because two adjacent aligned lines is a pair of annotations and any
 # drawing with columns has that. Three consecutive is a column.
@@ -198,14 +233,21 @@ def _prose(text: str) -> list[str]:
     ]
 
 
-def _first_sentence(line: str) -> str:
-    """`line` up to its first sentence boundary, or all of it if it has none.
+def _sentences(line: str) -> list[str]:
+    """`line` cut at every boundary `_REPLY_SENTENCE` can see, in order.
 
-    The counted lead-in is tested against this rather than the line, so that the
-    colon deciding it is the one in the counted sentence.
+    Always at least one element, which is the whole line when it holds no
+    boundary. Each cut runs from one sentence's first character to the next
+    one's, so a sentence keeps its own terminal punctuation and its trailing
+    space; the counted lead-in is tested against each, which is what confines
+    the colon deciding it to the sentence carrying the count.
     """
-    boundary = _SENTENCE.search(line)
-    return line[: boundary.start() + 1] if boundary else line
+    out, start = [], 0
+    for boundary in _REPLY_SENTENCE.finditer(line):
+        out.append(line[start:boundary.end()])
+        start = boundary.end()
+    out.append(line[start:])
+    return out
 
 
 def findings(reply: str, prompt: str) -> list[str]:
@@ -231,7 +273,10 @@ def findings(reply: str, prompt: str) -> list[str]:
     counted = [
         line
         for line in lines
-        if _COUNTED.match(_first_sentence(_QUOTED.sub("``", line)))
+        if any(
+            _COUNTED.match(sentence)
+            for sentence in _sentences(_QUOTED.sub("``", line))
+        )
     ]
     if counted:
         first = " ".join(counted[0].split())[:60]

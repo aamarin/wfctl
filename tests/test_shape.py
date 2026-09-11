@@ -61,14 +61,31 @@ def test_a_counted_lead_in_is_flagged_and_a_counted_fact_is_not() -> None:
 def test_a_colon_in_a_later_sentence_does_not_make_the_count_a_lead_in() -> None:
     """Every counted fact became a violation the moment any later sentence on the
     line ended in a colon: the count and the colon belonged to different
-    sentences and the pattern read the line whole (#304). The first two lines are
-    the issue's own reproduction; the third was observed live in the session it
-    was filed from, and is the reason the boundary is a sentence rather than the
-    period the first two happen to share."""
+    sentences and the pattern read the line whole (#304). These two are the
+    issue's own reproduction, and they are the easy half — both end their first
+    sentence on a lowercase letter."""
     for line in ("Three reviewers reported the same bug. Here is what each said:",
-                 "Both routes resolve. The tests now pin each one:",
-                 "Three reviewers dispatched over dc3387c. "
-                 "While they run — the state so far:"):
+                 "Both routes resolve. The tests now pin each one:"):
+        assert not _shape.findings(line, BARE), line
+
+
+def test_the_boundary_is_found_on_the_endings_replies_actually_use() -> None:
+    """The hard half, and where a first fix stopped: a boundary pattern that sees
+    a period only after a lowercase letter leaves #304 intact on every sentence
+    ending in anything else, and none of these endings is exotic here. The sha
+    line was observed live, and it is the one that showed the defect — it passed
+    only because `dc3387c` happens to end in a letter, and a hex sha ends in a
+    digit more often than not."""
+    for line in ("Both routes resolve in CI. The tests now pin each one:",
+                 "Three reviewers reported the same bug in PR 304. "
+                 "Here is what each said:",
+                 "Both routes resolve? The tests now pin each one:",
+                 "Both routes resolve! The tests now pin each one:",
+                 'Three reviewers called it "noisy." Here is what each said:',
+                 "**Both routes resolve.** The tests now pin each one:",
+                 "Three reviewers dispatched over dc33870. "
+                 "While they run — the state so far:",
+                 "Three of these came from https://x.com/a. Here is the list:"):
         assert not _shape.findings(line, BARE), line
 
 
@@ -76,10 +93,26 @@ def test_a_lead_in_whose_list_runs_on_after_the_colon_is_still_flagged() -> None
     """Narrowing this rule can only remove real hits, and the corpus is mostly
     made of this shape — the list continues on the same line rather than breaking
     to bullets, so its first item ends the sentence the colon opened. Confining
-    the colon to the counted sentence must not reach past the sentence itself."""
-    run_on = ("Two things worth naming: the first is the gate. "
-              "The second is the corpus behind it.")
-    assert _shape.findings(run_on, BARE)
+    the colon to the counted sentence must not reach past the sentence itself.
+
+    The second line is what rules out splitting on a bare period instead of a
+    sentence boundary: it is a real lead-in whose only period is inside a version
+    number, and a period split would report it clean."""
+    assert _shape.findings("Two things worth naming: the first is the gate. "
+                           "The second is the corpus behind it.", BARE)
+    assert _shape.findings("Three things broke in v1.2: the gate, the corpus, "
+                           "the hook.", BARE)
+
+
+def test_a_lead_in_that_follows_the_answer_on_one_line_is_still_flagged() -> None:
+    """The coda is the shape `_COUNTED`'s own comment names as the observed one —
+    the answer lands, then the lead-in starts a second block — and it is usually
+    not the first sentence on its line. Scanning only the opening sentence
+    reports both of these clean, which trades #304 for a silence."""
+    assert _shape.findings("Both landed. Three things worth flagging: a, b, c.",
+                           BARE)
+    assert _shape.findings("Two tests pass. One thing I couldn't finish: "
+                           "the migration.", BARE)
 
 
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
