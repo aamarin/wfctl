@@ -1,12 +1,12 @@
-"""One fence walker, for the three modules that were each carrying their own.
+"""One fence walker, for the modules that were each carrying their own.
 
-`_shape`, `_body` and `_arch` all needed to know which lines of a markdown
-document sit inside a fenced code block, and all three answered it differently:
-`_shape` implemented CommonMark's closing rule, `_body` and `_arch` matched a
-prefix. The looser two close a fence on ```` ```python ```` appearing *inside*
-one, so a document quoting a fenced example — which every one of these modules
-reads, because each is checking text that quotes the rules it enforces — has the
-rest of the example scanned as prose.
+Knowing which lines of a markdown document sit inside a fenced code block was
+answered three times and three ways before this existed: `_shape` implemented
+CommonMark's closing rule, and the other two matched a prefix. A prefix match
+closes a fence on ```` ```python ```` appearing *inside* one, so a document
+quoting a fenced example — which every caller here reads, because each is
+checking text that quotes the rules it enforces — has the rest of the example
+scanned as prose.
 
 So the strict rule is the shared one, and it is the one whose failure `_shape`
 already documented: a reply quoting a ```-block inside a ````-fence reported

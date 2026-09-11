@@ -1,10 +1,10 @@
-"""Tests for wfctl._md — the one fence walker three modules share.
+"""Tests for wfctl._md — the one fence walker its callers share.
 
 The closing rule is the whole reason this module exists, and before it existed
-each caller had its own. `_shape` implemented CommonMark's, `_body` and `_arch`
+each caller had its own. `_shape` implemented CommonMark's and the other two
 matched a prefix; the difference only shows on a document that quotes a fenced
-example, which is exactly what all three of them read. So these tests pin the
-rule itself rather than any one caller's projection of it — a caller's own tests
+example, which is exactly what each of them reads. So these tests pin the rule
+itself rather than any one caller's projection of it — a caller's own tests
 cover shapes that reach it, and the shapes that did *not* reach it are the ones
 that made three implementations disagree for a year without anyone noticing.
 """
@@ -46,9 +46,9 @@ def test_the_other_fence_character_does_not_close() -> None:
 def test_a_closer_carrying_an_info_string_is_content() -> None:
     """An info string means this is an opening, and inside a block that is text.
 
-    The rule `_body` and `_arch` did not have: both matched a prefix, so a
-    document showing two fenced examples back to back had the second one's
-    opening read as the first one's close.
+    The rule a prefix match does not have, and `_arch` was one: a document
+    showing two fenced examples back to back had the second one's opening read
+    as the first one's close.
     """
     assert _inside("````\nb\n```python\nc\n````\n") == ["b", "```python", "c"]
 

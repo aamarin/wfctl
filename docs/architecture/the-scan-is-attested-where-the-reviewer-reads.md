@@ -32,9 +32,10 @@ missed the case.
 ## Direct baseline
 
 Leave both artifacts where they are, and require the agent to paste clarify's
-coverage summary and analyze's findings table into the PR body — the rule
-`opening-a-change` already applies one stage later to the review panel's
-disposition table, for this exact indistinguishability.
+coverage summary and analyze's findings table into the PR body — the shape
+`opening-a-change` once applied one stage later to the review panel's
+disposition table, for this exact indistinguishability, and withdrew in #347 on
+the argument this section reaches below.
 
 It costs no file, no directory and no new concept, and it puts the evidence in
 front of the person who is about to approve the change.
@@ -190,3 +191,7 @@ gate, and gates are #100's.
   arch-root readers this record's `Consequences` had missed, both counting scan
   files as architecture records. Amended while `proposed`, which is the status
   for a decision nobody has ratified.
+- 2026-09-11  amended     — #347 withdrew the PR-body rule this record's
+  `Direct baseline` cited as precedent, on the argument the baseline had already
+  made against itself. The baseline is reworded; the Decision it lost a
+  precedent for is the one it never rested on.

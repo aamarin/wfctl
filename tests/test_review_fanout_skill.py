@@ -108,10 +108,10 @@ def test_a_report_on_disk_outranks_an_incomplete_returned_list(
 
     A panel where every reviewer reported is the one an agent is likeliest to
     hand a half-updated `RETURNED`, and nesting the two tests the other way
-    round reads that as a reviewer still running. `RUNNING` is a failure marker
-    in `_body.py`, so the description is then blocked over a report sitting on
-    disk — the check contradicting its own "against the disk, not against what
-    you remember receiving".
+    round reads that as a reviewer still running, so the panel waits on a
+    reviewer already back and its findings sit unread on disk — the step
+    contradicting its own "against the disk, not against what you remember
+    receiving".
     """
     bin_dir = _fixture(tmp_path)
     (tmp_path / "reviews" / "r3.md").write_text("BLOCKER cli.py:L9 — …\n")

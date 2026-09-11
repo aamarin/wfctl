@@ -4439,10 +4439,10 @@ def tracker_check_cmd(
 def _verification_finding() -> list[str]:
     """Why `wfctl verify` has not passed against this tree, as a finding. Or none.
 
-    The third source `check-body` composes, and the only one that reads the
-    repository rather than the file it was handed. `_shape` and `_body` stay pure
-    string functions because of it: the state lives here, in the command's own
-    module, and neither of them learns what a git repository is.
+    The second source `check-body` composes, and the only one that reads the
+    repository rather than the file it was handed. `_shape` stays a pure string
+    module because of it: the state lives here, in the command's own module, and
+    it never learns what a git repository is.
 
     Empty is the common answer and covers three unrelated silences — no
     repository, a repository that declares no definition of done, and a run that
@@ -4466,7 +4466,7 @@ def _verification_finding() -> list[str]:
 def check_body_cmd(
     path: Path = typer.Argument(..., help="The change description to check, as a file"),
 ) -> None:
-    """Check a PR description against the two skills that have rules about it.
+    """Check a PR description before `gh pr create` reads it.
 
     The cheaper half of the same problem the `Stop` hook covers: a PR body is a
     file on disk before `gh pr create` reads it, so checking it is a script over
@@ -4495,11 +4495,11 @@ def check_body_cmd(
     is what those still do.
 
     That makes it a check rather than prose, which
-    `a-rule-is-expressed-as-a-check` decides the same way it decided the panel
-    table above: a missing verification record is visible in an artifact the work
-    already produces. Naming `wfctl verify` in a skill's Definition of Done was
-    the cheaper repair and is the shape that already failed — every handoff
-    listed four commands and this was in none of them.
+    `a-rule-is-expressed-as-a-check` decides: a missing verification record is
+    visible in an artifact the work already produces. Naming `wfctl verify` in a
+    skill's Definition of Done was the cheaper repair and is the shape that
+    already failed — every handoff listed four commands and this was in none of
+    them.
 
     Of `conversation-response-shape`, only the drawing rules, because the skill
     scopes the two surfaces apart (SKILL.md:429): headers are a violation in a
@@ -4507,11 +4507,12 @@ def check_body_cmd(
     form-selection table as the single owner of which drawing to use.
     `wfctl/_shape.py` carries the split.
 
-    `opening-a-change` adds the second rule — the review panel's reconciled table
-    goes in the body — and `wfctl/_body.py` carries it, a sibling module rather
-    than a third function in `_shape`, whose own first line scopes it to one
-    skill. Both sets are reported together: what the author has in front of them
-    is one file, not one skill's view of it.
+    **A rule this cannot settle does not belong here.** The review panel's
+    disposition table was checked here until #347, and what ended it is that the
+    check could see only that prose had been written, never that a panel ran —
+    while an applied finding is already a commit on the branch, which the diff
+    shows without anyone's prose. A check that observes the wrong half of its
+    rule teaches a reader to ignore the half it does observe.
 
     Exits 1 when it finds something, so the finding is hard to walk past. It
     gates nothing — nothing runs this but the author. That is what keeps the
@@ -4529,12 +4530,12 @@ def check_body_cmd(
         console.print(f"[red]Can't read {path}:[/red] {exc}")
         raise typer.Exit(1)
 
-    from wfctl import _body, _shape
+    from wfctl import _shape
     from rich.markup import escape
 
-    found = _shape.body_findings(body) + _body.panel_findings(body) + _verification_finding()
+    found = _shape.body_findings(body) + _verification_finding()
     if not found:
-        console.print(f"[green]✓[/green] {path}: drawings and panel look right", soft_wrap=True)
+        console.print(f"[green]✓[/green] {path}: the drawings look right", soft_wrap=True)
         return
     for line in found:
         console.print(f"[yellow]⚠[/yellow] {escape(line)}", soft_wrap=True)

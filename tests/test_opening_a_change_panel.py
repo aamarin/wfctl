@@ -23,9 +23,6 @@ from pathlib import Path
 # here. Same reason as `test_skill_cross_references`.
 _WFCTL = Path(str(files("wfctl")))
 _SKILL = _WFCTL / "agents" / "skills" / "opening-a-change" / "SKILL.md"
-_TEMPLATE = (
-    _WFCTL / "agents" / "configs" / "github" / ".github" / "pull_request_template.md"
-)
 
 _HEADING = re.compile(r"^## Step (\d+): (.*)$", re.MULTILINE)
 
@@ -35,9 +32,10 @@ def _steps() -> list[tuple[int, str]]:
 
 
 def test_the_panel_runs_before_the_body_is_filled() -> None:
-    """The panel's disposition table is content for the description, so a panel
-    that runs after the body is written has nothing to contribute to it and its
-    findings arrive against a change reviewers were already asked to read."""
+    """A finding the panel raises is applied as a commit, and the body describes
+    the branch. A panel that runs after the body is written describes a tree its
+    own fixes have since moved, against a change reviewers were already asked to
+    read."""
     titles = [title.lower() for _, title in _steps()]
     # `next` with a default, so a retitled step fails with the list of titles
     # rather than erroring out of a generator with no diagnostic attached.
@@ -80,10 +78,3 @@ def test_the_in_file_step_references_point_at_the_step_they_name() -> None:
     assert f"The sidebar is Step {sidebar}" in text
     assert f"push again before Step {open_it}" in text
 
-
-def test_the_template_gives_the_panel_a_section() -> None:
-    """Step 4 fills every section the template has, so a section is what turns
-    "the panel ran" into something a body either answers or visibly does not.
-    Without it the table has nowhere to land, and a body with no panel in it is
-    indistinguishable from a change three reviewers passed."""
-    assert "## Review Panel" in _TEMPLATE.read_text()

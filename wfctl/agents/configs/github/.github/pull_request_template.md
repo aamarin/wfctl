@@ -137,25 +137,6 @@ Proof belongs here rather than in Before / After: that section explains the
 change, this one shows it working. A screenshot or a GIF counts.
 -->
 
-## Review Panel
-<!--
-The reconciled disposition table from `fanning-out-code-review`: every finding
-from every reviewer, what was done about it, and why, plus the roster.
-
-A panel that found nothing fills this in too — who reviewed, what each checked,
-no findings. There is no "N/A" here: nothing to report means the panel has not
-run yet, and the roster is what tells a reviewer who returned nothing from a
-reviewer who found nothing.
--->
-
-**Panel:** [target] — [n] reviewers, [n] findings
-
-| # | Reviewer | Finding | Disposition |
-|---|---|---|---|
-| 1 | [r1] | [what it raised] | [applied / accepted / rejected — with the reason] |
-
-roster: [r1 ✓  r2 ✓  r3 ✓ — and which, if any, were re-asked]
-
 ## Checklist
 
 - [ ] My code follows the project's style guidelines
@@ -167,7 +148,7 @@ roster: [r1 ✓  r2 ✓  r3 ✓ — and which, if any, were re-asked]
 - [ ] Any dependent changes have been merged and published
 - [ ] Every fully completed issue is under `Closes` with a closing keyword, not only `Related`
 - [ ] Anything this change turned up in passing is named under Additional Context, with whether it was filed
-- [ ] A review panel ran over this diff and its disposition table is under Review Panel
+- [ ] A review panel ran over this diff, and every finding it raised that I did not apply — accepted but deferred, or rejected — is under Additional Context
 
 ## Documentation
 
@@ -183,7 +164,10 @@ constraints against another PR. -->
 ## Additional Context
 <!--
 Anything else a reviewer should know: open questions, follow-ups you are
-deliberately leaving, concerns you could not resolve.
+deliberately leaving, concerns you could not resolve, and every review-panel
+finding you did not apply — accepted but deferred, or rejected — with the
+disposition and the reason. A finding you applied is a commit in this change and
+needs no line here; one you did not is recorded nowhere else.
 
 Then the other half, which is not about this change at all: what did working on
 it turn up? A defect noticed in passing, a claim in the issue that proved wrong,

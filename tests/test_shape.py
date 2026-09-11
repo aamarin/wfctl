@@ -22,6 +22,14 @@ from wfctl.cli import app
 
 runner = CliRunner()
 
+# The shipped template, read through the package rather than the repo root: what
+# a consuming project installs is the copy under question, and the two are held
+# byte-identical by `test_install_config`.
+_TEMPLATE = (
+    Path(__file__).resolve().parent.parent
+    / "wfctl/agents/configs/github/.github/pull_request_template.md"
+)
+
 BARE = "file an issue for it"
 
 
@@ -496,23 +504,6 @@ def test_check_body_names_the_file_it_cannot_read() -> None:
     assert "body.md" in result.output
 
 
-# The command reports two skills' rules over one file, so a fixture exercising
-# the drawing rules has to satisfy the other one to reach exit 0. Appended rather
-# than folded into ACCEPTED, which is quoted from PR #208 and is evidence about
-# which drawings a reader accepted — editing it would change what it is evidence
-# of. `wfctl/_body.py` owns the panel rule and `tests/test_body.py` tests it.
-_PANEL = """
-
-## Review Panel
-
-| # | Reviewer | Finding | Disposition |
-|---|---|---|---|
-| 1 | r1 | the fence is tabular | applied |
-
-roster: r1 ✓  r2 ✓  r3 ✓
-"""
-
-
 def test_check_body_exits_one_on_a_finding_and_zero_without(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -528,11 +519,48 @@ def test_check_body_exits_one_on_a_finding_and_zero_without(
     """
     monkeypatch.setenv("WFCTL_REPO_ROOT", str(tmp_path))
     bad = tmp_path / "bad.md"
-    bad.write_text(REJECTED + _PANEL)
+    bad.write_text(REJECTED)
     good = tmp_path / "good.md"
-    good.write_text(ACCEPTED + _PANEL)
+    good.write_text(ACCEPTED)
     assert runner.invoke(app, ["check-body", str(bad)]).exit_code == 1
     assert runner.invoke(app, ["check-body", str(good)]).exit_code == 0
+
+
+def test_the_template_wfctl_ships_passes_its_own_drawing_check() -> None:
+    """The repository would otherwise be shipping a template its own command
+    rejects, and nobody would find out from a green suite.
+
+    Asserted since #347, which deleted the one test that ran `check-body` over
+    this file — that one pinned the panel rule and asserted the template *failed*
+    until it was filled in. The drawing rules read the fenced blocks the template
+    still carries, so a later `_shape` change can start flagging an unfilled
+    template with no other test in the way.
+    """
+    assert _shape.body_findings(_TEMPLATE.read_text(encoding="utf-8")) == []
+
+
+def test_both_sources_report_in_one_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`check-body` is a sum of two finding sources, and nothing else asserts
+    they compose — each of the other tests silences one to read the other.
+
+    A `return` on the first non-empty source would pass every one of those and
+    still hide a drawing fault behind an unverified branch, which is the half a
+    reader is likeliest to act on.
+    """
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "wfctl.json").write_text(json.dumps({"verify": ["true"]}))
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(repo))
+
+    body = tmp_path / "body.md"
+    body.write_text(REJECTED)
+    result = runner.invoke(app, ["check-body", str(body)])
+
+    assert result.exit_code == 1
+    assert "line " in result.output, result.output
+    assert "verification" in result.output, result.output
 
 
 def test_an_unclosed_fence_is_a_block_even_though_it_never_closes() -> None:

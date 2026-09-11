@@ -441,9 +441,8 @@ def test_a_tree_that_changes_mid_run_is_inconclusive(
 # --- check-body: the definition of done off the pipeline (#236) --------------
 
 # A description with nothing wrong with it, so what these assert is the
-# verification finding alone. `_shape` and `_body` own the other two sources and
-# have their own suites; a body that tripped either would make an exit code here
-# unreadable.
+# verification finding alone. `_shape` owns the other source and has its own
+# suite; a body that tripped it would make an exit code here unreadable.
 _CLEAN_BODY = """# Pull Request
 
 ## Summary
@@ -453,16 +452,6 @@ _CLEAN_BODY = """# Pull Request
 **What:** A definition of done that reaches changes with no spec.
 **Why:** Nothing ran it off the pipeline.
 **Impact:** A one-off change stops being certified by the agent that made it.
-
-## Review Panel
-
-**Panel:** the diff — 3 reviewers, 1 finding
-
-| # | Reviewer | Finding | Disposition |
-|---|---|---|---|
-| 1 | r1 | the fence is tabular | applied |
-
-roster: r1 ✓  r2 ✓  r3 ✓
 """
 
 

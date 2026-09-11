@@ -104,8 +104,11 @@ either way, and the price is an environment per reviewer.
 `.agents/skills/opening-a-change/SKILL.md` runs this skill as its Step 1, before
 a PR is opened. That is the path an unattended run takes, where the description
 above matches nothing because nobody said anything (#187) — so this skill starts
-from a step in another file rather than from a phrase, and the reconciled table
-from Step 6 is content for the description that step goes on to write.
+from a step in another file rather than from a phrase.
+
+The reconciled table from Step 6 is this skill's own output and stays here.
+`opening-a-change` decides separately what a description says about the panel,
+and it says the applied findings are commits the diff already shows.
 
 A reviewer nobody dispatched still counts. Bot and human comments already on the
 change are panel members you did not pay for; collect them in the same pass.
@@ -157,8 +160,8 @@ disbelieve; that its run ended is an observation nobody has to trust.
 a report whatever anyone remembers, so a reviewer left out of `RETURNED` by
 mistake still reads as `reported`. Memory is consulted about a reviewer that has
 written nothing and about nothing else, which is the one question it can answer.
-Nested the other way round, a real report reads as `RUNNING` and `check-body`
-then blocks a description over findings sitting on disk.
+Nested the other way round, a real report reads as `RUNNING`, and the panel
+waits on a reviewer already back while its findings sit unread on disk.
 
 `RETURNED` is the only line here asserting something about *now*, so re-read it
 each time you re-read the roster. A stale one still fabricates a `MISSING` —
@@ -176,7 +179,7 @@ Three words, three states, and only one of them is a failure:
 Reading the roster before every reviewer is back is not a mistake — the
 `RUNNING` line is what makes it safe. A `MISSING` written on that reading is a
 defect fabricated out of a slow reviewer: it spends that reviewer's work twice
-and puts an untrue sentence in a description (#173).
+and puts an untrue sentence in the table below (#173).
 
 `MISSING` is a **failure, not a pass.** Ask that reviewer again for its findings
 in the format `code-review` specifies. If a reviewer insists it already
@@ -189,12 +192,12 @@ useless to sit on. A reviewer you have decided is not coming back is one you add
 to `RETURNED` anyway: it becomes `MISSING`, which does have a repair. That is
 the only way out of a roster that would otherwise wait for it forever.
 
-Neither word may reach the description Step 6 writes — `wfctl check-body`
-rejects both, because a panel recorded as finished while a reviewer is still
-running is the same untrue sentence as one recorded around a reviewer that never
-spoke. That check reads the roster line for the words themselves, so record a
-re-ask by its outcome rather than its history: `r2 ✓ (re-asked once)`, never
-`r2 was MISSING at first read`.
+Neither word may reach the table Step 6 writes. A panel recorded as finished
+while a reviewer is still running is the same untrue sentence as one recorded
+around a reviewer that never spoke. The roster is read as the state now, so
+record a re-ask by its outcome rather than its history: `r2 ✓ (re-asked once)`,
+never `r2 was MISSING at first read` — a history written in the words the states
+use is read back as a state.
 
 "No findings" is a valid result only when it says **which passes ran and what
 was checked in each**. A bare "looks good" is a missing report wearing a verdict.
