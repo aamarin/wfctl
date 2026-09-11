@@ -82,6 +82,16 @@ _HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 # not), `?` and `!` as stops, and a quote or emphasis marker on either side of
 # the stop — `called it "noisy."` and `**Both routes resolve.**`, the second
 # being the shape `_COUNTED` below accepts a `**` prefix for.
+#
+# What the width costs is a dotted initialism mid-sentence: `Three problems
+# affect the U.S. API: auth and billing` splits after `U.S.`, and neither half
+# then carries both a count and a colon. Left alone deliberately. Guarding it
+# means refusing a boundary, which on this surface can only *add* findings, and
+# the two shapes it decides between are equally absent — 16 of 58,792 assistant
+# lines carry a dotted initialism at all and none is followed by a capital. With
+# nothing to separate them by frequency, the rule's own asymmetry decides: a
+# missed hit costs attention once, a false positive costs the reader's trust in
+# every other finding.
 _REPLY_SENTENCE = re.compile(
     r"[A-Za-z0-9)\]`\"']"      # the character the sentence ends on
     r"[\"'*_)\]]*"             # a closing quote or emphasis marker, before the stop
@@ -133,7 +143,13 @@ _COUNT = (
     r"|both|several|a few)\b"
 )
 _COUNTED = re.compile(rf"^\s*{_COUNT}[^\n]*:", re.IGNORECASE)
-_COUNTED_CODA = re.compile(rf"^\s*{_COUNT}[^\n]*:\s*$", re.IGNORECASE)
+# "Closes the sentence" has to mean the colon and whatever emphasis closes with
+# it. `Done. **Two things remain:**` is the bold lead-in this project recommends
+# over a heading, so a coda scan that reads `:**` as a colon with text after it
+# is blind to the form its own readers are told to write.
+_COUNTED_CODA = re.compile(
+    rf"^\s*{_COUNT}[^\n]*:[\"'*_)\]]*\s*$", re.IGNORECASE
+)
 
 # Inline code is quoted, not written, and a colon inside it is punctuation of
 # whatever is being quoted. `Two unrelated branches show `[origin/…: gone]`` is

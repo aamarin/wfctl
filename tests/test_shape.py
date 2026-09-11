@@ -114,6 +114,15 @@ def test_a_lead_in_that_follows_the_answer_on_one_line_is_still_flagged() -> Non
                            BARE)
 
 
+def test_a_coda_closes_on_its_emphasis_as_well_as_its_colon() -> None:
+    """The bold lead-in is what `conversation-response-shape` tells the reader to
+    write instead of a heading, so `:**` is the form a coda most often ends on.
+    Reading the `**` as text after the colon made the coda scan blind to exactly
+    the shape the skill recommends, while catching the unemphasised one."""
+    assert _shape.findings("Done. **Two things remain:**", BARE)
+    assert _shape.findings("Done. _Two things remain:_", BARE)
+
+
 def test_a_coda_whose_colon_does_not_close_it_is_not_a_lead_in() -> None:
     """The asymmetry between the opening sentence and the ones after it, and the
     only thing keeping the coda scan from costing more than it buys. A coda
