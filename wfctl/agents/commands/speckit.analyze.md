@@ -122,7 +122,7 @@ section is.
 
 | Where it pauses | When no answer arrives |
 |---|---|
-| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied, or filed where filing is authorized and written down for filing where it is not. The counts in the scan file say which each one was. |
+| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied, or filed where filing is authorized and written down for filing where it is not. The counts say which findings were applied; `### Filing` is what separates a filing that happened from one somebody still has to do. |
 | Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. Stated as an override rather than left to be reconciled: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The scan-file section below counts this file's overrides of that rule. |
 | Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. Step 7's three outcomes do not cover what that ordering leaves most often — remediation is what clears CRITICALs, so a standing HIGH with no CRITICAL above it is the normal end state. Say so in its own line: what stands, at what severity, and that it was filed rather than fixed. *"only LOW/MEDIUM"* is false there, and reporting it as proceed-with-suggestions is the one wrong answer. |
 
@@ -143,17 +143,17 @@ line that reports it: say what changed, not that something did.
 
 ### In scope, and what it means
 
-**A finding whose fix is in scope is applied. Every other finding is filed.**
-There is no third door. A finding left neither fixed nor filed is one this step
+**A finding whose fix is in scope is applied. Every other finding is filed, or
+written down for filing where filing is refused.** There is no third door. A
+finding left neither fixed, filed, nor written down for filing is one this step
 found and then lost, and the counts below are what make that visible.
 
 **Where filing is refused, writing it down is how that door closes rather than a
-failure to reach it.** `wfctl issue create` exits 1 on an ungranted branch, which
-is the common case and not an error to recover from. A run that reads that exit
-as an action left unfinished has no completed state left to reach, and this step
-ends with no scan file at all — the defect the section below exists to prevent,
-met through the policy rather than through the pause. The `### Filing` block is
-what the outcome becomes, and reaching it is what finishing looks like.
+failure to reach it.** A run that reads the refusal as an action left unfinished
+has no completed state left to reach, and this step ends with no scan file at
+all — the defect the section below exists to prevent, met through the policy
+rather than through the pause. The `### Filing` block is what the outcome
+becomes, and reaching it is what finishing looks like.
 
 In scope is two conditions and a size limit. A fix meets both conditions, and is
 not materially larger in the sense the third paragraph below gives, or it is out:
@@ -163,16 +163,27 @@ not materially larger in the sense the third paragraph below gives, or it is out
    every file carrying it, because a rename applied to one of two files creates
    the drift it was called to remove.
 2. It decides nothing those three, this feature's design records, and the
-   project constitution have not already decided.
+   project constitution's MUSTs have not already decided. The skill extracts
+   SHOULDs as well; a SHOULD leaves the choice open, which is the case condition
+   2 exists to keep out.
 
 **The constitution is on that list because the skill puts it there.** A conflict
 with a constitution MUST is automatically CRITICAL, and the skill's own words are
-that it *requires adjustment of the spec, plan, or tasks — not dilution,
-reinterpretation, or silent ignoring*. Bringing a drifted artifact back into line
-with it decides nothing: the constitution decided it. Left off the list, the one
+that such conflicts *require adjustment of the spec, plan, or tasks—not dilution,
+reinterpretation, or silent ignoring of the principle*. Left off the list, the one
 class of finding the skill refuses to let stand would be the class this policy
-files — and `_predicates.analyze` reads the report's existence, so `implement`
-would then run over a known CRITICAL.
+files, which is the one outcome those words rule out.
+
+**Bringing a drifted artifact back into line decides nothing only where
+compliance has one shape.** Where the constitution says something must exist
+without saying what it looks like — *every library exposes a CLI* — choosing that
+shape is a decision the constitution did not make, and condition 2 puts the fix
+out however small the edit is. So the list entry moves some of this class from
+filed to applied and not all of it: a constitution finding that is materially
+larger, or that needs a choice the principle never made, is still filed, and
+`_predicates.analyze` still reads only the report's existence. What that leaves
+open is the gap *A check could see this* below already owns, not one this entry
+closed.
 
 Making one artifact say what the others already say satisfies the second
 condition rather than bending it. Choosing a number the artifacts never chose,
@@ -265,7 +276,9 @@ scan file, which is an artifact this work already produces — the yes side of
 is the cheapest of them: three integers on one line of one file, and a check that
 needs no judgment. #335's `analyze_block` reads whether the scan file exists and
 nothing inside it, so it does not reach this — whichever change ships that block
-has to widen it or say why not.
+has to widen it or say why not. #355 is the same gap met from the other side: a
+CRITICAL this policy correctly files still leaves `implement` next, because the
+predicate reads that the report exists and nothing in it.
 
 ## Write the scan file
 

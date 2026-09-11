@@ -6,8 +6,8 @@ unattended run entered each command and decided for itself what a pause meant.
 The #299 run got past `analyze`'s remediation offer that way: an agent judged
 that acting was fine, and no rule said so.
 
-Two of these tests are cross-file rather than textual, which is the distinction
-this module is built on. A table that *names* an upstream pause is worth nothing
+Several of these tests are cross-file rather than textual, which is the
+distinction this module is built on. A table that *names* an upstream pause is worth nothing
 if the pause it names no longer reads that way after an upstream pull — the
 wrapper would go on describing a question the skill stopped asking, and
 `vendor-upstream-skills` guarantees that pull lands with no conflict to notice.
@@ -157,6 +157,43 @@ def test_the_clarify_rule_refuses_to_invent_an_answer_it_cannot_derive() -> None
     assert "`Outstanding` rather than `Deferred`" in flowed
 
 
+def test_the_clarify_withdrawal_still_puts_the_question_to_a_person() -> None:
+    """Step 4 exists to ask a person the questions only a person can answer.
+
+    The first draft made the withdrawal unconditional, on the reasoning that an
+    answer the repository cannot derive is one the spec should have carried. That
+    reasoning holds and the conclusion did not: unattended it withdraws, attended
+    it takes the question away from the only reader who could have closed it, and
+    the stated trigger for this whole section — a pause reached with no answer —
+    has not happened. Caught on review of the branch that wrote it.
+    """
+    flowed = _flowed(_section("clarify"))
+
+    assert "withdrawn only when no answer arrives" in flowed
+
+
+def test_the_clarify_withdrawal_states_both_rules_it_overrides() -> None:
+    """Asking the question is what put the wrapper on the wrong side of two.
+
+    A question that is put is an asked question, so not counting it needs the
+    skill's cap quoted and overridden rather than reconciled by a reader; and the
+    format mandates a `**Recommended:**` line on every choice question, which for
+    this class is the invented recommendation the rule above forbids. Both held
+    only while the question was never asked. The first review of the commit that
+    started asking it found the paragraphs beside the change still arguing for
+    the shape it left.
+    """
+    flowed = _flowed(_section("clarify"))
+    skill = _flowed(_skill("clarify"))
+
+    cap = "Never exceed 5 total asked questions"
+    assert cap in flowed, "the cap is overridden and the override is not stated"
+    assert cap in skill, "the quoted cap is no longer what the skill says"
+
+    assert "rendered without the `**Recommended:**` line" in flowed
+    assert "**Recommended:** Option [X]" in _skill("clarify")
+
+
 def test_the_analyze_policy_decides_the_case_that_splits_its_candidates() -> None:
     """#331 listed three definitions of "in scope" and named where they disagree.
 
@@ -176,22 +213,6 @@ def test_the_analyze_policy_decides_the_case_that_splits_its_candidates() -> Non
     assert "no third door" in flowed
 
 
-def test_the_clarify_withdrawal_still_puts_the_question_to_a_person() -> None:
-    """Step 4 exists to ask a person the questions only a person can answer.
-
-    The first draft made the withdrawal unconditional, on the reasoning that an
-    answer the repository cannot derive is one the spec should have carried. That
-    reasoning holds and the conclusion did not: unattended it withdraws, attended
-    it takes the question away from the only reader who could have closed it, and
-    the stated trigger for this whole section — a pause reached with no answer —
-    has not happened. Caught on review of the branch that wrote it.
-    """
-    flowed = _flowed(_section("clarify"))
-
-    assert "withdrawn only when no answer arrives" in flowed
-    assert "unconditional" not in flowed
-
-
 def test_the_analyze_in_scope_test_counts_the_constitution_as_having_decided() -> None:
     """Left off the list, the one finding the skill refuses to let stand is filed.
 
@@ -205,8 +226,16 @@ def test_the_analyze_in_scope_test_counts_the_constitution_as_having_decided() -
     """
     flowed = _flowed(_section("analyze"))
 
-    assert "the project constitution have not" in flowed
-    assert "Constitution Authority" in _skill("analyze")
+    assert "the project constitution's MUSTs have not" in flowed
+
+    # The heading survives an upstream reword of the sentence under it, and the
+    # sentence is what the wrapper quotes — so the quote is what gets pinned.
+    quoted = (
+        "require adjustment of the spec, plan, or tasks—not dilution, "
+        "reinterpretation, or silent ignoring of the principle"
+    )
+    assert quoted in _flowed(_skill("analyze"))
+    assert quoted in flowed
 
 
 def test_the_analyze_policy_defers_to_the_notify_gate_rather_than_around_it() -> None:

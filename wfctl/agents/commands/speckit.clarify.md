@@ -39,6 +39,18 @@ withdrawal rule below covers, which are the questions a person is the only
 authoritative source for. Where an answer comes back it is the answer, and
 nothing in this section changed the run.
 
+**A question the withdrawal rule covers is rendered without the
+`**Recommended:**` line,** carrying in its place one sentence saying the
+repository does not settle it and a person has to. Step 4's format mandates that
+line on every multiple-choice question, so this is an override and is stated as
+one: inventing a recommendation to satisfy the format is the silent decision the
+rule below forbids, reached through the format instead of through the reasoning.
+
+**That also settles which rule fires when such a question reaches a pause with no
+answer.** The first row above takes the recommendation step 4 computed; a
+question that rendered none leaves it nothing to take, and the withdrawal rule
+below is what covers the pause. No question is reached by both.
+
 **Deliberately not conditional on `auto_approve`,** which is one of two respects
 in which this layer differs from `speckit.brainstorm.md`'s — the rejected-options
 rule at the end of this file is the other. That table is conditional
@@ -66,14 +78,22 @@ reached by a longer route.
 
 Such a question is put like any other and withdrawn only when no answer arrives.
 Withdrawn, it never counts against the five, and its slot is refilled by
-re-running step 3's ranking over what is left of step 2's coverage map. Step 3 keeps only five candidates and
-holds no sixth, so there is nothing waiting to be promoted; the cap is on
-questions asked, and a withdrawal that spent one would narrow coverage by exactly
-the amount this rule was supposed to protect. Its category takes an `Outstanding`
-row in the coverage table, and the question and what made it underivable go under
-`### Outstanding` in the scan file, in the same terms the findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
-marker to go with it, so the spec reads the same whether the question was
-declined by the scan or withdrawn by this rule.
+re-running step 3's ranking over what is left of step 2's coverage map.
+
+**Not counting it is an override of *"Never exceed 5 total asked questions"*,
+stated rather than left to be reconciled.** The cap bounds what a person is asked
+to answer, and a withdrawn question is one nobody answered — the skill carves out
+the same shape already, in the retries it declines to count as new questions. The
+attended run is what shows the override is narrow: an answer that comes back is
+an answer, the question is never withdrawn, and five is five. Step 3 keeps only
+five candidates and holds no sixth, so there is nothing waiting to be promoted,
+and a withdrawal that spent a slot would narrow coverage by exactly the amount
+this rule was supposed to protect. Its category takes an `Outstanding` row in
+the coverage table, and the question and what made it underivable go under
+`### Outstanding` in the scan file, in the same terms the findings use. The
+marker rule below already requires any `[NEEDS CLARIFICATION` marker to go with
+it, so the spec reads the same whether the question was declined by the scan or
+withdrawn by this rule.
 
 **`Outstanding` rather than `Deferred`, and the verdict is the reason.**
 `Deferred` says a later step is the better place to answer it; no later step
@@ -103,8 +123,10 @@ withdrawn and points at the scan file, never that one.
 **A standing `Outstanding` row makes this verdict permanent, and that matters
 once something reads it.** Nothing does today; `writing-a-scan-file` says the
 verdict is there for a later gate to read through `blocks(verdict,
-"repo-declared")`. A gate that blocks on `unsatisfied` never clears here, because
-no re-run can settle a question the repository does not contain. Since #332
+"repo-declared")`. A gate that blocks on `unsatisfied` is not cleared by
+re-running unattended, because no unattended pass can settle a question the
+repository does not contain — an attended one can, which is the whole reason the
+question is still put. Since #332
 `speckit-orchestrate` counts passes and stalls rather than looping, so what it
 produces is a stall reported against `clarify` — a pipeline stopped by the step
 correctly saying it did its job. Whichever change wires that gate has to exempt
