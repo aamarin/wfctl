@@ -123,8 +123,8 @@ section is.
 | Where it pauses | When no answer arrives |
 |---|---|
 | Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied or filed, and the counts in the scan file say which each one was. |
-| Step 8's *"(Do NOT apply them automatically.)"*, and **STRICTLY READ-ONLY** over `spec.md`, `plan.md` and `tasks.md` | Overridden for an in-scope fix, and for nothing else. This is the second stated override in this file — the scan file below is the first — and it is stated for that one's reason: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. |
-| Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. |
+| Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. This is the second stated override in this file — the scan file below is the first — and it is stated for that one's reason: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The skill's rule is unscoped, so both overrides are real overrides rather than readings of it; its own step 6b mandates writing `analysis-report.md` and is the third, which nothing reconciles. |
+| Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. Step 7's three outcomes do not cover what that ordering leaves most often — remediation is what clears CRITICALs, so a standing HIGH with no CRITICAL above it is the normal end state. Say so in its own line: what stands, at what severity, and that it was filed rather than fixed. *"only LOW/MEDIUM"* is false there, and reporting it as proceed-with-suggestions is the one wrong answer. |
 
 **Deliberately not conditional on `auto_approve`.** That grant moves approval
 authority for design gates, and only a human hands it over; nothing here moves
@@ -142,8 +142,10 @@ found and then lost, and the counts below are what make that visible.
 
 In scope is two conditions, and a fix meets both or it is out:
 
-1. The fix is confined to `spec.md`, `plan.md` or `tasks.md` — the three
-   artifacts this step reads.
+1. The fix is confined to `spec.md`, `plan.md` and `tasks.md` — the three
+   artifacts this step reads, taken as a set. A terminology drift is corrected in
+   every file carrying it, because a rename applied to one of two files creates
+   the drift it was called to remove.
 2. It decides nothing those three, and this feature's design records, have not
    already decided.
 
@@ -161,7 +163,7 @@ the defect rather than the boundary. Filing it instead sends the feature into
 which inverts what this step sits before `implement` to do.
 
 **Materially larger is a third route out of scope.** A fix that cannot be written
-as an edit to a named section of one artifact — because it restructures the plan,
+as an edit to named sections of those artifacts — because it restructures the plan,
 or cascades through every task the plan derives — is filed whatever it decides,
 and the finding gives its size as the reason.
 
@@ -189,7 +191,16 @@ finding somebody still has to file stop reading identically.
 **One issue per cause, not per finding.** Three findings that are one ambiguity
 seen from three passes get one issue, cited by all three. The alternative turns a
 thorough analysis into tracker debt, which is the failure the apply half of this
-policy exists opposite.
+policy exists opposite. It also puts `Accepted: 4` and *three issues* on the same
+run, so the count alone does not say how much tracker work is outstanding — the
+`### Filing` block below is what does.
+
+**A filing that was refused keeps its title and body, in `### Filing`.** The
+reason line says somebody still has to file it; without the text it also says
+they have to write it again, from a report that by then is one of several in the
+same file. Record the command that would have run, verbatim — an unattended run
+that had the grant and one that did not then differ by whether the command was
+executed, rather than by what survives of it.
 
 ### The counts say what happened
 
@@ -223,9 +234,11 @@ Write the section with `Verdict: inconclusive` naming which artifact was missing
 then stop.
 
 **This overrides the skill's read-only rule, and it is the narrower of this
-file's two overrides of it.** `speckit-analyze` says **STRICTLY READ-ONLY**
-twice, of the artifacts it analyses. *When nobody answers* above lifts that for a
-remediation edit and bounds which edits qualify; what this section adds is
+file's two overrides of it.** `speckit-analyze` states the rule twice —
+**STRICTLY READ-ONLY** under Operating Constraints, *"NEVER modify files"* under
+Analysis Guidelines — and neither is scoped to the artifacts it analyses. *When
+nobody answers* above lifts it for a remediation edit and bounds which edits
+qualify; what this section adds is
 independent of that and holds on a run that remediates nothing — one new file the
 step writes about its own work, outside `FEATURE_DIR`, and one commit of that
 path. Both are stated rather than left for a reader to reconcile, because a
@@ -259,7 +272,8 @@ the narrower thing it cannot, that no settlement ends with an unwritten scan
 file.
 
 **Coverage rows** — the six detection passes of step 4, in its order, then pass G,
-plus one measurement:
+plus one measurement. Read down the left column and then the right; across the
+rows gives A, D, B, E, C, F, which is not step 4's order:
 
 ```
 A · Duplication          D · Constitution alignment
@@ -301,6 +315,16 @@ nothing, or it ran against a `design.md` that lists none. Both mean the pass
 reached its answer. The two `Deferred` rows mean it could not — no `design.md`,
 or one predating the section — which the shared skill calls `unknown`.
 
+**A pass with one finding applied and another accepted takes `Outstanding`, and
+its parenthetical carries both.** One row per pass and one status per row, so the
+status answers the only question a status can: is anything from this pass still
+open. `Resolved` there would be false and `Outstanding` alone erases the fix,
+which is why the count beside it is two numbers rather than one:
+
+```
+| E · Coverage gaps | Outstanding (1 MEDIUM; 1 CRITICAL resolved) |
+```
+
 **Verdict, for this step**: `satisfied` — all three artifacts were read and no
 CRITICAL finding stands. `unsatisfied` — at least one CRITICAL finding is open.
 `inconclusive` — an artifact was missing or unreadable, so coverage could not be
@@ -311,6 +335,18 @@ read after remediation, not from the report step 6 produced, so a pass that foun
 three CRITICALs and applied all three is `satisfied` and says so honestly. An
 `Accepted` CRITICAL keeps the verdict `unsatisfied` however good its reason —
 filing it moves who finishes it, not whether it is open.
+
+**`Critical: N` counts what was found, not what stands.** It sits beside
+`Findings: N`, which counts the same way, and the verdict two lines above is
+already the statement about what stands. Read the other way, a run that found a
+CRITICAL and fixed it reports `Critical: 0 · Verdict: satisfied` — a clean row
+for the run that did the most work, and the one finding a reviewer would most
+want to see.
+
+**`Requirement-to-task coverage` is also post-remediation.** It is the metric
+step 6 computes, recomputed after step 8 for the reason the Next Actions row
+above gives: a pre-fix percentage on the same row as a `Resolved` coverage-gap
+status says the gap was both closed and not.
 
 **Section shape**:
 
@@ -336,6 +372,12 @@ filing it moves who finishes it, not whether it is open.
 - **<pass>, <severity>** — what was wrong.
   → Fixed: <what changed>. Decided against <the alternative>: <why>.
   → Accepted: <why this stands rather than being fixed>.
+    Not filed: <why nobody was told>.
+
+### Filing
+
+- **<cause>** — <the findings it covers>.
+  `wfctl issue create --title "<title>" --body "<body>"`
 
 ### Deferred
 

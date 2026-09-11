@@ -61,6 +61,18 @@ def _flowed(text: str) -> str:
     return " ".join(text.split())
 
 
+def _section_shape(step: str) -> str:
+    """The copyable block under `**Section shape**:` — what an agent writes from.
+
+    Not reached through `_section`, and not by cutting at the next `## ` either:
+    the block's own first line is `## Session YYYY-MM-DD`, so a same-level cut
+    lands inside the thing being read. The three tests below are about that
+    template rather than about prose, because a rule whose template cannot hold
+    it is what an unattended run actually hit.
+    """
+    return _wrapper(step).split("**Section shape**")[1].split("```markdown")[1].split("```")[0]
+
+
 def _pause_rows(step: str) -> list[str]:
     """The table's body rows — the header and the `|---|` separator dropped."""
     rows = [ln for ln in _section(step).splitlines() if ln.startswith("|")]
@@ -204,3 +216,49 @@ def test_no_review_skill_carries_the_pause_rules(step: str) -> None:
     wrapper.
     """
     assert _HEADING not in _skill(step)
+
+
+def test_the_clarify_template_has_a_field_for_the_basis() -> None:
+    """The rule was stated as the whole point of the section and the file had
+    nowhere to put it.
+
+    Found by running the step rather than by reading it: the wrapper requires an
+    answer be recorded "together with the reasoning it was rendered with", and
+    its section shape offered `Q: → A:` and `Decided against`. The second is the
+    reasoning for the options *not* taken, which is the opposite question — so a
+    real unattended run carried the basis inside the prose field meant for what
+    was ambiguous, and #335 would have had nothing to key on.
+
+    On both finding shapes, because the short-answer branch is where a field
+    added to one example quietly stops being required.
+    """
+    template = _section_shape("clarify")
+
+    assert template.count("Basis:") == 2
+
+
+def test_the_clarify_template_has_somewhere_to_put_an_outstanding_question() -> None:
+    """`| Category | Status |` is two columns and one of them is one word.
+
+    The rule says the `Outstanding` row carries the question and what made it
+    underivable. The coverage table cannot take either, and the marker rule from
+    #325 has wanted the same block since before this change — a run that followed
+    both wrote a heading the section shape does not license.
+    """
+    template = _section_shape("clarify")
+
+    assert "### Outstanding" in template
+
+
+def test_the_analyze_template_keeps_a_refused_filing_whole() -> None:
+    """A reason line says somebody still has to file this and drops what to file.
+
+    The policy's out-of-scope half is only as good as what survives it. Without
+    the command, the person who picks the finding up re-derives a title and a
+    body from a report that by then holds several — which is the tracker debt the
+    apply half of the policy exists opposite, arriving through the other door.
+    """
+    template = _section_shape("analyze")
+
+    assert "Not filed:" in template
+    assert "### Filing" in template

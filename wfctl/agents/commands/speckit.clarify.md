@@ -5,7 +5,7 @@ handoffs:
   - label: Build Technical Plan
     agent: speckit.plan
     prompt: Create a plan for the spec. I am building with...
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl issue view*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
 
 ## User Input
@@ -56,7 +56,10 @@ deriving an answer to it is the silent decision the first row above rules out,
 reached by a longer route.
 
 Such a question is not asked. It leaves the queue without being put — so it never
-counts against the five — and its category is written as an `Outstanding` row
+counts against the five, and the next candidate step 3 ranked takes its slot; the
+cap is on questions asked, and a withdrawal that spent one would narrow coverage
+by exactly the amount this rule was supposed to protect. Its category is written
+as an `Outstanding` row
 carrying the question and what made it underivable, in the same terms the
 findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
 marker to go with it, so the spec reads the same whether the question was
@@ -68,6 +71,21 @@ answers this one either, and only a person closes it. `Outstanding` is also what
 makes this step's verdict read `unsatisfied` — the true statement about a scan
 that reached a question it could not settle, and the one a `Deferred` row would
 have hidden.
+
+**The row is a status and the question goes below it.** `| Category | Status |`
+is two columns wide and one of them is a single word, so "an `Outstanding` row
+carrying the question" is an instruction the table cannot take. `### Outstanding`
+in the section shape below is where the question and the reason go, and the
+marker rule's own `Outstanding` rows land there too — it is one block, not one
+per rule.
+
+**A standing `Outstanding` row makes this verdict permanent, and that matters
+once something reads it.** Nothing does today; `writing-a-scan-file` says the
+verdict is there for a later gate to read through `blocks(verdict,
+"repo-declared")`. A gate that blocks on `unsatisfied` would block forever here,
+because no re-run can settle a question the repository does not contain — the
+#332 loop one artifact over. Whichever change wires that gate has to exempt this
+row, and this paragraph is where it finds out.
 
 **A check could see this, and one is planned.** Every answer this section
 produces lands in `spec.md`'s `## Clarifications` bullet and in the scan file's
@@ -127,7 +145,8 @@ the section with `Verdict: inconclusive` naming what was missing, then stop.
 **Detail**: `FEATURE_DIR/spec.md` § Clarifications.
 
 **Coverage rows** — the ten taxonomy categories the workflow above scans, in its
-order, every one of them present:
+order, every one of them present. Read down the left column and then the right;
+across the rows gives an order the workflow never uses:
 
 ```
 Functional Scope & Behavior          Edge Cases & Failure Handling
@@ -171,16 +190,29 @@ carrying its template.
 
 - **<category>** — what was ambiguous.
   Q: <the question> → A: <the answer>.
+  Basis: <what the answer was derived from, or who gave it>.
   Decided against **<option B>**: <why it lost>.
   Decided against **<option C>**: <why it lost>.
 - **<category>** — what was ambiguous.
   Q: <the question> → A: <the answer>.
+  Basis: <what the answer was derived from, or who gave it>.
   No options offered — short answer.
+
+### Outstanding
+
+- **<category>** — <the question, and what made it underivable>.
 
 ### Deferred
 
 - **<category>** — <what was not asked, and why it belongs to a later step>.
 ```
+
+**`Basis` is where *When nobody answers* lands, and it is one line on every
+finding rather than only on a derived one.** An answer a person gave has a basis
+too — *"the reviewer chose B in the PR thread"* is one — and a field present only
+when nobody was watching tells a reader which runs to trust by its own absence.
+`Decided against` cannot carry it: those lines are the reasoning for the options
+*not* taken, which is the opposite question.
 
 ### The options the answer was chosen over
 
