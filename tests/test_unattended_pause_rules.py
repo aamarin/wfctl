@@ -190,19 +190,30 @@ def test_the_analyze_policy_defers_to_the_notify_gate_rather_than_around_it() ->
     assert "Not filed:" in flowed
 
 
-def test_the_analyze_wrapper_can_run_the_command_its_policy_requires() -> None:
+@pytest.mark.parametrize(
+    ("step", "grant"),
+    [("analyze", "wfctl issue create"), ("clarify", "wfctl issue view")],
+)
+def test_each_wrapper_can_run_the_tracker_verb_its_rules_require(
+    step: str, grant: str
+) -> None:
     """`allowed-tools` is a ceiling on the whole turn, so a rule without its grant
     reads correctly and cannot run.
 
     Silent in the worst way, as `test_scan_files` already records for the same
     field: the agent reports a tool refusal, not a missing instruction, and an
-    unattended run has nobody to tell the difference to. This grant is new with
-    the policy — the wrapper had no reason to file anything before it.
+    unattended run has nobody to tell the difference to. Both grants are new with
+    these rules — neither wrapper reached a tracker before them, analyze to file
+    an out-of-scope finding and clarify to widen what an answer may rest on.
+
+    Parametrized rather than written twice because the first version of this test
+    covered analyze alone, which left clarify's grant as the kind of unpinned
+    dependency the docstring above is about.
     """
-    front = _wrapper("analyze").split("---")[1]
+    front = _wrapper(step).split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
 
-    assert "wfctl issue create" in allowed
+    assert grant in allowed
 
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)

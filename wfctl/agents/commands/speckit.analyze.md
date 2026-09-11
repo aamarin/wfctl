@@ -128,11 +128,18 @@ section is.
 
 **Deliberately not conditional on `auto_approve`.** That grant moves approval
 authority for design gates, and only a human hands it over; nothing here moves
-any. An in-scope fix stays inside three artifacts the pipeline regenerates and
-lands in the branch diff the reviewer reads, and the one outward-facing action in
-this policy — filing — is gated already and is deferred to rather than routed
-around. Reading the grant would also leave ungoverned the exact run that has no
-rule today: #299 was an unattended pass nobody granted anything to.
+any. An in-scope fix stays inside three artifacts the pipeline regenerates, every
+fix is reported on the scan file's `→ Fixed:` line, and the one outward-facing
+action in this policy — filing — is gated already and is deferred to rather than
+routed around. Reading the grant would also leave ungoverned the exact run that
+has no rule today: #299 was an unattended pass nobody granted anything to.
+
+**The `→ Fixed:` line is the reviewable artifact, and the edit itself is not.**
+`FEATURE_DIR` resolves outside the working tree in this repo and is gitignored at
+the default path, so a reviewer opening the pull request sees none of `spec.md`,
+`plan.md` or `tasks.md` — which is #307's defect, and the reason the scan file
+exists at all. An unattended remediation is therefore only as reviewable as the
+line that reports it: say what changed, not that something did.
 
 ### In scope, and what it means
 
@@ -153,6 +160,15 @@ Making one artifact say what the others already say satisfies the second
 condition rather than bending it. Choosing a number the artifacts never chose,
 adding a requirement, or picking between approaches the plan deliberately left
 open fails it, however small the edit that would carry the choice.
+
+**A pass G finding against a `proposed` record is out of scope, whatever
+condition 2 says read alone.** Pass G grades a reversal of a `proposed` record
+HIGH rather than CRITICAL for a stated reason — *a task reversing it may be the
+design moving* — and only a human moves a record past `proposed`
+(`a-human-accepts-a-decision`). So an unattended run that rewrites `tasks.md` to
+conform has ratified the record by acting on it, which is the one transition this
+repository reserves for a person. File it. A reversal of an `approved` record is
+the opposite case and is applied: somebody already ratified that one.
 
 **A coverage gap is in scope, and it is the case this definition exists to
 settle.** Pass E finds a requirement with zero tasks; the fix adds a task, so
@@ -204,6 +220,13 @@ executed, rather than by what survives of it.
 
 ### The counts say what happened
 
+**`Acted on` is the applied half and `Accepted` is everything else — filed or
+not.** `Acted on` counts a finding this run fixed in the artifacts. A finding
+filed is `Accepted`: the run took an action about it and none to it, which is
+what the verdict rule below already assumes when it says a filed CRITICAL still
+stands. Counting a filing as `Acted on` would let a run close every CRITICAL by
+opening issues.
+
 The section below reports `Findings: N · Critical: N · Acted on: N · Accepted:
 N`, and **`Acted on` plus `Accepted` equals `Findings`**. That is what "no third
 door" looks like once it is written as arithmetic. Every `Accepted` carries a
@@ -211,11 +234,14 @@ reason — `writing-a-scan-file` already asks for one, and this policy is what
 makes it load-bearing, because a finding fixed and a finding nobody touched are
 the same row in a table until the reason separates them.
 
-**A check could see this, and one is planned.** The counts, the arithmetic
-between them, and a reason on every `Accepted` row all land in the scan file,
-which is an artifact this work already produces — the yes side of
-`a-rule-is-expressed-as-a-check`. Prose here states the rule; #335 is the
-mechanism that would observe it.
+**A check could see this, and the planned one does not yet.** The counts, the
+arithmetic between them, and a reason on every `Accepted` row all land in the
+scan file, which is an artifact this work already produces — the yes side of
+`a-rule-is-expressed-as-a-check`. `Acted on` plus `Accepted` against `Findings`
+is the cheapest of them: three integers on one line of one file, and a check that
+needs no judgment. #335's `analyze_block` reads whether the scan file exists and
+nothing inside it, so it does not reach this — whichever change ships that block
+has to widen it or say why not.
 
 ## Write the scan file
 
@@ -247,6 +273,13 @@ discount both.
 
 **File**: `<arch-root>/scans/<issue>-analyze.md`.
 **Detail**: `FEATURE_DIR/checklists/analysis-report.md`.
+
+**Rewrite `analysis-report.md` after remediation, before writing this file.**
+Step 6b writes it before step 8 runs, so on a run that remediated anything it is
+already stale — and it is both what `Detail:` sends the reader to and the only
+thing `_predicates.analyze` reads. Leaving it is the same defect the Next Actions
+row, the verdict and the coverage percentage each avoid, in the one artifact a
+reader is pointed at by name.
 
 **Write it after step 8, and never leave the step without having written it.**
 Not after step 6b: `Acted on` and `Accepted` are not knowable until remediation
@@ -339,9 +372,10 @@ filing it moves who finishes it, not whether it is open.
 **`Critical: N` counts what was found, not what stands.** It sits beside
 `Findings: N`, which counts the same way, and the verdict two lines above is
 already the statement about what stands. Read the other way, a run that found a
-CRITICAL and fixed it reports `Critical: 0 · Verdict: satisfied` — a clean row
-for the run that did the most work, and the one finding a reviewer would most
-want to see.
+CRITICAL and fixed it reports `Critical: 0 · Verdict: satisfied`, which is
+indistinguishable from a run that found no CRITICAL at all. The run that did the
+most work would render as the one that found the least, and the finding a
+reviewer would most want to see would be the one the counts erase.
 
 **`Requirement-to-task coverage` is also post-remediation.** It is the metric
 step 6 computes, recomputed after step 8 for the reason the Next Actions row
@@ -376,7 +410,8 @@ status says the gap was both closed and not.
 
 ### Filing
 
-- **<cause>** — <the findings it covers>.
+- **<cause>** — <the findings it covers>. Filed as #<n>.
+- **<cause>** — <the findings it covers>. Not filed:
   `wfctl issue create --title "<title>" --body "<body>"`
 
 ### Deferred

@@ -35,10 +35,14 @@ the layer above it.
 
 **The trigger is a pause reached with no answer, not a mode read.** Ask each
 question as step 4 renders it, recommendation and all. Where an answer comes
-back, it is the answer and this section changed nothing about the run.
+back, it is the answer and the table above changed nothing about the run. The
+withdrawal rule below is the exception and is unconditional: a question the
+repository cannot settle is not put to anyone, attended or not, because the
+answer a person gives it is the one the spec was supposed to carry.
 
-**Deliberately not conditional on `auto_approve`,** which is the second respect
-this layer differs from `speckit.brainstorm.md`'s. That table is conditional
+**Deliberately not conditional on `auto_approve`,** which is one of two respects
+in which this layer differs from `speckit.brainstorm.md`'s — the rejected-options
+rule at the end of this file is the other. That table is conditional
 because what it moves is approval authority, and only a human can hand that over.
 This one moves none: an answer derived from the repository is information, carried
 with the basis that produced it, and a reviewer who disagrees overrules it at the
@@ -49,16 +53,24 @@ by an agent deciding rather than by a rule.
 
 ### A question the repository cannot settle
 
-**Do not invent a recommendation in order to have one.** Step 4's recommendation
-is grounded in the spec, the plan, the tracker and this feature's design records.
-A question those cannot reach is a question about what somebody wants, and
+**Do not invent a recommendation in order to have one.** Step 4 grounds its
+recommendation in best practice and in what `spec.md` already says; unattended,
+widen that to the branch's issue (`wfctl issue view`) and to this feature's
+design records, both of which carry decisions the spec was written from. That is
+an instruction rather than a description of step 4 — the frontmatter grants the
+read for it — and `plan.md` is deliberately not on the list, because on a first
+clarify run there is none.
+
+A question none of those reach is a question about what somebody wants, and
 deriving an answer to it is the silent decision the first row above rules out,
 reached by a longer route.
 
 Such a question is not asked. It leaves the queue without being put — so it never
-counts against the five, and the next candidate step 3 ranked takes its slot; the
-cap is on questions asked, and a withdrawal that spent one would narrow coverage
-by exactly the amount this rule was supposed to protect. Its category is written
+counts against the five, and its slot is refilled by re-running step 3's ranking
+over what is left of step 2's coverage map. Step 3 keeps only five candidates and
+holds no sixth, so there is nothing waiting to be promoted; the cap is on
+questions asked, and a withdrawal that spent one would narrow coverage by exactly
+the amount this rule was supposed to protect. Its category is written
 as an `Outstanding` row
 carrying the question and what made it underivable, in the same terms the
 findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
@@ -79,6 +91,13 @@ in the section shape below is where the question and the reason go, and the
 marker rule's own `Outstanding` rows land there too — it is one block, not one
 per rule.
 
+**A run that withdrew every candidate did not find a clean spec.** The workflow's
+behaviour rule writes `- No critical ambiguities detected.` whenever no question
+was asked, which is true of a scan that found nothing and false of one that found
+only questions it could not settle. Write the `## Clarifications` section either
+way — it is what marks the step done — carrying a bullet that names what was
+withdrawn and points at the scan file, never that one.
+
 **A standing `Outstanding` row makes this verdict permanent, and that matters
 once something reads it.** Nothing does today; `writing-a-scan-file` says the
 verdict is there for a later gate to read through `blocks(verdict,
@@ -87,11 +106,15 @@ because no re-run can settle a question the repository does not contain — the
 #332 loop one artifact over. Whichever change wires that gate has to exempt this
 row, and this paragraph is where it finds out.
 
-**A check could see this, and one is planned.** Every answer this section
-produces lands in `spec.md`'s `## Clarifications` bullet and in the scan file's
-finding beside it, so *recorded with its basis* is visible in an artifact the work
-already produces — the yes side of `a-rule-is-expressed-as-a-check`. Prose here
-states the rule; #335 is the mechanism that would observe it.
+**A check could see this, and the planned one does not yet.** Every answer this
+section produces lands in `spec.md`'s `## Clarifications` bullet and in the scan
+file's finding beside it, so *recorded with its basis* is visible in an artifact
+the work already produces — the yes side of `a-rule-is-expressed-as-a-check`.
+#335's `clarify_block` is scoped to #334's postconditions, standing markers and
+the `## Clarifications` section, and reads no `Basis:` line. Whichever change
+ships that block has to widen it or say why not; until then this rule is prose on
+the checkable side of the test, which the record calls the rule's absence rather
+than a partial implementation of it.
 
 ## No marker survives the scan
 
@@ -268,7 +291,7 @@ the evidence this section exists to keep.
 **This holds however the answer was chosen.** A human picking option B destroys A
 and C exactly as thoroughly as an unattended run does, and the reviewer reading
 the change is equally unable to see them — so the rule is not conditional on the
-mode. That is the second respect in which this layer differs from
+mode. That is the other of the two respects in which this layer differs from
 `speckit.brainstorm.md`'s — *When nobody answers* above is the first, and both
 turn on the same property: nothing in this file moves an approval, and
 `speckit.brainstorm.md`'s layer is conditional precisely because its does.
