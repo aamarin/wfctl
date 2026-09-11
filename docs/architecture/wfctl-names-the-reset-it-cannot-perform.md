@@ -96,6 +96,43 @@ decision names the performer instead of becoming one.
   cannot empty a window, so it reaches the announcement half of this and none of
   the performing half.
 
+## The performer cannot be summoned by the agent either
+
+Driving the cycle was attempted and refused, by a layer neither the issue nor
+the rest of this record anticipated. The harness's own permission classifier
+declines an agent that scripts sends to its own pane:
+
+```
+Permission for this action was denied by the Claude Code auto mode
+classifier. Reason: [Tmux Self Drive].
+```
+
+A single `workmux send` carrying plain text is allowed — probe 7731 went
+through. What is refused is the agent assembling the cycle: wait for my own
+pane to go idle, then reset it, then restart it. That is a policy boundary
+rather than a mechanical one, and it is the right one — an agent that can
+restart itself unsupervised is a different safety question from an agent that
+can send a message.
+
+So the reset has three refusals stacked on it, and only the first two were known
+when this record was opened:
+
+```
+   agent invokes /clear          ✗ harness refuses by name
+   wfctl shells out to workmux   ✗ declined by construction (_workmux.py)
+   agent drives its own pane     ✗ refused by the permission classifier
+   ─────────────────────────────────────────────────────────────────────
+   a supervisor outside the run  — the only remaining performer
+   a human at the prompt         — the baseline, and it still works
+```
+
+What survives is the decision as written — wfctl names the cycle and does not
+perform one — and what changes is who the named performer can be. It is not the
+agent under any arrangement. It is a process outside the run that watches for
+the marker, or it is a person. #147's unattended acceptance test therefore needs
+a supervisor it does not currently have, and that is a dependency this issue
+should hand back rather than absorb.
+
 ## Consequences
 
 The cycle's two sends cannot be issued mid-turn and left to land. Probe 7731
