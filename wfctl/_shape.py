@@ -69,15 +69,35 @@ _TABLE_ROW = re.compile(r"^\s*\|")
 # limit — at four the line is an indented code block and not a header at all.
 _HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 
+# A sentence end followed by a new one. Two surfaces read it. Here it bounds the
+# counted lead-in below; on the PR body it is "one cell outgrew its header" in
+# the only form a machine can see it — the rejected drawing's overflowing cell
+# was a three-sentence paragraph, and no accepted drawing in the same PR body
+# contains a single sentence boundary.
+_SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
+
 # Anywhere in the reply, not only the opening: the observed shape is a coda —
 # the answer lands, then "One thing I couldn't finish:" starts a second block.
 #
-# The colon is the whole discriminator, and it is what separates the issue's
-# own pair: `Three things worth flagging:` announces a list and flags,
-# `Three reviewers reported` states a fact and does not. Anywhere in the line
-# rather than at the end, because the observed lead-ins run the list on after
-# the colon rather than breaking to bullets — requiring the colon to close the
-# line drops two thirds of the real hits in the corpus.
+# The discriminator is a colon in the sentence the count is in, which is why
+# this is matched against `_first_sentence` rather than the line. A colon
+# anywhere on the line is not one: `Three reviewers reported the same bug. Here
+# is what each said:` puts the count and the colon in different sentences, and
+# the sentence the colon closes carries no count at all — so reading the line
+# whole turned every counted fact into a violation as soon as any later sentence
+# ended in a colon.
+#
+# Within that sentence the colon is still looked for anywhere rather than at its
+# end, because the observed lead-ins run the list on after the colon rather than
+# breaking to bullets — requiring it to close the sentence drops two thirds of
+# the real hits in the corpus.
+#
+# **A count that is itself the answer is out of reach from here.** "Three start
+# today with zero overlap: #324, #305, #335" answers a question whose answer is
+# a set, which the rule exempts — it forbids the count that "announces a list
+# nobody asked for" — and it is shaped exactly like a lead-in: one sentence,
+# count, colon, list. Only the prompt separates the two, and this pattern is
+# matched against the reply.
 _COUNTED = re.compile(
     r"^\s*(?:\*\*|_)?(one|two|three|four|five|six|seven|eight|nine|ten"
     r"|both|several|a few)\b[^\n]*:",
@@ -130,12 +150,6 @@ _LONG_WORDS = 250
 # Two or more spaces between two non-spaces: a column boundary someone typed.
 _HAND_ALIGNED = re.compile(r"\S {2,}\S")
 
-# A sentence end followed by a new one. This is "one cell outgrew its header" in
-# the only form a machine can see it — the rejected drawing's overflowing cell
-# was a three-sentence paragraph, and no accepted drawing in the same PR body
-# contains a single sentence boundary.
-_SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
-
 # Three, because two adjacent aligned lines is a pair of annotations and any
 # drawing with columns has that. Three consecutive is a column.
 _ALIGNED_RUN = 3
@@ -184,6 +198,16 @@ def _prose(text: str) -> list[str]:
     ]
 
 
+def _first_sentence(line: str) -> str:
+    """`line` up to its first sentence boundary, or all of it if it has none.
+
+    The counted lead-in is tested against this rather than the line, so that the
+    colon deciding it is the one in the counted sentence.
+    """
+    boundary = _SENTENCE.search(line)
+    return line[: boundary.start() + 1] if boundary else line
+
+
 def findings(reply: str, prompt: str) -> list[str]:
     """What a terminal `reply` breaks, one line each, naming the check it maps to.
 
@@ -204,7 +228,11 @@ def findings(reply: str, prompt: str) -> list[str]:
             "Convert each to a bold lead-in on the sentence beneath it."
         )
 
-    counted = [line for line in lines if _COUNTED.match(_QUOTED.sub("``", line))]
+    counted = [
+        line
+        for line in lines
+        if _COUNTED.match(_first_sentence(_QUOTED.sub("``", line)))
+    ]
     if counted:
         first = " ".join(counted[0].split())[:60]
         out.append(

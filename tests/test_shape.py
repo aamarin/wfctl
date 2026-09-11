@@ -58,6 +58,30 @@ def test_a_counted_lead_in_is_flagged_and_a_counted_fact_is_not() -> None:
     assert not _shape.findings("Three reviewers reported the same bug.", BARE)
 
 
+def test_a_colon_in_a_later_sentence_does_not_make_the_count_a_lead_in() -> None:
+    """Every counted fact became a violation the moment any later sentence on the
+    line ended in a colon: the count and the colon belonged to different
+    sentences and the pattern read the line whole (#304). The first two lines are
+    the issue's own reproduction; the third was observed live in the session it
+    was filed from, and is the reason the boundary is a sentence rather than the
+    period the first two happen to share."""
+    for line in ("Three reviewers reported the same bug. Here is what each said:",
+                 "Both routes resolve. The tests now pin each one:",
+                 "Three reviewers dispatched over dc3387c. "
+                 "While they run — the state so far:"):
+        assert not _shape.findings(line, BARE), line
+
+
+def test_a_lead_in_whose_list_runs_on_after_the_colon_is_still_flagged() -> None:
+    """Narrowing this rule can only remove real hits, and the corpus is mostly
+    made of this shape — the list continues on the same line rather than breaking
+    to bullets, so its first item ends the sentence the colon opened. Confining
+    the colon to the counted sentence must not reach past the sentence itself."""
+    run_on = ("Two things worth naming: the first is the gate. "
+              "The second is the corpus behind it.")
+    assert _shape.findings(run_on, BARE)
+
+
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
     """Q3, and the only finding that looks at length at all."""
     found = _shape.findings("word " * 300, BARE)
