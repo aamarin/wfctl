@@ -18,6 +18,63 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 Read `.agents/skills/speckit-clarify/SKILL.md` (or `../skills/speckit-clarify/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete clarification workflow.
 
+## When nobody answers
+
+**Step 4 is a questioning loop written for a person, and since #325 this step is
+automatic.** `speckit-orchestrate` enters the command rather than printing it and
+stopping, so a run with nobody watching reaches the loop and has to get out of
+it. Below is what each of its pauses resolves to. `speckit-clarify/SKILL.md` is
+spec-kit-derived and stays unedited (`vendor-upstream-skills`), so this file is
+the layer above it.
+
+| Where it pauses | When no answer arrives |
+|---|---|
+| Step 4, *"Present EXACTLY ONE question at a time"* and *"After the user answers"* | Take the answer the step has already computed — the `**Recommended:** Option X` it renders above a multiple-choice table, the `**Suggested:** …` it renders for a short answer — and record it together with the reasoning it was rendered with. That reasoning is the basis. A recommendation recorded without it is a question decided silently, which is the failure this step exists to prevent, and nobody being there to ask does not make it acceptable. |
+| Step 4's stop conditions, *"User signals completion"*, and the behaviour rule *"Respect user early termination signals"* | None arrives, and none is inferred from the absence of one. The loop ends on its own two remaining conditions: every critical ambiguity resolved, or five questions asked. |
+| Step 8, *"recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later"* | Still written, and still a recommendation. What the pipeline does next is `wfctl status`' answer rather than this line's, and the two are allowed to differ — this one is addressed to the reviewer. |
+
+**The trigger is a pause reached with no answer, not a mode read.** Ask each
+question as step 4 renders it, recommendation and all. Where an answer comes
+back, it is the answer and this section changed nothing about the run.
+
+**Deliberately not conditional on `auto_approve`,** which is the second respect
+this layer differs from `speckit.brainstorm.md`'s. That table is conditional
+because what it moves is approval authority, and only a human can hand that over.
+This one moves none: an answer derived from the repository is information, carried
+with the basis that produced it, and a reviewer who disagrees overrules it at the
+PR exactly as they would overrule an answer a person gave. Reading the grant
+would also leave ungoverned the run that has no rule today — an unattended pass
+nobody granted anything to, which is how the #299 run got past `analyze`'s pause
+by an agent deciding rather than by a rule.
+
+### A question the repository cannot settle
+
+**Do not invent a recommendation in order to have one.** Step 4's recommendation
+is grounded in the spec, the plan, the tracker and this feature's design records.
+A question those cannot reach is a question about what somebody wants, and
+deriving an answer to it is the silent decision the first row above rules out,
+reached by a longer route.
+
+Such a question is not asked. It leaves the queue without being put — so it never
+counts against the five — and its category is written as an `Outstanding` row
+carrying the question and what made it underivable, in the same terms the
+findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
+marker to go with it, so the spec reads the same whether the question was
+declined by the scan or withdrawn by this rule.
+
+**`Outstanding` rather than `Deferred`, and the verdict is the reason.**
+`Deferred` says a later step is the better place to answer it; no later step
+answers this one either, and only a person closes it. `Outstanding` is also what
+makes this step's verdict read `unsatisfied` — the true statement about a scan
+that reached a question it could not settle, and the one a `Deferred` row would
+have hidden.
+
+**A check could see this, and one is planned.** Every answer this section
+produces lands in `spec.md`'s `## Clarifications` bullet and in the scan file's
+finding beside it, so *recorded with its basis* is visible in an artifact the work
+already produces — the yes side of `a-rule-is-expressed-as-a-check`. Prose here
+states the rule; #335 is the mechanism that would observe it.
+
 ## No marker survives the scan
 
 **Every `[NEEDS CLARIFICATION` marker left in `spec.md` is removed before this
@@ -179,5 +236,7 @@ the evidence this section exists to keep.
 **This holds however the answer was chosen.** A human picking option B destroys A
 and C exactly as thoroughly as an unattended run does, and the reviewer reading
 the change is equally unable to see them — so the rule is not conditional on the
-mode. That is the one respect this layer differs from `speckit.brainstorm.md`'s,
-whose layer is conditional on `auto_approve` and moves where an approval happens.
+mode. That is the second respect in which this layer differs from
+`speckit.brainstorm.md`'s — *When nobody answers* above is the first, and both
+turn on the same property: nothing in this file moves an approval, and
+`speckit.brainstorm.md`'s layer is conditional precisely because its does.
