@@ -60,12 +60,16 @@ the change records that the question was asked. Say those under Additional
 Context, with the disposition and the reason, in a line each.
 
 **Nothing checks this.** The panel does write artifacts — one report per reviewer
-under `$FEATURE_DIR/reviews/` — but they land outside the working tree, are
-gitignored, and are written by the same agent whose work they attest to. A check
-over them would be reading a self-report, and a reviewer of this change can open
-none of them. So the rule is prose here, which is what
-`a-rule-is-expressed-as-a-check` leaves a rule as when no artifact a reader can
-reach settles it.
+under `$FEATURE_DIR/reviews/` — so the tempting repair is a check that they
+exist. It does not work, and the reason is the one that ended the body rule:
+those files are written by the same agent whose work they attest to, so their
+presence says a directory was filled, never that a panel ran. That is the same
+thing the old check could see, moved one artifact over.
+
+`a-rule-is-expressed-as-a-check` asks whether a violation is visible in an
+artifact the work already produces, and names the reply, the PR body, the diff
+and the tree. A self-written report in a store outside the tree answers that no,
+so the rule is prose — which is what that record says to do with it.
 
 Findings you apply change the branch. **Commit them**, re-run the verification,
 and push again before Step 5 — `git push` moves commits and not a working tree,
@@ -126,13 +130,23 @@ How it was tested · Issue links · Additional context.
 ```
 
 Then fill those five. Additional context is where Step 1's undecided findings
-go, so a repository with no template still has somewhere to put them. `wfctl install-config github` seeds a real template — say
-so once, and do not block on it.
+go, so a repository with no template still has somewhere to put them.
+
+`wfctl install-config github` seeds a real template — say so once, and do not
+block on it.
 
 ## Step 4: Fill every section
 
 - **Every section the template has, in its order.** A section you have nothing
   for gets "None" or "N/A" — never silent deletion, which reads as an answer.
+- **A `## Review Panel` section is an older template, and it is where Step 1's
+  undecided findings go instead.** `install-config` writes a template once and
+  never touches it again, so a repository seeded before this skill changed still
+  carries that section, and its comment block still asks for the disposition
+  table and refuses "N/A". Fill it with the findings you did not apply, the same
+  ones Additional Context would have taken — the section is not a reason to
+  reproduce a table of what you already committed, and the template is the
+  project's file to change, not yours.
 - **Answer the comment blocks; then delete them.** They are instructions to the
   author, not part of the description. Placeholders in brackets are replaced,
   not left.
