@@ -86,12 +86,14 @@ def test_write_atomic_rewrite_keeps_an_executable_bit(tmp_path: Path) -> None:
 def test_write_atomic_rewrite_keeps_a_bit_outside_the_low_nine(tmp_path: Path) -> None:
     """The mode is read with `S_IMODE`, not masked to `0o777`.
 
-    A mask that keeps only the permission triples drops setuid, setgid and
-    sticky without saying so, while this file's other assertions read the mode
-    back through `S_IMODE` and would never notice. The panel that raised this
-    cited setgid, which macOS refuses outright for a group the user is not in —
-    the reproduction was the chmod failing, not the mask. Sticky is the bit that
-    actually survives a chmod here, so it is the one that can prove the mask.
+    A mask keeping only the permission triples drops setuid, setgid and sticky
+    without saying so, and every other assertion in this file reads the mode
+    back through `S_IMODE`, so none of them would notice.
+
+    Sticky rather than the more obvious setgid: macOS refuses setgid on a file
+    whose group the user is not in, returning success and a mode without the
+    bit, so a setgid test would pass against a masked read for the wrong reason.
+    The skip covers a filesystem that treats sticky the same way.
     """
     target = tmp_path / "record.md"
     target.write_text("# before\n")
@@ -107,11 +109,16 @@ def test_write_atomic_rewrite_keeps_a_bit_outside_the_low_nine(tmp_path: Path) -
 def test_write_atomic_creates_a_new_file_owner_only(tmp_path: Path) -> None:
     """The new-file case is deliberately left at mkstemp's 0600.
 
-    A file that does not exist has no mode to preserve, and the callers that
-    create one all write into the state dir — `session-summary.md` carries
-    whatever the last session knew, and `_session.end` only ever creates it.
-    A fix for #324 that widened this would publish a handoff to every local
-    account, which is why it is pinned rather than left to follow the umask.
+    A file that does not exist has no mode to preserve, so the floor is a choice
+    rather than a consequence, and it is made for the state dir:
+    `session-summary.md` carries whatever the last session knew, and
+    `_session.end` only ever creates it. Following the umask instead would
+    publish a handoff to every local account.
+
+    The floor is not free, and this test pins it rather than endorsing it
+    everywhere. `arch declare` and `_write_settings` create files *inside* the
+    repo and get 0600 too, beside committed neighbours at 0644 — the same
+    complaint as #324, reached by creating rather than rewriting.
     """
     target = tmp_path / "session-summary.md"
 
@@ -123,13 +130,19 @@ def test_write_atomic_creates_a_new_file_owner_only(tmp_path: Path) -> None:
 def test_write_atomic_sets_the_mode_before_it_replaces(tmp_path: Path) -> None:
     """Ordering, not just the end state.
 
-    A chmod after `os.replace` reaches the same mode, and a panel reading this
-    first recorded the window as a disclosure — it is not: mkstemp's 0600 floor
-    means the far side can only ever be narrower than intended. What it is, is
-    non-atomic. A crash or a failing chmod between the replace and it leaves the
-    file at 0600 for good, which is #324 back and no longer reproducible on
-    demand. So the assertion is on the mode the file already has when replace
-    is called, which is the only place that failure cannot hide.
+    A chmod after `os.replace` reaches the same mode, so an assertion on the
+    finished file cannot tell the two orders apart. What separates them is
+    failure: a crash or a failing chmod after the replace leaves the file at
+    0600 for good — #324 back, and no longer reproducible on demand — while
+    before it, the existing `except` unlinks the temp file and the target is
+    never touched.
+
+    The window itself is not a disclosure. mkstemp's 0600 floor means a
+    far-side window is only ever narrower than intended, never wider; the
+    defect is that it can be made permanent, not that it is visible.
+
+    So the assertion is on the mode the file has at the moment replace is
+    called, which is the only place that failure cannot hide.
     """
     target = tmp_path / "record.md"
     target.write_text("# before\n")
