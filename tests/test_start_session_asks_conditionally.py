@@ -81,7 +81,7 @@ def test_a_handoff_on_a_branch_nobody_has_worked_on_starts_without_a_reply() -> 
     """#244's acceptance criterion (a). An unattended worktree carrying a handoff
     has been told what to do, and a step that asks anyway never reaches a
     pipeline step at all."""
-    row = _row("a summary naming a first action, and no stop")
+    row = _row("an issue branch, or a stop marked continued")
     assert "Do not ask" in row
     assert "Quote the line" in row
 
@@ -93,10 +93,11 @@ def test_a_branch_that_has_ended_a_session_before_is_still_asked() -> None:
     `/end-session`, so a quotable first action is the steady state of `main`
     rather than a signal. Gating row one on the summary alone had an attended
     `/start-session` in the main checkout begin work against a stale TODO — the
-    criterion failing in as many words. The stop's *kind* is the column that
-    separates them — until #352 it was the stop's mere presence, which said the
-    same thing about a branch someone wrapped up and a run cut off mid-work."""
-    row = _row("a summary, and a stop that was wrapped up")
+    criterion failing in as many words. What separates them is whether the
+    branch names an issue: `main` accumulates a handoff from every session that
+    ever ended on it, and its top TODO is as likely to be last month's as
+    today's."""
+    row = _row("a trunk branch whose last stop was not continued")
     assert "Ask:" in row
     assert "Do not ask" not in row
 
@@ -149,7 +150,7 @@ def test_a_stop_marked_continued_shares_the_do_not_ask_row() -> None:
     Same row as a branch with no stop, and that is the claim worth pinning: the
     existing behaviour there was already *do not ask*, so this is one row with
     two conditions rather than a fourth row nobody has to keep consistent."""
-    row = _row("a summary naming a first action, and no stop")
+    row = _row("an issue branch, or a stop marked continued")
     assert "a stop marked continued" in row
     assert "Do not ask" in row
 
@@ -161,7 +162,7 @@ def test_a_continued_stop_does_not_relax_the_quote_gate() -> None:
     The failure this forbids is a row one that reads "a stop marked continued"
     and nothing else — which would start work on whatever the agent inferred the
     branch was probably for, on precisely the branches nobody is watching."""
-    carry_on = _row("a summary naming a first action, and no stop")
+    carry_on = _row("an issue branch, or a stop marked continued")
     assert "naming a first action" in carry_on
 
     unquotable = _row("no summary, one whose next action is still `(fill in)`")
@@ -193,3 +194,43 @@ def test_step_four_names_all_three_outcomes_of_that_read() -> None:
     step_four = _step_four()
     for outcome in ("nothing", '`"continued": true`', "any other line"):
         assert outcome in step_four, f"step 4 states no outcome for {outcome}"
+
+
+def test_an_issue_branch_is_never_asked_what_to_work_on() -> None:
+    """The question has one answer on an issue branch and the branch is already
+    carrying it.
+
+    `352-session-stopped-not-finished` says what the session is for in its own
+    name, so asking spends a turn to be told what `wfctl status` prints on its
+    first line. The stop's kind is the wrong column there: a session that wrapped
+    up deliberately on an issue branch left the *same* issue open, and the next
+    one is not at liberty to work on something else."""
+    row = _row("an issue branch, or a stop marked continued")
+    assert "an issue branch" in row
+    assert "Do not ask" in row
+
+
+def test_a_trunk_branch_is_still_asked() -> None:
+    """#244's criterion (b), which is about `main` and stays about `main`.
+
+    `wfctl end` writes a summary with a filled `Next Session TODO` on every
+    `/end-session`, and a trunk branch collects one from every session that ever
+    ended there. A quotable first action is its steady state rather than a
+    signal, and beginning work on it was the defect the row exists to prevent."""
+    row = _row("a trunk branch whose last stop was not continued")
+    assert "Ask:" in row
+    assert "Do not ask" not in row
+
+
+def test_step_four_says_where_the_branch_kind_comes_from() -> None:
+    """The issue key decides two of the three rows, so step 4 has to hand step 9
+    a fact and not an impression.
+
+    `wfctl status --json` is already run at the top of this step and `issue` is
+    the first key in its payload, so this costs no command. `unknown` is the
+    literal it prints for a branch whose name carries no key — naming the literal
+    is what stops an agent inferring "trunk" from a branch called `develop`, or
+    missing it on one called `main-rewrite`."""
+    step_four = _step_four()
+    assert "issue" in step_four
+    assert "unknown" in step_four
