@@ -433,6 +433,13 @@ def record_notify_refused(agent_dir: Path, action: str, source: str) -> None:
     append_event(agent_dir, "notify-refused", action=action, source=source)
 
 
+# The two halves of the handoff's next-action section, named once. `end`
+# recognises an unfilled section by them and the template writes it from them,
+# so the two cannot drift apart into a warning that never fires.
+NEXT_SESSION_TODO = "## Next Session TODO"
+NEXT_ACTION_PLACEHOLDER = "- [ ] (fill in)"
+
+
 def _render_session_summary(branch: str, observed: Observations) -> str:
     """The handoff, headed by what `end` could see rather than what it hoped.
 
@@ -454,17 +461,56 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
         f"**Tree**: {observed.tree}\n\n"
         f"## What We Accomplished\n\n"
         f"- (fill in)\n\n"
-        f"## Next Session TODO\n\n"
-        f"- [ ] (fill in)\n"
+        f"{NEXT_SESSION_TODO}\n\n"
+        f"{NEXT_ACTION_PLACEHOLDER}\n"
     )
 
 
-def end(agent_dir: Path, branch: str, observed: Observations) -> tuple[Path, bool]:
+def names_no_first_action(summary: str) -> bool:
+    """Is this handoff's next-action section still the template's?
+
+    Beside the renderer above and reading the same two constants, because the
+    only thing that can recognise the placeholder is whatever writes it. A copy
+    of the literal in the command that prints the warning would go on matching
+    the old text after the template moved on, and the warning would die with
+    nothing going red.
+
+    The question is narrow on purpose: whether the section was *ever filled in*,
+    not whether what fills it names a usable first action. The second is step 9's
+    judgment — its gate is quoting a literal sentence — and `end` has no way to
+    reach it. Answering the narrow one is what lets `end` speak at the last
+    moment the operator is still there to fix it (FR-013).
+    """
+    if NEXT_SESSION_TODO not in summary:
+        return True
+    body = summary[summary.index(NEXT_SESSION_TODO) + len(NEXT_SESSION_TODO) :]
+    # To the next heading, so a section someone filled in *below* this one does
+    # not answer for it.
+    for line in body.splitlines():
+        if line.startswith("## "):
+            break
+        stripped = line.strip()
+        if stripped and stripped != NEXT_ACTION_PLACEHOLDER:
+            return False
+    return True
+
+
+def end(
+    agent_dir: Path, branch: str, observed: Observations, *, continued: bool
+) -> tuple[Path, bool]:
     """Write session-summary.md if absent; return its path and whether it wrote.
 
     The observations are passed in rather than taken here: the caller has
     already built the report, and a second inference is a second chance to
     disagree with the line it is about to print.
+
+    `continued` says whether the work carries on, and it is the caller's to
+    declare — keyword-only and with no default, so a call site that has not
+    thought about it does not compile rather than quietly recording a wrap-up.
+    `end` cannot conclude it: `**Status**: complete` was written on every run
+    including one that closed with half the tasks open, and #70 removed it
+    because nothing observed the word. What `end` can observe is that it was
+    told, and that is the whole of what goes in the log.
 
     Written once. A second `end` must not overwrite prose a human or agent
     filled in between the two.
@@ -482,5 +528,5 @@ def end(agent_dir: Path, branch: str, observed: Observations) -> tuple[Path, boo
     if written:
         write_atomic(summary_file, _render_session_summary(branch, observed))
 
-    append_event(agent_dir, "end", step=observed.step)
+    append_event(agent_dir, "end", step=observed.step, continued=continued)
     return summary_file, written
