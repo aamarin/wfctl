@@ -54,19 +54,24 @@ remove, not an exception to it.
 is a commit on this branch, which the diff already shows; restating it in prose a
 reviewer has to trust adds a second account of the same fact, and the weaker one.
 
-What the diff does not show is a finding you **rejected** — a reviewer raised
-something and you decided against it, so nothing in the change records that the
-question was asked. Say those under Additional Context, with the reason, in a
-line each. Nothing checks this and nothing can: whether a panel ran is not
-visible in any artifact the work produces, which is why it is written here as a
-rule and not as a check.
+What the diff does not show is a finding you **did not apply** — accepted but
+deferred, or rejected outright. A reviewer raised it, you decided, and nothing in
+the change records that the question was asked. Say those under Additional
+Context, with the disposition and the reason, in a line each.
+
+**Nothing checks this.** The panel does write artifacts — one report per reviewer
+under `$FEATURE_DIR/reviews/` — but they land outside the working tree, are
+gitignored, and are written by the same agent whose work they attest to. A check
+over them would be reading a self-report, and a reviewer of this change can open
+none of them. So the rule is prose here, which is what
+`a-rule-is-expressed-as-a-check` leaves a rule as when no artifact a reader can
+reach settles it.
 
 Findings you apply change the branch. **Commit them**, re-run the verification,
 and push again before Step 5 — `git push` moves commits and not a working tree,
 so an uncommitted fix leaves the PR opening from the commit that still has the
-defect while the description says it was applied. A recorded verdict binds to the
-tree it ran against, which your fix has moved, so the verification is re-run
-after the commit rather than before it.
+defect. A recorded verdict binds to the tree it ran against, which your fix has
+moved, so the verification is re-run after the commit rather than before it.
 
 ## Step 2: Find the template
 
@@ -117,10 +122,11 @@ State the shape you are using rather than refusing or improvising:
 ```
 No change-description template in this repo. Using the default shape:
 Summary (context, then the drawing, then what / why / impact) · What changed ·
-How it was tested · Issue links.
+How it was tested · Issue links · Additional context.
 ```
 
-Then fill those four. `wfctl install-config github` seeds a real template — say
+Then fill those five. Additional context is where Step 1's undecided findings
+go, so a repository with no template still has somewhere to put them. `wfctl install-config github` seeds a real template — say
 so once, and do not block on it.
 
 ## Step 4: Fill every section
@@ -183,7 +189,7 @@ is the one the reader rejected on #208 — the fix was replacing the fence with 
 markdown table, and the accepted drawings in the same body are hand-aligned too,
 which is why alignment alone is not the finding.
 
-**Its second finding is not about the file.** A `verification:` line says the
+**Its other finding is not about the file.** A `verification:` line says the
 repository declares a definition of done and no record of it passing covers this
 tree — never run, failed, left inconclusive, or taken against a commit the branch
 has since moved off:

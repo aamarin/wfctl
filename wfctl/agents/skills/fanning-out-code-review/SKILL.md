@@ -104,8 +104,11 @@ either way, and the price is an environment per reviewer.
 `.agents/skills/opening-a-change/SKILL.md` runs this skill as its Step 1, before
 a PR is opened. That is the path an unattended run takes, where the description
 above matches nothing because nobody said anything (#187) — so this skill starts
-from a step in another file rather than from a phrase, and the reconciled table
-from Step 6 is content for the description that step goes on to write.
+from a step in another file rather than from a phrase.
+
+The reconciled table from Step 6 is this skill's own output and stays here.
+`opening-a-change` decides separately what a description says about the panel,
+and it says the applied findings are commits the diff already shows.
 
 A reviewer nobody dispatched still counts. Bot and human comments already on the
 change are panel members you did not pay for; collect them in the same pass.
@@ -176,7 +179,7 @@ Three words, three states, and only one of them is a failure:
 Reading the roster before every reviewer is back is not a mistake — the
 `RUNNING` line is what makes it safe. A `MISSING` written on that reading is a
 defect fabricated out of a slow reviewer: it spends that reviewer's work twice
-and puts an untrue sentence in a description (#173).
+and puts an untrue sentence in the table below (#173).
 
 `MISSING` is a **failure, not a pass.** Ask that reviewer again for its findings
 in the format `code-review` specifies. If a reviewer insists it already

@@ -1,10 +1,10 @@
 """One fence walker, for the modules that were each carrying their own.
 
-`_shape` and `_arch` both need to know which lines of a markdown document sit
-inside a fenced code block, and they answered it differently: `_shape`
-implemented CommonMark's closing rule, `_arch` matched a prefix. The looser one
+Knowing which lines of a markdown document sit inside a fenced code block was
+answered three times and three ways before this existed: `_shape` implemented
+CommonMark's closing rule, and the other two matched a prefix. A prefix match
 closes a fence on ```` ```python ```` appearing *inside* one, so a document
-quoting a fenced example — which each of these modules reads, because each is
+quoting a fenced example — which every caller here reads, because each is
 checking text that quotes the rules it enforces — has the rest of the example
 scanned as prose.
 

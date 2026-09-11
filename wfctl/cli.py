@@ -4466,7 +4466,7 @@ def _verification_finding() -> list[str]:
 def check_body_cmd(
     path: Path = typer.Argument(..., help="The change description to check, as a file"),
 ) -> None:
-    """Check a PR description against what a machine can see in it.
+    """Check a PR description before `gh pr create` reads it.
 
     The cheaper half of the same problem the `Stop` hook covers: a PR body is a
     file on disk before `gh pr create` reads it, so checking it is a script over
@@ -4507,14 +4507,12 @@ def check_body_cmd(
     form-selection table as the single owner of which drawing to use.
     `wfctl/_shape.py` carries the split.
 
-    **A rule about the body that no artifact can settle does not belong here.**
-    The review panel's disposition table was checked here until #347, and what
-    ended it is that the check could see only that prose had been written, never
-    that a panel ran — while an applied finding is already a commit on the
-    branch. `a-rule-is-expressed-as-a-check` is what decides that: the artifact
-    the rule was being read off is the description, and the description is
-    written once at the end, editable afterwards, and produced by no step of the
-    work.
+    **A rule this cannot settle does not belong here.** The review panel's
+    disposition table was checked here until #347, and what ended it is that the
+    check could see only that prose had been written, never that a panel ran —
+    while an applied finding is already a commit on the branch, which the diff
+    shows without anyone's prose. A check that observes the wrong half of its
+    rule teaches a reader to ignore the half it does observe.
 
     Exits 1 when it finds something, so the finding is hard to walk past. It
     gates nothing — nothing runs this but the author. That is what keeps the

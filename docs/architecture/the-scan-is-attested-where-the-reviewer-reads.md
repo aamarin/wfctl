@@ -191,3 +191,7 @@ gate, and gates are #100's.
   arch-root readers this record's `Consequences` had missed, both counting scan
   files as architecture records. Amended while `proposed`, which is the status
   for a decision nobody has ratified.
+- 2026-09-11  amended     — #347 withdrew the PR-body rule this record's
+  `Direct baseline` cited as precedent, on the argument the baseline had already
+  made against itself. The baseline is reworded; the Decision it lost a
+  precedent for is the one it never rested on.

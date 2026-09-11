@@ -162,7 +162,7 @@ it and only the implementation ships. This repo does the latter.
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check`  | Validate a `.agents/trackers/<name>.json` tracker config                 |
 | `hook`           | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`, `response-shape`) — not for interactive use |
-| `check-body`     | Check a PR description's drawings and review panel, and whether the definition of done has passed |
+| `check-body`     | Check a PR description's drawings, and whether the definition of done has passed |
 | `doctor`         | Check the installed skills against the ones this wfctl ships            |
 
 `wfctl --version` prints the installed package version and exits.
@@ -523,10 +523,10 @@ carries `|| true` because a non-zero exit on that event tells the agent to keep
 going rather than stopping, so an older `wfctl` on `PATH` would loop at the end
 of every turn instead of printing once. The same rules over a PR description are
 `wfctl check-body <file>`, which is a command rather than a hook because a
-description is a file on disk before `gh pr create` reads it. It reads two more
-things while it has the branch in front of it: the review panel's disposition
-table, and whether a `wfctl verify` record covers this tree. That last one is
-there because opening a change is the one road every change takes, and `verify`
+description is a file on disk before `gh pr create` reads it. It reads one more
+thing while it has the branch in front of it: whether a `wfctl verify` record
+covers this tree. That one is there because opening a change is the one road
+every change takes, and `verify`
 was otherwise reached only by the spec pipeline — so a bug fix that skipped the
 pipeline was certified by nothing (#236). Hand it a path *outside* the
 repository: a description written into the worktree is an untracked file, and

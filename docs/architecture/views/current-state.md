@@ -112,9 +112,9 @@ having to argue about a word.
 
 Move the line and each is reimplemented per caller, which is where both came
 from. The first caller to write a plain `open(...).write()` loses a
-`next-step.md` to a crash and nothing announces it; those that each had their
-own fence walker disagreed about what closes one, so a document quoting a fenced
-example had the rest of the quotation scanned as prose.
+`next-step.md` to a crash and nothing announces it; the three that each had
+their own fence walker disagreed about what closes one, so a document quoting a
+fenced example had the rest of the quotation scanned as prose.
 
 ## Where the bands do not hold
 
