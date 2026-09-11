@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -46,6 +48,117 @@ def test_write_atomic_writes_plain_text(tmp_path: Path) -> None:
     write_atomic(target, "# Hello\n")
     assert target.read_text() == "# Hello\n"
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_write_atomic_rewrite_keeps_the_existing_files_mode(tmp_path: Path) -> None:
+    """#324: every rewrite narrowed its target to 0600.
+
+    `mkstemp` creates its file owner-only and `os.replace` installs that inode
+    whole, so `wfctl arch accept` turned a committed 0644 record into one only
+    its author could read. This is the issue's reproduction, without the CLI.
+    """
+    target = tmp_path / "record.md"
+    target.write_text("# before\n")
+    target.chmod(0o644)
+
+    write_atomic(target, "# after\n")
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644
+    assert target.read_text() == "# after\n"
+
+
+def test_write_atomic_rewrite_keeps_an_executable_bit(tmp_path: Path) -> None:
+    """#324's second half: a rewritten script stopped being runnable.
+
+    Narrowing to 0600 drops the x bit, which the mode-preserving fix has to
+    carry rather than merely widening read access back to 0644.
+    """
+    target = tmp_path / "hook.sh"
+    target.write_text("#!/bin/sh\ntrue\n")
+    target.chmod(0o755)
+
+    write_atomic(target, "#!/bin/sh\nfalse\n")
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755
+    assert os.access(target, os.X_OK)
+
+
+def test_write_atomic_rewrite_keeps_a_bit_outside_the_low_nine(tmp_path: Path) -> None:
+    """The mode is read with `S_IMODE`, not masked to `0o777`.
+
+    A mask keeping only the permission triples drops setuid, setgid and sticky
+    without saying so, and every other assertion in this file reads the mode
+    back through `S_IMODE`, so none of them would notice.
+
+    Sticky rather than the more obvious setgid: macOS refuses setgid on a file
+    whose group the user is not in, returning success and a mode without the
+    bit, so a setgid test would pass against a masked read for the wrong reason.
+    The skip covers a filesystem that treats sticky the same way.
+    """
+    target = tmp_path / "record.md"
+    target.write_text("# before\n")
+    target.chmod(0o1644)
+    if stat.S_IMODE(target.stat().st_mode) != 0o1644:
+        pytest.skip("filesystem refuses the sticky bit on a regular file")
+
+    write_atomic(target, "# after\n")
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o1644
+
+
+def test_write_atomic_creates_a_new_file_owner_only(tmp_path: Path) -> None:
+    """The new-file case is deliberately left at mkstemp's 0600.
+
+    A file that does not exist has no mode to preserve, so the floor is a choice
+    rather than a consequence, and it is made for the state dir:
+    `session-summary.md` carries whatever the last session knew, and
+    `_session.end` only ever creates it. Following the umask instead would
+    publish a handoff to every local account.
+
+    The floor is not free, and this test pins it rather than endorsing it
+    everywhere. `arch declare` and `_write_settings` create files *inside* the
+    repo and get 0600 too, beside committed neighbours at 0644 — the same
+    complaint as #324, reached by creating rather than rewriting.
+    """
+    target = tmp_path / "session-summary.md"
+
+    write_atomic(target, "# handoff\n")
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_write_atomic_sets_the_mode_before_it_replaces(tmp_path: Path) -> None:
+    """Ordering, not just the end state.
+
+    A chmod after `os.replace` reaches the same mode, so an assertion on the
+    finished file cannot tell the two orders apart. What separates them is
+    failure: a crash or a failing chmod after the replace leaves the file at
+    0600 for good — #324 back, and no longer reproducible on demand — while
+    before it, the existing `except` unlinks the temp file and the target is
+    never touched.
+
+    The window itself is not a disclosure. mkstemp's 0600 floor means a
+    far-side window is only ever narrower than intended, never wider; the
+    defect is that it can be made permanent, not that it is visible.
+
+    So the assertion is on the mode the file has at the moment replace is
+    called, which is the only place that failure cannot hide.
+    """
+    target = tmp_path / "record.md"
+    target.write_text("# before\n")
+    target.chmod(0o644)
+
+    seen: list[int] = []
+    real_replace = os.replace
+
+    def recording_replace(src: str, dst: Path) -> None:
+        seen.append(stat.S_IMODE(os.stat(src).st_mode))
+        real_replace(src, dst)
+
+    with patch("os.replace", recording_replace):
+        write_atomic(target, "# after\n")
+
+    assert seen == [0o644]
 
 
 def test_append_event_writes_jsonl(tmp_path: Path) -> None:
