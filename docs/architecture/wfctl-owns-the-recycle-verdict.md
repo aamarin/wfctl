@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: rejected
 ---
 
 # wfctl decides when a run recycles its window, not the agent
@@ -107,3 +107,8 @@ and those turn out to be different owners —
 
 - 2026-09-11  proposed    — #188: the recycle needs an owner before it can be
   given a shape, and the act destroys whoever the agent would have been.
+- 2026-09-11  rejected    — #188 closed. The ownership argument stands and
+  nothing in wfctl needs it: the feature it was written for is agent-specific,
+  so there is no verdict for wfctl to own. Kept because the reasoning — a
+  verdict whose purpose is to destroy the context computing it cannot be held
+  by that context — is the part a later reader would otherwise redo.

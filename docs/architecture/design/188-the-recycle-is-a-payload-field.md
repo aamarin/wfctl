@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: rejected
 ---
 
 # The recycle verdict is a field on the one report, shaped like `stall`
@@ -165,3 +165,7 @@ The `Verification` below is written against that case specifically.
 
 - 2026-09-11  proposed  — #188: the verdict has an owner and a performer, and
   needed a shape before either could be built against it.
+- 2026-09-11  rejected  — #188 closed. There is no payload field because there
+  is no wfctl-side feature to carry one. The shape argument against a ninth
+  step and against overloading `reason` still applies to whatever next wants a
+  fact about the run rather than about a step.

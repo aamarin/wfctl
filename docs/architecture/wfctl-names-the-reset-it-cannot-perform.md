@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: rejected
 ---
 
 # wfctl names the reset, and something outside it performs one
@@ -153,3 +153,9 @@ from one that silently never recycled.
 - 2026-09-11  proposed    — #188: the reset was the open question; the harness
   refuses it to the agent and wfctl declines it by construction, so the
   performer is a third party and the decision is to name one.
+- 2026-09-11  rejected    — #188 closed. The decision was right and its
+  performer turned out not to exist: the permission classifier refuses an
+  agent authoring pane-driving automation at all, not merely self-targeted
+  automation, and every remaining mechanism is Claude Code specific. The hook
+  moves to the developer's own agent layer, which `no-hardcoded-agent` already
+  required independently.
