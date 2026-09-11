@@ -66,10 +66,23 @@ those files are written by the same agent whose work they attest to, so their
 presence says a directory was filled, never that a panel ran. That is the same
 thing the old check could see, moved one artifact over.
 
-`a-rule-is-expressed-as-a-check` asks whether a violation is visible in an
-artifact the work already produces, and names the reply, the PR body, the diff
-and the tree. A self-written report in a store outside the tree answers that no,
-so the rule is prose — which is what that record says to do with it.
+The question to ask is `a-rule-is-expressed-as-a-check`'s. **Keep it a
+quotation.** Summarised, it drifts into a criterion the record does not have —
+"visible in *any* artifact", "an artifact a reader can reach" — and a drifted
+summary of this particular test inverts its verdict rather than blurring it. The
+record is also not shipped with this skill, so the words have to travel here or
+they are unavailable where this is read:
+
+> is a violation of it visible in an artifact the work already produces?
+
+> *Already produces* is the load-bearing half. It excludes a check that needs an
+> artifact invented so that it can be checked, and it includes the reply, the PR
+> body, the diff and the tree — which is where every violation above was
+> observed.
+
+A report the agent wrote about its own work, in a store outside the tree,
+answers that no. So the rule is prose, which is what that record says to do with
+it.
 
 Findings you apply change the branch. **Commit them**, re-run the verification,
 and push again before Step 5 — `git push` moves commits and not a working tree,

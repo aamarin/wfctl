@@ -335,6 +335,72 @@ def test_the_change_description_skill_does_not_restate_the_template() -> None:
     assert restated == []
 
 
+def _quoted_after(text: str, slug: str) -> list[str]:
+    """The block-quoted lines that follow the first mention of `slug`.
+
+    Scoped to that run rather than every `> ` line in the file, because the
+    skill is free to quote something else later and a guard that read those as
+    the record's words would fail on a change with nothing wrong with it. A test
+    that fails for the wrong reason is one somebody deletes, which costs the
+    guard rather than fixing it.
+    """
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if slug in line), None)
+    if start is None:
+        return []
+    out: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("> "):
+            if line[2:].strip():
+                out.append(line[2:].strip())
+        elif line.strip() and out:
+            break
+    return out
+
+
+def test_a_skill_quoting_an_architecture_record_still_matches_it() -> None:
+    """A shipped skill may quote a record; it may not paraphrase one.
+
+    `opening-a-change` Step 1 explains why the review-panel rule is prose rather
+    than a check, and the explanation rests on `a-rule-is-expressed-as-a-check`'s
+    decision test. Retelling that test in the skill's own words drifted twice on
+    #347 — first into "not visible in any artifact the work produces", which is
+    false, then into "no artifact a reader can reach", a criterion the record
+    does not have. Both readings invert the record's verdict, and both survived
+    until a reviewer held the two files side by side.
+
+    So the skill quotes, and this compares the quote against the source. It is
+    `test_the_change_description_skill_does_not_restate_the_template` one source
+    over: a fact with two homes, where the copy that falls behind does not
+    announce itself.
+
+    `docs/architecture/` is not package data, so the record does not ship and a
+    consuming repo cannot resolve the slug. That is the second reason the skill
+    carries the words rather than a pointer, and the reason this test resolves
+    the record from the repository rather than through `files("wfctl")`.
+    """
+    record = (
+        Path(__file__).resolve().parent.parent
+        / "docs/architecture/a-rule-is-expressed-as-a-check.md"
+    ).read_text(encoding="utf-8")
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+
+    quoted = _quoted_after(skill, "a-rule-is-expressed-as-a-check")
+    assert quoted, "Step 1 no longer quotes the record; it must quote or say nothing"
+
+    # Re-wrapped to one line before comparing: the skill hard-wraps at 79 columns
+    # and the record wraps at its own width, so a faithful quote differs from its
+    # source by line breaks alone. Comparing verbatim would fail on reflow and
+    # teach the next reader to delete the test.
+    flat = " ".join(record.split())
+    missing = [q for q in quoted if " ".join(q.split()) not in flat]
+
+    assert missing == [], (
+        "opening-a-change quotes lines that are not in "
+        f"a-rule-is-expressed-as-a-check.md: {missing}"
+    )
+
+
 def test_no_shipped_digest_is_truncated_by_the_hook_that_reads_it() -> None:
     """A digest over `_DIGEST_MAX_CHARS` loses its last rules to an ellipsis.
 
