@@ -262,3 +262,6 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   `wfctl/agents/NOTICES.md` moved beside the skills so the permission notice
   reaches an installed project rather than only the wheel; the `speckit.*`
   command wrappers named as the surface still undeclared (#216, #229)
+- 2026-09-12  amended     — `speckit-brainstorm` named among the skills that are
+  wfctl's own rather than derived, with why splitting it out of a wrapper does
+  not make it derived from the two skills its body layers over (#361)

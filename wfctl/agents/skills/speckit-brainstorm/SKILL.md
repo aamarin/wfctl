@@ -146,14 +146,10 @@ side of its own test, and delivers the rule at the moment it binds.
 
 **Pipeline:** invoke `speckit-orchestrate`.
 
-The typed route has always had an exit — the wrapper's `handoffs:` offers Start
-Specify, and a human clicks it. `handoffs:` is not an Agent Skills key and
-cannot travel to a `SKILL.md`, so the route #361 opened arrived with no way out:
-an agent that resolved `/speckit.brainstorm` out of `next_command`, entered
-here, and wrote `design.md` had nothing telling it the step was over. Six
-sibling speckit skills end on this same line, derived ones included. The three
-that do not — `speckit-specify`, `speckit-constitution`, `speckit-delivery-plan`
-— are not a precedent for omitting it here: none of them is in
-`_MIRRORED_SKILLS`, so no agent resolves them by name and none is reachable the
-way this one now is. Whatever holds their omission open, it is not an argument
-that a mirrored step needs no exit.
+This line is the step's only exit for an agent that arrived by name. The
+wrapper's `handoffs:` offers Start Specify to a human who typed the command, but
+`handoffs:` is not an Agent Skills key and cannot be moved here, so a skill that
+omits this line leaves a run that has written `design.md` with nothing saying
+the step is over. `speckit-specify`, `speckit-constitution` and
+`speckit-delivery-plan` omit it and are not a precedent: none is in
+`_MIRRORED_SKILLS`, so nothing resolves them by name in the first place.

@@ -179,17 +179,30 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     inline wrapper reintroduces the defect with the suite green, which is
     exactly how this one arrived.
 
-    Asserts the wrapper names a skill, not that the skill ships:
+    The skill has to be the step's *own*, which is the whole assertion and was
+    the first version's omission: "names some skill" passes on the tree that had
+    the bug, because that inline workflow cited `reading-design-records` in
+    passing at line 102. A wrapper may cite any number of other skills; what it
+    may not do is fail to name the one its command resolves to.
+
+    `decompose` is the one step whose skill is not its command respelled, and it
+    is pinned here rather than derived so that a second exception has to be
+    added deliberately instead of inherited from a looser rule.
+
+    Asserts the wrapper names the skill, not that the skill ships:
     `test_every_referenced_skill_ships` above already owns the second half, and
     splitting them keeps each failure naming which of the two broke.
     """
     from wfctl._pipeline import _STEPS
 
+    renamed = {"/speckit.decompose": "speckit-delivery-plan"}
+
     inline = {}
     for step, spec in _STEPS.items():
         wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
-        if not wrapper.exists() or not _REFERENCE.findall(wrapper.read_text()):
-            inline[step] = spec.command
+        expected = renamed.get(spec.command, spec.command.lstrip("/").replace(".", "-"))
+        if not wrapper.exists() or expected not in _REFERENCE.findall(wrapper.read_text()):
+            inline[step] = expected
     assert inline == {}, f"next_command with no skill behind it: {inline}"
 
 
@@ -255,14 +268,22 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     one. Copied rather than moved for that reason, and a copy is what drifts — so
     the loop asserts the same five entries on each and names which surface failed.
 
-    The five are the ones whose loss is arguable, so they carry their reasons.
-    The equality assertion below is what covers the other six, and it is not
-    redundant with the loop: `Bash(wfctl status*)` is in neither list, and the
-    skill's first instruction is the `wfctl status --json` read that decides
+    The entries pinned by name are the ones whose loss is arguable, so they
+    carry their reasons. `Bash(wfctl status*)` is pinned rather than left to the
+    equality assertion below, which was the first version's mistake: equality
+    catches only *one-sided* drift, and an assertion that reads "keep the two
+    lines the same" trains the next editor to change both together — so a
+    symmetric deletion, the shape it invites, passed here green. That grant is
+    the skill's first instruction, the `wfctl status --json` read that decides
     which approval mode the whole run is in. Losing it fails the read, the
     file's own rule converts an inconclusive read to `false`, and the
     `auto_approve` override table goes inert with nothing to show it — which is
     the silence `approval-mode-is-stored-intent` added that grant to prevent.
+
+    `Write` is pinned for the narrower reason that it is not a `Bash(…)` entry
+    and so cannot ride the loop above: a step that cannot write `design.md` has
+    no output, and the failure arrives as a tool refusal rather than as a
+    missing rule.
     """
     surfaces = {
         "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
@@ -279,8 +300,10 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
             "git add",
             "git commit",
             "wfctl arch-root",
+            "wfctl status",
         ):
             assert f"Bash({needed}*)" in allowed, f"{where}: {needed}"
+        assert "Write" in allowed, f"{where}: Write"
     assert grants["wrapper"] == grants["skill"], (
         "the two copies of the grant have drifted; whichever entrance lost one "
         "now refuses a step the other can run"
