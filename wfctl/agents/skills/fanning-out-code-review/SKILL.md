@@ -94,6 +94,20 @@ Every dispatch instruction carries these three:
   replaces the parent's proof of done with one taken mid-review.
 - **Write findings to `$FEATURE_DIR/reviews/<id>.md`,** the id you assigned it.
 
+Mark the dispatch before the first reviewer can write:
+
+```bash
+eval "$(wfctl feature-paths)"
+mkdir -p "$FEATURE_DIR/reviews" && touch "$FEATURE_DIR/reviews/.dispatched"
+```
+
+`$FEATURE_DIR` is outside the worktree and outlives the run, so a second panel on
+the same change finds the first panel's reports sitting beside its own — and a
+re-run dispatches fresh ids (`r4 r5 r6` after `r1 r2 r3`), never the ones already
+on disk. Without the mark, Step 3's check reads three reports this branch's own
+panel wrote and calls them a stranger's. The mark dates the run; the ids say
+whose.
+
 Dispatch them in parallel — they are independent by construction. Sharing one
 tree is a choice, not a limit to engineer around: a harness that can hand each
 reviewer its own worktree lifts the report-only constraint and buys nothing
@@ -244,10 +258,11 @@ A file written under an id that is not on the roster:
 ```bash
 eval "$(wfctl feature-paths)"
 REVIEWS="$FEATURE_DIR/reviews"
-find "$REVIEWS" -name '*.md' 2>/dev/null | sort | while read -r f; do
+find "$REVIEWS" -maxdepth 1 -type f -name '*.md' -newer "$REVIEWS/.dispatched" |
+sort | while read -r f; do
   id=${f##*/}; id=${id%.md}
-  case " r1 r2 r3 " in      # the roster you dispatched
-    *" $id "*) ;;
+  case "$id" in
+    r1|r2|r3) ;;      # the panel: dispatched ids, and free members filed here
     *) echo "UNDISPATCHED  $id" ;;
   esac
 done
@@ -262,10 +277,22 @@ is now written in two places, one per direction, and both are yours to
 substitute — an edit to one that misses the other reports a reviewer you
 dispatched as a stranger.
 
+A comment already on the change is a panel member too, so a session that files a
+bot's review under `reviews/` — the obvious thing to do, since that is where
+Step 4 reads from — has to name it in the case list beside the ids it
+dispatched. What the list carries is the panel, not the dispatch log, and the
+roster line in Step 6 carries the same two parts for the same reason. A free
+member left where it arrived — a comment on the change, read where it was
+posted — never reaches this check at all: it reads filenames and nothing else.
+
 `find` rather than `"$REVIEWS"/*.md`, because a reviews directory with nothing
 in it yet is the normal state early in a run, and zsh aborts the whole script on
 a glob that matches nothing. The check would not run at all, on the shell most
-of these runs happen in.
+of these runs happen in. `-newer` reads Step 2's mark, so what it lists is the
+reports written since you dispatched rather than everything the directory has
+accumulated. Nothing redirects stderr: a missing mark or a missing directory
+means this check never ran, and a check that fails silent prints exactly what a
+clean panel prints.
 
 The other channel is a completion notification, and it leaves no file. Read the
 id it reports under against the same roster. Nothing is on disk for a check to
@@ -279,7 +306,8 @@ were the panel.
 
 ## Step 4 — Reconcile
 
-Read the reports the roster names — all of them, and only those — then group:
+Read the reports the roster names, and the comments already on the change —
+all of them, and only those — then group:
 
 - **Two or more reviewers, same defect** → evidence. Verify it anyway; verify it first.
 - **One reviewer only** → a hypothesis, not noise. How often this happens is not
@@ -324,15 +352,18 @@ Three dispositions, each requiring a reason on the line: **applied**,
 given), **rejected** (with the reason). A run in which everything was applied
 has not exercised the reconciliation — it has relayed three reports.
 
-**Every name in the Reviewer column is in the roster line, or is a comment
-already on the change.** Those two are the whole of what a panel is made of, and
-the table carries both, so a name in the column that is in neither is visible to
-anyone reading the table — which is the only place it is visible at all. A
-report Step 3 excluded is named below the roster and not counted:
+**Every name in the Reviewer column is on the roster line.** The line carries
+the whole panel — the ids you dispatched, and the free members named beside
+them — so a name in the column that the line does not carry is a report from
+outside the panel, visible to anyone reading the table, which is the only place
+it is visible at all. A line carrying the dispatched ids alone cannot do that
+work: a bot's comment and a stranger both read as absent from it. A report Step 3
+excluded is named below the roster and not counted, by id — the id is the only
+thing that says which stranger was left out:
 
 ```
-roster: r1 ✓  r2 ✓  r3 ✓
-not read: 2 reports from agents this panel did not dispatch
+roster: r1 ✓  r2 ✓  r3 ✓  + codex (review comment on the PR)
+not read: correctness-angles, r4 — agents this panel did not dispatch
 ```
 
 ## Red flags
