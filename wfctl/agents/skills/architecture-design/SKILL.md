@@ -22,8 +22,8 @@ owns the level gates       proposes; never accepts      owns the durable decisio
 ```
 
 `.agents/skills/design-levels` routes here from its level-2 gate, and a human
-may open the skill directly. The current-state view step 1 reads is an input
-this skill locates rather than requires — *Inputs* below says what to do in a
+may open the skill directly. The current-state architecture view is an input
+this skill locates rather than requires — *Inputs* item 3 says what to do in a
 repository that has none.
 
 It does not write `design.md`, run verification, review a diff, define gate

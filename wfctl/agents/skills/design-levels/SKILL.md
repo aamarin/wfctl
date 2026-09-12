@@ -121,12 +121,20 @@ side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
 **The question is answered by running the method, not by reaching for an
-answer.** Use `.agents/skills/architecture-design` for one iteration: it makes
+answer.** Use `.agents/skills/architecture-design` for one iteration. It makes
 the drivers explicit — what must remain true, under which conditions — ranks
-them, compares credible approaches against a no-new-structure baseline, and
-hands back one proposed boundary — which the skill below turns into a record.
-Skip it only when the boundary is already settled in an accepted record or an
-existing spec, and name the one that settles it.
+them, and compares credible approaches against a no-new-structure baseline.
+
+It ends one of three ways and only one of them produces a record: it hands a
+proposed boundary to `.agents/skills/architecture-decisions` itself, or it
+declares no boundary, or it names the evidence it is missing and stops. The
+paragraph below governs what that record has to be — it is not a second
+invocation, and the stop is not a state to route around.
+
+Skip the method when an accepted record or an existing spec already settles the
+boundary, naming the one that does, or when the change moves no boundary at all.
+The test is whether a boundary moves, not how large the change is, and
+`architecture-design`'s own **Not for** list is the exit a trivial change takes.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
@@ -331,6 +339,9 @@ Before `design.md` is written:
       verified ones were checked against the code, not from memory.
 - [ ] Any boundary a lower level invalidated was revised upward, not worked
       around.
+- [ ] Every level-2 boundary was reached by running
+      `.agents/skills/architecture-design`, or the accepted record or spec that
+      already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
 - [ ] Every level-3 choice that weighed credible alternatives left a record under

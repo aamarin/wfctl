@@ -112,26 +112,57 @@ def test_the_level_2_gate_names_the_design_method_skill() -> None:
 
     `test_every_referenced_skill_ships` cannot stand in for this, for the reason
     its level-3 twin already gives: it checks that a referenced skill exists,
-    and a skill nothing references is the one case it cannot see."""
+    and a skill nothing references is the one case it cannot see.
+
+    The second assertion is the same route read from the other end, and it is
+    the half nothing else pins. #150 shipped the skill saying "Level 2 does not
+    route here yet ... a human opens this skill directly"; restoring that
+    sentence leaves every other test in this file green while the two files give
+    opposite accounts of how the agent reading one of them got there.
+
+    Scoped to the overview, and that scope is the whole assertion. Over the
+    file, `design-levels` is named by path in step 6 regardless — the sentence
+    that sends the iteration's output back to *Where the levels land* — so a
+    whole-file match passes on the restored denial and pins nothing. Checked by
+    mutation rather than by reading: the first version of this test asserted
+    over the file and the reverted overview still went green."""
     gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
     assert "architecture-design" in set(_REFERENCE.findall(gate))
 
+    skill = (_AGENTS / "skills" / "architecture-design" / "SKILL.md").read_text()
+    overview = skill.split("## When to use")[0]
+    assert "design-levels" in set(_REFERENCE.findall(overview))
+
 
 def test_the_design_method_skill_is_model_invocable() -> None:
-    """It ships no command wrapper, so the gate reference above and the mirror
-    are the only two routes in — and they do not overlap. The reference reaches
-    an agent that descended through `design-levels`; the mirror reaches one that
-    did not, which is how a boundary question arriving mid-implementation gets
-    answered by the method instead of by whoever is typing.
+    """It ships no command wrapper, so the only route that does not go through
+    an agent reading `design-levels` as text is the mirror. The gate names the
+    skill by path; an agent that read that pointer and reached for
+    `Skill(architecture-design)` instead is refused without membership, which is
+    #204's fork one skill over.
 
-    `test_the_design_record_skill_is_model_invocable` is the same shape one
-    level down. Both halves asserted, because either alone stays green through
-    the change that removes the other.
+    Membership alone does not settle it, and the name of this test is the claim
+    that overreaches if it stands alone. `mirror-supersedes-the-wrapper` draws
+    the line — "Membership decides reachability; the file decides invocability"
+    — and `disable-model-invocation` on this SKILL.md would refuse the skill on
+    the discovery path membership just put it on, leaving no route at all.
+    `i-have-adhd` is mirrored and refused for exactly that reason, so this is a
+    live failure mode rather than a hypothetical, and the key is a plausible
+    copy-paste from any of the wrappers carrying it.
+
+    Three assertions, because each one alone stays green through the change that
+    breaks the others.
     """
+    from wfctl import _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert not (_AGENTS / "commands" / "architecture-design.md").exists()
     assert "architecture-design" in _MIRRORED_SKILLS
+
+    front = _arch._frontmatter(
+        (_AGENTS / "skills" / "architecture-design" / "SKILL.md").read_text()
+    )
+    assert "disable-model-invocation" not in front
 
 
 def test_the_design_record_template_ships_beside_its_skill() -> None:
