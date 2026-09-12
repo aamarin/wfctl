@@ -201,7 +201,7 @@ memory of it — load them before doing anything else.
      Read it with this command rather than an improvised one:
 
      ```bash
-     grep '"event": "end"' "$(wfctl state-dir)/events.jsonl" | tail -1
+     grep '"event": "end".*}$' "$(wfctl state-dir)/events.jsonl" | tail -1
      ```
 
      | What comes back | The fact |
@@ -213,6 +213,14 @@ memory of it — load them before doing anything else.
      The third row covers a line carrying `"continued": false` and a line
      carrying no such key at all — a stop recorded before `wfctl end --continued`
      existed. They route alike and neither needs telling apart.
+
+     **`}$` is not decoration.** An append cut off part-way leaves a fragment of
+     a line, and a fragment of a stop still contains `"event": "end"` — so a
+     plain grep selects it, `tail -1` prefers it to the real stop underneath, and
+     a run that *was* cut off reads as one someone wrapped up. Every record here
+     is flat, so the only `}` in a line is its last character; requiring it
+     rejects a torn write and accepts every whole one. `wfctl`'s own readers skip
+     malformed lines for the same reason, and this is the shell's version of that.
 
      **`tail -1` is load-bearing.** The old phrasing asked whether *any* line
      carried `"event": "end"`, and on a branch wrapped up once and interrupted

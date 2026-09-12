@@ -183,6 +183,16 @@ def test_step_four_reads_the_last_stop_and_not_any_stop() -> None:
     assert "whether any line carries" not in step_four
 
 
+def test_step_four_rejects_a_torn_line_rather_than_reading_it() -> None:
+    """A partial append is a fragment of a stop, and it still says `end`.
+
+    Without the `}$` the plain grep matches it, `tail -1` prefers it to the real
+    stop underneath, and — lacking `"continued": true` — it reads as a wrap-up.
+    A run that was cut off then asks, which is the defect this whole change
+    removes, arriving through the log's most likely corruption."""
+    assert "}$" in _step_four()
+
+
 def test_step_four_names_all_three_outcomes_of_that_read() -> None:
     """A two-outcome read is the same defect wearing the new command.
 

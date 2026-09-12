@@ -204,3 +204,27 @@ Accepted, not applied: a `str.partition` shrink in `names_no_first_action`
 heading near-misses (the template writes `## ` and nothing else is judged since
 the fix above); README's `wfctl end` example (it demonstrates a session close,
 not the flag set).
+
+### Later still — two the panel missed and the repo's bot caught
+
+Both P2, both on the panel's own remedies rather than on the diff it reviewed,
+which is why re-running a panel over a fix is not the same as reviewing the fix.
+
+- **The marker that fixed the false positive was too weak to hold it.** The panel
+  found `end --continued` warning on every worktree handoff; the fix judged only
+  files carrying `**Step**:`. But `**Step**:` is an ordinary label — a handoff
+  author reporting where the pipeline stands writes it meaning nothing by it, and
+  the file is read as a summary `end` wrote. With `worktree-handoff` forbidding a
+  `## Next Session TODO`, the false warning returns intact. → Fixed: the marker
+  is now `# Session Summary:`, the title `_render_session_summary` writes and
+  `end-session` repeats, which a document has to claim to be a session summary to
+  collide with. Pinned by
+  `test_a_handoff_reporting_its_own_step_is_not_a_generated_summary`.
+- **A torn append outranked the real stop.** `grep '"event": "end"' | tail -1`
+  matches a fragment of a line as readily as a whole one, and a fragment lacks
+  `"continued": true` — so an interrupted run reads as a wrap-up and asks, which
+  is this change's own defect arriving through the log's most likely corruption.
+  wfctl's readers skip malformed lines; the shell did not. → Fixed: the pattern
+  is `'"event": "end".*}$'`. Every record is flat, so a line's only `}` is its
+  last character, and requiring it rejects a torn write while accepting every
+  whole one. Demonstrated against a truncated log before and after.

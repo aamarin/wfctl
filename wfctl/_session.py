@@ -439,11 +439,16 @@ def record_notify_refused(agent_dir: Path, action: str, source: str) -> None:
 NEXT_SESSION_TODO = "## Next Session TODO"
 NEXT_ACTION_PLACEHOLDER = "- [ ] (fill in)"
 
-# The line that says `end` wrote this file. `end-session` keeps all three
-# readings when it fills the prose in ("leave those lines alone"), and a handoff
-# `worktree-handoff` copied in uses its own shape and carries none of them — so
-# this is what separates a template from somebody else's document.
-_TEMPLATE_MARK = "**Step**:"
+# The line that says `end` wrote this file: the title `_render_session_summary`
+# opens with, which `end-session`'s own fill-in template repeats verbatim.
+#
+# Not `**Step**:`, which this was first and is too weak to carry it. That is an
+# ordinary label, so a handoff reporting its own pipeline position under the same
+# word reads as a summary `end` wrote — and since `worktree-handoff` forbids a
+# `## Next Session TODO`, the false warning this mark exists to prevent comes
+# straight back. A document has to title itself a session summary to collide
+# with this one.
+_TEMPLATE_MARK = "# Session Summary:"
 
 
 def _render_session_summary(branch: str, observed: Observations) -> str:
@@ -492,8 +497,8 @@ def names_no_first_action(summary: str) -> bool:
     many words not to add a `Next Session TODO` — the sentence it can quote goes
     in that document's own shape — so reading "no section" as "no first action"
     warns on every fresh worktree, which is #352's own scenario and the one place
-    the handoff is most likely to be complete. `_TEMPLATE_MARK` is the
-    discriminator `end-session` already documents.
+    the handoff is most likely to be complete. `_TEMPLATE_MARK` is the title
+    `end` writes and `end-session` repeats, which no handoff carries by accident.
     """
     if _TEMPLATE_MARK not in summary:
         return False

@@ -118,9 +118,8 @@ def test_a_handoff_already_on_disk_is_kept_under_either_kind(
 
 _WARNING = "the handoff's next-action section is still the template's"
 
-# What `end` writes above the prose, and what `end-session` is told to leave
-# alone when it fills the prose in. A fixture without it is somebody else's
-# document, which `end` does not judge.
+# The title `end` writes and `end-session` repeats. A fixture without it is
+# somebody else's document, which `end` does not judge.
 _TEMPLATE_HEAD = "# Session Summary: 2026-09-11 — 418-storyctl\n\n**Step**: plan\n\n"
 
 
@@ -159,6 +158,26 @@ def test_a_worktree_handoff_is_not_warned_about(
     to judge it against. Distinguishing them is what `**Step**:` is for."""
     handoff = (
         "# Handoff: #418 — the parser drops trailing commas\n\n"
+        "## Where to start\n\nRun `/start-session`, then open `parser.py:88`.\n"
+    )
+
+    assert _WARNING not in _end_over_handoff(storyctl_dir, handoff, "--continued")
+
+
+def test_a_handoff_reporting_its_own_step_is_not_a_generated_summary(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The first marker was `**Step**:`, and it was too weak to carry this.
+
+    `**Step**:` is an ordinary label — a handoff author reporting where the
+    pipeline stands writes it without meaning anything by it, and the file was
+    then read as a summary `end` wrote. With `worktree-handoff` forbidding a
+    `## Next Session TODO`, that put the false warning straight back on the one
+    branch shape #352 exists for. The title is what no handoff carries by
+    accident."""
+    handoff = (
+        "# Handoff: #418 — the parser drops trailing commas\n\n"
+        "**Step**: plan\n\n"
         "## Where to start\n\nRun `/start-session`, then open `parser.py:88`.\n"
     )
 
