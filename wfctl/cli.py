@@ -2376,6 +2376,16 @@ _MIRRORED_SKILLS = frozenset({
     # structural choice just settled in conversation — a moment nobody types a
     # command, the same reason `fanning-out-code-review` is here (#124).
     "software-design-decisions",
+    # The only speckit step here, and the only one whose workflow ever lived in
+    # its wrapper rather than behind a pointer. The other ten reach an agent
+    # through a wrapper it reads as text; brainstorm had nothing to read — an
+    # agent handed `/speckit.brainstorm` out of `wfctl status --json` found no
+    # skill of that name and stopped for a human (#361). Mirroring is what makes
+    # the name resolvable, and the wrapper survives it: `speckit.brainstorm` and
+    # `speckit-brainstorm` differ by a dot, so `_mirror_supersedes_wrapper`
+    # never fires and the typed route is untouched. Renaming either to match
+    # would create the tie #170 was filed about.
+    "speckit-brainstorm",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather
     # than the filesystem: an agent reaching for `Skill(start-session)` is

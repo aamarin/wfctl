@@ -152,13 +152,18 @@ def test_brainstorm_orders_the_records_before_the_one_pager() -> None:
 
     Named bare rather than by path, which is how this file already names its
     other three skills; `_REFERENCE` matches the path form and finds nothing
-    here."""
-    command = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text()
-    assert "`software-design-decisions`" in command
-    assert "## Software design decisions" in command
+    here.
+
+    Reads the skill, not the wrapper it used to read. #361 moved the workflow
+    behind a pointer, and this assertion would have gone on passing over the
+    pointer — the ordering rule it guards is prose, so a wrapper that no longer
+    carries it fails nothing here unless the read follows it."""
+    skill = (_AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md").read_text()
+    assert "`software-design-decisions`" in skill
+    assert "## Software design decisions" in skill
     handoff = "invoke the `idea-refine` skill"
-    assert handoff in command, "the sentence this test orders against was reworded"
-    assert command.index("software-design-decisions") < command.index(handoff), (
+    assert handoff in skill, "the sentence this test orders against was reworded"
+    assert skill.index("software-design-decisions") < skill.index(handoff), (
         "records are written before the one-pager lists them"
     )
 
@@ -173,19 +178,29 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     that — "a declared absence is an answer; silence is not" — and the
     declaration is that command. Without it the only level-2 answer brainstorm
     could give was a record, so a change the skill explicitly excludes from
-    needing one had no way to finish the step. This command is also the only
-    place in the shipped tree that names `wfctl arch none` at all.
+    needing one had no way to finish the step. This step is also the only place
+    in the shipped tree that names `wfctl arch none` at all.
+
+    Both surfaces, because #361 gave the step two entrances and each carries its
+    own ceiling: the wrapper's governs a typed turn, the skill's a model-initiated
+    one. Copied rather than moved for that reason, and a copy is what drifts — so
+    the loop asserts the same five entries on each and names which surface failed.
     """
-    front = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text().split("---")[1]
-    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
-    for needed in (
-        "wfctl arch check",
-        "wfctl arch none",
-        "git add",
-        "git commit",
-        "wfctl arch-root",
-    ):
-        assert f"Bash({needed}*)" in allowed, needed
+    surfaces = {
+        "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
+        "skill": _AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md",
+    }
+    for where, path in surfaces.items():
+        front = path.read_text().split("---")[1]
+        allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+        for needed in (
+            "wfctl arch check",
+            "wfctl arch none",
+            "git add",
+            "git commit",
+            "wfctl arch-root",
+        ):
+            assert f"Bash({needed}*)" in allowed, f"{where}: {needed}"
 
 
 def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
