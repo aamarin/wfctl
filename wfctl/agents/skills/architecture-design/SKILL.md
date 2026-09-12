@@ -21,8 +21,10 @@ selects level 2       ───► driver → structure loop ───► writes
 owns the level gates       proposes; never accepts      owns the durable decision
 ```
 
-Level 2 does not route here yet — the current-state view step 1 reads is not
-built. Until it is, a human opens this skill directly.
+`.agents/skills/design-levels` routes here from its level-2 gate, and a human
+may open the skill directly. The current-state view step 1 reads is an input
+this skill locates rather than requires — *Inputs* below says what to do in a
+repository that has none.
 
 It does not write `design.md`, run verification, review a diff, define gate
 verdicts, or accept a record. An observation is not policy: a dependency graph

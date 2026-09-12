@@ -103,6 +103,37 @@ def test_the_level_2_gate_names_the_record_skill() -> None:
     assert "architecture-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_level_2_gate_names_the_design_method_skill() -> None:
+    """Two skills answer level 2, and the gate has to name both: one works out
+    what the boundary should be, the other writes it down. #150 shipped the
+    method and only the second reference, so `architecture-design` installed
+    into every repo and was named by nothing — `design-levels` mentioned it
+    zero times and no wrapper wrapped it.
+
+    `test_every_referenced_skill_ships` cannot stand in for this, for the reason
+    its level-3 twin already gives: it checks that a referenced skill exists,
+    and a skill nothing references is the one case it cannot see."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    assert "architecture-design" in set(_REFERENCE.findall(gate))
+
+
+def test_the_design_method_skill_is_model_invocable() -> None:
+    """It ships no command wrapper, so the gate reference above and the mirror
+    are the only two routes in — and they do not overlap. The reference reaches
+    an agent that descended through `design-levels`; the mirror reaches one that
+    did not, which is how a boundary question arriving mid-implementation gets
+    answered by the method instead of by whoever is typing.
+
+    `test_the_design_record_skill_is_model_invocable` is the same shape one
+    level down. Both halves asserted, because either alone stays green through
+    the change that removes the other.
+    """
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert not (_AGENTS / "commands" / "architecture-design.md").exists()
+    assert "architecture-design" in _MIRRORED_SKILLS
+
+
 def test_the_design_record_template_ships_beside_its_skill() -> None:
     """The level-3 counterpart of the ADR pair, and the half that shipped alone.
 
@@ -175,11 +206,20 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     could give was a record, so a change the skill explicitly excludes from
     needing one had no way to finish the step. This command is also the only
     place in the shipped tree that names `wfctl arch none` at all.
+
+    `wfctl arch context` is the second, and it arrived with the level-2 route to
+    `architecture-design` (#151). That skill reads the in-force set through this
+    command and holds that "a record found any other way is not in force", so
+    under the old ceiling its first step was refused inside the one command that
+    reaches level 2 at all. `/start-session` having printed the set earlier does
+    not substitute — a session that never ran it is the case the skill's own
+    sentence is written against.
     """
     front = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text().split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
     for needed in (
         "wfctl arch check",
+        "wfctl arch context",
         "wfctl arch none",
         "git add",
         "git commit",

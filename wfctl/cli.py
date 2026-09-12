@@ -2357,6 +2357,19 @@ def _restore_hint(layers: Iterable[str]) -> str:
 # directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
 # every other layer still gets it.
 _MIRRORED_SKILLS = frozenset({
+    # No wrapper under `agents/commands/`, so this is
+    # `software-design-decisions`' case one level up: `design-levels` names it in
+    # the level-2 gate, and that reference reaches only an agent already reading
+    # `design-levels` as text. Its description triggers on a boundary that may be
+    # moving, which surfaces mid-implementation as readily as inside a design
+    # pass — and an agent that arrives there without having read the gate has no
+    # other route.
+    #
+    # #150 held it out on two grounds: level 2 could not route here, and step 1's
+    # current-state view did not exist. #149 built the view and the gate now
+    # names the skill, so both expired. Neither was overruled, and removing this
+    # entry does not restore them.
+    "architecture-design",
     "architecture-decisions",
     "conversation-response-shape",
     "design-levels",

@@ -120,6 +120,14 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
+**The question is answered by running the method, not by reaching for an
+answer.** Use `.agents/skills/architecture-design` for one iteration: it makes
+the drivers explicit — what must remain true, under which conditions — ranks
+them, compares credible approaches against a no-new-structure baseline, and
+hands back one proposed boundary — which the skill below turns into a record.
+Skip it only when the boundary is already settled in an accepted record or an
+existing spec, and name the one that settles it.
+
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
 decision, under the root `wfctl arch-root` names. Now, while the answer is being
