@@ -152,9 +152,13 @@ detached two-step rather than a single call, and makes "the pane is idle" a
 precondition the design has to state.
 
 A run whose pane is not registered with workmux is not a degraded case to be
-fixed later. It is the baseline, and `wfctl status` says which of the two this
-run is in, so an unattended run that stopped for a person is distinguishable
-from one that silently never recycled.
+fixed later. It is the baseline, and nothing currently reports which of the two
+a given run is in: `build_report` never asks workmux anything, and
+`PipelineReport` carries no field a caller could read it from. So an unattended
+run that stopped for a person and one that silently never recycled are the same
+output. Telling them apart is work the supervisor has to do, and it is listed
+here because a reader who assumes the diagnostic already exists will not build
+it.
 
 ## Log
 
@@ -175,3 +179,9 @@ from one that silently never recycled.
   refutes, with no pointer between them; a forward reference now sits in the
   `Decision`. `Owns truth` claimed the sibling record's question as well as its
   own and was narrowed to the performer half.
+- 2026-09-11  amended     — `Consequences` said `wfctl status` distinguishes an
+  unregistered pane from a stopped unattended run. It does not: `build_report`
+  queries workmux nowhere and `PipelineReport` has no field to carry it. A
+  rejected record is read for what a later implementation must supply, so an
+  invented diagnostic is one nobody builds; the paragraph now names it as the
+  supervisor's work.

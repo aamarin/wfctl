@@ -5,7 +5,7 @@
 - Verdict: satisfied
 - Scanned: spec.md
 - Asked: 3 · Answered: 3 · Outstanding: 0 · Deferred: 0
-- Detail: /Users/andremarin/Development/wfctl-specs/188-recycle-context-between-tasks/spec.md § Clarifications
+- Detail: <FEATURE_DIR>/spec.md § Clarifications
 
 ### Coverage
 
