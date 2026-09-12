@@ -176,3 +176,96 @@ def test_the_panel_skill_is_model_invocable() -> None:
     # the prose explaining why the key is absent names it, and a substring
     # search would read that explanation as the key it forbids.
     assert "disable-model-invocation" not in _arch._frontmatter(_SKILL.read_text())
+
+
+def _undispatched_command() -> str:
+    """The one fenced block that checks the other direction. Keyed on content
+    for the same reason as `_roster_command`, and disjoint from it: that one
+    matches on `MISSING`, a word this fence must not carry — `UNDISPATCHED` is
+    not a fourth roster state and the skill says so."""
+    blocks = [
+        b for b in _FENCE.findall(_SKILL.read_text()) if "UNDISPATCHED" in b
+    ]
+    assert len(blocks) == 1, f"expected one undispatched fence, found {len(blocks)}"
+    assert "MISSING" not in blocks[0]
+    return blocks[0]
+
+
+def _run_undispatched(shell: str, bin_dir: Path) -> list[str]:
+    argv = [shell, "-f", "-c"] if shell == "zsh" else [shell, "-c"]
+    out = subprocess.run(
+        [*argv, _undispatched_command()],
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.split()
+
+
+def test_a_report_from_outside_the_roster_is_named_and_not_counted(
+    tmp_path: Path,
+) -> None:
+    """The panel is the ids you dispatched, and a report from anywhere else is
+    not a member of it however good the finding is.
+
+    This is the run in #205: two agents nobody dispatched reported on the same
+    diff, split by axis — the shape this skill forbids — and one of their
+    findings was a real defect the panel confirmed independently forty minutes
+    later. A session that read the reports in hand rather than the roster folds
+    that in and has no reason to notice, so the check has to name the source
+    rather than judge the finding. The two names here are the two shapes that
+    actually arrived, not invented ids: neither is `r`-prefixed, and an
+    implementation testing for the prefix instead of for roster membership would
+    pass this and miss a fork dispatched as `r4`.
+    """
+    bin_dir = _fixture(tmp_path)
+    reviews = tmp_path / "reviews"
+    (reviews / "correctness-angles.md").write_text("BLOCKER cli.py:L1 — …\n")
+    (reviews / "r4.md").write_text("BLOCKER cli.py:L2 — …\n")
+
+    assert _run_undispatched("sh", bin_dir) == [
+        "UNDISPATCHED", "correctness-angles", "UNDISPATCHED", "r4",
+    ]
+
+
+def test_the_undispatched_check_is_silent_on_a_clean_panel(tmp_path: Path) -> None:
+    """Every line it prints is a failure, so a panel with nothing wrong prints
+    nothing — including the two states the roster loop is about. `r2` came back
+    empty and `r3` never wrote at all, and neither is this check's business: an
+    implementation that flagged a dispatched id for having written nothing would
+    duplicate the roster loop and contradict it, since that loop's own answer for
+    `r3` is `RUNNING`."""
+    bin_dir = _fixture(tmp_path)
+
+    assert _run_undispatched("sh", bin_dir) == []
+
+
+def test_the_undispatched_check_survives_an_empty_reviews_directory(
+    tmp_path: Path,
+) -> None:
+    """A reviews directory with nothing in it is the normal state between
+    dispatch and the first report, and it is where a bare `"$REVIEWS"/*.md`
+    fails: zsh aborts the whole script on a glob that matches nothing, so the
+    check would not run at all on the shell most of these runs happen in — and
+    `sh` leaves the pattern unexpanded and reports the literal `*` as a stranger.
+    Both failures are in the fence, not in the panel."""
+    _fixture(tmp_path)
+    reviews = tmp_path / "reviews"
+    for report in reviews.iterdir():
+        report.unlink()
+    bin_dir = tmp_path / "bin"
+
+    assert _run_undispatched("sh", bin_dir) == []
+    if shutil.which("zsh"):
+        assert _run_undispatched("zsh", bin_dir) == []
+
+
+def test_the_undispatched_check_survives_zsh(tmp_path: Path) -> None:
+    """Same reason as the roster check: the shell these runs happen in on macOS
+    is zsh and CI's is not."""
+    if not shutil.which("zsh"):
+        return
+    bin_dir = _fixture(tmp_path)
+    (tmp_path / "reviews" / "correctness-angles.md").write_text("BLOCKER — …\n")
+
+    assert _run_undispatched("zsh", bin_dir) == _run_undispatched("sh", bin_dir)
