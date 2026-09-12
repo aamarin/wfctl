@@ -78,9 +78,8 @@ command template. `speckit-brainstorm` joined them at #361, which split it out
 of a wrapper rather than pulling it from anywhere — its body layers over
 `brainstorming` and `idea-refine`, both of which are in the table, and layering
 over a derived skill is what this record asks for rather than a way of becoming
-one. The prefix
-is a naming convention, not a provenance claim, and the eight above were
-identified by content — `speckit-specify` carries no `source:` key and would
+one. The prefix is a naming convention, not a provenance claim, and the eight
+above were identified by content — `speckit-specify` carries no `source:` key and would
 have been missed by any rule reading frontmatter (#216).
 
 `wfctl/specify/` is derived from the same upstream and is a second table
