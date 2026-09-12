@@ -52,9 +52,9 @@ question that rendered none leaves it nothing to take, and the withdrawal rule
 below is what covers the pause. No question is reached by both.
 
 **Deliberately not conditional on `auto_approve`,** which is one of two respects
-in which this layer differs from `speckit.brainstorm.md`'s — the rejected-options
-rule at the end of this file is the other. That table is conditional
-because what it moves is approval authority, and only a human can hand that over.
+in which this layer differs from `speckit-brainstorm`'s — the rejected-options
+rule at the end of this file is the other. That table is conditional because what
+it moves is approval authority, and only a human can hand that over.
 This one moves none: an answer derived from the repository is information, carried
 with the basis that produced it, and a reviewer who disagrees overrules it at the
 PR exactly as they would overrule an answer a person gave. Reading the grant
@@ -319,6 +319,6 @@ the evidence this section exists to keep.
 and C exactly as thoroughly as an unattended run does, and the reviewer reading
 the change is equally unable to see them — so the rule is not conditional on the
 mode. That is the other of the two respects in which this layer differs from
-`speckit.brainstorm.md`'s — *When nobody answers* above is the first, and both
-turn on the same property: nothing in this file moves an approval, and
-`speckit.brainstorm.md`'s layer is conditional precisely because its does.
+`speckit-brainstorm`'s — *When nobody answers* above is the first, and both turn
+on the same property: nothing in this file moves an approval, and
+`speckit-brainstorm`'s layer is conditional precisely because its does.

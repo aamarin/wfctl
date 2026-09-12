@@ -242,8 +242,8 @@ def test_no_review_skill_carries_the_instruction(step: str) -> None:
 def test_the_analyze_wrapper_names_the_read_only_rule_it_overrides() -> None:
     """`speckit-analyze` says STRICTLY READ-ONLY twice, and now it writes a file.
 
-    `speckit.brainstorm.md` is the precedent and it names every upstream pause it
-    overrides. A wrapper that silently contradicts the skill it points at teaches
+    `speckit-brainstorm`'s SKILL.md is the precedent and it names every upstream
+    pause it overrides. A wrapper that silently contradicts the skill it points at teaches
     the reader to discount both, which costs more than the one rule it bent.
     """
     assert "READ-ONLY" in (_AGENTS / "skills" / "speckit-analyze" / "SKILL.md").read_text()
@@ -257,7 +257,7 @@ def test_each_review_wrapper_allows_the_commands_the_scan_file_needs(step: str) 
 
     Silent in the worst way: the agent reports a tool refusal, not a missing
     instruction. `test_skill_cross_references` already holds this for
-    `speckit.brainstorm.md`, which is where the shape comes from. `Edit` is in the
+    `speckit-brainstorm`, which is where the shape comes from. `Edit` is in the
     list because appending a session to an existing file through `Write` means
     rewriting it whole, which is the operation most likely to drop what was there.
     """
@@ -341,8 +341,8 @@ def test_the_clarify_wrapper_does_not_reject_the_option_the_answer_mapped_to() -
 
 
 def test_the_clarify_wrapper_is_not_conditional_on_the_mode() -> None:
-    """`speckit.brainstorm.md`'s layer is conditional on `auto_approve`, and copying its
-    shape would have inherited a condition this rule does not want.
+    """`speckit-brainstorm`'s layer is conditional on `auto_approve`, and copying
+    its shape would have inherited a condition this rule does not want.
 
     A human picking option B destroys A and C as thoroughly as an unattended run
     does. #286 flagged the question rather than answering it; the wrapper answers

@@ -95,7 +95,8 @@ def test_the_shared_rule_does_not_eval_feature_paths() -> None:
 
     The failure is silent in the direction that matters: no `design.md` there, so
     the step reports `unknown` on a feature that has records. The repo's own idiom
-    — `speckit.brainstorm.md` — prints the assignments and reads the value out.
+    — `speckit-brainstorm`'s SKILL.md — prints the assignments and reads the
+    value out.
     """
     shared = _SHARED.read_text()
 

@@ -1,6 +1,6 @@
 ---
 disable-model-invocation: true
-description: Start a brainstorming session. Wraps the design-levels + brainstorming + idea-refine skills, whose output lands in specs/<branch>/design.md for speckit pickup.
+description: Start a brainstorming session. Points at the speckit-brainstorm skill, which wraps design-levels + brainstorming + idea-refine and lands its output in specs/<branch>/design.md for speckit pickup.
 handoffs:
   - label: Start Specify
     agent: speckit.specify

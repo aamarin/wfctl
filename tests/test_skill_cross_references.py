@@ -168,6 +168,50 @@ def test_brainstorm_orders_the_records_before_the_one_pager() -> None:
     )
 
 
+def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
+    """#361 as a check rather than as eight files that happen to comply.
+
+    `wfctl status --json` hands an agent `next_command`, and the agent has to
+    turn that string into something it can run. Brainstorm was the step where
+    that failed: its wrapper carried the workflow inline, so there was no skill
+    name for a lookup to resolve and the agent stopped for a human. Every step
+    complies today, and only by hand — the next `_STEPS` row added with an
+    inline wrapper reintroduces the defect with the suite green, which is
+    exactly how this one arrived.
+
+    Asserts the wrapper names a skill, not that the skill ships:
+    `test_every_referenced_skill_ships` above already owns the second half, and
+    splitting them keeps each failure naming which of the two broke.
+    """
+    from wfctl._pipeline import _STEPS
+
+    inline = {}
+    for step, spec in _STEPS.items():
+        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
+        if not wrapper.exists() or not _REFERENCE.findall(wrapper.read_text()):
+            inline[step] = spec.command
+    assert inline == {}, f"next_command with no skill behind it: {inline}"
+
+
+def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
+    """The entry is the fix, and the rest of #361 passes without it.
+
+    Splitting the workflow into a SKILL.md gives an agent that reads the wrapper
+    something to follow. It does not give `Skill(speckit-brainstorm)` a name to
+    resolve — membership in `_MIRRORED_SKILLS` is what copies the skill onto the
+    layer the agent's own index is built from. Drop the entry and the split
+    survives, the suite stays green, and the route the issue was filed about is
+    gone again.
+
+    `fanning-out-code-review` and the two output-style skills carry this same
+    pin for the same reason; this is that pattern applied to the one speckit
+    step that needs it.
+    """
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "speckit-brainstorm" in _MIRRORED_SKILLS
+
+
 def test_brainstorm_allows_the_commands_its_records_need() -> None:
     """The command's `allowed-tools` is a ceiling on the whole turn, so a step
     added to the prose without its command is a step that reads correctly and
@@ -185,14 +229,25 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     own ceiling: the wrapper's governs a typed turn, the skill's a model-initiated
     one. Copied rather than moved for that reason, and a copy is what drifts — so
     the loop asserts the same five entries on each and names which surface failed.
+
+    The five are the ones whose loss is arguable, so they carry their reasons.
+    The equality assertion below is what covers the other six, and it is not
+    redundant with the loop: `Bash(wfctl status*)` is in neither list, and the
+    skill's first instruction is the `wfctl status --json` read that decides
+    which approval mode the whole run is in. Losing it fails the read, the
+    file's own rule converts an inconclusive read to `false`, and the
+    `auto_approve` override table goes inert with nothing to show it — which is
+    the silence `approval-mode-is-stored-intent` added that grant to prevent.
     """
     surfaces = {
         "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
         "skill": _AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md",
     }
+    grants = {}
     for where, path in surfaces.items():
         front = path.read_text().split("---")[1]
         allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+        grants[where] = allowed
         for needed in (
             "wfctl arch check",
             "wfctl arch none",
@@ -201,6 +256,10 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
             "wfctl arch-root",
         ):
             assert f"Bash({needed}*)" in allowed, f"{where}: {needed}"
+    assert grants["wrapper"] == grants["skill"], (
+        "the two copies of the grant have drifted; whichever entrance lost one "
+        "now refuses a step the other can run"
+    )
 
 
 def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
