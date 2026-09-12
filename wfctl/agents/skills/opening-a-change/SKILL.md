@@ -172,6 +172,23 @@ block on it.
 - **Render literal output where the template asks for a before/after.** The CLI
   line as it printed, the record as it is shaped, the error as it read. A
   sentence describing a string is longer than the string and less certain.
+- **Pick the drawing's form from the table, then translate it for this
+  surface.** `conversation-response-shape` owns which form the material calls
+  for, and a description read on the web is the one surface where that form
+  arrives as mermaid rather than ASCII. The translation loses whatever the ASCII
+  carried by position, because a layout engine assigns position itself — so a
+  distinction drawn there by indentation or by a column lining up has to be
+  re-drawn as a class:
+
+  ```
+  classDef terminal stroke-dasharray: 4 3
+  class R2,R3 terminal
+  ```
+
+  A chain is the case that goes wrong quietly. Its mermaid is `flowchart LR`
+  with the chain as edges and **no `subgraph`** — grouping the levels reads as
+  the obvious translation of the nesting, and an edge leaving a grouped box
+  drags its members out of the group.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
   attribute Step 6 cannot set: it lives in the body or nowhere, and it is what
