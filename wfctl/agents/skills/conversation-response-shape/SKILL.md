@@ -318,7 +318,7 @@ answer rather than the one that was asked:
 |---|---|
 | a set split in two | two columns, counts in the headers |
 | one source, several destinations | a fan-out, annotations hanging right |
-| a chain whose destinations fan out again | a nested tree, each level indented under its caller |
+| a chain whose destinations fan out again | a nested tree, each level indented under the node it hangs from |
 | a value and what it causes | the value, then `└─►` the consequence |
 | a sequence with exits | a flow, exits hanging off the step that takes them |
 | rows against columns | a table |
@@ -328,8 +328,8 @@ Two columns is the most frequent row. *Before / after* is one filling of it —
 are others — and the split is chosen from the material, not defaulted to.
 
 **Tabular content goes in a table.** Columns aligned by hand inside a code block
-read as jumbled the moment one cell outgrows its header. Reserve ASCII for flows
-and timelines, where the arrows carry meaning that a table cannot.
+read as jumbled the moment one cell outgrows its header. Reserve ASCII for
+flows, trees and timelines, where arrows and nesting carry what a table cannot.
 
 **What a reply is made of.** One opening, matched to what the reply is doing,
 then the drawings:

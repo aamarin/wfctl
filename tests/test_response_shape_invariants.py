@@ -68,18 +68,9 @@ _SKILL = _AGENTS / "skills" / "conversation-response-shape" / "SKILL.md"
 # to be reached for.
 #
 # 491 is the third disclosed exception, and one line: a sixth row in the
-# form-selection table, for a chain of calls whose destinations fan out again.
-#
-# Not a seventh rule, so it ships without an example of its own — the row
-# carries its form in the same two columns as the five above it, and the
-# sentence about cutting rather than adding still governs the seventh rule.
-#
-# What the line buys is a shape that was being drawn by hand instead of picked.
-# The two nearest rows each carry one layer of a nested chain and stop: `one
-# source, several destinations` draws the fan and drops that a destination fans
-# again; `a sequence with exits` draws the exits and drops that the sequence is
-# reached through three other nodes. A reader who found neither invented a
-# drawing, which is the failure the table exists to prevent.
+# form-selection table, for a chain whose destinations fan out again. Not a
+# seventh rule — the sentence above still governs that one — so it ships
+# without an example of its own, in the same two columns as the other five.
 _LINE_CEILING = 491
 
 
