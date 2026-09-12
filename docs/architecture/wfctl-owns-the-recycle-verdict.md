@@ -24,14 +24,19 @@ exist today and both are already wired:
    ──────────────                        ──────────────
    last assistant message carries        renders `Context ██░░░ 14%`
    usage: input + cache_read +           to the terminal, for a human
-   cache_creation = occupancy            to read
+   cache_creation — a token count        to read
    wfctl already receives its path       the agent never sees it
-   on the Stop hook (cli.py:4732)
+   on the Stop hook (cli.py:4733)
 ```
 
-So the question is not whether the number can be had. It is who is allowed to
-hold it, given that the act this feature performs destroys whoever was holding
-it.
+The two do not reconcile, and the design record records that rather than papering
+over it: the sum read live was 89,765 where the statusline said 14%, which implies
+a window no published model has. So a count is available; a *percentage* is not,
+and a threshold expressed as one would be resting on a denominator nobody checked.
+
+That does not touch the ownership question, which is what this record decides.
+The question is not whether the number can be had. It is who is allowed to hold
+it, given that the act this feature performs destroys whoever was holding it.
 
 ## Direct baseline
 
@@ -79,9 +84,13 @@ performs on purpose.
   context is visible to that context only, so `wfctl status` could not answer
   "did this run recycle, and when?" after the scrollback is gone — which is the
   question that separates a run that reset cleanly from one that died.
-- **Threshold as a configurable key** — declined, and #188 scopes it out for the
-  reason #121 already argues: vocabulary before a second consumer wants a
-  different answer. One number, picked once, learned from.
+- **Threshold as a configurable key** — declined, and #188 scopes it out:
+  vocabulary before a second consumer wants a different answer. One number,
+  picked once, learned from. #188 attributes that argument to #121, which is the
+  level-3-records epic and does not make it; where this repo actually makes it is
+  `a-human-accepts-a-decision.md:114` — "No second project has asked, and a
+  configurable authority question means the first reader of a strange repo cannot
+  tell who accepted a record without reading its config."
 - **Fire on the harness's own compaction signal instead** — rejected because it
   inverts the boundary this feature is about. Compaction fires on a token count
   over contents nobody chose; the whole claim here is that a task boundary is a
@@ -91,8 +100,11 @@ performs on purpose.
 
 `resume` gains a reading per pass, the way it gained an evidence digest for
 `wfctl-counts-the-passes`. That is history rather than cached state — a past
-pass's occupancy cannot be re-derived, because the window has moved since — and
-is what `session-state-is-re-derived` reserves for a session file to hold.
+pass's occupancy cannot be re-derived, because the window has moved since — which
+is the category `session-state-is-re-derived` carves out when it says a session
+file holds "what re-derivation cannot reach". It lands where the digest lands,
+in `events.jsonl`, one line per pass; that record reserves the *session file*
+for handoff prose, which this is not.
 
 The verdict lands in the payload rather than in orchestrate's output, so
 `wfctl status` still answers "where did this get to, and has it recycled?" once
@@ -107,8 +119,14 @@ and those turn out to be different owners —
 
 - 2026-09-11  proposed    — #188: the recycle needs an owner before it can be
   given a shape, and the act destroys whoever the agent would have been.
-- 2026-09-11  rejected    — #188 closed. The ownership argument stands and
-  nothing in wfctl needs it: the feature it was written for is agent-specific,
-  so there is no verdict for wfctl to own. Kept because the reasoning — a
-  verdict whose purpose is to destroy the context computing it cannot be held
-  by that context — is the part a later reader would otherwise redo.
+- 2026-09-11  rejected    — #188 closed as completed by `aamarin`, on the design
+  pass's recommendation rather than for lack of work. The ownership argument
+  stands and nothing in wfctl needs it: the feature it was written for is
+  agent-specific, so there is no verdict for wfctl to own. Kept because the
+  reasoning — a verdict whose purpose is to destroy the context computing it
+  cannot be held by that context — is the part a later reader would otherwise
+  redo.
+- 2026-09-11  amended    — the `cli.py` anchor was off by one; the transcript /
+  statusline pair was presented as corroborating and is not, so it now reads as
+  the discrepancy it is; and the configurable-key argument was attributed to
+  #121, which does not make it.
