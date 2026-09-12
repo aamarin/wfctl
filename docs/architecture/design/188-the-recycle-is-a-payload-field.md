@@ -20,22 +20,26 @@ order rather than sit beside it.
 
 ## Verified
 
-- `wfctl/_pipeline.py:355` — `PipelineReport` is a frozen dataclass whose
-  `stall: "_stall.Stall | None" = None` field carries #332's verdict, with the
-  comment "A field on the one report rather than a second read by whoever runs
-  the loop".
-- `wfctl/_stall.py:216` — `find_stall(agent_dir, branch, current, covered)`
+- `wfctl/_pipeline.py:357` — `PipelineReport` is a frozen dataclass whose
+  `stall: "_stall.Stall | None" = None` field (414) carries #332's verdict, under
+  the comment at 409-410: "A field on the one report rather than a second read by
+  whoever runs the loop".
+- `wfctl/_stall.py:210` — `find_stall(agent_dir, branch, current, covered)`
   reads `events.jsonl` and returns `Stall | None`; nothing about it touches the
   step table.
-- `wfctl/_pipeline.py:61-70` — `_STEPS` is eight rows, each
-  `Step(command, continuation, predicate)`; the docstring says a step "carries
-  both values or it does not parse".
-- `wfctl/cli.py:4732` — the `Stop` hook reads `payload.get("transcript_path")`,
+- `wfctl/_pipeline.py:62-71` — `_STEPS` is eight rows, each
+  `Step(command, continuation, predicate)`; the module comment at 32-33 says a
+  step "defined here carries both values or it does not parse".
+- `wfctl/cli.py:4733` — the `Stop` hook reads `payload.get("transcript_path")`,
   so wfctl is already handed the file that carries occupancy.
 - The transcript's last assistant message carries
-  `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`;
-  read live in this session it summed to 89,765 against a statusline reporting
-  14%.
+  `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`, and
+  read live in this session the three summed to 89,765. **What that sum is a
+  proportion of is not verified.** The same run's statusline read 14%, which
+  would put the window at roughly 641K — no published size — and #188's own
+  comment reports 207,497 for the same pass. So the fields exist and can be
+  added up; the step from that number to "the window is 14% full" is the one a
+  threshold would rest on, and it was never taken.
 - `speckit-orchestrate/SKILL.md` step 5 orders story-complete before `stall`
   before `auto`, and says both orderings are "load-bearing".
 
@@ -53,6 +57,11 @@ order rather than sit beside it.
 - That occupancy read from the last assistant message is stable enough to
   threshold on. Falsified by a run where the figure swings across the threshold
   between two adjacent task boundaries with no intervening work.
+- That the summed usage fields correspond to what the statusline reports, so a
+  threshold can be written as a fraction of the window rather than as a raw
+  count. The one paired reading above does not support it, and nothing here
+  establishes the denominator; a threshold shipped before this is settled would
+  fire against a window size nobody checked.
 
 ## Direct baseline
 
@@ -72,35 +81,38 @@ Orchestrate gains a fifth arm, between `stall` and `auto`.
 ## Diagram
 
 ```
-            baseline                              decision
-
-stable   ┌──────────────────┐              ┌──────────────────┐
-         │  PipelineReport  │              │  PipelineReport  │
-         └──────────────────┘              └──────────────────┘
-            ▲     ▲                          ▲     ▲      ▲
-            │reads│reads                     │reads│reads │reads
-════ pipeline-state-is-one-payload ══════════╪═════╪══════╪════════
-            │     │                          │     │      │
-volatile ┌──┴───┐ ┌┴─────────┐            ┌──┴───┐ ┌┴─────┐ ┌┴────────┐
-         │_stall│ │_predicates│           │_stall│ │_pred.│ │_recycle │
-         └──────┘ └───────────┘           └──────┘ └──────┘ └─────────┘
-                       │                                         │
-                       │ writes reason+remedy                    │ reads
-                       ▼                                         ▼
-                  ┌─────────┐                              ┌──────────┐
-                  │  step   │                              │transcript│
-                  └─────────┘                              └──────────┘
+             baseline                               decision
+stable     ┌──────────────────┐                   ┌──────────────────┐
+           │  PipelineReport  │                   │  PipelineReport  │
+           └──────────────────┘                   └──────────────────┘
+              │reads       │reads                │reads     │reads      │reads
+              │            │                     │          │           │
+════ pipeline-state-is-one-payload ═══════════════════════════════════════════════
+         ┌────────┐ ┌─────────────┐         ┌────────┐ ┌────────┐ ┌──────────┐
+volatile │ _stall │ │ _predicates │         │ _stall │ │ _pred. │ │ _recycle │
+         └────────┘ └─────────────┘         └────────┘ └────────┘ └──────────┘
+                     │           │                          │           │
+                     │writes     │reads                     │writes     │reads
+                     ▼           ▼                          ▼           ▼
+                 ┌──────┐ ┌────────────┐                ┌──────┐ ┌────────────┐
+                 │ step │ │ transcript │                │ step │ │ transcript │
+                 └──────┘ └────────────┘                └──────┘ └────────────┘
 ```
 
-The two differ by which existing component absorbs the new fact. The baseline
-routes it through `_predicates`, so "the window is full" becomes a property of a
-*step* — and the step table's own docstring says a row carries a command, a
-continuation and a predicate, all three of which are about how that step is
-advanced. Window occupancy is true of the run, not of `plan` rather than
+The two differ by which existing component absorbs the new fact, and by nothing
+else — both sides read the transcript, and both still write `step`. The baseline
+routes the reading through `_predicates`, so "the window is full" becomes a
+property of a *step* — and the step table's own module comment says a row carries
+a command, a continuation and a predicate, all three of which are about how that
+step is advanced. Window occupancy is true of the run, not of `plan` rather than
 `tasks`. The decision gives it a sibling of `_stall`, which is the component
 already shaped for a fact about the run that is read from outside the step
 table. No divider moves in either graph; both sit under the same payload
 boundary already in force.
+
+The arrows across the divider point the way the imports run: `_pipeline.py:23`
+imports `_stall` and `_predicates`, so the report reads them and neither reads
+the report.
 
 ## Considered
 
@@ -165,7 +177,12 @@ The `Verification` below is written against that case specifically.
 
 - 2026-09-11  proposed  — #188: the verdict has an owner and a performer, and
   needed a shape before either could be built against it.
-- 2026-09-11  rejected  — #188 closed. There is no payload field because there
-  is no wfctl-side feature to carry one. The shape argument against a ninth
-  step and against overloading `reason` still applies to whatever next wants a
-  fact about the run rather than about a step.
+- 2026-09-11  rejected  — #188 closed as completed by `aamarin`, against the
+  design pass's own recommendation rather than for lack of work. There is no
+  payload field because there is no wfctl-side feature to carry one. The shape
+  argument against a ninth step and against overloading `reason` still applies
+  to whatever next wants a fact about the run rather than about a step.
+- 2026-09-11  amended   — the `Verified` anchors were off by one to three lines
+  and the diagram's arrows ran against the imports; both corrected, and the
+  statusline correspondence moved out of `Verified` into `Assumed`, where the
+  one paired reading puts it.
