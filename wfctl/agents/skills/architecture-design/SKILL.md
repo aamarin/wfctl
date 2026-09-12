@@ -266,11 +266,20 @@ Then do exactly one of the following:
 
 Drivers remain feature-local design input until promotion. Where this
 iteration's output lands is answered once, by `.agents/skills/design-levels`'
-"Where the levels land" — read it there. An iteration that compared credible
-alternatives is the case that section says earns a record of its own, so read it
-before assuming the level-2 record is the only one. Carry the ranked drivers in
-context and give a record only the ones its own decision rests on. Do not create
-a separate drivers artifact or restate the full decision in two places.
+"Where the levels land" — read it there. Carry the ranked drivers in context and
+give a record only the ones its own decision rests on. Do not create a separate
+drivers artifact or restate the full decision in two places.
+
+**The level-2 record is the only record this iteration produces.** Comparing
+credible alternatives is what this method does on every run, so it cannot also
+be the signal that a second record is owed — "Where the levels land" states that
+rule for level 3, and reading it as a rule about *this* iteration sends a
+boundary decision into `<arch-root>/design/`. Two things then go wrong at once:
+`.agents/skills/software-design-decisions` refuses it by name — *"Not here: a
+choice that draws or moves a boundary"* — and `wfctl arch context` never
+projects that directory, so a binding ownership decision would read as durable
+and bind nothing. A level-3 record is earned by a structural choice that draws
+no boundary, and that choice is made at level 3, not here.
 
 ## Common rationalizations
 

@@ -279,7 +279,10 @@ the claims in `design.md`, the decision in a record.
   outside the tree, so a reviewer reading the PR never sees `design.md`. The
   two-column split stays there; the record carries only the claims its own
   decision rests on, and `design.md` points at it rather than holding a second
-  copy that drifts. A choice with no credible alternative earns no record.
+  copy that drifts. A choice with no credible alternative earns no record, and
+neither does one that drew a boundary — that was level 2's record, and filing a
+second copy under `design/` puts a binding decision where `wfctl arch context`
+cannot see it.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design.
 
 `plan-template.md`'s Constitution Check re-checks that ownership is stated. It
