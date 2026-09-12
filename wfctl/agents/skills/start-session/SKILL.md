@@ -1,7 +1,7 @@
 ---
 name: start-session
 description: Use when starting a development session in a git worktree - initializes wfctl session state, loads handoff artifacts from the last session, and reports open work before any code is touched.
-allowed-tools: Read Bash(wfctl start*) Bash(wfctl status*) Bash(wfctl arch context*) Bash(wfctl state-dir*) Bash(wfctl doctor*) Bash(wfctl install-skills*) Bash(wfctl issue list*) Bash(wfctl issue view*) Bash(wfctl change list*) Bash(git status*) Bash(git log*) Bash(git symbolic-ref*)
+allowed-tools: Read Bash(wfctl start*) Bash(wfctl status*) Bash(wfctl arch context*) Bash(wfctl state-dir*) Bash(wfctl doctor*) Bash(wfctl install-skills*) Bash(wfctl issue list*) Bash(wfctl issue view*) Bash(wfctl change list*) Bash(git status*) Bash(git log*) Bash(git symbolic-ref*) Bash(grep*) Bash(tail*)
 compatibility: 'Requires wfctl to be installed'
 ---
 
@@ -174,16 +174,60 @@ memory of it — load them before doing anything else.
    one symbol on "ran" and another on "passed by" and cannot be told apart once
    printed.
 
+   **Step 9 needs `issue` out of that payload.** A key — `352`, `PROJ-123` —
+   says this branch exists for one tracked thing, and its name says which. The
+   literal `unknown` says it does not: a trunk branch, `main` or `develop`,
+   carrying no answer to "what are we working on today?" anywhere on it.
+
+   Read that literal rather than judging the branch name yourself. The key is
+   whatever this repo's `key_pattern` matches at the front of the branch, so
+   `main-rewrite` is trunk and a branch called `develop-2` may not be — and an
+   agent eyeballing the name gets both wrong in the direction that starts work
+   on a branch nobody pointed at anything.
+
    Then the one thing no artifact can reconstruct, from the state dir
    (`$(wfctl state-dir)`):
    - `session-summary.md` — the last session's handoff (accomplishments,
      decisions, and **Next Session TODO**). This is the primary context after a
      `/clear`; read it fully. If absent, this is the first session on the branch.
    - `events.jsonl` — one line per wfctl event on this branch. Step 9 needs one
-     fact out of it: whether any line carries `"event": "end"`. Only `wfctl end`
-     writes that, so it is the mark that a session has finished here before —
-     which is what separates a branch someone handed work to from one someone is
-     coming back to.
+     more fact out of it: the **most recent** stop, and which of the two kinds it
+     was. Only `wfctl end` writes a stop.
+
+     **This decides a trunk branch's row and nothing else.** An issue branch
+     carries on under either kind, so read this for what it costs — one grep —
+     and let the row table say where it lands.
+
+     Read it with this command rather than an improvised one:
+
+     ```bash
+     grep '"event": "end".*}$' "$(wfctl state-dir)/events.jsonl" | tail -1
+     ```
+
+     | What comes back | The fact |
+     |---|---|
+     | nothing | no session has stopped on this branch |
+     | a line containing `"continued": true` | the last session stopped without finishing |
+     | any other line | the last session was wrapped up |
+
+     The third row covers a line carrying `"continued": false` and a line
+     carrying no such key at all — a stop recorded before `wfctl end --continued`
+     existed. They route alike and neither needs telling apart.
+
+     **`}$` is not decoration.** An append cut off part-way leaves a fragment of
+     a line, and a fragment of a stop still contains `"event": "end"` — so a
+     plain grep selects it, `tail -1` prefers it to the real stop underneath, and
+     a run that *was* cut off reads as one someone wrapped up. Every record here
+     is flat, so the only `}` in a line is its last character; requiring it
+     rejects a torn write and accepts every whole one. `wfctl`'s own readers skip
+     malformed lines for the same reason, and this is the shell's version of that.
+
+     **`tail -1` is load-bearing.** The old phrasing asked whether *any* line
+     carried `"event": "end"`, and on a branch wrapped up once and interrupted
+     since, "any" finds the older stop and asks a question the newer one already
+     answered. Stating the command rather than the fact is the same guard one
+     level down: an agent improvising a grep gets this wrong in the direction
+     that starts work on a branch a person deliberately left.
 
 5. **Surface work done on this branch** so you can see where things stand:
    ```bash
@@ -235,9 +279,13 @@ memory of it — load them before doing anything else.
    - **Alignment**: aligned, or the likely-done / untracked items from step 7
    - **Next**: which row of step 9 this session takes, and its evidence — the
      first action quoted from `session-summary.md`, or that you are asking and
-     why (a session has finished here before, or there is no line to quote).
-     Naming the row is the point: rows two and three both ask, and a report that
-     says only "asking" cannot show which one happened.
+     why (a trunk branch whose last stop was a deliberate wrap-up, or there is no
+     line to quote). Naming the row is the point: rows two and three both ask,
+     and a report that says only "asking" cannot show which one happened. Row one
+     carries two conditions, so say which of them — *this branch names issue N*
+     and *the last stop was continued* are different claims, and a session that
+     took row one for the first reason is reporting something about the branch
+     rather than something a session did.
 
 9. **Answer the question, or ask it — step 4 already decided which.**
 
@@ -247,18 +295,29 @@ memory of it — load them before doing anything else.
 
    | Step 4 found | This step |
    |---|---|
-   | a summary naming a first action, and **no** `end` event | **Do not ask.** Quote the line that names it, say in one line what you are doing, and leave this skill — the work happens in the session that follows, not inside step 9. |
-   | a summary, and an `end` event — a session has finished here before | Ask: "What are we working on today?", offering the summary's top **Next Session TODO** item as the default. |
+   | an issue branch, or a stop marked continued — with a summary naming a first action | **Do not ask.** Quote the line that names it, say in one line what you are doing, and leave this skill — the work happens in the session that follows, not inside step 9. |
+   | a trunk branch with no stop at all, or whose last stop was not continued — with a summary naming a first action | Ask: "What are we working on today?", offering the summary's top **Next Session TODO** item as the default. |
    | no summary, one whose next action is still `(fill in)`, or one naming no next action | Ask: "What are we working on today?" |
 
-   **The `end` event is what keeps an attended session safe.** `wfctl end` writes
-   a `session-summary.md` on every `/end-session` and its template requires a
-   filled `Next Session TODO`, so on any branch that has run a session before —
-   `main` most of all — a quotable first action is the *steady state*, not a
-   signal. Row one without this column hands every returning session an
-   instruction it never asked for, which trades this step's defect for a worse
-   one. The event is the narrow question actually worth asking: has anyone
-   worked here yet?
+   **An issue branch has already answered the question.** `352-session-stopped-not-finished`
+   says what the session is for in its own name, and `wfctl status` prints it on
+   the first line. Asking there spends a turn to be told something already on
+   screen, and the answer cannot be anything else: a session that wrapped up
+   deliberately on an issue branch left that same issue open, so the next one is
+   not at liberty to work on something different.
+
+   **A trunk branch has not.** `wfctl end` writes a `session-summary.md` on every
+   `/end-session` and its template requires a filled `Next Session TODO`, so
+   `main` accumulates one from every session that ever ended there. A quotable
+   first action is its steady state rather than a signal, and its top item is as
+   likely to be last month's as today's intent. That is the branch row two
+   protects, and it is the whole of what row two is for.
+
+   **The stop's kind is the tie-break on trunk, and only there.** A run cut off
+   mid-work on `main` is the one case where the handoff is this session's own and
+   nobody is present to confirm it — which is what `wfctl end --continued`
+   records. On an issue branch it changes no row, because both of that row's
+   conditions already point the same way.
 
    **The gate on the summary is the quote.** If you cannot copy a literal
    sentence out of `session-summary.md` saying what to do first, you are in the
@@ -272,9 +331,10 @@ memory of it — load them before doing anything else.
    the file.** Provenance is not recoverable from its content or its timestamps:
    `worktree-handoff` copies a handoff in around the moment the pane comes up, so
    which of the two landed first is a race, and a kept file and a freshly written
-   one are the same bytes on disk (#239). The rows above never ask. They ask
-   whether anyone has finished a session here, which `events.jsonl` records
-   directly.
+   one are the same bytes on disk (#239). The rows above never ask. They ask what
+   the *branch* is for, and on trunk what the last stop recorded about itself —
+   two facts carried by `wfctl status --json` and `events.jsonl`, neither of them
+   recoverable from the handoff file.
 
    **The first row is not a permission question.** Beginning implementation is
    local and reversible — edit files, commit, write the summary. What the summary
@@ -285,6 +345,8 @@ memory of it — load them before doing anything else.
    **Two limits, stated rather than discovered.** A handoff delivered only
    as the pane's first turn, with no copy in the state dir, leaves step 4 nothing
    to read and lands in the last row — the file is the gate, and
-   `worktree-handoff` requires both destinations for this reason. And a branch
-   that has ended a session once is in row two from then on, even unattended;
-   lifting that needs a signal for *attended* itself, which is #127's.
+   `worktree-handoff` requires both destinations for this reason. And a trunk
+   branch whose last stop was a deliberate wrap-up is in row two, even unattended
+   — a run that means to hand work on says so with `wfctl end --continued`, and
+   one that stopped without saying is indistinguishable from one that meant to
+   finish. Lifting *that* needs a signal for attended itself, which is #127's.

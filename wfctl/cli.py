@@ -751,7 +751,11 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
 
 
 @app.command("end")
-def end_cmd() -> None:
+def end_cmd(
+    continued: bool = typer.Option(
+        False, "--continued", help="The work carries on — the next session picks it up"
+    ),
+) -> None:
     """End the current session."""
     from datetime import datetime, timezone
 
@@ -768,7 +772,9 @@ def end_cmd() -> None:
 
     spec_dir = resolve_spec_dir(branch, repo_root)
     observed = _observe(repo_root, build_report(spec_dir, repo_root, agent_dir))
-    summary_path, summary_written = _session.end(agent_dir, branch, observed)
+    summary_path, summary_written = _session.end(
+        agent_dir, branch, observed, continued=continued
+    )
 
     # "closed", not "ended and complete". Every clause names something read a
     # moment ago; none of them concludes the work is done, because `end` has no
@@ -777,8 +783,14 @@ def end_cmd() -> None:
     # `implement`'s embeds the definition-of-done commands that failed — repo
     # text, so `[unit]` is legal and `[/x]` raises. The write above has already
     # happened, which is the ordering `next` was corrected for.
+    # The first clause is the only thing the flag changes, and it says what was
+    # *recorded* rather than what is true of the work — `end` was told the work
+    # continues, which is a different claim from having observed it unfinished.
+    # Everything after the dash is the three readings, identical under both, so
+    # a reader comparing two stops on one branch is comparing the same sentence.
+    opening = "Session stopped, not finished" if continued else "Session closed"
     console.print(
-        f"[green]✓[/green] Session closed — {escape(observed.step)}, "
+        f"[green]✓[/green] {opening} — {escape(observed.step)}, "
         f"boundary {observed.boundary}, tree {observed.tree}."
     )
     # soft_wrap: the path is read by an agent, and rich folds a long one at the
@@ -805,6 +817,31 @@ def end_cmd() -> None:
             f"  [yellow]⚠[/yellow] kept — this session wrote nothing; "
             f"last modified {mtime:%Y-%m-%dT%H:%M:%SZ}."
         )
+
+    # FR-013. Only under `--continued`, because only then is anyone expected to
+    # read the handoff without being asked first — a wrapped-up stop routes to a
+    # question whatever the file says, so the warning would be noise.
+    #
+    # Not a refusal, and the ordering is the reason: the stop is already
+    # recorded above. An operator leaving mid-run may be leaving *because* they
+    # cannot finish the sentence, and a refusal there turns a stop that degrades
+    # to "the next session asks" into one that does not happen at all.
+    if continued:
+        # Read defensively, and the shape is the one that bites: an invalid UTF-8
+        # byte raises `UnicodeDecodeError`, which is a `ValueError` and not an
+        # `OSError` — the same pair `auto_approve` catches for the same reason.
+        # The stop is already appended above, so an uncaught raise here fails a
+        # stop that *happened*, and the operator is left unable to tell whether
+        # it was recorded.
+        try:
+            handoff = summary_path.read_text()
+        except (OSError, ValueError):
+            handoff = ""
+        if handoff and _session.names_no_first_action(handoff):
+            console.print(
+                "  [yellow]⚠[/yellow] the handoff's next-action section is still "
+                "the template's — fill it in, or the next session will ask."
+            )
 
 
 @app.command("log")
