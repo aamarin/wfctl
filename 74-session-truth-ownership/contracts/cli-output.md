@@ -38,6 +38,7 @@ that no other command produced (FR-004).
   "session_started": true,
   "current": "plan",
   "next_command": "/speckit.plan",
+  "auto": true,
   "steps": [
     {"name": "brainstorm", "state": "done", "annotation": null, "is_current": false},
     {"name": "specify", "state": "done", "annotation": null, "is_current": false},
@@ -62,7 +63,8 @@ not block".
   never a second inference.
 - `state` is one of `done`, `in_progress`, `pending`, `skipped`. No glyph appears
   at any depth.
-- `current` is `null` exactly when `next_command` is `null`.
+- `current`, `next_command` and `auto` are `null` together or none of them is
+  — `auto` says whether the step named by `next_command` self-executes (#118).
 - Every step in the pipeline is present, in pipeline order.
 
 ## `wfctl status` — nothing exists yet

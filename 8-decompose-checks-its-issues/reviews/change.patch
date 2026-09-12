@@ -1,0 +1,333 @@
+From 854792cbc6a42a3772e813c92c314b9c010a7c81 Mon Sep 17 00:00:00 2001
+From: Andre Marin <andre@alexamarin.com>
+Date: Sat, 5 Sep 2026 20:42:52 -0500
+Subject: [PATCH] fix(pipeline): read decompose as unfinished while its planned
+ issues have no key
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+`delivery.md` existing was the whole check, and that file is written before the
+issues exist by design — creating them is outward-facing and waits for a human.
+So the state the sentinel called finished was the normal middle of the step, and
+since #148 `implement` advances unattended: a run flowed straight into building
+PRs that had no issue to close.
+
+Read from the file's own text rather than the tracker. `wfctl status` runs on
+every session start, and a pipeline read that costs a network round-trip is one
+nobody makes — the argument `wfctl-runs-the-verification` already uses against
+shelling out to the test suite on every status.
+
+The key is matched in the `Issue` cell, not across the row.
+`speckit-orchestrate` searches whole rows because it is matching one key it
+already holds; here `Closes With` carries `PR #4`, which would answer for the
+`_(TBD)_` beside it and hand back the exact state this check exists to catch.
+
+The shape comes from the tracker's `key_pattern`, so `PROJ-4` counts as created
+where a hardcoded `\d+` would have called every non-GitHub repo's plan unfinished
+forever. A delivery plan with no Issue Grouping Map still reads done: the absence
+of a table is not evidence that issues are missing.
+
+Closes #8
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0126Uu8amwzRDhBryatHRt5f
+---
+ tests/test_decompose_issues.py | 162 +++++++++++++++++++++++++++++++++
+ wfctl/_pipeline.py             |  83 ++++++++++++++++-
+ 2 files changed, 242 insertions(+), 3 deletions(-)
+ create mode 100644 tests/test_decompose_issues.py
+
+diff --git a/tests/test_decompose_issues.py b/tests/test_decompose_issues.py
+new file mode 100644
+index 0000000..7ec17d7
+--- /dev/null
++++ b/tests/test_decompose_issues.py
+@@ -0,0 +1,162 @@
++"""decompose's definition of done includes the issues its plan promises (#8).
++
++`delivery.md` existing used to be the whole check, and the file is written
++*before* the issues exist by design — creating them is outward-facing and waits
++for a human. So the one state these tests care about is the middle one: a plan
++on disk whose Issue Grouping Map still carries placeholders. It read `done`, and
++`implement` advances unattended since #148, so a run flowed into implementation
++against PRs with no issue to close.
++
++Observed on PFMS `490-budget-actuals-wiring`: three `_(TBD)_` rows, `decompose ●`,
++`implement ▶ 0/42 done`. The fixtures below are that file's shape.
++"""
++from __future__ import annotations
++
++import json
++from collections.abc import Callable
++from pathlib import Path
++
++from tests.conftest import CLEAN_SPEC
++from wfctl._pipeline import _infer_steps, build_report
++
++# The two halves of the PFMS file. The `PR Decomposition` table comes first in
++# every delivery plan and its rows carry `#1`, `#2`, `#3` — a scan that finds the
++# Issue Grouping Map by "the first table" reads those and sees three keyed rows.
++_HEADER = """# Delivery Plan: Budget Actuals Wiring (490)
++
++## PR Decomposition
++
++| PR | Tasks | Files Touched | Size | Merge Condition |
++|----|-------|--------------|------|----------------|
++| #1 | T001-T014 | `budget.py` (modified) | M | tests green |
++| #2 | T015-T028 | `actuals.py` (created) | M | #1 merged |
++| #3 | T029-T042 | `wiring.py` (created) | S | #2 merged |
++
++## Issue Grouping Map
++
++| Issue | Tasks | Title | Estimate | Closes With |
++|-------|-------|-------|----------|-------------|
++"""
++
++_TRAILER = """
++**Grouping pattern**: Phase-grouped
++**Rationale**: Infrastructure work with no clear user stories.
++"""
++
++
++def _delivery(*issue_cells: str) -> str:
++    rows = "".join(
++        f"| {cell} | T{n:03d}-T{n + 13:03d} | `[490] group {i}` | 3h | PR #{i} |\n"
++        for i, (cell, n) in enumerate(zip(issue_cells, range(1, 100, 14)), start=1)
++    )
++    return _HEADER + rows + _TRAILER
++
++
++def _feature(spec_tree: Callable[..., Path], delivery: str) -> Path:
++    """A feature staged all the way up to decompose, holding `delivery`.
++
++    Every upstream artifact, not just the one under test: `_infer_steps`
++    cascades, so a feature carrying only `delivery.md` reports decompose
++    `pending` for a reason that has nothing to do with its issues.
++    """
++    return spec_tree(
++        "design.md", "plan.md", "checklists/analysis-report.md",
++        content={
++            "spec.md": CLEAN_SPEC,
++            "tasks.md": "- [ ] T001 open\n",
++            "delivery.md": delivery,
++        },
++    )
++
++
++def _states(spec_dir: Path, repo_root: Path) -> dict[str, str]:
++    return {s.name: s.state for s in _infer_steps(spec_dir, repo_root)}
++
++
++def _annotation(spec_dir: Path, repo_root: Path, step: str) -> str | None:
++    return next(s.annotation for s in _infer_steps(spec_dir, repo_root) if s.name == step)
++
++
++def _use_tracker_pattern(repo_root: Path, pattern: str) -> None:
++    trackers = repo_root / ".agents" / "trackers"
++    trackers.mkdir(parents=True, exist_ok=True)
++    (trackers / "custom.json").write_text(json.dumps({"key_pattern": pattern, "verbs": {}}))
++    (repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "custom"}))
++
++
++def test_a_plan_whose_issues_all_carry_a_key_is_done(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """The state the old check got right, pinned so the new one cannot lose it."""
++    feature = _feature(spec_tree, _delivery("#251", "#252", "#253"))
++    assert _states(feature, tmp_path)["decompose"] == "done"
++
++
++def test_a_plan_whose_issues_were_never_created_is_still_in_progress(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """The defect itself: three `_(TBD)_` rows that used to report a finished step.
++
++    Every row here also carries `PR #1`, `PR #2`, `PR #3` in `Closes With`, which
++    is why the check reads the `Issue` cell and not the row — searching the whole
++    row finds those and calls the file complete.
++    """
++    feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
++    assert _states(feature, tmp_path)["decompose"] == "in_progress"
++
++
++def test_the_step_says_how_many_issues_are_missing(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """`in_progress` alone does not say what is undone, and the count is the work.
++
++    Without it the reader is told decompose is unfinished by a step whose file is
++    on disk — the annotation is the only place that distinguishes "half done"
++    from "not started".
++    """
++    feature = _feature(spec_tree, _delivery("#251", "_(TBD)_", "_(TBD)_"))
++    assert _annotation(feature, tmp_path, "decompose") == "plan written, 2 issues not created"
++
++
++def test_a_plan_with_no_issue_grouping_map_is_left_alone(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """A delivery plan predating the table is not evidence that issues are missing.
++
++    The check has one input, the file's own text. Absent a map there is nothing
++    to read, and inventing a verdict from that would block every plan written
++    before the format existed.
++    """
++    feature = _feature(spec_tree, "# Delivery Plan\n\nOne PR, one issue.\n")
++    assert _states(feature, tmp_path)["decompose"] == "done"
++
++
++def test_the_key_shape_comes_from_the_tracker_not_from_github(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """A hardcoded `\\d+` is right for GitHub and silently wrong everywhere else.
++
++    Under a Jira-shaped `key_pattern`, `PROJ-4` is a created issue and `#251` is
++    not one — the reverse of the default's answer for the same two files.
++    """
++    _use_tracker_pattern(tmp_path, r"[A-Z]+-\d+")
++
++    keyed = _feature(spec_tree, _delivery("PROJ-4", "PROJ-5", "PROJ-6"))
++    assert _states(keyed, tmp_path)["decompose"] == "done"
++
++    numeric = _feature(spec_tree, _delivery("#251", "#252", "#253"))
++    assert _states(numeric, tmp_path)["decompose"] == "in_progress"
++
++
++def test_a_half_decomposed_feature_is_not_routed_to_implement(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """The consequence, and the reason the state name alone is not the fix.
++
++    `_current_step_name` returns the first step that still blocks, so decompose
++    reading `in_progress` is what keeps `next_command` off `/speckit.implement`
++    — which #148 made an unattended run take without a human in between.
++    """
++    feature = _feature(spec_tree, _delivery("_(TBD)_", "_(TBD)_", "_(TBD)_"))
++    report = build_report(feature, tmp_path, tmp_path)
++    assert (report.current, report.next_command) == ("decompose", "/speckit.decompose")
+diff --git a/wfctl/_pipeline.py b/wfctl/_pipeline.py
+index 06977c8..165b45d 100644
+--- a/wfctl/_pipeline.py
++++ b/wfctl/_pipeline.py
+@@ -75,6 +75,64 @@ def _has_open_checkboxes(text: str) -> bool:
+     return bool(re.search(r"\[ \]", text))
+ 
+ 
++# The Issue Grouping Map, and the `|---|---|` line markdown puts under every
++# table header. Rows are read by position — the lines after that separator —
++# rather than by matching header labels: the header cell reads "Issue" and
++# carries no key, so a label-driven scan counts the header as a row that failed.
++_ISSUE_MAP_SECTION = re.compile(
++    r"^#{1,6}[ \t]+Issue Grouping Map\b(?P<body>.*?)(?=^#{1,6}[ \t]|\Z)",
++    re.MULTILINE | re.DOTALL,
++)
++_TABLE_SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
++
++
++def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
++    """How many rows of a delivery plan promise an issue that does not exist yet.
++
++    The Issue Grouping Map is authored with placeholder keys and filled in once
++    the issues are created, because creating them is outward-facing and waits for
++    a human. An unkeyed row is therefore a legitimate mid-decompose state; what
++    was wrong was reading it as a finished one (#8).
++
++    None means there is nothing here to judge — no map, or a map with no rows. A
++    delivery plan predating the table is not evidence that issues are missing, so
++    it goes on reading `done`.
++
++    The key is looked for in the `Issue` cell alone, never across the whole row.
++    `speckit-orchestrate` searches whole rows, but it is matching one key it
++    already holds; here the `Closes With` cell carries `PR #4`, which would
++    answer for the `_(TBD)_` beside it and hand back the state this exists to catch.
++    """
++    section = _ISSUE_MAP_SECTION.search(text)
++    if section is None:
++        return None
++
++    rows: list[str] = []
++    past_separator = False
++    for line in (ln.strip() for ln in section.group("body").splitlines()):
++        if _TABLE_SEPARATOR.match(line):
++            past_separator = True
++        elif not past_separator:
++            continue
++        elif line.startswith("|"):
++            rows.append(line)
++        else:
++            break
++
++    if not rows:
++        return None
++
++    try:
++        key = re.compile(key_pattern)
++    except re.error:
++        # `load_key_pattern` degrades an uncompilable pattern to the default, so
++        # this is only reachable via a caller passing its own. Unjudgeable rather
++        # than unkeyed — the same answer as a file with no map.
++        return None
++
++    return sum(1 for row in rows if not key.search(row.split("|")[1]))
++
++
+ def _verification_block(repo_root: Path) -> str | None:
+     """Why `implement` cannot be complete, or None if nothing blocks it.
+ 
+@@ -147,6 +205,8 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
+     live git state from. It was carried unused for a while after the design doc
+     moved into the spec dir; #69 gave it a job again.
+     """
++    from wfctl import _tracker  # lazy: avoids an import cycle at module load
++
+     if spec_dir is None:
+         return [_PipelineStep(name, "pending", None) for name in _STEP_NAMES]
+ 
+@@ -172,6 +232,7 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
+     steps: list[_PipelineStep] = []
+     cascade = False
+     implement_reason: str | None = None
++    decompose_reason: str | None = None
+ 
+     for name in _STEP_NAMES:
+         if cascade:
+@@ -243,8 +304,22 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
+             )
+ 
+         elif name == "decompose":
+-            if _file_exists(spec_dir / "delivery.md"):
+-                state = "done"
++            delivery_md = spec_dir / "delivery.md"
++            if _file_exists(delivery_md):
++                # Writing the plan is not the whole step —
++                # `speckit-delivery-plan`'s own checklist requires the issues it
++                # groups to exist. Read from the file's text rather than from the
++                # tracker: `status` runs on every session start, and a pipeline
++                # read that costs a network round-trip is one nobody makes.
++                unkeyed = _unkeyed_issues(
++                    delivery_md.read_text(), _tracker.load_key_pattern(repo_root)
++                )
++                if unkeyed:
++                    state = "in_progress"
++                    plural = "" if unkeyed == 1 else "s"
++                    decompose_reason = f"plan written, {unkeyed} issue{plural} not created"
++                else:
++                    state = "done"
+             elif tasks_text and not _has_open_checkboxes(tasks_text):
+                 state = "skipped"
+             else:
+@@ -269,7 +344,9 @@ def _infer_steps(spec_dir: Path | None, repo_root: Path) -> list[_PipelineStep]:
+             state = "pending"
+ 
+         annotation: str | None = None
+-        if name == "implement" and tasks_text:
++        if name == "decompose":
++            annotation = decompose_reason
++        elif name == "implement" and tasks_text:
+             done = len(re.findall(r"\[x\]", tasks_text, re.IGNORECASE))
+             total = done + len(re.findall(r"\[ \]", tasks_text))
+             annotation = f"{done}/{total} done"
+-- 
+2.44.0
+

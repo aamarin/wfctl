@@ -1,0 +1,267 @@
+From 81e39e7466baab036f2390181e8b3891d79cdf4a Mon Sep 17 00:00:00 2001
+From: Andre Marin <andre@alexamarin.com>
+Date: Sun, 6 Sep 2026 21:50:39 -0500
+Subject: [PATCH] fix(skills): let the roster say *not yet*, so a slow reviewer
+ is not read as a dead one
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Step 3's loop had one predicate — is the file there — so a reviewer still
+running and a reviewer that came back having written nothing both printed
+MISSING. The two need opposite responses: wait, and re-ask. Observed twice; on
+the skill's first real run three reports landed across three minutes with the
+largest last, and a roster read in that window said two of three.
+
+A second list fixes it. `RETURNED` is what the dispatch told you, not what the
+reviewer told you — a reviewer's "I already reported" is the recollection this
+step exists to disbelieve, while its run having ended is an observation nobody
+has to trust. The roster keeps its literal `for` list on purpose: `for id in
+$RETURNED` reads the same and is not, because zsh does not split an unquoted
+parameter, and the existing zsh test caught exactly that.
+
+Not a wait or a poll. A fixed sleep before the read makes the race less likely
+and no more legible, and `a-rule-is-expressed-as-a-check` rejects a rule whose
+violation is invisible in the artifacts — a longer timeout is prose about
+timing. Three words the reader can see beats a window they cannot.
+
+`RUNNING` then has to be a failure marker in `_body.py` too, or the word this
+change introduces is a hole in a check that already knows MISSING is bad: a
+description carrying `RUNNING` is a panel recorded as finished while a reviewer
+is still out, which is the 2026-09-06 cost written down and shipped. Each
+marker now carries its own remedy, because "ask that reviewer again" sends the
+agent after one that is working fine.
+
+The two roster tests merged into one — an absent file and an empty one no
+longer mean the same thing, so a fixture covering all three states is the
+smaller check, not the larger.
+
+Refs #173
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MCXukN6jebN3CSdex35GMt
+---
+ tests/test_body.py                            | 42 +++++++++++++++
+ tests/test_review_fanout_skill.py             | 30 +++++++----
+ wfctl/_body.py                                | 14 +++--
+ .../skills/fanning-out-code-review/SKILL.md   | 51 +++++++++++++++----
+ 4 files changed, 113 insertions(+), 24 deletions(-)
+
+diff --git a/tests/test_body.py b/tests/test_body.py
+index d120f8e..34bca8f 100644
+--- a/tests/test_body.py
++++ b/tests/test_body.py
+@@ -412,6 +412,48 @@ def test_a_roster_that_records_a_missing_reviewer_is_not_a_pass() -> None:
+     assert panel_findings(body)
+ 
+ 
++def test_a_roster_that_records_a_running_reviewer_is_not_a_pass() -> None:
++    """A description written while a reviewer is still out is a panel reported
++    as finished before it was.
++
++    Observed 2026-09-06: a session read the roster mid-flight and drafted a PR
++    body around a panel section it then had to reopen. `RUNNING` is honest in
++    the roster and dishonest in a finished description — the same shape as
++    `MISSING`, which is why it is a marker rather than a second rule.
++    """
++    body = (
++        "## Review Panel\n\n"
++        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
++        "| 1 | r1 | found a bug | applied |\n\n"
++        "roster: r1 ✓  r2 ✓  r3 RUNNING\n"
++    )
++
++    assert panel_findings(body)
++
++
++def test_each_failure_marker_carries_its_own_remedy() -> None:
++    """`MISSING` and `RUNNING` need opposite responses, and a finding that names
++    the wrong one sends the agent after a reviewer that is working fine.
++
++    The shared sentence they used to share said "ask that reviewer again" — the
++    answer to silence, and the answer that resets a roster the reader only had
++    to re-read.
++    """
++    from wfctl._body import FAILURE_MARKERS
++
++    running = (
++        "## Review Panel\n\n"
++        "| # | Reviewer | Finding | Disposition |\n|---|---|---|---|\n"
++        "| 1 | r1 | found a bug | applied |\n\n"
++        "roster: r1 ✓  r2 RUNNING\n"
++    )
++
++    finding = " ".join(panel_findings(running))
++
++    assert FAILURE_MARKERS["RUNNING"] in finding
++    assert FAILURE_MARKERS["MISSING"] not in finding
++
++
+ def test_a_bare_verdict_is_not_evidence() -> None:
+     """The skill's own example — *"A bare 'looks good' is a missing report
+     wearing a verdict."* A link reference definition is the other thing that is
+diff --git a/tests/test_review_fanout_skill.py b/tests/test_review_fanout_skill.py
+index 9532aa6..7cff1a4 100644
+--- a/tests/test_review_fanout_skill.py
++++ b/tests/test_review_fanout_skill.py
+@@ -56,10 +56,15 @@ def _run(shell: str, bin_dir: Path) -> list[str]:
+ 
+ 
+ def _fixture(feature_dir: Path) -> Path:
+-    """One reviewer that reported, one that wrote an empty file, one that never
+-    wrote at all — the last two are the cases an agent reads as a clean pass —
+-    plus a `wfctl` stub printing the assignment the real one prints. Returns the
+-    directory to put on `PATH`."""
++    """One reviewer that reported, one that came back having written an empty
++    file, and one still running — plus a `wfctl` stub printing the assignment
++    the real one prints. Returns the directory to put on `PATH`.
++
++    The three reviewers are the three states the loop can print, so one fixture
++    exercises all of them. `r3` writes nothing *and* is absent from the fence's
++    `RETURNED` list, which is what makes it a running reviewer rather than a
++    dead one — the distinction #173 is about.
++    """
+     reviews = feature_dir / "reviews"
+     reviews.mkdir(parents=True)
+     (reviews / "r1.md").write_text("BLOCKER cli.py:L1 — …\n")
+@@ -73,20 +78,23 @@ def _fixture(feature_dir: Path) -> Path:
+     return bin_dir
+ 
+ 
+-def test_the_roster_check_names_the_reviewers_that_did_not_report(
+-    tmp_path: Path,
+-) -> None:
+-    """An absent file and an empty one both have to read as MISSING.
++def test_the_roster_check_tells_the_three_states_apart(tmp_path: Path) -> None:
++    """One word per state, and the two that mean *nothing on disk* differ.
+ 
+     A reviewer that returns nothing is indistinguishable from one that found
+     nothing, and in the run this skill was written from, the agent asserted the
+-    second. Checking the disk is what makes the two distinguishable at all, so a
+-    check that passes an empty report gives the assertion back its cover.
++    second — so an empty report still has to read as MISSING. #173 is the other
++    half: on that same first run three reports landed across three minutes with
++    the largest last, a roster read in that window said two of three, and the
++    session was told to re-dispatch a reviewer that was working. `r2` came back
++    empty and `r3` has not come back, and the loop is only useful if it says so
++    in different words — both are non-empty output, so a check counting lines
++    would pass the bug this asserts against.
+     """
+     bin_dir = _fixture(tmp_path)
+ 
+     assert _run("sh", bin_dir) == [
+-        "reported", "r1", "MISSING", "r2", "MISSING", "r3",
++        "reported", "r1", "MISSING", "r2", "RUNNING", "r3",
+     ]
+ 
+ 
+diff --git a/wfctl/_body.py b/wfctl/_body.py
+index 89a21d4..c9b785e 100644
+--- a/wfctl/_body.py
++++ b/wfctl/_body.py
+@@ -98,7 +98,13 @@ _PUNCT = re.compile(r"[^a-z ]+")
+ # whether someone put text there, and both of these are text someone put there.
+ # Reading the skill's own words is the only way to see them that does not become
+ # a matcher guessing at synonyms, which is the repair #187 rejected.
+-FAILURE_MARKERS = frozenset({"MISSING"})
++# Each marker carries its own remedy: `RUNNING` is a reviewer nobody has heard
++# back from, so "ask it again" — the answer `MISSING` takes — sends the agent
++# after a reviewer that is working fine and puts the roster back where it was.
++FAILURE_MARKERS = {
++    "MISSING": "ask that reviewer again for its findings",
++    "RUNNING": "wait for it to come back, then read the roster again",
++}
+ BARE_VERDICTS = frozenset({"looks good"})
+ 
+ _SECTION = "review panel"
+@@ -382,11 +388,11 @@ def panel_findings(body: str) -> list[str]:
+             "from a reviewer that returned nothing, which is the distinction "
+             "fanning-out-code-review Step 3 is built around."
+         )
+-    elif [m for m in FAILURE_MARKERS if m in roster]:
++    elif matched := sorted(m for m in FAILURE_MARKERS if m in roster):
+         out.append(
+-            f"opening-a-change Step 1 — the roster records {sorted(m for m in FAILURE_MARKERS if m in roster)}: "
++            f"opening-a-change Step 1 — the roster records {matched}: "
+             f"{roster!r}. fanning-out-code-review Step 3 calls that a failure "
+-            "rather than a pass — ask that reviewer again for its findings. A "
++            f"rather than a pass — {'; '.join(FAILURE_MARKERS[m] for m in matched)}. A "
+             "panel reported as incomplete is the silent reviewer this check "
+             "exists to expose, written down and shipped anyway."
+         )
+diff --git a/wfctl/agents/skills/fanning-out-code-review/SKILL.md b/wfctl/agents/skills/fanning-out-code-review/SKILL.md
+index 8b6489f..2186475 100644
+--- a/wfctl/agents/skills/fanning-out-code-review/SKILL.md
++++ b/wfctl/agents/skills/fanning-out-code-review/SKILL.md
+@@ -121,26 +121,59 @@ Asked again, that reviewer produced the only confirmed correctness defect in the
+ change.
+ 
+ So the roster is checked against the disk, not against what you remember
+-receiving:
++receiving — and against the dispatch, so a reviewer still working does not read
++as one that died:
+ 
+ ```bash
+ eval "$(wfctl feature-paths)"
+ REVIEWS="$FEATURE_DIR/reviews"
+-for id in r1 r2 r3; do
+-  if [ -s "$REVIEWS/$id.md" ]; then echo "reported  $id"; else echo "MISSING   $id"; fi
++RETURNED="r1 r2"        # of the roster below, the ones you watched finish
++for id in r1 r2 r3; do    # the roster you dispatched
++  case " $RETURNED " in
++    *" $id "*) if [ -s "$REVIEWS/$id.md" ]; then echo "reported  $id"; else echo "MISSING   $id"; fi ;;
++    *) echo "RUNNING   $id" ;;
++  esac
+ done
+ ```
+ 
+-The id list is **the roster you dispatched**, substituted like the path above —
+-not a glob over the directory. `for id in "$REVIEWS"/*.md` checks the reports
+-that exist, which is the one question this step is not asking: a reviewer that
+-never wrote a file leaves nothing for a glob to find, and the loop reports three
+-of three from a panel of four.
++Both lists are **yours to substitute**, like the path above, and neither is a
++glob over the directory. `for id in "$REVIEWS"/*.md` checks the reports that
++exist, which is the one question this step is not asking: a reviewer that never
++wrote a file leaves nothing for a glob to find, and the loop reports three of
++three from a panel of four.
++
++The roster stays a literal list in the `for`, and `RETURNED` is read through a
++quoted expansion. `for id in $RETURNED` looks like the same thing and is not:
++zsh does not split an unquoted parameter into words, so the loop would run once
++over `r1 r2 r3` as a single id and report one reviewer nobody dispatched.
++
++`RETURNED` is what the dispatch told you, not what the reviewer told you. A
++reviewer's own "I already reported" is the recollection this step exists to
++disbelieve; that its run ended is an observation nobody has to trust.
++
++Three words, three states, and only one of them is a failure:
++
++```
++   reported   a file on disk with something in it
++   RUNNING    dispatched, not back yet   →  not a result. Read the roster again.
++   MISSING    back, and wrote nothing    →  a failure, not a pass
++```
++
++Reading the roster before every reviewer is back is not a mistake — the
++`RUNNING` line is what makes it safe. On this skill's first real run the three
++reports landed across three minutes with the largest last, and a listing taken
++in that window said two of three. A `MISSING` written on that reading is a
++defect fabricated out of a slow reviewer: it spends that reviewer's work twice
++and puts an untrue sentence in a description (#173).
+ 
+ `MISSING` is a **failure, not a pass.** Ask that reviewer again for its findings
+ in the format `code-review` specifies. If a reviewer insists it already
+ reported, the report is the evidence and its recollection is not — ask again
+-anyway.
++anyway. A `MISSING` that survives the re-ask is a reviewer that did not run:
++dispatch a replacement under the same id. Neither failure word may reach the
++description Step 6 writes — `wfctl check-body` rejects both, because a panel
++recorded as finished while a reviewer is still running is the same untrue
++sentence written down and shipped.
+ 
+ "No findings" is a valid result only when it says **which passes ran and what
+ was checked in each**. A bare "looks good" is a missing report wearing a verdict.
+-- 
+2.44.0
+

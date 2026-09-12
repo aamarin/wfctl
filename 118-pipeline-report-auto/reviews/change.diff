@@ -1,0 +1,179 @@
+diff --git a/tests/test_pipeline_state_names.py b/tests/test_pipeline_state_names.py
+index bff9868..f24b94d 100644
+--- a/tests/test_pipeline_state_names.py
++++ b/tests/test_pipeline_state_names.py
+@@ -199,4 +199,46 @@ def test_a_report_with_a_current_step_and_no_command_cannot_be_built(
+     holds for code written after this one without that code knowing the rule.
+     """
+     with pytest.raises(ValueError):
+-        PipelineReport(steps=[], current="plan", next_command=None, session_started=True)
++        PipelineReport(
++            steps=[], current="plan", next_command=None, auto=None, session_started=True
++        )
++
++
++def test_a_report_with_a_command_and_no_auto_flag_cannot_be_built() -> None:
++    """`auto` is bound by the same pairing as `next_command`, not exempt from it.
++
++    Added with `auto` itself: a report that names a command but leaves the flag
++    None reads to `speckit-orchestrate` as a step it must never advance, which
++    is the stop-forever half of the failure the pairing exists to prevent.
++    """
++    with pytest.raises(ValueError):
++        PipelineReport(
++            steps=[],
++            current="plan",
++            next_command="/speckit.plan",
++            auto=None,
++            session_started=True,
++        )
++
++
++# --- `auto` reaches the payload (#118) ----------------------------------------
++
++
++def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
++    spec_tree: Callable[..., Path], tmp_path: Path
++) -> None:
++    """The flag existed in `_STEPS` and no view but `next-step.md` could see it.
++
++    `build_report` did `command, _ = next_step_content(...)` and threw the flag
++    away, so flipping a step to automatic changed one file an agent reads from
++    disk and nothing that re-derives on demand. Both values are asserted from a
++    report `build_report` actually built: constructing a `PipelineReport` by
++    hand and checking the field exists tests the dataclass, not the defect.
++    """
++    brainstorm = build_report(spec_tree(), tmp_path, tmp_path)
++    assert (brainstorm.current, brainstorm.auto) == ("brainstorm", False)
++
++    # `spec_tree` builds into one directory, so the second call adds to the
++    # first — an empty feature has to be asserted before anything is written.
++    plan = build_report(spec_tree(content={"spec.md": CLEAN_SPEC}), tmp_path, tmp_path)
++    assert (plan.current, plan.auto) == ("plan", True)
+diff --git a/wfctl/_pipeline.py b/wfctl/_pipeline.py
+index f71633b..0ec8113 100644
+--- a/wfctl/_pipeline.py
++++ b/wfctl/_pipeline.py
+@@ -400,17 +400,20 @@ class PipelineReport:
+     steps: list[dict]
+     current: str | None
+     next_command: str | None
++    auto: bool | None
+     session_started: bool
+ 
+     def __post_init__(self) -> None:
+         # The failure `_STEPS` was collapsed into one table to prevent: a step
+         # that is current with no command to advance it announced "story
+         # complete" with half the pipeline unrun. Unconstructible rather than
+-        # merely tested, so no future branch can produce one.
+-        if (self.current is None) != (self.next_command is None):
++        # merely tested, so no future branch can produce one. `auto` joins the
++        # pair because it is the same fact seen from one more angle: there is a
++        # step to run, or there is not.
++        if len({self.current is None, self.next_command is None, self.auto is None}) != 1:
+             raise ValueError(
+-                f"current={self.current!r} and next_command={self.next_command!r} "
+-                "must be None together"
++                f"current={self.current!r}, next_command={self.next_command!r} and "
++                f"auto={self.auto!r} must be None together"
+             )
+ 
+ 
+@@ -420,7 +423,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
+ 
+     raw = _infer_steps(spec_dir, repo_root)
+     name = _current_step_name(raw)
+-    command, _ = next_step_content(name, repo_root, spec_dir)
++    command, auto = next_step_content(name, repo_root, spec_dir)
+     return PipelineReport(
+         steps=[
+             {
+@@ -433,5 +436,6 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
+         ],
+         current=name if command else None,
+         next_command=command or None,
++        auto=auto if command else None,
+         session_started=session_started(agent_dir),
+     )
+diff --git a/wfctl/agents/skills/speckit-orchestrate/SKILL.md b/wfctl/agents/skills/speckit-orchestrate/SKILL.md
+index bce3561..b20d3d7 100644
+--- a/wfctl/agents/skills/speckit-orchestrate/SKILL.md
++++ b/wfctl/agents/skills/speckit-orchestrate/SKILL.md
+@@ -56,22 +56,26 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
+ 
+ 1. Run `wfctl status` and display the output so the user can see the updated pipeline position.
+ 
+-2. Run `wfctl resume` to re-infer the pipeline step and write `$(wfctl state-dir)/next-step.md`.
++2. Run `wfctl resume`. It re-infers the step, records the advance, and refuses
++   here if the boundary question went unanswered — none of which the read below
++   does.
+ 
+-3. Read `$(wfctl state-dir)/next-step.md` and extract:
+-   - `command`: value after `Next step: ` (e.g. `/speckit.plan`)
+-   - `auto`: `true` or `false` from the `auto:` line
++3. Run `wfctl status --json` and read `next_command` and `auto` off the payload.
++   Not `$(wfctl state-dir)/next-step.md`: that file is written once per
++   `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
++   during #114. `--json` re-derives from the artifacts on disk at the moment
++   you ask.
+ 
+ 4. Branch on the result:
+ 
+-   **Story complete** (file contains "Story complete"):
++   **Story complete** (`next_command` is `null`):
+    - Display: "Story complete — open PR or run `/end-session`."
+    - Stop.
+ 
+-   **`auto: true`**:
+-   - Strip the leading `/` from command (e.g. `/speckit.plan` → `speckit.plan`)
++   **`auto` is `true`**:
++   - Strip the leading `/` from `next_command` (e.g. `/speckit.plan` → `speckit.plan`)
+    - Output on its own line: `EXECUTE_COMMAND: {command-without-slash}`
+ 
+-   **`auto: false`**:
+-   - Display: "Next: run `{command}` when ready."
++   **`auto` is `false`**:
++   - Display: "Next: run `{next_command}` when ready."
+    - Stop.
+diff --git a/wfctl/cli.py b/wfctl/cli.py
+index f099c86..7bc562f 100644
+--- a/wfctl/cli.py
++++ b/wfctl/cli.py
+@@ -174,6 +174,7 @@ def status_cmd(
+             "session_started": report.session_started,
+             "current": report.current,
+             "next_command": report.next_command,
++            "auto": report.auto,
+             "steps": report.steps,
+         })
+         return
+@@ -287,7 +288,7 @@ def next_cmd() -> None:
+ @app.command("resume")
+ def resume_cmd() -> None:
+     """Re-infer pipeline step, write next-step.md, and print current state."""
+-    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report, next_step_content
++    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report
+     from wfctl._session import session_started
+     from wfctl._io import append_event
+ 
+@@ -307,15 +308,11 @@ def resume_cmd() -> None:
+     # failure.
+     _refuse_unless_boundary_answered(spec_dir, step_name, repo_root)
+ 
+-    # The same call `build_report` makes, with the same arguments, so the command
+-    # written here is the one `status` prints. Passing `step_name` alone dropped
+-    # `repo_root` and `spec_dir`, which is what routes a finished-but-unverified
+-    # implement to `wfctl verify` — so `resume` sent the session back to
+-    # `/speckit.implement`, where there was no task left to do.
+-    #
+-    # `auto` is why this is not just `report.next_command`: the flag is not part
+-    # of the payload, and `next-step.md` carries it.
+-    command, auto = next_step_content(step_name, repo_root, spec_dir)
++    # Read off the report rather than inferred a second time. The second call
++    # was here only to recover `auto`, which the payload now carries — and two
++    # reads of the same artifacts can disagree if anything changes between them,
++    # which is the whole reason `PipelineReport` exists.
++    command, auto = report.next_command or "", report.auto
+ 
+     next_step_md = agent_dir / "next-step.md"
+     if command:

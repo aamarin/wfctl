@@ -1,0 +1,662 @@
+diff --git a/docs/architecture/vendor-upstream-skills.md b/docs/architecture/vendor-upstream-skills.md
+index 623bb1f..9fc198e 100644
+--- a/docs/architecture/vendor-upstream-skills.md
++++ b/docs/architecture/vendor-upstream-skills.md
+@@ -2,7 +2,7 @@
+ status: accepted
+ ---
+ 
+-# Upstream skills are attributed, and layered rather than forked
++# Upstream-derived files are attributed, and layered rather than forked
+ 
+ ## Context
+ 
+@@ -15,9 +15,9 @@ The behaviour then regresses at an unrelated moment, and nothing in the diff
+ that caused it mentions the skill.
+ 
+ Invisible provenance also costs something before any pull happens. `MANIFEST.in`
+-grafts `wfctl/agents` into the wheel, so every release distributes these files;
+-a file that does not say where it came from ships a derivative work under the
+-project's own `LICENSE`.
++grafts `wfctl/agents` and `wfctl/specify` into the wheel, so every release
++distributes these files; a file that does not say where it came from ships a
++derivative work under the project's own `LICENSE`.
+ 
+ ## Decision
+ 
+@@ -26,18 +26,22 @@ derived one nobody has edited. The record keeps its slug, and this repo uses
+ "vendored" in a second, unrelated sense — the skills tree vendored into the wheel
+ (#47) — so the class name here is "derived", which collides with neither.
+ 
+-A skill taken from another project carries an attribution line as the last line
+-of its `SKILL.md`, naming the source repository, upstream's licence, and
+-upstream's copyright holder:
++A file taken from another project carries an attribution line naming the source
++repository, upstream's licence, and upstream's copyright holder:
+ 
+ ```
+ Derived from [obra/superpowers](https://github.com/obra/superpowers) (MIT, © 2025 Jesse Vincent).
+ ```
+ 
+-That line is what identifies an upstream-derived skill. It replaces the earlier
++In a `SKILL.md` it is the last line. In a shell script it is a `#` comment on
++the line after the shebang, where a reader of a script looks — same sentence,
++same three facts.
++
++That line is what identifies an upstream-derived file. It replaces the earlier
+ rule, which read the presence of a `license:` frontmatter key: six of the seven
+-skills below carry no such key, so the rule matched one file, and the table
+-stayed at one entry while six more arrived unnoticed (#213).
++skills listed when the rule was written carry no such key, so it matched one
++file, and the table stayed at one entry while six more arrived unnoticed
++(#213).
+ 
+ Derived today:
+ 
+@@ -49,15 +53,48 @@ Derived today:
+ | `idea-refine` | `addyosmani/agent-skills` |
+ | `receiving-code-review` | `obra/superpowers` |
+ | `requesting-code-review` | `obra/superpowers` |
++| `speckit-analyze` | `github/spec-kit` |
++| `speckit-checklist` | `github/spec-kit` |
++| `speckit-clarify` | `github/spec-kit` |
++| `speckit-constitution` | `github/spec-kit` |
++| `speckit-implement` | `github/spec-kit` |
++| `speckit-plan` | `github/spec-kit` |
++| `speckit-specify` | `github/spec-kit` |
++| `speckit-tasks` | `github/spec-kit` |
+ | `using-superpowers` | `obra/superpowers` |
+ | `verification-before-completion` | `obra/superpowers` |
+ 
+-The table is not yet the whole answer, and says so rather than letting silence
+-imply one. The `speckit-*` skills and everything under `wfctl/specify/` are
+-derived from `github/spec-kit` and are **not** listed above: their attribution is
+-#216, and until it lands, absence from this table means "not yet recorded" for
+-those and "wfctl's own" for everything else. A record that omits a known
+-exception is read as denying it.
++`speckit-delivery-plan` and `speckit-orchestrate` are absent because they are
++wfctl's own: both score 0% against every spec-kit command template. The prefix
++is a naming convention, not a provenance claim, and the eight above were
++identified by content — `speckit-specify` carries no `source:` key and would
++have been missed by any rule reading frontmatter (#216).
++
++`wfctl/specify/` is derived from the same upstream and is a second table
++because it holds no skills. The scripts carry the attribution line as a comment
++on the line after the shebang; the templates carry nothing, because
++`create-new-feature.sh` runs `cp` on `spec-template.md` to make a project's
++`spec.md`, so a line in a template would assert GitHub's copyright over every
++spec, plan and task list the runtime generates. Their notice is
++`wfctl/specify/templates/NOTICES.md`, which names each of them.
++
++| File under `wfctl/` | Upstream |
++| --- | --- |
++| `specify/scripts/bash/check-prerequisites.sh` | `github/spec-kit` |
++| `specify/scripts/bash/common.sh` | `github/spec-kit` |
++| `specify/scripts/bash/create-new-feature.sh` | `github/spec-kit` |
++| `specify/scripts/bash/setup-plan.sh` | `github/spec-kit` |
++| `specify/scripts/bash/update-agent-context.sh` | `github/spec-kit` |
++| `specify/templates/agent-file-template.md` | `github/spec-kit` |
++| `specify/templates/checklist-template.md` | `github/spec-kit` |
++| `specify/templates/constitution-template.md` | `github/spec-kit` |
++| `specify/templates/plan-template.md` | `github/spec-kit` |
++| `specify/templates/spec-template.md` | `github/spec-kit` |
++| `specify/templates/tasks-template.md` | `github/spec-kit` |
++
++`specify/templates/github-issue-template.md` is the one file in that tree the
++project owns: it describes `/speckit.decompose`, which spec-kit has no
++counterpart for.
+ 
+ A skill added later is declared when it is added, by whoever adds it: a file
+ taken from elsewhere gets its line and its row in the same change that brings it
+@@ -67,16 +104,27 @@ deferred, and #216 and #218 are what it missed. The check below holds the three
+ together from then on; what it cannot do is notice a file that arrived declaring
+ nothing.
+ 
+-The upstream licence text itself lives in `wfctl/agents/NOTICES.md`, one entry
+-per upstream. MIT asks for the permission notice and not only the copyright
+-line, and a footer is not one; `MANIFEST.in` grafts `wfctl/agents` whole, so a
+-notice at the top of that tree ships with the files it covers, which a root
+-`NOTICE` would not.
++The upstream licence text itself lives in a `NOTICES.md` per grafted tree, one
++entry per upstream: `wfctl/agents/NOTICES.md` and
++`wfctl/specify/templates/NOTICES.md`. MIT asks for the permission notice and not
++only the copyright line, and a footer is not one; `MANIFEST.in` grafts
++`wfctl/agents` and `wfctl/specify` whole, so a notice inside a tree ships with
++the files it covers, which a root `NOTICE` would not.
++
++The specify tree's copy sits one level down, in `templates/`, because that is
++where the files it covers can be reached from. `install-skills` mirrors
++`specify/scripts` and `specify/templates` into a project and nothing above them,
++so a notice at the top of `wfctl/specify/` would ship in the wheel and never
++arrive in a repository wfctl installed the derived templates into. The scripts
++need no such reach: their line travels inside them.
+ 
+ Line, table and notice are all three required, and `test_skill_attribution.py`
+-fails on any gap between them — a listed skill with no line, a line no row
++fails on any gap between them — a listed file with no line, a line no row
+ lists, a row naming an upstream the line does not, or an attributed upstream
+-with no entry in `NOTICES.md`.
++with no entry in `NOTICES.md`. The templates are the one case where the notice
++stands in for the line, so the same pair runs between the template rows and
++`wfctl/specify/templates/NOTICES.md` instead: a row that file does not name, or
++a file it names with no row, fails the same way.
+ 
+ `knowledge-placement` rules out a fact with two homes, and this is the exception
+ it names, not a breach of it: the line and the row are not the same fact. The
+@@ -93,10 +141,12 @@ that layers over it rather than editing it — `conversation-response-shape` is
+ the worked example, layering ordering rules on top of `i-have-adhd`'s brevity
+ rules without touching the file underneath.
+ 
+-Six of the seven above were edited in place before this record existed, and they
+-stay that way (#213). Attribution is owed on a rewritten derivative work exactly
+-as on an untouched copy, so the line does not depend on how far a file has
+-drifted — and a file carrying one is not evidence that editing it was fine.
++Most of the files above were edited in place before this record existed, and
++they stay that way (#213, #216). Attribution is owed on a rewritten derivative
++work exactly as on an untouched copy, so the line does not depend on how far a
++file has drifted — `specify/scripts/bash/common.sh` is 20% upstream and
++`specify/templates/constitution-template.md` is all of it, and both are listed.
++A file carrying a line is not evidence that editing it was fine.
+ 
+ ## Owns truth
+ 
+@@ -121,6 +171,14 @@ change with no durable home.
+   in the repository and not in the artifact it is owed on.
+ - Sort the derived skills by how far they have drifted and attribute only the
+   close ones — drift is evidence of derivation, not a threshold for it.
++- An attribution line in the templates, as the skills carry one — the templates
++  are copied verbatim to become a project's `spec.md`, `plan.md` and
++  `tasks.md`, so the line would arrive as a copyright claim on writing GitHub
++  had no hand in.
++- `wfctl/specify/NOTICES.md`, at the top of the tree, mirroring
++  `wfctl/agents/NOTICES.md` — symmetrical, and out of reach: the install
++  targets are `specify/scripts` and `specify/templates`, so it would ship in
++  the wheel and never reach a project.
+ 
+ ## Consequences
+ 
+@@ -128,9 +186,9 @@ Changing a derived skill's behaviour costs a whole new skill file. That
+ friction is intended: it makes the change visible in the tree, and it survives
+ the next pull.
+ 
+-A skill arriving from upstream without its line *and* without its row still
+-arrives unnoticed — that is #213's own failure and the checks do not close it.
+-What they close is the drift between the two declarations, which is what let the
++A derived file arriving from upstream without its line *and* without its row
++still arrives unnoticed — that is #213's own failure and the checks do not
++close it. What they close is the drift between the two declarations, which is what let the
+ table read as authoritative while naming one file out of seven. Finding an
+ undeclared arrival is a diff against upstream, done by hand.
+ 
+@@ -140,3 +198,7 @@ undeclared arrival is a diff against upstream, done by hand.
+ - 2026-09-05  amended     — identification moved from the `license:` frontmatter
+   key to an attribution line in the file, six superpowers-derived skills added
+   to the table, and `i-have-adhd`'s source named (#213)
++- 2026-09-06  amended     — the eight `speckit-*` skills and eleven files under
++  `wfctl/specify/` added, with `wfctl/specify/templates/NOTICES.md` as the
++  second tree's notice and the templates covered by it rather than by a line
++  (#216)
+diff --git a/tests/test_skill_attribution.py b/tests/test_skill_attribution.py
+index b9c31dd..b25e852 100644
+--- a/tests/test_skill_attribution.py
++++ b/tests/test_skill_attribution.py
+@@ -1,4 +1,4 @@
+-"""A skill taken from another project says so in the file, and the record agrees.
++"""A file taken from another project says so, and the record agrees.
+ 
+ Six superpowers-derived skills shipped in the wheel from v0.15.0 to v0.17.0 with
+ no copyright notice (#213), because the only thing recording provenance was a
+@@ -7,12 +7,19 @@ frontmatter key six of the seven do not carry. Nothing could report the table
+ was wrong.
+ 
+ The checks below are a pair on purpose. The notice has to be in the file,
+-because `MANIFEST.in` grafts `wfctl/agents` into the wheel and that is the
+-artifact the obligation attaches to; the list has to be in the record, because
+-that is where a reader looks for which files the project does not own. Either
+-one alone goes stale the way the table did.
+-
+-What the pair cannot do is notice #213 itself. A file arriving with no line
++because `MANIFEST.in` grafts `wfctl/agents` and `wfctl/specify` into the wheel
++and that is the artifact the obligation attaches to; the list has to be in the
++record, because that is where a reader looks for which files the project does
++not own. Either one alone goes stale the way the table did.
++
++The pair runs twice, over two populations that declare themselves differently.
++Skills and shell scripts carry the line. The six spec-kit templates cannot: a
++template is `cp`'d to become a project's own `spec.md`, so a line in one would
++travel into documents GitHub had no hand in (#216). Their declaration is
++`wfctl/specify/templates/NOTICES.md` naming them, and the second pair holds that
++file and the record's rows together the way the first holds the line and the row.
++
++What neither pair can do is notice #213 itself. A file arriving with no line
+ *and* no row is invisible to both directions — the checks keep two declarations
+ honest with each other, and neither is a declaration the arriving file has to
+ make. Finding an undeclared one is still a diff against upstream, done by hand.
+@@ -28,8 +35,14 @@ import wfctl
+ # `test_skill_frontmatter`: conftest's autouse `bundle` fixture repoints
+ # `_bundle.BUNDLE_ROOT` at a fixture tree, and this is about what wfctl ships.
+ SKILLS_ROOT = Path(wfctl.__file__).parent / "agents" / "skills"
++SPECIFY_ROOT = Path(wfctl.__file__).parent / "specify"
+ RECORD = Path(__file__).resolve().parent.parent / "docs" / "architecture" / "vendor-upstream-skills.md"
+ NOTICES = SKILLS_ROOT.parent / "NOTICES.md"
++# The specify tree's notice sits in `templates/` rather than at its root because
++# that is the deepest directory `install-skills` mirrors into a project — see
++# `vendor-upstream-skills`. A check that looked for it one level up would pass
++# against a file no consumer repo ever receives.
++SPECIFY_NOTICES = SPECIFY_ROOT / "templates" / "NOTICES.md"
+ 
+ # The licence and the `©` are both in the pattern rather than checked afterwards:
+ # a line naming a source but no copyright holder is not the notice MIT asks for,
+@@ -39,26 +52,77 @@ _LINE = re.compile(r"^Derived from \[([^\]]+)\]\(https://\S+\) \(([^),]+), [^)]*
+ # Padding-tolerant: a table reformatted with aligned columns would otherwise
+ # match no row at all, and an empty `_listed()` reads as "nothing is declared"
+ # — which passes the direction that matters if a line went missing too.
+-_ROW = re.compile(r"^\|\s*`([a-z0-9-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
++_ROW = re.compile(r"^\|\s*`([a-z0-9./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
++# The templates' rows are told from the scripts' by their path and nothing else.
++# A third "where the notice is" column would be derived data in a hand-kept
++# table, free to disagree with the directory it describes — the class of defect
++# the `license:` key was (#213).
++_TEMPLATE_ROW = "specify/templates/"
+ 
+ 
+ def _attributed() -> dict[str, str]:
+-    """Skill name → the upstream its own last line names."""
++    """Skill name or script path → the upstream the file's own line names.
++
++    Two positions, because two conventions. A `SKILL.md` ends with the line, and
++    matching only the last line is what stops a skill that merely *discusses*
++    attribution from counting as attributed. A shell script carries it on the
++    line after the shebang, where a reader of a script actually looks; matching
++    that one line rather than searching the body holds the same rule.
++    """
+     found = {}
+     for skill_md in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
+         text = skill_md.read_text(encoding="utf-8").rstrip()
+         match = _LINE.match(text.rsplit("\n", 1)[-1])
+         if match:
+             found[skill_md.parent.name] = match.group(1)
++    for script in sorted(SPECIFY_ROOT.glob("scripts/**/*.sh")):
++        lines = script.read_text(encoding="utf-8").splitlines()
++        match = _LINE.match(lines[1].removeprefix("# ")) if len(lines) > 1 else None
++        if match:
++            found[script.relative_to(SPECIFY_ROOT.parent).as_posix()] = match.group(1)
+     return found
+ 
+ 
+ def _listed() -> dict[str, str]:
+-    """Skill name → the upstream the record's table names."""
+-    return dict(_ROW.findall(RECORD.read_text(encoding="utf-8")))
++    """Skill name or file path → the upstream the record's tables name."""
++    return {
++        name: upstream
++        for name, upstream in _ROW.findall(RECORD.read_text(encoding="utf-8"))
++        if not name.startswith(_TEMPLATE_ROW)
++    }
++
++
++def _listed_templates() -> set[str]:
++    """The template paths the record's second table names."""
++    return {
++        name
++        for name, _ in _ROW.findall(RECORD.read_text(encoding="utf-8"))
++        if name.startswith(_TEMPLATE_ROW)
++    }
+ 
+ 
+-def test_every_skill_the_record_lists_carries_its_attribution_line() -> None:
++def _noticed_templates() -> set[str]:
++    """The template paths `wfctl/specify/templates/NOTICES.md` names.
++
++    Read off the notice rather than passed in, so a template dropped from the
++    notice and left in the record fails rather than being assumed present. The
++    notice writes them relative to the specify tree, which is how they read in a
++    project's own `.specify/` — the record writes them relative to `wfctl/`.
++    """
++    text = SPECIFY_NOTICES.read_text(encoding="utf-8")
++    # Only the upstream's own section counts. The prose below the copyright line
++    # names `templates/github-issue-template.md` in order to say it is *not*
++    # derived, and a whole-file scan would read that mention as a claim.
++    _, heading, rest = text.partition("## github/spec-kit")
++    if not heading:
++        return set()   # no section is no claim, and the record's rows then have nothing to meet
++    return {
++        f"specify/{path}"
++        for path in re.findall(r"`(templates/[a-z0-9-]+\.md)`", rest.split("\n    Copyright", 1)[0])
++    }
++
++
++def test_every_file_the_record_lists_carries_its_attribution_line() -> None:
+     """The direction that catches a notice dropped by an edit or an upstream
+     re-pull — the file ships without it and only the record still says the
+     project does not own that file."""
+@@ -67,8 +131,8 @@ def test_every_skill_the_record_lists_carries_its_attribution_line() -> None:
+     assert not missing, f"listed in vendor-upstream-skills but carry no attribution line: {missing}"
+ 
+ 
+-def test_no_skill_claims_an_upstream_the_record_does_not_list() -> None:
+-    """The direction a half-finished cleanup takes: a skill that has genuinely
++def test_no_file_claims_an_upstream_the_record_does_not_list() -> None:
++    """The direction a half-finished cleanup takes: a file that has genuinely
+     become the project's own drops its line and its row together, never one, and
+     a line added without the row is a provenance claim the record contradicts."""
+     unlisted = sorted(set(_attributed()) - set(_listed()))
+@@ -91,14 +155,60 @@ def test_the_file_and_the_record_name_the_same_upstream() -> None:
+     assert not disagree, f"file and record name different upstreams (file, record): {disagree}"
+ 
+ 
+-def test_every_upstream_named_in_a_skill_has_its_notice_in_the_bundle() -> None:
++def test_every_upstream_named_in_a_file_has_its_notice_in_the_same_tree() -> None:
+     """The line names a licence; `NOTICES.md` is the licence.
+ 
+     MIT asks for the permission notice and not only the copyright line, and a
+-    one-line footer is not one. `NOTICES.md` sits at the top of the `agents`
+-    tree, which `MANIFEST.in` grafts whole, so it travels in the wheel with the
+-    files it covers — the thing a root-level notice does not do (#213)."""
+-    text = NOTICES.read_text(encoding="utf-8")
+-    missing = sorted({repo for repo in _attributed().values() if repo not in text})
+-
+-    assert not missing, f"attributed upstreams with no entry in {NOTICES.name}: {missing}"
++    one-line footer is not one. `MANIFEST.in` grafts `wfctl/agents` and
++    `wfctl/specify` as two separate trees, so each carries its own notice and the
++    text travels in the wheel with the files it covers — the thing a root-level
++    notice does not do (#213). Checked per tree rather than against both texts
++    joined: `github/spec-kit` is named in each, and a union would let one tree
++    ship derived files whose licence is only in the other."""
++    texts = {
++        NOTICES: NOTICES.read_text(encoding="utf-8"),
++        SPECIFY_NOTICES: SPECIFY_NOTICES.read_text(encoding="utf-8"),
++    }
++    missing = sorted(
++        f"{name} → {repo}"
++        for name, repo in _attributed().items()
++        if repo not in texts[SPECIFY_NOTICES if name.startswith("specify/") else NOTICES]
++    )
++
++    assert not missing, f"attributed upstreams with no entry in their tree's NOTICES.md: {missing}"
++
++
++def test_every_template_the_record_lists_is_named_in_the_specify_notice() -> None:
++    """The templates' stand-in for an attribution line, checked in the direction
++    a rename breaks: the record still lists the file, and the notice that is the
++    only thing shipping its provenance no longer names it."""
++    missing = sorted(_listed_templates() - _noticed_templates())
++
++    assert not missing, (
++        f"listed in vendor-upstream-skills but not named in {SPECIFY_NOTICES.name}: {missing}"
++    )
++
++
++def test_the_specify_notice_names_no_template_the_record_does_not_list() -> None:
++    """The other direction, which is where this tree differs from the skills: a
++    template has no line of its own to drop, so a file that stops being derived
++    leaves the notice as the only place still claiming GitHub owns it."""
++    unlisted = sorted(_noticed_templates() - _listed_templates())
++
++    assert not unlisted, (
++        f"named in {SPECIFY_NOTICES.name} but vendor-upstream-skills does not list them: {unlisted}"
++    )
++
++
++def test_every_derived_template_that_ships_reaches_a_project() -> None:
++    """`wfctl/agents/NOTICES.md` ships in the wheel and stops there — a top-level
++    file in a grafted tree belongs to no install layer (#213). The specify tree's
++    copy is inside `templates/`, which `install-skills` mirrors, so it makes the
++    trip the templates make. This asserts the placement rather than the file's
++    existence: moved to the tree root it would still ship, still pass every
++    check above, and arrive nowhere."""
++    assert SPECIFY_NOTICES.exists(), f"{SPECIFY_NOTICES} is missing"
++    assert not (SPECIFY_ROOT / "NOTICES.md").exists(), (
++        "a notice at the top of wfctl/specify/ ships in the wheel and reaches no project; "
++        "install-skills mirrors specify/scripts and specify/templates and nothing above them"
++    )
+diff --git a/wfctl/agents/NOTICES.md b/wfctl/agents/NOTICES.md
+index 655bccb..73d2979 100644
+--- a/wfctl/agents/NOTICES.md
++++ b/wfctl/agents/NOTICES.md
+@@ -30,12 +30,21 @@ other by `tests/test_skill_attribution.py`.
+ 
+     Copyright (c) 2026 Ayoub Ghriss
+ 
++## github/spec-kit
++
++<https://github.com/github/spec-kit> — `speckit-analyze`, `speckit-checklist`,
++`speckit-clarify`, `speckit-constitution`, `speckit-implement`, `speckit-plan`,
++`speckit-specify`, `speckit-tasks`. The rest of that upstream is under
++`specify/`, whose notice travels with it in `specify/templates/NOTICES.md`.
++
++    Copyright GitHub, Inc.
++
+ ## The permission notice
+ 
+-Both upstream licences are the MIT licence, and their text below the copyright
+-line is byte-identical to wfctl's own `LICENSE`. It is reproduced once rather
+-than four times; it applies to each copyright holder named above, and to
+-wfctl's own copyright as stated in `LICENSE`.
++Every upstream licence above is the MIT licence, and their text below the
++copyright line is byte-identical to wfctl's own `LICENSE`. It is reproduced
++once rather than five times; it applies to each copyright holder named above,
++and to wfctl's own copyright as stated in `LICENSE`.
+ 
+     Permission is hereby granted, free of charge, to any person obtaining a copy
+     of this software and associated documentation files (the "Software"), to deal
+diff --git a/wfctl/agents/skills/speckit-analyze/SKILL.md b/wfctl/agents/skills/speckit-analyze/SKILL.md
+index 6967728..6fc7f1b 100644
+--- a/wfctl/agents/skills/speckit-analyze/SKILL.md
++++ b/wfctl/agents/skills/speckit-analyze/SKILL.md
+@@ -286,3 +286,7 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
+ ## Context
+ 
+ $ARGUMENTS
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-checklist/SKILL.md b/wfctl/agents/skills/speckit-checklist/SKILL.md
+index f248f06..2508809 100644
+--- a/wfctl/agents/skills/speckit-checklist/SKILL.md
++++ b/wfctl/agents/skills/speckit-checklist/SKILL.md
+@@ -376,3 +376,7 @@ Check if `.specify/extensions.yml` exists in the project root.
+     ```
+ 
+ - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-clarify/SKILL.md b/wfctl/agents/skills/speckit-clarify/SKILL.md
+index 0fbd1c2..a4d838f 100644
+--- a/wfctl/agents/skills/speckit-clarify/SKILL.md
++++ b/wfctl/agents/skills/speckit-clarify/SKILL.md
+@@ -258,3 +258,7 @@ Check if `.specify/extensions.yml` exists in the project root.
+     ```
+ 
+ - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-constitution/SKILL.md b/wfctl/agents/skills/speckit-constitution/SKILL.md
+index 02da5e5..54195e3 100644
+--- a/wfctl/agents/skills/speckit-constitution/SKILL.md
++++ b/wfctl/agents/skills/speckit-constitution/SKILL.md
+@@ -159,3 +159,7 @@ Check if `.specify/extensions.yml` exists in the project root.
+     ```
+ 
+ - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-implement/SKILL.md b/wfctl/agents/skills/speckit-implement/SKILL.md
+index e669ebb..2576cca 100644
+--- a/wfctl/agents/skills/speckit-implement/SKILL.md
++++ b/wfctl/agents/skills/speckit-implement/SKILL.md
+@@ -240,3 +240,7 @@ Note: This command assumes a complete task breakdown exists in tasks.md. If task
+         ```
+ 
+     - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-plan/SKILL.md b/wfctl/agents/skills/speckit-plan/SKILL.md
+index aba3a76..61e24e1 100644
+--- a/wfctl/agents/skills/speckit-plan/SKILL.md
++++ b/wfctl/agents/skills/speckit-plan/SKILL.md
+@@ -150,3 +150,7 @@ You **MUST** consider the user input before proceeding (if not empty).
+ - Use absolute paths for filesystem operations; use project-relative paths for references in documentation
+ - ERROR on gate failures or unresolved clarifications
+ - After writing all output artifacts, invoke `speckit-orchestrate`.
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-specify/SKILL.md b/wfctl/agents/skills/speckit-specify/SKILL.md
+index 6697241..024756b 100644
+--- a/wfctl/agents/skills/speckit-specify/SKILL.md
++++ b/wfctl/agents/skills/speckit-specify/SKILL.md
+@@ -287,3 +287,7 @@ Success criteria must be:
+ - "Database can handle 1000 TPS" (implementation detail, use user-facing metric)
+ - "React components render efficiently" (framework-specific)
+ - "Redis cache hit rate above 80%" (technology-specific)
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/agents/skills/speckit-tasks/SKILL.md b/wfctl/agents/skills/speckit-tasks/SKILL.md
+index 7a4bf2a..09a3dcd 100644
+--- a/wfctl/agents/skills/speckit-tasks/SKILL.md
++++ b/wfctl/agents/skills/speckit-tasks/SKILL.md
+@@ -249,3 +249,7 @@ parallelization waves.
+ - Each phase MUST end with a validation/checkpoint task (type-check, tests pass, etc.)
+ - This task is a validation gate for decompose/implementation planning
+ - Mark it clearly: `T0NN Validate <phase> with <command> — merge gate`
++
++---
++
++Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+diff --git a/wfctl/specify/scripts/bash/check-prerequisites.sh b/wfctl/specify/scripts/bash/check-prerequisites.sh
+index f0ed055..4628ac7 100755
+--- a/wfctl/specify/scripts/bash/check-prerequisites.sh
++++ b/wfctl/specify/scripts/bash/check-prerequisites.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
++# Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+ 
+ # Consolidated prerequisite checking script
+ #
+diff --git a/wfctl/specify/scripts/bash/common.sh b/wfctl/specify/scripts/bash/common.sh
+index 90bc121..49ef0e7 100755
+--- a/wfctl/specify/scripts/bash/common.sh
++++ b/wfctl/specify/scripts/bash/common.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
++# Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+ # Common functions for the speckit runtime scripts.
+ #
+ # ADAPTED FOR wfctl: branch → spec-dir resolution is delegated to
+diff --git a/wfctl/specify/scripts/bash/create-new-feature.sh b/wfctl/specify/scripts/bash/create-new-feature.sh
+index c6c1119..584c858 100755
+--- a/wfctl/specify/scripts/bash/create-new-feature.sh
++++ b/wfctl/specify/scripts/bash/create-new-feature.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
++# Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+ 
+ set -e
+ 
+diff --git a/wfctl/specify/scripts/bash/setup-plan.sh b/wfctl/specify/scripts/bash/setup-plan.sh
+index 12c2f9e..f6cd46b 100755
+--- a/wfctl/specify/scripts/bash/setup-plan.sh
++++ b/wfctl/specify/scripts/bash/setup-plan.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
++# Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+ 
+ set -e
+ 
+diff --git a/wfctl/specify/scripts/bash/update-agent-context.sh b/wfctl/specify/scripts/bash/update-agent-context.sh
+index fad8eeb..b33ae64 100755
+--- a/wfctl/specify/scripts/bash/update-agent-context.sh
++++ b/wfctl/specify/scripts/bash/update-agent-context.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
++# Derived from [github/spec-kit](https://github.com/github/spec-kit) (MIT, © GitHub, Inc.).
+ 
+ # Update agent context files with information from plan.md
+ #
+diff --git a/wfctl/specify/templates/NOTICES.md b/wfctl/specify/templates/NOTICES.md
+new file mode 100644
+index 0000000..bbd6422
+--- /dev/null
++++ b/wfctl/specify/templates/NOTICES.md
+@@ -0,0 +1,68 @@
++# Third-party notices — the speckit runtime
++
++wfctl is MIT-licensed; see `LICENSE` at the root of the distribution. The
++speckit runtime — the scripts under `scripts/bash/` and every template beside
++this file but one — is derived from `github/spec-kit`, and that upstream's
++notice is reproduced here, which is what MIT asks for beyond the copyright line
++itself.
++
++Each script names its upstream on its own second line. The templates do not,
++and cannot: a template is copied verbatim to become the reader's own document —
++`create-new-feature.sh` runs `cp` on `spec-template.md` to make `spec.md` — so a
++line in a template would land in every spec, plan and task list the runtime
++generates, asserting GitHub's copyright over the reader's own writing.
++
++This file sits in `templates/` rather than at the top of the tree because
++`templates/` is an install target. `install-skills` mirrors it to a project's
++`.specify/templates/`, so a notice one directory up would ship in the wheel and
++never reach a repository wfctl installed the derived templates into.
++
++This file travels into projects wfctl installs, so every path in it is written
++relative to `.specify/`. In wfctl's own repository they sit under
++`wfctl/specify/`, `vendor-upstream-skills` in `docs/architecture/` lists which
++of them came from where, and `tests/test_skill_attribution.py` checks that list
++and this file against each other.
++
++## github/spec-kit
++
++<https://github.com/github/spec-kit> — `scripts/bash/check-prerequisites.sh`,
++`scripts/bash/common.sh`, `scripts/bash/create-new-feature.sh`,
++`scripts/bash/setup-plan.sh`, `scripts/bash/update-agent-context.sh`,
++`templates/agent-file-template.md`, `templates/checklist-template.md`,
++`templates/constitution-template.md`, `templates/plan-template.md`,
++`templates/spec-template.md`, `templates/tasks-template.md`.
++
++    Copyright GitHub, Inc.
++
++`templates/github-issue-template.md` is wfctl's own and is deliberately absent:
++it describes `/speckit.decompose`, a command spec-kit does not have, and scores
++nothing against any upstream template.
++
++`update-agent-context.sh` and `agent-file-template.md` are derived from paths
++that no longer exist upstream. Both were removed in `github/spec-kit@fc3d124`;
++against the commit before it they are 82% and 100% upstream.
++
++## The permission notice
++
++`github/spec-kit`'s licence is the MIT licence, and its text below the
++copyright line is byte-identical to wfctl's own `LICENSE`. It is reproduced
++once; it applies to the copyright holder named above, and to wfctl's own
++copyright as stated in `LICENSE`.
++
++    Permission is hereby granted, free of charge, to any person obtaining a copy
++    of this software and associated documentation files (the "Software"), to deal
++    in the Software without restriction, including without limitation the rights
++    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++    copies of the Software, and to permit persons to whom the Software is
++    furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice shall be included in all
++    copies or substantial portions of the Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++    SOFTWARE.

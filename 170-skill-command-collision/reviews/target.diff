@@ -1,0 +1,295 @@
+diff --git a/docs/architecture/mirrored-skills-ship-no-wrapper.md b/docs/architecture/mirrored-skills-ship-no-wrapper.md
+new file mode 100644
+index 0000000..6ce5663
+--- /dev/null
++++ b/docs/architecture/mirrored-skills-ship-no-wrapper.md
+@@ -0,0 +1,89 @@
++---
++status: proposed
++---
++
++# A mirrored skill ships no command wrapper; the installer owns model-invocability
++
++## Context
++
++A command wrapper is a five-line file that says "read
++`.agents/skills/<name>/SKILL.md` for the complete workflow". It exists because
++an agent cannot natively discover a skill that lives only in `.agents/skills/` —
++the wrapper is the route in.
++
++`_MIRRORED_SKILLS` builds the other route: a named skill is copied to
++`.claude/skills/<name>`, where Claude discovers it without being told. Ten
++skills are mirrored; seven of them also ship a wrapper under the same name.
++
++That is one `/name` claiming two files, and Claude Code resolves the pair by a
++rule wfctl does not set. Its documentation says the skill wins. A session on
++2026-09-04 got the wrapper instead, and its `disable-model-invocation: true`
++refused the Skill tool with "Do not replicate this skill's workflow by other
++means" — while a second session the same day, on the same machine, resolved
++`worktree-handoff` to the skill and ran it. A gate that holds intermittently
++reads as a forgetful agent rather than as packaging (#170).
++
++The flag was not the mistake. It is on the wrapper so the model reaches the
++skill rather than a file that only points at one — a correct intent whose
++consequence is that the pointer, when it wins, refuses the thing it points at.
++
++## Decision
++
++A skill named in `_MIRRORED_SKILLS` ships no command wrapper. The two sets are
++disjoint, and the invariant is tested rather than remembered.
++
++A mirrored skill is reachable both ways from one file: Claude Code creates
++`/name` for a skill exactly as it does for a command, so deleting the wrapper
++costs no human path. An unmirrored skill keeps its wrapper, which is still the
++only route to it.
++
++## Owns truth
++
++`_MIRRORED_SKILLS` owns "may an agent invoke this skill without being asked?".
++Mirroring a skill *is* the answer, and there is no second place to state it.
++
++Neither of the other two candidates can hold it:
++
++- **The skill file cannot.** `disable-model-invocation` is not an Agent Skills
++  frontmatter key, so `test_every_shipped_skill_declares_only_spec_keys` rejects
++  it; and for `i-have-adhd` the file is vendored, where anything wfctl adds is
++  dropped by the next upstream pull (`vendor-upstream-skills`, `layer-model`).
++- **The wrapper cannot.** It is not the file that runs. Its flag governs a
++  pointer, and the agent's Skill tool is asking about the target — so the answer
++  it gives is about the wrong file even in the sessions where it is heard.
++
++## Considered
++
++- **Drop `disable-model-invocation` from the seven wrappers** — two files still
++  claim one `/name`, so which `description` the reader sees stays a coin flip,
++  and the collision that made the behavior load-order dependent is untouched. It
++  also does nothing for `i-have-adhd`, whose *skill* carries the flag from
++  upstream: the one case that cannot be edited is the one this fix cannot reach.
++- **Rename the wrapper** — removes the collision, and is otherwise sound. It
++  falls on cost rather than fault: it keeps a file whose whole content is "go
++  read the sibling you already have" and gives one workflow a second name, so
++  every handoff and issue that says `/fanning-out-code-review` acquires a second
++  possible referent. #149 was unblocked by a human typing the current name.
++- **Filter the wrappers out at copy time, keeping them in the source tree** —
++  the source tree would hold seven files that no layer installs, and the reason
++  would live in the installer rather than in the absence. Deleting them says the
++  same thing where a reader looks.
++
++## Consequences
++
++- `/i-have-adhd` and `/conversation-response-shape` lose the two lines their
++  wrappers added past the pointer. Persistence is already in both SKILL.md
++  bodies. "Confirm activation in one line" is dropped rather than moved:
++  `conversation-response-shape` is the file it would layer into, it sits exactly
++  on its tested line ceiling, and that ceiling exists because rules decay with
++  length — an acknowledgement is not worth what would have to be cut for it.
++- `conversation-response-shape` becomes model-invocable, which its own
++  frontmatter comment has argued for since #99 and the wrapper was quietly
++  denying.
++- Mirroring a skill is now also a decision to delete its wrapper, and
++  un-mirroring one is a decision to write it back. `doctor`'s abandoned-entry
++  scan already reports the leftover under `.agents/commands/` either way.
++
++## Log
++
++- 2026-09-04  proposed    — #170; the wrapper's flag refused the skill it points at, for whichever session lost the tie
+diff --git a/tests/test_install_skills.py b/tests/test_install_skills.py
+index 4529fe3..c055f32 100644
+--- a/tests/test_install_skills.py
++++ b/tests/test_install_skills.py
+@@ -294,6 +294,34 @@ def test_every_declared_mirror_names_a_shipped_skill() -> None:
+     assert missing == []
+ 
+ 
++def test_mirrored_skills_ship_no_wrapper() -> None:
++    """A mirrored skill that also ships `agents/commands/<name>.md` fails here.
++
++    Both files claim one `/name`, and Claude Code picks between them by a rule
++    wfctl does not set: a session on 2026-09-04 got the wrapper, whose
++    `disable-model-invocation` refused the Skill tool for the skill it points at,
++    while another session the same day got the skill and ran it (#170). The
++    wrapper buys nothing back — a skill creates `/name` for a human exactly as a
++    command does — so the pair is pure collision.
++
++    The failure is silent twice over. It ships clean, and it then reproduces on
++    one machine and not the next, which reads as a forgetful agent rather than as
++    packaging. Nothing else compares the two directories, so mirroring a skill
++    and leaving its wrapper behind is a one-line change with no red run.
++
++    Resolved from the installed package for `test_every_declared_mirror_names_a_
++    shipped_skill`'s reason: the autouse `bundle` fixture repoints `BUNDLE_ROOT`
++    at a fixture tree holding none of these names.
++    """
++    import wfctl
++    from wfctl.cli import _MIRRORED_SKILLS
++
++    commands_root = Path(wfctl.__file__).parent / "agents" / "commands"
++    collisions = sorted(n for n in _MIRRORED_SKILLS if (commands_root / f"{n}.md").exists())
++
++    assert collisions == []
++
++
+ def test_installed_tree_is_never_a_mirror_source(
+     agent_dir: Path, declared_mirror: None
+ ) -> None:
+diff --git a/tests/test_skill_cross_references.py b/tests/test_skill_cross_references.py
+index 121ba11..96786f4 100644
+--- a/tests/test_skill_cross_references.py
++++ b/tests/test_skill_cross_references.py
+@@ -42,18 +42,31 @@ def test_every_referenced_skill_ships() -> None:
+ 
+ def test_the_output_style_skills_are_both_loaded_at_session_start() -> None:
+     """`i-have-adhd` sets length, `conversation-response-shape` sets order and
+-    depth. Neither is model-invocable, so nothing else turns them on — dropping
++    depth. Both have to be on from turn 0 and nothing else turns them on there —
++    `i-have-adhd` carries upstream's `disable-model-invocation`, and the other is
++    model-invocable but only once a turn has already been shaped wrong. Dropping
+     either from step 1 disables it for every session, quietly."""
+     start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
+     loaded = set(_REFERENCE.findall(start))
+     assert {"i-have-adhd", "conversation-response-shape"} <= loaded
+ 
+ 
+-def test_each_output_style_skill_has_a_command_wrapper() -> None:
+-    """The wrapper is the only way to turn one back on mid-session, after a
+-    session that started without `/start-session` or said "stop adhd mode"."""
++def test_each_output_style_skill_is_typeable_by_name() -> None:
++    """Turning one back on mid-session — after a session that started without
++    `/start-session`, or said "stop adhd mode" — is a human typing its name, and
++    that route has to exist somewhere.
++
++    It used to be a command wrapper, and asserting on the wrapper is what this
++    test did until the wrapper collided with the mirror and refused the skill it
++    pointed at (#170). Membership in `_MIRRORED_SKILLS` is the route now: a
++    mirrored skill creates `/name` exactly as a command does. Kept as a test
++    rather than deleted with the wrapper, because the property it guards never
++    changed — only the file that delivers it.
++    """
++    from wfctl.cli import _MIRRORED_SKILLS
++
+     for name in ("i-have-adhd", "conversation-response-shape"):
+-        assert (_AGENTS / "commands" / f"{name}.md").exists(), name
++        assert name in _MIRRORED_SKILLS, name
+ 
+ 
+ def test_start_session_loads_the_in_force_set() -> None:
+diff --git a/wfctl/agents/commands/conversation-response-shape.md b/wfctl/agents/commands/conversation-response-shape.md
+deleted file mode 100644
+index fda7a39..0000000
+--- a/wfctl/agents/commands/conversation-response-shape.md
++++ /dev/null
+@@ -1,8 +0,0 @@
+----
+-disable-model-invocation: true
+-description: Shape every response — answer first, plain language before mechanics, depth scaled to the question. Layers over i-have-adhd. Stays on until "stop adhd mode".
+----
+-
+-Read `.agents/skills/conversation-response-shape/SKILL.md` (or `../skills/conversation-response-shape/SKILL.md` relative to this file, if `.agents/skills` isn't present) and apply it to every response for the rest of the session.
+-
+-Confirm activation in one line, then continue with whatever the user was doing.
+diff --git a/wfctl/agents/commands/fanning-out-code-review.md b/wfctl/agents/commands/fanning-out-code-review.md
+deleted file mode 100644
+index a1f8006..0000000
+--- a/wfctl/agents/commands/fanning-out-code-review.md
++++ /dev/null
+@@ -1,6 +0,0 @@
+----
+-disable-model-invocation: true
+-description: Review a change with a panel of independent reviewers — dispatch several fresh-context reviewers over one diff, confirm every one reported, then reconcile and verify the findings yourself.
+----
+-
+-Read `.agents/skills/fanning-out-code-review/SKILL.md` (or `../skills/fanning-out-code-review/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete workflow.
+diff --git a/wfctl/agents/commands/i-have-adhd.md b/wfctl/agents/commands/i-have-adhd.md
+deleted file mode 100644
+index a71058f..0000000
+--- a/wfctl/agents/commands/i-have-adhd.md
++++ /dev/null
+@@ -1,8 +0,0 @@
+----
+-disable-model-invocation: true
+-description: Shape every response for an ADHD reader — next action first, numbered steps, state restated each turn. Stays on until "stop adhd mode".
+----
+-
+-Read `.agents/skills/i-have-adhd/SKILL.md` (or `../skills/i-have-adhd/SKILL.md` relative to this file, if `.agents/skills` isn't present) and apply it to every response for the rest of the session.
+-
+-Confirm activation in one line, then continue with whatever the user was doing.
+diff --git a/wfctl/agents/commands/opening-a-change.md b/wfctl/agents/commands/opening-a-change.md
+deleted file mode 100644
+index 6a163d5..0000000
+--- a/wfctl/agents/commands/opening-a-change.md
++++ /dev/null
+@@ -1,6 +0,0 @@
+----
+-disable-model-invocation: true
+-description: About to open a PR, merge request or patchset — fill the repository's change-description template before pushing it.
+----
+-
+-Read `.agents/skills/opening-a-change/SKILL.md` (or `../skills/opening-a-change/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete workflow.
+diff --git a/wfctl/agents/commands/receiving-code-review.md b/wfctl/agents/commands/receiving-code-review.md
+deleted file mode 100644
+index f786bf9..0000000
+--- a/wfctl/agents/commands/receiving-code-review.md
++++ /dev/null
+@@ -1,6 +0,0 @@
+----
+-disable-model-invocation: true
+-description: Received code review feedback that seems unclear or technically questionable — verify it technically before implementing, don't just agree.
+----
+-
+-Read `.agents/skills/receiving-code-review/SKILL.md` (or `../skills/receiving-code-review/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete workflow.
+diff --git a/wfctl/agents/commands/verification-before-completion.md b/wfctl/agents/commands/verification-before-completion.md
+deleted file mode 100644
+index 01b51c6..0000000
+--- a/wfctl/agents/commands/verification-before-completion.md
++++ /dev/null
+@@ -1,6 +0,0 @@
+----
+-disable-model-invocation: true
+-description: About to claim work is complete, fixed, or passing — run verification and confirm output before making any success claim.
+----
+-
+-Read `.agents/skills/verification-before-completion/SKILL.md` (or `../skills/verification-before-completion/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete workflow.
+diff --git a/wfctl/agents/commands/worktree-handoff.md b/wfctl/agents/commands/worktree-handoff.md
+deleted file mode 100644
+index 9b92b1e..0000000
+--- a/wfctl/agents/commands/worktree-handoff.md
++++ /dev/null
+@@ -1,6 +0,0 @@
+----
+-disable-model-invocation: true
+-description: About to create a worktree or hand work to another session — write the handoff so the reasoning arrives with the branch.
+----
+-
+-Read `.agents/skills/worktree-handoff/SKILL.md` (or `../skills/worktree-handoff/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete workflow.
+diff --git a/wfctl/cli.py b/wfctl/cli.py
+index 33941bc..5c851c5 100644
+--- a/wfctl/cli.py
++++ b/wfctl/cli.py
+@@ -1274,6 +1274,15 @@ def _restore_hint(layers: Iterable[str]) -> str:
+ # SKILL.md. A file-level mark cannot cover a vendored skill — the next upstream
+ # pull drops whatever we added — and it put authority over a layer's contents in
+ # the files instead of the installer that owns them (`layer-model`).
++#
++# A name here ships no `agents/commands/<name>.md`. Claude Code creates `/name`
++# for a skill exactly as it does for a command, so a wrapper beside a mirrored
++# skill buys no human path and costs a collision the host resolves by a rule this
++# side does not set — the wrapper's `disable-model-invocation` refusing the very
++# skill it points at, in whichever session it happened to win (#170). Adding a
++# name here means deleting its wrapper; `test_mirrored_skills_ship_no_wrapper`
++# is what says so at the moment it is forgotten. See
++# `mirrored-skills-ship-no-wrapper`.
+ _MIRRORED_SKILLS = frozenset({
+     "architecture-decisions",
+     "conversation-response-shape",
+@@ -1282,8 +1291,9 @@ _MIRRORED_SKILLS = frozenset({
+     "i-have-adhd",
+     # Removing this entry restores #124 rather than trimming a list: the skill
+     # still ships and still installs, and the only remaining way to reach it is
+-    # a human typing the command wrapper — which is the failure it was written
+-    # for. Nothing else in the tree says the skill has to be discoverable.
++    # a human typing its name — which is the failure it was written for. Nothing
++    # else in the tree says the skill has to be discoverable, and the wrapper
++    # that used to carry the typed route has to be written back with it.
+     "opening-a-change",
+     "receiving-code-review",
+     "using-superpowers",

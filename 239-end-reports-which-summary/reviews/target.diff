@@ -1,0 +1,239 @@
+diff --git a/tests/test_end_reports_which_summary.py b/tests/test_end_reports_which_summary.py
+new file mode 100644
+index 0000000..f94beed
+--- /dev/null
++++ b/tests/test_end_reports_which_summary.py
+@@ -0,0 +1,112 @@
++"""`wfctl end` says which of its two outcomes happened (#239).
++
++It writes `session-summary.md` only when the file is absent — a second `end`
++must not destroy prose someone filled in between the two — but it printed
++`Summary: <path>` either way. The state dir is per branch, so a worktree branch
++only ever sees the write; `main` only ever sees the keep. Twice in two days a
++session on `main` followed `end-session` step 4 to a file headed with the
++previous day's date and wrote over it by hand.
++
++The report is what changes here. The write rule does not, and neither does what
++the line is allowed to claim: a pre-existing summary is as often a handoff
++written *for* the branch by `worktree-handoff` as a stale one left behind, and
++`end` cannot tell which it is holding.
++"""
++from __future__ import annotations
++
++import types
++
++from typer.testing import CliRunner
++
++from wfctl.cli import app
++
++runner = CliRunner()
++
++# Every way the kept line could over-claim. `end` observes a file and an mtime;
++# it never observes who wrote it, when their session ran, or whether what is in
++# there is out of date.
++AUTHORSHIP_CLAIMS = ("stale", "earlier session", "previous session", "out of date")
++
++
++def _run_end(storyctl_dir: types.SimpleNamespace) -> str:
++    runner.invoke(app, ["start"])
++    result = runner.invoke(app, ["end"])
++    assert result.exit_code == 0, result.output
++    return result.output
++
++
++def _summary_path(storyctl_dir: types.SimpleNamespace):
++    return storyctl_dir.agent_dir / "session-summary.md"
++
++
++def test_a_written_scaffold_is_reported_without_a_caveat(
++    storyctl_dir: types.SimpleNamespace,
++) -> None:
++    """The arm that always worked, pinned so the fix cannot pay for itself here.
++
++    A warning on every run would be as uninformative as the single line it
++    replaces — the caller would learn to skip it.
++    """
++    output = _run_end(storyctl_dir)
++
++    assert "Summary: " in output
++    assert "kept" not in output
++    assert _summary_path(storyctl_dir).exists()
++
++
++def test_a_second_end_says_it_wrote_nothing_and_when_the_file_last_changed(
++    storyctl_dir: types.SimpleNamespace,
++) -> None:
++    """The defect: two outcomes, one sentence.
++
++    The mtime is in the line because it is the one thing that lets the reader
++    decide whether the file belongs to this session's work without opening it.
++    """
++    _run_end(storyctl_dir)
++    _summary_path(storyctl_dir).write_text("# hand-written prose\n")
++
++    output = _run_end(storyctl_dir)
++
++    assert "kept" in output
++    assert "this session wrote nothing" in output
++    assert "last modified" in output
++    # The write rule is unchanged — that is #239's premise, not a side effect.
++    assert _summary_path(storyctl_dir).read_text() == "# hand-written prose\n"
++
++
++def test_the_path_line_stays_a_path_and_nothing_else(
++    storyctl_dir: types.SimpleNamespace,
++) -> None:
++    """The caveat is a second line, not a suffix.
++
++    `Summary: <path>` is the only machine-readable thing `end` prints, and the
++    next session opens what follows the colon. An em-dash clause appended there
++    is inside the path as far as any reader that splits on it is concerned.
++    """
++    _run_end(storyctl_dir)
++
++    output = _run_end(storyctl_dir)
++
++    summary_line = next(ln for ln in output.splitlines() if "Summary:" in ln)
++    assert summary_line.strip().endswith("session-summary.md")
++
++
++def test_a_handoff_written_before_the_first_session_is_not_called_stale(
++    storyctl_dir: types.SimpleNamespace,
++) -> None:
++    """The case that rules out the cheap discriminator.
++
++    `worktree-handoff` writes a summary *for* a branch before any session runs
++    on it, and `workmux add` runs `wfctl start` in `post_create` — so the file
++    lands after the branch's first `start` event. "Older than the session"
++    therefore classifies a legitimate handoff as leftover prose, which is the
++    reported failure inverted.
++    """
++    _summary_path(storyctl_dir).write_text("# Handoff — read this first\n")
++
++    output = _run_end(storyctl_dir)
++
++    assert "kept" in output
++    for claim in AUTHORSHIP_CLAIMS:
++        assert claim not in output.lower()
++    assert _summary_path(storyctl_dir).read_text() == "# Handoff — read this first\n"
+diff --git a/uv.lock b/uv.lock
+index bfdfb37..1c9f933 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -356,7 +356,7 @@ wheels = [
+ 
+ [[package]]
+ name = "wfctl"
+-version = "0.17.0"
++version = "0.18.0"
+ source = { editable = "." }
+ dependencies = [
+     { name = "rich" },
+diff --git a/wfctl/_session.py b/wfctl/_session.py
+index 3d56b58..fb49e71 100644
+--- a/wfctl/_session.py
++++ b/wfctl/_session.py
+@@ -84,8 +84,8 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
+     )
+ 
+ 
+-def end(agent_dir: Path, branch: str, observed: Observations) -> Path:
+-    """Write session-summary.md if absent; return its path.
++def end(agent_dir: Path, branch: str, observed: Observations) -> tuple[Path, bool]:
++    """Write session-summary.md if absent; return its path and whether it wrote.
+ 
+     The observations are passed in rather than taken here: the caller has
+     already built the report, and a second inference is a second chance to
+@@ -93,10 +93,19 @@ def end(agent_dir: Path, branch: str, observed: Observations) -> Path:
+ 
+     Written once. A second `end` must not overwrite prose a human or agent
+     filled in between the two.
++
++    The flag is returned because only this function knows which of the two
++    happened, and the caller reports it. Whether the file was written is not
++    re-derivable afterwards: the kept file and a freshly written one are both
++    just a `session-summary.md` sitting there, and the mtime cannot separate
++    them either — `worktree-handoff` copies a handoff in after the branch's
++    first `start` event, so "older than the session" classifies a handoff as
++    stale (#239).
+     """
+     summary_file = agent_dir / "session-summary.md"
+-    if not summary_file.exists():
++    written = not summary_file.exists()
++    if written:
+         write_md_atomic(summary_file, _render_session_summary(branch, observed))
+ 
+     append_event(agent_dir, "end", step=observed.step)
+-    return summary_file
++    return summary_file, written
+diff --git a/wfctl/agents/skills/end-session/SKILL.md b/wfctl/agents/skills/end-session/SKILL.md
+index bf36fac..d368e2f 100644
+--- a/wfctl/agents/skills/end-session/SKILL.md
++++ b/wfctl/agents/skills/end-session/SKILL.md
+@@ -55,6 +55,23 @@ unfilled is a failed handoff.
+    `**Step**`, `**Boundary**` and `**Tree**` — leave those lines alone. They are
+    what `wfctl` could see; the prose below them is what only you know.
+ 
++   **It writes only when the file is absent.** A summary already there survives
++   untouched, and `end` says so:
++
++   ```
++   ✓ Session closed — brainstorm, boundary unanswered, tree clean.
++     Summary: /Users/…/state/wfctl/<branch>/session-summary.md
++     ⚠ kept — this session wrote nothing; last modified 2026-09-05 22:14.
++   ```
++
++   The state dir is per branch, so this is the normal case on a long-lived branch
++   like `main` and never happens in a fresh worktree. On that line the file is
++   **not** a scaffold: it is either a handoff written for the branch or the last
++   session's prose, and `end` cannot tell which. Read it before step 4 — the
++   `**Step**` / `**Boundary**` / `**Tree**` lines in it belong to whoever wrote
++   it, so replace them with this session's readings from the line above rather
++   than leaving them alone.
++
+ 4. **Fill in `$(wfctl state-dir)/session-summary.md`** using the scan from step 2.
+    Keep it concrete — this is the next session's starting context:
+ 
+diff --git a/wfctl/cli.py b/wfctl/cli.py
+index 65f0cbe..4df2a3a 100644
+--- a/wfctl/cli.py
++++ b/wfctl/cli.py
+@@ -370,6 +370,8 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
+ @app.command("end")
+ def end_cmd() -> None:
+     """End the current session."""
++    from datetime import datetime
++
+     from wfctl import _session
+     from wfctl._pipeline import build_report
+ 
+@@ -381,7 +383,7 @@ def end_cmd() -> None:
+ 
+     spec_dir = resolve_spec_dir(branch, repo_root)
+     observed = _observe(repo_root, build_report(spec_dir, repo_root, agent_dir))
+-    summary_path = _session.end(agent_dir, branch, observed)
++    summary_path, summary_written = _session.end(agent_dir, branch, observed)
+ 
+     # "closed", not "ended and complete". Every clause names something read a
+     # moment ago; none of them concludes the work is done, because `end` has no
+@@ -394,6 +396,20 @@ def end_cmd() -> None:
+     # console width — which turns the only machine-readable thing `end` prints
+     # into two lines that no longer name a file.
+     console.print(f"  Summary: {summary_path}", soft_wrap=True)
++    if not summary_written:
++        # A second line rather than a suffix on the one above: that line is the
++        # only path `end` prints, and anything appended after it lands inside
++        # what a reader takes to be the path.
++        #
++        # Says only what is observable — a file was here, this run left it
++        # alone, it last changed then. Not who wrote it or why: a pre-existing
++        # summary is as often a handoff written *for* the branch as a stale one
++        # left by an earlier session, and nothing here can tell them apart.
++        mtime = datetime.fromtimestamp(summary_path.stat().st_mtime)
++        console.print(
++            f"  [yellow]⚠[/yellow] kept — this session wrote nothing; "
++            f"last modified {mtime:%Y-%m-%d %H:%M}."
++        )
+ 
+ 
+ @app.command("log")

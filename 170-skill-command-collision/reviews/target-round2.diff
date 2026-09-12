@@ -1,0 +1,356 @@
+diff --git a/README.md b/README.md
+index 6d06aa1..4fa4edb 100644
+--- a/README.md
++++ b/README.md
+@@ -192,8 +192,8 @@ Install skills into a project:
+ 
+ ```
+ $ wfctl install-skills
+-✓ Installed from wfctl 0.15.0
+-  base  27 skills · 24 commands · 8 runtime
++✓ Installed from wfctl 0.16.0
++  base  33 skills · 27 commands · 8 runtime
+ 
+ Installed to .agents/ — skills and commands in their canonical, agent-agnostic
+ form. If your agent needs its own native paths:
+@@ -202,9 +202,9 @@ form. If your agent needs its own native paths:
+   copilot  wfctl install-skills --agent copilot
+ 
+ $ wfctl install-skills --agent claude
+-✓ Installed from wfctl 0.15.0
+-  base    27 skills · 24 commands · 8 runtime
+-  claude  4 skills · 24 commands
++✓ Installed from wfctl 0.16.0
++  base    33 skills · 27 commands · 8 runtime
++  claude  10 skills · 20 commands
+ ```
+ 
+ The skills ship inside wfctl, so an install copies from the wheel and needs no
+diff --git a/docs/architecture/mirror-supersedes-the-wrapper.md b/docs/architecture/mirror-supersedes-the-wrapper.md
+new file mode 100644
+index 0000000..5bc826c
+--- /dev/null
++++ b/docs/architecture/mirror-supersedes-the-wrapper.md
+@@ -0,0 +1,90 @@
++---
++status: proposed
++---
++
++# A mirrored skill's wrapper is suppressed from the mirroring layer, not from the bundle
++
++## Context
++
++A command wrapper is a five-line file whose body is "read
++`.agents/skills/<name>/SKILL.md`". It exists because an agent cannot natively
++discover a skill that lives only in `.agents/skills/` — the wrapper is the route
++in.
++
++`_MIRRORED_SKILLS` builds a second route for Claude: a named skill is copied to
++`.claude/skills/<name>`, where it is discovered without being told. Ten skills
++are mirrored, and seven of them also shipped a wrapper under the same name.
++
++That is one `/name` claiming two files. Claude Code's documentation says the
++skill wins; a session on 2026-09-04 got the wrapper instead, whose
++`disable-model-invocation: true` refused the Skill tool for the very skill the
++wrapper points at, while a second session the same day on the same machine
++resolved `worktree-handoff` to the skill and ran it (#170). A gate that holds
++intermittently reads as a forgetful agent rather than as packaging.
++
++The flag was not the mistake. It is on the wrapper so the model reaches the
++skill rather than a file that only points at one — a correct intent whose
++consequence is that the pointer, when it wins, refuses its own target.
++
++Suppressing the wrapper costs no typed route only because a Claude Code skill is
++itself typeable as `/name`, which is true from v2.1.101 and was checked against
++the docs rather than recalled. On an older Claude Code the seven names would
++become model-only. wfctl declares no floor and this record does not add one —
++the observation is here so a reader who finds one knows what it would break.
++
++## Decision
++
++A skill named in `_MIRRORED_SKILLS` has its wrapper suppressed from the command
++directory of the layer that mirrors it. The wrapper still ships, and every other
++layer still installs it.
++
++Per layer, never from the bundle. The redundancy is a property of one layer
++having both files, not a property of the wrapper.
++
++## Owns truth
++
++`install-skills` owns "which files does this layer install?", and therefore
++"does this layer have two files claiming one `/name`?". A file cannot own it: a
++wrapper's frontmatter describes the wrapper, and the collision is a fact about a
++directory that neither of the two colliding files can see.
++
++`_MIRRORED_SKILLS` does **not** own "may the model invoke this skill
++unprompted." That stays where `59-deployment-key-metadata`'s contract put it —
++the skill's own frontmatter — and membership does not override it. `i-have-adhd`
++is mirrored and still declines model invocation, because upstream's file says so.
++Membership decides reachability; the file decides invocability.
++
++## Considered
++
++- **Delete the seven wrappers from the bundle.** The shortest diff, and wrong at
++  a layer its argument never mentioned. `_AGENT_TARGETS` gives bob
++  `.bob/commands/`, where `_copy_command_for_bob` strips the Claude-only key, and
++  gives it no mirror to compensate. For `i-have-adhd` the wrapper is bob's only
++  working route: the skills copy is a `copytree` that never reaches the strip, so
++  `.bob/skills/i-have-adhd/SKILL.md` keeps `disable-model-invocation`, which this
++  repo already records as making Bob Shell skip model invocation entirely — the
++  body never executes. Three independent reviewers found this; the suite did not.
++- **Drop `disable-model-invocation` from the seven wrappers.** Two files still
++  claim one `/name`, so which `description` a reader sees stays a coin flip. It
++  also cannot reach `i-have-adhd`, whose flag is upstream's and sits in the
++  vendored skill: the one case that cannot be edited is the one it cannot fix.
++- **Rename the wrapper**, as `wfctl` → `using-wfctl` already does. Sound, and it
++  loses on cost rather than fault: a second name for one workflow, on a file
++  whose whole content is "go read the sibling you already have", and #149 was
++  unblocked by a human typing the current name.
++
++## Consequences
++
++- Adding a name to `_MIRRORED_SKILLS` changes what the mirroring layer installs.
++  An install that already placed `.claude/commands/<name>.md` keeps it until the
++  next run, which reports it as a recorded path this wfctl no longer ships and
++  offers `--prune`; `/start-session` already passes that flag.
++- `conversation-response-shape` becomes reachable by the model on the Claude
++  layer, which its own frontmatter comment has argued for since #99 and the
++  colliding wrapper was intermittently denying.
++- The wrappers' second line — "confirm activation in one line" — is unchanged,
++  because the wrappers are unchanged. Only their destination narrowed.
++
++## Log
++
++- 2026-09-04  proposed    — #170; the wrapper's flag refused the skill it points at, for whichever session lost the tie
+diff --git a/tests/test_install_skills.py b/tests/test_install_skills.py
+index 4529fe3..7507161 100644
+--- a/tests/test_install_skills.py
++++ b/tests/test_install_skills.py
+@@ -294,6 +294,89 @@ def test_every_declared_mirror_names_a_shipped_skill() -> None:
+     assert missing == []
+ 
+ 
++def test_the_mirror_suppresses_the_wrapper_it_collides_with(
++    bundle: Path, agent_dir: Path, declared_mirror: None
++) -> None:
++    """A mirrored skill's wrapper does not land in `.claude/commands/`.
++
++    Both files claim one `/name`, and which wins is not wfctl's to set: Claude
++    Code documents the skill as winning, and a session on 2026-09-04 got the
++    wrapper, whose `disable-model-invocation` refused the Skill tool for the very
++    skill it points at, while another session the same day got the skill (#170).
++    Shipping both is shipping the tie.
++
++    The `.agents/` assertion is the half that keeps this honest. Deleting the
++    wrapper from the bundle passes the first assertion too, and takes bob's only
++    working route to `i-have-adhd` with it — `.bob/commands/` gets the copy
++    `_copy_command_for_bob` strips, and `.bob/skills/` gets the vendored key
++    intact.
++    """
++    import os
++    native = bundle / "agents" / "skills" / "native-skill"
++    native.mkdir(parents=True)
++    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
++    (bundle / "agents" / "commands" / "native-skill.md").write_text(
++        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
++    )
++
++    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
++    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
++    assert result.exit_code == 0
++    assert not (repo_root / ".claude" / "commands" / "native-skill.md").exists()
++    assert (repo_root / ".agents" / "commands" / "native-skill.md").exists()
++
++
++def test_an_unmirrored_wrapper_still_reaches_the_claude_layer(
++    bundle: Path, agent_dir: Path, declared_mirror: None
++) -> None:
++    """Suppression is scoped to the colliding name, not to the command layer.
++
++    Worth its own test because the guard sits in the loop that builds every
++    layer's plan: a predicate that returned True too broadly would empty
++    `.claude/commands/` entirely, and the collision test above would still pass —
++    it only ever asserts a file is absent.
++    """
++    import os
++    (bundle / "agents" / "commands" / "plain-command.md").write_text("Body.\n")
++
++    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
++    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
++    assert result.exit_code == 0
++    assert (repo_root / ".claude" / "commands" / "plain-command.md").exists()
++
++
++def test_bob_keeps_the_wrapper_for_a_mirrored_skill(
++    bundle: Path, agent_dir: Path, declared_mirror: None
++) -> None:
++    """Only the layer that got the mirror drops the wrapper.
++
++    bob gets no `.claude/skills` mirror, so for bob the wrapper is not redundant
++    — it is the route. And for `i-have-adhd` it is the only working one: the
++    skills copy is a `copytree` that never reaches `_copy_command_for_bob`, so
++    `.bob/skills/i-have-adhd/SKILL.md` keeps upstream's
++    `disable-model-invocation`, which cli.py records as making Bob Shell skip
++    model invocation entirely — the body never executes.
++
++    This is the test that fails if someone "simplifies" the suppression by
++    deleting the seven wrappers from the bundle instead. Three reviewers found
++    that regression by reading the diff; nothing in the suite caught it.
++    """
++    import os
++    native = bundle / "agents" / "skills" / "native-skill"
++    native.mkdir(parents=True)
++    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
++    (bundle / "agents" / "commands" / "native-skill.md").write_text(
++        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
++    )
++
++    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
++    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
++    assert result.exit_code == 0
++    wrapper = repo_root / ".bob" / "commands" / "native-skill.md"
++    assert wrapper.exists()
++    assert "disable-model-invocation" not in wrapper.read_text()
++
++
+ def test_installed_tree_is_never_a_mirror_source(
+     agent_dir: Path, declared_mirror: None
+ ) -> None:
+diff --git a/tests/test_skill_cross_references.py b/tests/test_skill_cross_references.py
+index 35fb3d3..925b6c2 100644
+--- a/tests/test_skill_cross_references.py
++++ b/tests/test_skill_cross_references.py
+@@ -42,18 +42,35 @@ def test_every_referenced_skill_ships() -> None:
+ 
+ def test_the_output_style_skills_are_both_loaded_at_session_start() -> None:
+     """`i-have-adhd` sets length, `conversation-response-shape` sets order and
+-    depth. Neither is model-invocable, so nothing else turns them on — dropping
++    depth. Both have to be on from turn 0 and nothing else turns them on there —
++    `i-have-adhd` carries upstream's `disable-model-invocation`, and the other is
++    model-invocable but only once a turn has already been shaped wrong. Dropping
+     either from step 1 disables it for every session, quietly."""
+     start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
+     loaded = set(_REFERENCE.findall(start))
+     assert {"i-have-adhd", "conversation-response-shape"} <= loaded
+ 
+ 
+-def test_each_output_style_skill_has_a_command_wrapper() -> None:
+-    """The wrapper is the only way to turn one back on mid-session, after a
+-    session that started without `/start-session` or said "stop adhd mode"."""
++def test_each_output_style_skill_is_typeable_on_every_layer() -> None:
++    """Turning one back on mid-session — after a session that started without
++    `/start-session`, or said "stop adhd mode" — is a human typing its name, so
++    every layer needs a route to it.
++
++    Two routes, because no single one covers every layer, which is the thing
++    #170's first fix got wrong. The wrapper is the route wherever no mirror
++    exists, and for bob it is the only working route to `i-have-adhd`:
++    `.bob/skills/` gets upstream's `disable-model-invocation` verbatim and
++    `.bob/commands/` gets it stripped. The mirror is the route on the layer that
++    has one, where the wrapper is suppressed as a collision.
++
++    Both halves asserted, because either alone stays green through the change
++    that removes the other.
++    """
++    from wfctl.cli import _MIRRORED_SKILLS
++
+     for name in ("i-have-adhd", "conversation-response-shape"):
+         assert (_AGENTS / "commands" / f"{name}.md").exists(), name
++        assert name in _MIRRORED_SKILLS, name
+ 
+ 
+ def test_start_session_loads_the_in_force_set() -> None:
+diff --git a/wfctl/cli.py b/wfctl/cli.py
+index 33941bc..9c7f876 100644
+--- a/wfctl/cli.py
++++ b/wfctl/cli.py
+@@ -1274,6 +1274,10 @@ def _restore_hint(layers: Iterable[str]) -> str:
+ # SKILL.md. A file-level mark cannot cover a vendored skill — the next upstream
+ # pull drops whatever we added — and it put authority over a layer's contents in
+ # the files instead of the installer that owns them (`layer-model`).
++#
++# A name here also suppresses `<name>.md` from the *mirroring layer's* command
++# directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
++# every other layer still gets it.
+ _MIRRORED_SKILLS = frozenset({
+     "architecture-decisions",
+     "conversation-response-shape",
+@@ -1282,8 +1286,9 @@ _MIRRORED_SKILLS = frozenset({
+     "i-have-adhd",
+     # Removing this entry restores #124 rather than trimming a list: the skill
+     # still ships and still installs, and the only remaining way to reach it is
+-    # a human typing the command wrapper — which is the failure it was written
+-    # for. Nothing else in the tree says the skill has to be discoverable.
++    # a human typing its name — which is the failure it was written for. Nothing
++    # else in the tree says the skill has to be discoverable, and the wrapper
++    # that used to carry the typed route has to be written back with it.
+     "opening-a-change",
+     "receiving-code-review",
+     "using-superpowers",
+@@ -1368,6 +1373,37 @@ _AGENT_SKILL_EXTRAS = {
+ }
+ 
+ 
++def _mirror_supersedes_wrapper(agent: str, src_rel: str, item: Path) -> bool:
++    """Whether this agent's own command layer should skip `item`, because the
++    mirror already put the same name on its native discovery path.
++
++    Both files claim one `/name`. Claude Code documents the skill as winning that
++    tie; a session on 2026-09-04 got the wrapper instead, and its
++    `disable-model-invocation` refused the Skill tool for the very skill the
++    wrapper points at — while another session the same day, same machine, got the
++    skill and ran it (#170). Which one wins is not wfctl's to set, so the fix is
++    to stop shipping the tie into the layer that has both.
++
++    Suppressed per layer, never from the bundle, and that distinction is the
++    whole correctness of this function. The wrapper is one file whose body is
++    "read the sibling skill", and it is still the only typed route for a layer
++    that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
++    `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
++    body". Deleting the wrapper from the bundle instead would hand bob the
++    vendored `i-have-adhd` skill with that key intact and no stripped copy left
++    to reach it: a Claude-shaped argument taking out a layer it never described.
++
++    Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
++    what makes a wrapper redundant is that this agent got the mirror, not its
++    name. An agent added to that table later inherits the suppression with it.
++    """
++    return (
++        src_rel == "agents/commands"
++        and agent in _AGENT_SKILL_EXTRAS
++        and item.stem in _MIRRORED_SKILLS
++    )
++
++
+ def _read_settings(path: Path) -> tuple[dict | None, str | None]:
+     """Parse a consumer-owned settings file. `(settings, problem)`.
+ 
+@@ -1932,6 +1968,8 @@ def install_skills_cmd(
+             )
+             continue
+         for item in src.iterdir():
++            if layer == agent and _mirror_supersedes_wrapper(agent, src_rel, item):
++                continue
+             dest = dst / item.name
+             rel_dest = str(dest.relative_to(repo_root))
+             plan.append((layer, kind, rel_dest, dest, item))
+@@ -3172,11 +3210,18 @@ def _scanned_dirs(manifest: dict) -> tuple[str, ...]:
+     agent roots — `.claude/`, `.bob/`, `.github/` — stay out with one exception.
+     They are the user's own directories; a slash command someone authored there
+     is not wfctl's abandoned output. Keeping them out costs nothing for a plain
+-    `_AGENT_TARGETS` entry, because every one of those copies a base source whole:
++    `_AGENT_TARGETS` entry, because the base source is copied whole *somewhere*:
+     the rename that orphans `.claude/commands/old.md` orphans
+     `.agents/commands/old.md` alongside it, and the base layer's copy is scanned.
+     The real case is caught without reaching into shared ground.
+ 
++    `_mirror_supersedes_wrapper` skips names inside one of those copies and does
++    not weaken that: what it skips still ships to the base layer, so the scanned
++    twin is exactly where the argument above already looks for it. A name it
++    suppresses leaves `.claude/commands/<name>.md` behind on the install that
++    adds it, and that one is caught as a recorded path this wfctl no longer
++    ships — the other half of doctor, not this scan.
++
+     `.claude/skills` is the exception because it is a *selective* mirror — only
+     the skills `_MIRRORED_SKILLS` names — so its orphans have no twin under
+     `.agents/`. Dropping a name from that set leaves `.agents/skills/<name>`

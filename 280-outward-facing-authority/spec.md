@@ -5,6 +5,22 @@
 **Status**: Draft
 **Input**: Issue #280 — nothing grants per-feature authority for notifying actions. Pre-specify design context loaded from `design.md`.
 
+## Summary
+
+wfctl can carry a piece of work forward on its own, with nobody watching. Some of
+what it might do reaches people outside the repository — opening an issue,
+commenting on one, pushing a branch. Those cannot be taken back: once someone has
+been told, they have been told.
+
+Nothing today decides whether a given piece of work is allowed to do that, so
+wfctl must either ask a person every time or act unasked. This feature adds an
+answer, set in advance by a person, for one piece of work at a time: allowed, or
+not. *Not* is the default, and stays the answer whenever the setting cannot be
+read. A run that was allowed says afterwards what it did with the permission.
+
+A third group of actions — merging, closing an issue, deleting a branch — stays
+off-limits to everyone. No permission reaches it.
+
 ## Clarifications
 
 ### Session 2026-09-07
@@ -94,8 +110,9 @@ for want of a grant.
 
 ### Edge Cases
 
-- **The grant is unreadable** — corrupt file, invalid UTF-8, a JSON scalar where
-  an object was expected. Reads as refused, and says the value was unreadable
+- **The grant is unreadable** — the stored answer is damaged or has the wrong
+  shape (corrupt file, invalid UTF-8, a JSON scalar where an object was
+  expected). Reads as refused, and says the value was unreadable
   rather than printing the ordinary refused line. The existing per-feature mode
   sets the precedent for failing closed; it does not set one for failing
   silently.
@@ -122,8 +139,9 @@ for want of a grant.
 - **FR-003**: `wfctl status` MUST print a line in the refused state as well as
   the granted state, so that refusal is distinguishable from a wfctl that has no
   concept of a grant.
-- **FR-004**: The status payload MUST carry the grant key present-and-false
-  rather than omitting it when refused.
+- **FR-004**: When authority is refused, the machine-readable status MUST say so
+  outright rather than leaving the answer out. A tool that reads it can then tell
+  *refused* apart from *this version of wfctl has never heard of grants*.
 - **FR-005**: The recorded grant MUST carry its source, not only a boolean, so
   the granted line can name where the authority came from.
 - **FR-006**: Writing the grant MUST NOT overwrite other values held alongside it.

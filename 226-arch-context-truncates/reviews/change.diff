@@ -1,0 +1,251 @@
+diff --git a/tests/test_arch_records.py b/tests/test_arch_records.py
+index 8e25290..ad4a648 100644
+--- a/tests/test_arch_records.py
++++ b/tests/test_arch_records.py
+@@ -506,3 +506,96 @@ def test_a_fenced_decision_heading_is_not_the_decision(tmp_path: Path) -> None:
+     text = _arch.decision_text(_arch.parse_record(path))
+ 
+     assert text == "Records are MADR-simple with an added ownership field."
++
++
++# --- the dangling colon (#226) ----------------------------------------------
++
++
++def test_a_decision_ending_in_a_colon_carries_the_block_it_points_at(tmp_path: Path) -> None:
++    """A projected decision that ends in `:` promises content, and before #226
++    the promise went unkept: `knowledge-placement` announced a scope mapping and
++    printed none of it. The colon is the whole signal — see the sibling test for
++    why a following block alone is not."""
++    path = _write(tmp_path, "carries", RECORD.format(status="accepted") + (
++        "\n## Decision\n\nThe agent is taken from the environment:\n\n"
++        "```\n${WFCTL_AGENT:+--agent \"$WFCTL_AGENT\"}\n```\n\nAnd then prose.\n"
++    ))
++
++    text = _arch.decision_text(_arch.parse_record(path))
++
++    assert text == (
++        "The agent is taken from the environment:\n\n"
++        "```\n${WFCTL_AGENT:+--agent \"$WFCTL_AGENT\"}\n```"
++    )
++
++
++def test_a_decision_that_stands_on_its_own_leaves_the_block_below_it(tmp_path: Path) -> None:
++    """`layer-model` opens with a self-contained constraint and follows it with a
++    four-row table. It projects correctly today, which is why "first paragraph
++    followed by a block" is the wrong signal and the colon is the right one — the
++    heuristic would have a false positive on the day it shipped."""
++    path = _write(tmp_path, "stands", RECORD.format(status="accepted") + (
++        "\n## Decision\n\nEvery dotted directory at the repo root is generated.\n\n"
++        "| Path | Owner |\n| --- | --- |\n| `.agents/` | the installer |\n"
++    ))
++
++    assert _arch.decision_text(_arch.parse_record(path)) == (
++        "Every dotted directory at the repo root is generated."
++    )
++
++
++def test_a_colon_pointing_at_prose_carries_nothing(tmp_path: Path) -> None:
++    """The colon check would be untriggerable if any following block counted.
++    Stripping `knowledge-placement`'s drawing left its next paragraph one line
++    below the colon, an earlier draft carried that, and the corpus check went
++    green over a record whose mapping was gone. A colon followed by a sentence
++    is one sentence continued; only a drawing or a table is content the
++    paragraph could not hold."""
++    path = _write(tmp_path, "prose", RECORD.format(status="accepted") + (
++        "\n## Decision\n\nPlacement is decided by what is constrained:\n\n"
++        "The exception is ownership.\n"
++    ))
++
++    assert _arch.decision_text(_arch.parse_record(path)) == (
++        "Placement is decided by what is constrained:"
++    )
++
++
++def test_a_decision_ending_in_a_colon_carries_a_table_too(tmp_path: Path) -> None:
++    """Fences and tables are the two shapes a record uses for content a sentence
++    cannot hold — `no-hardcoded-agent` has both. A fence-only rule would leave a
++    future record's table dangling, and the corpus check would report it as a
++    defect in the record rather than the gap here that it is."""
++    path = _write(tmp_path, "tabled", RECORD.format(status="accepted") + (
++        "\n## Decision\n\nThe agent key is filled only from a real choice:\n\n"
++        "| Known | Written |\n| --- | --- |\n| `--agent` passed | that agent |\n"
++        "\nCommented out is the fallback.\n"
++    ))
++
++    assert _arch.decision_text(_arch.parse_record(path)) == (
++        "The agent key is filled only from a real choice:\n\n"
++        "| Known | Written |\n| --- | --- |\n| `--agent` passed | that agent |"
++    )
++
++
++def test_no_in_force_record_projects_a_decision_ending_in_a_colon() -> None:
++    """The half of #226's rule that is checkable at all. `arch context` is the one
++    channel a decision reaches a session through before the mistake rather than
++    after, and a record that projects a colon there has told the reader something
++    follows when nothing does.
++
++    Deliberately not checked, and not a gap to close later: a record that buries
++    its decision below a *grammatical* first paragraph — `install-modes` names
++    three modes and never says which three, `vendor-upstream-skills` projects a
++    terminology note above the rule. Nothing in the artifact distinguishes those
++    from a record whose lead sentence genuinely is the decision, and
++    `a-rule-is-expressed-as-a-check` decides that case: a rule whose violation is
++    invisible in what the work already produces stays prose."""
++    root = Path(__file__).resolve().parent.parent / "docs" / "architecture"
++
++    dangling = [
++        r.slug for r in _arch.in_force(_arch.load_records(root))
++        if _arch.decision_text(r).rstrip().endswith(":")
++    ]
++
++    assert dangling == []
+diff --git a/wfctl/_arch.py b/wfctl/_arch.py
+index 6051cfa..3993719 100644
+--- a/wfctl/_arch.py
++++ b/wfctl/_arch.py
+@@ -203,17 +203,41 @@ def in_force(records: list[Record]) -> list[Record]:
+ 
+ 
+ def decision_text(record: Record) -> str:
+-    """The first paragraph of a record's `## Decision` section, or "".
+-
+-    The projection shows what was decided, not the record. First paragraph and
+-    not the whole section because the template asks for "one or two sentences"
+-    and a record that writes more has its reasoning under `Context` and
+-    `Considered` — printing all of it at session start buries the ten records
+-    around it.
+-
+-    Fenced examples are skipped, via the same scanner `_log_bounds` uses: a
+-    record documenting the record format contains a fenced `## Decision`, and
+-    projecting that example would put template text in the contract.
++    """A record's `## Decision` as the projection prints it, or "".
++
++    The first paragraph, plus — when that paragraph ends in a colon — the
++    verbatim block it points at. A colon is a promise the paragraph does not
++    keep alone: `knowledge-placement` announces a scope mapping and
++    `no-hardcoded-agent` an expansion, and each puts the thing announced in a
++    drawing below rather than in the sentence (#226). Not the whole section:
++    projecting that takes `arch context` from 52 lines to 245 and buries the
++    records around each one.
++
++    The colon is the signal and the following block is not. `layer-model` opens
++    with a constraint that stands on its own and follows it with a four-row
++    table, so "paragraph followed by a block" is a heuristic with a false
++    positive in the corpus it ships against.
++
++    A record whose lead paragraph is grammatical but incomplete is out of reach
++    here, and stays that way. `install-modes` names three modes without saying
++    which three; `vendor-upstream-skills` leads with a terminology note and puts
++    the attribution rule below it. Nothing in the artifact separates those from
++    a record whose lead sentence genuinely is the decision, and
++    `a-rule-is-expressed-as-a-check` decides that case: a rule whose violation is
++    invisible in what the work already produces stays prose.
++    `the-underscore-is-the-module-contract` is the same shape and was filed as
++    the latent case of #226 — its lead sentence ends in a period, so accepting
++    it projects a decision without the executable-check rule it exists to state.
++    That is a record to edit while it is still `proposed`, not a case for here.
++
++    The paragraph stops at a blank line, a heading, or a fence delimiter, the
++    last so that a Decision opening on a code example does not project the
++    example as the decision. That stop reads the raw line and does not go
++    through `_unfenced`, which answers a different question — whether a line
++    sits inside a fence, not whether the paragraph ended at one. The heading
++    scan above is what needs `_unfenced`: a record documenting the record format
++    carries a fenced `## Decision` example, and matching it would project
++    template text as the contract.
+ 
+     Reads `record.body` — `parse_record` already read the file, and a second
+     read here would be a second copy of its unreadable-file policy.
+@@ -227,17 +251,20 @@ def decision_text(record: Record) -> str:
+     for i, stripped in _unfenced(lines):
+         if stripped.lower() != "## decision":
+             continue
+-        after = dropwhile(lambda ln: not ln.strip(), lines[i + 1 :])
+-        # Stops at a fence as well as a heading: a record whose Decision opens
+-        # with a code example would otherwise project the example as the
+-        # decision, which is the same failure `_unfenced` prevents one line up.
+-        para = takewhile(
++        after = list(dropwhile(lambda ln: not ln.strip(), lines[i + 1 :]))
++        para = list(takewhile(
+             lambda ln: ln.strip()
+             and not ln.startswith("#")
+             and ln.strip()[:3] not in ("```", "~~~"),
+             after,
+-        )
+-        return " ".join(ln.strip() for ln in para)
++        ))
++        text = " ".join(ln.strip() for ln in para)
++        if not text.endswith(":"):
++            return text
++        block = _pointed_at(after[len(para) :])
++        if not block:
++            return text
++        return text + "\n\n" + "\n".join(block)
+     return ""
+ 
+ 
+@@ -250,6 +277,37 @@ def excluded_by_status(records: list[Record]) -> Counter[str]:
+     return Counter(r.status for r in records if not r.in_force)
+ 
+ 
++def _pointed_at(lines: list[str]) -> list[str]:
++    """The block a dangling colon points at, given the lines below a paragraph.
++
++    Verbatim and unjoined, fence delimiters kept. `knowledge-placement`'s
++    mapping is aligned columns, so reflowing it into the sentence is the same
++    loss as dropping it, and the fence is what tells the printer not to.
++
++    A fence or a table, and nothing else. Prose after a colon is ordinary
++    English — "decided by scope, then by what is constrained: the exception is
++    ownership" reads as one sentence continued, and carrying it would both
++    project a paragraph the colon never promised and leave the colon check with
++    almost no way to fail. What the colon cannot say in a sentence is a drawing
++    or a table; that is the whole of what is carried.
++
++    Empty otherwise, and that is the finding: the paragraph still ends in a
++    colon, so the corpus check fires rather than inventing a block.
++    """
++    rest = list(dropwhile(lambda ln: not ln.strip(), lines))
++    if not rest:
++        return []
++    fence = rest[0].strip()[:3]
++    if fence in ("```", "~~~"):
++        body = takewhile(lambda ln: not ln.strip().startswith(fence), rest[1:])
++        # The closer is re-emitted rather than taken from the input: a record
++        # whose fence runs to end of file would otherwise project an unclosed one.
++        return [rest[0], *body, fence]
++    if rest[0].lstrip().startswith("|"):
++        return list(takewhile(lambda ln: ln.lstrip().startswith("|"), rest))
++    return []
++
++
+ def _unfenced(lines: list[str]) -> Iterator[tuple[int, str]]:
+     """`(index, stripped line)` for every line outside a fenced code block.
+ 
+diff --git a/wfctl/cli.py b/wfctl/cli.py
+index 65f0cbe..8432f75 100644
+--- a/wfctl/cli.py
++++ b/wfctl/cli.py
+@@ -790,14 +790,21 @@ def arch_context_cmd() -> None:
+             console.print(escape(record.slug))
+             decision = _arch.decision_text(record)
+             if decision:
++                paragraph, _, block = decision.partition("\n\n")
+                 # Wrapped here rather than left to rich, which re-wraps at the
+                 # terminal edge and drops the indent on continuation lines — the
+                 # second line of one decision then lines up with the next slug.
+                 # break_on_hyphens=False keeps "re-derivation" in one piece.
+                 console.print(escape(textwrap.fill(
+-                    decision, 74, initial_indent="  ", subsequent_indent="  ",
++                    paragraph, 74, initial_indent="  ", subsequent_indent="  ",
+                     break_on_hyphens=False,
+                 )))
++                if block:
++                    # What a dangling colon points at is a drawing or a table
++                    # (#226), and filling it would reflow the alignment that is
++                    # its content. Indented to the paragraph, otherwise as read.
++                    console.print()
++                    console.print(escape(textwrap.indent(block, "  ")))
+             console.print()
+     else:
+         console.print("# Architectural contract — no accepted decisions\n")

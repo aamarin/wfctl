@@ -1,0 +1,76 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 16250ab..ed3f845 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -126,8 +126,12 @@ The ruff rule set is deliberately narrow — `E4`, `E7`, `E9`, `F`. `I`, `UP`,
+ `PL` and `RUF` are each defensible and each their own reviewable diff (#14). Do
+ not enable them as a drive-by.
+ 
+-mypy runs with `disallow_untyped_defs` but **not** `strict`; the 26 findings
+-strict adds are one shape and tracked separately. Annotate new functions.
++mypy runs with `disallow_untyped_defs` but **not** `strict`. What strict adds
++here is two shapes: `type-arg`, on annotations that say `dict` where they mean
++`dict[str, str]`, and `no-any-return`, where a function declares a return type
++and hands back whatever `json.loads` produced. Neither is tracked as an issue,
++and no number is written down here on purpose — `uv run mypy --strict wfctl/`
++is the count, and it drifts with every file added. Annotate new functions.
+ 
+ Comments inform the next reader of the file; they do not narrate the change to a
+ reviewer. If a comment only makes sense beside the diff, it belongs in the commit
+diff --git a/tests/test_key_pattern.py b/tests/test_key_pattern.py
+index a243fd2..f12a859 100644
+--- a/tests/test_key_pattern.py
++++ b/tests/test_key_pattern.py
+@@ -10,7 +10,7 @@ from wfctl._paths import DEFAULT_KEY_PATTERN, extract_issue_key, resolve_spec_di
+ from wfctl._tracker import load_key_pattern
+ 
+ 
+-def _configure_key_pattern(repo_root: Path, pattern: str) -> None:
++def _configure_key_pattern(repo_root: Path, pattern: object) -> None:
+     tdir = repo_root / ".agents" / "trackers"
+     tdir.mkdir(parents=True, exist_ok=True)
+     (tdir / "custom.json").write_text(json.dumps({"key_pattern": pattern, "verbs": {}}))
+@@ -70,6 +70,18 @@ def test_load_uncompilable_falls_back(tmp_path: Path) -> None:
+     assert load_key_pattern(tmp_path) == DEFAULT_KEY_PATTERN
+ 
+ 
++@pytest.mark.parametrize("pattern", [123, ["a"], {"x": 1}, True])
++def test_load_non_string_falls_back(tmp_path: Path, pattern: object) -> None:
++    """A non-string key_pattern degrades like every other bad value.
++
++    re.compile raises TypeError rather than re.error for these, which the
++    `except re.error` alone never caught: the whole call raised and the
++    docstring's promise that key resolution never fails was false (#249).
++    """
++    _configure_key_pattern(tmp_path, pattern)
++    assert load_key_pattern(tmp_path) == DEFAULT_KEY_PATTERN
++
++
+ # --- resolve_spec_dir end-to-end ----------------------------------------------
+ 
+ def test_resolve_spec_dir_custom_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+diff --git a/wfctl/_tracker.py b/wfctl/_tracker.py
+index c57d517..9be6b7b 100644
+--- a/wfctl/_tracker.py
++++ b/wfctl/_tracker.py
+@@ -129,7 +129,7 @@ def load_key_pattern(repo_root: Path) -> str:
+     """Return the active tracker's issue-key regex, or the default.
+ 
+     Degrades to DEFAULT_KEY_PATTERN when no tracker is configured, its config is
+-    missing/invalid, the field is absent, or the value won't compile — key
++    missing/invalid, the field is absent, isn't a string, or won't compile — key
+     resolution must never fail because a tracker step couldn't run.
+     """
+     from wfctl._paths import DEFAULT_KEY_PATTERN
+@@ -139,7 +139,10 @@ def load_key_pattern(repo_root: Path) -> str:
+         return DEFAULT_KEY_PATTERN
+     config = _load_tracker_config(repo_root, name)
+     pattern = (config or {}).get("key_pattern")
+-    if not pattern:
++    # A config is JSON, so this is whatever the author typed. `re.compile`
++    # answers a non-string with TypeError, not re.error, so the type is checked
++    # here rather than caught below — the same shape `validate_config` reports.
++    if not isinstance(pattern, str) or not pattern:
+         return DEFAULT_KEY_PATTERN
+     try:
+         re.compile(pattern)
