@@ -318,6 +318,7 @@ answer rather than the one that was asked:
 |---|---|
 | a set split in two | two columns, counts in the headers |
 | one source, several destinations | a fan-out, annotations hanging right |
+| a chain whose destinations fan out again | a nested tree, each level indented under its caller |
 | a value and what it causes | the value, then `└─►` the consequence |
 | a sequence with exits | a flow, exits hanging off the step that takes them |
 | rows against columns | a table |
