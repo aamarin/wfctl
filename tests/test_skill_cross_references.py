@@ -165,6 +165,33 @@ def test_the_design_method_skill_is_model_invocable() -> None:
     assert "disable-model-invocation" not in front
 
 
+def test_the_no_boundary_exit_names_its_command() -> None:
+    """Level 2 has three exits and only one of them wrote anything. "A boundary
+    was proposed" hands off to `architecture-decisions` and a record lands;
+    "missing evidence" stops, and stopping with the gate up is correct. The
+    middle exit was prose — the agent declared "no boundary drawn, no record",
+    descended, and nothing on disk had changed.
+
+    That is not a cosmetic gap, because the declaration is what the design gate
+    reads. `boundary_block` asks `touched_on_this_branch` about the whole arch
+    root excluding `design/`, so `declarations/<branch>.md` satisfies it exactly
+    as a record does. Declared only out loud, the step stays `in_progress` with a
+    reason the author has no way to connect to the answer they just gave.
+
+    `test_brainstorm_allows_the_commands_its_records_need` is the near miss: it
+    pins the command into the wrapper's ceiling, which proves the wrapper may run
+    it and not that any skill tells anyone to. `design-levels` says of itself
+    that it "fires outside `/speckit.brainstorm` as often as inside it", and that
+    is the run this test is written for.
+
+    Both files, because each names the exit in its own voice and either one alone
+    leaves an agent that read the other with nothing to run.
+    """
+    for skill in ("design-levels", "architecture-design"):
+        text = (_AGENTS / "skills" / skill / "SKILL.md").read_text()
+        assert "wfctl arch none" in text, skill
+
+
 def test_the_design_record_template_ships_beside_its_skill() -> None:
     """The level-3 counterpart of the ADR pair, and the half that shipped alone.
 
@@ -235,8 +262,9 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     that — "a declared absence is an answer; silence is not" — and the
     declaration is that command. Without it the only level-2 answer brainstorm
     could give was a record, so a change the skill explicitly excludes from
-    needing one had no way to finish the step. This command is also the only
-    place in the shipped tree that names `wfctl arch none` at all.
+    needing one had no way to finish the step. It was for a long time the only
+    place in the shipped tree that named `wfctl arch none` at all —
+    `test_the_no_boundary_exit_names_its_command` is why that is no longer true.
 
     `wfctl arch context` is the second, and it arrived with the level-2 route to
     `architecture-design` (#151). That skill reads the in-force set through this

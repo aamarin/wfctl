@@ -54,8 +54,11 @@ itself an architecture question. Neither is smallness: the test is whether a
 boundary moves, and a two-line change can move one.
 
 If the change is local and preserves every existing boundary and contract,
-declare **no record** and return to `design-levels`. A declared absence is the
-result; do not manufacture a boundary to complete the method.
+declare **no record** with `wfctl arch none --reason "<why>"` and return to
+`design-levels`. A declared absence is the result; do not manufacture a boundary
+to complete the method. The command is how the absence becomes an artifact a
+reviewer opens and the design gate can read — saying it in the transcript leaves
+the gate exactly where it was.
 
 ## Authority
 
@@ -256,8 +259,9 @@ recommended decision and why
 
 Then do exactly one of the following:
 
-- If no boundary was drawn or moved, declare **no record** and return to
-  `design-levels`.
+- If no boundary was drawn or moved, run `wfctl arch none --reason "<why>"` and
+  return to `design-levels`. The reason is the whole artifact — it is what a
+  reviewer disagrees with — so a placeholder is refused.
 - If evidence is missing, name what must be checked and stop. Ask the human
   rather than proceeding on the weaker evidence.
 - If a boundary is proposed, invoke `.agents/skills/architecture-decisions` and

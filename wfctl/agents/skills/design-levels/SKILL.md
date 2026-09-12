@@ -142,8 +142,21 @@ decision, under the root `wfctl arch-root` names. Now, while the answer is being
 given — not once the design settles, by which time the record describes whatever
 got built.
 
-If the level introduced no boundary, declare that — "no boundary drawn, no
-record" — and descend. A declared absence is an answer; silence is not.
+If the level introduced no boundary, declare that and descend. A declared absence
+is an answer; silence is not — and the declaration is a command, not a sentence
+in the transcript:
+
+```bash
+wfctl arch none --reason "<what changed, or why nothing did>"
+```
+
+It writes `declarations/<branch>.md` under `wfctl arch-root`, and that file is
+what the design gate reads: the gate counts any path under the root outside
+`design/`, so the record arm and this arm satisfy it the same way. Declared only
+out loud, the gate stays unsatisfied, `wfctl status` holds the design step at
+`in_progress`, and the reason it prints does not look connected to the answer you
+just gave. A placeholder reason is refused, which is the point — a reviewer
+cannot disagree with `<why>`.
 
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 
