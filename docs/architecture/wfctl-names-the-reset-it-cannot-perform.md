@@ -57,11 +57,19 @@ workmux-managed pane can be sent `/clear` and then `/start-session`; a run
 without one prints the instruction and waits for a person. The baseline is not
 replaced — it is the floor that the sent form rises above where a pane exists.
 
+**The sent form was refused after this was written** — see *The performer cannot
+be summoned by the agent either* below. What survives is the first sentence; the
+performer is a supervisor outside the run or a person, never the agent.
+
 ## Owns truth
 
-wfctl owns "should this run recycle now, and what exactly performs the cycle?".
-It does not own "the window is now empty" — the harness does, and only a
-keystroke at its prompt makes that true.
+wfctl owns "what exactly performs the cycle?". Whether this run should recycle
+now is the sibling record's — `wfctl-owns-the-recycle-verdict` — and claiming it
+here too would give one fact two homes, which `knowledge-placement` rules out at
+its line 36: "A fact with two homes has no owner."
+
+wfctl does not own "the window is now empty" either — the harness does, and only
+a keystroke at its prompt makes that true.
 
 The agent cannot own the reset: verified above, it is refused the command by
 name. wfctl cannot own it either, and for a reason worth stating as a
@@ -153,9 +161,17 @@ from one that silently never recycled.
 - 2026-09-11  proposed    — #188: the reset was the open question; the harness
   refuses it to the agent and wfctl declines it by construction, so the
   performer is a third party and the decision is to name one.
-- 2026-09-11  rejected    — #188 closed. The decision was right and its
-  performer turned out not to exist: the permission classifier refuses an
+- 2026-09-11  rejected    — #188 closed as completed by `aamarin`, on the design
+  pass's recommendation rather than for lack of work. The decision was right and
+  its performer turned out not to exist: the permission classifier refuses an
   agent authoring pane-driving automation at all, not merely self-targeted
   automation, and every remaining mechanism is Claude Code specific. The hook
-  moves to the developer's own agent layer, which `no-hardcoded-agent` already
-  required independently.
+  moves to the developer's own agent layer, which `install-modes` already
+  requires independently — its line 60 puts a hook schema that "belongs to
+  Claude Code, not to wfctl's base layer" in the agent layer, which is this case
+  exactly. (`no-hardcoded-agent` agrees but decides a narrower question: which
+  agent a committed flag may name, not where an agent-specific mechanism lives.)
+- 2026-09-11  amended     — `Decision` asserted a performer the appended section
+  refutes, with no pointer between them; a forward reference now sits in the
+  `Decision`. `Owns truth` claimed the sibling record's question as well as its
+  own and was narrowed to the performer half.
