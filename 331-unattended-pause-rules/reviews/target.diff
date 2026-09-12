@@ -1,0 +1,652 @@
+diff --git a/tests/test_unattended_pause_rules.py b/tests/test_unattended_pause_rules.py
+new file mode 100644
+index 0000000..929c5f0
+--- /dev/null
++++ b/tests/test_unattended_pause_rules.py
+@@ -0,0 +1,264 @@
++"""What `clarify` and `analyze` do at an interactive pause nobody answers (#331).
++
++`speckit.brainstorm.md` has carried a table of its skill's pauses since #283.
++Neither review wrapper had one, and #325 flipped both steps to automatic — so an
++unattended run entered each command and decided for itself what a pause meant.
++The #299 run got past `analyze`'s remediation offer that way: an agent judged
++that acting was fine, and no rule said so.
++
++Two of these tests are cross-file rather than textual, which is the distinction
++this module is built on. A table that *names* an upstream pause is worth nothing
++if the pause it names no longer reads that way after an upstream pull — the
++wrapper would go on describing a question the skill stopped asking, and
++`vendor-upstream-skills` guarantees that pull lands with no conflict to notice.
++So the pause quotes are matched against the skill they claim to quote.
++
++The rest assert prose, and are the weaker kind on purpose: what they hold is a
++decision whose loss is silent. #335 is where these rules become observed rather
++than stated — the counts and the recorded basis both land in the scan file, which
++is the yes side of `a-rule-is-expressed-as-a-check`.
++"""
++
++from __future__ import annotations
++
++import re
++from importlib.resources import files
++from pathlib import Path
++
++import pytest
++
++# The real shipped tree, for `test_skill_cross_references`' reason: conftest's
++# autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake one.
++_AGENTS = Path(str(files("wfctl"))) / "agents"
++
++_REVIEW_WRAPPERS = ("clarify", "analyze")
++
++# The heading both wrappers put the rules under. One string because two files
++# spelling it differently is how a reader stops finding the second one.
++_HEADING = "## When nobody answers"
++
++
++def _wrapper(step: str) -> str:
++    return (_AGENTS / "commands" / f"speckit.{step}.md").read_text()
++
++
++def _skill(step: str) -> str:
++    return (_AGENTS / "skills" / f"speckit-{step}" / "SKILL.md").read_text()
++
++
++def _section(step: str) -> str:
++    """The rules section alone, cut at the next same-level heading.
++
++    Cutting at `\\n## ` rather than taking the rest of the file matters: both
++    wrappers carry a scan-file section afterwards that also talks about step 8
++    and about `Accepted`, and a test reading to end-of-file would pass on
++    sentences this section never carried.
++    """
++    return _wrapper(step).split(_HEADING)[1].split("\n## ")[0]
++
++
++def _flowed(text: str) -> str:
++    return " ".join(text.split())
++
++
++def _section_shape(step: str) -> str:
++    """The copyable block under `**Section shape**:` — what an agent writes from.
++
++    Not reached through `_section`, and not by cutting at the next `## ` either:
++    the block's own first line is `## Session YYYY-MM-DD`, so a same-level cut
++    lands inside the thing being read. The three tests below are about that
++    template rather than about prose, because a rule whose template cannot hold
++    it is what an unattended run actually hit.
++    """
++    return _wrapper(step).split("**Section shape**")[1].split("```markdown")[1].split("```")[0]
++
++
++def _pause_rows(step: str) -> list[str]:
++    """The table's body rows — the header and the `|---|` separator dropped."""
++    rows = [ln for ln in _section(step).splitlines() if ln.startswith("|")]
++    return [ln for ln in rows[1:] if not ln.startswith("|---")]
++
++
++@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
++def test_each_review_wrapper_carries_a_table_of_its_skills_pauses(step: str) -> None:
++    """The shape #331 asked for, and the one thing a reader looks for first.
++
++    Asserted as a table rather than as prose because the two columns are the
++    content: a pause with no stated resolution, and a resolution attached to no
++    pause, are both things a paragraph can say and a row cannot.
++    """
++    assert _HEADING in _wrapper(step)
++    assert len(_pause_rows(step)) >= 3, "a pause the table does not name is one nobody governs"
++
++
++@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
++def test_every_pause_the_table_quotes_is_one_the_skill_still_asks(step: str) -> None:
++    """The check with teeth here, and the only one an upstream pull can fail.
++
++    Both skills are `github/spec-kit`-derived and are replaced wholesale on the
++    next pull (`vendor-upstream-skills`). A reworded step 8 leaves this wrapper
++    governing a question nobody asks any more, and the wrapper reads exactly as
++    correct as it did the day before — there is no conflict, because nothing
++    edited the wrapper.
++
++    Every quote is checked, not a sampled one: the row that goes stale is the row
++    whose wording upstream found worth changing.
++    """
++    skill = _skill(step)
++    quoted = [q for row in _pause_rows(step) for q in re.findall(r'\*"([^"]+)"\*', row)]
++
++    assert quoted, "the table names no upstream pause by its own words"
++    for quote in quoted:
++        assert quote in skill, f"speckit-{step} no longer says {quote!r}"
++
++
++def test_the_clarify_rule_takes_the_answer_step_4_already_computed() -> None:
++    """#331 asked how the recommendation relates to the answer taken; this is it.
++
++    The alternative shapes were deferring the question or deriving a fresh answer
++    at the pause. Both lose to this one for the same reason: step 4 renders its
++    recommendation *and the reasoning for it* before any answer arrives, so the
++    basis exists in the transcript before the decision does. An answer derived
++    afterwards is one the run can shape to fit what it already wanted.
++
++    Both literals are matched in the skill as well as in the wrapper — a wrapper
++    telling the agent to reuse a label upstream stopped rendering sends it looking
++    for something that is not there.
++    """
++    section = _section("clarify")
++    skill = _skill("clarify")
++
++    for label in ("**Recommended:**", "**Suggested:**"):
++        assert label in section, "the wrapper does not say which computed answer to take"
++        assert label in skill, f"step 4 no longer renders {label}"
++
++
++def test_the_clarify_rule_refuses_to_invent_an_answer_it_cannot_derive() -> None:
++    """The other half of #331's open question, and the half that can go missing.
++
++    A rule that says "answer your own questions" and stops there is read by the
++    next agent as licence to answer all of them, including the one about what a
++    person wants. That is the silent decision `speckit.brainstorm.md`'s step-3 row
++    already names as the failure the step exists to prevent, reached by obeying
++    the remedy instead of skipping it.
++
++    `Outstanding` rather than `Deferred` is asserted because only `Outstanding`
++    drives this step's verdict to `unsatisfied`, which is the true statement about
++    a scan that met a question it could not settle.
++    """
++    flowed = _flowed(_section("clarify"))
++
++    assert "Do not invent a recommendation in order to have one" in flowed
++    assert "`Outstanding` rather than `Deferred`" in flowed
++
++
++def test_the_analyze_policy_decides_the_case_that_splits_its_candidates() -> None:
++    """#331 listed three definitions of "in scope" and named where they disagree.
++
++    A requirement with no task is a `tasks.md` edit that adds a task: in scope
++    under "names an artifact the branch modifies", out under "adds no task". The
++    issue's own words are that a policy silent here "will be resolved by whichever
++    agent hits it first, which is the failure this issue exists to close" — so the
++    case being decided, out loud, is the deliverable rather than a detail of it.
++
++    Prose, and knowingly weak: nothing in the suite can see an agent apply the
++    rule. What it stops is the sentence being dropped by an edit that thought the
++    surrounding paragraph said enough.
++    """
++    flowed = _flowed(_section("analyze"))
++
++    assert "A coverage gap is in scope" in flowed
++    assert "no third door" in flowed
++
++
++def test_the_analyze_policy_defers_to_the_notify_gate_rather_than_around_it() -> None:
++    """Filing is the one outward-facing action in a policy nobody is watching run.
++
++    `wfctl issue create` refuses by default and only a person lifts it
++    (`a-human-grants-outward-facing-authority`), so "file it as an issue" is
++    unreachable on most branches this policy runs on. Left unsaid, the refusal
++    reads to an agent as a misconfigured tracker, and the repair it reaches for is
++    the backend directly — which is the gate defeated by the run it exists to
++    constrain.
++
++    The scan file is what catches the finding instead, and the reason line is what
++    keeps "filed" and "somebody still has to file this" from rendering alike.
++    """
++    flowed = _flowed(_section("analyze"))
++
++    assert "refuses by default" in flowed
++    assert "Not filed:" in flowed
++
++
++def test_the_analyze_wrapper_can_run_the_command_its_policy_requires() -> None:
++    """`allowed-tools` is a ceiling on the whole turn, so a rule without its grant
++    reads correctly and cannot run.
++
++    Silent in the worst way, as `test_scan_files` already records for the same
++    field: the agent reports a tool refusal, not a missing instruction, and an
++    unattended run has nobody to tell the difference to. This grant is new with
++    the policy — the wrapper had no reason to file anything before it.
++    """
++    front = _wrapper("analyze").split("---")[1]
++    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
++
++    assert "wfctl issue create" in allowed
++
++
++@pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
++def test_no_review_skill_carries_the_pause_rules(step: str) -> None:
++    """`vendor-upstream-skills`: prefer layering to editing.
++
++    The rules are about what the skill's own pauses become, so the skill is where
++    they read most naturally and is the one place they must not be. An in-place
++    edit is reverted by the next upstream pull with no conflict to notice, which
++    is the failure mode #307 and #325 both routed around by writing into the
++    wrapper.
++    """
++    assert _HEADING not in _skill(step)
++
++
++def test_the_clarify_template_has_a_field_for_the_basis() -> None:
++    """The rule was stated as the whole point of the section and the file had
++    nowhere to put it.
++
++    Found by running the step rather than by reading it: the wrapper requires an
++    answer be recorded "together with the reasoning it was rendered with", and
++    its section shape offered `Q: → A:` and `Decided against`. The second is the
++    reasoning for the options *not* taken, which is the opposite question — so a
++    real unattended run carried the basis inside the prose field meant for what
++    was ambiguous, and #335 would have had nothing to key on.
++
++    On both finding shapes, because the short-answer branch is where a field
++    added to one example quietly stops being required.
++    """
++    template = _section_shape("clarify")
++
++    assert template.count("Basis:") == 2
++
++
++def test_the_clarify_template_has_somewhere_to_put_an_outstanding_question() -> None:
++    """`| Category | Status |` is two columns and one of them is one word.
++
++    The rule says the `Outstanding` row carries the question and what made it
++    underivable. The coverage table cannot take either, and the marker rule from
++    #325 has wanted the same block since before this change — a run that followed
++    both wrote a heading the section shape does not license.
++    """
++    template = _section_shape("clarify")
++
++    assert "### Outstanding" in template
++
++
++def test_the_analyze_template_keeps_a_refused_filing_whole() -> None:
++    """A reason line says somebody still has to file this and drops what to file.
++
++    The policy's out-of-scope half is only as good as what survives it. Without
++    the command, the person who picks the finding up re-derives a title and a
++    body from a report that by then holds several — which is the tracker debt the
++    apply half of the policy exists opposite, arriving through the other door.
++    """
++    template = _section_shape("analyze")
++
++    assert "Not filed:" in template
++    assert "### Filing" in template
+diff --git a/wfctl/agents/commands/speckit.analyze.md b/wfctl/agents/commands/speckit.analyze.md
+index 39fc277..385879c 100644
+--- a/wfctl/agents/commands/speckit.analyze.md
++++ b/wfctl/agents/commands/speckit.analyze.md
+@@ -1,7 +1,7 @@
+ ---
+ disable-model-invocation: true
+ description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the repository recording what it covered.
+-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
++allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+ ---
+ 
+ ## User Input
+@@ -96,9 +96,9 @@ Both halves, because this pass is a model's judgment rather than a mechanical
+ check — two runs over the same tasks can disagree — and a reader who thinks the
+ pass misread the record needs both to say so.
+ 
+-**Pass G reports; it never gates.** Step 8's remediation stays an offer, and
+-nothing here refuses a transition. A CRITICAL finding is a CRITICAL finding, not
+-a stop.
++**Pass G reports; it never gates.** What step 8 does about a finding is settled
++by *When nobody answers* below and by nothing here, and nothing here refuses a
++transition. A CRITICAL finding is a CRITICAL finding, not a stop.
+ 
+ That is not in tension with the verdict rule below, which reads `unsatisfied`
+ while a CRITICAL stands. A verdict is a *statement about this scan*, written into
+@@ -111,6 +111,112 @@ is what makes it worth writing down rather than worth arguing with.
+ reverted by the next upstream pull with no conflict to notice. Same layer, and
+ the same reason, as the scan-file instruction below.
+ 
++## When nobody answers
++
++**Step 8 offers remediation and waits, and since #325 this step is automatic.**
++`speckit-orchestrate` enters the command rather than printing it and stopping, so
++a run with nobody watching reaches the offer and has to settle it. The #299 run
++already did: it got past this pause by an agent judging that acting was fine. The
++judgment was right and it was nobody's rule, which is what the rest of this
++section is.
++
++| Where it pauses | When no answer arrives |
++|---|---|
++| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied or filed, and the counts in the scan file say which each one was. |
++| Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. This is the second stated override in this file — the scan file below is the first — and it is stated for that one's reason: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The skill's rule is unscoped, so both overrides are real overrides rather than readings of it; its own step 6b mandates writing `analysis-report.md` and is the third, which nothing reconciles. |
++| Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. Step 7's three outcomes do not cover what that ordering leaves most often — remediation is what clears CRITICALs, so a standing HIGH with no CRITICAL above it is the normal end state. Say so in its own line: what stands, at what severity, and that it was filed rather than fixed. *"only LOW/MEDIUM"* is false there, and reporting it as proceed-with-suggestions is the one wrong answer. |
++
++**Deliberately not conditional on `auto_approve`.** That grant moves approval
++authority for design gates, and only a human hands it over; nothing here moves
++any. An in-scope fix stays inside three artifacts the pipeline regenerates and
++lands in the branch diff the reviewer reads, and the one outward-facing action in
++this policy — filing — is gated already and is deferred to rather than routed
++around. Reading the grant would also leave ungoverned the exact run that has no
++rule today: #299 was an unattended pass nobody granted anything to.
++
++### In scope, and what it means
++
++**A finding whose fix is in scope is applied. Every other finding is filed.**
++There is no third door. A finding left neither fixed nor filed is one this step
++found and then lost, and the counts below are what make that visible.
++
++In scope is two conditions, and a fix meets both or it is out:
++
++1. The fix is confined to `spec.md`, `plan.md` and `tasks.md` — the three
++   artifacts this step reads, taken as a set. A terminology drift is corrected in
++   every file carrying it, because a rename applied to one of two files creates
++   the drift it was called to remove.
++2. It decides nothing those three, and this feature's design records, have not
++   already decided.
++
++Making one artifact say what the others already say satisfies the second
++condition rather than bending it. Choosing a number the artifacts never chose,
++adding a requirement, or picking between approaches the plan deliberately left
++open fails it, however small the edit that would carry the choice.
++
++**A coverage gap is in scope, and it is the case this definition exists to
++settle.** Pass E finds a requirement with zero tasks; the fix adds a task, so
++`tasks.md` gains a line it did not have. It still decides nothing: `spec.md` set
++the scope when it stated the requirement, and `tasks.md` failing to cover it is
++the defect rather than the boundary. Filing it instead sends the feature into
++`implement` without the requirement and books the omission as separate work,
++which inverts what this step sits before `implement` to do.
++
++**Materially larger is a third route out of scope.** A fix that cannot be written
++as an edit to named sections of those artifacts — because it restructures the plan,
++or cascades through every task the plan derives — is filed whatever it decides,
++and the finding gives its size as the reason.
++
++### Filing, and the gate it meets
++
++**A filed finding is an issue, and `wfctl issue create` refuses by default.**
++Nothing on a fresh branch has allowed an outward-facing action
++(`a-human-grants-outward-facing-authority`), so an unattended run that was
++granted nothing cannot file — and must not look for a way around the refusal,
++which is the gate working rather than a tracker misconfigured.
++
++Where filing is refused the finding is still `Accepted`, and its reason carries
++both halves — why it stands, and that nobody was told:
++
++```markdown
++→ Accepted: out of scope — quantifying "responsive" is a product decision.
++  Not filed: outward actions are not authorized on this branch.
++```
++
++That is not the finding being lost. The scan file is committed to the branch and
++the reviewer reads it at the PR, which is where an unattended run's decisions are
++reviewed anyway. What the second line buys is that a finding already filed and a
++finding somebody still has to file stop reading identically.
++
++**One issue per cause, not per finding.** Three findings that are one ambiguity
++seen from three passes get one issue, cited by all three. The alternative turns a
++thorough analysis into tracker debt, which is the failure the apply half of this
++policy exists opposite. It also puts `Accepted: 4` and *three issues* on the same
++run, so the count alone does not say how much tracker work is outstanding — the
++`### Filing` block below is what does.
++
++**A filing that was refused keeps its title and body, in `### Filing`.** The
++reason line says somebody still has to file it; without the text it also says
++they have to write it again, from a report that by then is one of several in the
++same file. Record the command that would have run, verbatim — an unattended run
++that had the grant and one that did not then differ by whether the command was
++executed, rather than by what survives of it.
++
++### The counts say what happened
++
++The section below reports `Findings: N · Critical: N · Acted on: N · Accepted:
++N`, and **`Acted on` plus `Accepted` equals `Findings`**. That is what "no third
++door" looks like once it is written as arithmetic. Every `Accepted` carries a
++reason — `writing-a-scan-file` already asks for one, and this policy is what
++makes it load-bearing, because a finding fixed and a finding nobody touched are
++the same row in a table until the reason separates them.
++
++**A check could see this, and one is planned.** The counts, the arithmetic
++between them, and a reason on every `Accepted` row all land in the scan file,
++which is an artifact this work already produces — the yes side of
++`a-rule-is-expressed-as-a-check`. Prose here states the rule; #335 is the
++mechanism that would observe it.
++
+ ## Write the scan file
+ 
+ Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
+@@ -127,13 +233,17 @@ is the defect #307 is about, met on the failure path instead of the success one.
+ Write the section with `Verdict: inconclusive` naming which artifact was missing,
+ then stop.
+ 
+-**This overrides the skill's read-only rule, and only here.** `speckit-analyze`
+-says **STRICTLY READ-ONLY** twice — of the artifacts it analyses, which stays
+-true: nothing below edits `spec.md`, `plan.md` or `tasks.md`, and the offer of
+-remediation at step 8 is still an offer. What is added is one new file the step
+-writes about its own work, outside `FEATURE_DIR`, and one commit of that path.
+-Stated here rather than left for a reader to reconcile, because a wrapper that
+-silently contradicts the skill it points at teaches the reader to discount both.
++**This overrides the skill's read-only rule, and it is the narrower of this
++file's two overrides of it.** `speckit-analyze` states the rule twice —
++**STRICTLY READ-ONLY** under Operating Constraints, *"NEVER modify files"* under
++Analysis Guidelines — and neither is scoped to the artifacts it analyses. *When
++nobody answers* above lifts it for a remediation edit and bounds which edits
++qualify; what this section adds is
++independent of that and holds on a run that remediates nothing — one new file the
++step writes about its own work, outside `FEATURE_DIR`, and one commit of that
++path. Both are stated rather than left for a reader to reconcile, because a
++wrapper that silently contradicts the skill it points at teaches the reader to
++discount both.
+ 
+ **File**: `<arch-root>/scans/<issue>-analyze.md`.
+ **Detail**: `FEATURE_DIR/checklists/analysis-report.md`.
+@@ -156,12 +266,14 @@ So where step 8 cannot be answered, settle it rather than waiting on it, and
+ write the section with the counts that settlement produced. `Accepted` is the
+ honest value for a finding nobody acted on, and it takes a reason — a finding
+ fixed and a finding nobody touched read identically as a row in a table, which
+-`writing-a-scan-file` already says is the difference a reviewer needs. What the
+-policy for settling should be is #331 and is not decided here; that it must not
+-end with an unwritten scan file is.
++`writing-a-scan-file` already says is the difference a reviewer needs. The policy
++for settling is *When nobody answers* above (#331); what this paragraph holds is
++the narrower thing it cannot, that no settlement ends with an unwritten scan
++file.
+ 
+ **Coverage rows** — the six detection passes of step 4, in its order, then pass G,
+-plus one measurement:
++plus one measurement. Read down the left column and then the right; across the
++rows gives A, D, B, E, C, F, which is not step 4's order:
+ 
+ ```
+ A · Duplication          D · Constitution alignment
+@@ -203,11 +315,39 @@ nothing, or it ran against a `design.md` that lists none. Both mean the pass
+ reached its answer. The two `Deferred` rows mean it could not — no `design.md`,
+ or one predating the section — which the shared skill calls `unknown`.
+ 
++**A pass with one finding applied and another accepted takes `Outstanding`, and
++its parenthetical carries both.** One row per pass and one status per row, so the
++status answers the only question a status can: is anything from this pass still
++open. `Resolved` there would be false and `Outstanding` alone erases the fix,
++which is why the count beside it is two numbers rather than one:
++
++```
++| E · Coverage gaps | Outstanding (1 MEDIUM; 1 CRITICAL resolved) |
++```
++
+ **Verdict, for this step**: `satisfied` — all three artifacts were read and no
+ CRITICAL finding stands. `unsatisfied` — at least one CRITICAL finding is open.
+ `inconclusive` — an artifact was missing or unreadable, so coverage could not be
+ computed; name which one.
+ 
++**A CRITICAL this run fixed does not stand; one it filed does.** The verdict is
++read after remediation, not from the report step 6 produced, so a pass that found
++three CRITICALs and applied all three is `satisfied` and says so honestly. An
++`Accepted` CRITICAL keeps the verdict `unsatisfied` however good its reason —
++filing it moves who finishes it, not whether it is open.
++
++**`Critical: N` counts what was found, not what stands.** It sits beside
++`Findings: N`, which counts the same way, and the verdict two lines above is
++already the statement about what stands. Read the other way, a run that found a
++CRITICAL and fixed it reports `Critical: 0 · Verdict: satisfied` — a clean row
++for the run that did the most work, and the one finding a reviewer would most
++want to see.
++
++**`Requirement-to-task coverage` is also post-remediation.** It is the metric
++step 6 computes, recomputed after step 8 for the reason the Next Actions row
++above gives: a pre-fix percentage on the same row as a `Resolved` coverage-gap
++status says the gap was both closed and not.
++
+ **Section shape**:
+ 
+ ```markdown
+@@ -232,6 +372,12 @@ computed; name which one.
+ - **<pass>, <severity>** — what was wrong.
+   → Fixed: <what changed>. Decided against <the alternative>: <why>.
+   → Accepted: <why this stands rather than being fixed>.
++    Not filed: <why nobody was told>.
++
++### Filing
++
++- **<cause>** — <the findings it covers>.
++  `wfctl issue create --title "<title>" --body "<body>"`
+ 
+ ### Deferred
+ 
+diff --git a/wfctl/agents/commands/speckit.clarify.md b/wfctl/agents/commands/speckit.clarify.md
+index bda7de4..222183f 100644
+--- a/wfctl/agents/commands/speckit.clarify.md
++++ b/wfctl/agents/commands/speckit.clarify.md
+@@ -5,7 +5,7 @@ handoffs:
+   - label: Build Technical Plan
+     agent: speckit.plan
+     prompt: Create a plan for the spec. I am building with...
+-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
++allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl issue view*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+ ---
+ 
+ ## User Input
+@@ -18,6 +18,81 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ Read `.agents/skills/speckit-clarify/SKILL.md` (or `../skills/speckit-clarify/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete clarification workflow.
+ 
++## When nobody answers
++
++**Step 4 is a questioning loop written for a person, and since #325 this step is
++automatic.** `speckit-orchestrate` enters the command rather than printing it and
++stopping, so a run with nobody watching reaches the loop and has to get out of
++it. Below is what each of its pauses resolves to. `speckit-clarify/SKILL.md` is
++spec-kit-derived and stays unedited (`vendor-upstream-skills`), so this file is
++the layer above it.
++
++| Where it pauses | When no answer arrives |
++|---|---|
++| Step 4, *"Present EXACTLY ONE question at a time"* and *"After the user answers"* | Take the answer the step has already computed — the `**Recommended:** Option X` it renders above a multiple-choice table, the `**Suggested:** …` it renders for a short answer — and record it together with the reasoning it was rendered with. That reasoning is the basis. A recommendation recorded without it is a question decided silently, which is the failure this step exists to prevent, and nobody being there to ask does not make it acceptable. |
++| Step 4's stop conditions, *"User signals completion"*, and the behaviour rule *"Respect user early termination signals"* | None arrives, and none is inferred from the absence of one. The loop ends on its own two remaining conditions: every critical ambiguity resolved, or five questions asked. |
++| Step 8, *"recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later"* | Still written, and still a recommendation. What the pipeline does next is `wfctl status`' answer rather than this line's, and the two are allowed to differ — this one is addressed to the reviewer. |
++
++**The trigger is a pause reached with no answer, not a mode read.** Ask each
++question as step 4 renders it, recommendation and all. Where an answer comes
++back, it is the answer and this section changed nothing about the run.
++
++**Deliberately not conditional on `auto_approve`,** which is the second respect
++this layer differs from `speckit.brainstorm.md`'s. That table is conditional
++because what it moves is approval authority, and only a human can hand that over.
++This one moves none: an answer derived from the repository is information, carried
++with the basis that produced it, and a reviewer who disagrees overrules it at the
++PR exactly as they would overrule an answer a person gave. Reading the grant
++would also leave ungoverned the run that has no rule today — an unattended pass
++nobody granted anything to, which is how the #299 run got past `analyze`'s pause
++by an agent deciding rather than by a rule.
++
++### A question the repository cannot settle
++
++**Do not invent a recommendation in order to have one.** Step 4's recommendation
++is grounded in the spec, the plan, the tracker and this feature's design records.
++A question those cannot reach is a question about what somebody wants, and
++deriving an answer to it is the silent decision the first row above rules out,
++reached by a longer route.
++
++Such a question is not asked. It leaves the queue without being put — so it never
++counts against the five, and the next candidate step 3 ranked takes its slot; the
++cap is on questions asked, and a withdrawal that spent one would narrow coverage
++by exactly the amount this rule was supposed to protect. Its category is written
++as an `Outstanding` row
++carrying the question and what made it underivable, in the same terms the
++findings use. The marker rule below already requires any `[NEEDS CLARIFICATION`
++marker to go with it, so the spec reads the same whether the question was
++declined by the scan or withdrawn by this rule.
++
++**`Outstanding` rather than `Deferred`, and the verdict is the reason.**
++`Deferred` says a later step is the better place to answer it; no later step
++answers this one either, and only a person closes it. `Outstanding` is also what
++makes this step's verdict read `unsatisfied` — the true statement about a scan
++that reached a question it could not settle, and the one a `Deferred` row would
++have hidden.
++
++**The row is a status and the question goes below it.** `| Category | Status |`
++is two columns wide and one of them is a single word, so "an `Outstanding` row
++carrying the question" is an instruction the table cannot take. `### Outstanding`
++in the section shape below is where the question and the reason go, and the
++marker rule's own `Outstanding` rows land there too — it is one block, not one
++per rule.
++
++**A standing `Outstanding` row makes this verdict permanent, and that matters
++once something reads it.** Nothing does today; `writing-a-scan-file` says the
++verdict is there for a later gate to read through `blocks(verdict,
++"repo-declared")`. A gate that blocks on `unsatisfied` would block forever here,
++because no re-run can settle a question the repository does not contain — the
++#332 loop one artifact over. Whichever change wires that gate has to exempt this
++row, and this paragraph is where it finds out.
++
++**A check could see this, and one is planned.** Every answer this section
++produces lands in `spec.md`'s `## Clarifications` bullet and in the scan file's
++finding beside it, so *recorded with its basis* is visible in an artifact the work
++already produces — the yes side of `a-rule-is-expressed-as-a-check`. Prose here
++states the rule; #335 is the mechanism that would observe it.
++
+ ## No marker survives the scan
+ 
+ **Every `[NEEDS CLARIFICATION` marker left in `spec.md` is removed before this
+@@ -70,7 +145,8 @@ the section with `Verdict: inconclusive` naming what was missing, then stop.
+ **Detail**: `FEATURE_DIR/spec.md` § Clarifications.
+ 
+ **Coverage rows** — the ten taxonomy categories the workflow above scans, in its
+-order, every one of them present:
++order, every one of them present. Read down the left column and then the right;
++across the rows gives an order the workflow never uses:
+ 
+ ```
+ Functional Scope & Behavior          Edge Cases & Failure Handling
+@@ -114,17 +190,30 @@ carrying its template.
+ 
+ - **<category>** — what was ambiguous.
+   Q: <the question> → A: <the answer>.
++  Basis: <what the answer was derived from, or who gave it>.
+   Decided against **<option B>**: <why it lost>.
+   Decided against **<option C>**: <why it lost>.
+ - **<category>** — what was ambiguous.
+   Q: <the question> → A: <the answer>.
++  Basis: <what the answer was derived from, or who gave it>.
+   No options offered — short answer.
+ 
++### Outstanding
++
++- **<category>** — <the question, and what made it underivable>.
++
+ ### Deferred
+ 
+ - **<category>** — <what was not asked, and why it belongs to a later step>.
+ ```
+ 
++**`Basis` is where *When nobody answers* lands, and it is one line on every
++finding rather than only on a derived one.** An answer a person gave has a basis
++too — *"the reviewer chose B in the PR thread"* is one — and a field present only
++when nobody was watching tells a reader which runs to trust by its own absence.
++`Decided against` cannot carry it: those lines are the reasoning for the options
++*not* taken, which is the opposite question.
++
+ ### The options the answer was chosen over
+ 
+ **One `Decided against` line per lettered option the question offered and the
+@@ -179,5 +268,7 @@ the evidence this section exists to keep.
+ **This holds however the answer was chosen.** A human picking option B destroys A
+ and C exactly as thoroughly as an unattended run does, and the reviewer reading
+ the change is equally unable to see them — so the rule is not conditional on the
+-mode. That is the one respect this layer differs from `speckit.brainstorm.md`'s,
+-whose layer is conditional on `auto_approve` and moves where an approval happens.
++mode. That is the second respect in which this layer differs from
++`speckit.brainstorm.md`'s — *When nobody answers* above is the first, and both
++turn on the same property: nothing in this file moves an approval, and
++`speckit.brainstorm.md`'s layer is conditional precisely because its does.

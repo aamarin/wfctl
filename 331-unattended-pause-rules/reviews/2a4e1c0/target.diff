@@ -1,0 +1,167 @@
+commit 2a4e1c0f2677118a4c501d90fc235adb329ee554
+Author: Andre Marin <andre@alexamarin.com>
+Date:   Fri Sep 11 12:53:38 2026 -0500
+
+    fix(speckit): the withdrawal is a no-answer path, and the constitution decides too
+    
+    Three findings from the review on #350, all confirmed against the skills they
+    are about.
+    
+    The withdrawal rule was made unconditional in the last commit, on the reasoning
+    that an answer the repository cannot derive is one the spec should have carried.
+    The reasoning holds and the conclusion did not. Step 4 exists to put exactly
+    those questions to a person, so unattended it withdrew and attended it took the
+    question away from the only reader who could close it — with the trigger this
+    whole section names, a pause reached with no answer, never having happened. The
+    question is put like any other now and withdrawn only when nothing comes back,
+    which also restores the sentence the last commit had to weaken.
+    
+    The in-scope test counted the three artifacts and this feature's design records
+    as prior deciders and left out the constitution. A conflict with a constitution
+    MUST is automatically CRITICAL, and `speckit-analyze` says in its own words that
+    it requires adjusting the spec, plan or tasks rather than diluting or ignoring
+    the principle. Bringing a drifted artifact back into line decides nothing — the
+    constitution decided it — but under the old condition 2 that fix read as out of
+    scope and got filed. `_predicates.analyze` reads the report's existence, so
+    `implement` would then have run over a known CRITICAL: the one class of finding
+    the skill refuses to let stand, filed by the policy that was supposed to settle
+    it.
+    
+    And the second outcome was stated absolutely — "every other finding is filed" —
+    and qualified three paragraphs later, which is the third time this branch has
+    shipped that shape. `wfctl issue create` exits 1 on an ungranted branch, which is
+    the common case, so a run reading that exit as an action left unfinished has no
+    completed state to reach and ends with no scan file. Writing the filing down is
+    how that door closes, said where the rule is first stated.
+    
+    Both P1 fixes carry a test, and one of them asserts the absence of the word the
+    last commit introduced.
+    
+    Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01LVw78jEWBWbM1HsLmdCgay
+
+diff --git a/tests/test_unattended_pause_rules.py b/tests/test_unattended_pause_rules.py
+index b387d61..4d319af 100644
+--- a/tests/test_unattended_pause_rules.py
++++ b/tests/test_unattended_pause_rules.py
+@@ -176,6 +176,39 @@ def test_the_analyze_policy_decides_the_case_that_splits_its_candidates() -> Non
+     assert "no third door" in flowed
+ 
+ 
++def test_the_clarify_withdrawal_still_puts_the_question_to_a_person() -> None:
++    """Step 4 exists to ask a person the questions only a person can answer.
++
++    The first draft made the withdrawal unconditional, on the reasoning that an
++    answer the repository cannot derive is one the spec should have carried. That
++    reasoning holds and the conclusion did not: unattended it withdraws, attended
++    it takes the question away from the only reader who could have closed it, and
++    the stated trigger for this whole section — a pause reached with no answer —
++    has not happened. Caught on review of the branch that wrote it.
++    """
++    flowed = _flowed(_section("clarify"))
++
++    assert "withdrawn only when no answer arrives" in flowed
++    assert "unconditional" not in flowed
++
++
++def test_the_analyze_in_scope_test_counts_the_constitution_as_having_decided() -> None:
++    """Left off the list, the one finding the skill refuses to let stand is filed.
++
++    `speckit-analyze` makes a constitution conflict automatically CRITICAL and
++    says in its own words that it requires adjusting the spec, plan or tasks. A
++    fix that brings a drifted artifact back into line decides nothing — the
++    constitution decided it — but condition 2 named only the three artifacts and
++    the design records, so the fix read as out of scope and got filed.
++    `_predicates.analyze` reads the report's existence, so `implement` would then
++    run over a known CRITICAL.
++    """
++    flowed = _flowed(_section("analyze"))
++
++    assert "the project constitution have not" in flowed
++    assert "Constitution Authority" in _skill("analyze")
++
++
+ def test_the_analyze_policy_defers_to_the_notify_gate_rather_than_around_it() -> None:
+     """Filing is the one outward-facing action in a policy nobody is watching run.
+ 
+diff --git a/wfctl/agents/commands/speckit.analyze.md b/wfctl/agents/commands/speckit.analyze.md
+index 97e661f..0b7f2a1 100644
+--- a/wfctl/agents/commands/speckit.analyze.md
++++ b/wfctl/agents/commands/speckit.analyze.md
+@@ -122,7 +122,7 @@ section is.
+ 
+ | Where it pauses | When no answer arrives |
+ |---|---|
+-| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied or filed, and the counts in the scan file say which each one was. |
++| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied, or filed where filing is authorized and written down for filing where it is not. The counts in the scan file say which each one was. |
+ | Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. Stated as an override rather than left to be reconciled: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The scan-file section below counts this file's overrides of that rule. |
+ | Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. Step 7's three outcomes do not cover what that ordering leaves most often — remediation is what clears CRITICALs, so a standing HIGH with no CRITICAL above it is the normal end state. Say so in its own line: what stands, at what severity, and that it was filed rather than fixed. *"only LOW/MEDIUM"* is false there, and reporting it as proceed-with-suggestions is the one wrong answer. |
+ 
+@@ -147,6 +147,14 @@ line that reports it: say what changed, not that something did.
+ There is no third door. A finding left neither fixed nor filed is one this step
+ found and then lost, and the counts below are what make that visible.
+ 
++**Where filing is refused, writing it down is how that door closes rather than a
++failure to reach it.** `wfctl issue create` exits 1 on an ungranted branch, which
++is the common case and not an error to recover from. A run that reads that exit
++as an action left unfinished has no completed state left to reach, and this step
++ends with no scan file at all — the defect the section below exists to prevent,
++met through the policy rather than through the pause. The `### Filing` block is
++what the outcome becomes, and reaching it is what finishing looks like.
++
+ In scope is two conditions and a size limit. A fix meets both conditions, and is
+ not materially larger in the sense the third paragraph below gives, or it is out:
+ 
+@@ -154,8 +162,17 @@ not materially larger in the sense the third paragraph below gives, or it is out
+    artifacts this step reads, taken as a set. A terminology drift is corrected in
+    every file carrying it, because a rename applied to one of two files creates
+    the drift it was called to remove.
+-2. It decides nothing those three, and this feature's design records, have not
+-   already decided.
++2. It decides nothing those three, this feature's design records, and the
++   project constitution have not already decided.
++
++**The constitution is on that list because the skill puts it there.** A conflict
++with a constitution MUST is automatically CRITICAL, and the skill's own words are
++that it *requires adjustment of the spec, plan, or tasks — not dilution,
++reinterpretation, or silent ignoring*. Bringing a drifted artifact back into line
++with it decides nothing: the constitution decided it. Left off the list, the one
++class of finding the skill refuses to let stand would be the class this policy
++files — and `_predicates.analyze` reads the report's existence, so `implement`
++would then run over a known CRITICAL.
+ 
+ Making one artifact say what the others already say satisfies the second
+ condition rather than bending it. Choosing a number the artifacts never chose,
+diff --git a/wfctl/agents/commands/speckit.clarify.md b/wfctl/agents/commands/speckit.clarify.md
+index 688d6ff..ea9256d 100644
+--- a/wfctl/agents/commands/speckit.clarify.md
++++ b/wfctl/agents/commands/speckit.clarify.md
+@@ -34,11 +34,10 @@ the layer above it.
+ | Step 8, *"recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later"* | Still written, and still a recommendation. What the pipeline does next is `wfctl status`' answer rather than this line's, and the two are allowed to differ — this one is addressed to the reviewer. |
+ 
+ **The trigger is a pause reached with no answer, not a mode read.** Ask each
+-question as step 4 renders it, recommendation and all. Where an answer comes
+-back, it is the answer and the table above changed nothing about the run. The
+-withdrawal rule below is the exception and is unconditional: a question the
+-repository cannot settle is not put to anyone, attended or not, because the
+-answer a person gives it is the one the spec was supposed to carry.
++question as step 4 renders it, recommendation and all — including the ones the
++withdrawal rule below covers, which are the questions a person is the only
++authoritative source for. Where an answer comes back it is the answer, and
++nothing in this section changed the run.
+ 
+ **Deliberately not conditional on `auto_approve`,** which is one of two respects
+ in which this layer differs from `speckit.brainstorm.md`'s — the rejected-options
+@@ -65,9 +64,9 @@ A question none of those reach is a question about what somebody wants, and
+ deriving an answer to it is the silent decision the first row above rules out,
+ reached by a longer route.
+ 
+-Such a question is not asked. It leaves the queue without being put — so it never
+-counts against the five, and its slot is refilled by re-running step 3's ranking
+-over what is left of step 2's coverage map. Step 3 keeps only five candidates and
++Such a question is put like any other and withdrawn only when no answer arrives.
++Withdrawn, it never counts against the five, and its slot is refilled by
++re-running step 3's ranking over what is left of step 2's coverage map. Step 3 keeps only five candidates and
+ holds no sixth, so there is nothing waiting to be promoted; the cap is on
+ questions asked, and a withdrawal that spent one would narrow coverage by exactly
+ the amount this rule was supposed to protect. Its category takes an `Outstanding`
