@@ -2391,6 +2391,13 @@ _MIRRORED_SKILLS = frozenset({
     # differ by a dot, so `_mirror_supersedes_wrapper` never fires and the typed
     # route is untouched. Renaming either to match would create the tie #170 was
     # filed about.
+    #
+    # What widens is who may spend the grant, not the grant: the skill's
+    # `allowed-tools:` is the wrapper's list verbatim, and `Write`, `git add`
+    # and `git commit` now bound a model-initiated turn as well as a typed one.
+    # Intended — a step that cannot write `design.md` or commit its records is
+    # the same dead end from the other side — and narrowing it here would leave
+    # the two entrances disagreeing about what the identical workflow may do.
     "speckit-brainstorm",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather

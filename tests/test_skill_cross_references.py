@@ -193,6 +193,31 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     assert inline == {}, f"next_command with no skill behind it: {inline}"
 
 
+def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:
+    """The route #361 describes is a string match, and nothing else holds it.
+
+    `wfctl status --json` hands an agent `/speckit.brainstorm` and the agent
+    searches its skill index for something that answers to it. Being mirrored
+    puts the skill in that index; carrying the literal command in its
+    description is what makes it the obvious hit. Reword the description
+    without it and the mirror stays green, the skill stays installed, and an
+    agent resolving `next_command` is back to finding nothing — #361 with every
+    other guard in this file still passing.
+
+    Reads the command out of `_STEPS` rather than spelling it, so a renamed
+    command fails here instead of leaving the description pointing at a string
+    the pipeline no longer emits.
+    """
+    from wfctl._pipeline import _STEPS
+
+    command = _STEPS["brainstorm"].command
+    skill = (_AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md").read_text()
+    description = next(
+        ln for ln in skill.split("---")[1].splitlines() if ln.startswith("description:")
+    )
+    assert command in description, f"{command} is how an agent gets here"
+
+
 def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
     """The entry is the fix, and the rest of #361 passes without it.
 
