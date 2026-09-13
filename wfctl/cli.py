@@ -2357,6 +2357,24 @@ def _restore_hint(layers: Iterable[str]) -> str:
 # directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
 # every other layer still gets it.
 _MIRRORED_SKILLS = frozenset({
+    # Same case as `software-design-decisions` below — no wrapper under
+    # `agents/commands/` — but it earns the entry for `start-session`'s reason
+    # rather than #124's. The level-2 gate names this skill by path, and an agent
+    # that read that pointer and reached for `Skill(architecture-design)` is
+    # refused without membership. Mirroring does not make a refused route work;
+    # it removes the fork, so the outcome stops depending on which way the agent
+    # reached.
+    #
+    # It does not reach an agent mid-implementation, and must not be defended on
+    # that: the skill's `description` scopes both its triggers to level 2, and
+    # `speckit.implement`'s ceiling grants none of the commands its Authority
+    # section needs.
+    #
+    # #150 held it out because level 2 could not route here and the current-state
+    # view did not exist. #149 built the view and the gate now names the skill,
+    # so both grounds expired — neither was overruled, and removing this entry
+    # does not restore them.
+    "architecture-design",
     "architecture-decisions",
     "conversation-response-shape",
     "design-levels",

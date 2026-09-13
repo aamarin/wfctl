@@ -103,6 +103,95 @@ def test_the_level_2_gate_names_the_record_skill() -> None:
     assert "architecture-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_level_2_gate_names_the_design_method_skill() -> None:
+    """Two skills answer level 2, and the gate has to name both: one works out
+    what the boundary should be, the other writes it down. #150 shipped the
+    method and only the second reference, so `architecture-design` installed
+    into every repo and was named by nothing — `design-levels` mentioned it
+    zero times and no wrapper wrapped it.
+
+    `test_every_referenced_skill_ships` cannot stand in for this, for the reason
+    its level-3 twin already gives: it checks that a referenced skill exists,
+    and a skill nothing references is the one case it cannot see.
+
+    The second assertion is the same route read from the other end, and it is
+    the half nothing else pins. #150 shipped the skill saying "Level 2 does not
+    route here yet ... a human opens this skill directly"; restoring that
+    sentence leaves every other test in this file green while the two files give
+    opposite accounts of how the agent reading one of them got there.
+
+    Scoped to the overview, and that scope is the whole assertion. Over the
+    file, `design-levels` is named by path in step 6 regardless — the sentence
+    that sends the iteration's output back to *Where the levels land* — so a
+    whole-file match passes on the restored denial and pins nothing. Checked by
+    mutation rather than by reading: the first version of this test asserted
+    over the file and the reverted overview still went green."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    assert "architecture-design" in set(_REFERENCE.findall(gate))
+
+    skill = (_AGENTS / "skills" / "architecture-design" / "SKILL.md").read_text()
+    overview = skill.split("## When to use")[0]
+    assert "design-levels" in set(_REFERENCE.findall(overview))
+
+
+def test_the_design_method_skill_is_model_invocable() -> None:
+    """It ships no command wrapper, so the only route that does not go through
+    an agent reading `design-levels` as text is the mirror. The gate names the
+    skill by path; an agent that read that pointer and reached for
+    `Skill(architecture-design)` instead is refused without membership, which is
+    #204's fork one skill over.
+
+    Membership alone does not settle it, and the name of this test is the claim
+    that overreaches if it stands alone. `mirror-supersedes-the-wrapper` draws
+    the line — "Membership decides reachability; the file decides invocability"
+    — and `disable-model-invocation` on this SKILL.md would refuse the skill on
+    the discovery path membership just put it on, leaving no route at all.
+    `i-have-adhd` is mirrored and refused for exactly that reason, so this is a
+    live failure mode rather than a hypothetical, and the key is a plausible
+    copy-paste from any of the wrappers carrying it.
+
+    Three assertions, because each one alone stays green through the change that
+    breaks the others.
+    """
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert not (_AGENTS / "commands" / "architecture-design.md").exists()
+    assert "architecture-design" in _MIRRORED_SKILLS
+
+    front = _arch._frontmatter(
+        (_AGENTS / "skills" / "architecture-design" / "SKILL.md").read_text()
+    )
+    assert "disable-model-invocation" not in front
+
+
+def test_the_no_boundary_exit_names_its_command() -> None:
+    """Level 2 has three exits and only one of them wrote anything. "A boundary
+    was proposed" hands off to `architecture-decisions` and a record lands;
+    "missing evidence" stops, and stopping with the gate up is correct. The
+    middle exit was prose — the agent declared "no boundary drawn, no record",
+    descended, and nothing on disk had changed.
+
+    That is not a cosmetic gap, because the declaration is what the design gate
+    reads. `boundary_block` asks `touched_on_this_branch` about the whole arch
+    root excluding `design/`, so `declarations/<branch>.md` satisfies it exactly
+    as a record does. Declared only out loud, the step stays `in_progress` with a
+    reason the author has no way to connect to the answer they just gave.
+
+    `test_brainstorm_allows_the_commands_its_records_need` is the near miss: it
+    pins the command into the wrapper's ceiling, which proves the wrapper may run
+    it and not that any skill tells anyone to. `design-levels` says of itself
+    that it "fires outside `/speckit.brainstorm` as often as inside it", and that
+    is the run this test is written for.
+
+    Both files, because each names the exit in its own voice and either one alone
+    leaves an agent that read the other with nothing to run.
+    """
+    for skill in ("design-levels", "architecture-design"):
+        text = (_AGENTS / "skills" / skill / "SKILL.md").read_text()
+        assert "wfctl arch none" in text, skill
+
+
 def test_the_design_record_template_ships_beside_its_skill() -> None:
     """The level-3 counterpart of the ADR pair, and the half that shipped alone.
 
@@ -260,13 +349,22 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     that — "a declared absence is an answer; silence is not" — and the
     declaration is that command. Without it the only level-2 answer brainstorm
     could give was a record, so a change the skill explicitly excludes from
-    needing one had no way to finish the step. This step is also the only place
-    in the shipped tree that names `wfctl arch none` at all.
+    needing one had no way to finish the step. It was for a long time the only
+    place in the shipped tree that named `wfctl arch none` at all —
+    `test_the_no_boundary_exit_names_its_command` is why that is no longer true.
+
+    `wfctl arch context` is the second, and it arrived with the level-2 route to
+    `architecture-design` (#151). That skill reads the in-force set through this
+    command and holds that "a record found any other way is not in force", so
+    under the old ceiling its first step was refused inside the one command that
+    reaches level 2 at all. `/start-session` having printed the set earlier does
+    not substitute — a session that never ran it is the case the skill's own
+    sentence is written against.
 
     Both surfaces, because #361 gave the step two entrances and each carries its
     own ceiling: the wrapper's governs a typed turn, the skill's a model-initiated
     one. Copied rather than moved for that reason, and a copy is what drifts — so
-    the loop asserts the same five entries on each and names which surface failed.
+    the loop asserts the same entries on each and names which surface failed.
 
     The entries pinned by name are the ones whose loss is arguable, so they
     carry their reasons. `Bash(wfctl status*)` is pinned rather than left to the
@@ -296,6 +394,7 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
         grants[where] = allowed
         for needed in (
             "wfctl arch check",
+            "wfctl arch context",
             "wfctl arch none",
             "git add",
             "git commit",

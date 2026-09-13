@@ -1,7 +1,7 @@
 ---
 name: 'speckit-brainstorm'
 description: 'Use when the pipeline reports `brainstorm` as the current step, or when `wfctl status` gives `/speckit.brainstorm` as the next command — runs the four design levels over a feature, writes the level-2 and level-3 records, and produces `design.md` for speckit pickup.'
-allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch context*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
 compatibility: 'Requires wfctl to be installed'
 ---
 

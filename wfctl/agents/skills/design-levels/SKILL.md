@@ -120,14 +120,43 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
+**The question is answered by running the method, not by reaching for an
+answer.** Use `.agents/skills/architecture-design` for one iteration. It makes
+the drivers explicit — what must remain true, under which conditions — ranks
+them, and compares credible approaches against a no-new-structure baseline.
+
+It ends one of three ways and only one of them produces a record: it hands a
+proposed boundary to `.agents/skills/architecture-decisions` itself, or it
+declares no boundary, or it names the evidence it is missing and stops. The
+paragraph below governs what that record has to be — it is not a second
+invocation, and the stop is not a state to route around.
+
+Skip the method when an accepted record or an existing spec already settles the
+boundary, naming the one that does, or when the change moves no boundary at all.
+The test is whether a boundary moves, not how large the change is, and
+`architecture-design`'s own **Not for** list is the exit a trivial change takes.
+
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
 decision, under the root `wfctl arch-root` names. Now, while the answer is being
 given — not once the design settles, by which time the record describes whatever
 got built.
 
-If the level introduced no boundary, declare that — "no boundary drawn, no
-record" — and descend. A declared absence is an answer; silence is not.
+If the level introduced no boundary, declare that and descend. A declared absence
+is an answer; silence is not — and the declaration is a command, not a sentence
+in the transcript:
+
+```bash
+wfctl arch none --reason "<what changed, or why nothing did>"
+```
+
+It writes `declarations/<branch>.md` under `wfctl arch-root`, and that file is
+what the design gate reads: the gate counts any path under the root outside
+`design/`, so the record arm and this arm satisfy it the same way. Declared only
+out loud, the gate stays unsatisfied, `wfctl status` holds the design step at
+`in_progress`, and the reason it prints does not look connected to the answer you
+just gave. A placeholder reason is refused, which is the point — a reviewer
+cannot disagree with `<why>`.
 
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 
@@ -263,7 +292,10 @@ the claims in `design.md`, the decision in a record.
   outside the tree, so a reviewer reading the PR never sees `design.md`. The
   two-column split stays there; the record carries only the claims its own
   decision rests on, and `design.md` points at it rather than holding a second
-  copy that drifts. A choice with no credible alternative earns no record.
+  copy that drifts. A choice with no credible alternative earns no record, and
+neither does one that drew a boundary — that was level 2's record, and filing a
+second copy under `design/` puts a binding decision where `wfctl arch context`
+cannot see it.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design.
 
 `plan-template.md`'s Constitution Check re-checks that ownership is stated. It
@@ -323,6 +355,9 @@ Before `design.md` is written:
       verified ones were checked against the code, not from memory.
 - [ ] Any boundary a lower level invalidated was revised upward, not worked
       around.
+- [ ] Every level-2 boundary was reached by running
+      `.agents/skills/architecture-design`, or the accepted record or spec that
+      already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
 - [ ] Every level-3 choice that weighed credible alternatives left a record under
