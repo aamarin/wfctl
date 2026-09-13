@@ -95,7 +95,8 @@ def test_the_shared_rule_does_not_eval_feature_paths() -> None:
 
     The failure is silent in the direction that matters: no `design.md` there, so
     the step reports `unknown` on a feature that has records. The repo's own idiom
-    — `speckit.brainstorm.md` — prints the assignments and reads the value out.
+    — `speckit-brainstorm`'s SKILL.md — prints the assignments and reads the
+    value out.
     """
     shared = _SHARED.read_text()
 
@@ -288,8 +289,13 @@ def test_the_producer_warns_that_only_bullets_are_read() -> None:
     path — indistinguishable from a record that has gone missing. The rule holds
     on this repo's own `design.md` only because its author happened to write that
     note as prose.
+
+    Reads `speckit-brainstorm`'s SKILL.md rather than the wrapper: #361 moved the
+    producer's whole body there and left a pointer behind. The four consumers
+    above are still read as wrappers, because their rule did not move — this is
+    the one producer, and the one file in this module that is a skill.
     """
-    brainstorm = _wrapper("brainstorm")
+    brainstorm = (_AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md").read_text()
 
     assert "prose in this section is not" in brainstorm
     assert "REPO_ROOT" in brainstorm

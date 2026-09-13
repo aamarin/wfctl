@@ -152,15 +152,102 @@ def test_brainstorm_orders_the_records_before_the_one_pager() -> None:
 
     Named bare rather than by path, which is how this file already names its
     other three skills; `_REFERENCE` matches the path form and finds nothing
-    here."""
-    command = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text()
-    assert "`software-design-decisions`" in command
-    assert "## Software design decisions" in command
+    here.
+
+    Reads the skill, not the wrapper it used to read. #361 moved the workflow
+    behind a pointer, and this assertion would have gone on passing over the
+    pointer — the ordering rule it guards is prose, so a wrapper that no longer
+    carries it fails nothing here unless the read follows it."""
+    skill = (_AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md").read_text()
+    assert "`software-design-decisions`" in skill
+    assert "## Software design decisions" in skill
     handoff = "invoke the `idea-refine` skill"
-    assert handoff in command, "the sentence this test orders against was reworded"
-    assert command.index("software-design-decisions") < command.index(handoff), (
+    assert handoff in skill, "the sentence this test orders against was reworded"
+    assert skill.index("software-design-decisions") < skill.index(handoff), (
         "records are written before the one-pager lists them"
     )
+
+
+def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
+    """#361 as a check rather than as eight files that happen to comply.
+
+    `wfctl status --json` hands an agent `next_command`, and the agent has to
+    turn that string into something it can run. Brainstorm was the step where
+    that failed: its wrapper carried the workflow inline, so there was no skill
+    name for a lookup to resolve and the agent stopped for a human. Every step
+    complies today, and only by hand — the next `_STEPS` row added with an
+    inline wrapper reintroduces the defect with the suite green, which is
+    exactly how this one arrived.
+
+    The skill has to be the step's *own*, which is the whole assertion and was
+    the first version's omission: "names some skill" passes on the tree that had
+    the bug, because that inline workflow cited `reading-design-records` in
+    passing at line 102. A wrapper may cite any number of other skills; what it
+    may not do is fail to name the one its command resolves to.
+
+    `decompose` is the one step whose skill is not its command respelled, and it
+    is pinned here rather than derived so that a second exception has to be
+    added deliberately instead of inherited from a looser rule.
+
+    Asserts the wrapper names the skill, not that the skill ships:
+    `test_every_referenced_skill_ships` above already owns the second half, and
+    splitting them keeps each failure naming which of the two broke.
+    """
+    from wfctl._pipeline import _STEPS
+
+    renamed = {"/speckit.decompose": "speckit-delivery-plan"}
+
+    inline = {}
+    for step, spec in _STEPS.items():
+        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
+        expected = renamed.get(spec.command, spec.command.lstrip("/").replace(".", "-"))
+        if not wrapper.exists() or expected not in _REFERENCE.findall(wrapper.read_text()):
+            inline[step] = expected
+    assert inline == {}, f"next_command with no skill behind it: {inline}"
+
+
+def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:
+    """The route #361 describes is a string match, and nothing else holds it.
+
+    `wfctl status --json` hands an agent `/speckit.brainstorm` and the agent
+    searches its skill index for something that answers to it. Being mirrored
+    puts the skill in that index; carrying the literal command in its
+    description is what makes it the obvious hit. Reword the description
+    without it and the mirror stays green, the skill stays installed, and an
+    agent resolving `next_command` is back to finding nothing — #361 with every
+    other guard in this file still passing.
+
+    Reads the command out of `_STEPS` rather than spelling it, so a renamed
+    command fails here instead of leaving the description pointing at a string
+    the pipeline no longer emits.
+    """
+    from wfctl._pipeline import _STEPS
+
+    command = _STEPS["brainstorm"].command
+    skill = (_AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md").read_text()
+    description = next(
+        ln for ln in skill.split("---")[1].splitlines() if ln.startswith("description:")
+    )
+    assert command in description, f"{command} is how an agent gets here"
+
+
+def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
+    """The entry is the fix, and the rest of #361 passes without it.
+
+    Splitting the workflow into a SKILL.md gives an agent that reads the wrapper
+    something to follow. It does not give `Skill(speckit-brainstorm)` a name to
+    resolve — membership in `_MIRRORED_SKILLS` is what copies the skill onto the
+    layer the agent's own index is built from. Drop the entry and the split
+    survives, the suite stays green, and the route the issue was filed about is
+    gone again.
+
+    `fanning-out-code-review` and the two output-style skills carry this same
+    pin for the same reason; this is that pattern applied to the one speckit
+    step that needs it.
+    """
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "speckit-brainstorm" in _MIRRORED_SKILLS
 
 
 def test_brainstorm_allows_the_commands_its_records_need() -> None:
@@ -173,19 +260,54 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     that — "a declared absence is an answer; silence is not" — and the
     declaration is that command. Without it the only level-2 answer brainstorm
     could give was a record, so a change the skill explicitly excludes from
-    needing one had no way to finish the step. This command is also the only
-    place in the shipped tree that names `wfctl arch none` at all.
+    needing one had no way to finish the step. This step is also the only place
+    in the shipped tree that names `wfctl arch none` at all.
+
+    Both surfaces, because #361 gave the step two entrances and each carries its
+    own ceiling: the wrapper's governs a typed turn, the skill's a model-initiated
+    one. Copied rather than moved for that reason, and a copy is what drifts — so
+    the loop asserts the same five entries on each and names which surface failed.
+
+    The entries pinned by name are the ones whose loss is arguable, so they
+    carry their reasons. `Bash(wfctl status*)` is pinned rather than left to the
+    equality assertion below, which was the first version's mistake: equality
+    catches only *one-sided* drift, and an assertion that reads "keep the two
+    lines the same" trains the next editor to change both together — so a
+    symmetric deletion, the shape it invites, passed here green. That grant is
+    the skill's first instruction, the `wfctl status --json` read that decides
+    which approval mode the whole run is in. Losing it fails the read, the
+    file's own rule converts an inconclusive read to `false`, and the
+    `auto_approve` override table goes inert with nothing to show it — which is
+    the silence `approval-mode-is-stored-intent` added that grant to prevent.
+
+    `Write` is pinned for the narrower reason that it is not a `Bash(…)` entry
+    and so cannot ride the loop above: a step that cannot write `design.md` has
+    no output, and the failure arrives as a tool refusal rather than as a
+    missing rule.
     """
-    front = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text().split("---")[1]
-    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
-    for needed in (
-        "wfctl arch check",
-        "wfctl arch none",
-        "git add",
-        "git commit",
-        "wfctl arch-root",
-    ):
-        assert f"Bash({needed}*)" in allowed, needed
+    surfaces = {
+        "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
+        "skill": _AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md",
+    }
+    grants = {}
+    for where, path in surfaces.items():
+        front = path.read_text().split("---")[1]
+        allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+        grants[where] = allowed
+        for needed in (
+            "wfctl arch check",
+            "wfctl arch none",
+            "git add",
+            "git commit",
+            "wfctl arch-root",
+            "wfctl status",
+        ):
+            assert f"Bash({needed}*)" in allowed, f"{where}: {needed}"
+        assert "Write" in allowed, f"{where}: Write"
+    assert grants["wrapper"] == grants["skill"], (
+        "the two copies of the grant have drifted; whichever entrance lost one "
+        "now refuses a step the other can run"
+    )
 
 
 def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
