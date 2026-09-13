@@ -21,8 +21,10 @@ selects level 2       ───► driver → structure loop ───► writes
 owns the level gates       proposes; never accepts      owns the durable decision
 ```
 
-Level 2 does not route here yet — the current-state view step 1 reads is not
-built. Until it is, a human opens this skill directly.
+`.agents/skills/design-levels` routes here from its level-2 gate, and a human
+may open the skill directly. The current-state architecture view is an input
+this skill locates rather than requires — *Inputs* item 3 says what to do in a
+repository that has none.
 
 It does not write `design.md`, run verification, review a diff, define gate
 verdicts, or accept a record. An observation is not policy: a dependency graph
@@ -52,8 +54,11 @@ itself an architecture question. Neither is smallness: the test is whether a
 boundary moves, and a two-line change can move one.
 
 If the change is local and preserves every existing boundary and contract,
-declare **no record** and return to `design-levels`. A declared absence is the
-result; do not manufacture a boundary to complete the method.
+declare **no record** with `wfctl arch none --reason "<why>"` and return to
+`design-levels`. A declared absence is the result; do not manufacture a boundary
+to complete the method. The command is how the absence becomes an artifact a
+reviewer opens and the design gate can read — saying it in the transcript leaves
+the gate exactly where it was.
 
 ## Authority
 
@@ -254,8 +259,9 @@ recommended decision and why
 
 Then do exactly one of the following:
 
-- If no boundary was drawn or moved, declare **no record** and return to
-  `design-levels`.
+- If no boundary was drawn or moved, run `wfctl arch none --reason "<why>"` and
+  return to `design-levels`. The reason is the whole artifact — it is what a
+  reviewer disagrees with — so a placeholder is refused.
 - If evidence is missing, name what must be checked and stop. Ask the human
   rather than proceeding on the weaker evidence.
 - If a boundary is proposed, invoke `.agents/skills/architecture-decisions` and
@@ -264,11 +270,20 @@ Then do exactly one of the following:
 
 Drivers remain feature-local design input until promotion. Where this
 iteration's output lands is answered once, by `.agents/skills/design-levels`'
-"Where the levels land" — read it there. An iteration that compared credible
-alternatives is the case that section says earns a record of its own, so read it
-before assuming the level-2 record is the only one. Carry the ranked drivers in
-context and give a record only the ones its own decision rests on. Do not create
-a separate drivers artifact or restate the full decision in two places.
+"Where the levels land" — read it there. Carry the ranked drivers in context and
+give a record only the ones its own decision rests on. Do not create a separate
+drivers artifact or restate the full decision in two places.
+
+**The level-2 record is the only record this iteration produces.** Comparing
+credible alternatives is what this method does on every run, so it cannot also
+be the signal that a second record is owed — "Where the levels land" states that
+rule for level 3, and reading it as a rule about *this* iteration sends a
+boundary decision into `<arch-root>/design/`. Two things then go wrong at once:
+`.agents/skills/software-design-decisions` refuses it by name — *"Not here: a
+choice that draws or moves a boundary"* — and `wfctl arch context` never
+projects that directory, so a binding ownership decision would read as durable
+and bind nothing. A level-3 record is earned by a structural choice that draws
+no boundary, and that choice is made at level 3, not here.
 
 ## Common rationalizations
 
