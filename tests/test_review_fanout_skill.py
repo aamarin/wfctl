@@ -130,6 +130,21 @@ def test_the_roster_check_tells_the_three_states_apart(tmp_path: Path) -> None:
     ]
 
 
+def test_a_running_reviewer_puts_nothing_on_stderr(tmp_path: Path) -> None:
+    """The `-s` in `grep -qs` is load-bearing, and every other test reads stdout.
+
+    A dispatched reviewer that has not written its file yet is the normal state,
+    not a fault — `r3` in the fixture. Without `-s`, grep says `No such file or
+    directory` about it, so every healthy panel with a reviewer still working
+    prints an error, and the suite stays green because the words it asserts on
+    all arrive on stdout. The skill argues for the flag in prose three lines
+    above the fence; this is the check under that argument.
+    """
+    bin_dir = _fixture(tmp_path)
+
+    assert _shell("sh", bin_dir, _roster_command()).stderr == ""
+
+
 def test_a_report_on_disk_outranks_an_incomplete_returned_list(
     tmp_path: Path,
 ) -> None:
@@ -183,14 +198,17 @@ def test_the_verdict_anchor_accepts_every_spelling_reviewers_use(
 ) -> None:
     """Four spellings, all well-formed, none of them invented here.
 
-    They are what the panels in this project's own spec root wrote, and a check
-    keyed on `^Verdict:` alone takes about half of them — so the anchor tolerates
-    whatever decoration precedes the word. That tolerance is the part a later
-    reader is likeliest to tighten, having seen the fence and not the corpus,
-    which is why the skill names this test rather than restating the four.
+    They are what the panels in this project's own spec root wrote — 118, 101,
+    26 and 7 of 244 reports — and a check keyed on `^Verdict:` alone takes about
+    half of them, so the anchor tolerates whatever decoration precedes the word.
+    That tolerance is the part a later reader is likeliest to tighten, having
+    seen the fence and not the corpus, which is why the skill points at this
+    test beside its own list rather than leaving the list to stand alone.
 
-    The last case is the other edge: prose that mentions a verdict is not one,
-    and an anchor relaxed to a bare substring search would count it.
+    The last case is the other edge: prose that mentions a verdict is not one.
+    Its `Verdict` is capitalized deliberately — with a lowercase `v` an anchor
+    relaxed to a bare substring search rejects it too, and the case stops
+    discriminating between the anchor and the relaxation it exists to rule out.
     """
     bin_dir = _fixture(tmp_path)
     report = tmp_path / "reviews" / "r1.md"
@@ -199,22 +217,27 @@ def test_the_verdict_anchor_accepts_every_spelling_reviewers_use(
         "Verdict: Approve",
         "**Verdict: Approve**",
         "## Verdict",
-        "- Verdict: Approve",
+        "### Verdict",
     ):
         report.write_text(f"BLOCKER cli.py:L1 — …\n\n{line}\n")
         assert _run("sh", bin_dir)[:2] == ["reported", "r1"], line
 
-    report.write_text("The verdict stands, and nothing here reverses it.\n")
+    report.write_text("The Verdict stands, and nothing here reverses it.\n")
     assert _run("sh", bin_dir)[:2] == ["MISSING", "r1"]
 
 
 def test_the_skill_still_names_the_test_that_holds_the_anchor_open() -> None:
-    """The skill defers to a test by name instead of restating the four
-    spellings, which is right — the corpus moves and the prose would not. It
-    also means a rename leaves the skill pointing at nothing, and the pointer is
-    prose, so no check but this one can see it (#218)."""
+    """The skill points at a test by name, which a rename leaves aimed at
+    nothing — and the pointer is prose, so no check but this one can see it
+    (#218).
+
+    The name is read off the function rather than written out again. Spelled as
+    a literal, this test compares one dead string against another and agrees
+    with itself: renaming the `def` alone leaves both in accord on a name that
+    no longer exists, which is the single edit this test is here to catch.
+    """
     assert (
-        "test_the_verdict_anchor_accepts_every_spelling_reviewers_use"
+        test_the_verdict_anchor_accepts_every_spelling_reviewers_use.__name__
         in _SKILL.read_text()
     )
 

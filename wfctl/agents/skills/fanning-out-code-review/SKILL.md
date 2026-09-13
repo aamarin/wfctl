@@ -171,11 +171,18 @@ test records as a completed review of the whole diff (#368).
 
 The anchor is loose about what precedes the word on purpose. Reports in this
 project's own spec root write that line four ways — `Verdict:`, `**Verdict:
-Approve**`, `## Verdict`, `- Verdict:` — and all four are well-formed, so a check
-keyed on `^Verdict:` alone rejects about half the honest reports. Tightening a
-check until it fails real work is the same defect pointed the other way, and
-`test_the_verdict_anchor_accepts_every_spelling_reviewers_use` is what holds the
-four apart from prose that merely mentions the word.
+Approve**`, `## Verdict`, `### Verdict` — and all four are well-formed, so a
+check keyed on `^Verdict:` alone rejects about half the honest reports.
+Tightening a check until it fails real work is the same defect pointed the other
+way, and `test_the_verdict_anchor_accepts_every_spelling_reviewers_use` is what
+holds the four apart from prose that merely mentions the word.
+
+**The test is about the ids you dispatched.** A free member filed here — a bot's
+review, a comment saved to the directory — was never handed `code-review`'s
+rubric, so it has no verdict line to carry and a re-ask cannot be made of it. It
+is named on the roster line beside the panel, which is where a report nobody
+dispatched belongs anyway, and not put through a test for a format nobody gave
+it.
 
 `grep -s` swallows the error for a file that is not there, because a reviewer
 still working is the normal state and its absent file is the `RUNNING` branch's
@@ -199,10 +206,11 @@ over the whole string as a single id and report one reviewer nobody dispatched.
 reviewer's own "I already reported" is the recollection this step exists to
 disbelieve; that its run ended is an observation nobody has to trust.
 
-**The disk is asked first; `RETURNED` only breaks the tie.** A report on disk is
-a report whatever anyone remembers, so a reviewer left out of `RETURNED` by
-mistake still reads as `reported`. Memory is consulted about a reviewer that has
-written nothing and about nothing else, which is the one question it can answer.
+**The disk is asked first; `RETURNED` only breaks the tie.** A file carrying a
+verdict is a report whatever anyone remembers, so a reviewer left out of
+`RETURNED` by mistake still reads as `reported`. Memory is consulted about a
+reviewer that has written nothing usable — no file, or a file with no verdict in
+it — and about nothing else, which is the one question it can answer.
 Nested the other way round, a real report reads as `RUNNING`, and the panel
 waits on a reviewer already back while its findings sit unread on disk.
 
@@ -370,16 +378,19 @@ nobody raised.
 | 4 | r2 | the `_MIRRORED_SKILLS` comment rationale doesn't apply here | rejected — the rationale is about #124's failure mode, which this entry has |
 | — | r3 | no findings — six passes over the installer, the fence, and its tests | clean |
 
-roster: r1 ✓  r2 ✓  r3 ✓ (r3 re-asked once)
+roster: r1 ✓  r2 ✓  r3 ✓ (r2 re-asked once)
 ```
 
-Three dispositions, each requiring a reason on the line: **applied**,
-**accepted** (with the reason you accepted it for, when it differs from the one
-given), **rejected** (with the reason). A run in which everything was applied
-has not exercised the reconciliation — it has relayed three reports.
+Three dispositions for a finding, each requiring a reason on the line:
+**applied**, **accepted** (with the reason you accepted it for, when it differs
+from the one given), **rejected** (with the reason). A run in which everything
+was applied has not exercised the reconciliation — it has relayed three reports.
+**`clean` is the fourth value in that column and not a fourth disposition**: it
+disposes of no finding, so it carries no reason.
 
-**A reviewer that found nothing gets a row, not a tick.** Its `#` is blank —
-nothing was found, so there is no finding to number — and its Finding column
+**A reviewer that found nothing gets a row, not a tick.** Its `#` carries `—`,
+not a number and not an empty cell — nothing was found, so there is no finding to
+number, and a blank in a pipe table reads as an omission. Its Finding column
 carries what the report says it covered. A clean reading is a result the panel
 paid for, and the roster line cannot carry it: `r3 ✓` says a file arrived and
 stops there, which is the same mark a reviewer earns for a page of blockers. The
