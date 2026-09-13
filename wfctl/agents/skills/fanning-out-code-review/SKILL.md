@@ -80,9 +80,17 @@ the change is supposed to do, and the project's rules — **never your session
 history**, and never another reviewer's findings. A reviewer primed with the
 first reviewer's report is not a second opinion.
 
-Every dispatch instruction carries these three:
+Every dispatch instruction carries these four:
 
 - **Follow the `code-review` skill.** Name the skill; do not paste a rubric.
+- **Say which passes ran and what each covered**, whether or not it found
+  anything. `code-review` Step 5 ends a clean report at the over-engineering
+  metric and a verdict, which is enough to show a reviewer worked and not enough
+  to say what it looked at. Step 6 gives a reviewer that found nothing a row
+  whose Finding cell carries its coverage, so a report that never stated it
+  leaves the coordinator inventing the cell or dropping the row — and this
+  bullet is where the requirement reaches the reviewer, because the sentence in
+  Step 3 that states it is read by the coordinator alone.
 - **Report only. Change nothing.** Reviewers here share a worktree with each
   other and with you. Three agents editing a tree a fourth is reading corrupts
   all four, and the corruption is not recoverable afterwards — you cannot tell

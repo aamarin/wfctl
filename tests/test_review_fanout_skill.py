@@ -447,3 +447,30 @@ def test_the_two_fences_carry_the_same_roster() -> None:
 
     assert dispatched.group(1).split() == accepted.group(1).split("|")
 
+
+
+def test_the_dispatch_list_requires_the_coverage_the_clean_row_reproduces() -> None:
+    """Step 6 gives a reviewer that found nothing a row whose Finding cell
+    carries what its report covered, and `code-review` Step 5 ends a clean
+    report at the over-engineering metric and a verdict. Codex caught the gap on
+    #369: the coverage requirement was stated only in Step 3, which the
+    coordinator reads and a dispatched reviewer never does, so every clean run
+    asked the coordinator for evidence no reviewer was told to produce. The
+    count is checked against the lead-in rather than hardcoded, because a fifth
+    bullet added later that leaves the number behind is the same defect one
+    word smaller."""
+    skill = _SKILL.read_text()
+
+    words = {"three": 3, "four": 4, "five": 5, "six": 6}
+    lead_in = re.search(
+        r"Every dispatch instruction carries these ([a-z]+):\n\n(.*?)\n\n[^-]",
+        skill,
+        re.DOTALL,
+    )
+    assert lead_in is not None, "the dispatch list's lead-in moved or was reworded"
+
+    bullets = re.findall(r"^- \*\*(.+?)\*\*", lead_in.group(2), re.MULTILINE)
+    assert len(bullets) == words[lead_in.group(1)], (lead_in.group(1), bullets)
+
+    covering = [b for b in bullets if "which passes ran" in b]
+    assert covering, bullets
