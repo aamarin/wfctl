@@ -56,6 +56,18 @@ No new step state. `in_progress` carrying a reason is the shape `implement`
 already uses for a failed verification, and a blocked step is the same fact about
 the pipeline: it may not advance, and here is why.
 
+Neither half is new structure. The report reuses the event shape
+`record_notify_refused` already writes for wfctl's *own* refusals, and the stop
+reuses `verification_block`'s. A known solution fits, which is the cheaper answer
+and the reason nothing is invented here.
+
+**The decision rests on the agent surviving the refusal**, which is checked
+rather than assumed: the host's classifier returns an error to the agent and the
+run continues. Observed three times in the session that wrote this record,
+including once on the attempt to test the claim itself. Were the block to
+terminate the run instead, there would be no witness left to report and this
+whole decision would be unavailable.
+
 ## Owns truth
 
 wfctl owns *"may the pipeline advance past this step, and why not?"*.
@@ -120,6 +132,14 @@ verifies it.
 The safe half is not a property this record can rely on continuing. It holds
 because one step's evidence is a tracker key that a refusal prevents from
 existing, which nobody chose for that reason and no test pins.
+
+**The report costs a published interface.** wfctl's CLI is reached by skill
+files, by other agents, and by anything that can run a command — the calling code
+is not in this repository and cannot be renamed with it. So whatever verb carries
+the report is a compatibility promise from the moment it ships, and removing it
+later is a breaking change rather than a rename. That is the price of this
+decision over the baseline, which adds no surface at all, and it is the reason
+the verb's shape is worth arguing at level 3 rather than settling here.
 
 This record does not fix #364's wording defect, which is independent of it and
 ships wrong today: the irreversible line prints *"will never merge or delete"*
