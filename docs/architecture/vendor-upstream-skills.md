@@ -72,10 +72,14 @@ Derived today:
 | `using-superpowers` | `obra/superpowers` |
 | `verification-before-completion` | `obra/superpowers` |
 
-`speckit-delivery-plan` and `speckit-orchestrate` are absent because they are
-wfctl's own: both score 0% against every spec-kit command template. The prefix
-is a naming convention, not a provenance claim, and the eight above were
-identified by content — `speckit-specify` carries no `source:` key and would
+`speckit-brainstorm`, `speckit-delivery-plan` and `speckit-orchestrate` are
+absent because they are wfctl's own: all three score 0% against every spec-kit
+command template. `speckit-brainstorm` joined them at #361, which split it out
+of a wrapper rather than pulling it from anywhere — its body layers over
+`brainstorming` and `idea-refine`, both of which are in the table, and layering
+over a derived skill is what this record asks for rather than a way of becoming
+one. The prefix is a naming convention, not a provenance claim, and the eight
+above were identified by content — `speckit-specify` carries no `source:` key and would
 have been missed by any rule reading frontmatter (#216).
 
 `wfctl/specify/` is derived from the same upstream and is a second table
@@ -257,3 +261,6 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   `wfctl/agents/NOTICES.md` moved beside the skills so the permission notice
   reaches an installed project rather than only the wheel; the `speckit.*`
   command wrappers named as the surface still undeclared (#216, #229)
+- 2026-09-12  amended     — `speckit-brainstorm` named among the skills that are
+  wfctl's own rather than derived, with why splitting it out of a wrapper does
+  not make it derived from the two skills its body layers over (#361)

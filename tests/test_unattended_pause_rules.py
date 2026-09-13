@@ -1,6 +1,7 @@
 """What `clarify` and `analyze` do at an interactive pause nobody answers (#331).
 
-`speckit.brainstorm.md` has carried a table of its skill's pauses since #283.
+`speckit-brainstorm`'s SKILL.md has carried a table of its own pauses since
+#283 (the wrapper carried it until #361 split the body out).
 Neither review wrapper had one, and #325 flipped both steps to automatic — so an
 unattended run entered each command and decided for itself what a pause meant.
 The #299 run got past `analyze`'s remediation offer that way: an agent judged
@@ -143,7 +144,7 @@ def test_the_clarify_rule_refuses_to_invent_an_answer_it_cannot_derive() -> None
 
     A rule that says "answer your own questions" and stops there is read by the
     next agent as licence to answer all of them, including the one about what a
-    person wants. That is the silent decision `speckit.brainstorm.md`'s step-3 row
+    person wants. That is the silent decision `speckit-brainstorm`'s step-3 row
     already names as the failure the step exists to prevent, reached by obeying
     the remedy instead of skipping it.
 

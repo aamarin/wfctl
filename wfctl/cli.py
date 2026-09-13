@@ -2394,6 +2394,29 @@ _MIRRORED_SKILLS = frozenset({
     # structural choice just settled in conversation — a moment nobody types a
     # command, the same reason `fanning-out-code-review` is here (#124).
     "software-design-decisions",
+    # The only speckit step here, and the only one whose workflow ever lived in
+    # its wrapper rather than behind a pointer. What that cost was not
+    # readability — the wrapper carried all 133 lines and read fine as text —
+    # but a name: no file called `speckit-brainstorm` existed anywhere in the
+    # tree, so an agent handed `/speckit.brainstorm` out of `wfctl status --json`
+    # resolved it against nothing and stopped for a human (#361). Splitting the
+    # body out supplies the name; this entry is what puts it on the native
+    # discovery path, which the other ten still lack. So the test for whether a
+    # later step belongs here is "does a lookup by name find it", not "is its
+    # wrapper readable".
+    #
+    # The wrapper survives it: `speckit.brainstorm` and `speckit-brainstorm`
+    # differ by a dot, so `_mirror_supersedes_wrapper` never fires and the typed
+    # route is untouched. Renaming either to match would create the tie #170 was
+    # filed about.
+    #
+    # What widens is who may spend the grant, not the grant: the skill's
+    # `allowed-tools:` is the wrapper's list verbatim, and `Write`, `git add`
+    # and `git commit` now bound a model-initiated turn as well as a typed one.
+    # Intended — a step that cannot write `design.md` or commit its records is
+    # the same dead end from the other side — and narrowing it here would leave
+    # the two entrances disagreeing about what the identical workflow may do.
+    "speckit-brainstorm",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather
     # than the filesystem: an agent reaching for `Skill(start-session)` is

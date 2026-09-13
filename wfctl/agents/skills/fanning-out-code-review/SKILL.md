@@ -94,6 +94,20 @@ Every dispatch instruction carries these three:
   replaces the parent's proof of done with one taken mid-review.
 - **Write findings to `$FEATURE_DIR/reviews/<id>.md`,** the id you assigned it.
 
+Mark the dispatch before the first reviewer can write:
+
+```bash
+eval "$(wfctl feature-paths)"
+mkdir -p "$FEATURE_DIR/reviews" && touch "$FEATURE_DIR/reviews/.dispatched"
+```
+
+`$FEATURE_DIR` is outside the worktree and outlives the run, so a second panel on
+the same change finds the first panel's reports sitting beside its own — and a
+re-run dispatches fresh ids (`r4 r5 r6` after `r1 r2 r3`), never the ones already
+on disk. Without the mark, Step 3's check reads three reports this branch's own
+panel wrote and calls them a stranger's. The mark dates the run; the ids say
+whose.
+
 Dispatch them in parallel — they are independent by construction. Sharing one
 tree is a choice, not a limit to engineer around: a harness that can hand each
 reviewer its own worktree lifts the report-only constraint and buys nothing
@@ -110,8 +124,14 @@ The reconciled table from Step 6 is this skill's own output and stays here.
 `opening-a-change` decides separately what a description says about the panel,
 and it says the applied findings are commits the diff already shows.
 
-A reviewer nobody dispatched still counts. Bot and human comments already on the
-change are panel members you did not pay for; collect them in the same pass.
+**Comments already on the change are panel members you did not pay for** — a
+bot's review, a person's note. Collect them in the same pass.
+
+What qualifies them is not that they arrived unasked. It is that whoever wrote
+them never had your session: they read the change and nothing else, which is
+what Step 2 hands a dispatched reviewer and the only thing a panel buys. An
+agent running inside your session starts from the other side of that line, and
+Step 3 is where the line is drawn.
 
 ## Step 3 — Confirm every reviewer reported
 
@@ -202,9 +222,92 @@ use is read back as a state.
 "No findings" is a valid result only when it says **which passes ran and what
 was checked in each**. A bare "looks good" is a missing report wearing a verdict.
 
+### The roster is the whole panel
+
+The loop above asks one direction of one question — *did every id I dispatched
+report?* The other direction is asked nowhere, and it is the one that lets a
+stranger in:
+
+```
+   roster  ──►  reports     did everyone report?     the loop above
+   reports ──►  roster      is this one of mine?     nothing, until here
+```
+
+**A report from an id you did not dispatch is not a reviewer's, and being right
+does not make it one.** On one run, two agents this panel never dispatched
+finished while all three real reviewers were still working, and reported on the
+same diff through the same channel the reviewers use. One of their findings was
+a genuine defect: the panel found it independently forty minutes later and
+confirmed it by mutation (#205). A session that folded it in would have taken a
+true finding from a source with no independence behind it, and had nothing to
+tell it so. The rule therefore carries no *unless it is correct* — at the moment
+you are reading one, correct is what a contaminated report looks like.
+
+**The disqualifier is context inheritance, not agent type.** Step 2 hands a
+reviewer the diff, the intent and the project's rules, and never your session
+history. An agent that inherited your context has already read your reasoning,
+so its agreement with you is evidence about your reasoning rather than about the
+diff. Type cannot be asked this question: of the two above, `ListAgents` typed
+one a fork and did not list the other at all, so a rule keyed on type catches
+one of the two. Roster identity answers it for both and asks the harness
+nothing — you know what you dispatched.
+
+A report reaches you on one of two channels, and the test is the same on both.
+A file written under an id that is not on the roster:
+
+```bash
+eval "$(wfctl feature-paths)"
+REVIEWS="$FEATURE_DIR/reviews"
+find "$REVIEWS" -maxdepth 1 -type f -name '*.md' -newer "$REVIEWS/.dispatched" |
+sort | while read -r f; do
+  id=${f##*/}; id=${id%.md}
+  case "$id" in
+    r1|r2|r3) ;;      # the panel: dispatched ids, and free members filed here
+    *) echo "UNDISPATCHED  $id" ;;
+  esac
+done
+```
+
+Reading the directory is the right question here and the wrong one above. The
+loop above asks which dispatched ids wrote a file, and a listing cannot answer
+that: a reviewer that never wrote leaves nothing to find, and the loop reports
+three of three from a panel of four. This asks which files exist that no
+dispatched id wrote, which is the one question a listing does answer. The roster
+is now written in two places, one per direction, and both are yours to
+substitute — an edit to one that misses the other reports a reviewer you
+dispatched as a stranger.
+
+A comment already on the change is a panel member too, so a session that files a
+bot's review under `reviews/` — the obvious thing to do, since that is where
+Step 4 reads from — has to name it in the case list beside the ids it
+dispatched. What the list carries is the panel, not the dispatch log, and the
+roster line in Step 6 carries the same two parts for the same reason. A free
+member left where it arrived — a comment on the change, read where it was
+posted — never reaches this check at all: it reads filenames and nothing else.
+
+`find` rather than `"$REVIEWS"/*.md`, because a reviews directory with nothing
+in it yet is the normal state early in a run, and zsh aborts the whole script on
+a glob that matches nothing. The check would not run at all, on the shell most
+of these runs happen in. `-newer` reads Step 2's mark, so what it lists is the
+reports written since you dispatched rather than everything the directory has
+accumulated. Nothing redirects stderr: a missing mark or a missing directory
+means this check never ran, and a check that fails silent prints exactly what a
+clean panel prints.
+
+The other channel is a completion notification, and it leaves no file. Read the
+id it reports under against the same roster. Nothing is on disk for a check to
+look at, so here the rule is the whole of it, applied as each report arrives.
+
+`UNDISPATCHED` is not a fourth state of the panel — it is a report from outside
+it. It does not enter the roster line, it does not get a disposition row, and it
+is not re-asked, because there is nothing you asked it for. Name it under the
+table instead, so a reader can see that five reports arrived and three of them
+were the panel.
+
 ## Step 4 — Reconcile
 
-Read all the reports together, then group:
+Read the reports the roster names, and the comments already on the change —
+all of them, and only those — then group:
 
 - **Two or more reviewers, same defect** → evidence. Verify it anyway; verify it first.
 - **One reviewer only** → a hypothesis, not noise. How often this happens is not
@@ -249,6 +352,20 @@ Three dispositions, each requiring a reason on the line: **applied**,
 given), **rejected** (with the reason). A run in which everything was applied
 has not exercised the reconciliation — it has relayed three reports.
 
+**Every name in the Reviewer column is on the roster line.** The line carries
+the whole panel — the ids you dispatched, and the free members named beside
+them — so a name in the column that the line does not carry is a report from
+outside the panel, visible to anyone reading the table, which is the only place
+it is visible at all. A line carrying the dispatched ids alone cannot do that
+work: a bot's comment and a stranger both read as absent from it. A report Step 3
+excluded is named below the roster and not counted, by id — the id is the only
+thing that says which stranger was left out:
+
+```
+roster: r1 ✓  r2 ✓  r3 ✓  + codex (review comment on the PR)
+not read: correctness-angles, r4 — agents this panel did not dispatch
+```
+
 ## Red flags
 
 - Recording a pass as clean because a reviewer said it had nothing to add. That
@@ -259,6 +376,8 @@ has not exercised the reconciliation — it has relayed three reports.
   running. Both corrupt the diff the others are reading.
 - Handing reviewer 2 what reviewer 1 found, or handing any of them your session
   history. Both destroy the independence that is the only thing a panel buys.
+- Reconciling a report that came from an id you did not dispatch. Being correct
+  is what makes one of those hard to catch, not what makes it a panel member.
 - Applying findings straight from the reports. Half of them changed shape under
   verification.
 - A disposition table shorter than the number of findings collected.
