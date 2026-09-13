@@ -26,6 +26,12 @@ _REFERENCE = re.compile(r"\.agents/skills/([a-z0-9][a-z0-9-]*)")
 # either side of it is unambiguously before or after the run that wrote it.
 _DISPATCH = 1_600_000_000
 
+# A report ended the way `code-review` Step 5 ends one. The findings above the
+# verdict are decoration here — the roster check reads the verdict line and
+# nothing else — but a fixture carrying only the line it keys on would pass a
+# check that matched the whole file, which is the shape being ruled out.
+_REPORT = "BLOCKER cli.py:L1 — …\n\nnet: −3 lines possible\nVerdict: Approve\n"
+
 
 def _roster_command() -> str:
     """The one fenced block that checks the roster. Keyed on content rather than
@@ -76,6 +82,11 @@ def _fixture(feature_dir: Path) -> Path:
     reads it: the undispatched check needs the mark to run at all, and a fixture
     that omitted it would make every one of those tests pass on stderr.
 
+    `r1` is a whole report rather than a line of findings because the loop no
+    longer asks whether the file has bytes in it — it asks for the verdict line
+    `code-review` Step 5 requires, so a fixture written before #368 has its one
+    healthy reviewer read as `MISSING`.
+
     The three reviewers are the three states the loop can print, so one fixture
     exercises all of them. `r3` is absent from the fence's `RETURNED` list and
     writes nothing, which is what makes it a running reviewer rather than a dead
@@ -88,7 +99,7 @@ def _fixture(feature_dir: Path) -> Path:
     mark = reviews / ".dispatched"
     mark.touch()
     os.utime(mark, (_DISPATCH, _DISPATCH))
-    (reviews / "r1.md").write_text("BLOCKER cli.py:L1 — …\n")
+    (reviews / "r1.md").write_text(_REPORT)
     (reviews / "r2.md").write_text("")
 
     bin_dir = feature_dir / "bin"
@@ -133,11 +144,79 @@ def test_a_report_on_disk_outranks_an_incomplete_returned_list(
     receiving".
     """
     bin_dir = _fixture(tmp_path)
-    (tmp_path / "reviews" / "r3.md").write_text("BLOCKER cli.py:L9 — …\n")
+    (tmp_path / "reviews" / "r3.md").write_text(_REPORT)
 
     assert _run("sh", bin_dir) == [
         "reported", "r1", "MISSING", "r2", "reported", "r3",
     ]
+
+
+def test_a_bare_looks_good_is_missing_rather_than_a_clean_pass(
+    tmp_path: Path,
+) -> None:
+    """Nine bytes bought a clean row in the Step 6 table (#368).
+
+    `[ -s ]` asked whether the file had bytes in it, while the same skill said
+    sixty-seven lines further down that a bare "looks good" is a missing report
+    wearing a verdict. The rule and the check disagreed and the check is the one
+    that runs. This is the case that slipped between them: a file from a
+    dispatched id, written after the dispatch mark, passing every identity check
+    #173 and #205 added, and carrying nothing.
+
+    Both shells here rather than leaning on the zsh comparison below — that one
+    compares this fence against itself, so it agrees just as readily on a wrong
+    answer.
+    """
+    bin_dir = _fixture(tmp_path)
+    (tmp_path / "reviews" / "r2.md").write_text("looks good\n")
+
+    for shell in ("sh", "zsh"):
+        if shell == "zsh" and not shutil.which("zsh"):
+            continue
+        assert _run(shell, bin_dir) == [
+            "reported", "r1", "MISSING", "r2", "RUNNING", "r3",
+        ], shell
+
+
+def test_the_verdict_anchor_accepts_every_spelling_reviewers_use(
+    tmp_path: Path,
+) -> None:
+    """Four spellings, all well-formed, none of them invented here.
+
+    They are what the panels in this project's own spec root wrote, and a check
+    keyed on `^Verdict:` alone takes about half of them — so the anchor tolerates
+    whatever decoration precedes the word. That tolerance is the part a later
+    reader is likeliest to tighten, having seen the fence and not the corpus,
+    which is why the skill names this test rather than restating the four.
+
+    The last case is the other edge: prose that mentions a verdict is not one,
+    and an anchor relaxed to a bare substring search would count it.
+    """
+    bin_dir = _fixture(tmp_path)
+    report = tmp_path / "reviews" / "r1.md"
+
+    for line in (
+        "Verdict: Approve",
+        "**Verdict: Approve**",
+        "## Verdict",
+        "- Verdict: Approve",
+    ):
+        report.write_text(f"BLOCKER cli.py:L1 — …\n\n{line}\n")
+        assert _run("sh", bin_dir)[:2] == ["reported", "r1"], line
+
+    report.write_text("The verdict stands, and nothing here reverses it.\n")
+    assert _run("sh", bin_dir)[:2] == ["MISSING", "r1"]
+
+
+def test_the_skill_still_names_the_test_that_holds_the_anchor_open() -> None:
+    """The skill defers to a test by name instead of restating the four
+    spellings, which is right — the corpus moves and the prose would not. It
+    also means a rename leaves the skill pointing at nothing, and the pointer is
+    prose, so no check but this one can see it (#218)."""
+    assert (
+        "test_the_verdict_anchor_accepts_every_spelling_reviewers_use"
+        in _SKILL.read_text()
+    )
 
 
 def test_the_roster_check_survives_zsh(tmp_path: Path) -> None:
