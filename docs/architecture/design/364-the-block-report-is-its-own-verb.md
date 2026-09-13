@@ -97,9 +97,30 @@ facts it alone witnessed; it does not get to say which step is held.
 It writes one event, `blocked`, carrying `action`, `reason` and the inferred
 `step`. A `block_reason` predicate shaped like `verification_block` reads the
 branch's events, keeps the latest event per action, and returns the reason of any
-`blocked` still standing for the step being asked about. A later `notify-action`
-for the same action clears it, which is what an agent that retried and succeeded
-already writes.
+`blocked` still standing for the step being asked about.
+
+Two events lift it, and the same verb carries the second:
+
+```
+wfctl blocked <action> --clear
+```
+
+A later `notify-action` for the same action is the first, and it costs nothing —
+it is what a run that retried and succeeded already writes, and what
+`wfctl issue comment|create|label` writes for itself on a successful call. The
+`--clear` spelling is the second, and it exists because the first is unreachable
+from the run this verb was built for: `notify-action` is written only behind
+`action_grant`, so a host-blocked run holding no grant can report a block it can
+never lift, and the step stays held with no command able to release it. An
+ungated report whose only release is gated is the gate standing in front of the
+channel again, one step later.
+
+`--clear` asserts that a person took the action, so it is a person's command
+rather than the agent's — the same row `wfctl issue close` occupies, ungated for
+the reason stated in `AGENTS.md` § Safety: gating it would refuse the human who
+is the only actor allowed to run it. Nothing prevents an agent from running it,
+and the answer to that is the answer this repo already gives for `close`, not a
+new one.
 
 `wfctl notify` is unchanged. Its gate stays closed on both paths.
 
@@ -158,8 +179,8 @@ stable    ┌──────────────────┐
      ┌────────┘         └────────┐
 ┌────┴─────────┐          ┌──────┴───────┐
 │ wfctl notify │          │ wfctl blocked│
-│  action      │          │              │
-│  declined    │          │              │
+│  action      │          │  <action>    │
+│  declined    │          │  --clear     │
 └──────────────┘          └──────────────┘
         ▲ passed by              ▲
 ┌───────┴──────┐                 │
@@ -206,6 +227,13 @@ and in neither does it set a step state.
   and is not available. `notify` is a flat command taking a positional action, so
   the spelling is already taken by `wfctl notify blocked` meaning *the action
   named "blocked"*, and converting it to a group breaks every existing caller.
+- **`notify-action` as the only way to lift a block** — the shape this record
+  shipped with, and the one level 1 found unreachable. It reads well and costs no
+  surface: the event already exists, and an agent that retried and succeeded
+  writes it without being asked. It fails on the same fact the whole record turns
+  on, met a second time from the other end — `notify` runs behind `action_grant`,
+  so the run that most needs to lift a block is the one that cannot write the
+  event that lifts it. Kept as the cheap path, not as the only one.
 - **A `--by <layer>` argument on the new verb**, distinguishing the host's
   classifier from a static permission rule. Dropped as a constant: the agent is
   the only caller and the only layer it can witness is the host's. wfctl's own
@@ -229,11 +257,20 @@ path, from the same call site, with the gate already negotiated.
 one, and nothing in `--help` explains why. The grant is the reason and it is not
 visible from the verb list.
 
-The clearing rule is the new failure mode. A block is lifted by a later
-`notify-action` for the same action, so a human who unblocks the work and takes
-the action themselves leaves the step held until somebody records it. `status`
-must print that remedy on the annotation, the way `verification_block` prints
-`run \`wfctl verify\``.
+The clearing rule is the new failure mode. Nothing observes that the action
+happened, so a human who unblocks the work and takes it themselves leaves the
+step held until somebody records it. `status` must print that remedy, the way
+`verification_block` prints `run \`wfctl verify\``.
+
+**Matching by action name is where it breaks first.** The clearing event has to
+carry the same string the block carried, and `action` is free text on both verbs.
+A run blocked on `gh issue comment` that reports `issue-comment`, cleared later by
+a successful `wfctl issue comment` that writes `comment`, leaves a block nothing
+lifts. `--clear` is the escape from that too — it is the one spelling the person
+holding the problem can choose to match. The alternative is an enum in both
+`notify` and `blocked` at once, which is the "`action` strings stay free text"
+assumption above being falsified, and is a change to `notify` that this record
+declines to make on a guess.
 
 ## Verification
 
@@ -245,6 +282,13 @@ must print that remedy on the annotation, the way `verification_block` prints
 - A test that writes `blocked` then `notify-action` for one action and asserts
   the step is no longer held, and one that writes them in the other order and
   asserts it is.
+- A test that calls `wfctl blocked <action> --clear` on a branch with no grant
+  and asserts the step is released — the path `notify-action` cannot reach, and
+  the one the first shape of this record left unreachable.
+- A test that a `blocked` event holds a step whose own artifacts read `done`.
+  That is the whole claim of the level-2 record — a refused tracker write and a
+  successful one leave byte-identical state — and it is the assertion that fails
+  if the hold is ever wired as a predicate `implement` alone consults.
 - A review question rather than a test: does `wfctl --help` read as though the
   two verbs are alternatives? If it does, the consequence above has landed and
   the help text owes the reader the grant.
@@ -254,3 +298,7 @@ must print that remedy on the annotation, the way `verification_block` prints
 - 2026-09-13  proposed  — #364 level 3; the level-2 record left the verb open as
   a published-interface commitment, and the deciding fact turned out to be that
   `notify`'s grant gate refuses exactly the run that needs to report.
+- 2026-09-13  amended   — #364 level 1 read the held step's strings in state and
+  found the clearing rule unreachable for a run holding no grant: the release was
+  gated where the report was not. `--clear` added, and the free-text action
+  assumption named as where matching breaks first.
