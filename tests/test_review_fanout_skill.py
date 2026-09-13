@@ -8,6 +8,7 @@ It is a shell command inside a skill, so it ships whether or not it works;
 is that it orchestrates three skills it does not own, and both halves of that —
 naming them, and not restating their contents — fail silently.
 """
+import os
 import re
 import shutil
 import subprocess
@@ -21,6 +22,11 @@ _FENCE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 _REFERENCE = re.compile(r"\.agents/skills/([a-z0-9][a-z0-9-]*)")
 
 
+# The dispatch mark's mtime, fixed rather than relative so a report stamped
+# either side of it is unambiguously before or after the run that wrote it.
+_DISPATCH = 1_600_000_000
+
+
 def _roster_command() -> str:
     """The one fenced block that checks the roster. Keyed on content rather than
     position: Step 1's `wfctl feature-paths` is also a bash fence, and reordering
@@ -30,7 +36,9 @@ def _roster_command() -> str:
     return blocks[0]
 
 
-def _run(shell: str, bin_dir: Path) -> list[str]:
+def _shell(
+    shell: str, bin_dir: Path, command: str
+) -> subprocess.CompletedProcess[str]:
     """Nothing is injected but a `PATH` carrying the `wfctl` stub.
 
     `FEATURE_DIR` has to arrive the way the skill says it does — the fence calls
@@ -46,19 +54,27 @@ def _run(shell: str, bin_dir: Path) -> list[str]:
     # the real `wfctl` ahead of the stub — the fence then reports on whatever
     # repo the test happens to run in.
     argv = [shell, "-f", "-c"] if shell == "zsh" else [shell, "-c"]
-    out = subprocess.run(
-        [*argv, _roster_command()],
+    return subprocess.run(
+        [*argv, command],
         env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
         capture_output=True,
         text=True,
     )
-    return out.stdout.split()
+
+
+def _run(shell: str, bin_dir: Path) -> list[str]:
+    return _shell(shell, bin_dir, _roster_command()).stdout.split()
 
 
 def _fixture(feature_dir: Path) -> Path:
     """One reviewer that reported, one that came back having written an empty
     file, and one still running — plus a `wfctl` stub printing the assignment
     the real one prints. Returns the directory to put on `PATH`.
+
+    The mark is Step 2's, dated before the reports so the reports read as this
+    run's. It belongs in the shared fixture rather than in the one test that
+    reads it: the undispatched check needs the mark to run at all, and a fixture
+    that omitted it would make every one of those tests pass on stderr.
 
     The three reviewers are the three states the loop can print, so one fixture
     exercises all of them. `r3` is absent from the fence's `RETURNED` list and
@@ -69,6 +85,9 @@ def _fixture(feature_dir: Path) -> Path:
     """
     reviews = feature_dir / "reviews"
     reviews.mkdir(parents=True)
+    mark = reviews / ".dispatched"
+    mark.touch()
+    os.utime(mark, (_DISPATCH, _DISPATCH))
     (reviews / "r1.md").write_text("BLOCKER cli.py:L1 — …\n")
     (reviews / "r2.md").write_text("")
 
@@ -176,3 +195,153 @@ def test_the_panel_skill_is_model_invocable() -> None:
     # the prose explaining why the key is absent names it, and a substring
     # search would read that explanation as the key it forbids.
     assert "disable-model-invocation" not in _arch._frontmatter(_SKILL.read_text())
+
+
+def _undispatched_command() -> str:
+    """The one fenced block that checks the other direction. Keyed on content
+    for the same reason as `_roster_command`, and disjoint from it: that one
+    matches on `MISSING`, a word this fence must not carry — `UNDISPATCHED` is
+    not a fourth roster state and the skill says so."""
+    blocks = [
+        b for b in _FENCE.findall(_SKILL.read_text()) if "UNDISPATCHED" in b
+    ]
+    assert len(blocks) == 1, f"expected one undispatched fence, found {len(blocks)}"
+    assert "MISSING" not in blocks[0]
+    return blocks[0]
+
+
+def _run_undispatched(shell: str, bin_dir: Path) -> list[str]:
+    return _shell(shell, bin_dir, _undispatched_command()).stdout.split()
+
+
+def test_a_report_from_outside_the_roster_is_named_and_not_counted(
+    tmp_path: Path,
+) -> None:
+    """The panel is the ids you dispatched, and a report from anywhere else is
+    not a member of it however good the finding is.
+
+    This is the run in #205: two agents nobody dispatched reported on the same
+    diff, split by axis — the shape this skill forbids — and one of their
+    findings was a real defect the panel confirmed independently forty minutes
+    later. A session that read the reports in hand rather than the roster folds
+    that in and has no reason to notice, so the check has to name the source
+    rather than judge the finding. The two names here are the two shapes that
+    actually arrived, not invented ids: neither is `r`-prefixed, and an
+    implementation testing for the prefix instead of for roster membership would
+    pass this and miss a fork dispatched as `r4`.
+    """
+    bin_dir = _fixture(tmp_path)
+    reviews = tmp_path / "reviews"
+    (reviews / "correctness-angles.md").write_text("BLOCKER cli.py:L1 — …\n")
+    (reviews / "r4.md").write_text("BLOCKER cli.py:L2 — …\n")
+
+    assert _run_undispatched("sh", bin_dir) == [
+        "UNDISPATCHED", "correctness-angles", "UNDISPATCHED", "r4",
+    ]
+
+
+def test_the_undispatched_check_is_silent_on_a_clean_panel(tmp_path: Path) -> None:
+    """Every line it prints is a failure, so a panel with nothing wrong prints
+    nothing — including the two states the roster loop is about. `r2` came back
+    empty and `r3` never wrote at all, and neither is this check's business: an
+    implementation that flagged a dispatched id for having written nothing would
+    duplicate the roster loop and contradict it, since that loop's own answer for
+    `r3` is `RUNNING`."""
+    bin_dir = _fixture(tmp_path)
+
+    assert _run_undispatched("sh", bin_dir) == []
+
+
+def test_the_undispatched_check_survives_an_empty_reviews_directory(
+    tmp_path: Path,
+) -> None:
+    """A reviews directory with nothing in it is the normal state between
+    dispatch and the first report, and it is where a bare `"$REVIEWS"/*.md`
+    fails: zsh aborts the whole script on a glob that matches nothing, so the
+    check would not run at all on the shell most of these runs happen in — and
+    `sh` leaves the pattern unexpanded and reports the literal `*` as a stranger.
+    Both failures are in the fence, not in the panel.
+
+    Asserted on the exit status and stderr rather than on stdout alone, because
+    the zsh failure is silent on stdout: the abort happens before the loop runs,
+    so an empty stdout is what both the working fence and the broken one produce.
+    A test blind to the check not running is the shape #133 was filed for, one
+    level up."""
+    bin_dir = _fixture(tmp_path)
+    for report in (tmp_path / "reviews").glob("*.md"):
+        report.unlink()
+
+    for shell in ("sh", "zsh"):
+        if shell == "zsh" and not shutil.which("zsh"):
+            continue
+        out = _shell(shell, bin_dir, _undispatched_command())
+        assert (out.returncode, out.stdout, out.stderr) == (0, "", ""), shell
+
+
+def test_the_undispatched_check_survives_zsh(tmp_path: Path) -> None:
+    """Same reason as the roster check: the shell these runs happen in on macOS
+    is zsh and CI's is not."""
+    if not shutil.which("zsh"):
+        return
+    bin_dir = _fixture(tmp_path)
+    (tmp_path / "reviews" / "correctness-angles.md").write_text("BLOCKER — …\n")
+
+    assert _run_undispatched("zsh", bin_dir) == _run_undispatched("sh", bin_dir)
+
+
+def test_a_previous_panel_on_this_branch_is_not_a_stranger(tmp_path: Path) -> None:
+    """`$FEATURE_DIR` is outside the worktree and outlives the run, so a second
+    panel on the same change reads the first panel's reports beside its own — and
+    a re-run dispatches fresh ids, never the ones already on disk. Five of the 72
+    reviews directories in this repo's own spec root already hold ids outside a
+    single three-id roster (`r1..r9`, `p1 p2 rebase-r1`), so this is the ordinary
+    second run, not a contrived one. Keyed on the dispatch mark rather than on the
+    ids, because the ids of a panel that ran last week are not knowable to the one
+    running now."""
+    bin_dir = _fixture(tmp_path)
+    for name in ("p1.md", "rebase-r1.md"):
+        stale = tmp_path / "reviews" / name
+        stale.write_text("BLOCKER cli.py:L4 — …\n")
+        os.utime(stale, (_DISPATCH - 60, _DISPATCH - 60))
+
+    assert _run_undispatched("sh", bin_dir) == []
+
+
+def test_the_undispatched_check_fails_loud_without_a_dispatch_mark(
+    tmp_path: Path,
+) -> None:
+    """Every other failure this check reports is a line on stdout, and a clean
+    panel prints nothing — so a check that cannot run has to say so somewhere
+    else or it reads as a clean panel. Step 2's mark is the one thing it needs
+    that the reviewers do not write, which makes a session that skipped Step 2
+    the case that would otherwise pass silently.
+
+    Stderr and not the exit status: the pipeline's status is the `while` loop's,
+    which succeeds at doing nothing, so dropping the `2>/dev/null` the fence used
+    to carry is the whole of what makes this visible."""
+    bin_dir = _fixture(tmp_path)
+    (tmp_path / "reviews" / ".dispatched").unlink()
+    (tmp_path / "reviews" / "correctness-angles.md").write_text("BLOCKER — …\n")
+
+    out = _shell("sh", bin_dir, _undispatched_command())
+
+    assert out.stdout == ""
+    assert "No such file or directory" in out.stderr
+
+
+def test_the_two_fences_carry_the_same_roster() -> None:
+    """The roster is written once per direction, and the skill's own prose says
+    what drift between them does: "an edit to one that misses the other reports a
+    reviewer you dispatched as a stranger". The ids are placeholders a session
+    substitutes, so what is checked is that the two shipped lists still agree —
+    a reader who substitutes one list from the other's shape inherits whatever
+    mismatch ships. Prose naming a hazard is not a check for it
+    (`a-rule-is-expressed-as-a-check`), and both fences are already parsed here.
+    """
+    dispatched = re.search(r"for id in ([^;]+);", _roster_command())
+    assert dispatched is not None
+    accepted = re.search(r"^\s*(\S+)\) ;;", _undispatched_command(), re.MULTILINE)
+    assert accepted is not None
+
+    assert dispatched.group(1).split() == accepted.group(1).split("|")
+
