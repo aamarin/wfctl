@@ -24,7 +24,6 @@ from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
-    SCANS_DIR,
     arch_root,
     claim_conflicts,
     is_in_tree,
@@ -33,6 +32,7 @@ from wfctl._paths import (
     get_repo_root,
     main_checkout,
     project_name,
+    non_record_subtrees,
     records_on_this_branch,
     resolve_agent_dir,
     resolve_branch,
@@ -489,11 +489,15 @@ def status_cmd(
         # create` sees it and could refuse one that omits them — a rule expressed
         # as a check rather than as a line someone has to read.
         arch = arch_root(repo_root)
-        # `scans/` excluded: this listing says what an unattended run *decided*,
-        # and a scan file records what a review step covered. Left in, every
-        # branch that ran clarify reports two records that chose nothing, in the
-        # one mode with no reader to catch it (#307).
-        for slug in records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR):
+        # The non-record subtrees are excluded: this listing says what an
+        # unattended run *decided*, and neither a scan file nor an implementation
+        # note decides anything — one records what a review step covered, the
+        # other why a mechanism was picked inside a settled boundary. Left in,
+        # every branch that ran clarify reports two records that chose nothing, in
+        # the one mode with no reader to catch it (#307).
+        for slug in records_on_this_branch(
+            repo_root, arch, exclude=non_record_subtrees(arch)
+        ):
             console.print(f"[dim]  record:[/dim] {slug}")
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
@@ -743,7 +747,9 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
         # this change and is left where it was found.
         boundary=_BOUNDARY[
             touched_on_this_branch(
-                repo_root, arch_root(repo_root), exclude=arch_root(repo_root) / SCANS_DIR
+                repo_root,
+                arch_root(repo_root),
+                exclude=non_record_subtrees(arch_root(repo_root)),
             )
         ],
         tree="dirty" if dirty else "clean",
