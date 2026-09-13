@@ -62,7 +62,7 @@ exception this verb exists to carry, and nothing here widens it.
   action rather than print it, which would want an enum in both places at once.
 - **That matching a clearing event by action name is enough.** Two blocks of the
   same action in one session collapse to the later one. Falsified by a step whose
-  outward half is two distinct calls that happen to share a name.
+  tracker writes are two distinct calls that happen to share a name.
 
 ## Direct baseline
 

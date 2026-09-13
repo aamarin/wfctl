@@ -28,8 +28,8 @@ round-trip. A blocked `create` produces no key to write, so the rows stay unkeye
 and the step does not read `done`. The check is aimed at a plan whose table was
 never filled back in; it catches a refusal because the two leave the same mark.
 
-So the pipeline can advance past a step whose outward half never happened, and
-nothing on disk says so.
+So the pipeline can advance past a step that never finished writing to the
+tracker, and nothing on disk says so.
 
 ## Direct baseline
 
@@ -98,10 +98,10 @@ glance; a false report of success is the thing that record exists to prevent.
   only by a transcript that no longer exists.
 - **A verdict channel marking each outward action survivable or fatal**, carried
   on the existing `stall` field. Designed in full and dropped. It requires wfctl
-  to model what each step produces without its outward half, and the distinction
-  turns out to have almost no members: once #297 moves the issue split to
-  brainstorm, every outward action left in an unattended run's tail is survivable.
-  Machinery for a partition with one side empty.
+  to model what each step produces when its tracker write is refused, and the
+  distinction turns out to have almost no members: once #297 moves the issue
+  split to brainstorm, every outward action left in an unattended run's tail is
+  survivable. Machinery for a partition with one side empty.
 - **A new `failed` step state.** Rejected on `pipeline-state-is-one-payload`
   (accepted) and `readiness-is-not-a-step-state` (proposed): a step state answers
   whether the pipeline may advance, `in_progress` already answers that for a step
