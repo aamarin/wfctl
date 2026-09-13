@@ -1,0 +1,106 @@
+---
+status: accepted
+---
+
+# Level 4 owns Python pattern selection, and it needs a skill to own it with
+
+## Context
+
+`design-levels` routes level 2 to `architecture-design` → `architecture-decisions`
+and level 3 to `software-design-decisions`. Level 4 is listed as *"unchanged —
+the verification skills own it"*, and those two skills are
+`verification-before-completion` and `code-review`.
+
+Both fire after the code exists. `verification-before-completion`'s own
+description says it runs "when about to claim work is complete"; `code-review`'s
+says "before merging, after a feature or bug fix". Nothing in the tree fires at
+the moment an implementer picks a mechanism — a callable or a Strategy
+hierarchy, a session transaction or a Unit of Work wrapper — once the boundary
+above it is already settled.
+
+#370 proposes porting a third-party skill's Python pattern constraints to fill
+that gap. Where they land decides which existing skill gains authority it does
+not have today, which is why this is a level-2 question rather than a packaging
+one.
+
+## Direct baseline
+
+Change nothing. Level 4 keeps its two verification skills, and the pattern
+constraints are not ported at all.
+
+Under the baseline a needless Strategy hierarchy is still caught — by
+`code-review`'s over-engineering lens, which is one of its six. The cost is
+where the catch happens: after the code is written, as rework, and only when a
+review actually runs.
+
+## Decision
+
+Python pattern-selection guidance lands in a new implementation-facing skill at
+level 4, not as a reference under `software-design-decisions`.
+
+## Owns truth
+
+A level-4 skill owns *"which Python mechanism does this implementation reach
+for, given the boundary is already settled?"*
+
+`software-design-decisions` cannot own it. That skill's own **Not for** excludes
+"a choice with no credible alternative" — and most of the ported constraints
+govern exactly that choice: someone reaching for a Factory or a Repository
+wrapper without weighing anything against it. Guidance placed there would be
+read only by an implementer who had already stopped to weigh alternatives, which
+is the implementer who least needs it.
+
+## Considered
+
+- **A reference under `software-design-decisions`** — sound placement for the
+  subset of constraints that do weigh alternatives, and it adds no new
+  description-triggered skill. It loses on reach, not on correctness: that
+  skill's trigger is a weighed choice, so the guidance never arrives for an
+  unweighed one.
+- **The direct baseline, porting nothing** — the constraints are genuinely
+  redundant with `code-review`'s over-engineering lens for anything that reaches
+  review. It loses because the lens fires after the code exists, which converts
+  a choice into rework.
+- **Porting the source skill whole** — rejected before this iteration and
+  recorded in #370. Roughly 70% of it restates `architecture-design` in a
+  different vocabulary, and both are description-triggered, so an agent loading
+  both runs the design loop twice or picks one arbitrarily.
+
+## Consequences
+
+The new skill inherits three constraints from `architecture-design`'s
+*Authority* section and from #370, and none of them is optional:
+
+- It mints no verdict vocabulary. The source skill's three outcomes — `Simple
+  design`, `Pattern-supported design`, `Human decision required` — do not come
+  with it; `design-levels`' gates own that vocabulary.
+- It carries no second design loop, and no transcript-only exit. The source's
+  no-op return leaves no artifact, which is the failure `wfctl arch none`
+  exists to close.
+- It gets no hand-off targets of its own. It informs a choice, and routes to
+  neither `architecture-decisions` nor `software-design-decisions`.
+  `level-4-reasoning-gets-its-own-shelf` narrows this: a departure from one of
+  its constraints lands under `<arch-root>/implementation/`, which is neither of
+  those two.
+
+Its description must not collide with `architecture-design`'s trigger.
+`architecture-design` already ends its description with *"Not for diff review,
+implementation verification, local pattern selection, or work whose boundaries
+are already settled"* — the exclusion is pre-drawn, and the new skill's
+description has to sit inside it rather than beside it.
+
+Attribution is owed under `vendor-upstream-skills`: a ported artifact is
+*derived*, declared in `wfctl/agents/skills/NOTICES.md` with the upstream named
+on the file's own last line, and `tests/test_skill_attribution.py` checks the two
+against each other.
+
+## Log
+
+- 2026-09-13  proposed    — #370's placement question, answered by one
+  `architecture-design` iteration. The deciding evidence is
+  `software-design-decisions`' own *Not for* clause, not the level-4 framing
+  the issue opened with.
+- 2026-09-13  accepted    — Andre approved the placement in the #370 working session, 2026-09-13, after being shown the recommendation and the software-design-decisions Not-for clause it turns on
+- 2026-09-13  amended     — the third consequence said the skill records nothing,
+  which was true of the destinations that existed when it was written. See
+  `level-4-reasoning-gets-its-own-shelf`.
