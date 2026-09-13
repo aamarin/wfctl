@@ -66,7 +66,12 @@ _SKILL = _AGENTS / "skills" / "conversation-response-shape" / "SKILL.md"
 # past two sentences. A reply that satisfied such a reader had to break rule 2
 # to do it, so the file taught the wrong thing at the moment it was most likely
 # to be reached for.
-_LINE_CEILING = 490
+#
+# 491 is the third disclosed exception, and one line: a sixth row in the
+# form-selection table, for a chain whose destinations fan out again. Not a
+# seventh rule — the sentence above still governs that one — so it ships
+# without an example of its own, in the same two columns as the other five.
+_LINE_CEILING = 491
 
 
 def test_the_first_three_rules_keep_their_numbers() -> None:

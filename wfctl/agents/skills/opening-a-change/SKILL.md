@@ -172,6 +172,28 @@ block on it.
 - **Render literal output where the template asks for a before/after.** The CLI
   line as it printed, the record as it is shaped, the error as it read. A
   sentence describing a string is longer than the string and less certain.
+- **Pick the drawing's form from the table, then read the template for its
+  notation.** `conversation-response-shape` owns which form the material calls
+  for. Whether that form ships as ASCII or as mermaid is the template's
+  question, and its answer is conditional rather than a default: mermaid where
+  the reader is at a desk and a layout engine should do the work, ASCII where
+  the drawing has to survive a phone or a terminal, and ASCII where placement
+  carries grouping, alignment, or counts positioned to be compared.
+
+  **Position that carries meaning is a reason to stay in ASCII, not something
+  to re-draw.** A layout engine assigns position itself, so the distinction is
+  not preserved and not recoverable. Where the distinction never rode on
+  position — a glyph, an arrowhead, a line style — a class carries it across:
+
+  ```
+  classDef terminal stroke-dasharray: 4 3
+  class R2,R3 terminal
+  ```
+
+  A chain is the case that goes wrong quietly. Where one does render as
+  mermaid, it is `flowchart LR` with the chain as edges and **no `subgraph`** —
+  grouping the levels reads as the obvious translation of the nesting, and an
+  edge leaving a grouped box drags its members out of the group.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
   attribute Step 6 cannot set: it lives in the body or nowhere, and it is what
