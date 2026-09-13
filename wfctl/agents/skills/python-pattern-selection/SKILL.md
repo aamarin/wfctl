@@ -91,13 +91,34 @@ departed from a constraint
 rather than writing `docs/architecture` in. The file is prose, not a form — it
 carries the three things above and stops.
 
+**`implementation/` is a sibling of `design/`, and the two are told apart by
+whether an alternative was weighed** — not by what the thing is. A Repository
+wrapper over an ORM session is a structural choice and a mechanism choice at
+once, so naming the subject settles nothing. If two approaches were compared and
+one won on a stated criterion, there is a loser to write down and it is a level-3
+record under `design/`, written with `.agents/skills/software-design-decisions`.
+If a constraint above named the cheaper shape and a pressure overrode it, there
+is no loser — only a default you walked away from — and it lands here.
+
+That definition is stated here rather than only in a record because the record
+does not travel: `install-skills` mirrors the skills tree into a project and
+never `docs/architecture/`, so a repo that installs this skill receives the
+instruction and no definition of the shelf.
+
 **Name the file and the symbol in its first line.** Without that the note is
 reachable only by a reader who already knows the shelf exists and guesses the
 issue number, which is less than `git blame` gives them for free.
 
 **This is not a verdict and not a gate.** Nothing here blocks on the file
-existing, and writing one grants no waiver. `level-4-reasoning-gets-its-own-shelf`
-is the record behind the destination, and `design-levels` still owns every gate.
+existing, and writing one grants no waiver. `design-levels` still owns every
+gate.
+
+The reasoning behind the shelf is `level-4-reasoning-gets-its-own-shelf` in
+wfctl's own arch root, which is `proposed` and therefore not in force — so it is
+cited as an argument someone can read, never as authority. Nothing above depends
+on its status: the convention is stated here in full, and a repo that prefers a
+different destination is choosing between two shelves rather than disobeying a
+record.
 
 ## Pattern selection constraints
 
