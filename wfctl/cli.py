@@ -2386,6 +2386,18 @@ _MIRRORED_SKILLS = frozenset({
     # which is the failure it was written for. Nothing else in the tree says the
     # skill has to be discoverable.
     "opening-a-change",
+    # The only entry whose skill fires *during* implementation, which is what
+    # makes the mirror necessary rather than convenient. `software-design-decisions`
+    # below is reachable by an agent reading `design-levels` as text; this one
+    # fires at the moment a mechanism is picked, and no agent is reading a skill
+    # at that moment. `design-levels` §4 names it by path so the pointer exists,
+    # and this entry is what makes the pointer resolvable — the pair is #150's
+    # fix applied one level down.
+    #
+    # Unlike `architecture-design`, it *is* defended on reaching an agent
+    # mid-implementation, so `speckit.implement`'s ceiling has to grant the two
+    # commands its Authority section names. It does.
+    "python-pattern-selection",
     "receiving-code-review",
     # No wrapper under `agents/commands/`, so the mirror is the only route: a
     # skill absent from both is reachable only by an agent already reading
@@ -5429,9 +5441,11 @@ def _check_arch_records(repo_root: Path) -> bool:
 
     Validates the top-level tier only, because `load_records` globs one level.
     That is the tier boundary `design-levels` draws and `arch none` already
-    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and stay
-    out. Design records carry their own `supersedes:` and their own status
-    vocabulary, so their link integrity is unchecked by anything (#166).
+    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and
+    `implementation/` is Level 4, so all three stay out. Design records carry
+    their own `supersedes:` and their own status vocabulary, so their link
+    integrity is unchecked by anything (#166); an implementation note is prose
+    and carries neither.
     """
     from rich.markup import escape
 

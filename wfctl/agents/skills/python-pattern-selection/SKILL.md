@@ -1,6 +1,6 @@
 ---
 name: python-pattern-selection
-description: 'Choose the Python mechanism an implementation reaches for once its boundary is already settled — a callable before a Strategy hierarchy, a session transaction before a Unit of Work. Use during design-levels level 4, while writing Python, when a pattern name arrives before the pressure that would justify it. Not for drawing or moving a boundary, not for deciding who owns a piece of truth, and not a design loop.'
+description: 'Choose the Python mechanism an implementation reaches for once its boundary is already settled — a callable before a Strategy hierarchy, a session transaction before a Unit of Work. Use during design-levels level 4, while writing Python and a pattern name arrives before the pressure that would justify it. Not for drawing or moving a boundary, not for deciding who owns a piece of truth, and not a design loop.'
 ---
 
 # Python pattern selection
@@ -90,6 +90,10 @@ departed from a constraint
 `wfctl arch-root` prints the parent; a repo can declare it elsewhere, so ask
 rather than writing `docs/architecture` in. The file is prose, not a form — it
 carries the three things above and stops.
+
+**Name the file and the symbol in its first line.** Without that the note is
+reachable only by a reader who already knows the shelf exists and guesses the
+issue number, which is less than `git blame` gives them for free.
 
 **This is not a verdict and not a gate.** Nothing here blocks on the file
 existing, and writing one grants no waiver. `level-4-reasoning-gets-its-own-shelf`
