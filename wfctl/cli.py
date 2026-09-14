@@ -73,8 +73,8 @@ _NO_SESSION = "[red]✗ No session found for this branch. Run `wfctl start` firs
 # `wfctl start` and not `--force`: taking the branch over is the ordinary move
 # here, not an override.
 _HELD_ELSEWHERE = (
-    "[red]✗ No wfctl session for this conversation — the last session on this "
-    "branch was opened by a different one. Run `/start-session`.[/red]"
+    "[red]✗ No wfctl session for this conversation — this branch has no "
+    "session open for it right now. Run `/start-session`.[/red]"
 )
 
 _STATE_GLYPH: dict[str, tuple[str, str]] = {
@@ -370,15 +370,20 @@ def start_cmd(
     if report.session_started and not force:
         report_notify()
 
-        # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller that
-        # presents an identity differing from the recorded holder — including a
-        # holder that is absent, which every branch predating this feature has —
-        # gets the branch by appending a new `start` line rather than by editing
-        # or deleting anything. `caller is not None` is what keeps FR-006: an
-        # unwired caller presents nothing and can never trigger this, whatever
-        # the holder is.
-        holder = last_session_id(agent_dir, branch)
-        if caller is not None and holder != caller:
+        # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller for whom
+        # this branch does not already read `"self"` — including a holder that
+        # is absent, which every branch predating this feature has, and a holder
+        # that matches but has an `end` since — gets the branch by appending a
+        # new `start` line rather than by editing or deleting anything.
+        # `report.session_holder` rather than a fresh identity comparison here:
+        # it is the holder *relation* (`session_open_for`), which already folds
+        # in `ended` — a raw `last_session_id(...) != caller` check does not, and
+        # reads a caller's own wrapped-up session as still "self", so it neither
+        # takes over nor appends anything and leaves the conversation locked out
+        # of the branch it just ended (#200). `caller is not None` is what keeps
+        # FR-006: an unwired caller presents nothing and can never trigger this,
+        # whatever the holder is.
+        if caller is not None and report.session_holder != "self":
             append_event(
                 agent_dir, "start", branch=branch,
                 step=report.current or "complete", session_id=caller,
@@ -403,9 +408,21 @@ def start_cmd(
         from wfctl._stall import opens_a_new_sitting
 
         if opens_a_new_sitting(agent_dir, branch):
+            # `caller` is `None` here whenever this call is unwired — not only
+            # on a branch nobody ever identified. `_identity_kwarg(None)` writes
+            # a `start` line with no `session_id`, and every reader of the log
+            # treats that line as resetting the holder to absent
+            # (`_holder_since_last_boundary`), so an unwired re-run would
+            # silently drop a wired holder's identity mid-branch (#200) — the
+            # exact thing `session-identity-comes-from-the-caller` exists to
+            # prevent. Carrying the existing holder forward makes an unwired
+            # call a true no-op on identity, matching FR-006.
+            identity_to_record = (
+                caller if caller is not None else last_session_id(agent_dir, branch)
+            )
             append_event(
                 agent_dir, "start", branch=branch, step=report.current or "complete",
-                **_identity_kwarg(caller),
+                **_identity_kwarg(identity_to_record),
             )
         console.print("ℹ Already initialized (use --force to reset)")
         return

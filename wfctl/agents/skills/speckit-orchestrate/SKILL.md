@@ -13,7 +13,7 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    | `session_holder` | Display | Then |
    | --- | --- | --- |
    | `"none"` | "No wfctl session for this branch. Run `/start-session` first." | Stop |
-   | `"other"` | "No wfctl session for this conversation — the last session on this branch was opened by a different one. Run `/start-session`." | Stop |
+   | `"other"` | "No wfctl session for this conversation — this branch has no session open for it right now. Run `/start-session`." | Stop |
 
    **Two strings, because the two states have different remedies.** The first
    says nothing has ever run here. The second says something is running here and

@@ -288,3 +288,45 @@ def test_session_started_is_unchanged(
     report = _report(tmp_path, agent_dir, presented)
 
     assert report.session_started is (start_line is not None)
+
+
+# ─── Two call sites the panel found, where the holder relation was recomputed
+#     instead of reused ──────────────────────────────────────────────────────
+
+def test_a_session_that_ended_can_start_again_with_the_same_identity(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the takeover check used to compare raw identity, which does
+    not know about an `end`. `start` → `end` → `start`, all as `"mine"`, has to
+    leave the branch reading `"self"` to `"mine"` — not lock it out of the
+    session it just closed and reopened.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+    runner.invoke(app, ["start"])
+    runner.invoke(app, ["end"])
+
+    restarted = runner.invoke(app, ["start"])
+    assert restarted.exit_code == 0, restarted.output
+
+    resumed = runner.invoke(app, ["resume"])
+    assert resumed.exit_code == 0, resumed.output
+
+
+def test_an_unwired_start_at_a_sitting_boundary_keeps_the_wired_holder(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the sitting-boundary append used to write the *current*
+    caller's identity verbatim, including absent — which reset the holder to
+    `None` and let the next caller of any identity take the branch over
+    uncontested. An unwired `start` here must be a true no-op on identity.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+    runner.invoke(app, ["start"])
+    runner.invoke(app, ["resume"])
+
+    monkeypatch.delenv("WFCTL_SESSION_ID")
+    runner.invoke(app, ["start"])
+
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+    still_mine = runner.invoke(app, ["status", "--json"])
+    assert json.loads(still_mine.output)["session_holder"] == "self"
