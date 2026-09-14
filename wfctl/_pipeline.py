@@ -510,8 +510,8 @@ def build_report(
     # row of contracts/cli.md — which is what makes a caller that presents
     # nothing see the released answer rather than a refusal (FR-006).
     # `session_open_for` only ever returns `"unknown"` after confirming
-    # `session_started(agent_dir)` itself, so the mirror needs no second read of
-    # it below.
+    # `session_started(agent_dir, branch)` itself, so the mirror needs no second
+    # read of it below.
     holder = session_open_for(agent_dir, session_id, branch)
 
     # One read, two consumers. The step predicates and the artifacts fact ask the
@@ -557,7 +557,7 @@ def build_report(
         current=name if command else None,
         next_command=command or None,
         auto=auto if command else None,
-        session_started=session_started(agent_dir),
+        session_started=session_started(agent_dir, branch),
         session_open=holder in ("self", "unknown"),
         session_holder=holder,
         auto_approve=read_auto_approve(agent_dir),

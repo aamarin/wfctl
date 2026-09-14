@@ -38,7 +38,7 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def session_started(agent_dir: Path) -> bool:
+def session_started(agent_dir: Path, branch: str | None = None) -> bool:
     """Whether `wfctl start` has run for this branch.
 
     Read from the event log rather than from a file's existence. `current.json`
@@ -52,6 +52,14 @@ def session_started(agent_dir: Path) -> bool:
     unstarted — that would send the reader to `wfctl start` on a session that is
     running. `isinstance` guards the same way `last_session_id` does: `null`,
     `3` and `[]` all parse successfully and have no `.get`.
+
+    `branch` filters the same way `_holder_since_last_boundary` does: a line
+    naming a different branch is skipped, and one naming none — every line
+    predating branch-scoping — matches every branch. Without it, a shared
+    `WFCTL_STATE_DIR` let a branch that never ran `start` inherit another
+    branch's line here, while the holder scan two calls later was already
+    scoped — so `session_open_for` fell through to `"unknown"` instead of
+    `"none"`, and `"unknown"` passes the gates `"none"` is meant to stop.
     """
     events = agent_dir / "events.jsonl"
     if not events.exists():
@@ -61,8 +69,11 @@ def session_started(agent_dir: Path) -> bool:
             data = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(data, dict) and data.get("event") == "start":
-            return True
+        if not isinstance(data, dict) or data.get("event") != "start":
+            continue
+        if branch is not None and data.get("branch") not in (None, branch):
+            continue
+        return True
     return False
 
 
@@ -179,7 +190,7 @@ def session_open_for(
     ended it — `docs/architecture/design/200-session-id-rides-on-the-start-event.md`
     states the criterion as "no `end` event follows it".
     """
-    if not session_started(agent_dir):
+    if not session_started(agent_dir, branch):
         return "none"
     caller = identity(presented)
     if caller is None:

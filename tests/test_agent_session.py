@@ -328,6 +328,25 @@ def test_a_shared_state_dir_does_not_let_one_branch_answer_for_another(
     assert _session.session_open_for(agent_dir, "on-a", branch="b") == "other"
 
 
+def test_session_started_does_not_let_one_branch_answer_for_another(
+    agent_dir: Path,
+) -> None:
+    """The same risk, one call earlier than the test above.
+
+    `session_started` used to scan for any `"start"` line with no branch filter
+    at all, while the holder scan two lines later in `session_open_for` was
+    already scoped. Under a shared `WFCTL_STATE_DIR`, branch "b" here never ran
+    `start` — but inherited branch "a"'s line, so `session_open_for` fell through
+    past `"none"` to the holder scan, found no holder on branch "b", and
+    answered `"unknown"` instead. `"unknown"` is the row `resume` and the
+    orchestrate gate let through unattended (FR-006) — the wrong row for a
+    branch that never started at all.
+    """
+    _log(agent_dir, {"event": "start", "branch": "a", "session_id": "on-a"})
+    assert _session.session_started(agent_dir, branch="b") is False
+    assert _session.session_open_for(agent_dir, "on-a", branch="b") == "none"
+
+
 @pytest.mark.parametrize(
     "holder, presented, expected",
     [

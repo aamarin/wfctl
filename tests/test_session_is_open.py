@@ -220,8 +220,31 @@ def test_console_names_the_holder_relation(
     monkeypatch.setenv("WFCTL_SESSION_ID", "first")
     mine = runner.invoke(app, ["status"]).output
 
-    assert "another conversation holds this branch" in held
-    assert "another conversation holds this branch" not in mine
+    assert "this branch is not open for you" in held
+    assert "this branch is not open for you" not in mine
+
+
+def test_the_warning_does_not_name_a_party_that_may_not_exist(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same console warning covers both readings of state C.
+
+    `session_holder == "other"` fires for a genuinely different holder and for
+    the caller's own session, wrapped up with no `start` since — `data-model.md`
+    § State transitions calls the second one "not a state": the same string as
+    the first. Wording that claimed "another conversation holds this branch"
+    was true of the first reading and false of the second — the ordinary case of
+    checking `status` right after `/end-session` on the very branch you were
+    just working on.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+    runner.invoke(app, ["start"])
+    runner.invoke(app, ["end"])
+
+    result = runner.invoke(app, ["status"])
+
+    assert "this branch is not open for you" in result.output
+    assert "another conversation" not in result.output
 
 
 @pytest.mark.parametrize("command", ["resume", "end"])

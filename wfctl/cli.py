@@ -591,8 +591,15 @@ def status_cmd(
     # ordinary case is noise. The identity never appears here, only whether it is
     # yours; `data-model.md` keeps it out of every surface but the event.
     if report.session_holder == "other":
+        # Not "another conversation holds this branch": `"other"` is also state
+        # C reached the second way — the caller's own session, wrapped up, with
+        # no new `start` since (`data-model.md` § State transitions calls this
+        # "not a state", the same string for both). Naming a party that may not
+        # exist gives a false concurrency alarm to the ordinary case of checking
+        # status right after ending your own session — `_HELD_ELSEWHERE` already
+        # keeps the same neutral phrasing for the same reason.
         console.print(
-            "[yellow]⚠[/yellow] another conversation holds this branch — "
+            "[yellow]⚠[/yellow] this branch is not open for you — "
             "`/start-session` takes it over"
         )
     if report.auto_approve:
@@ -766,7 +773,7 @@ def resume_cmd() -> None:
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not session_started(agent_dir):
+    if not session_started(agent_dir, branch):
         console.print(_NO_SESSION)
         raise typer.Exit(1)
 
@@ -895,7 +902,7 @@ def end_cmd(
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not _session.session_started(agent_dir):
+    if not _session.session_started(agent_dir, branch):
         console.print(_NO_SESSION)
         raise typer.Exit(1)
 
