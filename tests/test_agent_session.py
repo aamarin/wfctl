@@ -370,3 +370,147 @@ def test_the_identity_adds_no_file_to_the_state_dir(agent_dir: Path) -> None:
     after = sorted(p.name for p in agent_dir.iterdir())
 
     assert set(after) - set(before) == {"events.jsonl"}
+
+
+# ─── The takeover, and the exit it gives a displaced conversation ────────────
+
+def _starts(agent_dir: Path) -> list[dict]:
+    """Every `start` line in the log, in order — what a takeover appends to."""
+    lines = (agent_dir / "events.jsonl").read_text().splitlines()
+    return [
+        data for line in lines
+        if isinstance(data := json.loads(line), dict) and data.get("event") == "start"
+    ]
+
+
+def test_start_with_a_new_id_appends_a_start_event(agent_dir: Path) -> None:
+    """A different identity takes the branch over rather than being refused.
+
+    `start` is the reversible move (contracts/cli.md): presenting an id the
+    branch does not already hold is not an error, it is how a displaced
+    conversation gets the branch back.
+    """
+    runner.invoke(app, ["start", "--session-id", "first"])
+
+    result = runner.invoke(app, ["start", "--session-id", "second"])
+
+    assert result.exit_code == 0
+    starts = _starts(agent_dir)
+    assert len(starts) == 2
+    assert starts[-1]["session_id"] == "second"
+
+
+def test_a_caller_with_no_id_never_takes_over(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-006: an unwired caller must never displace a wired holder.
+
+    Presenting no identity is not "a different identity" — `caller is None`
+    short-circuits the takeover branch before the holder is even compared.
+    `WFCTL_SESSION_ID` is cleared explicitly: `--session-id` falls back to it,
+    and this test needs "presented nothing" to mean that regardless of what a
+    developer's own shell happens to export.
+    """
+    monkeypatch.delenv("WFCTL_SESSION_ID", raising=False)
+    runner.invoke(app, ["start", "--session-id", "held"])
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 0
+    assert "Already initialized" in result.output
+    starts = _starts(agent_dir)
+    assert len(starts) == 1
+    assert starts[0]["session_id"] == "held"
+
+
+def test_takeover_is_announced(agent_dir: Path) -> None:
+    """SC-007: the console names the takeover rather than reading as routine.
+
+    `"Already initialized"` on a takeover would tell the caller nothing changed,
+    when a different conversation now holds the branch.
+    """
+    runner.invoke(app, ["start", "--session-id", "first"])
+
+    result = runner.invoke(app, ["start", "--session-id", "second"])
+
+    assert "took over from another conversation" in result.output
+    assert "Already initialized" not in result.output
+
+
+def test_a_branch_recorded_before_identities_accepts_the_first_one(
+    agent_dir: Path,
+) -> None:
+    """FR-012: a holder-absent branch — every branch predating this feature.
+
+    The first identified caller takes the branch rather than being refused. The
+    branch already looks like the released version, and the released version
+    never refused anyone.
+    """
+    runner.invoke(app, ["start"])
+    assert _starts(agent_dir)[0].get("session_id") is None
+
+    result = runner.invoke(app, ["start", "--session-id", "first"])
+
+    assert "took over from another conversation" in result.output
+    assert _starts(agent_dir)[-1]["session_id"] == "first"
+
+
+def test_takeover_appends_and_never_rewrites(agent_dir: Path) -> None:
+    """The history of who held the branch survives every takeover.
+
+    `events.jsonl` is append-only end to end
+    (`docs/architecture/design/200-session-id-rides-on-the-start-event.md`); a
+    reader asking who held the branch a moment ago still finds the answer.
+    """
+    runner.invoke(app, ["start", "--session-id", "first"])
+    first_line = (agent_dir / "events.jsonl").read_text().splitlines()[0]
+
+    runner.invoke(app, ["start", "--session-id", "second"])
+    runner.invoke(app, ["start", "--session-id", "third"])
+
+    lines = (agent_dir / "events.jsonl").read_text().splitlines()
+    assert lines[0] == first_line
+    starts = _starts(agent_dir)
+    assert [s["session_id"] for s in starts] == ["first", "second", "third"]
+
+
+def test_abandoned_sessions_need_no_cleanup(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SC-004: a sequence of interrupted sessions resolves with no file touched.
+
+    Open, abandon without `end`, take over, abandon again, take over again — and
+    every gate along the way answers from the log alone. `resume` reads its
+    identity from the environment (`_caller_identity`; `resume` and `end` carry
+    no `--session-id` flag), so each conversation is a `monkeypatch.setenv`
+    rather than a CLI option. Nothing here deletes or edits a file by hand, which
+    is the property the direct baseline (`session.json`) could not offer: it
+    would need clearing on every abandon.
+
+    `next-step.md` is `resume`'s own ordinary output, written on every
+    successful call whether or not a takeover happened — not the manual
+    cleanup this test is checking for the absence of.
+    """
+    before = sorted(p.name for p in agent_dir.iterdir())
+
+    def resume_as(session_id: str) -> int:
+        monkeypatch.setenv("WFCTL_SESSION_ID", session_id)
+        return runner.invoke(app, ["resume"]).exit_code
+
+    runner.invoke(app, ["start", "--session-id", "a"])
+    assert resume_as("a") == 0
+
+    # "a" abandons — no `end` — and "b" takes over without deleting or editing
+    # anything.
+    assert resume_as("b") != 0
+    runner.invoke(app, ["start", "--session-id", "b"])
+    assert resume_as("b") == 0
+    assert resume_as("a") != 0
+
+    # "b" abandons in turn; "a" takes the branch back the same way.
+    runner.invoke(app, ["start", "--session-id", "a"])
+    assert resume_as("a") == 0
+    assert resume_as("b") != 0
+
+    after = sorted(p.name for p in agent_dir.iterdir())
+    assert set(after) - set(before) == {"events.jsonl", "next-step.md"}

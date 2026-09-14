@@ -307,6 +307,7 @@ def start_cmd(
         grant_auto_approve,
         grant_notify,
         identity,
+        last_session_id,
         notify_grant,
         record_notify_resolved,
     )
@@ -368,6 +369,25 @@ def start_cmd(
 
     if report.session_started and not force:
         report_notify()
+
+        # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller that
+        # presents an identity differing from the recorded holder — including a
+        # holder that is absent, which every branch predating this feature has —
+        # gets the branch by appending a new `start` line rather than by editing
+        # or deleting anything. `caller is not None` is what keeps FR-006: an
+        # unwired caller presents nothing and can never trigger this, whatever
+        # the holder is.
+        holder = last_session_id(agent_dir)
+        if caller is not None and holder != caller:
+            append_event(
+                agent_dir, "start", branch=branch,
+                step=report.current or "complete", session_id=caller,
+            )
+            console.print(
+                "[green]✓[/green] Session started — took over from another conversation"
+            )
+            return
+
         # The sitting boundary, on the path that carries almost every sitting
         # after the first. `session_started` reads the *first* of these, so this
         # changes nothing it answers; what it records is that a new sitting opened
@@ -376,6 +396,10 @@ def start_cmd(
         # log on purpose — `/start-session` runs it on every handoff, and an
         # unconditional append would grow the file with lines repeating the
         # previous one. A sitting that ran nothing writes nothing.
+        #
+        # Not reached by a takeover: the append above already leaves a fresh
+        # `start` line, which resets the same boundary this one exists to add —
+        # a second line here would only duplicate it.
         from wfctl._stall import opens_a_new_sitting
 
         if opens_a_new_sitting(agent_dir, branch):
