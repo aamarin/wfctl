@@ -270,13 +270,29 @@ def test_last_session_id_skips_a_line_that_is_not_an_object(
 ) -> None:
     """`json.loads` succeeds on `3`, `null` and `[]`, and none of them has `.get`.
 
-    `session_started` has no such guard and would raise; this reader is on the
-    path of every gate, so an unguarded line here refuses the whole branch.
+    Both readers are on the path of every gate, so an unguarded line here would
+    refuse the whole branch — `session_started` guards the same way now, which
+    the next test pins.
     """
     (agent_dir / "events.jsonl").write_text(
         '3\nnull\n[]\nnot json at all\n{"event": "start", "session_id": "held"}\n'
     )
     assert _session.last_session_id(agent_dir) == "held"
+
+
+def test_session_started_skips_a_line_that_is_not_an_object(
+    agent_dir: Path,
+) -> None:
+    """The parity `last_session_id`'s docstring used to claim without a guard.
+
+    `json.loads("3").get("event")` raises `AttributeError`, uncaught — only
+    `JSONDecodeError` was caught, so a line that parses but isn't an object used
+    to take down a reader on the path of every gate.
+    """
+    (agent_dir / "events.jsonl").write_text(
+        '3\nnull\n[]\nnot json at all\n{"event": "start", "session_id": "held"}\n'
+    )
+    assert _session.session_started(agent_dir) is True
 
 
 def test_session_open_for_returns_unknown_when_no_id_presented(
@@ -289,6 +305,27 @@ def test_session_open_for_returns_unknown_when_no_id_presented(
     """
     _log(agent_dir, {"event": "start", "session_id": "someone"})
     assert _session.session_open_for(agent_dir, None) == "unknown"
+
+
+def test_a_shared_state_dir_does_not_let_one_branch_answer_for_another(
+    agent_dir: Path,
+) -> None:
+    """`WFCTL_STATE_DIR` can point several branches at one log (`_paths.py:672-676`).
+
+    `opens_a_new_sitting` already filters its own reads by branch for this
+    reason (`_stall.py:174`); `last_session_id` and `session_open_for` read the
+    identical log shape and did not, so a `start` on branch "b" was read as
+    branch "a"'s holder — the exact risk
+    `session-identity-comes-from-the-caller` names for a value stored unscoped.
+    """
+    _log(
+        agent_dir,
+        {"event": "start", "branch": "a", "session_id": "on-a"},
+        {"event": "start", "branch": "b", "session_id": "on-b"},
+    )
+    assert _session.last_session_id(agent_dir, branch="a") == "on-a"
+    assert _session.session_open_for(agent_dir, "on-a", branch="a") == "self"
+    assert _session.session_open_for(agent_dir, "on-a", branch="b") == "other"
 
 
 @pytest.mark.parametrize(
@@ -419,6 +456,28 @@ def test_a_second_sitting_with_the_same_id_keeps_the_holder(
     assert result.exit_code == 0
     assert _session.last_session_id(agent_dir) == "mine"
     assert _session.session_open_for(agent_dir, "mine") == "self"
+
+
+def test_a_wrapped_up_session_no_longer_reads_open_to_itself(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`start` → `end` → `status`, all as the same identity, must not read open.
+
+    The accepted design record states the criterion twice — "a session is open
+    when the id a command presents matches the id on the most recent `start`
+    event, **and no `end` event follows it**" (Decision), and `data-model.md`
+    calls this "not a state": a branch whose session was wrapped up is state C
+    to the *next* reader "the same string, the same remedy" whether that reader
+    is a different conversation or the one that ended it. Neither `end` nor
+    `session_open_for` inspected `"end"` events before this test, so ending a
+    session left it reading open to itself indefinitely.
+    """
+    runner.invoke(app, ["start", "--session-id", "mine"])
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+
+    _run("end")
+
+    assert _session.session_open_for(agent_dir, "mine") == "other"
 
 
 def test_a_caller_with_no_id_never_takes_over(

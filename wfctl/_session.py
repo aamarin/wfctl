@@ -50,17 +50,19 @@ def session_started(agent_dir: Path) -> bool:
     A malformed line is skipped rather than raising: the log is appended to by
     every command, and a truncated final write must not make the session look
     unstarted — that would send the reader to `wfctl start` on a session that is
-    running.
+    running. `isinstance` guards the same way `last_session_id` does: `null`,
+    `3` and `[]` all parse successfully and have no `.get`.
     """
     events = agent_dir / "events.jsonl"
     if not events.exists():
         return False
     for line in events.read_text().splitlines():
         try:
-            if json.loads(line).get("event") == "start":
-                return True
+            data = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(data, dict) and data.get("event") == "start":
+            return True
     return False
 
 
@@ -84,7 +86,51 @@ def identity(presented: str | None) -> str | None:
     return presented.strip() or None
 
 
-def last_session_id(agent_dir: Path) -> str | None:
+def _holder_since_last_boundary(
+    agent_dir: Path, branch: str | None
+) -> tuple[str | None, bool]:
+    """The identity on the most recent `start` for `branch`, and whether an
+    `end` followed it.
+
+    One scan serves both `last_session_id` and `session_open_for`, filtered
+    the way `opens_a_new_sitting` filters (`_stall.py:174`): a line naming a
+    different branch is skipped, and one naming none — every line predating
+    branch-scoping — matches every branch, so it still counts. Without that
+    filter a shared `WFCTL_STATE_DIR` (`_paths.py:672-676`) would let one
+    branch's `start` answer for another's, which
+    `session-identity-comes-from-the-caller` names as the exact risk.
+
+    `ended` resets on every `start` for the same reason `opens_a_new_sitting`
+    resets `worked` there: whichever boundary is most recent governs, and an
+    `end` an identity never has reason to precede a `start` other than its own
+    — `wfctl end` is gated to the holder, so an `end` line always closes the
+    `start` immediately above it.
+    """
+    events = agent_dir / "events.jsonl"
+    if not events.exists():
+        return None, False
+    holder: str | None = None
+    ended = False
+    for line in events.read_text().splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        if branch is not None and data.get("branch") not in (None, branch):
+            continue
+        event = data.get("event")
+        if event == "start":
+            value = data.get("session_id")
+            holder = identity(value) if isinstance(value, str) else None
+            ended = False
+        elif event == "end":
+            ended = True
+    return holder, ended
+
+
+def last_session_id(agent_dir: Path, branch: str | None = None) -> str | None:
     """Who holds the branch: the identity on the most recent `start`, or None.
 
     The *last* start line, where `session_started` reads the first. The two ask
@@ -97,26 +143,17 @@ def last_session_id(agent_dir: Path) -> str | None:
     that carries no `session_id`. Both mean nobody identified is holding the
     branch, which is what FR-012 lets the first identified caller take over.
 
-    Malformed lines are skipped, matching `session_started`. `isinstance` guards
-    what that reader does not: `null`, `3` and `[]` all parse successfully and
-    have no `.get`, and this reader is on the path of every gate.
+    `branch` defaults to `None` — every branch — for callers that already scope
+    `agent_dir` to one branch themselves; a caller reading a shared state dir
+    passes its own branch, matching `opens_a_new_sitting`.
     """
-    events = agent_dir / "events.jsonl"
-    if not events.exists():
-        return None
-    holder = None
-    for line in events.read_text().splitlines():
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, dict) and data.get("event") == "start":
-            value = data.get("session_id")
-            holder = identity(value) if isinstance(value, str) else None
+    holder, _ended = _holder_since_last_boundary(agent_dir, branch)
     return holder
 
 
-def session_open_for(agent_dir: Path, presented: str | None) -> str:
+def session_open_for(
+    agent_dir: Path, presented: str | None, branch: str | None = None
+) -> str:
     """Who holds this branch, relative to the caller: the holder relation.
 
     One of `"none"`, `"self"`, `"other"`, `"unknown"` — the four states
@@ -134,16 +171,23 @@ def session_open_for(agent_dir: Path, presented: str | None) -> str:
     once. `data-model.md` puts holder-absent and identity-absent in the same
     state D for exactly this reason: the released behaviour, plus the right for
     the first identified caller to take over.
+
+    **A holder matching the caller, with an `end` since, still reads `"other"`.**
+    `data-model.md` § State transitions calls this "not a state": a branch whose
+    session was wrapped up is state C to the next reader "the same string, the
+    same remedy" whether that reader is a different conversation or the one that
+    ended it — `docs/architecture/design/200-session-id-rides-on-the-start-event.md`
+    states the criterion as "no `end` event follows it".
     """
     if not session_started(agent_dir):
         return "none"
     caller = identity(presented)
     if caller is None:
         return "unknown"
-    holder = last_session_id(agent_dir)
+    holder, ended = _holder_since_last_boundary(agent_dir, branch)
     if holder is None:
         return "unknown"
-    return "self" if holder == caller else "other"
+    return "self" if holder == caller and not ended else "other"
 
 
 def auto_approve(agent_dir: Path) -> bool:
@@ -631,5 +675,7 @@ def end(
     if written:
         write_atomic(summary_file, _render_session_summary(branch, observed))
 
-    append_event(agent_dir, "end", step=observed.step, continued=continued)
+    append_event(
+        agent_dir, "end", branch=branch, step=observed.step, continued=continued
+    )
     return summary_file, written

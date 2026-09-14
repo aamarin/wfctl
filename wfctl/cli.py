@@ -319,7 +319,7 @@ def start_cmd(
     # and there is one place where blank becomes absent rather than one per use.
     caller = identity(session_id)
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir)
+    report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     # Before the early return, not after. `start` is idempotent about the session
     # and must not be about the flag: `/start-session` opens the session on a
@@ -377,7 +377,7 @@ def start_cmd(
         # or deleting anything. `caller is not None` is what keeps FR-006: an
         # unwired caller presents nothing and can never trigger this, whatever
         # the holder is.
-        holder = last_session_id(agent_dir)
+        holder = last_session_id(agent_dir, branch)
         if caller is not None and holder != caller:
             append_event(
                 agent_dir, "start", branch=branch,

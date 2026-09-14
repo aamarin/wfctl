@@ -506,14 +506,13 @@ def build_report(
     notify = resolved_notify(agent_dir, branch)
     granted, source = _corrected_grant(notify.granted, notify.source, repo_root, branch)
 
-    # Both session answers from one pair of reads, so the two cannot disagree
-    # about the same log. `session_open` mirrors `session_started` under
-    # `"unknown"` — the unwired row of contracts/cli.md — which is what makes a
-    # caller that presents nothing see the released answer rather than a refusal
-    # (FR-006). Under `"none"` the mirror is false anyway, so the one expression
-    # covers both rows that mean "not open".
-    started = session_started(agent_dir)
-    holder = session_open_for(agent_dir, session_id)
+    # `session_open` mirrors `session_started` under `"unknown"` — the unwired
+    # row of contracts/cli.md — which is what makes a caller that presents
+    # nothing see the released answer rather than a refusal (FR-006).
+    # `session_open_for` only ever returns `"unknown"` after confirming
+    # `session_started(agent_dir)` itself, so the mirror needs no second read of
+    # it below.
+    holder = session_open_for(agent_dir, session_id, branch)
 
     # One read, two consumers. The step predicates and the artifacts fact ask the
     # same three files, and two reads of them can disagree while an implementing
@@ -558,8 +557,8 @@ def build_report(
         current=name if command else None,
         next_command=command or None,
         auto=auto if command else None,
-        session_started=started,
-        session_open=holder == "self" or (holder == "unknown" and started),
+        session_started=session_started(agent_dir),
+        session_open=holder in ("self", "unknown"),
         session_holder=holder,
         auto_approve=read_auto_approve(agent_dir),
         # Read back rather than resolved here. `start` asks the tracker once and
