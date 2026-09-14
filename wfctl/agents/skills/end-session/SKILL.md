@@ -194,6 +194,23 @@ unfilled is a failed handoff.
    wfctl issue create --title "<title>" --body "<context>"
    ```
 
+   **If your own host refuses one of these commands before wfctl runs** —
+   Claude Code's auto-mode classifier and its equivalents on other hosts match
+   on the command string, not on wfctl's grant, and wfctl never starts to
+   record anything when they do — report it yourself rather than letting the
+   session close as though it happened:
+
+   ```bash
+   wfctl blocked issue-close --reason "<what your host said>"
+   ```
+
+   No grant required — this is the one command wfctl never gates, because a
+   run refused by its host is by construction a run that may hold none. It
+   holds the step this session was on so the next one reads it as unfinished
+   rather than as done, and a person clears it with
+   `wfctl blocked issue-close --clear` once they have taken the action
+   themselves.
+
 8. **Report:** session closed, summary written, whether the work was committed and
    the tracker updated (per the user's choices in 6–7), next steps, any blockers.
    **Say what the grant allowed and what it refused**, naming the source — a run

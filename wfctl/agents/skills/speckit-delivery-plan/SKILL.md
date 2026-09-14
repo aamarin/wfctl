@@ -138,6 +138,22 @@ That verb and not `gh issue create`: wfctl refuses a notifying verb the run was
 never granted, and the refusal is the only part of step 6 that holds when nobody
 read step 6. Reaching for `gh` directly is outside it.
 
+**If the host refuses the command before wfctl runs it** — Claude Code's
+auto-mode classifier and its equivalents on other hosts match the command
+string, whatever wfctl's own grant says, and wfctl never starts to record
+anything when they do. This is a different fact from step 6's refusal, and it
+needs its own report:
+
+```bash
+wfctl blocked issue-create --reason "<what the host said>"
+```
+
+No grant required, unlike every verb above it — a run refused by its host is
+by construction a run that may hold none. It holds `decompose` so the pipeline
+reads the plan as unfinished rather than as complete with an unkeyed row nobody
+explained; a person clears it with `wfctl blocked issue-create --clear` once
+they have created the issue themselves.
+
 ---
 
 ## PR / Task Sizing Guidelines

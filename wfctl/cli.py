@@ -24,7 +24,6 @@ from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
-    SCANS_DIR,
     arch_root,
     claim_conflicts,
     is_in_tree,
@@ -33,6 +32,7 @@ from wfctl._paths import (
     get_repo_root,
     main_checkout,
     project_name,
+    non_record_subtrees,
     records_on_this_branch,
     resolve_agent_dir,
     resolve_branch,
@@ -202,15 +202,41 @@ _NOTIFY_LINES = {
 }
 
 
-# Not keyed on the grant, because no grant value changes it. Merging, closing an
-# issue, force-pushing and deleting a branch reach history and work that is not
-# this agent's, and the classes record puts them on the row that is "always the
-# human. No switch, not configurable."
+# Not keyed on the grant, because no grant value changes it. Merging,
+# force-pushing, closing an issue and deleting a branch or worktree reach
+# history and work that is not this agent's, and the classes record puts them
+# on the row that is "always the human. No switch, not configurable." Named in
+# full (FR-004): the first wording covered two of the four and let a reader
+# infer the other two were narrower than they are.
 #
-# "there is no setting for it" is the load-bearing half. The line exists to end
-# the search it would otherwise start.
+# "no setting changes it" is the load-bearing half. The line exists to end the
+# search it would otherwise start.
+#
+# Naming all four pushes the sentence past one line, so it is authored as two —
+# split at the clause boundary, each half under the 72-character budget
+# `test_every_line_fits_on_one_terminal_line` pins for `_NOTIFY_LINES` — rather
+# than left as one string for `rich` to reflow. An automatic wrap breaks at
+# whatever word the terminal width lands on, and the second half read alone is
+# a fragment; an authored break always lands between "branch" and "or".
 _IRREVERSIBLE_NOTICE = (
-    "will never merge or delete — that is always yours, no setting for it"
+    "will never merge, force-push, close an issue, or delete a branch\n"
+    "or worktree — those are yours, and no setting changes it"
+)
+
+# FR-001, FR-002, FR-003. True in every grant state, so it is keyed on nothing —
+# printed unconditionally beside `_IRREVERSIBLE_NOTICE`, never behind
+# `_notify_line`'s branch on `source`.
+#
+# Names no command on purpose. An agent needs `wfctl blocked` mid-run, long
+# after it last read this block; naming it here would put the pointer in the
+# one place the reader is guaranteed not to be looking when it matters. The
+# instruction lives in the skills instead (FR-017).
+#
+# Authored as two lines for the same reason as `_IRREVERSIBLE_NOTICE` above —
+# the full sentence does not fit the single-line budget.
+_HOST_AUTHORITY_NOTICE = (
+    "the agent has permission rules of its own — wfctl can't see them\n"
+    "and says nothing about them"
 )
 
 
@@ -494,6 +520,107 @@ def notify_cmd(
     console.print(f"[green]✓[/green] recorded: {action}")
 
 
+@app.command("blocked")
+def blocked_cmd(
+    action: str = typer.Argument(
+        ..., help="What the host refused — 'issue-comment', 'issue-create', 'push'."
+    ),
+    reason: str = typer.Option(
+        None, "--reason", help="What the host said, quoted as given."
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="A person took the action; release the hold."
+    ),
+) -> None:
+    """Record that the agent's own host refused an outward action wfctl never ran.
+
+    Never calls `action_grant` (FR-006): a run blocked by its host is by
+    construction a run that may hold no grant, and this is the one command
+    whose whole reason to exist is answering for that run. `wfctl notify` is
+    unchanged — its gate stays closed on both its paths.
+
+    There is no spelling of this command that records a success (FR-009). The
+    narrow exception the level-2 record carves — the agent may report a
+    failure it alone witnessed, never a success — is a property of this
+    surface, not a sentence an agent has to have read: `--reason` files a
+    block, `--clear` releases one, and nothing here says "it worked".
+    """
+    from rich.markup import escape
+
+    from wfctl._pipeline import _STEP_NAMES, build_report
+    from wfctl._paths import resolve_spec_dir
+    from wfctl._session import record_block_cleared, record_blocked, standing_blocks
+
+    if reason and clear:
+        console.print("[red]✗ --reason and --clear are opposites — pass one[/red]")
+        raise typer.Exit(1)
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+
+    if clear:
+        # Checked before writing (FR-014): a mistyped action otherwise reads a
+        # clean exit as a release that never happened.
+        standing = {b.action: b for b in standing_blocks(agent_dir, branch)}
+        block = standing.get(action)
+        if block is None:
+            console.print(f"ℹ no block standing for {escape(action)} — nothing to clear")
+            return
+        record_block_cleared(agent_dir, branch, action)
+        if block.step:
+            console.print(
+                f"[green]✓[/green] cleared: {escape(action)} — "
+                f"`{block.step}` reads from its own artifacts again"
+            )
+        else:
+            console.print(f"[green]✓[/green] cleared: {escape(action)}")
+        return
+
+    if not reason:
+        console.print(
+            "[red]✗ --reason is required — a block with no reason holds a "
+            "step and says nothing[/red]"
+        )
+        raise typer.Exit(1)
+
+    # The step comes from inference at call time, never from the caller
+    # (FR-010): the agent supplies the two facts it alone witnessed — `action`
+    # and `reason` — and does not get to say which step is held.
+    #
+    # `spec_dir is None` is checked directly rather than trusting
+    # `report.current` on a report built from it (FR-008): with no spec dir,
+    # `build_report` still names "brainstorm" current — correct for a feature
+    # branch that has not started yet, wrong for a branch that names no
+    # feature at all, which is what this branch is here.
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    # `report.current` is `None` for two different reasons: no feature claims
+    # this branch (`spec_dir is None`, handled above), or every step reads
+    # `done`/`skipped` and the pipeline is `"complete"` — `next_step_content`
+    # has no command for that sentinel, so `build_report` reports no current
+    # step at all. A block filed in the second case (the end-session worked
+    # example: `wfctl blocked issue-close` after implementation and
+    # verification are both finished) still has to hold something, or the
+    # promised "the next session reads it as unfinished rather than done"
+    # never happens — so it falls back to the pipeline's last named step,
+    # which `_apply_block_hold` then reopens as `in_progress`.
+    step = None
+    if spec_dir is not None:
+        step = build_report(spec_dir, repo_root, agent_dir).current or _STEP_NAMES[-1]
+    record_blocked(agent_dir, branch, action, reason, step)
+
+    if step:
+        console.print(
+            f"[green]✓[/green] recorded: {escape(action)} blocked — holding `{step}`"
+        )
+        console.print(
+            "  Your host refused this, not wfctl. Re-running the step will be "
+            "refused again."
+        )
+    else:
+        console.print(
+            f"[green]✓[/green] recorded: {escape(action)} blocked — no step is being held"
+        )
+
+
 @app.command("status")
 def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
@@ -585,6 +712,10 @@ def status_cmd(
     # go looking for the flag that widens it further. There is none, and the line
     # says so rather than leaving the search to end in a wrong guess.
     console.print(_IRREVERSIBLE_NOTICE)
+    # FR-001, FR-002. Unconditional like the line above it, and for the same
+    # reason: a reader who has just been told what this agent may and may never
+    # do is owed the fact that a second, unrelated authority also governs it.
+    console.print(_HOST_AUTHORITY_NOTICE)
     # SC-005: a reader has to be able to tell a fresh branch from a held one
     # without opening the log. Only in this state, matching `auto_approve` two
     # lines down — the other three are the ordinary case, and a notice about the
@@ -615,11 +746,15 @@ def status_cmd(
         # create` sees it and could refuse one that omits them — a rule expressed
         # as a check rather than as a line someone has to read.
         arch = arch_root(repo_root)
-        # `scans/` excluded: this listing says what an unattended run *decided*,
-        # and a scan file records what a review step covered. Left in, every
-        # branch that ran clarify reports two records that chose nothing, in the
-        # one mode with no reader to catch it (#307).
-        for slug in records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR):
+        # The non-record subtrees are excluded: this listing says what an
+        # unattended run *decided*, and neither a scan file nor an implementation
+        # note decides anything — one records what a review step covered, the
+        # other why a mechanism was picked inside a settled boundary. Left in,
+        # every branch that ran clarify reports two records that chose nothing, in
+        # the one mode with no reader to catch it (#307).
+        for slug in records_on_this_branch(
+            repo_root, arch, exclude=non_record_subtrees(arch)
+        ):
             console.print(f"[dim]  record:[/dim] {slug}")
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
@@ -705,16 +840,29 @@ def next_cmd() -> None:
     from wfctl._pipeline import (
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
+        _apply_block_hold,
         _current_step_name,
         _infer_steps,
         next_step_content,
         next_step_file,
     )
+    from wfctl._predicates import build_evidence
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
-    steps = _infer_steps(spec_dir, repo_root)
+    # Built once and threaded into `_infer_steps` rather than left for it to
+    # build internally: `next_step_content` below needs `ev.tasks_open` too,
+    # and a second `build_evidence` call here would be the same duplicate read
+    # this function's own comment two lines down warns against.
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    steps = _infer_steps(spec_dir, repo_root, ev)
+    # Same hold `build_report` applies for `status`/`resume` (FR-010, FR-011):
+    # without it, a step a host block is holding reads here as whatever its own
+    # artifacts say, and this is the file an agent actually acts on — `status`
+    # showing the hold while `next` sends the agent to re-run the refused step
+    # is the disagreement FR-016's asymmetry depends on not existing.
+    steps = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
@@ -734,7 +882,7 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, blocked)
+    command, auto = next_step_content(step_name, blocked, tasks_open=bool(ev and ev.tasks_open))
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -879,7 +1027,9 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
         # this change and is left where it was found.
         boundary=_BOUNDARY[
             touched_on_this_branch(
-                repo_root, arch_root(repo_root), exclude=arch_root(repo_root) / SCANS_DIR
+                repo_root,
+                arch_root(repo_root),
+                exclude=non_record_subtrees(arch_root(repo_root)),
             )
         ],
         tree="dirty" if dirty else "clean",
@@ -2503,13 +2653,18 @@ def _restore_hint(layers: Iterable[str]) -> str:
 # directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
 # every other layer still gets it.
 _MIRRORED_SKILLS = frozenset({
-    # Same case as `software-design-decisions` below — no wrapper under
-    # `agents/commands/` — but it earns the entry for `start-session`'s reason
-    # rather than #124's. The level-2 gate names this skill by path, and an agent
-    # that read that pointer and reached for `Skill(architecture-design)` is
-    # refused without membership. Mirroring does not make a refused route work;
-    # it removes the fork, so the outcome stops depending on which way the agent
-    # reached.
+    # Same case as `software-design-decisions` below, and it earns the entry for
+    # `start-session`'s reason rather than #124's. The level-2 gate names this
+    # skill by path, and an agent that read that pointer and reached for
+    # `Skill(architecture-design)` is refused without membership. Mirroring does
+    # not make a refused route work; it removes the fork, so the outcome stops
+    # depending on which way the agent reached.
+    #
+    # #373 shipped it a wrapper and that ground is untouched: the wrapper is
+    # suppressed on precisely the layer this entry is about, so what it bought is
+    # the `.agents/` copy and bob's command directory, neither of which is a
+    # discovery path. A reader weighing this entry reads the fork, not the
+    # wrapper's existence.
     #
     # It does not reach an agent mid-implementation, and must not be defended on
     # that: the skill's `description` scopes both its triggers to level 2, and
@@ -2532,13 +2687,26 @@ _MIRRORED_SKILLS = frozenset({
     # which is the failure it was written for. Nothing else in the tree says the
     # skill has to be discoverable.
     "opening-a-change",
+    # The only entry whose skill fires *during* implementation, which is what
+    # makes the mirror necessary rather than convenient. `software-design-decisions`
+    # below is reachable by an agent reading `design-levels` as text; this one
+    # fires at the moment a mechanism is picked, and no agent is reading a skill
+    # at that moment. `design-levels` §4 names it by path so the pointer exists,
+    # and this entry is what makes the pointer resolvable — the pair is #150's
+    # fix applied one level down.
+    #
+    # Unlike `architecture-design`, it *is* defended on reaching an agent
+    # mid-implementation, so `speckit.implement`'s ceiling has to grant the two
+    # commands its Authority section names. It does.
+    "python-pattern-selection",
     "receiving-code-review",
-    # No wrapper under `agents/commands/`, so the mirror is the only route: a
-    # skill absent from both is reachable only by an agent already reading
-    # `design-levels` as text, which is the shape of #198 one hop down the
-    # pointer chain that issue was filed to build. Its description triggers on a
-    # structural choice just settled in conversation — a moment nobody types a
-    # command, the same reason `fanning-out-code-review` is here (#124).
+    # Its description triggers on a structural choice just settled in
+    # conversation — a moment nobody types a command, the same reason
+    # `fanning-out-code-review` is here (#124). So a typed route is not what
+    # this entry buys and #373's wrapper does not supply it: without membership
+    # the skill waits for an agent already reading `design-levels` as text,
+    # which is the shape of #198 one hop down the pointer chain that issue was
+    # filed to build.
     "software-design-decisions",
     # The only speckit step here, and the only one whose workflow ever lived in
     # its wrapper rather than behind a pointer. What that cost was not
@@ -5575,9 +5743,11 @@ def _check_arch_records(repo_root: Path) -> bool:
 
     Validates the top-level tier only, because `load_records` globs one level.
     That is the tier boundary `design-levels` draws and `arch none` already
-    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and stay
-    out. Design records carry their own `supersedes:` and their own status
-    vocabulary, so their link integrity is unchecked by anything (#166).
+    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and
+    `implementation/` is Level 4, so all three stay out. Design records carry
+    their own `supersedes:` and their own status vocabulary, so their link
+    integrity is unchecked by anything (#166); an implementation note is prose
+    and carries neither.
     """
     from rich.markup import escape
 

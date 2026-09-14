@@ -149,12 +149,12 @@ def test_only_the_declared_edge_runs_upward(bands: dict[str, str]) -> None:
     assert upward == declared
 
 
-def test_the_private_crossings_are_the_four_the_view_draws() -> None:
-    """Four private names cross a module boundary, and the view names them.
+def test_the_private_crossings_are_the_six_the_view_draws() -> None:
+    """Six private names cross a module boundary, and the view names them.
 
-    Both directions matter: a fifth crossing is drift the drawing missed, and a
-    crossing that gets resolved leaves the drawing claiming a problem the code
-    no longer has.
+    Both directions matter: a seventh crossing is drift the drawing missed, and
+    a crossing that gets resolved leaves the drawing claiming a problem the
+    code no longer has.
     """
     expected = set()
     for line in _block("crossings"):

@@ -12,8 +12,10 @@ discover a skill that lives only in `.agents/skills/` — the wrapper is the rou
 in.
 
 `_MIRRORED_SKILLS` builds a second route for Claude: a named skill is copied to
-`.claude/skills/<name>`, where it is discovered without being told. Eleven skills
-are mirrored, and eight of them also shipped a wrapper under the same name.
+`.claude/skills/<name>`, where it is discovered without being told. Fifteen
+skills are mirrored, and fourteen of them also ship a wrapper under the same
+name — every one but `speckit-brainstorm`, whose wrapper is `speckit.brainstorm`
+and collides with nothing.
 
 That is one `/name` claiming two files. Claude Code's documentation says the
 skill wins; a session on 2026-09-04 got the wrapper instead, whose
@@ -28,8 +30,8 @@ consequence is that the pointer, when it wins, refuses its own target.
 
 Suppressing the wrapper costs no typed route only because a Claude Code skill is
 itself typeable as `/name`, which is true from v2.1.101 and was checked against
-the docs rather than recalled. On an older Claude Code the seven names would
-become model-only. wfctl declares no floor and this record does not add one —
+the docs rather than recalled. On an older Claude Code the suppressed names
+would become model-only. wfctl declares no floor and this record does not add one —
 the observation is here so a reader who finds one knows what it would break.
 
 ## Decision
@@ -101,3 +103,4 @@ Membership decides reachability; the file decides invocability.
 
 - 2026-09-04  proposed    — #170; the wrapper's flag refused the skill it points at, for whichever session lost the tie
 - 2026-09-06  amended     — #204; `start-session` mirrored, the eighth wrapper suppressed. First time the `allowed-tools` consequence above was paid rather than predicted.
+- 2026-09-13  amended     — #373; six mirrored skills that shipped no wrapper got one, so suppression now covers fourteen. The decision is unchanged: those six were reachable on `.agents/` and bob by nothing a person could type, and the suppression is what let them take their own name.

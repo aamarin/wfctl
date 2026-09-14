@@ -75,7 +75,7 @@ gate's answer goes where *Where the levels land* below already sends it:
 | 1 behavior | the behavior sections of `design.md` |
 | 2 architecture | one record per ownership decision under `wfctl arch-root` — or the declared absence of one |
 | 3 design | `design.md`, plus a record under `<arch-root>/design/` when credible alternatives were weighed |
-| 4 implementation | unchanged — the verification skills own it |
+| 4 implementation | nothing written by the gate — in Python the mechanism is chosen with `.agents/skills/python-pattern-selection`, and only a departure from one of its constraints is written down |
 
 The rendered forms below are not optional under `auto_approve` — they are how
 the answer is written down, and a gate answered in loose prose because nobody was
@@ -179,10 +179,30 @@ its own decision rests on, because `design.md` is gitignored and a reviewer
 reading the PR never opens it. A structural choice with no credible alternative
 earns no record, and saying so is the answer.
 
-### 4. Implementation — covered by the existing verification skills
+### 4. Implementation — the mechanism, then the verification skills
 
-Use the `verification-before-completion` skill and the `code-review` skill.
-Nothing new here.
+**When the implementation is Python**, use
+`.agents/skills/python-pattern-selection` while writing the code: it names the
+cheaper Python shape for each choice — a callable before a Strategy hierarchy, a
+session transaction before a Unit of Work — so the mechanism is picked against a
+stated pressure rather than by habit.
+
+The condition is the skill's own. Every constraint it carries is about a Python
+mechanism, and `design-levels` runs over features, screens, schemas and CLI
+surfaces in any language — so routing every level-4 pass there would hand a Go or
+TypeScript implementer guidance about ORM sessions and callables, which is worse
+than the verification-only route it replaced. There is no equivalent skill for
+another language yet; in one, this level is the two verification skills, as it
+was before.
+
+It is not a gate and mints no verdict. This gate asks nothing and writes nothing;
+what gets written is a *departure* from one of those constraints, and the skill
+routes that to the commit message or to `<arch-root>/implementation/` depending
+on whether a later reader would go looking for it.
+
+Then `verification-before-completion` and `code-review`, unchanged — in every
+language, Python included. Both fire after the code exists, which is why the
+mechanism choice needed something of its own in front of them.
 
 ## Rendering the gate's answer
 
@@ -296,7 +316,14 @@ the claims in `design.md`, the decision in a record.
 neither does one that drew a boundary — that was level 2's record, and filing a
 second copy under `design/` puts a binding decision where `wfctl arch context`
 cannot see it.
-- Level 4 → belongs to the plan and to `speckit.tasks`, not to the design.
+- Level 4 → belongs to the plan and to `speckit.tasks`, not to the design. In a
+  Python implementation the mechanism itself is chosen with
+  `.agents/skills/python-pattern-selection`, which lands nothing by default; a
+  deliberate departure from one of its constraints leaves a note under
+  `<arch-root>/implementation/`, for level 3's reason and not a new one —
+  `tasks.md` lives in the same gitignored `specs/` that a reviewer reading the PR
+  never opens. In another language nothing is routed here, and the level is the
+  two verification skills.
 
 `plan-template.md`'s Constitution Check re-checks that ownership is stated. It
 **verifies** the answer; it does not derive it. Arriving at `speckit.plan`

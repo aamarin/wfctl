@@ -14,7 +14,13 @@ import types
 from typer.testing import CliRunner
 
 from wfctl._session import NotifyGrant, record_notify_resolved
-from wfctl.cli import _NOTIFY_LINES, _notify_line, app
+from wfctl.cli import (
+    _HOST_AUTHORITY_NOTICE,
+    _IRREVERSIBLE_NOTICE,
+    _NOTIFY_LINES,
+    _notify_line,
+    app,
+)
 
 runner = CliRunner()
 
@@ -115,6 +121,13 @@ def test_every_line_fits_on_one_terminal_line(
         assert len(line) <= 72, (source, len(line))
     assert len(_notify_line("label", "9999")) <= 72
 
+    # `_IRREVERSIBLE_NOTICE` and `_HOST_AUTHORITY_NOTICE` each name more than
+    # `_NOTIFY_LINES` fits on one line, so they are authored with an explicit
+    # break rather than left for `rich` to reflow — checked per physical line.
+    for constant in (_IRREVERSIBLE_NOTICE, _HOST_AUTHORITY_NOTICE):
+        for physical_line in constant.split("\n"):
+            assert len(physical_line) <= 72, physical_line
+
 
 def test_the_granted_line_names_the_issue_the_label_is_on(
     storyctl_dir: types.SimpleNamespace,
@@ -211,6 +224,47 @@ def test_status_on_the_trunk_says_so_before_any_session_has_started(
     assert _NOTIFY_LINES["trunk"] in runner.invoke(app, ["status"]).output
     assert _payload()["notify_source"] == "trunk"
     assert _payload()["notify"] is False
+
+
+def test_the_second_permission_layer_is_named_in_every_grant_state(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-001, FR-002. Eight renderings, not seven — `research.md` establishes
+    that the `label` rendering is built by `_notify_line` rather than looked up
+    in `_NOTIFY_LINES`, so a loop over the dict alone would miss it.
+
+    Keyed on nothing: the same text is asserted for every source, granted or
+    refused, because it is true in all of them.
+    """
+    for source in _NOTIFY_LINES:
+        _resolve(storyctl_dir.agent_dir, source, granted=source in ("label", "local"))
+        output = runner.invoke(app, ["status"]).output
+        assert _HOST_AUTHORITY_NOTICE in output, source
+
+    _resolve(storyctl_dir.agent_dir, "label", granted=True)
+    output = runner.invoke(app, ["status"]).output
+    assert _HOST_AUTHORITY_NOTICE in output, "label"
+
+
+def test_the_new_line_names_no_command(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-003. An agent needs `wfctl blocked` mid-run, long after it last read
+    this block — naming it here is the one place the reader is guaranteed not to
+    be looking. The instruction belongs to the skills instead (FR-017)."""
+    assert "wfctl blocked" not in _HOST_AUTHORITY_NOTICE
+    assert "blocked" not in _HOST_AUTHORITY_NOTICE
+
+
+def test_the_irreversible_line_names_every_action_in_its_class(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-004. The first wording named two of the four — merging and deleting —
+    and let a reader infer force-pushing and closing an issue were narrower than
+    they are. All four now, or the line still overstates the class it implements
+    by omission."""
+    for word in ("merge", "force-push", "close an issue", "delete"):
+        assert word in _IRREVERSIBLE_NOTICE, word
 
 
 def test_start_records_the_answer_the_rest_of_the_run_reads_back(

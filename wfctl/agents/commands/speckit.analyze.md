@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the repository recording what it covered.
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(wfctl blocked*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
 
 ## User Input
@@ -238,6 +238,26 @@ That is not the finding being lost. The scan file is committed to the branch and
 the reviewer reads it at the PR, which is where an unattended run's decisions are
 reviewed anyway. What the second line buys is that a finding already filed and a
 finding somebody still has to file stop reading identically.
+
+**If the host refuses the create before wfctl runs it** — Claude Code's
+auto-mode classifier and its equivalents on other hosts match the command
+string, whatever the grant above says, and wfctl never starts to record
+anything when they do. That is a different fact from the refusal above, and it
+needs its own report:
+
+```bash
+wfctl blocked issue-create --reason "<what the host said>"
+```
+
+No grant required, unlike `wfctl issue create` itself — a run refused by its
+host is by construction a run that may hold none. It holds `analyze` so the
+pipeline reads the scan as unfinished rather than complete with a filing
+nobody made; a person clears it with `wfctl blocked issue-create --clear` once
+they have filed the issue themselves.
+
+**Here rather than in `speckit-analyze/SKILL.md`**, for the same reason pass G
+and the scan-file override above are: that skill is spec-kit-derived, and an
+in-place edit is reverted by the next upstream pull with no conflict to notice.
 
 **One issue per cause, not per finding.** Three findings that are one ambiguity
 seen from three passes get one issue, cited by all three. The alternative turns a

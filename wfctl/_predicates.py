@@ -586,6 +586,13 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     are barred from drawing a boundary, and #121 item 3 lands one in every such
     branch diff.
 
+    `non_record_subtrees` is excluded for the stronger version of that reason: a
+    level-3 record at least *decided* something, while a scan file reports what a
+    review step covered and an implementation note says why a mechanism was
+    picked inside a boundary already settled. Counted, either satisfies the one
+    gate whose whole question is whether the boundary was ever put — and both
+    land on branches that never put it.
+
     What it does not check is whether the record is *about* this change, or
     whether a declaration is true. Neither has an objective test, and FR-010a
     settles the point: the purpose is to stop the question going unanswered, not
@@ -601,13 +608,15 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
         # uses to tell `skipped` from `pending`.
         return None
 
-    from wfctl._paths import touched_on_this_branch
+    from wfctl._paths import non_record_subtrees, touched_on_this_branch
 
     arch = arch_root(repo_root)
     # Three states in, three states out. `touched_on_this_branch` already returns
     # `None` for "git cannot answer" and says in its own docstring why — the old
     # call site spent that third state on `is False` one line after computing it.
-    touched = touched_on_this_branch(repo_root, arch, exclude=arch / "design")
+    touched = touched_on_this_branch(
+        repo_root, arch, exclude=[*non_record_subtrees(arch), arch / "design"]
+    )
     verdict: Verdict = (
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
     )
@@ -802,8 +811,8 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     """
     from wfctl import _arch
     from wfctl._paths import (
-        SCANS_DIR,
         is_in_tree,
+        non_record_subtrees,
         records_on_this_branch,
         touched_on_this_branch,
     )
@@ -813,13 +822,13 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     if not is_in_tree(arch, repo_root):
         return Fact(name, "n/a", "records are kept outside this repository")
 
-    touched = touched_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR)
+    touched = touched_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch))
     if touched is None:
         return Fact(name, "unmet", "git cannot say what this branch changed")
     if not touched:
         return Fact(name, "n/a", "no level-2 record on this branch")
 
-    slugs = set(records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR))
+    slugs = set(records_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch)))
     records = {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
     if not records:
         # Touched something under the arch root, and none of it a record the

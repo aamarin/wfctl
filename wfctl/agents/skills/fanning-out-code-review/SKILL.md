@@ -80,9 +80,17 @@ the change is supposed to do, and the project's rules — **never your session
 history**, and never another reviewer's findings. A reviewer primed with the
 first reviewer's report is not a second opinion.
 
-Every dispatch instruction carries these three:
+Every dispatch instruction carries these four:
 
 - **Follow the `code-review` skill.** Name the skill; do not paste a rubric.
+- **Say which passes ran and what each covered**, whether or not it found
+  anything. `code-review` Step 5 ends a clean report at the over-engineering
+  metric and a verdict, which is enough to show a reviewer worked and not enough
+  to say what it looked at. Step 6 gives a reviewer that found nothing a row
+  whose Finding cell carries its coverage, so a report that never stated it
+  leaves the coordinator inventing the cell or dropping the row — and this
+  bullet is where the requirement reaches the reviewer, because the sentence in
+  Step 3 that states it is read by the coordinator alone.
 - **Report only. Change nothing.** Reviewers here share a worktree with each
   other and with you. Three agents editing a tree a fourth is reading corrupts
   all four, and the corruption is not recoverable afterwards — you cannot tell
@@ -152,7 +160,7 @@ eval "$(wfctl feature-paths)"
 REVIEWS="$FEATURE_DIR/reviews"
 RETURNED="r1 r2"        # of the roster below, the ones you watched finish
 for id in r1 r2 r3; do    # the roster you dispatched
-  if [ -s "$REVIEWS/$id.md" ]; then echo "reported  $id"; else
+  if grep -qs '^[^A-Za-z]*Verdict' "$REVIEWS/$id.md"; then echo "reported  $id"; else
     case " $RETURNED " in
       *" $id "*) echo "MISSING   $id" ;;
       *) echo "RUNNING   $id" ;;
@@ -160,6 +168,36 @@ for id in r1 r2 r3; do    # the roster you dispatched
   fi
 done
 ```
+
+**A file is a report when it carries a verdict, not when it has bytes in it.**
+`code-review` Step 5 ends every report with the over-engineering metric and a
+verdict of **Approve** or **Request changes**, and a reviewer with nothing to
+report still has to run the six passes to write one. So "no findings" is a valid
+result only when it says **which passes ran and what was checked in each**, and a
+bare "looks good" is a missing report wearing a verdict — nine bytes that a size
+test records as a completed review of the whole diff (#368).
+
+The anchor is loose about what precedes the word on purpose. Reports in this
+project's own spec root write that line four ways — `Verdict:`, `**Verdict:
+Approve**`, `## Verdict`, `### Verdict` — and all four are well-formed, so a
+check keyed on `^Verdict:` alone rejects about half the honest reports.
+Tightening a check until it fails real work is the same defect pointed the other
+way, and `test_the_verdict_anchor_accepts_every_spelling_reviewers_use` is what
+holds the four apart from prose that merely mentions the word.
+
+**The test is about the ids you dispatched.** A free member filed here — a bot's
+review, a comment saved to the directory — was never handed `code-review`'s
+rubric, so it has no verdict line to carry and a re-ask cannot be made of it. It
+is named on the roster line beside the panel, which is where a report nobody
+dispatched belongs anyway, and not put through a test for a format nobody gave
+it.
+
+`grep -s` swallows the error for a file that is not there, because a reviewer
+still working is the normal state and its absent file is the `RUNNING` branch's
+input rather than a fault. The undispatched check below redirects nothing, for
+the opposite reason: every line that one prints is a failure, so a silent failure
+there reads as a clean panel. Neither is a default — each names the case its own
+silence would hide.
 
 Both lists are **yours to substitute**, like the path above, and neither is a
 glob over the directory. `for id in "$REVIEWS"/*.md` checks the reports that
@@ -176,10 +214,11 @@ over the whole string as a single id and report one reviewer nobody dispatched.
 reviewer's own "I already reported" is the recollection this step exists to
 disbelieve; that its run ended is an observation nobody has to trust.
 
-**The disk is asked first; `RETURNED` only breaks the tie.** A report on disk is
-a report whatever anyone remembers, so a reviewer left out of `RETURNED` by
-mistake still reads as `reported`. Memory is consulted about a reviewer that has
-written nothing and about nothing else, which is the one question it can answer.
+**The disk is asked first; `RETURNED` only breaks the tie.** A file carrying a
+verdict is a report whatever anyone remembers, so a reviewer left out of
+`RETURNED` by mistake still reads as `reported`. Memory is consulted about a
+reviewer that has written nothing usable — no file, or a file with no verdict in
+it — and about nothing else, which is the one question it can answer.
 Nested the other way round, a real report reads as `RUNNING`, and the panel
 waits on a reviewer already back while its findings sit unread on disk.
 
@@ -191,9 +230,9 @@ wrong, but the same defect this step is about.
 Three words, three states, and only one of them is a failure:
 
 ```
-   reported   a file on disk with something in it
+   reported   a file on disk carrying a verdict line
    RUNNING    dispatched, not back yet   →  not a result. Read the roster again.
-   MISSING    back, and wrote nothing    →  a failure, not a pass
+   MISSING    back, and said nothing     →  a failure, not a pass
 ```
 
 Reading the roster before every reviewer is back is not a mistake — the
@@ -207,6 +246,11 @@ reported, the report is the evidence and its recollection is not — ask again
 anyway. A `MISSING` that survives the re-ask is a reviewer that did not run:
 dispatch a replacement under the same id.
 
+A file that exists and carries no verdict takes that same repair, which is why it
+gets no word of its own. The reviewer is back and has said nothing usable; asking
+it again for findings in `code-review`'s format is the whole of the response, and
+a fourth state would only be `MISSING` under another name.
+
 `RUNNING` has no repair of its own, which is what makes it safe to read and
 useless to sit on. A reviewer you have decided is not coming back is one you add
 to `RETURNED` anyway: it becomes `MISSING`, which does have a repair. That is
@@ -218,9 +262,6 @@ around a reviewer that never spoke. The roster is read as the state now, so
 record a re-ask by its outcome rather than its history: `r2 ✓ (re-asked once)`,
 never `r2 was MISSING at first read` — a history written in the words the states
 use is read back as a state.
-
-"No findings" is a valid result only when it says **which passes ran and what
-was checked in each**. A bare "looks good" is a missing report wearing a verdict.
 
 ### The roster is the whole panel
 
@@ -342,15 +383,27 @@ nobody raised.
 | 1 | r2 | `find` matches directories, misses multi-template layouts | applied — reproduced it first |
 | 2 | r1 | `wfctl change` named as a command that opens a change | applied — confirmed it exits 0 |
 | 3 | r1 | mirror-membership test is near-tautological | accepted — for a sharper reason than the one given (see below) |
-| 4 | r3 | the `_MIRRORED_SKILLS` comment rationale doesn't apply here | rejected — the rationale is about #124's failure mode, which this entry has |
+| 4 | r2 | the `_MIRRORED_SKILLS` comment rationale doesn't apply here | rejected — the rationale is about #124's failure mode, which this entry has |
+| — | r3 | no findings — six passes over the installer, the fence, and its tests | clean |
 
-roster: r1 ✓  r2 ✓  r3 ✓ (r3 re-asked once)
+roster: r1 ✓  r2 ✓  r3 ✓ (r2 re-asked once)
 ```
 
-Three dispositions, each requiring a reason on the line: **applied**,
-**accepted** (with the reason you accepted it for, when it differs from the one
-given), **rejected** (with the reason). A run in which everything was applied
-has not exercised the reconciliation — it has relayed three reports.
+Three dispositions for a finding, each requiring a reason on the line:
+**applied**, **accepted** (with the reason you accepted it for, when it differs
+from the one given), **rejected** (with the reason). A run in which everything
+was applied has not exercised the reconciliation — it has relayed three reports.
+**`clean` is the fourth value in that column and not a fourth disposition**: it
+disposes of no finding, so it carries no reason.
+
+**A reviewer that found nothing gets a row, not a tick.** Its `#` carries `—`,
+not a number and not an empty cell — nothing was found, so there is no finding to
+number, and a blank in a pipe table reads as an omission. Its Finding column
+carries what the report says it covered. A clean reading is a result the panel
+paid for, and the roster line cannot carry it: `r3 ✓` says a file arrived and
+stops there, which is the same mark a reviewer earns for a page of blockers. The
+row is where a reader learns what the third of three passes actually looked at,
+and a panel whose clean reviewers are invisible is one nobody can size.
 
 **Every name in the Reviewer column is on the roster line.** The line carries
 the whole panel — the ids you dispatched, and the free members named beside
@@ -369,7 +422,9 @@ not read: correctness-angles, r4 — agents this panel did not dispatch
 ## Red flags
 
 - Recording a pass as clean because a reviewer said it had nothing to add. That
-  is the exact sentence this skill was written after.
+  is the exact sentence this skill was written after. A `clean` row is the
+  opposite of it: earned by a report that names what it covered, not by one that
+  declines to.
 - Giving each reviewer a different lens. That is a coverage split, and
   `code-review` already covers those axes in one pass.
 - Letting a reviewer edit the tree, or fixing findings while reviewers are still
