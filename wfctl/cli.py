@@ -187,15 +187,41 @@ _NOTIFY_LINES = {
 }
 
 
-# Not keyed on the grant, because no grant value changes it. Merging, closing an
-# issue, force-pushing and deleting a branch reach history and work that is not
-# this agent's, and the classes record puts them on the row that is "always the
-# human. No switch, not configurable."
+# Not keyed on the grant, because no grant value changes it. Merging,
+# force-pushing, closing an issue and deleting a branch or worktree reach
+# history and work that is not this agent's, and the classes record puts them
+# on the row that is "always the human. No switch, not configurable." Named in
+# full (FR-004): the first wording covered two of the four and let a reader
+# infer the other two were narrower than they are.
 #
-# "there is no setting for it" is the load-bearing half. The line exists to end
-# the search it would otherwise start.
+# "no setting changes it" is the load-bearing half. The line exists to end the
+# search it would otherwise start.
+#
+# Naming all four pushes the sentence past one line, so it is authored as two —
+# split at the clause boundary, each half under the 72-character budget
+# `test_every_line_fits_on_one_terminal_line` pins for `_NOTIFY_LINES` — rather
+# than left as one string for `rich` to reflow. An automatic wrap breaks at
+# whatever word the terminal width lands on, and the second half read alone is
+# a fragment; an authored break always lands between "branch" and "or".
 _IRREVERSIBLE_NOTICE = (
-    "will never merge or delete — that is always yours, no setting for it"
+    "will never merge, force-push, close an issue, or delete a branch\n"
+    "or worktree — those are yours, and no setting changes it"
+)
+
+# FR-001, FR-002, FR-003. True in every grant state, so it is keyed on nothing —
+# printed unconditionally beside `_IRREVERSIBLE_NOTICE`, never behind
+# `_notify_line`'s branch on `source`.
+#
+# Names no command on purpose. An agent needs `wfctl blocked` mid-run, long
+# after it last read this block; naming it here would put the pointer in the
+# one place the reader is guaranteed not to be looking when it matters. The
+# instruction lives in the skills instead (FR-017).
+#
+# Authored as two lines for the same reason as `_IRREVERSIBLE_NOTICE` above —
+# the full sentence does not fit the single-line budget.
+_HOST_AUTHORITY_NOTICE = (
+    "the agent has permission rules of its own — wfctl can't see them\n"
+    "and says nothing about them"
 )
 
 
@@ -476,6 +502,10 @@ def status_cmd(
     # go looking for the flag that widens it further. There is none, and the line
     # says so rather than leaving the search to end in a wrong guess.
     console.print(_IRREVERSIBLE_NOTICE)
+    # FR-001, FR-002. Unconditional like the line above it, and for the same
+    # reason: a reader who has just been told what this agent may and may never
+    # do is owed the fact that a second, unrelated authority also governs it.
+    console.print(_HOST_AUTHORITY_NOTICE)
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it
