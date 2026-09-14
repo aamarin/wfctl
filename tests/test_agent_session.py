@@ -397,6 +397,19 @@ def test_empty_session_id_is_absent_not_an_identity(agent_dir: Path) -> None:
         assert _session.session_open_for(agent_dir, blank) == "unknown"
 
 
+def test_a_padded_nonblank_identity_is_kept_verbatim() -> None:
+    """Trimming a nonblank id would make it collide with its unpadded twin.
+
+    Only whitespace-only input collapses to absent
+    (`test_empty_session_id_is_absent_not_an_identity`). A caller that presents
+    `" conversation-1 "` is presenting a different opaque value from
+    `"conversation-1"`, and `identity` never parses or reshapes what it is
+    handed (`session-identity-comes-from-the-caller`) — trimming it would be a
+    transformation equality-only comparison does not allow.
+    """
+    assert _session.identity(" conversation-1 ") == " conversation-1 "
+
+
 def test_a_blank_identity_on_a_start_line_leaves_the_holder_absent(
     agent_dir: Path,
 ) -> None:

@@ -94,7 +94,7 @@ def identity(presented: str | None) -> str | None:
     """
     if presented is None:
         return None
-    return presented.strip() or None
+    return presented if presented.strip() else None
 
 
 def _holder_since_last_boundary(
