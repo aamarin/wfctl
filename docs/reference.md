@@ -784,8 +784,12 @@ wfctl arch check <path-to-record>                        # will a reviewer actua
 
 **`arch none --reason "<why>"`** declares that a change deliberately draws no
 new architectural boundary — written to
-`docs/architecture/declarations/<branch>.md`, inside the change under review, so
-a reviewer sees the claim rather than trusting an unwritten one. wfctl checks
+`<arch-root>/declarations/<branch>.md` (`docs/architecture/declarations/` by
+default; see [`arch-root`](#the-architectural-contract-arch-root-arch-context)
+if the repo points it elsewhere), inside the change under review, so a
+reviewer sees the claim rather than trusting an unwritten one. If `arch-root`
+resolves outside the working tree, the declaration lands outside the reviewed
+change too — `arch none` warns when that happens, since no reviewer would see it. wfctl checks
 only that the reason isn't empty and isn't a placeholder; whether a change
 really draws no boundary has no objective test, so this is a claim a reviewer
 can disagree with, not a proof.

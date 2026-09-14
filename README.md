@@ -96,8 +96,9 @@ lay files into your repo: **[docs/reference.md](docs/reference.md)**.
 | `change` | List/view/check code changes (PRs, patchsets) via the tracker's `changes` backend |
 | `arch context` | Print the in-force architectural contract |
 
-Full command reference, including `notify`/`blocked`, the `arch` lifecycle, and
-every flag: **[docs/reference.md#commands](docs/reference.md#commands)**.
+Full command reference, including `notify`/`blocked` and the `arch` lifecycle:
+**[docs/reference.md#commands](docs/reference.md#commands)**. That table
+summarizes each command; run `wfctl <command> --help` for its flags.
 
 ## Development
 
