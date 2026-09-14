@@ -129,8 +129,13 @@ def test_the_help_text_connects_the_status_line_to_the_flag(
     assert "--allow-notify" in help_text
     assert "--deny-notify" in help_text
     # Collapsed, because the description is wrapped into a panel column and the
-    # break lands wherever the terminal width puts it.
-    assert "notify people outside" in " ".join(help_text.split())
+    # break lands wherever the terminal width puts it. The panel's own borders
+    # come out too: collapsing whitespace alone leaves `people │ │ outside`, so
+    # the phrase is absent whenever the wrap happens to fall inside it. It did
+    # not until `--session-id` introduced a metavar column and narrowed the
+    # description by four characters — which is a rendering change and not a
+    # help text that stopped saying this.
+    assert "notify people outside" in " ".join(help_text.replace("│", " ").split())
 
 
 def test_a_granted_run_records_each_notifying_action_it_took(

@@ -16,6 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import CLEAN_SPEC
+from wfctl import _session
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -221,3 +222,151 @@ def test_end_writes_the_summary_once(agent_dir: Path) -> None:
     _run("end")
 
     assert (agent_dir / "session-summary.md").read_text() == original
+
+
+# ─── Who holds the branch, and whether that is you ───────────────────────────
+
+def _log(agent_dir: Path, *events: dict) -> None:
+    (agent_dir / "events.jsonl").write_text(
+        "".join(json.dumps(e) + "\n" for e in events)
+    )
+
+
+def test_last_session_id_reads_the_most_recent_start(agent_dir: Path) -> None:
+    """`session_started` reads the first `start`; this has to read the last.
+
+    A takeover appends a `start` line rather than rewriting one, so a reader that
+    stopped at the first match would report the conversation that opened the
+    branch as holding it forever — which is #200's own defect, reintroduced one
+    function over.
+    """
+    _log(
+        agent_dir,
+        {"event": "start", "session_id": "first"},
+        {"event": "resume"},
+        {"event": "start", "session_id": "second"},
+    )
+    assert _session.last_session_id(agent_dir) == "second"
+
+
+def test_a_start_line_carrying_no_identity_leaves_the_holder_absent(
+    agent_dir: Path,
+) -> None:
+    """Every branch recorded before this feature looks like this.
+
+    The holder has to come back absent rather than as some earlier line's value,
+    or a takeover would be refused on exactly the branches FR-012 exists for.
+    """
+    _log(
+        agent_dir,
+        {"event": "start", "session_id": "was-here"},
+        {"event": "start"},
+    )
+    assert _session.last_session_id(agent_dir) is None
+
+
+def test_last_session_id_skips_a_line_that_is_not_an_object(
+    agent_dir: Path,
+) -> None:
+    """`json.loads` succeeds on `3`, `null` and `[]`, and none of them has `.get`.
+
+    `session_started` has no such guard and would raise; this reader is on the
+    path of every gate, so an unguarded line here refuses the whole branch.
+    """
+    (agent_dir / "events.jsonl").write_text(
+        '3\nnull\n[]\nnot json at all\n{"event": "start", "session_id": "held"}\n'
+    )
+    assert _session.last_session_id(agent_dir) == "held"
+
+
+def test_session_open_for_returns_unknown_when_no_id_presented(
+    agent_dir: Path,
+) -> None:
+    """FR-006 in one call: an unwired caller gets the answer that changes nothing.
+
+    `"unknown"` and not `"other"` — the gates refuse on `"other"`, so returning
+    it here would refuse every repository that never set `WFCTL_SESSION_ID`.
+    """
+    _log(agent_dir, {"event": "start", "session_id": "someone"})
+    assert _session.session_open_for(agent_dir, None) == "unknown"
+
+
+@pytest.mark.parametrize(
+    "holder, presented, expected",
+    [
+        (None, "anyone", "none"),
+        ("me", "me", "self"),
+        ("me", "you", "other"),
+        ("absent", None, "unknown"),
+    ],
+    ids=["never-started", "caller-holds-it", "another-holds-it", "caller-unwired"],
+)
+def test_the_holder_relation_covers_every_state_the_contract_names(
+    agent_dir: Path, holder: str | None, presented: str | None, expected: str
+) -> None:
+    """The four rows of contracts/cli.md § `wfctl status --json`, as one table.
+
+    Written as a parametrised case rather than four functions because the states
+    are exclusive and a fifth answer appearing is the failure — which is only
+    visible when they are asserted against one another.
+    """
+    if holder is not None:
+        _log(agent_dir, {"event": "start", "session_id": holder})
+    assert _session.session_open_for(agent_dir, presented) == expected
+
+
+def test_a_branch_with_no_start_event_is_none_rather_than_unknown(
+    agent_dir: Path,
+) -> None:
+    """Both leave `session_open` false; only one of them names a remedy.
+
+    A caller that presented nothing on a branch that never had a session is in
+    both rows of the contract's table. `"none"` is asked first because it is the
+    answer that tells the reader to run `/start-session`.
+    """
+    assert _session.session_open_for(agent_dir, None) == "none"
+
+
+def test_empty_session_id_is_absent_not_an_identity(agent_dir: Path) -> None:
+    """`${WFCTL_SESSION_ID:+…}` already collapses unset and empty.
+
+    The shipped skill passes the identity through that expansion, so a caller
+    with the variable set to `""` omits the flag entirely while one that spells
+    `--session-id ""` does not. Both did the same thing and must get the same
+    answer, or the behaviour depends on which shell form ran.
+    """
+    _log(agent_dir, {"event": "start", "session_id": "held"})
+    for blank in ("", "   ", "\t\n"):
+        assert _session.identity(blank) is None
+        assert _session.session_open_for(agent_dir, blank) == "unknown"
+
+
+def test_a_blank_identity_on_a_start_line_leaves_the_holder_absent(
+    agent_dir: Path,
+) -> None:
+    """The same rule applied at the other end, where a blank could be written.
+
+    Stripping only on the way in would let `--session-id "  "` record a holder
+    that no later caller can ever match, wedging the branch for everyone.
+    """
+    _log(agent_dir, {"event": "start", "session_id": "   "})
+    assert _session.last_session_id(agent_dir) is None
+    assert _session.session_open_for(agent_dir, "anyone") == "unknown"
+
+
+def test_the_identity_adds_no_file_to_the_state_dir(agent_dir: Path) -> None:
+    """FR-010 forbids a separate file, and every other test here would pass one.
+
+    The rejected alternative in
+    `docs/architecture/design/200-session-id-rides-on-the-start-event.md` is a
+    `session.json` beside `notify.json` — fifteen lines, and the shape a reader
+    reaches for first. Nothing else asserted the negative, so adding it later
+    would go green: the holder relation would still be right, and only the crash
+    behaviour the record rejected it for would differ.
+    """
+    before = sorted(p.name for p in agent_dir.iterdir())
+    runner.invoke(app, ["start", "--session-id", "first"])
+    runner.invoke(app, ["start", "--session-id", "second"])
+    after = sorted(p.name for p in agent_dir.iterdir())
+
+    assert set(after) - set(before) == {"events.jsonl"}

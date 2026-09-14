@@ -64,6 +64,88 @@ def session_started(agent_dir: Path) -> bool:
     return False
 
 
+def identity(presented: str | None) -> str | None:
+    """The caller's identity, or None when it presented none.
+
+    Empty and whitespace-only read as absent rather than as an identity, because
+    the shipped skill passes the value through
+    `${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}`, which already
+    collapses unset and empty into "the flag is not there". A reader that treated
+    `""` as an identity would answer differently depending on which of the two
+    the shell happened to produce, for a caller that did the same thing both
+    times.
+
+    The one transformation wfctl performs on the value. Equality is the only
+    other operation — never a parse, a split or a pattern
+    (`session-identity-comes-from-the-caller`).
+    """
+    if presented is None:
+        return None
+    return presented.strip() or None
+
+
+def last_session_id(agent_dir: Path) -> str | None:
+    """Who holds the branch: the identity on the most recent `start`, or None.
+
+    The *last* start line, where `session_started` reads the first. The two ask
+    different questions of the same lines — has a session ever run here, versus
+    who is in it now — and the append-only log answers both without either
+    rewriting anything. A takeover is a new `start` line, so the holder moves by
+    the same mechanism that records the session opening.
+
+    None covers two cases that are one fact: no `start` line at all, and a line
+    that carries no `session_id`. Both mean nobody identified is holding the
+    branch, which is what FR-012 lets the first identified caller take over.
+
+    Malformed lines are skipped, matching `session_started`. `isinstance` guards
+    what that reader does not: `null`, `3` and `[]` all parse successfully and
+    have no `.get`, and this reader is on the path of every gate.
+    """
+    events = agent_dir / "events.jsonl"
+    if not events.exists():
+        return None
+    holder = None
+    for line in events.read_text().splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("event") == "start":
+            value = data.get("session_id")
+            holder = identity(value) if isinstance(value, str) else None
+    return holder
+
+
+def session_open_for(agent_dir: Path, presented: str | None) -> str:
+    """Who holds this branch, relative to the caller: the holder relation.
+
+    One of `"none"`, `"self"`, `"other"`, `"unknown"` — the four states
+    `data-model.md` draws, named as a fact about *whether it is you* rather than
+    as the identity itself, which `status` never prints.
+
+    `"none"` is asked first and beats `"unknown"`. A branch that never had a
+    session and a caller that presented nothing both leave `session_open` false,
+    so the two agree on the answer and differ on what they can tell the reader —
+    and "no session here" is the one that names a remedy.
+
+    **A holder that is absent is `"unknown"`, not `"other"`.** Every branch
+    recorded before this feature has `start` lines carrying no identity, so
+    reading that as a holder the caller is not would refuse every one of them at
+    once. `data-model.md` puts holder-absent and identity-absent in the same
+    state D for exactly this reason: the released behaviour, plus the right for
+    the first identified caller to take over.
+    """
+    if not session_started(agent_dir):
+        return "none"
+    caller = identity(presented)
+    if caller is None:
+        return "unknown"
+    holder = last_session_id(agent_dir)
+    if holder is None:
+        return "unknown"
+    return "self" if holder == caller else "other"
+
+
 def auto_approve(agent_dir: Path) -> bool:
     """Whether this feature's design gates may be answered without a human.
 

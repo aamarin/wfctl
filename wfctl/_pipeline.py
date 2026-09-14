@@ -394,6 +394,22 @@ class PipelineReport:
     # decision from a failed read (FR-015).
     notify: bool = False
     notify_source: str = "unset"
+    # The second session question, beside the first rather than replacing it.
+    # `session_started` answers "has a session ever run here" and six skills read
+    # it; this answers "is one open for the caller asking" (#200). They are
+    # different questions of the same log — the first `start` line against the
+    # last — and collapsing them is the defect, not the fix.
+    #
+    # `session_holder` is not decoration on the boolean, for `notify_source`'s
+    # reason one field up: `False` covers a branch that never had a session and
+    # one another conversation is holding, and those need different refusals
+    # (FR-007). It never carries the identity itself — only whether it is yours.
+    #
+    # Defaulted so every existing construction keeps compiling. `"unknown"` with
+    # `session_open` mirroring `session_started` is the unwired answer, which is
+    # what makes the default the released behaviour rather than a refusal.
+    session_open: bool = False
+    session_holder: str = "unknown"
     # The four questions that decide whether the branch is ready, each read from
     # its own owner (`readiness-is-not-a-step-state`). Beside `steps` and never
     # inside them: three of the four are facts about the branch, so a field on a
@@ -462,14 +478,26 @@ def _corrected_grant(
     return granted, source
 
 
-def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> PipelineReport:
-    """The one inference. Every view of pipeline state is a rendering of this."""
+def build_report(
+    spec_dir: Path | None,
+    repo_root: Path,
+    agent_dir: Path,
+    session_id: str | None = None,
+) -> PipelineReport:
+    """The one inference. Every view of pipeline state is a rendering of this.
+
+    `session_id` defaults to None so every existing caller keeps compiling and
+    keeps its answer. That default is not a placeholder for a value wfctl could
+    work out: the caller owns the identity and wfctl cannot derive it
+    (`session-identity-comes-from-the-caller`), so "nothing was presented" is the
+    honest input and `"unknown"` is the honest output.
+    """
     # Aliased: the report field and the reader are the same word, and
     # `auto_approve=auto_approve(agent_dir)` two lines down reads as a
     # self-reference rather than a call.
     from wfctl._session import auto_approve as read_auto_approve
     from wfctl._paths import resolve_branch
-    from wfctl._session import resolved_notify, session_started
+    from wfctl._session import resolved_notify, session_open_for, session_started
 
     branch = resolve_branch(repo_root)
     # The branch decides which recorded resolution counts. A state dir shared
@@ -477,6 +505,15 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # whose it was is how one feature's grant answered for another.
     notify = resolved_notify(agent_dir, branch)
     granted, source = _corrected_grant(notify.granted, notify.source, repo_root, branch)
+
+    # Both session answers from one pair of reads, so the two cannot disagree
+    # about the same log. `session_open` mirrors `session_started` under
+    # `"unknown"` — the unwired row of contracts/cli.md — which is what makes a
+    # caller that presents nothing see the released answer rather than a refusal
+    # (FR-006). Under `"none"` the mirror is false anyway, so the one expression
+    # covers both rows that mean "not open".
+    started = session_started(agent_dir)
+    holder = session_open_for(agent_dir, session_id)
 
     # One read, two consumers. The step predicates and the artifacts fact ask the
     # same three files, and two reads of them can disagree while an implementing
@@ -521,7 +558,9 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
         current=name if command else None,
         next_command=command or None,
         auto=auto if command else None,
-        session_started=session_started(agent_dir),
+        session_started=started,
+        session_open=holder == "self" or (holder == "unknown" and started),
+        session_holder=holder,
         auto_approve=read_auto_approve(agent_dir),
         # Read back rather than resolved here. `start` asks the tracker once and
         # records the answer; doing it in this function would put a network

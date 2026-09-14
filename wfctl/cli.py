@@ -216,6 +216,36 @@ def _notify_line(source: str, issue: str | None) -> str:
     return _NOTIFY_LINES.get(source, _NOTIFY_LINES["unset"])
 
 
+def _caller_identity() -> str | None:
+    """The calling conversation's identity, for the commands that only read it.
+
+    `start` takes `--session-id` because it is the command that *records* one,
+    and a person may want to type it. `status`, `resume` and `end` only ever
+    compare, and contracts/cli.md gives them no flag — so the environment is
+    their whole channel, which is also the one the shipped skill uses.
+
+    Read here rather than in `build_report` so the identity enters the pipeline
+    the same way on every path: as an argument the caller supplies. wfctl reading
+    its own environment *inside* the inference would be one step from deriving
+    the value, which `session-identity-comes-from-the-caller` forbids.
+    """
+    from wfctl._session import identity
+
+    return identity(os.environ.get("WFCTL_SESSION_ID"))
+
+
+def _identity_kwarg(caller: str | None) -> dict[str, str]:
+    """The `session_id` key for a `start` event, or nothing at all.
+
+    Omitted rather than written as `null` when no identity was presented
+    (`data-model.md` § Start event). A reader cannot tell "this session had no
+    identity" from "this line predates the feature", and does not need to — they
+    are the same fact, so one representation serves both and the log gains no
+    key that means nothing.
+    """
+    return {"session_id": caller} if caller is not None else {}
+
+
 @app.command("start")
 def start_cmd(
     force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded"),
@@ -246,6 +276,14 @@ def start_cmd(
              "otherwise allow it. Merging, closing and deleting are never "
              "covered by either.",
     ),
+    session_id: str | None = typer.Option(
+        None, "--session-id", envvar="WFCTL_SESSION_ID",
+        help="Opaque identity for the calling conversation. Recorded verbatim "
+             "and never parsed; wfctl compares it and nothing else. Presenting "
+             "an identity a branch does not already hold takes the branch over. "
+             "Omit it and every gate behaves exactly as it did before this "
+             "existed.",
+    ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
@@ -253,11 +291,17 @@ def start_cmd(
     from wfctl._session import (
         grant_auto_approve,
         grant_notify,
+        identity,
         notify_grant,
         record_notify_resolved,
     )
 
     agent_dir, repo_root, branch, issue = _resolve_context()
+    # Resolved once, here, and passed down. The environment fallback lives on the
+    # option rather than at each read, so a caller that exports the variable and
+    # a caller that types the flag reach every branch below by the same path —
+    # and there is one place where blank becomes absent rather than one per use.
+    caller = identity(session_id)
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir)
 
@@ -327,7 +371,7 @@ def start_cmd(
         return
 
     step = report.current or "complete"
-    append_event(agent_dir, "start", branch=branch, step=step)
+    append_event(agent_dir, "start", branch=branch, step=step, **_identity_kwarg(caller))
     report_notify()
     console.print(
         f"[green]✓[/green] Session started — step: {step}, "
@@ -408,7 +452,7 @@ def status_cmd(
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir)
+    report = build_report(spec_dir, repo_root, agent_dir, _caller_identity())
 
     # Read back, not corrected here. The trunk answer used to be composed at this
     # call site, which made the console the only place the corrected grant
@@ -433,6 +477,14 @@ def status_cmd(
             # *whose* tasks.md said so, which is how #120 stayed quiet.
             "spec_dir": str(spec_dir) if spec_dir is not None else None,
             "session_started": report.session_started,
+            # Beside `session_started`, never instead of it. A reader that knows
+            # only the old key sees no change in any row of contracts/cli.md,
+            # which is the whole of SC-006 and why the field was not repurposed.
+            # Both always present, for `notify`'s reason: a consumer cannot tell
+            # an absent key from a false one, or from a wfctl too old to know the
+            # question.
+            "session_open": report.session_open,
+            "session_holder": report.session_holder,
             "current": report.current,
             "next_command": report.next_command,
             "auto": report.auto,
