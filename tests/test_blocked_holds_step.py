@@ -170,6 +170,22 @@ def test_the_remedy_names_the_host_and_the_clearing_command(
     assert "wfctl blocked issue-comment --clear" in held["remedy"]
 
 
+def test_the_remedy_shell_quotes_a_multi_word_action(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`action` is accepted as free text (`wfctl blocked "issue comment"
+    --reason refused` is a legal call), so the printed remedy must be too —
+    an unquoted copy-paste either fails Typer's parsing or, for a value
+    carrying shell metacharacters, runs something other than the clear it was
+    meant to."""
+    storyctl_dir.stage_upstream_of("tasks")
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "issue comment", "refused", "decompose",
+    )
+    held = next(s for s in _payload()["steps"] if s["name"] == "decompose")
+    assert "wfctl blocked 'issue comment' --clear" in held["remedy"]
+
+
 def test_a_later_success_for_the_same_action_releases_the_hold(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

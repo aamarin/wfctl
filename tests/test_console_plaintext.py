@@ -68,7 +68,10 @@ def test_a_held_steps_remedy_reaches_the_console_escaped(
     is agent-supplied free text, the same kind of external string a record
     slug or an arch-root path is, so a `[` in it must reach the screen
     literally rather than be read as a rich style tag that swallows the rest
-    of the line.
+    of the line. The action is also `shlex.quote`d into the printed command
+    for a second, unrelated reason — the same `[` makes it unsafe to paste into
+    a shell unquoted — so the two together put the action inside `'…'` and
+    still visible, not swallowed.
     """
     storyctl_dir.stage_upstream_of("tasks")
     record_blocked(
@@ -80,4 +83,4 @@ def test_a_held_steps_remedy_reaches_the_console_escaped(
 
     assert "Your host refused this, not wfctl" in out
     assert "re-running decompose will be refused again." in out
-    assert "wfctl blocked issue-comment[urgent] --clear" in out
+    assert "wfctl blocked 'issue-comment[urgent]' --clear" in out

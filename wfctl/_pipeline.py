@@ -16,6 +16,7 @@ one that does until someone runs it.
 """
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -278,16 +279,23 @@ def _block_remedy(step_name: str, action: str) -> str:
     holds. `wfctl blocked <action> --clear` rather than `wfctl notify` for the
     reason the level-3 record gives: `notify`'s release is unreachable from a
     run holding no grant, which is exactly the run that filed this block.
+
+    `action` is quoted with `shlex.quote` before it goes into the printed
+    command: it is free text (`wfctl blocked "issue comment" --reason ...`
+    is a legal call), and an unquoted multi-word or shell-metacharacter value
+    pasted verbatim either fails Typer's parsing or runs something other than
+    the clear it was meant to.
     """
     # Broken after the em-dash rather than left for `rich` to reflow, the same
     # rule `_IRREVERSIBLE_NOTICE` follows: an automatic wrap breaks at whatever
     # word the terminal width lands on, and `step_name` here is agent-supplied
     # (well, inference-supplied, but still variable-length) rather than a fixed
     # string the author could size for.
+    quoted_action = shlex.quote(action)
     return (
         "  Your host refused this, not wfctl —\n"
         f"  re-running {step_name} will be refused again.\n"
-        f"  Take the action yourself, then: wfctl blocked {action} --clear"
+        f"  Take the action yourself, then: wfctl blocked {quoted_action} --clear"
     )
 
 
