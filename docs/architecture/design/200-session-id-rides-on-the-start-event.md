@@ -25,13 +25,13 @@ die without running.
 
 - `wfctl/_session.py:41` — `session_started` returns `True` on the first line
   whose `event` is `"start"`, and no branch of it returns `False` afterwards.
-- `wfctl/cli.py:310` — `if report.session_started and not force:` is the path
+- `wfctl/cli.py:370` — `if report.session_started and not force:` is the path
   every session after a branch's first one takes.
-- `wfctl/cli.py:322-324` — on that path a `start` event is appended only when
-  `opens_a_new_sitting(agent_dir, branch)` is true.
+- `wfctl/cli.py:410-426` — on that path (past the takeover branch) a `start`
+  event is appended only when `opens_a_new_sitting(agent_dir, branch)` is true.
 - `wfctl/_stall.py:174-207` — `opens_a_new_sitting` returns true only when a
   `resume` event follows the last `start` or `end` for this branch.
-- `tests/test_agent_session.py:174` — `test_start_is_idempotent` asserts
+- `tests/test_agent_session.py:175` — `test_start_is_idempotent` asserts
   `events.jsonl` is byte-for-byte unchanged after a second `start`.
 - The state dir for this branch holds `events.jsonl`, `notify.json` and
   `session-summary.md`. There is no `session.json` and no `mode.json`.
@@ -75,7 +75,7 @@ the id on the most recent `start` event, and no `end` event follows it.
 
 The third append condition is the amendment this record exists to carry. Without
 it the store is correct and unreachable: a fresh conversation on a branch that
-has not yet run `resume` takes `cli.py:310`, finds `opens_a_new_sitting()` false
+has not yet run `resume` takes `cli.py:370`, finds `opens_a_new_sitting()` false
 because no `resume` has ever been written, and appends nothing — so the session
 that most needs a new id recorded records none.
 
@@ -160,6 +160,13 @@ open, and the fix is a host mapping rather than a wfctl change.
   skills read it.
 - On a branch whose log holds `start`/`end`/`start`, a command presenting the
   first id reports no open session.
+- `wfctl start` itself appends that second `start` line when the *same* caller
+  reopens a branch it just ended — `test_a_session_that_ended_can_start_again_
+  with_the_same_identity`. The takeover check has to compare the holder
+  *relation* (`report.session_holder`), not raw identity: `last_session_id`
+  does not know about an intervening `end`, so a caller re-presenting its own id
+  read as already holding the branch, took over nothing, and was then refused by
+  every later gate as `"other"` — locked out of the session it just reopened.
 
 ## Log
 

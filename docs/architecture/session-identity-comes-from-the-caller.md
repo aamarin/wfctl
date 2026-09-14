@@ -135,9 +135,12 @@ state, and for the same reason. What a gate then does with `unknown` is the
 gate's decision rather than this record's; what this record owes it is the
 ability to tell `unknown` apart from a refusal.
 
-`wfctl end` gains a reason to clear the recorded id beyond writing its event, so
-that a session wrapped up deliberately does not read as open to the conversation
-that follows it in the same process.
+`wfctl end` gains a reason to write its event beyond recording that it ran: a
+reader has to fold it into the holder relation, so that a session wrapped up
+deliberately does not read as open to the conversation that follows it in the
+same process. [[200-session-id-rides-on-the-start-event]] settles this by an
+`ended` flag over the append-only log rather than by clearing anything —
+consistent with this record's own `session_started` never rescinding once true.
 
 Codex was the worked case, and it arrived by the same route as the decision. The
 adversarial review that recommended this pattern named its own cost — "explicit
