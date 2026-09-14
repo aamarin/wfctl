@@ -209,10 +209,17 @@ def test_the_notice_says_no_setting_rather_than_a_missing_grant(
 ) -> None:
     """A reader hitting this line will otherwise go hunting for the flag that
     turns it on. Saying "nobody has allowed it" would send them looking for one
-    that does not exist, which is a worse outcome than saying nothing."""
-    assert "no setting for it" in _IRREVERSIBLE_NOTICE
+    that does not exist, which is a worse outcome than saying nothing.
+
+    The 72-character terminal-line budget that once bounded this string is
+    #364's FR-004 trade: naming all four actions in the class (merge,
+    force-push, close an issue, delete) costs the line its old single-line
+    length, and completeness won on the level-3 record's own argument — a
+    reader can lose a line to a wrap; they cannot recover an action the line
+    never named.
+    """
+    assert "no setting changes it" in _IRREVERSIBLE_NOTICE
     assert "allowed" not in _IRREVERSIBLE_NOTICE
-    assert len(_IRREVERSIBLE_NOTICE) <= 72
 
 
 def test_closing_an_issue_is_unaffected_by_a_grant_being_present(

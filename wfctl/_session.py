@@ -433,6 +433,120 @@ def record_notify_refused(agent_dir: Path, action: str, source: str) -> None:
     append_event(agent_dir, "notify-refused", action=action, source=source)
 
 
+class StandingBlock(NamedTuple):
+    """One action whose most recent event, for this branch, is a block that has
+    not since cleared (#364).
+
+    Not a raw event: `reason` and `step` are lifted out of it for
+    `_pipeline`'s hold to read without re-parsing `events.jsonl`.
+    """
+
+    action: str
+    reason: str
+    step: str | None
+
+
+def record_blocked(
+    agent_dir: Path, branch: str, action: str, reason: str, step: str | None,
+) -> None:
+    """Record that the agent's own host refused an outward action wfctl never
+    ran (FR-005, FR-006).
+
+    Written with no authority check — `wfctl blocked` never calls
+    `action_grant`, because a run blocked by its host is by construction a run
+    that may hold no grant. `step` is the step `build_report` found current at
+    call time; the agent supplies only the two facts it alone witnessed
+    (`action`, `reason`).
+
+    `branch` is stored the way `record_notify_resolved` stores it: a state dir
+    shared across worktrees holds every branch's events, so the write has to
+    say which branch it is about, not just which directory it landed in.
+    """
+    append_event(
+        agent_dir, "blocked", branch=branch, action=action, reason=reason, step=step
+    )
+
+
+def record_block_cleared(agent_dir: Path, branch: str, action: str) -> None:
+    """Record that a person took a blocked action themselves (FR-013).
+
+    No reason, no step: it asserts one fact — that this action is no longer
+    refused — and the step it releases is whatever the superseded block named.
+    """
+    append_event(agent_dir, "block-cleared", branch=branch, action=action)
+
+
+def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
+    """Every action whose latest event, for this branch, is a standing block
+    (FR-012, FR-020, FR-021).
+
+    Three event kinds share one action-keyed timeline: `blocked`,
+    `block-cleared`, and `notify-action` — the last one because a run that
+    retried and succeeded already writes it, and it is the release FR-020 wants
+    for free, with no clearing step of its own. Whichever of the three is most
+    recent for a given action decides that action's state; only `blocked`
+    leaves it standing.
+
+    Scoped to `branch` the way `resolved_notify`'s reader is: a shared state
+    dir holds every branch's events, and reading one branch's answer off
+    another's block is how one feature's hold would land on a different one.
+    An event with no `branch` field — `notify-action`, unchanged by this
+    feature (FR-019) — matches every branch, the same rule `_last_resolved`
+    already applies to a `notify-resolved` line written before this field
+    existed.
+
+    Malformed lines are skipped rather than raised, matching `_last_resolved`:
+    every command appends here, so a truncated final write must not crash the
+    reader that answers whether the pipeline may advance.
+
+    **Ordered by recency, oldest block first.** Two different actions can hold
+    the same step, and a caller that needs the truly latest one — `_apply_block_hold`
+    picks it with a last-write-wins dict comprehension — depends on this order
+    rather than on the order actions first appeared in the log.
+    """
+    events = agent_dir / "events.jsonl"
+    if not events.exists():
+        return []
+    # action -> (kind, reason, step) of its most recent qualifying event.
+    latest: dict[str, tuple[str, str | None, str | None]] = {}
+    for line in events.read_text().splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        kind = data.get("event")
+        if kind not in ("blocked", "block-cleared", "notify-action"):
+            continue
+        if data.get("branch") not in (None, branch):
+            continue
+        action = data.get("action")
+        if not isinstance(action, str):
+            continue
+        reason = data.get("reason") if kind == "blocked" else None
+        step = data.get("step") if kind == "blocked" else None
+        # `_apply_block_hold` keys a dict on `.step` — a malformed line whose
+        # `step` survived `json.loads` as a list or number would crash the
+        # reader that must not crash on a malformed line, same as `action`
+        # above.
+        if not isinstance(step, str):
+            step = None
+        # Re-inserted rather than updated in place: a dict preserves a key's
+        # original position across reassignment, so without the pop, iteration
+        # order would reflect which action was *first* seen rather than which
+        # was *most recently* blocked. Two actions holding the same step is
+        # exactly the case `_apply_block_hold`'s last-write-wins dict comprehension
+        # needs this order for — it must see the truly latest block last.
+        latest.pop(action, None)
+        latest[action] = (kind, reason, step)
+    return [
+        StandingBlock(action, reason, step)
+        for action, (kind, reason, step) in latest.items()
+        if kind == "blocked" and isinstance(reason, str)
+    ]
+
+
 # The two halves of the handoff's next-action section, named once. `end`
 # recognises an unfilled section by them and the template writes it from them,
 # so the two cannot drift apart into a warning that never fires.

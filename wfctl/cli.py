@@ -187,15 +187,41 @@ _NOTIFY_LINES = {
 }
 
 
-# Not keyed on the grant, because no grant value changes it. Merging, closing an
-# issue, force-pushing and deleting a branch reach history and work that is not
-# this agent's, and the classes record puts them on the row that is "always the
-# human. No switch, not configurable."
+# Not keyed on the grant, because no grant value changes it. Merging,
+# force-pushing, closing an issue and deleting a branch or worktree reach
+# history and work that is not this agent's, and the classes record puts them
+# on the row that is "always the human. No switch, not configurable." Named in
+# full (FR-004): the first wording covered two of the four and let a reader
+# infer the other two were narrower than they are.
 #
-# "there is no setting for it" is the load-bearing half. The line exists to end
-# the search it would otherwise start.
+# "no setting changes it" is the load-bearing half. The line exists to end the
+# search it would otherwise start.
+#
+# Naming all four pushes the sentence past one line, so it is authored as two —
+# split at the clause boundary, each half under the 72-character budget
+# `test_every_line_fits_on_one_terminal_line` pins for `_NOTIFY_LINES` — rather
+# than left as one string for `rich` to reflow. An automatic wrap breaks at
+# whatever word the terminal width lands on, and the second half read alone is
+# a fragment; an authored break always lands between "branch" and "or".
 _IRREVERSIBLE_NOTICE = (
-    "will never merge or delete — that is always yours, no setting for it"
+    "will never merge, force-push, close an issue, or delete a branch\n"
+    "or worktree — those are yours, and no setting changes it"
+)
+
+# FR-001, FR-002, FR-003. True in every grant state, so it is keyed on nothing —
+# printed unconditionally beside `_IRREVERSIBLE_NOTICE`, never behind
+# `_notify_line`'s branch on `source`.
+#
+# Names no command on purpose. An agent needs `wfctl blocked` mid-run, long
+# after it last read this block; naming it here would put the pointer in the
+# one place the reader is guaranteed not to be looking when it matters. The
+# instruction lives in the skills instead (FR-017).
+#
+# Authored as two lines for the same reason as `_IRREVERSIBLE_NOTICE` above —
+# the full sentence does not fit the single-line budget.
+_HOST_AUTHORITY_NOTICE = (
+    "the agent has permission rules of its own — wfctl can't see them\n"
+    "and says nothing about them"
 )
 
 
@@ -393,6 +419,107 @@ def notify_cmd(
     console.print(f"[green]✓[/green] recorded: {action}")
 
 
+@app.command("blocked")
+def blocked_cmd(
+    action: str = typer.Argument(
+        ..., help="What the host refused — 'issue-comment', 'issue-create', 'push'."
+    ),
+    reason: str = typer.Option(
+        None, "--reason", help="What the host said, quoted as given."
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="A person took the action; release the hold."
+    ),
+) -> None:
+    """Record that the agent's own host refused an outward action wfctl never ran.
+
+    Never calls `action_grant` (FR-006): a run blocked by its host is by
+    construction a run that may hold no grant, and this is the one command
+    whose whole reason to exist is answering for that run. `wfctl notify` is
+    unchanged — its gate stays closed on both its paths.
+
+    There is no spelling of this command that records a success (FR-009). The
+    narrow exception the level-2 record carves — the agent may report a
+    failure it alone witnessed, never a success — is a property of this
+    surface, not a sentence an agent has to have read: `--reason` files a
+    block, `--clear` releases one, and nothing here says "it worked".
+    """
+    from rich.markup import escape
+
+    from wfctl._pipeline import _STEP_NAMES, build_report
+    from wfctl._paths import resolve_spec_dir
+    from wfctl._session import record_block_cleared, record_blocked, standing_blocks
+
+    if reason and clear:
+        console.print("[red]✗ --reason and --clear are opposites — pass one[/red]")
+        raise typer.Exit(1)
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+
+    if clear:
+        # Checked before writing (FR-014): a mistyped action otherwise reads a
+        # clean exit as a release that never happened.
+        standing = {b.action: b for b in standing_blocks(agent_dir, branch)}
+        block = standing.get(action)
+        if block is None:
+            console.print(f"ℹ no block standing for {escape(action)} — nothing to clear")
+            return
+        record_block_cleared(agent_dir, branch, action)
+        if block.step:
+            console.print(
+                f"[green]✓[/green] cleared: {escape(action)} — "
+                f"`{block.step}` reads from its own artifacts again"
+            )
+        else:
+            console.print(f"[green]✓[/green] cleared: {escape(action)}")
+        return
+
+    if not reason:
+        console.print(
+            "[red]✗ --reason is required — a block with no reason holds a "
+            "step and says nothing[/red]"
+        )
+        raise typer.Exit(1)
+
+    # The step comes from inference at call time, never from the caller
+    # (FR-010): the agent supplies the two facts it alone witnessed — `action`
+    # and `reason` — and does not get to say which step is held.
+    #
+    # `spec_dir is None` is checked directly rather than trusting
+    # `report.current` on a report built from it (FR-008): with no spec dir,
+    # `build_report` still names "brainstorm" current — correct for a feature
+    # branch that has not started yet, wrong for a branch that names no
+    # feature at all, which is what this branch is here.
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    # `report.current` is `None` for two different reasons: no feature claims
+    # this branch (`spec_dir is None`, handled above), or every step reads
+    # `done`/`skipped` and the pipeline is `"complete"` — `next_step_content`
+    # has no command for that sentinel, so `build_report` reports no current
+    # step at all. A block filed in the second case (the end-session worked
+    # example: `wfctl blocked issue-close` after implementation and
+    # verification are both finished) still has to hold something, or the
+    # promised "the next session reads it as unfinished rather than done"
+    # never happens — so it falls back to the pipeline's last named step,
+    # which `_apply_block_hold` then reopens as `in_progress`.
+    step = None
+    if spec_dir is not None:
+        step = build_report(spec_dir, repo_root, agent_dir).current or _STEP_NAMES[-1]
+    record_blocked(agent_dir, branch, action, reason, step)
+
+    if step:
+        console.print(
+            f"[green]✓[/green] recorded: {escape(action)} blocked — holding `{step}`"
+        )
+        console.print(
+            "  Your host refused this, not wfctl. Re-running the step will be "
+            "refused again."
+        )
+    else:
+        console.print(
+            f"[green]✓[/green] recorded: {escape(action)} blocked — no step is being held"
+        )
+
+
 @app.command("status")
 def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
@@ -476,6 +603,10 @@ def status_cmd(
     # go looking for the flag that widens it further. There is none, and the line
     # says so rather than leaving the search to end in a wrong guess.
     console.print(_IRREVERSIBLE_NOTICE)
+    # FR-001, FR-002. Unconditional like the line above it, and for the same
+    # reason: a reader who has just been told what this agent may and may never
+    # do is owed the fact that a second, unrelated authority also governs it.
+    console.print(_HOST_AUTHORITY_NOTICE)
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it
@@ -583,16 +714,29 @@ def next_cmd() -> None:
     from wfctl._pipeline import (
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
+        _apply_block_hold,
         _current_step_name,
         _infer_steps,
         next_step_content,
         next_step_file,
     )
+    from wfctl._predicates import build_evidence
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
-    steps = _infer_steps(spec_dir, repo_root)
+    # Built once and threaded into `_infer_steps` rather than left for it to
+    # build internally: `next_step_content` below needs `ev.tasks_open` too,
+    # and a second `build_evidence` call here would be the same duplicate read
+    # this function's own comment two lines down warns against.
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    steps = _infer_steps(spec_dir, repo_root, ev)
+    # Same hold `build_report` applies for `status`/`resume` (FR-010, FR-011):
+    # without it, a step a host block is holding reads here as whatever its own
+    # artifacts say, and this is the file an agent actually acts on — `status`
+    # showing the hold while `next` sends the agent to re-run the refused step
+    # is the disagreement FR-016's asymmetry depends on not existing.
+    steps = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
@@ -612,7 +756,7 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, blocked)
+    command, auto = next_step_content(step_name, blocked, tasks_open=bool(ev and ev.tasks_open))
 
     next_step_md = agent_dir / "next-step.md"
     if command:

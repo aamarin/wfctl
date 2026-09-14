@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 description: Execute the implementation plan by processing and executing all tasks defined in tasks.md
-allowed-tools: Read Glob Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*)
+allowed-tools: Read Glob Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl blocked*)
 ---
 
 ## User Input
@@ -30,4 +30,28 @@ record read after the code exists describes whatever got built.
 job; reading it is what keeps a task's implementation faithful to the shape that
 was chosen. Do not add work because a record mentions it and `tasks.md` does not
 — that is a finding for `/speckit.analyze`, not a licence to widen the change.
+
+## Report a host refusal, whichever task hits it
+
+Here rather than in `speckit-implement/SKILL.md` (#364): that file is
+spec-kit-derived, and an in-place edit is reverted by the next upstream pull
+with no conflict to notice — the same reason `reading-design-records` above
+lives in this wrapper rather than there.
+
+A task that closes an issue, comments, pushes, or opens a PR can be refused by
+your own host — Claude Code's auto-mode classifier and its equivalents on
+other hosts — before wfctl's own process ever starts. wfctl records nothing in
+that case, because there is nothing for it to see: no exit code, no stderr, no
+invocation. Report it yourself:
+
+```bash
+wfctl blocked <action> --reason "<what your host said>"
+```
+
+`<action>` is a short name for what was refused — `issue-close`, `issue-comment`,
+`push`. No grant required: this is the one command wfctl never gates, because
+a run refused by its host is by construction a run that may hold none. It
+holds the step this task belonged to, so `implement` reports unfinished
+rather than done with a write nobody made — and a person releases it with
+`wfctl blocked <action> --clear` once they have taken the action themselves.
 

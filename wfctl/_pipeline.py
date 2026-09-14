@@ -16,6 +16,7 @@ one that does until someone runs it.
 """
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -269,6 +270,74 @@ def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:
     return DESIGN_BLOCK_HELP.format(location=arch_location(arch_root(repo_root), repo_root))
 
 
+def _block_remedy(step_name: str, action: str) -> str:
+    """FR-015: the block came from the agent's host, not from wfctl; re-running
+    will be refused again; a person takes the action and then records it.
+
+    Named by `action`, not by `step_name` — the clearing command matches the
+    string the block was filed under, which need not read like the step it
+    holds. `wfctl blocked <action> --clear` rather than `wfctl notify` for the
+    reason the level-3 record gives: `notify`'s release is unreachable from a
+    run holding no grant, which is exactly the run that filed this block.
+
+    `action` is quoted with `shlex.quote` before it goes into the printed
+    command: it is free text (`wfctl blocked "issue comment" --reason ...`
+    is a legal call), and an unquoted multi-word or shell-metacharacter value
+    pasted verbatim either fails Typer's parsing or runs something other than
+    the clear it was meant to.
+    """
+    # Broken after the em-dash rather than left for `rich` to reflow, the same
+    # rule `_IRREVERSIBLE_NOTICE` follows: an automatic wrap breaks at whatever
+    # word the terminal width lands on, and `step_name` here is agent-supplied
+    # (well, inference-supplied, but still variable-length) rather than a fixed
+    # string the author could size for.
+    quoted_action = shlex.quote(action)
+    return (
+        "  Your host refused this, not wfctl —\n"
+        f"  re-running {step_name} will be refused again.\n"
+        f"  Take the action yourself, then: wfctl blocked {quoted_action} --clear"
+    )
+
+
+def _apply_block_hold(
+    steps: list[_PipelineStep], agent_dir: Path, branch: str
+) -> list[_PipelineStep]:
+    """Override a step's own reading with a host block reported against it
+    (FR-010, FR-011).
+
+    Applied once here, after `_infer_steps` has already produced every step's
+    own reading — never spliced into that loop, which sets `cascade = True` on
+    the first `pending` step and forces every step after it `pending` too. A
+    hold injected there would cascade the same way past a step that is
+    legitimately `done`, which is not what a held step means: the pipeline
+    stopped at exactly the one step the block named, not at every step after
+    it (`test_holding_a_done_step_does_not_cascade_the_steps_after_it`).
+
+    Reads `standing_blocks` once rather than re-deriving the same answer per
+    step — the same one-read argument `build_report` already makes for
+    `verification_block` two lines above this call: a second read of the same
+    log while an agent is writing to it is a window this file was built to
+    close, not to reopen for a second question.
+
+    The dict comprehension below is last-write-wins on purpose: two different
+    actions can hold the same step, and `standing_blocks` returns them oldest
+    first, so the one that lands in `by_step` is the most recently filed —
+    the answer a report should give when asked which block currently applies.
+    """
+    from wfctl._session import standing_blocks
+
+    by_step = {b.step: b for b in standing_blocks(agent_dir, branch) if b.step is not None}
+    for step in steps:
+        block = by_step.get(step.name)
+        if block is None:
+            continue
+        step.state = "in_progress"
+        step.reason = block.reason
+        step.annotation = f"blocked: host refused {block.action}"
+        step.remedy = _block_remedy(step.name, block.action)
+    return steps
+
+
 def _current_step_name(steps: list[_PipelineStep]) -> str:
     """Return the first step that still blocks; 'complete' if none does.
 
@@ -314,7 +383,9 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
     return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
-def next_step_content(step: str, blocked: str | None = None) -> tuple[str, bool]:
+def next_step_content(
+    step: str, blocked: str | None = None, *, tasks_open: bool = False
+) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
     An undefined step yields ("", False) rather than raising: `_current_step_name`
@@ -339,16 +410,25 @@ def next_step_content(step: str, blocked: str | None = None) -> tuple[str, bool]
     (#283): automatic in the table, and blocked whenever its boundary question is
     unanswered.
 
-    A blocked `implement` routes to `wfctl verify` rather than
-    `/speckit.implement`, because re-running implement there does nothing — every
-    task is already ticked and the verdict is what is missing. Tasks still open
-    route to the step command as before: the work itself is what remains.
+    A blocked `implement` with no tasks left open routes to `wfctl verify` rather
+    than `/speckit.implement`, because re-running implement there does nothing —
+    every task is already ticked and the verdict is what is missing. `tasks_open`
+    is what tells the two apart: a host block filed mid-implementation (#364)
+    holds `implement` the same way a failed verification does, but re-running
+    implement is exactly what a mid-task block needs, not `wfctl verify` against
+    an unfinished tree. The caller passes it rather than this function reading
+    `tasks.md` itself, for the same reason `blocked` is passed rather than
+    recomputed — one read of the evidence, held by the caller already.
     """
     if blocked and step in _STEPS:
-        # `implement` routes to what produces its evidence; every other blocked
-        # step routes to itself, because re-entering it is where its answers get
-        # given. The flag is what changes, not usually the destination.
-        return ("wfctl verify" if step == "implement" else _STEPS[step].command), False
+        # `implement` routes to what produces its evidence, unless tasks are
+        # still open — then re-entering implement is where the work is. Every
+        # other blocked step routes to itself, because re-entering it is where
+        # its answers get given. The flag is what changes, not usually the
+        # destination.
+        if step == "implement" and not tasks_open:
+            return "wfctl verify", False
+        return _STEPS[step].command, False
     row = _STEPS.get(step)
     return (row.command, row.continuation == _AUTOMATIC) if row else ("", False)
 
@@ -484,6 +564,10 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # blocked reason, met again by a field added beside it.
     ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
     raw = _infer_steps(spec_dir, repo_root, ev)
+    # After `_infer_steps` returns, never inside its loop — see
+    # `_apply_block_hold`'s own docstring for why splicing it into the loop
+    # would cascade a hold past every step legitimately `done` after it.
+    raw = _apply_block_hold(raw, agent_dir, branch)
     # One read, whether or not a feature directory resolved. `Evidence` carries
     # it when there is one; with none there is no evidence to carry it and the
     # fact's owner is asked directly. Either way it is asked once — two calls per
@@ -496,7 +580,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # loads a record and shells out to git, and `status` runs on every session
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
-    command, auto = next_step_content(name, blocked)
+    command, auto = next_step_content(name, blocked, tasks_open=bool(ev and ev.tasks_open))
     digest_now = None if ev is None else _stall.digest(ev)
     return PipelineReport(
         steps=[
