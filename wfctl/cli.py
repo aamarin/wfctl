@@ -419,6 +419,91 @@ def notify_cmd(
     console.print(f"[green]✓[/green] recorded: {action}")
 
 
+@app.command("blocked")
+def blocked_cmd(
+    action: str = typer.Argument(
+        ..., help="What the host refused — 'issue-comment', 'issue-create', 'push'."
+    ),
+    reason: str = typer.Option(
+        None, "--reason", help="What the host said, quoted as given."
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="A person took the action; release the hold."
+    ),
+) -> None:
+    """Record that the agent's own host refused an outward action wfctl never ran.
+
+    Never calls `action_grant` (FR-006): a run blocked by its host is by
+    construction a run that may hold no grant, and this is the one command
+    whose whole reason to exist is answering for that run. `wfctl notify` is
+    unchanged — its gate stays closed on both its paths.
+
+    There is no spelling of this command that records a success (FR-009). The
+    narrow exception the level-2 record carves — the agent may report a
+    failure it alone witnessed, never a success — is a property of this
+    surface, not a sentence an agent has to have read: `--reason` files a
+    block, `--clear` releases one, and nothing here says "it worked".
+    """
+    from wfctl._pipeline import build_report
+    from wfctl._paths import resolve_spec_dir
+    from wfctl._session import record_block_cleared, record_blocked, standing_blocks
+
+    if reason and clear:
+        console.print("[red]✗ --reason and --clear are opposites — pass one[/red]")
+        raise typer.Exit(1)
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+
+    if clear:
+        # Checked before writing (FR-014): a mistyped action otherwise reads a
+        # clean exit as a release that never happened.
+        standing = {b.action: b for b in standing_blocks(agent_dir, branch)}
+        block = standing.get(action)
+        if block is None:
+            console.print(f"ℹ no block standing for {action} — nothing to clear")
+            return
+        record_block_cleared(agent_dir, branch, action)
+        if block.step:
+            console.print(
+                f"[green]✓[/green] cleared: {action} — "
+                f"`{block.step}` reads from its own artifacts again"
+            )
+        else:
+            console.print(f"[green]✓[/green] cleared: {action}")
+        return
+
+    if not reason:
+        console.print(
+            "[red]✗ --reason is required — a block with no reason holds a "
+            "step and says nothing[/red]"
+        )
+        raise typer.Exit(1)
+
+    # The step comes from inference at call time, never from the caller
+    # (FR-010): the agent supplies the two facts it alone witnessed — `action`
+    # and `reason` — and does not get to say which step is held.
+    #
+    # `spec_dir is None` is checked directly rather than trusting
+    # `report.current` on a report built from it (FR-008): with no spec dir,
+    # `build_report` still names "brainstorm" current — correct for a feature
+    # branch that has not started yet, wrong for a branch that names no
+    # feature at all, which is what this branch is here.
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    step = None if spec_dir is None else build_report(spec_dir, repo_root, agent_dir).current
+    record_blocked(agent_dir, branch, action, reason, step)
+
+    if step:
+        console.print(f"[green]✓[/green] recorded: {action} blocked — holding `{step}`")
+        console.print(
+            "  Your host refused this, not wfctl. Re-running the step will be "
+            "refused again."
+        )
+    else:
+        console.print(
+            f"[green]✓[/green] recorded: {action} blocked — no step is being held"
+        )
+
+
 @app.command("status")
 def status_cmd(
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")

@@ -269,6 +269,57 @@ def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:
     return DESIGN_BLOCK_HELP.format(location=arch_location(arch_root(repo_root), repo_root))
 
 
+def _block_remedy(step_name: str, action: str) -> str:
+    """FR-015: the block came from the agent's host, not from wfctl; re-running
+    will be refused again; a person takes the action and then records it.
+
+    Named by `action`, not by `step_name` — the clearing command matches the
+    string the block was filed under, which need not read like the step it
+    holds. `wfctl blocked <action> --clear` rather than `wfctl notify` for the
+    reason the level-3 record gives: `notify`'s release is unreachable from a
+    run holding no grant, which is exactly the run that filed this block.
+    """
+    return (
+        f"  Your host refused this, not wfctl — re-running {step_name} will be "
+        "refused again.\n"
+        f"  Take the action yourself, then: wfctl blocked {action} --clear"
+    )
+
+
+def _apply_block_hold(
+    steps: list[_PipelineStep], agent_dir: Path, branch: str
+) -> list[_PipelineStep]:
+    """Override a step's own reading with a host block reported against it
+    (FR-010, FR-011).
+
+    Applied once here, after `_infer_steps` has already produced every step's
+    own reading — never spliced into that loop, which sets `cascade = True` on
+    the first `pending` step and forces every step after it `pending` too. A
+    hold injected there would cascade the same way past a step that is
+    legitimately `done`, which is not what a held step means: the pipeline
+    stopped at exactly the one step the block named, not at every step after
+    it (`test_holding_a_done_step_does_not_cascade_the_steps_after_it`).
+
+    Reads `standing_blocks` once rather than calling `_predicates.block_reason`
+    per step — the same one-read argument `build_report` already makes for
+    `verification_block` two lines above this call: a second read of the same
+    log while an agent is writing to it is a window this file was built to
+    close, not to reopen for a second question.
+    """
+    from wfctl._session import standing_blocks
+
+    by_step = {b.step: b for b in standing_blocks(agent_dir, branch) if b.step is not None}
+    for step in steps:
+        block = by_step.get(step.name)
+        if block is None:
+            continue
+        step.state = "in_progress"
+        step.reason = block.reason
+        step.annotation = f"blocked: host refused {block.action}"
+        step.remedy = _block_remedy(step.name, block.action)
+    return steps
+
+
 def _current_step_name(steps: list[_PipelineStep]) -> str:
     """Return the first step that still blocks; 'complete' if none does.
 
@@ -484,6 +535,10 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # blocked reason, met again by a field added beside it.
     ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
     raw = _infer_steps(spec_dir, repo_root, ev)
+    # After `_infer_steps` returns, never inside its loop — see
+    # `_apply_block_hold`'s own docstring for why splicing it into the loop
+    # would cascade a hold past every step legitimately `done` after it.
+    raw = _apply_block_hold(raw, agent_dir, branch)
     # One read, whether or not a feature directory resolved. `Evidence` carries
     # it when there is one; with none there is no evidence to carry it and the
     # fact's owner is asked directly. Either way it is asked once — two calls per
