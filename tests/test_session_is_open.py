@@ -66,6 +66,27 @@ def test_build_report_without_an_id_reports_unknown(
     assert report.session_open is report.session_started is True
 
 
+@pytest.mark.parametrize(
+    "started", [True, False], ids=["a-session-has-run", "never-started"]
+)
+def test_unwired_caller_sees_the_released_answer(
+    agent_dir: Path, tmp_path: Path, started: bool
+) -> None:
+    """FR-006, SC-002: `session_open` mirrors `session_started` under `"unknown"`.
+
+    Named for the row `contracts/cli.md` calls D — a caller presenting nothing —
+    and parametrised over both values `session_started` can hold, because a
+    mirror that only agreed on `True` would still regress a fresh branch that
+    never ran `wfctl start` at all.
+    """
+    if started:
+        append_event(agent_dir, "start", session_id="someone")
+
+    report = _report(tmp_path, agent_dir, None)
+
+    assert report.session_open is report.session_started is started
+
+
 def test_a_held_branch_reports_open_false_to_another_conversation(
     agent_dir: Path, tmp_path: Path
 ) -> None:
@@ -221,3 +242,49 @@ def test_an_unwired_caller_passes_every_gate_this_feature_touches(
     result = runner.invoke(app, [command])
 
     assert result.exit_code == 0, result.output
+
+
+# ─── `session_started` itself, across every state this feature adds ─────────
+
+@pytest.mark.parametrize(
+    "start_line, presented",
+    [
+        (None, None),
+        ("no-identity", "caller"),
+        ("holder", "holder"),
+        ("holder", "caller"),
+        ("holder", None),
+    ],
+    ids=[
+        "A-never-started",
+        "D-holder-absent-caller-identified",
+        "B-self",
+        "C-other",
+        "D-caller-unwired",
+    ],
+)
+def test_session_started_is_unchanged(
+    agent_dir: Path,
+    tmp_path: Path,
+    start_line: str | None,
+    presented: str | None,
+) -> None:
+    """SC-006: the field six speckit skills already read answers exactly as
+    before, whatever the new `session_id` argument carries.
+
+    `start_line` is the identity written on the branch's one `start` line —
+    `None` when no line exists at all, `"no-identity"` for a line predating this
+    feature. `session_started` reads only whether that line exists
+    (`wfctl/_session.py`); it has no way to see an identity, on either side. This
+    is the regression the released behaviour cannot survive silently — a change
+    that made `build_report` derive `session_started` from the holder relation
+    would pass every test above it and fail only this one.
+    """
+    if start_line == "no-identity":
+        append_event(agent_dir, "start")
+    elif start_line is not None:
+        append_event(agent_dir, "start", session_id=start_line)
+
+    report = _report(tmp_path, agent_dir, presented)
+
+    assert report.session_started is (start_line is not None)
