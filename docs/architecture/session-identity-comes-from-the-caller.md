@@ -158,13 +158,31 @@ here.
 
 A nested agent inherits the outer host's variable. Measured: a Codex run and a
 Copilot run launched from a Claude conversation each carried
-`CLAUDE_CODE_SESSION_ID` alongside their own, and Claude marked the nesting with
-`CLAUDE_CODE_CHILD_SESSION=1`. So the mapping has to resolve the innermost
-host's own variable rather than the first one it finds set, or a sub-agent
-presents its parent's identity and passes a gate it never checked in at — #200
-one level down, and reached by inheritance rather than by skipping anything.
+`CLAUDE_CODE_SESSION_ID` alongside their own, and both runs were made under a
+Claude conversation that also carried `CLAUDE_CODE_CHILD_SESSION=1`. So the
+mapping has to resolve the innermost host's own variable rather than the first
+one it finds set, or a sub-agent presents its parent's identity and passes a
+gate it never checked in at — #200 one level down, and reached by inheritance
+rather than by skipping anything.
+
+**`CLAUDE_CODE_CHILD_SESSION=1` is not itself the nesting signal this record
+first read it as.** Measured again on 2026-09-14, in an ordinary top-level
+`/start-session` conversation with no parent Claude conversation anywhere above
+it: the flag was still `1`. `200-session-id-rides-on-the-start-event.md` § Assumed
+names exactly this as the falsifying case for "the flag carries no nesting
+signal" and, having now been observed, that is the reading that stands — the
+flag says something else about how this host launches a session, not whether
+one is nested inside another. The paragraph above is unaffected in its
+conclusion: a nested agent still inherits the outer host's variable, verified
+independently by the Codex and Copilot measurement, which named no flag as its
+evidence. What is retracted is only the claim that the flag is how a mapping
+would *detect* nesting; nothing here has proposed a replacement.
 
 ## Log
 
 - 2026-09-13  proposed    — #200; the level-2 answer for what a gate can ask
 - 2026-09-13  accepted    — Andre, in the #200 session on 2026-09-13 — https://claude.ai/code/session_01GAgg3JT1W3Dxh81GZXMfG6
+- 2026-09-14  amended     — #200 implement session, T031: retracted the reading
+  of `CLAUDE_CODE_CHILD_SESSION=1` as the nesting signal, per the falsifying
+  measurement `200-session-id-rides-on-the-start-event.md` § Assumed named in
+  advance. The nested-inheritance conclusion is unaffected.

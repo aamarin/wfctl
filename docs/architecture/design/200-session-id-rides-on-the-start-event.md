@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The caller's session id rides on the `start` event, and `start` appends one whenever the id is new
@@ -166,3 +166,5 @@ open, and the fix is a host mapping rather than a wfctl change.
 - 2026-09-13  proposed  — written at the `design-levels` level-3 gate for #200,
   after checking the four claims under the chosen structure and finding the
   append condition false.
+- 2026-09-14  accepted  — Andre, in the #200 implement session on 2026-09-14 —
+  https://claude.ai/code/session_01GAgg3JT1W3Dxh81GZXMfG6

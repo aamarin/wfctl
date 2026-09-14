@@ -397,6 +397,24 @@ and the exit code stays 0.
 agents work in parallel without stepping on each other. The seeded config makes
 new worktrees come up ready.)
 
+**`WFCTL_SESSION_ID`** answers a different question — not which agent, but which
+*conversation*. `wfctl start` records it verbatim (`--session-id`, falling back
+to this variable) and every later gate compares against what it recorded, so a
+second conversation on the same branch is told the truth instead of reading a
+session as open forever. wfctl cannot derive this itself — see
+["Is a session open now?"](docs/architecture/session-identity-comes-from-the-caller.md)
+— so it is a host mapping, set once, beside `WFCTL_AGENT`:
+
+```bash
+# ~/.zshrc
+export WFCTL_SESSION_ID="$CLAUDE_CODE_SESSION_ID"
+```
+
+Unset is the same legitimate state as `WFCTL_AGENT` unset: every gate answers
+exactly as it did before this existed. If your host's own variable turns out to
+rotate more often than a conversation actually does, you will see it as repeated
+takeovers inside one sitting — the fix is this mapping, not a change to wfctl.
+
 `github` seeds [`.github/pull_request_template.md`](wfctl/agents/configs/github/.github/pull_request_template.md):
 a summary that reads on its own, then issue links, implementation rationale and
 what was actually verified. A config source keeps its own directory structure, so
@@ -758,6 +776,7 @@ Run `wfctl <command> --help` for all options.
 | `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
 | `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it only to know whether an absent agent layer was a choice. Unset installs the `.agents/` layer alone |
+| `WFCTL_SESSION_ID`      | Opaque identity for the calling conversation, presented to `wfctl start`'s `--session-id`. Recorded verbatim and compared, never parsed; a caller presenting a different identity than the branch's recorded holder takes it over. Unset behaves exactly as the released version — see the `WFCTL_SESSION_ID` paragraph under [`WFCTL_AGENT`'s section](#seeding-project-config-install-config) above |
 | `WFCTL_SHAPE_ECHO`      | `1` echoes the `Stop` hook's finding to stderr, for exercising `hook response-shape` on a payload piped in by hand. The installed hook entry redirects stderr, so this shows nothing through the harness |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
 
