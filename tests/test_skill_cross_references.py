@@ -135,11 +135,13 @@ def test_the_level_2_gate_names_the_design_method_skill() -> None:
 
 
 def test_the_design_method_skill_is_model_invocable() -> None:
-    """It ships no command wrapper, so the only route that does not go through
-    an agent reading `design-levels` as text is the mirror. The gate names the
-    skill by path; an agent that read that pointer and reached for
-    `Skill(architecture-design)` instead is refused without membership, which is
-    #204's fork one skill over.
+    """The mirror is the only route on the Claude layer, and the wrapper #373
+    added does not change that: `_mirror_supersedes_wrapper` suppresses
+    `architecture-design.md` on exactly the layer that mirrors the skill, so
+    what the wrapper bought is a typed route on `.agents/` and bob, not a
+    second route here. The gate names the skill by path; an agent that read
+    that pointer and reached for `Skill(architecture-design)` instead is
+    refused without membership, which is #204's fork one skill over.
 
     Membership alone does not settle it, and the name of this test is the claim
     that overreaches if it stands alone. `mirror-supersedes-the-wrapper` draws
@@ -150,13 +152,12 @@ def test_the_design_method_skill_is_model_invocable() -> None:
     live failure mode rather than a hypothetical, and the key is a plausible
     copy-paste from any of the wrappers carrying it.
 
-    Three assertions, because each one alone stays green through the change that
-    breaks the others.
+    Both assertions, because each one alone stays green through the change that
+    breaks the other.
     """
     from wfctl import _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
-    assert not (_AGENTS / "commands" / "architecture-design.md").exists()
     assert "architecture-design" in _MIRRORED_SKILLS
 
     front = _arch._frontmatter(
@@ -433,18 +434,31 @@ def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
 
 
 def test_the_design_record_skill_is_model_invocable() -> None:
-    """It ships no command wrapper, so the mirror is the only route in.
-
-    Same shape as `test_the_panel_skill_is_model_invocable`, and the same
+    """Same shape as `test_the_panel_skill_is_model_invocable`, and the same
     reason: the trigger is a structural choice just settled in conversation,
-    which is a moment nobody types a command. Without membership the skill is
-    reachable only by an agent already reading `design-levels` as text — the
-    template's own defect (#198) moved one hop along the chain that fixed it.
+    which is a moment nobody types a command. #373 shipped the skill a wrapper
+    and did not change that — the wrapper is suppressed on the layer that
+    mirrors, and a typed route was never what this skill needed. Without
+    membership it waits for an agent already reading `design-levels` as text,
+    the template's own defect (#198) moved one hop along the chain that fixed it.
+
+    The second assertion is not covered by the first. Checked by mutation:
+    adding `disable-model-invocation` to that SKILL.md leaves every test in this
+    file green, and the run goes red only in
+    `test_every_shipped_skill_declares_only_spec_keys` — which is asking whether
+    the key is in the Agent Skills spec, not whether the skill has a route left.
+    Add the key to that test's `ALLOWED_KEYS` and this claim is unguarded, so it
+    is asserted where it is made.
     """
+    from wfctl import _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
-    assert not (_AGENTS / "commands" / "software-design-decisions.md").exists()
     assert "software-design-decisions" in _MIRRORED_SKILLS
+
+    front = _arch._frontmatter(
+        (_AGENTS / "skills" / "software-design-decisions" / "SKILL.md").read_text()
+    )
+    assert "disable-model-invocation" not in front
 
 
 def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:

@@ -2507,13 +2507,18 @@ def _restore_hint(layers: Iterable[str]) -> str:
 # directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
 # every other layer still gets it.
 _MIRRORED_SKILLS = frozenset({
-    # Same case as `software-design-decisions` below — no wrapper under
-    # `agents/commands/` — but it earns the entry for `start-session`'s reason
-    # rather than #124's. The level-2 gate names this skill by path, and an agent
-    # that read that pointer and reached for `Skill(architecture-design)` is
-    # refused without membership. Mirroring does not make a refused route work;
-    # it removes the fork, so the outcome stops depending on which way the agent
-    # reached.
+    # Same case as `software-design-decisions` below, and it earns the entry for
+    # `start-session`'s reason rather than #124's. The level-2 gate names this
+    # skill by path, and an agent that read that pointer and reached for
+    # `Skill(architecture-design)` is refused without membership. Mirroring does
+    # not make a refused route work; it removes the fork, so the outcome stops
+    # depending on which way the agent reached.
+    #
+    # #373 shipped it a wrapper and that ground is untouched: the wrapper is
+    # suppressed on precisely the layer this entry is about, so what it bought is
+    # the `.agents/` copy and bob's command directory, neither of which is a
+    # discovery path. A reader weighing this entry reads the fork, not the
+    # wrapper's existence.
     #
     # It does not reach an agent mid-implementation, and must not be defended on
     # that: the skill's `description` scopes both its triggers to level 2, and
@@ -2549,12 +2554,13 @@ _MIRRORED_SKILLS = frozenset({
     # commands its Authority section names. It does.
     "python-pattern-selection",
     "receiving-code-review",
-    # No wrapper under `agents/commands/`, so the mirror is the only route: a
-    # skill absent from both is reachable only by an agent already reading
-    # `design-levels` as text, which is the shape of #198 one hop down the
-    # pointer chain that issue was filed to build. Its description triggers on a
-    # structural choice just settled in conversation — a moment nobody types a
-    # command, the same reason `fanning-out-code-review` is here (#124).
+    # Its description triggers on a structural choice just settled in
+    # conversation — a moment nobody types a command, the same reason
+    # `fanning-out-code-review` is here (#124). So a typed route is not what
+    # this entry buys and #373's wrapper does not supply it: without membership
+    # the skill waits for an agent already reading `design-levels` as text,
+    # which is the shape of #198 one hop down the pointer chain that issue was
+    # filed to build.
     "software-design-decisions",
     # The only speckit step here, and the only one whose workflow ever lived in
     # its wrapper rather than behind a pointer. What that cost was not
