@@ -52,7 +52,7 @@ memory of it — load them before doing anything else.
    **With it unset the flag is not passed and nothing is refused.** The gates
    report `unknown` and behave exactly as they did before this existed, so an
    unwired repo is no worse off — it simply does not get the second answer.
-   Surface that in step 8 like the `WFCTL_AGENT` notice: the profile is the
+   Surface that in step 8's session-identity bullet: the profile is the
    user's to edit, not this step's to write.
 
    **If it reports any layer's skills behind or drifted, bring them level now.**
@@ -289,6 +289,11 @@ memory of it — load them before doing anything else.
      "left alone" line, so repeating it here does not read as licence to delete.
      A silent refresh is how a mirror goes stale again without anyone noticing it
      had been wrong
+   - **Session identity**: `session_holder` from `wfctl status --json` (step 4)
+     when it is not `"unknown"` — `"self"` needs no comment, `"other"` or
+     `"none"` says why the gates below will refuse. When it is `"unknown"`,
+     name `WFCTL_SESSION_ID` unset as the reason, the one time this step
+     surfaces it — setting it is the user's, not this step's to do
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
