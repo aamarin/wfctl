@@ -434,18 +434,31 @@ def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
 
 
 def test_the_design_record_skill_is_model_invocable() -> None:
-    """The mirror is the only route in on the Claude layer, where #373's wrapper
-    is suppressed by the same membership this asserts.
-
-    Same shape as `test_the_panel_skill_is_model_invocable`, and the same
+    """Same shape as `test_the_panel_skill_is_model_invocable`, and the same
     reason: the trigger is a structural choice just settled in conversation,
-    which is a moment nobody types a command. Without membership the skill is
-    reachable only by an agent already reading `design-levels` as text — the
-    template's own defect (#198) moved one hop along the chain that fixed it.
+    which is a moment nobody types a command. #373 shipped the skill a wrapper
+    and did not change that — the wrapper is suppressed on the layer that
+    mirrors, and a typed route was never what this skill needed. Without
+    membership it waits for an agent already reading `design-levels` as text,
+    the template's own defect (#198) moved one hop along the chain that fixed it.
+
+    The second assertion is not covered by the first. Checked by mutation:
+    adding `disable-model-invocation` to that SKILL.md leaves every test in this
+    file green, and the run goes red only in
+    `test_every_shipped_skill_declares_only_spec_keys` — which is asking whether
+    the key is in the Agent Skills spec, not whether the skill has a route left.
+    Add the key to that test's `ALLOWED_KEYS` and this claim is unguarded, so it
+    is asserted where it is made.
     """
+    from wfctl import _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert "software-design-decisions" in _MIRRORED_SKILLS
+
+    front = _arch._frontmatter(
+        (_AGENTS / "skills" / "software-design-decisions" / "SKILL.md").read_text()
+    )
+    assert "disable-model-invocation" not in front
 
 
 def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:

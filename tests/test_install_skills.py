@@ -316,9 +316,10 @@ def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
     intact. Delete the wrapper from the bundle and bob has no route left.
 
     That is not hypothetical: it is what the first version of #170's fix did, and
-    it is invisible to every other test here. Deleting five of them left the
-    suite at 838 passed, because the install-level tests build their own wrapper
-    inside the `bundle` fixture and never read the shipped tree.
+    it is invisible to every other test here. Deleting five of the seven that
+    existed then left the suite at 838 passed, because the install-level tests
+    build their own wrapper inside the `bundle` fixture and never read the
+    shipped tree.
 
     Resolved from the installed package for `test_every_declared_mirror_names_a_
     shipped_skill`'s reason: the autouse `bundle` fixture repoints `BUNDLE_ROOT`
@@ -335,6 +336,33 @@ def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
     )
 
     assert missing == []
+
+
+def test_the_pinned_set_is_the_whole_intersection() -> None:
+    """A wrapper added for a mirrored skill and left out of the pin above fails
+    here rather than nowhere.
+
+    The set's own comment says the intersection "is exactly the thing that has to
+    be noticed when it changes", and until #373 nothing noticed: the other test
+    asks only that every pinned name still ships a file, so a name missing from
+    the pin is a name it never looks for. Checked by mutation — dropping
+    `using-superpowers` from the pin left all 158 tests in this file green, and
+    #373 added six wrappers whose pin entries no test would have required.
+
+    The pin stays a literal list. What is derived here is the comparison, not the
+    set: deriving the set would make the test assert the directories against
+    themselves, which is the trap the comment warns about. Deriving one side and
+    pinning the other is what turns a silent change into a red run naming it.
+
+    Resolved from the installed package for the reason the two tests above give.
+    """
+    import wfctl
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    commands = Path(wfctl.__file__).parent / "agents" / "commands"
+    intersection = {n for n in _MIRRORED_SKILLS if (commands / f"{n}.md").exists()}
+
+    assert intersection == set(_SUPPRESSED_ON_A_MIRRORING_LAYER)
 
 
 def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
@@ -360,7 +388,7 @@ def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
 
     # Derived from `_MIRRORED_SKILLS`, not from the pinned set above: the whole
     # failure is a name being *added* to that set, and a loop over the pinned
-    # seven would never see the addition it exists to catch.
+    # names would never see the addition it exists to catch.
     commands = Path(wfctl.__file__).parent / "agents" / "commands"
     carrying = {}
     for name in sorted(n for n in _MIRRORED_SKILLS if (commands / f"{n}.md").exists()):
