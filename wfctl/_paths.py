@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from collections.abc import Sequence
 from typing import NamedTuple
 
 from wfctl._manifest import load_manifest
@@ -312,9 +313,27 @@ def arch_root(repo_root: Path) -> Path:
 # not a record, and a fourth added later has one place to find that out.
 SCANS_DIR = "scans"
 
+# The arch-root subtree holding an implementation note — prose saying why one
+# mechanism was picked over a cheaper one, written during level 4 (#370). It
+# decides nothing either, so it reaches the readers below for `scans/`' reason
+# and has to be dropped for it.
+IMPLEMENTATION_DIR = "implementation"
+
+
+def non_record_subtrees(arch: Path) -> list[Path]:
+    """The corners of the arch root holding documents that decided nothing.
+
+    One list rather than a constant per directory, because the readers below do
+    not care which corner a path fell in — only that it is not a record. A fifth
+    non-record subtree is then an entry here and no edit at any call site, which
+    is the failure this replaces: `scans/` was named at each of them, and the
+    second such subtree had to find all four.
+    """
+    return [arch / SCANS_DIR, arch / IMPLEMENTATION_DIR]
+
 
 def touched_on_this_branch(
-    repo_root: Path, path: Path, exclude: Path | None = None
+    repo_root: Path, path: Path, exclude: Sequence[Path] | None = None
 ) -> bool | None:
     """Does the change under review add or modify anything under `path`?
 
@@ -328,10 +347,12 @@ def touched_on_this_branch(
     the same branch still counts — otherwise the gate would reopen every time
     the author commits.
 
-    `exclude` drops one subtree from the question. Asking about a directory is
+    `exclude` drops subtrees from the question. Asking about a directory is
     recursive in git and cannot be made otherwise, so a caller that means "this
-    root, but not that corner of it" has no way to say so through the pathspec
-    it would write by hand.
+    root, but not those corners of it" has no way to say so through the pathspec
+    it would write by hand. A sequence rather than one path because the arch root
+    now holds two such corners and will hold more; `non_record_subtrees` names
+    the set.
     """
     def names(*args: str) -> str | None:
         """Paths git reports for `args`, or None when the command failed."""
@@ -342,11 +363,11 @@ def touched_on_this_branch(
         return None
 
     spec = [str(path)]
-    if exclude is not None:
+    for dropped in exclude or ():
         # `:(exclude)` is magic-pathspec syntax and takes a repo-relative path —
         # given an absolute one git reads the whole thing as a literal name and
         # matches nothing, which fails open and is the direction that hurts.
-        spec.append(f":(exclude){exclude.resolve().relative_to(repo_root.resolve())}")
+        spec.append(f":(exclude){dropped.resolve().relative_to(repo_root.resolve())}")
 
     dirty = names("status", "--porcelain", "--", *spec)
     if dirty is None:
@@ -362,7 +383,7 @@ def touched_on_this_branch(
 
 
 def records_on_this_branch(
-    repo_root: Path, arch: Path, exclude: Path | None = None
+    repo_root: Path, arch: Path, exclude: Sequence[Path] | None = None
 ) -> list[str]:
     """The record slugs this branch adds or modifies, uncommitted work included.
 
@@ -377,12 +398,13 @@ def records_on_this_branch(
     (`architecture-decisions`), and a reader scanning a PR for what a run decided
     is matching names, not directories.
 
-    `exclude` drops one subtree, for its sibling's reason and one of its own. A
-    git pathspec naming a directory is recursive and cannot be made otherwise, and
-    the arch root now holds a subtree of documents that decided nothing:
-    `scans/` is what a review step covered, not what a run chose. Listed as a
-    record it answers the caller's question wrongly in the one mode that has no
-    reader to notice (#307).
+    `exclude` drops subtrees, for its sibling's reason and one of its own. A git
+    pathspec naming a directory is recursive and cannot be made otherwise, and the
+    arch root holds documents that decided nothing: `scans/` is what a review step
+    covered, not what a run chose, and `implementation/` is why a mechanism was
+    picked once a boundary was already settled. Listed as a record either answers
+    the caller's question wrongly in the one mode that has no reader to notice
+    (#307).
     """
     if not is_in_tree(arch, repo_root):
         return []
@@ -397,12 +419,12 @@ def records_on_this_branch(
         return [line.split()[-1] for line in r.stdout.splitlines() if line.strip()]
 
     spec = [str(arch)]
-    if exclude is not None:
+    for dropped in exclude or ():
         # `:(exclude)` is magic-pathspec syntax and takes a repo-relative path —
         # the same constraint `touched_on_this_branch` documents, and the same
         # direction of failure: an absolute path is read as a literal name,
         # matches nothing, and the subtree comes back in the listing.
-        spec.append(f":(exclude){exclude.resolve().relative_to(repo_root.resolve())}")
+        spec.append(f":(exclude){dropped.resolve().relative_to(repo_root.resolve())}")
     # `-uall`, unlike `touched_on_this_branch`'s bare `--porcelain`. Git collapses
     # an untracked *directory* to one entry, so the first record written into a
     # repo that has none reports `docs/architecture/` and no filename — which a

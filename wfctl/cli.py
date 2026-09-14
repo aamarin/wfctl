@@ -24,7 +24,6 @@ from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
-    SCANS_DIR,
     arch_root,
     claim_conflicts,
     is_in_tree,
@@ -33,6 +32,7 @@ from wfctl._paths import (
     get_repo_root,
     main_checkout,
     project_name,
+    non_record_subtrees,
     records_on_this_branch,
     resolve_agent_dir,
     resolve_branch,
@@ -489,11 +489,15 @@ def status_cmd(
         # create` sees it and could refuse one that omits them — a rule expressed
         # as a check rather than as a line someone has to read.
         arch = arch_root(repo_root)
-        # `scans/` excluded: this listing says what an unattended run *decided*,
-        # and a scan file records what a review step covered. Left in, every
-        # branch that ran clarify reports two records that chose nothing, in the
-        # one mode with no reader to catch it (#307).
-        for slug in records_on_this_branch(repo_root, arch, exclude=arch / SCANS_DIR):
+        # The non-record subtrees are excluded: this listing says what an
+        # unattended run *decided*, and neither a scan file nor an implementation
+        # note decides anything — one records what a review step covered, the
+        # other why a mechanism was picked inside a settled boundary. Left in,
+        # every branch that ran clarify reports two records that chose nothing, in
+        # the one mode with no reader to catch it (#307).
+        for slug in records_on_this_branch(
+            repo_root, arch, exclude=non_record_subtrees(arch)
+        ):
             console.print(f"[dim]  record:[/dim] {slug}")
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
@@ -743,7 +747,9 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
         # this change and is left where it was found.
         boundary=_BOUNDARY[
             touched_on_this_branch(
-                repo_root, arch_root(repo_root), exclude=arch_root(repo_root) / SCANS_DIR
+                repo_root,
+                arch_root(repo_root),
+                exclude=non_record_subtrees(arch_root(repo_root)),
             )
         ],
         tree="dirty" if dirty else "clean",
@@ -2386,6 +2392,18 @@ _MIRRORED_SKILLS = frozenset({
     # which is the failure it was written for. Nothing else in the tree says the
     # skill has to be discoverable.
     "opening-a-change",
+    # The only entry whose skill fires *during* implementation, which is what
+    # makes the mirror necessary rather than convenient. `software-design-decisions`
+    # below is reachable by an agent reading `design-levels` as text; this one
+    # fires at the moment a mechanism is picked, and no agent is reading a skill
+    # at that moment. `design-levels` §4 names it by path so the pointer exists,
+    # and this entry is what makes the pointer resolvable — the pair is #150's
+    # fix applied one level down.
+    #
+    # Unlike `architecture-design`, it *is* defended on reaching an agent
+    # mid-implementation, so `speckit.implement`'s ceiling has to grant the two
+    # commands its Authority section names. It does.
+    "python-pattern-selection",
     "receiving-code-review",
     # No wrapper under `agents/commands/`, so the mirror is the only route: a
     # skill absent from both is reachable only by an agent already reading
@@ -5429,9 +5447,11 @@ def _check_arch_records(repo_root: Path) -> bool:
 
     Validates the top-level tier only, because `load_records` globs one level.
     That is the tier boundary `design-levels` draws and `arch none` already
-    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and stay
-    out. Design records carry their own `supersedes:` and their own status
-    vocabulary, so their link integrity is unchecked by anything (#166).
+    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and
+    `implementation/` is Level 4, so all three stay out. Design records carry
+    their own `supersedes:` and their own status vocabulary, so their link
+    integrity is unchecked by anything (#166); an implementation note is prose
+    and carries neither.
     """
     from rich.markup import escape
 
