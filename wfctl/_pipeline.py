@@ -279,9 +279,14 @@ def _block_remedy(step_name: str, action: str) -> str:
     reason the level-3 record gives: `notify`'s release is unreachable from a
     run holding no grant, which is exactly the run that filed this block.
     """
+    # Broken after the em-dash rather than left for `rich` to reflow, the same
+    # rule `_IRREVERSIBLE_NOTICE` follows: an automatic wrap breaks at whatever
+    # word the terminal width lands on, and `step_name` here is agent-supplied
+    # (well, inference-supplied, but still variable-length) rather than a fixed
+    # string the author could size for.
     return (
-        f"  Your host refused this, not wfctl — re-running {step_name} will be "
-        "refused again.\n"
+        "  Your host refused this, not wfctl —\n"
+        f"  re-running {step_name} will be refused again.\n"
         f"  Take the action yourself, then: wfctl blocked {action} --clear"
     )
 
