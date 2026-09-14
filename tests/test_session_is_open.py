@@ -122,3 +122,102 @@ def test_the_payload_never_carries_the_identity_itself(
     output = runner.invoke(app, ["status", "--json"]).output
 
     assert "a-very-distinctive-identity" not in output
+
+
+# ─── Two refusals, and the gates that print them ─────────────────────────────
+
+def test_the_two_refusals_are_distinct(agent_dir: Path) -> None:
+    """FR-007, asserted as distinctness rather than as either one's wording.
+
+    Pinning the strings would fail the suite on a copy edit, which teaches the
+    next person to change the test rather than think about it. What has to hold
+    is that a reader can tell the two states apart from the string alone — so
+    neither may be a substring of the other either, or the shorter one would
+    match inside the longer in any `in` check downstream.
+    """
+    from wfctl.cli import _HELD_ELSEWHERE, _NO_SESSION
+
+    assert _NO_SESSION != _HELD_ELSEWHERE
+    assert _NO_SESSION not in _HELD_ELSEWHERE
+    assert _HELD_ELSEWHERE not in _NO_SESSION
+
+
+def test_resume_refuses_a_conversation_that_does_not_hold_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`resume` keeps its own guard even though orchestrate gates before it.
+
+    `speckit-orchestrate` gates at step 0 and calls `wfctl resume` at step 3, so
+    on a pipeline run both fire and this looks redundant. It is not: `resume` is
+    also typed by hand, and that path reaches this guard and no gate at all.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "first")
+    runner.invoke(app, ["start"])
+
+    monkeypatch.setenv("WFCTL_SESSION_ID", "second")
+    result = runner.invoke(app, ["resume"])
+
+    assert result.exit_code == 1
+    assert "this conversation" in result.output
+
+
+def test_end_refuses_rather_than_taking_over(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Where `end` parts company with `start`, and why it is the asymmetric one.
+
+    A takeover is reversible: the displaced conversation runs `/start-session`
+    and takes the branch back. Ending someone else's session writes *their*
+    handoff, and `end` writes `session-summary.md` once and never again — so the
+    prose they would have written has nowhere left to go.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "first")
+    runner.invoke(app, ["start"])
+
+    monkeypatch.setenv("WFCTL_SESSION_ID", "second")
+    result = runner.invoke(app, ["end"])
+
+    assert result.exit_code == 1
+    assert not (storyctl_dir.agent_dir / "session-summary.md").exists()
+
+
+def test_console_names_the_holder_relation(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SC-005 on the console, where a person reads it rather than a skill.
+
+    The JSON carries `session_holder`, and nobody reads JSON to find out why a
+    command just refused them. Without this line the held state and a fresh
+    branch render identically.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "first")
+    runner.invoke(app, ["start"])
+
+    monkeypatch.setenv("WFCTL_SESSION_ID", "second")
+    held = runner.invoke(app, ["status"]).output
+
+    monkeypatch.setenv("WFCTL_SESSION_ID", "first")
+    mine = runner.invoke(app, ["status"]).output
+
+    assert "another conversation holds this branch" in held
+    assert "another conversation holds this branch" not in mine
+
+
+@pytest.mark.parametrize("command", ["resume", "end"])
+def test_an_unwired_caller_passes_every_gate_this_feature_touches(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """FR-006 at the two call sites that gained a refusal.
+
+    The new guard reads `"other"`, and a caller presenting nothing resolves to
+    `"unknown"` however the branch was opened. Were that wrong, every repository
+    that never set the variable would be refused at once — a blast radius larger
+    than the defect being fixed.
+    """
+    monkeypatch.setenv("WFCTL_SESSION_ID", "someone-else")
+    runner.invoke(app, ["start"])
+
+    monkeypatch.delenv("WFCTL_SESSION_ID")
+    result = runner.invoke(app, [command])
+
+    assert result.exit_code == 0, result.output

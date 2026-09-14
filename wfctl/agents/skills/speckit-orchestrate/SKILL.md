@@ -7,14 +7,31 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
 
 0. **Session gate** — before anything else, including the spec lookup below.
 
-   Run `wfctl status --json` and read `session_started`. If it is `false`:
-   - Display: "No wfctl session for this branch. Run `/start-session` first."
-   - Stop.
+   Run `wfctl status --json` and read `session_open`. If it is `false`, read
+   `session_holder` to decide which of the two refusals to display:
+
+   | `session_holder` | Display | Then |
+   | --- | --- | --- |
+   | `"none"` | "No wfctl session for this branch. Run `/start-session` first." | Stop |
+   | `"other"` | "No wfctl session for this conversation — the last session on this branch was opened by a different one. Run `/start-session`." | Stop |
+
+   **Two strings, because the two states have different remedies.** The first
+   says nothing has ever run here. The second says something is running here and
+   it is not you — the branch is fine, and a reader sent to look at it is sent
+   to the wrong place. `/start-session` clears both; only the second is a
+   takeover.
+
+   `session_open` and not `session_started`. The old field answers "has a session
+   ever run on this branch", is true from the first `start` event and is never
+   rescinded — so gating on it caught a branch's *first* session and let every
+   later conversation walk through (#200). It is still in the payload and still
+   correct for the question it answers; do not read it for this one.
 
    Stop the same way if the command exits non-zero or the payload carries no
-   `session_started` at all, displaying what it printed. A gate that proceeds
-   on a missing answer is not a gate, and the missing answer is the likelier
-   failure: outside a git repo `status` exits 1 before it prints a payload.
+   `session_open` at all, displaying what it printed. A gate that proceeds on a
+   missing answer is not a gate, and the missing answer is the likelier failure:
+   outside a git repo `status` exits 1 before it prints a payload, and a wfctl
+   predating #200 emits `session_started` and neither of the new keys.
 
    Stop means stop: no checks, no analysis, no recommendation offered first. A
    run that reaches a conclusion here leaves it in scrollback and nowhere else.
@@ -23,14 +40,20 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    reads an empty state dir and reports "first session on this branch" — true of
    the state dir, false of the branch (#117).
 
-   **What this catches is a branch's first session, not every session.**
-   `session_started` is true once any `start` event exists in the log and
-   nothing ever clears it, so a later conversation that skips `/start-session`
-   on a branch that has already had one walks straight through this gate. Do
-   not read the check as proof that a session is open now. Closing that gap
-   needs a per-session identity the state dir does not carry (#200), and the
-   six skills that invoke this one as their *last* step meet the gate after
-   their work is done rather than before it (#201).
+   **What this catches is every session, and still not every run.** The gate
+   now sees a conversation that skipped `/start-session` on a branch that has
+   already had one, which `session_started` could not (#200). What it does not
+   fix is *when* it fires: the six skills that invoke this one as their **last**
+   step meet the gate after their work is done rather than before it, so a
+   refusal there names a session that should never have started and cannot undo
+   what it already wrote (#201).
+
+   **A caller that presents no identity is not refused.** `session_holder` reads
+   `"unknown"` and `session_open` mirrors `session_started`, so a repository
+   nobody wired up sees exactly the gate it saw before this existed. That is
+   deliberate — the identity comes from the environment and the mapping belongs
+   in the reader's shell profile, so treating its absence as a refusal would
+   regress every unwired repo at once.
 
    Name `/start-session`, not `wfctl start`. Both clear this check; only the
    first also refreshes the skills mirror, loads the architecture contract and

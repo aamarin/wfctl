@@ -30,6 +30,20 @@ def _first_step() -> str:
     return text[starts[0]:starts[1]]
 
 
+def _displayed_strings() -> list[str]:
+    """Every string step 0 tells the agent to display, however it is laid out.
+
+    The quoted cell of each table row, plus any `- Display: "…"` bullet still
+    there. Both forms rather than the current one, so the shape of the gate is
+    the skill author's to choose and this stays a check on what it *says*.
+    """
+    step = _first_step()
+    return [
+        *re.findall(r"^\s*- Display: \"(.*)\"$", step, re.MULTILINE),
+        *re.findall(r"^\s*\|[^|]*\|\s*\"(.*?)\"\s*\|", step, re.MULTILINE),
+    ]
+
+
 def test_the_session_gate_is_the_first_step_orchestrate_runs() -> None:
     """Below the sub-issue scoping step it is not a gate.
 
@@ -38,7 +52,7 @@ def test_the_session_gate_is_the_first_step_orchestrate_runs() -> None:
     that the run ended without a session; it is that the run happened.
     """
     first = _first_step()
-    assert "session_started" in first, f"step 0 is not the session gate:\n{first}"
+    assert "session_open" in first, f"step 0 is not the session gate:\n{first}"
 
 
 def test_the_gate_sends_the_reader_to_start_session_not_wfctl_start() -> None:
@@ -48,13 +62,20 @@ def test_the_gate_sends_the_reader_to_start_session_not_wfctl_start() -> None:
     mirror is not refreshed, the architecture contract is not loaded, and the
     handoff is not read — and the user never learns any of that was skipped.
 
-    The `Display:` line, not the step. Four paragraphs below it argue for
+    The displayed strings, not the step. Four paragraphs below them argue for
     `/start-session` over `wfctl start` by name, so a search over the whole step
     passes on the argument while the remedy itself says the other thing — which
     is what a mutation of the line demonstrated under #204.
+
+    Read from the gate's table rather than from `- Display:` bullets, which is
+    the form it had while there was one refusal to display. There are two since
+    #200 — a branch that never had a session, and one another conversation
+    holds — and **both** rows are asserted, because a table makes it easy to add
+    a state whose remedy nobody wrote.
     """
-    displayed = re.findall(r"^\s*- Display: \"(.*)\"$", _first_step(), re.MULTILINE)
-    assert any("/start-session" in d for d in displayed), displayed
+    displayed = _displayed_strings()
+    assert len(displayed) >= 2, f"the gate should display a string per state: {displayed}"
+    assert all("/start-session" in d for d in displayed), displayed
 
 
 def test_no_shipped_skill_cites_an_orchestrate_step_by_number() -> None:

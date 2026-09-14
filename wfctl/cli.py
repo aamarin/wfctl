@@ -62,6 +62,21 @@ console = Console(highlight=False)
 # assert a judgement about which is worse.
 _NO_SESSION = "[red]✗ No session found for this branch. Run `wfctl start` first.[/red]"
 
+# The second refusal, and the reason there are two (FR-007). Both mean the caller
+# has no session, and they mean it for reasons with different remedies: nothing
+# has ever run here, versus something is running here and it is not you. One
+# string covering both sends a reader of the second to look for a branch that was
+# never the problem.
+#
+# It names the *conversation* where `_NO_SESSION` names the branch, because that
+# is the only word that distinguishes them — the branch is fine in this state.
+# `wfctl start` and not `--force`: taking the branch over is the ordinary move
+# here, not an override.
+_HELD_ELSEWHERE = (
+    "[red]✗ No wfctl session for this conversation — the last session on this "
+    "branch was opened by a different one. Run `/start-session`.[/red]"
+)
+
 _STATE_GLYPH: dict[str, tuple[str, str]] = {
     "done":        ("●", "green"),
     "in_progress": ("▶", "yellow"),
@@ -528,6 +543,16 @@ def status_cmd(
     # go looking for the flag that widens it further. There is none, and the line
     # says so rather than leaving the search to end in a wrong guess.
     console.print(_IRREVERSIBLE_NOTICE)
+    # SC-005: a reader has to be able to tell a fresh branch from a held one
+    # without opening the log. Only in this state, matching `auto_approve` two
+    # lines down — the other three are the ordinary case, and a notice about the
+    # ordinary case is noise. The identity never appears here, only whether it is
+    # yours; `data-model.md` keeps it out of every surface but the event.
+    if report.session_holder == "other":
+        console.print(
+            "[yellow]⚠[/yellow] another conversation holds this branch — "
+            "`/start-session` takes it over"
+        )
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it
@@ -704,7 +729,17 @@ def resume_cmd() -> None:
         raise typer.Exit(1)
 
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir)
+    caller = _caller_identity()
+    report = build_report(spec_dir, repo_root, agent_dir, caller)
+    # Its own guard rather than `speckit-orchestrate`'s. That skill gates at step
+    # 0 and calls `wfctl resume` at step 3, so both fire on one pipeline run and
+    # this looks redundant — but `resume` is also typed by hand, and that path
+    # reaches this and no gate at all. Orchestrate does not replace `resume`; it
+    # calls it.
+    if report.session_holder == "other":
+        console.print(_HELD_ELSEWHERE)
+        raise typer.Exit(1)
+
     step_name = report.current or "complete"
 
     command, auto = report.next_command, report.auto
@@ -823,7 +858,17 @@ def end_cmd(
         raise typer.Exit(1)
 
     spec_dir = resolve_spec_dir(branch, repo_root)
-    observed = _observe(repo_root, build_report(spec_dir, repo_root, agent_dir))
+    report = build_report(spec_dir, repo_root, agent_dir, _caller_identity())
+    # Refused rather than taken over, which is where `end` parts company with
+    # `start`. Taking a branch over is reversible — the displaced conversation
+    # runs `/start-session` and takes it back. Ending a session someone else
+    # opened writes *their* handoff, and `end` writes `session-summary.md` once
+    # and never again, so the prose they would have written has nowhere to go.
+    if report.session_holder == "other":
+        console.print(_HELD_ELSEWHERE)
+        raise typer.Exit(1)
+
+    observed = _observe(repo_root, report)
     summary_path, summary_written = _session.end(
         agent_dir, branch, observed, continued=continued
     )
