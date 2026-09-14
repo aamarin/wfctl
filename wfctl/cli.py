@@ -62,6 +62,21 @@ console = Console(highlight=False)
 # assert a judgement about which is worse.
 _NO_SESSION = "[red]✗ No session found for this branch. Run `wfctl start` first.[/red]"
 
+# The second refusal, and the reason there are two (FR-007). Both mean the caller
+# has no session, and they mean it for reasons with different remedies: nothing
+# has ever run here, versus something is running here and it is not you. One
+# string covering both sends a reader of the second to look for a branch that was
+# never the problem.
+#
+# It names the *conversation* where `_NO_SESSION` names the branch, because that
+# is the only word that distinguishes them — the branch is fine in this state.
+# `wfctl start` and not `--force`: taking the branch over is the ordinary move
+# here, not an override.
+_HELD_ELSEWHERE = (
+    "[red]✗ No wfctl session for this conversation — this branch has no "
+    "session open for it right now. Run `/start-session`.[/red]"
+)
+
 _STATE_GLYPH: dict[str, tuple[str, str]] = {
     "done":        ("●", "green"),
     "in_progress": ("▶", "yellow"),
@@ -242,6 +257,36 @@ def _notify_line(source: str, issue: str | None) -> str:
     return _NOTIFY_LINES.get(source, _NOTIFY_LINES["unset"])
 
 
+def _caller_identity() -> str | None:
+    """The calling conversation's identity, for the commands that only read it.
+
+    `start` takes `--session-id` because it is the command that *records* one,
+    and a person may want to type it. `status`, `resume` and `end` only ever
+    compare, and contracts/cli.md gives them no flag — so the environment is
+    their whole channel, which is also the one the shipped skill uses.
+
+    Read here rather than in `build_report` so the identity enters the pipeline
+    the same way on every path: as an argument the caller supplies. wfctl reading
+    its own environment *inside* the inference would be one step from deriving
+    the value, which `session-identity-comes-from-the-caller` forbids.
+    """
+    from wfctl._session import identity
+
+    return identity(os.environ.get("WFCTL_SESSION_ID"))
+
+
+def _identity_kwarg(caller: str | None) -> dict[str, str]:
+    """The `session_id` key for a `start` event, or nothing at all.
+
+    Omitted rather than written as `null` when no identity was presented
+    (`data-model.md` § Start event). A reader cannot tell "this session had no
+    identity" from "this line predates the feature", and does not need to — they
+    are the same fact, so one representation serves both and the log gains no
+    key that means nothing.
+    """
+    return {"session_id": caller} if caller is not None else {}
+
+
 @app.command("start")
 def start_cmd(
     force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded"),
@@ -272,6 +317,14 @@ def start_cmd(
              "otherwise allow it. Merging, closing and deleting are never "
              "covered by either.",
     ),
+    session_id: str | None = typer.Option(
+        None, "--session-id", envvar="WFCTL_SESSION_ID",
+        help="Opaque identity for the calling conversation. Recorded verbatim "
+             "and never parsed; wfctl compares it and nothing else. Presenting "
+             "an identity a branch does not already hold takes the branch over. "
+             "Omit it and every gate behaves exactly as it did before this "
+             "existed.",
+    ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
@@ -279,13 +332,20 @@ def start_cmd(
     from wfctl._session import (
         grant_auto_approve,
         grant_notify,
+        identity,
+        last_session_id,
         notify_grant,
         record_notify_resolved,
     )
 
     agent_dir, repo_root, branch, issue = _resolve_context()
+    # Resolved once, here, and passed down. The environment fallback lives on the
+    # option rather than at each read, so a caller that exports the variable and
+    # a caller that types the flag reach every branch below by the same path —
+    # and there is one place where blank becomes absent rather than one per use.
+    caller = identity(session_id)
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir)
+    report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     # Before the early return, not after. `start` is idempotent about the session
     # and must not be about the flag: `/start-session` opens the session on a
@@ -335,6 +395,30 @@ def start_cmd(
 
     if report.session_started and not force:
         report_notify()
+
+        # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller for whom
+        # this branch does not already read `"self"` — including a holder that
+        # is absent, which every branch predating this feature has, and a holder
+        # that matches but has an `end` since — gets the branch by appending a
+        # new `start` line rather than by editing or deleting anything.
+        # `report.session_holder` rather than a fresh identity comparison here:
+        # it is the holder *relation* (`session_open_for`), which already folds
+        # in `ended` — a raw `last_session_id(...) != caller` check does not, and
+        # reads a caller's own wrapped-up session as still "self", so it neither
+        # takes over nor appends anything and leaves the conversation locked out
+        # of the branch it just ended (#200). `caller is not None` is what keeps
+        # FR-006: an unwired caller presents nothing and can never trigger this,
+        # whatever the holder is.
+        if caller is not None and report.session_holder != "self":
+            append_event(
+                agent_dir, "start", branch=branch,
+                step=report.current or "complete", session_id=caller,
+            )
+            console.print(
+                "[green]✓[/green] Session started — took over from another conversation"
+            )
+            return
+
         # The sitting boundary, on the path that carries almost every sitting
         # after the first. `session_started` reads the *first* of these, so this
         # changes nothing it answers; what it records is that a new sitting opened
@@ -343,17 +427,34 @@ def start_cmd(
         # log on purpose — `/start-session` runs it on every handoff, and an
         # unconditional append would grow the file with lines repeating the
         # previous one. A sitting that ran nothing writes nothing.
+        #
+        # Not reached by a takeover: the append above already leaves a fresh
+        # `start` line, which resets the same boundary this one exists to add —
+        # a second line here would only duplicate it.
         from wfctl._stall import opens_a_new_sitting
 
         if opens_a_new_sitting(agent_dir, branch):
+            # `caller` is `None` here whenever this call is unwired — not only
+            # on a branch nobody ever identified. `_identity_kwarg(None)` writes
+            # a `start` line with no `session_id`, and every reader of the log
+            # treats that line as resetting the holder to absent
+            # (`_holder_since_last_boundary`), so an unwired re-run would
+            # silently drop a wired holder's identity mid-branch (#200) — the
+            # exact thing `session-identity-comes-from-the-caller` exists to
+            # prevent. Carrying the existing holder forward makes an unwired
+            # call a true no-op on identity, matching FR-006.
+            identity_to_record = (
+                caller if caller is not None else last_session_id(agent_dir, branch)
+            )
             append_event(
-                agent_dir, "start", branch=branch, step=report.current or "complete"
+                agent_dir, "start", branch=branch, step=report.current or "complete",
+                **_identity_kwarg(identity_to_record),
             )
         console.print("ℹ Already initialized (use --force to reset)")
         return
 
     step = report.current or "complete"
-    append_event(agent_dir, "start", branch=branch, step=step)
+    append_event(agent_dir, "start", branch=branch, step=step, **_identity_kwarg(caller))
     report_notify()
     console.print(
         f"[green]✓[/green] Session started — step: {step}, "
@@ -535,7 +636,7 @@ def status_cmd(
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir)
+    report = build_report(spec_dir, repo_root, agent_dir, _caller_identity())
 
     # Read back, not corrected here. The trunk answer used to be composed at this
     # call site, which made the console the only place the corrected grant
@@ -560,6 +661,14 @@ def status_cmd(
             # *whose* tasks.md said so, which is how #120 stayed quiet.
             "spec_dir": str(spec_dir) if spec_dir is not None else None,
             "session_started": report.session_started,
+            # Beside `session_started`, never instead of it. A reader that knows
+            # only the old key sees no change in any row of contracts/cli.md,
+            # which is the whole of SC-006 and why the field was not repurposed.
+            # Both always present, for `notify`'s reason: a consumer cannot tell
+            # an absent key from a false one, or from a wfctl too old to know the
+            # question.
+            "session_open": report.session_open,
+            "session_holder": report.session_holder,
             "current": report.current,
             "next_command": report.next_command,
             "auto": report.auto,
@@ -607,6 +716,23 @@ def status_cmd(
     # reason: a reader who has just been told what this agent may and may never
     # do is owed the fact that a second, unrelated authority also governs it.
     console.print(_HOST_AUTHORITY_NOTICE)
+    # SC-005: a reader has to be able to tell a fresh branch from a held one
+    # without opening the log. Only in this state, matching `auto_approve` two
+    # lines down — the other three are the ordinary case, and a notice about the
+    # ordinary case is noise. The identity never appears here, only whether it is
+    # yours; `data-model.md` keeps it out of every surface but the event.
+    if report.session_holder == "other":
+        # Not "another conversation holds this branch": `"other"` is also state
+        # C reached the second way — the caller's own session, wrapped up, with
+        # no new `start` since (`data-model.md` § State transitions calls this
+        # "not a state", the same string for both). Naming a party that may not
+        # exist gives a false concurrency alarm to the ordinary case of checking
+        # status right after ending your own session — `_HELD_ELSEWHERE` already
+        # keeps the same neutral phrasing for the same reason.
+        console.print(
+            "[yellow]⚠[/yellow] this branch is not open for you — "
+            "`/start-session` takes it over"
+        )
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
         # #127 scope item 5, and provisional by the issue's own instruction — it
@@ -795,12 +921,22 @@ def resume_cmd() -> None:
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not session_started(agent_dir):
+    if not session_started(agent_dir, branch):
         console.print(_NO_SESSION)
         raise typer.Exit(1)
 
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir)
+    caller = _caller_identity()
+    report = build_report(spec_dir, repo_root, agent_dir, caller)
+    # Its own guard rather than `speckit-orchestrate`'s. That skill gates at step
+    # 0 and calls `wfctl resume` at step 3, so both fire on one pipeline run and
+    # this looks redundant — but `resume` is also typed by hand, and that path
+    # reaches this and no gate at all. Orchestrate does not replace `resume`; it
+    # calls it.
+    if report.session_holder == "other":
+        console.print(_HELD_ELSEWHERE)
+        raise typer.Exit(1)
+
     step_name = report.current or "complete"
 
     command, auto = report.next_command, report.auto
@@ -916,12 +1052,22 @@ def end_cmd(
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not _session.session_started(agent_dir):
+    if not _session.session_started(agent_dir, branch):
         console.print(_NO_SESSION)
         raise typer.Exit(1)
 
     spec_dir = resolve_spec_dir(branch, repo_root)
-    observed = _observe(repo_root, build_report(spec_dir, repo_root, agent_dir))
+    report = build_report(spec_dir, repo_root, agent_dir, _caller_identity())
+    # Refused rather than taken over, which is where `end` parts company with
+    # `start`. Taking a branch over is reversible — the displaced conversation
+    # runs `/start-session` and takes it back. Ending a session someone else
+    # opened writes *their* handoff, and `end` writes `session-summary.md` once
+    # and never again, so the prose they would have written has nowhere to go.
+    if report.session_holder == "other":
+        console.print(_HELD_ELSEWHERE)
+        raise typer.Exit(1)
+
+    observed = _observe(repo_root, report)
     summary_path, summary_written = _session.end(
         agent_dir, branch, observed, continued=continued
     )

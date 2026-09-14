@@ -38,7 +38,7 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def session_started(agent_dir: Path) -> bool:
+def session_started(agent_dir: Path, branch: str | None = None) -> bool:
     """Whether `wfctl start` has run for this branch.
 
     Read from the event log rather than from a file's existence. `current.json`
@@ -50,18 +50,155 @@ def session_started(agent_dir: Path) -> bool:
     A malformed line is skipped rather than raising: the log is appended to by
     every command, and a truncated final write must not make the session look
     unstarted — that would send the reader to `wfctl start` on a session that is
-    running.
+    running. `isinstance` guards the same way `last_session_id` does: `null`,
+    `3` and `[]` all parse successfully and have no `.get`.
+
+    `branch` filters the same way `_holder_since_last_boundary` does: a line
+    naming a different branch is skipped, and one naming none — every line
+    predating branch-scoping — matches every branch. Without it, a shared
+    `WFCTL_STATE_DIR` let a branch that never ran `start` inherit another
+    branch's line here, while the holder scan two calls later was already
+    scoped — so `session_open_for` fell through to `"unknown"` instead of
+    `"none"`, and `"unknown"` passes the gates `"none"` is meant to stop.
     """
     events = agent_dir / "events.jsonl"
     if not events.exists():
         return False
     for line in events.read_text().splitlines():
         try:
-            if json.loads(line).get("event") == "start":
-                return True
+            data = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(data, dict) or data.get("event") != "start":
+            continue
+        if branch is not None and data.get("branch") not in (None, branch):
+            continue
+        return True
     return False
+
+
+def identity(presented: str | None) -> str | None:
+    """The caller's identity, or None when it presented none.
+
+    Empty and whitespace-only read as absent rather than as an identity, because
+    the shipped skill passes the value through
+    `${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}`, which already
+    collapses unset and empty into "the flag is not there". A reader that treated
+    `""` as an identity would answer differently depending on which of the two
+    the shell happened to produce, for a caller that did the same thing both
+    times.
+
+    The one transformation wfctl performs on the value. Equality is the only
+    other operation — never a parse, a split or a pattern
+    (`session-identity-comes-from-the-caller`).
+    """
+    if presented is None:
+        return None
+    return presented if presented.strip() else None
+
+
+def _holder_since_last_boundary(
+    agent_dir: Path, branch: str | None
+) -> tuple[str | None, bool]:
+    """The identity on the most recent `start` for `branch`, and whether an
+    `end` followed it.
+
+    One scan serves both `last_session_id` and `session_open_for`, filtered
+    the way `opens_a_new_sitting` filters (`_stall.py:174`): a line naming a
+    different branch is skipped, and one naming none — every line predating
+    branch-scoping — matches every branch, so it still counts. Without that
+    filter a shared `WFCTL_STATE_DIR` (`_paths.py:672-676`) would let one
+    branch's `start` answer for another's, which
+    `session-identity-comes-from-the-caller` names as the exact risk.
+
+    `ended` resets on every `start` for the same reason `opens_a_new_sitting`
+    resets `worked` there: whichever boundary is most recent governs, and an
+    `end` an identity never has reason to precede a `start` other than its own
+    — `wfctl end` is gated to the holder, so an `end` line always closes the
+    `start` immediately above it.
+    """
+    events = agent_dir / "events.jsonl"
+    if not events.exists():
+        return None, False
+    holder: str | None = None
+    ended = False
+    for line in events.read_text().splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        if branch is not None and data.get("branch") not in (None, branch):
+            continue
+        event = data.get("event")
+        if event == "start":
+            value = data.get("session_id")
+            holder = identity(value) if isinstance(value, str) else None
+            ended = False
+        elif event == "end":
+            ended = True
+    return holder, ended
+
+
+def last_session_id(agent_dir: Path, branch: str | None = None) -> str | None:
+    """Who holds the branch: the identity on the most recent `start`, or None.
+
+    The *last* start line, where `session_started` reads the first. The two ask
+    different questions of the same lines — has a session ever run here, versus
+    who is in it now — and the append-only log answers both without either
+    rewriting anything. A takeover is a new `start` line, so the holder moves by
+    the same mechanism that records the session opening.
+
+    None covers two cases that are one fact: no `start` line at all, and a line
+    that carries no `session_id`. Both mean nobody identified is holding the
+    branch, which is what FR-012 lets the first identified caller take over.
+
+    `branch` defaults to `None` — every branch — for callers that already scope
+    `agent_dir` to one branch themselves; a caller reading a shared state dir
+    passes its own branch, matching `opens_a_new_sitting`.
+    """
+    holder, _ended = _holder_since_last_boundary(agent_dir, branch)
+    return holder
+
+
+def session_open_for(
+    agent_dir: Path, presented: str | None, branch: str | None = None
+) -> str:
+    """Who holds this branch, relative to the caller: the holder relation.
+
+    One of `"none"`, `"self"`, `"other"`, `"unknown"` — the four states
+    `data-model.md` draws, named as a fact about *whether it is you* rather than
+    as the identity itself, which `status` never prints.
+
+    `"none"` is asked first and beats `"unknown"`. A branch that never had a
+    session and a caller that presented nothing both leave `session_open` false,
+    so the two agree on the answer and differ on what they can tell the reader —
+    and "no session here" is the one that names a remedy.
+
+    **A holder that is absent is `"unknown"`, not `"other"`.** Every branch
+    recorded before this feature has `start` lines carrying no identity, so
+    reading that as a holder the caller is not would refuse every one of them at
+    once. `data-model.md` puts holder-absent and identity-absent in the same
+    state D for exactly this reason: the released behaviour, plus the right for
+    the first identified caller to take over.
+
+    **A holder matching the caller, with an `end` since, still reads `"other"`.**
+    `data-model.md` § State transitions calls this "not a state": a branch whose
+    session was wrapped up is state C to the next reader "the same string, the
+    same remedy" whether that reader is a different conversation or the one that
+    ended it — `docs/architecture/design/200-session-id-rides-on-the-start-event.md`
+    states the criterion as "no `end` event follows it".
+    """
+    if not session_started(agent_dir, branch):
+        return "none"
+    caller = identity(presented)
+    if caller is None:
+        return "unknown"
+    holder, ended = _holder_since_last_boundary(agent_dir, branch)
+    if holder is None:
+        return "unknown"
+    return "self" if holder == caller and not ended else "other"
 
 
 def auto_approve(agent_dir: Path) -> bool:
@@ -663,5 +800,7 @@ def end(
     if written:
         write_atomic(summary_file, _render_session_summary(branch, observed))
 
-    append_event(agent_dir, "end", step=observed.step, continued=continued)
+    append_event(
+        agent_dir, "end", branch=branch, step=observed.step, continued=continued
+    )
     return summary_file, written
