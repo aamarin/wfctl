@@ -400,6 +400,27 @@ def test_start_with_a_new_id_appends_a_start_event(agent_dir: Path) -> None:
     assert starts[-1]["session_id"] == "second"
 
 
+def test_a_second_sitting_with_the_same_id_keeps_the_holder(
+    agent_dir: Path,
+) -> None:
+    """`start` → `resume` → `start` under one identity must not drop it.
+
+    The sitting-boundary append (cli.py, the path every session after the first
+    takes) used to omit `session_id` even when the caller presented one, which
+    reset `last_session_id` to absent and reopened the branch to the next
+    identity that showed up — the exact defect #200 exists to close, on the path
+    every ordinary `/start-session` re-run takes.
+    """
+    runner.invoke(app, ["start", "--session-id", "mine"])
+    runner.invoke(app, ["resume"])
+
+    result = runner.invoke(app, ["start", "--session-id", "mine"])
+
+    assert result.exit_code == 0
+    assert _session.last_session_id(agent_dir) == "mine"
+    assert _session.session_open_for(agent_dir, "mine") == "self"
+
+
 def test_a_caller_with_no_id_never_takes_over(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

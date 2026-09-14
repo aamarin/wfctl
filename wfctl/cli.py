@@ -404,7 +404,8 @@ def start_cmd(
 
         if opens_a_new_sitting(agent_dir, branch):
             append_event(
-                agent_dir, "start", branch=branch, step=report.current or "complete"
+                agent_dir, "start", branch=branch, step=report.current or "complete",
+                **_identity_kwarg(caller),
             )
         console.print("ℹ Already initialized (use --force to reset)")
         return
