@@ -6,8 +6,8 @@ without importing `typer` and `rich`. Everything else falls through unchanged.
 
 A dispatcher rather than a second console script (`wfctl-hook`, say), because
 the installed command string is an interface: it is written into every
-consumer's `.claude/settings.json`, it is quoted in `README.md`, and #136 is
-about to install it for everyone. A second name would have to be threaded
+consumer's `.claude/settings.json`, it is quoted in `docs/reference.md`, and
+#136 is about to install it for everyone. A second name would have to be threaded
 through all three and would strand the settings files already pointing at this
 one. Nothing outside this file learns that the fast path exists.
 """
