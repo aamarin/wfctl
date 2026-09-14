@@ -12,7 +12,6 @@ import types
 
 from typer.testing import CliRunner
 
-from wfctl._predicates import block_reason
 from wfctl._session import record_block_cleared, record_blocked, record_notify_action
 from wfctl.cli import app
 
@@ -84,16 +83,33 @@ def test_a_held_step_adds_no_new_state_name_and_no_new_payload_key(
     assert set(held.keys()) == {"name", "state", "annotation", "reason", "remedy", "is_current"}
 
 
-def test_block_reason_answers_for_the_step_the_block_named(
+def test_two_actions_blocked_against_the_same_step_report_the_latest(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """Shaped after `verification_block`: the first matching reason, or `None`
-    for a step nothing blocks."""
+    """Two different actions can each be refused while the same step is
+    current. The report must show whichever was filed most recently, not
+    whichever `standing_blocks` happens to have seen first — a dict keyed
+    only on step name silently drops the other one either way, but dropping
+    the *newer* block would leave a cleared, months-old reason on screen
+    after a person had already dealt with it."""
+    storyctl_dir.stage_upstream_of("tasks")
     record_blocked(
-        storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused", "decompose",
+        storyctl_dir.agent_dir, "418-storyctl", "push", "refused push", "decompose",
     )
-    assert block_reason(storyctl_dir.agent_dir, "418-storyctl", "decompose") == "refused"
-    assert block_reason(storyctl_dir.agent_dir, "418-storyctl", "implement") is None
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused comment",
+        "decompose",
+    )
+
+    held = next(s for s in _payload()["steps"] if s["name"] == "decompose")
+    assert held["reason"] == "refused comment"
+
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "push", "refused push again", "decompose",
+    )
+
+    held = next(s for s in _payload()["steps"] if s["name"] == "decompose")
+    assert held["reason"] == "refused push again"
 
 
 def test_the_next_action_for_a_held_step_is_the_steps_own_command(
@@ -111,6 +127,30 @@ def test_the_next_action_for_a_held_step_is_the_steps_own_command(
     assert "blocked" not in payload["next_command"]
     assert "clear" not in payload["next_command"]
     assert payload["next_command"] == "/speckit.decompose"
+
+
+def test_a_block_on_implement_with_tasks_still_open_routes_back_to_implement(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A host block filed mid-implementation holds `implement` the same way a
+    failed verification does, but re-running implement is exactly what a
+    mid-task block needs — `next_step_content`'s "every task is already
+    ticked" reasoning for routing a blocked `implement` to `wfctl verify`
+    does not hold with a task still open, and the routing used to ignore
+    that and send the agent to verify an unfinished tree regardless."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n- [ ] T002 open\n")
+    assert next(s for s in _payload()["steps"] if s["name"] == "implement")["state"] \
+        == "in_progress"
+
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused", "implement",
+    )
+
+    payload = _payload()
+    held = next(s for s in payload["steps"] if s["name"] == "implement")
+    assert held["state"] == "in_progress"
+    assert held["reason"] == "refused"
+    assert payload["next_command"] == "/speckit.implement"
 
 
 def test_the_remedy_names_the_host_and_the_clearing_command(
@@ -162,6 +202,27 @@ def test_a_block_after_a_success_holds_again(
     held = next(s for s in _payload()["steps"] if s["name"] == "decompose")
     assert held["state"] == "in_progress"
     assert held["reason"] == "refused later"
+
+
+def test_next_step_md_carries_the_hold_the_same_as_status(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`next` used to infer steps without applying the block hold, so
+    `next-step.md` — the file an agent actually reads — sent it straight back
+    to the refused step with no `why:`/`how:`, while `status` (which does
+    apply the hold) showed the block. The two views must agree."""
+    storyctl_dir.stage_upstream_of("tasks")
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused", "decompose",
+    )
+
+    held = next(s for s in _payload()["steps"] if s["name"] == "decompose")
+    assert held["state"] == "in_progress"
+
+    runner.invoke(app, ["next"])
+    content = (storyctl_dir.agent_dir / "next-step.md").read_text()
+    assert "why: refused" in content
+    assert "wfctl blocked issue-comment --clear" in content
 
 
 def test_clearing_works_for_a_run_holding_no_grant(

@@ -561,24 +561,6 @@ def verification_block(repo_root: Path) -> str | None:
     return None
 
 
-def block_reason(agent_dir: Path, branch: str, step: str) -> str | None:
-    """Why `step` is held by a block the agent reported, or None if nothing
-    holds it (FR-010).
-
-    Shaped after `verification_block`: the first matching reason, or `None`.
-    Reads `standing_blocks`, which has already resolved which actions are
-    still blocked for this branch; this narrows to the one step being asked
-    about — the same two-question split `decompose`'s own predicate draws
-    between "is there a finding" and "does it name this one".
-    """
-    from wfctl._session import standing_blocks
-
-    for block in standing_blocks(agent_dir, branch):
-        if block.step == step:
-            return block.reason
-    return None
-
-
 def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     """Why the design step cannot be complete, or None if nothing blocks it.
 

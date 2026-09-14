@@ -17,6 +17,10 @@ from wfctl.cli import app
 runner = CliRunner()
 
 
+def _payload() -> dict:
+    return json.loads(runner.invoke(app, ["status", "--json"]).output)
+
+
 def test_a_run_holding_no_grant_can_still_report_a_block(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
@@ -131,6 +135,30 @@ def test_a_branch_with_no_feature_still_stores_the_report(
     blocked = [e for e in log if e.get("event") == "blocked"]
     assert len(blocked) == 1
     assert blocked[0]["step"] is None
+
+
+def test_a_block_filed_once_the_pipeline_reads_complete_still_holds_the_last_step(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A block after every step is `done` used to read as `step: null` —
+    indistinguishable from the no-feature-branch case above — because
+    `build_report.current` is `None` for both "no feature claims this branch"
+    and "nothing is left to run". `end-session/SKILL.md`'s own worked example
+    is `wfctl blocked issue-close` run after implementation and verification
+    both finish, which is exactly this state. It has to hold the pipeline's
+    last step, or the promised "the next session reads it as unfinished"
+    never happens."""
+    storyctl_dir.stage_upstream_of("tasks")
+    assert _payload()["current"] is None
+
+    result = runner.invoke(app, ["blocked", "issue-close", "--reason", "host refused"])
+    assert result.exit_code == 0, result.output
+    assert "no step is being held" not in result.output
+    assert "holding `implement`" in result.output
+
+    held = next(s for s in _payload()["steps"] if s["name"] == "implement")
+    assert held["state"] == "in_progress"
+    assert held["reason"] == "host refused"
 
 
 def test_clearing_works_for_a_run_holding_no_grant(

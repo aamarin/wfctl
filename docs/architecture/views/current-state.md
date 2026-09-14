@@ -17,7 +17,7 @@ when this drawing stops matching it. See **Staleness** below.
    │   └─► cli 5266                                    15 out · 1 in   │
    │   └─► _hook 110                                    1 out · 2 in   │
    ╰───────────────────────────────────────────────────────────────────╯
-      │      ╎ 2 private crossings into _pipeline
+      │      ╎ 4 private crossings into _pipeline
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
@@ -45,9 +45,13 @@ importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` reaches `_guard` directly and nothing else, which is
 what lets the guard run without `cli` — see the surface split below. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_predicates`
-and is why this drawing changed at all. The four crossings are unchanged: the
-split moved helpers `_pipeline` used privately into a module that now owns them,
-so `_pipeline` reaches them by public name and no fifth crossing was added.
+and is why this drawing changed at all then. #364 added a third and a fourth:
+`cli` reaches `_pipeline._apply_block_hold` directly from `next_cmd`, the same
+private-crossing shape as the two `_infer_steps`/`_current_step_name` calls
+beside it and for the matching reason, and `_pipeline._STEP_NAMES` from
+`blocked_cmd`, which needs the pipeline's terminal step name to hold something
+once every step reads `done` — see **Six private names crossing
+into `cli`** below.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
 imports nothing back — not because resolution reaches it. Neither `_paths` nor
@@ -132,22 +136,33 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Four private names crossing into `cli`
+### Six private names crossing into `cli`
 
 ```
    cli → _paths._SPEC_DIR_OVERRIDE       "WFCTL_SPEC_DIR"
    cli → _paths._STATE_DIR_OVERRIDE      "WFCTL_STATE_DIR"
    cli → _pipeline._current_step_name    which step still blocks
    cli → _pipeline._infer_steps          the whole inference
+   cli → _pipeline._apply_block_hold     the host-block override, for `next`
+   cli → _pipeline._STEP_NAMES           the terminal step, for `blocked`
 ```
 
-Named without line numbers on purpose: these four are the `crossings` block
+Named without line numbers on purpose: these six are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
 `_pipeline.py:53` states the rule the module intends — *"Public because `cli`
-imports them — the data above stays private"* — and two names on that same
-module break it. Decided in `the-underscore-is-the-module-contract`.
+imports them — the data above stays private"* — and four names on that same
+module break it. `_apply_block_hold` joins the other two for the reason
+`next_cmd` gives inline: `build_report` already composes it with `_infer_steps`,
+but `next` cannot call `build_report` itself (`next_step_content`'s own docstring
+says why — a second read of the gate's git and verify work against artifacts an
+implementing agent may be rewriting) so it recomposes the same two calls
+`build_report` makes. `_STEP_NAMES` is the fourth: `blocked_cmd` needs the
+pipeline's own last step to hold once `build_report.current` reads `None` for
+"nothing is left to run" rather than "no feature claims this branch" — the two
+cases that sentinel used to leave indistinguishable. Decided in
+`the-underscore-is-the-module-contract`.
 
 ### Two domain modules print, and the graph cannot see it
 
@@ -262,4 +277,6 @@ cli -> _paths._SPEC_DIR_OVERRIDE
 cli -> _paths._STATE_DIR_OVERRIDE
 cli -> _pipeline._current_step_name
 cli -> _pipeline._infer_steps
+cli -> _pipeline._apply_block_hold
+cli -> _pipeline._STEP_NAMES
 ```

@@ -438,8 +438,7 @@ class StandingBlock(NamedTuple):
     not since cleared (#364).
 
     Not a raw event: `reason` and `step` are lifted out of it for
-    `_predicates.block_reason` and `_pipeline`'s hold to read without each
-    re-parsing `events.jsonl`.
+    `_pipeline`'s hold to read without re-parsing `events.jsonl`.
     """
 
     action: str
@@ -499,6 +498,11 @@ def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
     Malformed lines are skipped rather than raised, matching `_last_resolved`:
     every command appends here, so a truncated final write must not crash the
     reader that answers whether the pipeline may advance.
+
+    **Ordered by recency, oldest block first.** Two different actions can hold
+    the same step, and a caller that needs the truly latest one — `_apply_block_hold`
+    picks it with a last-write-wins dict comprehension — depends on this order
+    rather than on the order actions first appeared in the log.
     """
     events = agent_dir / "events.jsonl"
     if not events.exists():
@@ -522,6 +526,19 @@ def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
             continue
         reason = data.get("reason") if kind == "blocked" else None
         step = data.get("step") if kind == "blocked" else None
+        # `_apply_block_hold` keys a dict on `.step` — a malformed line whose
+        # `step` survived `json.loads` as a list or number would crash the
+        # reader that must not crash on a malformed line, same as `action`
+        # above.
+        if not isinstance(step, str):
+            step = None
+        # Re-inserted rather than updated in place: a dict preserves a key's
+        # original position across reassignment, so without the pop, iteration
+        # order would reflect which action was *first* seen rather than which
+        # was *most recently* blocked. Two actions holding the same step is
+        # exactly the case `_apply_block_hold`'s last-write-wins dict comprehension
+        # needs this order for — it must see the truly latest block last.
+        latest.pop(action, None)
         latest[action] = (kind, reason, step)
     return [
         StandingBlock(action, reason, step)

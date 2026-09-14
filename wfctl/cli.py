@@ -444,7 +444,9 @@ def blocked_cmd(
     surface, not a sentence an agent has to have read: `--reason` files a
     block, `--clear` releases one, and nothing here says "it worked".
     """
-    from wfctl._pipeline import build_report
+    from rich.markup import escape
+
+    from wfctl._pipeline import _STEP_NAMES, build_report
     from wfctl._paths import resolve_spec_dir
     from wfctl._session import record_block_cleared, record_blocked, standing_blocks
 
@@ -460,16 +462,16 @@ def blocked_cmd(
         standing = {b.action: b for b in standing_blocks(agent_dir, branch)}
         block = standing.get(action)
         if block is None:
-            console.print(f"ℹ no block standing for {action} — nothing to clear")
+            console.print(f"ℹ no block standing for {escape(action)} — nothing to clear")
             return
         record_block_cleared(agent_dir, branch, action)
         if block.step:
             console.print(
-                f"[green]✓[/green] cleared: {action} — "
+                f"[green]✓[/green] cleared: {escape(action)} — "
                 f"`{block.step}` reads from its own artifacts again"
             )
         else:
-            console.print(f"[green]✓[/green] cleared: {action}")
+            console.print(f"[green]✓[/green] cleared: {escape(action)}")
         return
 
     if not reason:
@@ -489,18 +491,32 @@ def blocked_cmd(
     # branch that has not started yet, wrong for a branch that names no
     # feature at all, which is what this branch is here.
     spec_dir = resolve_spec_dir(branch, repo_root)
-    step = None if spec_dir is None else build_report(spec_dir, repo_root, agent_dir).current
+    # `report.current` is `None` for two different reasons: no feature claims
+    # this branch (`spec_dir is None`, handled above), or every step reads
+    # `done`/`skipped` and the pipeline is `"complete"` — `next_step_content`
+    # has no command for that sentinel, so `build_report` reports no current
+    # step at all. A block filed in the second case (the end-session worked
+    # example: `wfctl blocked issue-close` after implementation and
+    # verification are both finished) still has to hold something, or the
+    # promised "the next session reads it as unfinished rather than done"
+    # never happens — so it falls back to the pipeline's last named step,
+    # which `_apply_block_hold` then reopens as `in_progress`.
+    step = None
+    if spec_dir is not None:
+        step = build_report(spec_dir, repo_root, agent_dir).current or _STEP_NAMES[-1]
     record_blocked(agent_dir, branch, action, reason, step)
 
     if step:
-        console.print(f"[green]✓[/green] recorded: {action} blocked — holding `{step}`")
+        console.print(
+            f"[green]✓[/green] recorded: {escape(action)} blocked — holding `{step}`"
+        )
         console.print(
             "  Your host refused this, not wfctl. Re-running the step will be "
             "refused again."
         )
     else:
         console.print(
-            f"[green]✓[/green] recorded: {action} blocked — no step is being held"
+            f"[green]✓[/green] recorded: {escape(action)} blocked — no step is being held"
         )
 
 
@@ -694,16 +710,29 @@ def next_cmd() -> None:
     from wfctl._pipeline import (
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
+        _apply_block_hold,
         _current_step_name,
         _infer_steps,
         next_step_content,
         next_step_file,
     )
+    from wfctl._predicates import build_evidence
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
-    steps = _infer_steps(spec_dir, repo_root)
+    # Built once and threaded into `_infer_steps` rather than left for it to
+    # build internally: `next_step_content` below needs `ev.tasks_open` too,
+    # and a second `build_evidence` call here would be the same duplicate read
+    # this function's own comment two lines down warns against.
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    steps = _infer_steps(spec_dir, repo_root, ev)
+    # Same hold `build_report` applies for `status`/`resume` (FR-010, FR-011):
+    # without it, a step a host block is holding reads here as whatever its own
+    # artifacts say, and this is the file an agent actually acts on — `status`
+    # showing the hold while `next` sends the agent to re-run the refused step
+    # is the disagreement FR-016's asymmetry depends on not existing.
+    steps = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
@@ -723,7 +752,7 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, blocked)
+    command, auto = next_step_content(step_name, blocked, tasks_open=bool(ev and ev.tasks_open))
 
     next_step_md = agent_dir / "next-step.md"
     if command:

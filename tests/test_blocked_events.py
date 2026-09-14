@@ -91,6 +91,25 @@ def test_a_block_on_one_branch_does_not_hold_a_step_on_another(
     assert len(standing_blocks(agent_dir, "418-storyctl")) == 1
 
 
+def test_a_non_string_step_field_is_dropped_rather_than_crashing_the_reader(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`_apply_block_hold` keys a dict on `.step`, so a `step` that survived
+    `json.loads` as a list — a hand-edited or externally corrupted line, valid
+    JSON but not the shape this file ever writes — must not reach it as an
+    unhashable value. Same contract `action` above is already held to."""
+    agent_dir = storyctl_dir.agent_dir
+    with open(agent_dir / "events.jsonl", "a") as f:
+        f.write(
+            '{"ts": "2026-01-01T00:00:00Z", "event": "blocked", "branch": '
+            '"418-storyctl", "action": "push", "reason": "x", "step": ["bad"]}\n'
+        )
+
+    blocks = standing_blocks(agent_dir, "418-storyctl")
+    assert len(blocks) == 1
+    assert blocks[0].step is None
+
+
 def test_a_truncated_final_line_is_skipped_rather_than_crashing_the_reader(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

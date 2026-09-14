@@ -305,11 +305,16 @@ def _apply_block_hold(
     stopped at exactly the one step the block named, not at every step after
     it (`test_holding_a_done_step_does_not_cascade_the_steps_after_it`).
 
-    Reads `standing_blocks` once rather than calling `_predicates.block_reason`
-    per step — the same one-read argument `build_report` already makes for
+    Reads `standing_blocks` once rather than re-deriving the same answer per
+    step — the same one-read argument `build_report` already makes for
     `verification_block` two lines above this call: a second read of the same
     log while an agent is writing to it is a window this file was built to
     close, not to reopen for a second question.
+
+    The dict comprehension below is last-write-wins on purpose: two different
+    actions can hold the same step, and `standing_blocks` returns them oldest
+    first, so the one that lands in `by_step` is the most recently filed —
+    the answer a report should give when asked which block currently applies.
     """
     from wfctl._session import standing_blocks
 
@@ -370,7 +375,9 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
     return [(s.name, s.state in ("done", "skipped")) for s in steps]
 
 
-def next_step_content(step: str, blocked: str | None = None) -> tuple[str, bool]:
+def next_step_content(
+    step: str, blocked: str | None = None, *, tasks_open: bool = False
+) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
     An undefined step yields ("", False) rather than raising: `_current_step_name`
@@ -395,16 +402,25 @@ def next_step_content(step: str, blocked: str | None = None) -> tuple[str, bool]
     (#283): automatic in the table, and blocked whenever its boundary question is
     unanswered.
 
-    A blocked `implement` routes to `wfctl verify` rather than
-    `/speckit.implement`, because re-running implement there does nothing — every
-    task is already ticked and the verdict is what is missing. Tasks still open
-    route to the step command as before: the work itself is what remains.
+    A blocked `implement` with no tasks left open routes to `wfctl verify` rather
+    than `/speckit.implement`, because re-running implement there does nothing —
+    every task is already ticked and the verdict is what is missing. `tasks_open`
+    is what tells the two apart: a host block filed mid-implementation (#364)
+    holds `implement` the same way a failed verification does, but re-running
+    implement is exactly what a mid-task block needs, not `wfctl verify` against
+    an unfinished tree. The caller passes it rather than this function reading
+    `tasks.md` itself, for the same reason `blocked` is passed rather than
+    recomputed — one read of the evidence, held by the caller already.
     """
     if blocked and step in _STEPS:
-        # `implement` routes to what produces its evidence; every other blocked
-        # step routes to itself, because re-entering it is where its answers get
-        # given. The flag is what changes, not usually the destination.
-        return ("wfctl verify" if step == "implement" else _STEPS[step].command), False
+        # `implement` routes to what produces its evidence, unless tasks are
+        # still open — then re-entering implement is where the work is. Every
+        # other blocked step routes to itself, because re-entering it is where
+        # its answers get given. The flag is what changes, not usually the
+        # destination.
+        if step == "implement" and not tasks_open:
+            return "wfctl verify", False
+        return _STEPS[step].command, False
     row = _STEPS.get(step)
     return (row.command, row.continuation == _AUTOMATIC) if row else ("", False)
 
@@ -556,7 +572,7 @@ def build_report(spec_dir: Path | None, repo_root: Path, agent_dir: Path) -> Pip
     # loads a record and shells out to git, and `status` runs on every session
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
-    command, auto = next_step_content(name, blocked)
+    command, auto = next_step_content(name, blocked, tasks_open=bool(ev and ev.tasks_open))
     digest_now = None if ev is None else _stall.digest(ev)
     return PipelineReport(
         steps=[
