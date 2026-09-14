@@ -1,0 +1,845 @@
+# wfctl reference
+
+The full manual. [`README.md`](../README.md) covers installation and the
+quickstart; this is everything else — every command, every environment
+variable, and the mechanics behind `install-skills`, the issue tracker
+abstraction, and architecture records.
+
+- [The pipeline](#the-pipeline)
+- [What lands in your repo](#what-lands-in-your-repo)
+- [Commands](#commands)
+- [Example session](#example-session)
+- [Installing skills](#installing-skills)
+- [Seeding project config (`install-config`)](#seeding-project-config-install-config)
+- [The cross-worktree guard (`hook worktree-guard`)](#the-cross-worktree-guard-hook-worktree-guard)
+- [The merge install mode](#the-merge-install-mode)
+- [Issue trackers](#issue-trackers)
+- [Outward-facing authority (`notify`, `blocked`)](#outward-facing-authority-notify-blocked)
+- [Code changes (`wfctl change`)](#code-changes-wfctl-change)
+- [Where your specs live (`spec-root`)](#where-your-specs-live-spec-root)
+- [The architectural contract (`arch-root`, `arch context`)](#the-architectural-contract-arch-root-arch-context)
+- [The record lifecycle (`arch none`, `arch accept`, `arch check`)](#the-record-lifecycle-arch-none-arch-accept-arch-check)
+- [`resume` vs `next`](#resume-vs-next)
+- [Environment variables](#environment-variables)
+
+## The pipeline
+
+wfctl is driven by your coding agent, not typed by hand. You install a set of
+skills and slash commands into the repo once, then the agent runs the
+spec-driven pipeline while wfctl tracks position and enforces order.
+
+Each step reads and writes real files under `specs/<branch>/` (`spec.md`,
+`plan.md`, `tasks.md`), so `wfctl status` infers where you are from artifacts on
+disk — a step can't be faked or skipped. `wfctl resume` (or
+`/speckit.orchestrate`) re-infers the current step and tells the agent the next
+command to run.
+
+The pipeline, in order (not every step is required for every change — `wfctl
+status` shows which are done):
+
+| Step | Slash command | Produces |
+|------|---------------|----------|
+| brainstorm | `/speckit.brainstorm` | `specs/<branch>/design.md` |
+| specify | `/speckit.specify` | `specs/<branch>/spec.md` |
+| clarify | `/speckit.clarify` | a `## Clarifications` section in `spec.md` — written on every run, including one that finds nothing to ask, since that section is what marks the step done |
+| plan | `/speckit.plan` | `plan.md` |
+| tasks | `/speckit.tasks` | `tasks.md` |
+| analyze | `/speckit.analyze` | cross-artifact consistency check |
+| decompose | `/speckit.decompose` | PR / issue breakdown |
+| implement | `/speckit.implement` | the code |
+
+`brainstorm` is where the `design-levels` skill runs, and it is the step most
+worth not skipping. It descends four levels — behavior, architecture, data and
+ownership, implementation — presenting one per approval instead of a finished
+design in one pass, and each has a gate that has to be answered out loud. Level
+2 lands in `design.md`'s required **Boundaries and Ownership** section, and
+`/speckit.plan`'s Constitution Check verifies it was stated. When a lower level
+invalidates a boundary drawn above it, the rule is to go back up, not to work
+around it in the spec.
+
+Stopping at each level is right for work you want to be in the room for and
+costly for the rest. `wfctl start --auto-approve` moves the approval for one
+feature to the PR: the gates are still answered and the records still written —
+more of them, not fewer — and a reviewer reads them at review time instead.
+`wfctl status` says which mode a feature is in and names the records the run
+wrote.
+
+## What lands in your repo
+
+After `install-skills` (and optionally `install-config`):
+
+| Path | What | Committed? |
+|------|------|------------|
+| `.agents/skills/`, `.agents/commands/` | installed skills + `/speckit.*` command wrappers, agent-agnostic | no (gitignored) |
+| `.claude/`, `.bob/`, `.github/skills/` | one assistant's native paths, only if `--agent` asked for them | no (gitignored) |
+| `.specify/` | speckit runtime (scripts + templates the skills call) | no (gitignored) |
+| `.wf-skills-manifest.json` | install record: wfctl version + content hash + backups | no (gitignored) |
+| `specs/<branch>/` | your `spec.md` / `plan.md` / `tasks.md` | your call — see below |
+| `.workmux.yaml` | worktree config, from `install-config workmux` | **yes** |
+| `.github/pull_request_template.md` | PR template, from `install-config github` | **yes** |
+
+The gitignored paths are install artifacts — regenerate them any time with
+`install-skills`. Only your specs and `.workmux.yaml` are project source.
+
+`install-skills` never touches `specs/` either way, so committing it is a
+project decision: commit it and the plan is reviewable in the PR, or gitignore
+it and only the implementation ships.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `start` | Initialize agent session context (idempotent); `--auto-approve` moves this feature's design approval to the PR |
+| `status` | Show pipeline progress inferred from spec artifacts |
+| `resume` | Re-infer step from filesystem, write `next-step.md`, print current state |
+| `next` | Write next actionable step to `next-step.md` (automation shortcut) |
+| `verify` | Run this repository's definition of done and record the outcome |
+| `end` | End the current session and write summary scaffold |
+| `archive-specs` | Rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
+| `log` | Print color-coded event timeline for the current session |
+| `state-dir` | Print the active XDG state directory path (`--branch` for another's) |
+| `feature-paths` | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
+| `spec-root` | Show, set, or clear the directory this repo's spec dirs live under |
+| `arch-root` | Show the directory this repo's architecture records live under |
+| `arch context` | Print the in-force architectural contract — accepted records only |
+| `arch none` | Declare that a change draws no new architectural boundary |
+| `arch accept` | Promote a `proposed` record to `accepted`, citing where a human agreed |
+| `arch check` | Check that a written record is committed and will reach a reviewer |
+| `issue` | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`/`start`/`stop`) |
+| `notify` | Record a notifying action wfctl doesn't itself gate (a `git push`), or that one was declined |
+| `blocked` | Record that your agent's own host refused an outward action before wfctl ran |
+| `change` | List/view/check code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
+| `install-skills` | Copy the skills, commands and speckit `.specify/` runtime wfctl ships into the current project |
+| `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
+| `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
+| `tracker-check` | Validate a `.agents/trackers/<name>.json` tracker config |
+| `hook` | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`, `response-shape`) — not for interactive use |
+| `check-body` | Check a PR description's drawings, and whether the definition of done has passed |
+| `doctor` | Check the installed skills against the ones this wfctl ships |
+
+`wfctl --version` prints the installed package version and exits. Run `wfctl
+<command> --help` for every option.
+
+## Example session
+
+```
+$ wfctl start
+✓ Session started — step: analyze, next: /speckit.analyze
+
+$ wfctl status
+#436  436-manual-transaction-entry
+────────────────────────────────────
+brainstorm   ●
+specify      ●
+clarify      ●
+plan         ●
+tasks        ●
+analyze      ○  ← current
+decompose    ○
+implement    ○
+
+$ wfctl resume
+↺ Resumed — step: analyze, next: /speckit.analyze (auto: true)
+
+$ wfctl log
+2026-07-15 09:12  start       branch=436-manual-transaction-entry  step=analyze
+2026-07-15 11:03  resume      step=analyze  command=/speckit.analyze  auto=True
+
+$ wfctl end
+✓ Session ended. Summary written to ~/.local/state/wfctl/.../session-summary.md
+```
+
+Install skills into a project:
+
+```
+$ wfctl install-skills
+✓ Installed from wfctl 0.16.0
+  base  33 skills · 27 commands · 8 runtime
+
+Installed to .agents/ — skills and commands in their canonical, agent-agnostic
+form. If your agent needs its own native paths:
+  claude   wfctl install-skills --agent claude
+  bob      wfctl install-skills --agent bob
+  copilot  wfctl install-skills --agent copilot
+
+$ wfctl install-skills --agent claude
+✓ Installed from wfctl 0.16.0
+  base    33 skills · 27 commands · 8 runtime
+  claude  10 skills · 20 commands
+```
+
+## Installing skills
+
+The skills ship inside wfctl, so an install copies from the wheel and needs no
+network. Upgrade wfctl, rerun to update.
+
+Installation is layered. The **base layer** always installs: skills and command
+wrappers in their canonical, agent-agnostic form under `.agents/`, plus the
+speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
+— it never replaces the base.
+
+| `--agent` | Adds on top of `.agents/` |
+|-----------|---------------------------|
+| *(omitted)* / `none` | nothing — the base layer only |
+| `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable. A wrapper whose skill is mirrored is skipped here — both would claim one `/name` — so this layer installs fewer commands than the base one |
+| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
+| `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
+| `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
+
+Every layer owns a unique root, so two assistants can coexist in one repo
+without their bookkeeping colliding.
+
+> **Breaking change in 0.12.0.** `--agent` used to default to `claude`, so every
+> repo got `.claude/` shims whether or not Claude was in use. Bare
+> `install-skills` now writes `.agents/` only; pass `--agent claude` for the old
+> behavior. `uninstall-skills --agent` follows it, defaulting to `base` rather
+> than `claude`. Existing repos upgrade silently — no prompt, no backups — and
+> nothing needs to be run by hand.
+
+**Installing from somewhere else:** `--from <path>` takes the skills from a
+bundle root you name rather than from the wheel that is running — a branch, a
+checked-out PR, or another worktree. Either a checkout (it finds the `wfctl/`
+inside) or the bundle root itself works:
+
+```
+$ wfctl install-skills --from ../116-pr
+✓ Installed from ../116-pr
+
+$ wfctl doctor
+✓ base: skills current (from /home/u/wt/116-pr/wfctl)
+```
+
+**Those two lines name the same source and do not match, on purpose.** The
+install echoes the path you typed, because it is read beside the command you
+just ran. Everything afterwards prints the recorded one, which is resolved —
+absolute, so it means the same thing from any directory, and carrying the
+`wfctl/` that `--from ../116-pr` found *inside* the checkout. Expect both
+differences when matching `doctor` against what you typed.
+
+The path is recorded, so `doctor` afterwards measures that layer against *that*
+tree instead of against the wheel — without it, editing a skill and reinstalling
+reported drift on every run. `--from` is one-shot: a later bare install replaces
+the source with the wheel and says so before it copies.
+
+**Overwrite safety:** if `install-skills` would overwrite a file it didn't
+install itself — e.g. hand-authored speckit commands already in the
+project — it lists them and asks for confirmation first. Pass `--yes`/`-y`
+to skip the prompt (for scripts/CI). Whatever gets overwritten is backed up,
+and:
+
+```
+$ wfctl uninstall-skills --agent claude
+✓ Removed 30 item(s), restored 1 pre-existing file(s) for layer 'claude'
+```
+
+removes that layer and restores anything it overwrote to its original content.
+Files installed fresh (nothing to restore) are just deleted. **Only the named
+layer is touched** — uninstalling `claude` leaves `.agents/` intact, because the
+base layer owns it. `--agent` defaults to `base`, mirroring `install-skills`, so
+a bare install and a bare uninstall round-trip. State lives in
+`.wf-skills-manifest.json` and `.wf-skills-backup/` at the repo root — both are
+cleaned up once nothing references them.
+
+`wfctl doctor` is the single "am I current?" check — it reports the wfctl tool
+and the installed skills (the hash on record vs the bundle this wfctl ships).
+Colour-coded: **green ✓** current, **cyan ⬆** upgrade available, **yellow ⚠**
+warning, **red ✗** error, **dim ℹ** named but not a finding — a path wfctl
+cannot show is its own, or a layer it will not install for you, so neither
+reaches the exit code.
+
+```
+$ wfctl doctor
+⬆ wfctl 0.14.0 → 0.15.0 available
+    upgrade: uv tool install --upgrade git+https://github.com/aamarin/wfctl.git
+⬆ claude: skills stale — installed by wfctl 0.14.0, running 0.15.0
+    update: wfctl install-skills
+```
+
+The tool half asks **two** questions, because the version string alone cannot
+answer the one that matters. A newer release tag gets the upgrade line above.
+Separately, if your build is behind the tip of the branch it was installed from
+— the ordinary case, since the install above tracks the default branch — you get:
+
+```
+✓ wfctl 0.15.0 — latest release
+⬆ build behind main — d8688f6 → 271bb2c
+    bundled skills are from this build too
+    reinstall: uv tool install --force git+https://github.com/aamarin/wfctl.git
+```
+
+Without that second question a build could sit several merges behind and still
+report `✓ latest`, since the version in `pyproject.toml` only changes at release
+time. It matters more since skills became part of the package: stale build,
+stale skills, and the skills check cannot see it because a bundle always matches
+itself.
+
+The build's commit comes from the install metadata Python already records, so
+this costs no extra network call and nothing needs stamping at build time.
+Installs that cannot drift are left alone — a pinned tag, an editable checkout,
+or an install from a package index. Every printed command names the repository
+you installed from, so a fork is never told to reinstall from upstream.
+
+`install-skills` records the wfctl version, a hash of the whole bundle, and the
+source it installed from, which is what makes staleness detectable without a
+network call. Seven verdicts per layer. Against the running wheel: current;
+stale across versions, as above; **stale at the same version** — `⬆ claude:
+bundled skills changed since install`, which is what an editable checkout with
+edited skills looks like; and, for a record written before hashing existed, `⚠
+claude: installed before content hashing`, which warns without failing since the
+layer may well be current. Against a source named with `--from` (above): current,
+`✓ base: skills current (from /home/u/wt/116-pr/wfctl)`; changed, `⬆ base:
+source changed since install`, whose printed remedy carries the same `--from` so
+the repair does not silently swap the source out; and unreadable, `⚠ base:
+installed from … — source is gone, can't check`, which warns rather than fails
+because a checkout moved or deleted is not a defect in this repo. Each names the
+recorded path, resolved — never the one typed at install. Only the tool check needs the
+network, and it degrades to a single `⚠` line naming whichever comparison could
+not run — `⚠ wfctl 0.15.0 — couldn't check releases or branch (offline?)` —
+without weakening the skills verdict. A check that could not run always says so;
+silence would be indistinguishable from a pass.
+
+Exits non-zero when an upgrade is available or a layer is stale — so `wfctl
+doctor` doubles as a freshness gate in scripts, and the `start-session` skill
+runs it so you see freshness every session.
+
+## Seeding project config (`install-config`)
+
+`install-config` drops a standardized config file into your repo, from the same
+bundle `install-skills` reads. Unlike `install-skills` — a managed mirror it
+keeps in sync — this is **seed-once**: the file becomes yours, committed and
+owned. No manifest, no drift-check, no uninstall.
+
+```
+$ wfctl install-config workmux
+✓ Seeded workmux config (1 file(s)) from wfctl 0.15.0
+```
+
+`workmux` seeds a repo-agnostic [`.workmux.yaml`](../wfctl/agents/configs/workmux/.workmux.yaml)
+starter (worktrees under `wt/`, session mode, agent + term windows, an
+issue-number `pre_create` branch guard; project-specific port/env hooks ship
+commented). For `workmux` it also idempotently gitignores the directory that
+config's `worktree_dir` names — carried across a re-seed rather than reset, and
+reported rather than guessed at when the key names somewhere git cannot ignore —
+and sets the config's `agent:` to the resolved agent — `--agent` if given, else the
+sole agent `install-skills` recorded. If the repo installed no agent layer, or
+several, the key is left commented out rather than guessed: `.workmux.yaml` is
+committed, so naming one would push a per-developer preference into everyone's
+checkout. workmux then resolves `<agent>` from `~/.config/workmux/config.yaml`.
+
+It refuses to overwrite an existing file unless you pass `--force` (the file is
+git-tracked, so git is your undo):
+
+```
+$ wfctl install-config workmux
+✗ Would overwrite existing file(s): .workmux.yaml. Pass --force to overwrite (git is your undo).
+```
+
+The seeded `post_create` hook reinstalls skills into each new worktree, and names
+no agent for the same reason the `agent:` key does not — it reads
+**`WFCTL_AGENT`** from your environment instead. Set it once, in your shell
+profile:
+
+```bash
+export WFCTL_AGENT=claude
+```
+
+Unset is a legitimate state: the worktree gets the agent-agnostic `.agents/`
+layer only, which every agent reads. It is also the state a worktree comes up in
+when you never set the variable, so `wfctl doctor` names it — dim, not a finding,
+and the exit code stays 0.
+
+(**workmux** runs each branch as an isolated git worktree + tmux session, so
+agents work in parallel without stepping on each other. The seeded config makes
+new worktrees come up ready.)
+
+**`WFCTL_SESSION_ID`** answers a different question — not which agent, but which
+*conversation*. `wfctl start` records it verbatim (`--session-id`, falling back
+to this variable) and every later gate compares against what it recorded, so a
+second conversation on the same branch is told the truth instead of reading a
+session as open forever. wfctl cannot derive this itself — see
+["Is a session open now?"](architecture/session-identity-comes-from-the-caller.md)
+— so it is a host mapping, set once, beside `WFCTL_AGENT`:
+
+```bash
+# ~/.zshrc
+export WFCTL_SESSION_ID="$CLAUDE_CODE_SESSION_ID"
+```
+
+Unset is the same legitimate state as `WFCTL_AGENT` unset: every gate answers
+exactly as it did before this existed. If your host's own variable turns out to
+rotate more often than a conversation actually does, you will see it as repeated
+takeovers inside one sitting — the fix is this mapping, not a change to wfctl.
+
+`github` seeds [`.github/pull_request_template.md`](../wfctl/agents/configs/github/.github/pull_request_template.md):
+a summary that reads on its own, then issue links, implementation rationale and
+what was actually verified. A config source keeps its own directory structure, so
+this one lands inside the `.github/` your repo already has — the workflows beside
+it are untouched, and only a template already at that path is a conflict.
+
+## The cross-worktree guard (`hook worktree-guard`)
+
+A worktree exists so one branch's work has one isolated home, with its own
+environment, skills and agent. An agent reaching into a sibling worktree puts
+changes somewhere its own checks never run — and `Bash` is where it gets
+through, because a path inside a command string is just a string, so the
+working-directory scoping on `Edit` and `Write` does not apply to it.
+
+`wfctl hook worktree-guard` is a `PreToolUse` hook that refuses those calls.
+Three verbs, three answers:
+
+| | | |
+|---|---|---|
+| create | `workmux add`, `git worktree list` | allowed |
+| read | `cat`, `head`, `grep`, `ls`, `diff`, `git -C <other> log\|show\|diff\|status` | allowed |
+| mutate | `sed -i`, `tee`, `rm`, an editor — or *running* anything there: `uv run`, `pytest`, `make` | refused |
+
+Reading a sibling is ordinary review work and cannot cause the failure, so it
+stays allowed. Executing is not reading: `uv run pytest` over there writes a
+`.venv`, builds the package, and reports on a branch this session is not on.
+
+`wfctl install-skills --agent claude` wires it up. The guard's half of what
+lands in `.claude/settings.json` — the merge mode below lists the rest:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "wfctl hook worktree-guard" }]
+      }
+    ]
+  },
+  "permissions": { "deny": ["Bash(cd:*)"] }
+}
+```
+
+A refusal exits 2, which blocks the call *and* hands the reason to the agent, so
+it hands off instead of retrying the same thing a different way:
+
+```
+Refused: /…/wt/105-mypy-cold-venv/wfctl/ is in another worktree (/…/wt/105-mypy-cold-venv),
+and `uv` is not a read command.
+This session is in /…/wt/129-cross-worktree-guard. Reading across worktrees is fine — cat,
+grep, diff, `git -C <path> log`. Mutating or running there is not: it puts work on a branch
+this session's own checks never run on.
+Hand off instead: workmux send 105-mypy-cold-venv "…" — or ask the user, if that worktree
+has no session.
+```
+
+It is a heuristic and says so. It reads the command as text, so a relative path
+(`../105-mypy-cold-venv/…`), a path built in a variable, or a script that `cd`s
+elsewhere all pass unseen — resolving those means parsing shell. `cd` itself is
+not an allowlisted verb, so the `Bash(cd:*)` denial above closes most of the
+remainder — which is why the install seeds both, not just the hook. Nothing
+fires unless a path in the command belongs to a worktree that already exists,
+so `git worktree add` to a fresh path outside every one of them is invisible
+too. Worktrees outside `wt/` are *not* a gap: the roots come from
+`git worktree list`. See `wfctl/_guard.py` for the full list of what it
+cannot catch.
+
+Not seeded by `install-config`, which is seed-once and would refuse a
+`settings.json` the project already owns — its `--force` would take the project's
+own permissions with it. The merge mode described below is what installs these,
+one entry at a time, leaving every other byte of the file alone.
+
+**The deny rule is yours to remove.** `cd` is an ordinary command, and blocking it
+wholesale catches the case the guard cannot see by also catching harmless ones. If
+you take it out, the next `install-skills` stops rather than putting it back,
+because a bare string in a permissions list cannot say whether you or wfctl wrote
+it. `doctor` says so too and leaves your exit code alone — though only for a rule
+wfctl added: one you wrote yourself is recorded as yours, and wfctl does not
+report on entries it has disclaimed. The refusal names both
+ways forward: restore the rule, or `--force` to take wfctl's version. Nothing
+records a standing "we don't want this" yet; #313 is where that goes.
+
+## The merge install mode
+
+`install-skills --agent claude` adds four entries to `.claude/settings.json` and
+edits nothing else in it. Three are hooks; the first two are the halves of the
+same skill, one before the text is written and one after:
+
+| Event | Command | What it does |
+|---|---|---|
+| `UserPromptSubmit` | `wfctl hook user-prompt` | prints the `digest.md` of each skill the manifest records as installed, so a skill loaded at session start is re-anchored on later turns instead of decaying as the context fills |
+| `Stop` | `wfctl hook response-shape` | reads the finished reply back out of the transcript and warns when it broke a `conversation-response-shape` rule a machine can see — a markdown header, a counted lead-in, length nothing asked for |
+| `PreToolUse`, matched on `Bash` | `wfctl hook worktree-guard` | refuses a shell command that would mutate or run something in a sibling worktree |
+
+The fourth is not a hook: `Bash(cd:*)` in `permissions.deny`, the guard's blunt
+companion described above.
+
+That one entry is the only thing wfctl installs anywhere that cannot say whose it
+is. Every managed hook's command starts `wfctl hook `, so a person reading their
+own JSON can see which rows are not theirs and `uninstall-skills` finds them by
+that prefix. A deny rule is matched by exact text, so decorating it changes what
+it denies. Ownership for it lives in `.wf-skills-manifest.json` instead — wfctl
+records, at the install that first writes it, whether it added the rule or found
+it already there, and removes it on the way out only if that record says it was
+wfctl's and the text still matches. A missing record reads as "not wfctl's",
+which costs a leftover entry rather than one of yours.
+
+The `PreToolUse` entry is also the first whose group carries a `matcher`, so an
+install over a hand-wired guard corrects the scope as well as the command. A
+group is what a matcher applies to, so how that happens depends on who else is in
+it: wfctl's hook alone in a group has the group's matcher corrected and keeps its
+position, while one sharing a group with your own hook moves out into a group of
+its own — correcting it in place would re-scope yours, and uninstall would not
+put that back, because it owns entries rather than matchers.
+
+The `Stop` entry warns and never blocks. The finding rides
+`hookSpecificOutput.additionalContext`, which lands in the next turn's context
+and so reaches the agent that wrote the reply — in time to shape the next one,
+which is the only moment anything can act on it. It rode `systemMessage` as well
+until #298: that key had reached nobody when this was written, and once the
+harness wired it up the reader got the same report twice per firing. It
+carries `|| true` because a non-zero exit on that event tells the agent to keep
+going rather than stopping, so an older `wfctl` on `PATH` would loop at the end
+of every turn instead of printing once. The same rules over a PR description are
+`wfctl check-body <file>`, which is a command rather than a hook because a
+description is a file on disk before `gh pr create` reads it. It reads one more
+thing while it has the branch in front of it: whether a `wfctl verify` record
+covers this tree. That one is there because opening a change is the one road
+every change takes, and `verify`
+was otherwise reached only by the spec pipeline — so a bug fix that skipped the
+pipeline was certified by nothing (#236). Hand it a path *outside* the
+repository: a description written into the worktree is an untracked file, and
+the tree it describes stops being clean by its existing.
+
+Your own permissions, hooks and settings are left alone; `uninstall-skills`
+removes just wfctl's own entries, and `doctor` reports one when it goes missing
+or falls behind. A missing hook is a finding and exits 1; a missing `Bash(cd:*)`
+is a warning that leaves the exit code alone, because removing it is a decision a
+repo is entitled to make and a red build is no way to argue with one. The write
+is where that decision is met instead: `install-skills` refuses rather than
+re-asserting a rule the repo has changed, and `--force` is how you tell it to.
+
+The first install that adds an entry reflows the file (key order, array layout
+and indent width are lost to the JSON round-trip; the trailing newline, the file
+mode and any non-ASCII survive). Later installs leave it closed.
+
+The file is deliberately not gitignored — committing it is what shares the hook
+with everyone who clones. That is also why the hook reads the manifest rather
+than the skills directory: a directory nobody installed can ride along in a
+clone, and it must not be able to put text into your context.
+
+## Issue trackers
+
+`wfctl issue <verb>` runs your project's issue tracker through a small backend,
+so skills can reconcile work against real issues without knowing which tracker
+you use:
+
+```
+wfctl issue list
+wfctl issue view 71
+wfctl issue close 71 --comment "Done in abc123"
+wfctl issue start                      # the branch's issue; work has begun
+```
+
+Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `labels`, `start`,
+`stop`.
+
+**`comment`, `create` and `label` refuse unless someone allowed this branch to
+notify people.** They reach people outside the repo, and nothing does that on a
+branch nobody granted — the first one you run prints a refusal and exits 1. A
+person lifts it with `wfctl start --allow-notify`, or by putting an
+`authority:notify` label on the branch's issue; `wfctl status` says which, in
+every state, and the run records what it did with the authority. Merging,
+closing and deleting are never covered: there is no setting for those.
+
+`labels` lists one issue's labels, one per line, and is what reads that grant. A
+backend that cannot produce the list leaves the verb out and the repo grants from
+the terminal instead.
+
+`start` and `stop` report an event rather than a value — worktree creation and
+removal call them, and a backend with a board moves a column while one without
+declines the verb. Both default to the issue key on the current branch. The
+backend is
+chosen at install time (`install-skills --tracker <name>`) and defined by
+`.agents/trackers/<name>.json` — a map of verb → command. **GitHub ships built
+in**: a repo's first interactive `install-skills` offers to install it, and
+declining (or any non-interactive run — piped, CI, `--yes`) leaves the repo
+without a tracker until you pass `--tracker`. Declining is remembered, so the
+question is asked once and not on every upgrade. Once a repo has a tracker,
+later installs leave the choice and your edits to its config alone — re-copy the
+shipped one with an explicit `--tracker github`. `--tracker none` clears the
+choice entirely, which also re-opens the question on the next interactive
+install.
+
+One exception, and it is the difference between a file that is *missing* and one
+that is *stale*: a later install does copy a file of the recorded backend the
+repo does not have. Since the backend is more than its config — `github.json`
+points verbs at scripts beside it — a repo left holding half of it declares verbs
+that cannot run, and every install said the tree was current. A file already
+there is never rewritten, so a config you edited survives.
+
+That is the upgrade path for a backend that *grows* a file. A backend file that
+changed in place is the other half and still needs the explicit `--tracker
+github`, which is how `start`/`stop` reach a repo that installed the GitHub
+backend before they existed: the config it has keeps naming the verbs it knew.
+Until then the calls degrade the way any unimplemented verb does — `Tracker
+'github' does not support 'start'` — and the board simply does not move.
+GitHub's board write also needs a token carrying the `project` scope, which
+`gh auth login` does not grant by default: `gh auth refresh -s project`.
+For anything else — a private
+Jira/Linear CLI — author a config with the `scaffold-tracker` skill and validate
+it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)
+are supported via the config's `key_pattern`, which also drives how wfctl maps a
+branch to its `specs/` folder.
+
+## Outward-facing authority (`notify`, `blocked`)
+
+Two separate systems can stop an action that reaches outside the repo, and wfctl
+can see only one of them.
+
+**wfctl's own grant** is the notify authority above: `comment`, `create` and
+`label` check it before running, refuse and exit 1 if it's missing, and record
+what they did either way. **Your coding agent's own permission layer** is the
+other one — it can refuse a `Bash` call (a `git push`, a `gh` invocation wfctl
+doesn't wrap) before wfctl's process ever starts, and that refusal produces no
+exit code, no stderr, nothing for wfctl to record on its own.
+
+`wfctl notify <action>` is for the first case where wfctl never gates the
+*action itself* — `git push` is the standing example, since no wfctl verb wraps
+it — but the recording is gated by the same grant `comment`/`create`/`label`
+check: without it, `wfctl notify` refuses and exits 1 too. Record it after
+acting:
+
+```bash
+wfctl notify push
+```
+
+Pass `--declined --reason "..."` when the run held the authority and chose not
+to use it. That's a different fact than a refusal — it's the signal that the
+grant might be too narrow — so it's recorded on its own path:
+
+```bash
+wfctl notify comment --declined --reason "nothing new to report yet"
+```
+
+`wfctl blocked <action> --reason "..."` is for the second case: your agent's own
+host refused the action, and this is how the agent reports a refusal wfctl never
+witnessed. Unlike `notify`, it never checks the grant above — a run the host
+blocked is, by construction, one that may hold no grant at all. Filing a block
+holds the current pipeline step open, so the next `wfctl status` reads it as
+still in progress rather than silently done:
+
+```bash
+wfctl blocked issue-comment --reason "org policy blocks bot comments on this repo"
+wfctl blocked issue-comment --clear   # a person took the action by hand; release the hold
+```
+
+There's no spelling of `blocked` that records success — `--reason` files a
+block, `--clear` releases one, and nothing here ever says "it worked."
+
+## Code changes (`wfctl change`)
+
+`wfctl change` runs through a parallel `changes` section of the tracker config,
+so PRs/patchsets go through one abstraction regardless of forge:
+
+```
+wfctl change list          # your open PRs / patchsets
+wfctl change view 128      # one change
+wfctl change check 128     # which required fields the change is still missing
+```
+
+```json
+"changes": {
+  "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],
+  "view": ["gh", "pr", "view", "{id}"]
+}
+```
+
+`check` is wfctl's own verb rather than one the backend implements — it composes
+the backend's own `fields` read with a comparison wfctl owns. What's required is
+a `change_check` list beside `verify` in `wfctl.json`:
+
+```json
+{ "verify": [ "…" ], "change_check": ["assignees"] }
+```
+
+Leave the key out to inherit from the issue alone. Field names are the
+*backend's* spelling, exactly as its `fields` verb reports them (`assignees`,
+not `assignee`) — a name the backend never reports is a finding rather than
+silence, so a typo shows up on the first run instead of never. Both verbs
+degrade gracefully (exit 0) when no backend is configured or the active one
+doesn't implement it.
+
+**Scoping lists to you (`{me}`)** — set a top-level `"identity"` (e.g. `"@me"`, a
+username, or an email) and use `{me}` in any command. wfctl substitutes it, so
+`list` returns *your* items. Each backend keys on what it needs — GitHub
+`--author @me`, Gerrit `owner:self` — configured once per adapter.
+
+## Where your specs live (`spec-root`)
+
+**The first interactive `wfctl install-skills` in a project asks this**, beside
+the tracker question, and records that you answered so it is never asked again.
+Keeping specs in the repo records no `spec_root` — the default is the absence of
+that setting, so artifacts resolve exactly as they do in a project that predates
+the question. Non-interactive installs, and `--yes`, never ask; nor does a
+project that already ran `wfctl spec-root`.
+
+Two setups. The first needs no configuration at all.
+
+| You want | Do this | Survives `git worktree remove`? |
+|---|---|---|
+| Specs alongside the code | nothing — this is the default | only if you commit them |
+| Specs in a durable location | `wfctl spec-root <dir>` | yes |
+
+**If you commit your specs, you probably want the default.** The problem
+`spec-root` solves is worktree teardown destroying *gitignored* specs; committed
+specs survive by being in git. Moving them out would take them out of version
+control for no gain.
+
+`spec-root` takes any directory. Where you point it is your project's call — a
+sibling directory, a specs repo cloned into the main checkout (which keeps them
+in version control, on their own remote), or anywhere else durable. wfctl only
+resolves the path; it never creates or clones anything.
+
+By default a feature's artifacts live in `<repo>/specs/<branch>/`. In a worktree
+that is a problem: `specs/` is conventionally gitignored, so removing the
+worktree destroys the spec, plan, and tasks with it.
+
+Point the project somewhere durable instead — once, from anywhere in it:
+
+```bash
+wfctl spec-root ~/Development/myproject-specs
+wfctl spec-root            # show the current root and where it came from
+wfctl spec-root --unset    # back to <repo>/specs
+```
+
+The value is stored as `spec_root` in `.wf-skills-manifest.json`. Because that
+file is gitignored and regenerated in every fresh worktree, `spec-root` writes
+the **main checkout's** manifest and tells you which file it wrote; worktrees
+then inherit the setting with no per-worktree setup.
+
+Resolution order:
+
+1. `WFCTL_SPEC_DIR` — a per-invocation override, not configuration. It is
+   process-global, so exporting it from a shell profile redirects *every* repo.
+2. `spec_root` in this repo's manifest.
+3. `spec_root` in the main checkout's manifest — how worktrees inherit it.
+4. `<repo>/specs` — the default.
+
+Paths are stored exactly as typed. `~` is expanded when read, so the manifest
+stays portable across machines; a relative path anchors to the directory of the
+manifest that declared it, never your shell's working directory.
+
+**Recording a root does not move anything.** Existing `<repo>/specs/*` stop being
+found, since the recorded root is the only one consulted — no fallback, so one
+feature's artifacts can never split across two locations. Move them yourself;
+`wfctl doctor` reports the leftovers until you do.
+
+A repo in a bare-clone or separate-gitdir layout has no main checkout to inherit
+from, and nothing outside the repository is read in that case.
+
+## The architectural contract (`arch-root`, `arch context`)
+
+An architecture record is one decision, written down: what was decided, what was
+rejected, and — the field this exists for — **who owns the truth** it settles.
+Records live in `docs/architecture/`, one file per decision, named by a slug
+rather than a number so two worktrees never collide.
+
+```bash
+wfctl arch-root              # where this repo's records live
+wfctl arch context           # the in-force set, for an agent to load
+```
+
+`arch context` is the one an agent reads. It prints only records whose
+frontmatter says `status: accepted`, so a superseded decision cannot be mistaken
+for a live one:
+
+```
+# Architectural contract — 5 accepted decisions
+
+layer-model
+  Source is committed package data under `wfctl/agents/` and
+  `wfctl/specify/`. Every dotted directory at the repo root is generated,
+  gitignored, and never edited by hand.
+```
+
+Anything other than `accepted` — `proposed`, `superseded`, an unrecognized
+value, or no status at all — is left out. The default is deliberately the
+conservative one: presenting an unreviewed decision as binding is the failure
+the status field exists to prevent.
+
+Resolution is the same four steps as `spec-root`: `WFCTL_ARCH_DIR`, then
+`arch_root` in this repo's manifest, then the main checkout's manifest, then
+`<repo>/docs/architecture`. `arch-root` is read-only — the root is declared in
+`.wf-skills-manifest.json`, and the default needs no command to reach it.
+
+Unlike specs, records are **committed**. They are the project's own
+documentation rather than session state, so there is nothing to rescue before a
+worktree is torn down.
+
+## The record lifecycle (`arch none`, `arch accept`, `arch check`)
+
+A record's `status:` frontmatter moves through a lifecycle, and three commands
+drive it alongside `arch context`.
+
+```bash
+wfctl arch none --reason "..."                          # this change draws no new boundary
+wfctl arch accept <slug> --agreed "where a human agreed"  # promote proposed → accepted
+wfctl arch check <path-to-record>                        # will a reviewer actually see it?
+```
+
+**`arch none --reason "<why>"`** declares that a change deliberately draws no
+new architectural boundary — written to
+`<arch-root>/declarations/<branch>.md` (`docs/architecture/declarations/` by
+default; see [`arch-root`](#the-architectural-contract-arch-root-arch-context)
+if the repo points it elsewhere), inside the change under review, so a
+reviewer sees the claim rather than trusting an unwritten one. If `arch-root`
+resolves outside the working tree, the declaration lands outside the reviewed
+change too — `arch none` warns when that happens, since no reviewer would see it. wfctl checks
+only that the reason isn't empty and isn't a placeholder; whether a change
+really draws no boundary has no objective test, so this is a claim a reviewer
+can disagree with, not a proof.
+
+**`wfctl arch accept <slug> --agreed "<citation>"`** is the only thing that
+moves a record from `proposed` into `arch context`'s output. `--agreed` is
+required: it says where a human actually agreed to the decision, because
+nothing wfctl can compute — a merge, a passing check, a shipped command — is
+evidence that a human agreed to anything; each of those only shows the record's
+own claims were implemented. wfctl checks the citation is present, one line, and
+not a placeholder — never that it's true. Run with no slug to list what's
+currently promotable:
+
+```
+$ wfctl arch accept
+✗ Name the record to accept.
+
+  Proposed, and promotable:
+    layer-model
+    session-identity-comes-from-the-caller
+
+  wfctl arch accept <slug> --agreed "<where the human agreed>"
+```
+
+**`wfctl arch check <path>`** answers the one question a written record can't
+ask about itself: will a reviewer opening this branch actually read it? It
+refuses when the record is uncommitted, edited since its last commit, or lives
+outside the current working tree — each of those looks like a pass (the file is
+on disk, the command exits 0) and isn't, because the reviewer would see nothing.
+
+## `resume` vs `next`
+
+`resume` is the primary automation entry point: it re-infers the pipeline step
+from the filesystem, updates `current.json`, writes `next-step.md`, and logs a
+resume event. Use it when returning to a session or when a skill needs to
+advance the pipeline.
+
+`next` is a lighter variant that writes `next-step.md` without requiring a prior
+`wfctl start`. Useful for one-shot step queries.
+
+## Environment variables
+
+| Variable                | Description                                                  |
+|-------------------------|--------------------------------------------------------------|
+| `WFCTL_STATE_DIR`       | Override XDG state directory for the current session         |
+| `WFCTL_BRANCH`          | Override branch detection                                    |
+| `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
+| `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
+| `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
+| `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it only to know whether an absent agent layer was a choice. Unset installs the `.agents/` layer alone |
+| `WFCTL_SESSION_ID`      | Opaque identity for the calling conversation, presented to `wfctl start`'s `--session-id`. Recorded verbatim and compared, never parsed; a caller presenting a different identity than the branch's recorded holder takes it over. Unset behaves exactly as the released version — see the `WFCTL_SESSION_ID` paragraph under [Seeding project config](#seeding-project-config-install-config) above |
+| `WFCTL_SHAPE_ECHO`      | `1` echoes the `Stop` hook's finding to stderr, for exercising `hook response-shape` on a payload piped in by hand. The installed hook entry redirects stderr, so this shows nothing through the harness |
+| `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |
