@@ -27,7 +27,13 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl import _arch
-from wfctl._paths import SCANS_DIR, records_on_this_branch, touched_on_this_branch
+from wfctl._paths import (
+    IMPLEMENTATION_DIR,
+    SCANS_DIR,
+    non_record_subtrees,
+    records_on_this_branch,
+    touched_on_this_branch,
+)
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -421,7 +427,7 @@ def test_a_scan_file_is_not_a_record_this_branch_decided(tmp_path: Path) -> None
     (arch / "a-decision.md").write_text("---\nstatus: accepted\n---\n\n# A decision\n")
     subprocess.run(["git", "checkout", "-qb", "307-x"], cwd=repo, check=True)
 
-    slugs = records_on_this_branch(repo, arch, exclude=arch / SCANS_DIR)
+    slugs = records_on_this_branch(repo, arch, exclude=non_record_subtrees(arch))
 
     assert slugs == ["a-decision"]
 
@@ -441,7 +447,7 @@ def test_a_scan_file_alone_does_not_answer_the_boundary_question(tmp_path: Path)
     subprocess.run(["git", "checkout", "-qb", "307-x"], cwd=repo, check=True)
 
     assert touched_on_this_branch(repo, arch) is True
-    assert touched_on_this_branch(repo, arch, exclude=arch / SCANS_DIR) is False
+    assert touched_on_this_branch(repo, arch, exclude=non_record_subtrees(arch)) is False
 
 
 def test_arch_check_answers_for_a_path_under_scans(
@@ -508,3 +514,98 @@ def test_the_analyze_wrapper_forbids_leaving_without_a_scan_file() -> None:
     section = _section("analyze")
     assert "never leave the step without having written it" in section
     assert "#331" in section, "the settling policy is deferred, and the deferral is named"
+
+
+def test_an_implementation_note_is_not_a_record_this_branch_decided(
+    tmp_path: Path,
+) -> None:
+    """The second non-record subtree, caught on review of the change that added it.
+
+    `implementation/` holds prose saying why one mechanism beat a cheaper one
+    inside a boundary that was already settled — level 4, deciding nothing. It
+    reaches `records_on_this_branch` exactly as `scans/` does, and the exclusion
+    was written for `scans/` by name, so the note printed as `record: <stem>`
+    under the auto-approve notice (#370).
+    """
+    repo = _repo(tmp_path / "r")
+    arch = repo / "docs" / "architecture"
+    (arch / IMPLEMENTATION_DIR).mkdir(parents=True)
+    (arch / IMPLEMENTATION_DIR / "370-callable-over-strategy.md").write_text("# note\n")
+    (arch / "a-decision.md").write_text("---\nstatus: accepted\n---\n\n# A decision\n")
+    subprocess.run(["git", "checkout", "-qb", "370-x"], cwd=repo, check=True)
+
+    slugs = records_on_this_branch(repo, arch, exclude=non_record_subtrees(arch))
+
+    assert slugs == ["a-decision"]
+
+
+def test_an_implementation_note_alone_does_not_answer_the_boundary_question(
+    tmp_path: Path,
+) -> None:
+    """`_observe`'s sibling failure, and the one with no reader to catch it.
+
+    A level-4 note is written on a branch that answered no boundary question —
+    that is what makes it level 4. Counted, `wfctl end`'s handoff reports the
+    boundary as answered on every branch that picked a mechanism deliberately.
+    """
+    repo = _repo(tmp_path / "r")
+    arch = repo / "docs" / "architecture"
+    (arch / IMPLEMENTATION_DIR).mkdir(parents=True)
+    (arch / IMPLEMENTATION_DIR / "370-callable-over-strategy.md").write_text("# note\n")
+    subprocess.run(["git", "checkout", "-qb", "370-x"], cwd=repo, check=True)
+
+    assert touched_on_this_branch(repo, arch) is True
+    assert touched_on_this_branch(repo, arch, exclude=non_record_subtrees(arch)) is False
+
+
+def test_both_non_record_subtrees_are_dropped_in_one_pass(tmp_path: Path) -> None:
+    """Why the exclusion takes a sequence rather than a path.
+
+    Each caller passed one directory, so the second subtree could not be added
+    without every call site changing — and a call site missed fails open, which
+    is the direction that reports a document as a decision. Asserted with both
+    present at once because that is the arrangement a single-path exclusion
+    cannot express at all.
+    """
+    repo = _repo(tmp_path / "r")
+    arch = repo / "docs" / "architecture"
+    (arch / SCANS_DIR).mkdir(parents=True)
+    (arch / SCANS_DIR / "370-clarify.md").write_text("# scan\n")
+    (arch / IMPLEMENTATION_DIR).mkdir(parents=True)
+    (arch / IMPLEMENTATION_DIR / "370-callable-over-strategy.md").write_text("# note\n")
+    subprocess.run(["git", "checkout", "-qb", "370-x"], cwd=repo, check=True)
+
+    assert records_on_this_branch(repo, arch, exclude=non_record_subtrees(arch)) == []
+
+
+def test_an_implementation_note_does_not_answer_the_design_gate(
+    tmp_path: Path,
+) -> None:
+    """The third reader, which the record's Consequences missed the way #307 did.
+
+    `design_block` asks one question — was the boundary question put on this
+    branch — and answers yes to anything under the arch root but `design/`. A
+    level-4 note is written precisely on branches that put no boundary question,
+    so counted it lifts the gate on the branches it exists to hold.
+
+    `scans/` is dropped by the same call and for the same argument. It was
+    reachable here before this change; the exclusion added for one non-record
+    subtree covers both rather than leaving a reader that skips one and not the
+    other.
+    """
+    from wfctl._predicates import design_block
+
+    repo = _repo(tmp_path / "r")
+    arch = repo / "docs" / "architecture"
+    spec_dir = tmp_path / "spec"
+    spec_dir.mkdir()
+    (spec_dir / "design.md").write_text("# design\n")
+    subprocess.run(["git", "checkout", "-qb", "370-x"], cwd=repo, check=True)
+
+    for subtree in (IMPLEMENTATION_DIR, SCANS_DIR):
+        (arch / subtree).mkdir(parents=True, exist_ok=True)
+        (arch / subtree / "370-a-note.md").write_text("# note\n")
+        assert design_block(spec_dir, repo) is not None, subtree
+
+    (arch / "a-decision.md").write_text("---\nstatus: proposed\n---\n\n# A decision\n")
+    assert design_block(spec_dir, repo) is None
