@@ -288,12 +288,18 @@ def test_uninstall_removes_native_skill_mirror(
 # asserting against itself: the intersection is exactly the thing that has to be
 # noticed when it changes.
 _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
+    "architecture-decisions",
+    "architecture-design",
     "conversation-response-shape",
+    "design-levels",
     "fanning-out-code-review",
     "i-have-adhd",
     "opening-a-change",
+    "python-pattern-selection",
     "receiving-code-review",
+    "software-design-decisions",
     "start-session",
+    "using-superpowers",
     "verification-before-completion",
     "worktree-handoff",
 })
@@ -310,9 +316,9 @@ def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
     intact. Delete the wrapper from the bundle and bob has no route left.
 
     That is not hypothetical: it is what the first version of #170's fix did, and
-    it is invisible to every other test here. Deleting five of these seven leaves
-    the suite at 838 passed, because the install-level tests build their own
-    wrapper inside the `bundle` fixture and never read the shipped tree.
+    it is invisible to every other test here. Deleting five of them left the
+    suite at 838 passed, because the install-level tests build their own wrapper
+    inside the `bundle` fixture and never read the shipped tree.
 
     Resolved from the installed package for `test_every_declared_mirror_names_a_
     shipped_skill`'s reason: the autouse `bundle` fixture repoints `BUNDLE_ROOT`
