@@ -138,9 +138,25 @@ _REPLY_SENTENCE = re.compile(
 # for", and both are shaped exactly like a lead-in — one sentence, count, colon,
 # list. Only the prompt separates them, and this pattern is matched against the
 # reply.
+# `both` is not here, and its absence is the rule's own definition rather than a
+# concession. The tell is a count that *announces* — "the count announces a list
+# nobody asked for" (SKILL.md) — and announcing requires the material to be new
+# to the reader. `both` cannot do that: it is anaphoric, so it presupposes a pair
+# already in play and can only refer back to one. `Both actions are done: #643
+# filed, the comment posted` is a counted *fact* whose colon introduces the
+# answer's own evidence, and no filling of `both` produces the shape the rule
+# names. A numeral does — `Three things worth flagging:` introduces three things
+# the reader has not met — so every numeral stays, as do `several` and `a few`,
+# which are vague but still forward-looking.
+#
+# This costs the line `Both things worth naming: …`, a real lead-in the rule no
+# longer sees. That trade is the module's own stated asymmetry (see `_COUNT`'s
+# use below): a missed hit costs attention once, a false positive costs the
+# reader's trust in every other finding — and `both` was firing on the anaphoric
+# case far more often than on the announcing one.
 _COUNT = (
     r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
-    r"|both|several|a few)\b"
+    r"|several|a few)\b"
 )
 _COUNTED = re.compile(rf"^\s*{_COUNT}[^\n]*:", re.IGNORECASE)
 # "Closes the sentence" has to mean the colon and whatever emphasis closes with
