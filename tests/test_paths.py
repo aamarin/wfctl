@@ -466,6 +466,28 @@ def test_resolve_agent_dir_creates_directory(tmp_path: Path, monkeypatch: pytest
     assert result.exists()
 
 
+@pytest.mark.parametrize("override", [True, False], ids=["env-override", "xdg"])
+def test_resolve_agent_dir_without_create_leaves_nothing_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: bool
+) -> None:
+    """The session-restart hook resolves the state dir on reply ends in repos
+    wfctl may never have run in. Creating it there leaves a directory per branch
+    anyone replied on, which nothing ever cleans up."""
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    if override:
+        monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "custom-state"))
+        expected = tmp_path / "custom-state"
+    else:
+        monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+        expected = tmp_path / "xdg" / "wfctl" / "myrepo" / "123-feature"
+
+    assert resolve_agent_dir(repo, "123-feature", create=False) == expected
+    assert not expected.exists()
+    assert not (tmp_path / "xdg").exists()
+
+
 def test_resolve_agent_dir_xdg_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))

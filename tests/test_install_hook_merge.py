@@ -20,6 +20,7 @@ from wfctl.cli import (
     DENY_RULE,
     GUARD_HOOK_COMMAND,
     HOOK_COMMAND,
+    RESTART_HOOK_COMMAND,
     STOP_HOOK_COMMAND,
     app,
 )
@@ -103,7 +104,8 @@ def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path)
                 {"hooks": [{"type": "command", "command": HOOK_COMMAND}]}
             ],
             "Stop": [
-                {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]}
+                {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]},
+                {"hooks": [{"type": "command", "command": RESTART_HOOK_COMMAND}]},
             ],
             "PreToolUse": [
                 {
@@ -1116,3 +1118,105 @@ def test_uninstall_says_nothing_about_a_rule_that_was_simply_deleted(
     assert result.exit_code == 0, result.output
     assert "left in place" not in result.output
     assert "nothing there matched" not in result.output
+
+
+# --- two wfctl features on Stop (#371) ---------------------------------------
+
+def _stop_commands(repo_root: Path) -> list[str]:
+    settings = json.loads(_settings_path(repo_root).read_text())
+    return [h["command"] for g in settings["hooks"]["Stop"] for h in g["hooks"]]
+
+
+def test_a_repo_with_only_the_reply_check_on_stop_gains_the_restart_beside_it(
+    agent_dir: Path,
+) -> None:
+    """Every consumer installed before #371 is in this state. Under the old
+    event-keyed identity the second row read as a hand-edit duplicate and one of
+    the two was deleted on the next install — so the restart would ship to nobody
+    who already had wfctl, or cost them the reply check."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"hooks": {"Stop": [
+        {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]}
+    ]}}, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert _stop_commands(repo_root) == [STOP_HOOK_COMMAND, RESTART_HOOK_COMMAND]
+
+    before = settings_path.read_text()
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert settings_path.read_text() == before
+
+
+def test_install_prunes_a_wfctl_row_on_stop_this_wfctl_no_longer_ships(
+    agent_dir: Path,
+) -> None:
+    """What keeps a rename working now that the merge matches by subcommand. The
+    personal restart script this feature replaced was never a `wfctl hook` row, so
+    a `wfctl hook recycle` here stands for any predecessor wfctl itself renamed."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["hooks"]["Stop"].append(
+        {"hooks": [{"type": "command", "command": "wfctl hook recycle"}]}
+    )
+    settings["hooks"]["Stop"].append(
+        {"hooks": [{"type": "command", "command": "./mine.sh"}]}
+    )
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert _stop_commands(repo_root) == [
+        STOP_HOOK_COMMAND, RESTART_HOOK_COMMAND, "./mine.sh",
+    ]
+
+
+@pytest.mark.parametrize(
+    "removed, cost, not_cost",
+    [
+        (RESTART_HOOK_COMMAND, "no handoff written first", "nothing looks at a reply"),
+        (STOP_HOOK_COMMAND, "nothing looks at a reply", "no handoff written first"),
+    ],
+    ids=["restart-removed", "reply-check-removed"],
+)
+def test_doctor_reports_each_stop_feature_separately(
+    agent_dir: Path, removed: str, cost: str, not_cost: str
+) -> None:
+    """Two features on one event cost different things when one goes, and a
+    check keyed on the event could only say whether *a* wfctl row was there."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["hooks"]["Stop"] = [
+        g for g in settings["hooks"]["Stop"] if g["hooks"][0]["command"] != removed
+    ]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1, result.output
+    assert cost in result.output
+    assert not_cost not in result.output
+
+
+def test_uninstall_removes_both_stop_rows_and_keeps_the_consumers(
+    agent_dir: Path,
+) -> None:
+    """Uninstall stays event-wide on purpose: whatever wfctl put on `Stop` leaves,
+    including a row an older wfctl installed under a name this one never ships."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"hooks": {"Stop": [
+        {"hooks": [{"type": "command", "command": "./mine.sh"}]}
+    ]}}, indent=2) + "\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert _stop_commands(repo_root) == ["./mine.sh"]

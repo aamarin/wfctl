@@ -684,21 +684,28 @@ def project_name(repo_root: Path) -> str:
     return git_dir.parent.name or repo_root.name
 
 
-def resolve_agent_dir(repo_root: Path, branch: str) -> Path:
+def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path:
     """Return state dir: WFCTL_STATE_DIR → `$XDG_STATE_HOME/wfctl/<project>/<branch>`.
 
-    Creates the dir. Project directories sit directly under wfctl's own XDG
-    namespace — no `repos/` or `stories/` level, since everything wfctl stores
-    is a project, and everything under a project is a branch.
+    Creates the dir unless `create` is False. Project directories sit directly
+    under wfctl's own XDG namespace — no `repos/` or `stories/` level, since
+    everything wfctl stores is a project, and everything under a project is a
+    branch.
+
+    `create=False` is for a reader that runs whether or not wfctl was ever used
+    on the branch — the session-restart hook fires on every reply end in every
+    repo with the claude layer, and creating a directory there would leave one
+    behind for each branch anyone replied on.
     """
     override = os.environ.get(_STATE_DIR_OVERRIDE)
     if override:
         d = Path(override)
+    else:
+        repo_name = project_name(repo_root)
+        xdg_base = Path(
+            os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+        )
+        d = xdg_base / "wfctl" / repo_name / branch
+    if create:
         d.mkdir(parents=True, exist_ok=True)
-        return d
-
-    repo_name = project_name(repo_root)
-    xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    d = xdg_base / "wfctl" / repo_name / branch
-    d.mkdir(parents=True, exist_ok=True)
     return d

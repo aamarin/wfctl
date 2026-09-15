@@ -73,6 +73,12 @@ position inferred from artifacts on disk; `wfctl resume` re-infers and writes th
 next command. Session state lives in the XDG state dir — `wfctl state-dir` prints
 it — not in the repo.
 
+In a `claude`-layer worktree, your pane can be auto-restarted mid-session when
+the context window fills (`wfctl hook session-restart`, a managed Stop hook —
+default 200000 tokens, `WFCTL_RESTART_THRESHOLD=0` turns it off per-shell).
+Nobody is at the prompt when it fires, so keep `session-summary.md`'s **Next
+Session TODO** current — it may be the only thing the next session reads.
+
 `specs/` is gitignored, and this repo records a `spec_root` *outside* the working
 tree. `<repo>/specs` is the default, not the truth: resolution is
 `WFCTL_SPEC_DIR`, then this repo's manifest, then the main checkout's manifest,

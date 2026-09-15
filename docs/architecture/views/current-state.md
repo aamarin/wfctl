@@ -13,9 +13,11 @@ when this drawing stops matching it. See **Staleness** below.
 
 ```
    ╭─ surface ─────────────────────────────────────────────────────────╮
-   │ _entry 35                                          2 out · 0 in   │
+   │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
    │   └─► _hook 110                                    1 out · 2 in   │
+   │   └─► _restart ─► domain                                          │
+   │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
       │      ╎ 4 private crossings into _pipeline
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
@@ -24,7 +26,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _pipeline 439   _predicates 603   _arch 458   _archive 339   │      ┊
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
-   │ _change 199     _stall 137                                   │      ┊
+   │ _change 199     _stall 137       _restart 415                │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -208,6 +210,13 @@ lives in `_guard`, one band down, and both doors reach it the same way — which
 is what makes the split safe to have: `_entry` holds no policy, and `_hook` holds
 no policy either beyond which fields of a payload it will trust.
 
+#371 added a second fast-path argv beside the guard's: `hook session-restart`
+runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is
+domain rather than surface because it holds the restart's whole decision, the
+way `_guard` holds the guard's. `_restart_send` is surface: it is a process entry
+point that parses a plan off argv and decides nothing, started detached by
+`_restart` and imported by nothing.
+
 **What this costs.** `cli` is no longer the only surface module, so "does `wfctl
 --help` list it?" stops working as the band's membership test — it lists neither
 of these. The test that still holds is the band's description rather than its
@@ -262,8 +271,8 @@ red rather than stale.
   test *and* a section admitting what the test cannot reach.
 
 ```layers
-surface     cli _entry _hook
-domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _change _stall
+surface     cli _entry _hook _restart_send
+domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _change _stall _restart
 resolution  _paths _manifest
 mechanism   _io _md
 ```

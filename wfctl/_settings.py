@@ -38,6 +38,7 @@ knows about it, because nothing here does I/O.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Collection
 from typing import Any
 
 # Every hook wfctl installs runs this, and nothing else does. Matching on the
@@ -65,34 +66,64 @@ def _is_managed(hook: Any) -> bool:
     )
 
 
-def managed_command(settings: dict, event: str) -> str | None:
-    """The command of the managed hook installed for `event`, or None.
+def subcommand_of(command: str) -> str | None:
+    """The `wfctl hook` subcommand `command` runs, or None when it is not wfctl's.
+
+    A managed row's identity (`a-managed-hook-is-owned-by-its-subcommand`). The
+    event cannot be it once two wfctl features share one — `Stop` carries both the
+    reply check and the session restart — and the whole command cannot either,
+    because the redirect and `|| true` after the name change between versions
+    without the feature changing. The first word after the prefix is already
+    written in every row wfctl installs, so no marker is added to find it.
+    """
+    if not command.startswith(MANAGED_PREFIX):
+        return None
+    words = command[len(MANAGED_PREFIX):].split()
+    return words[0] if words else ""
+
+
+def managed_command(
+    settings: dict, event: str, subcommand: str | None = None
+) -> str | None:
+    """The command of the managed hook for `event` running `subcommand`, or None.
 
     What `doctor` compares against the command the running wfctl would install:
     equal means current, different means behind, None means the consumer removed
-    it after wfctl recorded it.
+    it after wfctl recorded it. `subcommand=None` is any managed row on the event,
+    first in file order — what a caller asking about an event with one wfctl
+    feature on it means.
     """
-    found = _managed(settings, event)
-    return found[0]["command"] if found else None
+    found = _managed_pairs(settings, event, subcommand)
+    return found[0][1]["command"] if found else None
 
 
-def _managed(settings: dict, event: str) -> list[dict]:
-    """Every managed hook entry installed for `event`, in file order."""
-    return [hook for _, hook in _managed_pairs(settings, event)]
+def managed_subcommands(settings: dict, event: str) -> list[str]:
+    """The subcommands of every managed row on `event`, in file order."""
+    return [
+        subcommand_of(hook["command"]) or ""
+        for _, hook in _managed_pairs(settings, event)
+    ]
 
 
-def _managed_pairs(settings: dict, event: str) -> list[tuple[dict, dict]]:
+def _managed_pairs(
+    settings: dict, event: str, subcommand: str | None = None
+) -> list[tuple[dict, dict]]:
     """Every managed hook for `event` with the group holding it, in file order.
 
     Paired rather than flattened because a tool event's `matcher` lives on the
     group, not on the hook: a caller correcting one has to reach the container,
     and the flattened form has already thrown it away.
+
+    Narrowed to one subcommand when given, which is every writer's view: a merge
+    of the reply check must not see the session restart beside it as a duplicate
+    of itself.
     """
     return [
         (group, hook)
         for group in _groups(settings, event)
         for hook in _hooks_of(group)
         if _is_managed(hook)
+        and (subcommand is None or subcommand_of(hook["command"]) == subcommand)
     ]
 
 
@@ -124,10 +155,16 @@ def merge_hook(
     their indentation and key order, so the one run in ten that changes something
     normalises it and the nine that do not never open the file for writing.
 
-    Replaces rather than appends when a managed entry is already present, which
-    is what makes a repeated install idempotent. Replacement is in place — the
-    entry keeps its position in the array, so a consumer who deliberately ordered
-    their hooks around it does not find it moved to the end on the next upgrade.
+    Replaces rather than appends when a managed entry running the same subcommand
+    is already present, which is what makes a repeated install idempotent.
+    Replacement is in place — the entry keeps its position in the array, so a
+    consumer who deliberately ordered their hooks around it does not find it moved
+    to the end on the next upgrade.
+
+    A managed row running a *different* subcommand is another wfctl feature and is
+    left where it is. That costs a rename its position: a subcommand wfctl renamed
+    no longer matches its successor, so the new row is appended and the old one is
+    left for `prune_unshipped`, which the caller runs with the set it ships.
 
     `matcher` is the group's, not the hook's, and `None` means the event has
     nothing to match on — which leaves every group's matcher exactly as found,
@@ -145,7 +182,8 @@ def merge_hook(
     hold, and the reason it does not is that keeping the position would mean
     keeping their matcher wrong.
     """
-    managed = _managed_pairs(settings, event)
+    subcommand = subcommand_of(command)
+    managed = _managed_pairs(settings, event, subcommand)
 
     if len(managed) == 1:
         group, hook = managed[0]
@@ -177,7 +215,9 @@ def merge_hook(
         # More than one can only come from a hand-edit. Two copies inject the same
         # text twice every turn, so they collapse to a single fresh entry rather
         # than leaving a second row for the next install to fight over.
-        remove_hooks(settings, event)
+        _remove_where(
+            settings, event, lambda h: subcommand_of(h["command"]) == subcommand
+        )
 
     hooks = settings.setdefault("hooks", {})
     if not isinstance(hooks, dict):
@@ -206,12 +246,39 @@ def remove_hooks(settings: dict, event: str) -> bool:
     upward prune is what lets uninstall restore a file that never had a `hooks`
     key to a file that has no `hooks` key, rather than to one carrying an empty
     scaffold wfctl invented.
+
+    Every subcommand, not one. Uninstall removes whatever wfctl put on the event,
+    including a row an older wfctl installed under a name this one never ships.
+    """
+    return _remove_where(settings, event, lambda _: True)
+
+
+def prune_unshipped(settings: dict, event: str, shipped: Collection[str]) -> bool:
+    """Drop managed rows on `event` whose subcommand is not in `shipped`.
+
+    What keeps a rename from leaving its predecessor running beside it, now that
+    `merge_hook` no longer treats any wfctl row on the event as the one to
+    replace. Only wfctl's rows are candidates, so a consumer's hook is untouched
+    whatever it runs.
+    """
+    return _remove_where(
+        settings, event, lambda h: subcommand_of(h["command"]) not in shipped
+    )
+
+
+def _remove_where(
+    settings: dict, event: str, doomed: Callable[[dict], bool]
+) -> bool:
+    """Drop managed hooks on `event` for which `doomed` holds. True when it changed.
+
+    `doomed` sees managed entries only — `_is_managed` has already checked the
+    shape it reads — so a predicate can index `command` without guarding.
     """
     changed = False
     surviving_groups = []
     for group in _groups(settings, event):
         hooks = _hooks_of(group)
-        kept = [h for h in hooks if not _is_managed(h)]
+        kept = [h for h in hooks if not (_is_managed(h) and doomed(h))]
         if len(kept) != len(hooks):
             changed = True
             group["hooks"] = kept

@@ -15,6 +15,33 @@ data (step 4). Steps 1–5 and 8 are mandatory; steps 6–7 must be *offered* to
 user, who decides whether to commit and update the tracker. A scaffold left
 unfilled is a failed handoff.
 
+## When the input is `restart`
+
+`wfctl hook session-restart` types `/end-session restart` into a pane whose
+context window is full, and types `/clear` and `/start-session` once this turn
+has recorded its stop. Nobody is at the prompt, and the context is about to be
+discarded — so this turn is the handoff, and the only one. Three steps change:
+
+- **Step 3 runs `wfctl end --continued`**, not bare `wfctl end`. A restarted
+  session is one the next session carries on without being asked, and
+  `/start-session` reads that from the stop this records. A bare `end` says the
+  work was wrapped up, which is the opposite.
+- **Step 4 is filled in full**, as on any other run, and its accomplishments,
+  decisions and **Next Session TODO** are written for a session that will read
+  nothing else. Add one line saying this was an automatic session restart and
+  that the tree was left as found.
+- **Steps 6 and 7 are skipped.** Do not ask about committing or the tracker: the
+  question would sit at a prompt nobody reads until `/clear` discards it. Leave
+  uncommitted work uncommitted and the tracker untouched, and say so in the
+  summary and the step 8 report.
+
+Everything else runs as written, step 5 included.
+
+Only the exact input `restart` does this. Any other input — none, a typo, a
+sentence — is a normal end-session, so a mistyped argument cannot become an
+unattended close. A person who types `/end-session restart` by hand gets the
+same close as the hook; nothing here can tell the two apart, and it does not try.
+
 ## Workflow
 
 1. **Capture the end timestamp** (used in the summary header; also the window for

@@ -20,6 +20,9 @@ import sys
 # reach typer to print anything, and a future flag on the subcommand would
 # otherwise be silently ignored rather than rejected.
 _GUARD_ARGV = ["hook", "worktree-guard"]
+# The same exact-argv rule. This one fires on every reply end rather than every
+# Bash call, and decides nothing on nearly all of them.
+_RESTART_ARGV = ["hook", "session-restart"]
 
 
 def main() -> None:
@@ -29,6 +32,11 @@ def main() -> None:
         # `.buffer`, so an undecodable payload reaches the guard as bytes and is
         # swallowed by its own `except` rather than tracebacking out here.
         raise SystemExit(worktree_guard(sys.stdin.buffer.read()))
+
+    if sys.argv[1:] == _RESTART_ARGV:
+        from wfctl._restart import hook_main
+
+        raise SystemExit(hook_main())
 
     from wfctl.cli import app
 

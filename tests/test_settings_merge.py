@@ -81,11 +81,12 @@ def test_merge_is_idempotent_and_reports_no_change() -> None:
 
 
 def test_merge_replaces_a_stale_command_in_place() -> None:
-    """An upgrade that re-anchors a different set of skills changes the command.
-    The entry keeps its position: a consumer who ordered their hooks around it
-    would otherwise find it moved to the end by an unrelated wfctl upgrade."""
+    """An upgrade that changes what follows the subcommand — a redirect, `|| true`
+    — changes the command. The entry keeps its position: a consumer who ordered
+    their hooks around it would otherwise find it moved to the end by an
+    unrelated wfctl upgrade."""
     settings = copy.deepcopy(CONSUMER)
-    _settings.merge_hook(settings, EVENT, "wfctl hook old-name")
+    _settings.merge_hook(settings, EVENT, f"{COMMAND} 2>/dev/null")
     settings["hooks"][EVENT].append(
         {"hooks": [{"type": "command", "command": "./after.sh"}]}
     )
@@ -98,19 +99,123 @@ def test_merge_replaces_a_stale_command_in_place() -> None:
     ]
 
 
+def test_a_renamed_subcommand_is_replaced_by_merge_then_prune() -> None:
+    """The cost `a-managed-hook-is-owned-by-its-subcommand` names: a rename no
+    longer matches its successor, so the merge appends and the prune is what
+    removes the predecessor. Without the prune both run on every turn — the old
+    name as a usage error nobody sees behind `2>/dev/null`."""
+    settings = copy.deepcopy(CONSUMER)
+    _settings.merge_hook(settings, EVENT, "wfctl hook old-name")
+
+    assert _settings.merge_hook(settings, EVENT, COMMAND) is True
+    assert _settings.prune_unshipped(settings, EVENT, {"user-prompt"}) is True
+    assert _managed(settings) == [{"type": "command", "command": COMMAND}]
+    assert settings["hooks"][EVENT][0] == CONSUMER["hooks"][EVENT][0]
+
+
 def test_merge_collapses_duplicate_managed_entries() -> None:
     """A hand-edited file can hold two. Left alone they inject the same text
     twice on every turn, and the next install would have two rows to reconcile."""
     settings = {
         "hooks": {
             EVENT: [
-                {"hooks": [{"type": "command", "command": "wfctl hook one"}]},
-                {"hooks": [{"type": "command", "command": "wfctl hook two"}]},
+                {"hooks": [{"type": "command", "command": COMMAND}]},
+                {"hooks": [{"type": "command", "command": f"{COMMAND} || true"}]},
             ]
         }
     }
     assert _settings.merge_hook(settings, EVENT, COMMAND) is True
     assert _managed(settings) == [{"type": "command", "command": COMMAND}]
+
+
+# --- two wfctl features on one event ----------------------------------------
+
+SHAPE = "wfctl hook response-shape 2>/dev/null || true"
+RESTART = "wfctl hook session-restart 2>/dev/null || true"
+
+
+def test_a_second_subcommand_on_an_event_is_added_beside_the_first() -> None:
+    """The case the old identity could not express. Keyed on the event, the
+    session restart arriving on `Stop` read as a duplicate of the reply check and
+    the merge deleted one of them — the feature would install and vanish on the
+    next run."""
+    settings: dict = {}
+    _settings.merge_hook(settings, "Stop", SHAPE)
+
+    assert _settings.merge_hook(settings, "Stop", RESTART) is True
+    assert [g["hooks"][0]["command"] for g in settings["hooks"]["Stop"]] == [
+        SHAPE,
+        RESTART,
+    ]
+    assert _settings.merge_hook(settings, "Stop", SHAPE) is False
+    assert _settings.merge_hook(settings, "Stop", RESTART) is False
+
+
+def test_duplicates_collapse_per_subcommand_and_spare_the_other_feature() -> None:
+    """Collapsing is still right for two copies of one feature, and wrong for
+    anything else on the event."""
+    settings = {
+        "hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": SHAPE}]},
+                {"hooks": [{"type": "command", "command": RESTART}]},
+                {"hooks": [{"type": "command", "command": SHAPE}]},
+            ]
+        }
+    }
+    assert _settings.merge_hook(settings, "Stop", SHAPE) is True
+    assert sorted(g["hooks"][0]["command"] for g in settings["hooks"]["Stop"]) == [
+        SHAPE,
+        RESTART,
+    ]
+
+
+def test_managed_command_answers_per_subcommand() -> None:
+    """What doctor asks. A missing session restart must read as missing even with
+    the reply check sitting on the same event."""
+    settings: dict = {}
+    _settings.merge_hook(settings, "Stop", SHAPE)
+
+    assert _settings.managed_command(settings, "Stop", "response-shape") == SHAPE
+    assert _settings.managed_command(settings, "Stop", "session-restart") is None
+
+
+def test_prune_unshipped_leaves_shipped_rows_and_the_consumers_own() -> None:
+    """Only wfctl's rows are candidates, and only those naming a subcommand this
+    wfctl does not ship on the event."""
+    settings = {
+        "hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "./mine.sh"}]},
+                {"hooks": [{"type": "command", "command": SHAPE}]},
+                {"hooks": [{"type": "command", "command": "wfctl hook recycle"}]},
+            ]
+        }
+    }
+    assert _settings.prune_unshipped(settings, "Stop", {"response-shape"}) is True
+    assert [g["hooks"][0]["command"] for g in settings["hooks"]["Stop"]] == [
+        "./mine.sh",
+        SHAPE,
+    ]
+    assert _settings.prune_unshipped(settings, "Stop", {"response-shape"}) is False
+
+
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        ("wfctl hook response-shape 2>/dev/null || true", "response-shape"),
+        ("wfctl hook worktree-guard", "worktree-guard"),
+        ("wfctl hook ", ""),
+        ("wfctl hookup", None),
+        ("./mine.sh", None),
+    ],
+)
+def test_subcommand_of_reads_the_first_word_after_the_prefix(
+    command: str, expected: str | None
+) -> None:
+    """The identity itself. `wfctl hookup` is the trailing-space case again: a
+    consumer's own command must never be read as a wfctl feature."""
+    assert _settings.subcommand_of(command) == expected
 
 
 def test_merge_refuses_a_hooks_key_that_is_not_an_object() -> None:
