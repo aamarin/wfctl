@@ -75,10 +75,36 @@ says what to run next. Those two are the only commands you type by hand often.
 
 ## How it works
 
-You install the skills once per repo; everything after that runs from inside
-your agent. Each pipeline step reads and writes real files under
-`specs/<branch>/`, so `wfctl status` infers your position from artifacts on
-disk instead of an agent's say-so — a step can't be faked or skipped.
+```mermaid
+flowchart LR
+    A[["① Install<br/>(once per repo)"]] --> B[["② Drive the pipeline<br/>(every feature)"]] --> C[["③ Open the change<br/>(every PR)"]]
+```
+
+You install the skills once per repo (①); everything after that runs from
+inside your agent. The part worth seeing up close is ②, because it's the
+actual mechanism wfctl adds — not a diagram of the pipeline steps, but of who
+tells the truth about them:
+
+```mermaid
+flowchart LR
+    subgraph Agent["your coding agent"]
+        S1["/speckit.brainstorm"] --> S2["/speckit.specify"] --> S3["...plan → tasks → implement"]
+    end
+    subgraph Disk["specs/&lt;branch&gt;/"]
+        F1["design.md"] --> F2["spec.md"] --> F3["...plan.md → tasks.md → code"]
+    end
+    Agent -.->|writes| Disk
+    Disk -.->|reads| W["wfctl status / resume"]
+    W -.->|"next: /speckit.____"| Agent
+```
+
+The agent writes artifacts; wfctl only ever reads them back off disk to decide
+what's done and what's next — it never takes the agent's word for its own
+position. The boxes inside `Agent` and `Disk` are today's spec-driven-development
+pipeline specifically, hardcoded into wfctl's own source — there's no config for
+a different one yet ([#382](https://github.com/aamarin/wfctl/issues/382) is the
+idea, not a shipped feature). What's generic is the *mechanism* this diagram
+shows: read artifacts, never trust a claim.
 
 Full pipeline model, every command, environment variables, the issue-tracker
 and architecture-record machinery, and how `install-skills`/`install-config`
