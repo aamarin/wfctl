@@ -410,27 +410,49 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     )
 
 
-def test_decompose_allows_the_commands_its_notify_gate_needs() -> None:
+def test_decompose_allows_the_commands_its_unattended_run_needs() -> None:
     """Same ceiling as brainstorm's, on the step #240 made unattended.
 
     The list was `Read Glob`, which names neither the `Write` that puts
-    `delivery.md` on disk nor the read that decides whether this run may create
-    issues. Attended that cost a permission prompt someone answered. Unattended
-    the two halves fail differently and only one of them is safe: the step-6 read
-    fails closed, so no issue is created — but an unwritten `delivery.md` leaves
-    decompose `pending` and unblocked, which is `auto: true` again, and
-    `speckit-orchestrate` re-emits the command with nothing counting the
-    attempts.
+    `delivery.md` on disk nor the create that fills its keys in. Attended that
+    cost a permission prompt someone answered. Unattended, an unwritten
+    `delivery.md` leaves decompose `pending` and unblocked, which is `auto: true`
+    again, and `speckit-orchestrate` re-emits the command.
 
-    `wfctl notify` is here for the arm nobody reaches on the happy path: a run
-    that *was* granted and declined records why, and a decline it cannot record
-    is indistinguishable from a refusal it never met.
+    `wfctl report-block` is here for the arm nobody reaches on the happy path: a
+    create the host refuses has to be recorded, and a refusal the run cannot
+    record leaves `decompose` reading as done over an issue nobody filed.
     """
     front = (_AGENTS / "commands" / "speckit.decompose.md").read_text().split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
     assert "Write" in allowed, "delivery.md is this step's own artifact"
-    for needed in ("wfctl status", "wfctl issue create", "wfctl notify"):
+    for needed in ("wfctl status", "wfctl issue create", "wfctl report-block"):
         assert f"Bash({needed}*)" in allowed, needed
+
+
+_REMOVED_WITH_THE_GRANT = (
+    "wfctl notify", "wfctl blocked", "--allow-notify", "--deny-notify",
+    "notify_source", "authority:notify",
+)
+
+
+def test_no_shipped_skill_or_command_names_what_the_grant_removal_took_out() -> None:
+    """#384 removed the outward-action grant and the verbs shaped by it, with no
+    aliases. A skill still calling `wfctl notify` fails loudly on `No such
+    command`; one still reading `notify_source` reads a key that is never there
+    and falls into its "treat anything else as refused" branch — which is the
+    stop the removal was for, back again with no error to point at it.
+
+    Visible in the files the change ships, so a check rather than a sentence
+    (`a-rule-is-expressed-as-a-check`).
+    """
+    offenders = [
+        f"{path.relative_to(_AGENTS)}: {name}"
+        for path in sorted(_AGENTS.rglob("*.md"))
+        for name in _REMOVED_WITH_THE_GRANT
+        if name in path.read_text()
+    ]
+    assert not offenders, offenders
 
 
 def test_the_design_record_skill_is_model_invocable() -> None:

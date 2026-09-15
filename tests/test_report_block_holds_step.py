@@ -1,7 +1,7 @@
 """A standing block holds the step it named, and releases both ways (#364).
 
-The event layer is `test_blocked_events.py`; the command surface is
-`test_blocked_cli.py`. This file is the pipeline effect alone: does a block
+The event layer is `test_report_events.py`; the command surface is
+`test_report_verbs.py`. This file is the pipeline effect alone: does a block
 override a step's own reading, does it avoid cascading past itself, and does
 each release path put the step back where its own artifacts leave it.
 """
@@ -12,7 +12,7 @@ import types
 
 from typer.testing import CliRunner
 
-from wfctl._session import record_block_cleared, record_blocked, record_notify_action
+from wfctl._session import record_blocked, record_notify_action
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -124,8 +124,7 @@ def test_the_next_action_for_a_held_step_is_the_steps_own_command(
     )
     payload = _payload()
     assert payload["current"] == "decompose"
-    assert "blocked" not in payload["next_command"]
-    assert "clear" not in payload["next_command"]
+    assert "report-action" not in payload["next_command"]
     assert payload["next_command"] == "/speckit.decompose"
 
 
@@ -153,7 +152,7 @@ def test_a_block_on_implement_with_tasks_still_open_routes_back_to_implement(
     assert payload["next_command"] == "/speckit.implement"
 
 
-def test_the_remedy_names_the_host_and_the_clearing_command(
+def test_the_remedy_names_the_host_and_the_releasing_command(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """FR-015. Says the block came from the agent's host rather than from
@@ -167,31 +166,30 @@ def test_the_remedy_names_the_host_and_the_clearing_command(
     assert held["remedy"] is not None
     assert "host" in held["remedy"]
     assert "wfctl" in held["remedy"]
-    assert "wfctl blocked issue-comment --clear" in held["remedy"]
+    assert "wfctl report-action issue-comment" in held["remedy"]
 
 
 def test_the_remedy_shell_quotes_a_multi_word_action(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """`action` is accepted as free text (`wfctl blocked "issue comment"
+    """`action` is accepted as free text (`wfctl report-block "issue comment"
     --reason refused` is a legal call), so the printed remedy must be too —
     an unquoted copy-paste either fails Typer's parsing or, for a value
-    carrying shell metacharacters, runs something other than the clear it was
-    meant to."""
+    carrying shell metacharacters, runs something other than the release it
+    was meant to."""
     storyctl_dir.stage_upstream_of("tasks")
     record_blocked(
         storyctl_dir.agent_dir, "418-storyctl", "issue comment", "refused", "decompose",
     )
     held = next(s for s in _payload()["steps"] if s["name"] == "decompose")
-    assert "wfctl blocked 'issue comment' --clear" in held["remedy"]
+    assert "wfctl report-action 'issue comment'" in held["remedy"]
 
 
 def test_a_later_success_for_the_same_action_releases_the_hold(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """FR-020. A run that retried and succeeded already writes `notify-action`
-    for itself — that release costs nothing further, with no clearing step of
-    its own."""
+    """A retry that succeeded through `wfctl issue` writes `notify-action` for
+    itself, so the release costs nothing further and needs no clearing step."""
     storyctl_dir.stage_upstream_of("tasks")
     record_blocked(
         storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused", "decompose",
@@ -238,24 +236,4 @@ def test_next_step_md_carries_the_hold_the_same_as_status(
     runner.invoke(app, ["next"])
     content = (storyctl_dir.agent_dir / "next-step.md").read_text()
     assert "why: refused" in content
-    assert "wfctl blocked issue-comment --clear" in content
-
-
-def test_clearing_works_for_a_run_holding_no_grant(
-    storyctl_dir: types.SimpleNamespace,
-) -> None:
-    """FR-013. The path `notify-action` cannot reach — this branch never had
-    `wfctl start --allow-notify` run on it — and `--clear` still releases the
-    step back to its own reading."""
-    storyctl_dir.stage_upstream_of("tasks")
-    record_blocked(
-        storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused", "decompose",
-    )
-    assert next(s for s in _payload()["steps"] if s["name"] == "decompose")["state"] \
-        == "in_progress"
-
-    record_block_cleared(storyctl_dir.agent_dir, "418-storyctl", "issue-comment")
-
-    released = next(s for s in _payload()["steps"] if s["name"] == "decompose")
-    assert released["state"] == "done"
-    assert released["reason"] is None
+    assert "wfctl report-action issue-comment" in content

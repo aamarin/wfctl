@@ -181,7 +181,7 @@ def test_another_branch_passes_are_not_counted(tmp_path: Path) -> None:
 
     Sub-issue branches of one epic are the sharp case: a grouping map resolves
     them to a single spec dir, so their digests match and their step names usually
-    do too. This is the leak `notify-resolved` already carries a branch for.
+    do too. This is the leak `blocked` already carries a branch for.
     """
     mine = [dict(_pass("clarify", "aaa", f"2026-09-10T10:0{i}:00Z"), branch="a") for i in range(2)]
     theirs = [dict(_pass("clarify", "aaa", f"2026-09-10T10:1{i}:00Z"), branch="b") for i in range(3)]
@@ -394,7 +394,7 @@ def test_the_stall_clears_when_the_work_moves(storyctl_dir) -> None:
 
 
 def test_the_json_payload_carries_the_verdict_as_null_when_progressing(storyctl_dir) -> None:
-    """Present-and-null, never omitted, for `notify`'s reason (FR-004).
+    """Present-and-null, never omitted (FR-004).
 
     `speckit-orchestrate` branches on this key. A consumer reading its absence as
     "not stalled" cannot tell that from a wfctl too old to count the passes.

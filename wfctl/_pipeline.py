@@ -274,17 +274,18 @@ def _block_remedy(step_name: str, action: str) -> str:
     """FR-015: the block came from the agent's host, not from wfctl; re-running
     will be refused again; a person takes the action and then records it.
 
-    Named by `action`, not by `step_name` — the clearing command matches the
-    string the block was filed under, which need not read like the step it
-    holds. `wfctl blocked <action> --clear` rather than `wfctl notify` for the
-    reason the level-3 record gives: `notify`'s release is unreachable from a
-    run holding no grant, which is exactly the run that filed this block.
+    Named by `action`, not by `step_name` — the release matches the string the
+    block was filed under, which need not read like the step it holds. The
+    release is `report-action` rather than a clearing verb of its own because
+    recording the action is what lifts the hold, whoever took it
+    (`384-the-agent-reports-through-two-flat-verbs`). A retry that succeeds
+    through `wfctl issue` records it without being told.
 
     `action` is quoted with `shlex.quote` before it goes into the printed
-    command: it is free text (`wfctl blocked "issue comment" --reason ...`
+    command: it is free text (`wfctl report-block "issue comment" --reason ...`
     is a legal call), and an unquoted multi-word or shell-metacharacter value
-    pasted verbatim either fails Typer's parsing or runs something other than
-    the clear it was meant to.
+    pasted verbatim either fails Typer's parsing or records something other than
+    the release it was meant to.
     """
     # Broken after the em-dash rather than left for `rich` to reflow, the same
     # rule `_IRREVERSIBLE_NOTICE` follows: an automatic wrap breaks at whatever
@@ -295,7 +296,7 @@ def _block_remedy(step_name: str, action: str) -> str:
     return (
         "  Your host refused this, not wfctl —\n"
         f"  re-running {step_name} will be refused again.\n"
-        f"  Take the action yourself, then: wfctl blocked {quoted_action} --clear"
+        f"  Take the action yourself, then: wfctl report-action {quoted_action}"
     )
 
 
@@ -462,41 +463,29 @@ class PipelineReport:
     # because there is no step left to run; the mode is still true of a finished
     # story, which ran under one.
     auto_approve: bool = False
-    # Whether this run may take an action that tells someone outside the repo,
-    # and which of the seven answers said so. Both always present and both
-    # defaulted, for the reason above: a report built without them is a report
-    # about a feature nobody granted anything to.
-    #
-    # `notify_source` is not decoration on the boolean. Five of its values mean
-    # refused and they are not one event — nobody granted it, someone turned it
-    # off, the stored value is damaged, the tracker could not be reached, this is
-    # the trunk — and a consumer that sees only `False` cannot tell a person's
-    # decision from a failed read (FR-015).
-    notify: bool = False
-    notify_source: str = "unset"
     # The second session question, beside the first rather than replacing it.
     # `session_started` answers "has a session ever run here" and six skills read
     # it; this answers "is one open for the caller asking" (#200). They are
     # different questions of the same log — the first `start` line against the
     # last — and collapsing them is the defect, not the fix.
     #
-    # `session_holder` is not decoration on the boolean, for `notify_source`'s
-    # reason one field up: `False` covers a branch that never had a session and
-    # one another conversation is holding, and those need different refusals
-    # (FR-007). It never carries the identity itself — only whether it is yours.
+    # `session_holder` is not decoration on the boolean: `False` covers a branch
+    # that never had a session and one another conversation is holding, and those
+    # need different refusals (FR-007). It never carries the identity itself —
+    # only whether it is yours.
     #
     # Defaulted so every existing construction keeps compiling. `"unknown"` with
     # `session_open` mirroring `session_started` is the unwired answer, which is
     # what makes the default the released behaviour rather than a refusal.
     session_open: bool = False
     session_holder: str = "unknown"
-    # The four questions that decide whether the branch is ready, each read from
+    # The three questions that decide whether the branch is ready, each read from
     # its own owner (`readiness-is-not-a-step-state`). Beside `steps` and never
-    # inside them: three of the four are facts about the branch, so a field on a
-    # step would repeat one value down eight rows and assert a per-step variation
-    # that does not exist.
+    # inside them: they are facts about the branch, so a field on a step would
+    # repeat one value down eight rows and assert a per-step variation that does
+    # not exist.
     #
-    # Defaulted, like the two above and for their reason: a report built without
+    # Defaulted, like `auto_approve` and for its reason: a report built without
     # them is a report about a feature nobody granted anything to. Outside the
     # `current`/`next_command`/`auto` triple below, because a finished story's
     # facts are as true as a running one's — there is no step left to run and the
@@ -531,33 +520,6 @@ class PipelineReport:
             )
 
 
-def _corrected_grant(
-    granted: bool, source: str, repo_root: Path, branch: str
-) -> tuple[bool, str]:
-    """The recorded grant, with the two answers only the branch itself can give.
-
-    The trunk is never granted this and a branch that cannot be identified as one
-    or the other is not granted it either — `on_trunk` returns three states and
-    says in its own docstring why the third is not "no".
-
-    Here rather than in `status`, which is where it lived until the facts needed
-    it. A view correcting a payload field is the second inference path
-    `pipeline-state-is-one-payload` rejects, and it survived only because nothing
-    else read the corrected answer. The argument the old call site made is
-    untouched: the *grant* is still read back from the event log once, and the
-    tracker round-trip it avoided is still avoided — what moved is two local git
-    calls, which now every caller of this function pays and only `status` did.
-    """
-    from wfctl._paths import on_trunk
-
-    trunk = on_trunk(repo_root, branch)
-    if trunk is None:
-        return False, "unknown-trunk"
-    if trunk:
-        return False, "trunk"
-    return granted, source
-
-
 def build_report(
     spec_dir: Path | None,
     repo_root: Path,
@@ -577,14 +539,9 @@ def build_report(
     # self-reference rather than a call.
     from wfctl._session import auto_approve as read_auto_approve
     from wfctl._paths import resolve_branch
-    from wfctl._session import resolved_notify, session_open_for, session_started
+    from wfctl._session import session_open_for, session_started
 
     branch = resolve_branch(repo_root)
-    # The branch decides which recorded resolution counts. A state dir shared
-    # across worktrees holds every branch's, and reading the newest regardless of
-    # whose it was is how one feature's grant answered for another.
-    notify = resolved_notify(agent_dir, branch)
-    granted, source = _corrected_grant(notify.granted, notify.source, repo_root, branch)
 
     # `session_open` mirrors `session_started` under `"unknown"` — the unwired
     # row of contracts/cli.md — which is what makes a caller that presents
@@ -645,12 +602,7 @@ def build_report(
         session_open=holder in ("self", "unknown"),
         session_holder=holder,
         auto_approve=read_auto_approve(agent_dir),
-        # Read back rather than resolved here. `start` asks the tracker once and
-        # records the answer; doing it in this function would put a network
-        # round-trip inside the one call every view of pipeline state makes.
-        notify=granted,
-        notify_source=source,
-        facts=_predicates.facts(ev, repo_root, granted, source, verification),
+        facts=_predicates.facts(ev, repo_root, verification),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.

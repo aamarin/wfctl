@@ -83,4 +83,4 @@ def test_a_held_steps_remedy_reaches_the_console_escaped(
 
     assert "Your host refused this, not wfctl" in out
     assert "re-running decompose will be refused again." in out
-    assert "wfctl blocked 'issue-comment[urgent]' --clear" in out
+    assert "wfctl report-action 'issue-comment[urgent]'" in out

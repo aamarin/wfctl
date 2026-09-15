@@ -213,21 +213,21 @@ would report a stale build as current — which is why the tag job exists (#55).
 
 ## Safety
 
-**`wfctl issue comment`, `create` and `label` refuse by default.** They tell
-people outside the repo, and nothing on a fresh branch has allowed that — so the
-first one you run prints a refusal and exits 1 rather than doing anything. That
-is the feature working, not a broken tracker config. A person lifts it with
-`wfctl start --allow-notify` or the `authority:notify` label on the branch's
-issue; `wfctl status` says which, in every state.
+**wfctl does not gate outward actions; your agent's permission layer does.**
+`wfctl issue comment`, `create`, `label` and `close` run when you run them, and a
+refusal you meet comes from the host — Claude Code's auto-mode classifier or its
+equivalent — before wfctl's process starts. Do not route around one with `gh` or
+another client: that is the one gate there is. Report it instead, with
+`wfctl report-block <action> --reason "…"`, which holds the step until the action
+is taken (`wfctl-records-outward-actions-and-never-gates-them`, #384 removed the
+grant that used to stand in front of these).
 
-The answer is resolved once, by `wfctl start`, and read back from the event log
-by everything after it. A label added mid-session is therefore not seen until the
-next `wfctl start` — deliberate, so `status` does not spend a network round-trip
-per call.
+What wfctl keeps is the record. `wfctl issue` logs each write that succeeded as
+`issue-<verb>`, and `wfctl report-action push` logs a push, which is the only
+trace of one a restarted session can read.
 
-`close` is not gated and never will be. It is the irreversible row, which no
-grant reaches; gating it would refuse the human who is the only actor allowed to
-run it.
+`close` is the irreversible row, and it stays the human's: an agent closes an
+issue when a person has said to, never on its own reading of the work.
 
 `install-skills` writes into a project and can overwrite hand-authored files; it
 lists them and asks first. `--yes` skips that prompt — originally for CI, and now

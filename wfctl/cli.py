@@ -99,10 +99,10 @@ _FACT_GLYPH: dict[str, tuple[str, str]] = {
     "n/a":   ("–", "dim"),
 }
 
-# The width of the longest of the four fact names, `outward actions authorized`.
+# The width of the longest of the three fact names, `architecture accepted`.
 # A constant because the block and its tests both need it and a literal in two
 # places is a column that drifts by one space.
-_FACT_NAME_WIDTH = 26
+_FACT_NAME_WIDTH = 21
 
 
 def _wfctl_version() -> str:
@@ -176,33 +176,7 @@ _AUTO_APPROVE_NOTICE = (
 )
 
 
-# One line per resolved state, never silence. `auto_approve` prints nothing when
-# it is off, and copying that here would make a wfctl that knows about grants
-# indistinguishable from one too old to have heard of them — the confusion this
-# repo already lives with between its two installed copies (FR-003).
-#
-# Plain, not terse: `notify — refused; denied locally` is shorter and needs the
-# reader to already hold the vocabulary. And every refusal names which kind it
-# is, because five of them mean the same verdict for different reasons and only
-# some of those are anybody's decision (FR-015).
-#
-# The tracker is named generically rather than as GitHub. The pinned wording in
-# `contracts/notify-grant.md` said "couldn't reach GitHub", which is the same
-# mistake the label read made before it became a declared verb: wfctl talks to
-# whatever backend the repo configured, and naming one of them here would print a
-# false cause on every other.
-_NOTIFY_LINES = {
-    "local": "may notify people — you allowed it in this worktree",
-    "unset": "will not notify anyone — nobody has allowed it for this work",
-    "deny": "will not notify anyone — you turned it off here",
-    "unreadable": "will not notify anyone — couldn't reach the issue tracker to check",
-    "corrupt": "will not notify anyone — couldn't read the setting for this work",
-    "trunk": "will not notify anyone — only feature branches can be granted this",
-    "unknown-trunk": "will not notify anyone — couldn't tell which branch is trunk",
-}
-
-
-# Not keyed on the grant, because no grant value changes it. Merging,
+# Keyed on nothing, because nothing changes it. Merging,
 # force-pushing, closing an issue and deleting a branch or worktree reach
 # history and work that is not this agent's, and the classes record puts them
 # on the row that is "always the human. No switch, not configurable." Named in
@@ -214,8 +188,8 @@ _NOTIFY_LINES = {
 #
 # Naming all four pushes the sentence past one line, so it is authored as two —
 # split at the clause boundary, each half under the 72-character budget
-# `test_every_line_fits_on_one_terminal_line` pins for `_NOTIFY_LINES` — rather
-# than left as one string for `rich` to reflow. An automatic wrap breaks at
+# `test_every_notice_line_fits_on_one_terminal_line` pins — rather than left as
+# one string for `rich` to reflow. An automatic wrap breaks at
 # whatever word the terminal width lands on, and the second half read alone is
 # a fragment; an authored break always lands between "branch" and "or".
 _IRREVERSIBLE_NOTICE = (
@@ -223,38 +197,23 @@ _IRREVERSIBLE_NOTICE = (
     "or worktree — those are yours, and no setting changes it"
 )
 
-# FR-001, FR-002, FR-003. True in every grant state, so it is keyed on nothing —
-# printed unconditionally beside `_IRREVERSIBLE_NOTICE`, never behind
-# `_notify_line`'s branch on `source`.
+# Printed unconditionally beside `_IRREVERSIBLE_NOTICE`. It says who decides
+# whether a command runs, because nothing else on the screen does: wfctl keeps
+# no rule of its own about that (#384), and a refusal a reader meets mid-run
+# came from the agent's host. The first wording said the agent had rules "of its
+# own", which read as a second set beside wfctl's once wfctl's were gone.
 #
-# Names no command on purpose. An agent needs `wfctl blocked` mid-run, long
+# Names no command on purpose. An agent needs `wfctl report-block` mid-run, long
 # after it last read this block; naming it here would put the pointer in the
 # one place the reader is guaranteed not to be looking when it matters. The
-# instruction lives in the skills instead (FR-017).
+# instruction lives in the skills instead.
 #
 # Authored as two lines for the same reason as `_IRREVERSIBLE_NOTICE` above —
 # the full sentence does not fit the single-line budget.
 _HOST_AUTHORITY_NOTICE = (
-    "the agent has permission rules of its own — wfctl can't see them\n"
-    "and says nothing about them"
+    "your agent decides which commands may run — wfctl can't see\n"
+    "its rules and says nothing about them"
 )
-
-
-def _notify_line(source: str, issue: str | None) -> str:
-    """The status line for one resolved state.
-
-    `label` is built rather than looked up because it names the issue the label
-    is on: FR-005 asks the granted line to say where the authority came from, and
-    "on the issue" without which issue sends the reader to look for it.
-
-    An unrecognised source falls back to the refused wording rather than to
-    silence or a raise. A reader seeing a state this function has not been taught
-    should be told the run will not notify anyone, which is what an unrecognised
-    verdict resolves to everywhere else.
-    """
-    if source == "label":
-        return f"may notify people — you allowed it on issue #{issue}"
-    return _NOTIFY_LINES.get(source, _NOTIFY_LINES["unset"])
 
 
 def _caller_identity() -> str | None:
@@ -300,23 +259,6 @@ def start_cmd(
              "instead of stopping for approval in the session. "
              "--no-auto-approve hands the gates back to a human.",
     ),
-    # Tri-state for the same reason as the flag above, and the same failure if it
-    # were not: `/start-session` runs `wfctl start` on every handoff, so a plain
-    # bool would revoke the grant at the first one and an overnight run would go
-    # quiet without anyone touching it.
-    #
-    # The help text carries both vocabularies deliberately. `status` says "may
-    # notify people" and never prints a flag name, so this is the only place a
-    # reader who saw that line can find the command that sets it.
-    allow_notify: bool | None = typer.Option(
-        None, "--allow-notify/--deny-notify",
-        help="Allow this feature to take actions that notify people outside the "
-             "repo — comment on an issue, open one, add a label, push. This is "
-             "the setting behind the 'may notify people' line in `wfctl status`. "
-             "--deny-notify turns it off here, and beats a label that would "
-             "otherwise allow it. Merging, closing and deleting are never "
-             "covered by either.",
-    ),
     session_id: str | None = typer.Option(
         None, "--session-id", envvar="WFCTL_SESSION_ID",
         help="Opaque identity for the calling conversation. Recorded verbatim "
@@ -329,16 +271,9 @@ def start_cmd(
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._session import (
-        grant_auto_approve,
-        grant_notify,
-        identity,
-        last_session_id,
-        notify_grant,
-        record_notify_resolved,
-    )
+    from wfctl._session import grant_auto_approve, identity, last_session_id
 
-    agent_dir, repo_root, branch, issue = _resolve_context()
+    agent_dir, repo_root, branch, _ = _resolve_context()
     # Resolved once, here, and passed down. The environment fallback lives on the
     # option rather than at each read, so a caller that exports the variable and
     # a caller that types the flag reach every branch below by the same path —
@@ -365,37 +300,7 @@ def start_cmd(
             else "[green]✓[/green] auto-approve off — design gates stop for a human"
         )
 
-    # Before the resolution below, so a flag typed now is what the run resolves
-    # against rather than what the previous run left behind.
-    if allow_notify is not None:
-        grant_notify(agent_dir, "granted" if allow_notify else "denied", branch)
-
-    # The run's one tracker round-trip (FR-014). Resolving per command instead
-    # would spend 1.4s on every `wfctl status`, re-reading a label that does not
-    # change while a session runs.
-    grant = notify_grant(agent_dir, repo_root, branch, issue)
-
-    def report_notify() -> None:
-        """Record the answer and say it, on both ways out of this command.
-
-        Called twice rather than hoisted above the early return, because the
-        `start` event has to be the first thing a fresh log holds — that line is
-        what `session_started` reads, and a test asserts on its position because
-        the log is the session. Called on the early path too because a flag typed
-        on an already-started session has to take: `/start-session` opens the
-        session on a worktree's first turn, so by the time anyone types
-        `--allow-notify` the session is already recorded.
-        """
-        # One event, not two. `notify-resolved` already carries `detail` — the
-        # tracker's stderr, which the fixed console line cannot — and it is the
-        # one inside the dedupe. The second event sat outside it, so the single
-        # state that repeats across starts was the only one that grew the log.
-        record_notify_resolved(agent_dir, grant, branch)
-        console.print(_notify_line(grant.source, issue))
-
     if report.session_started and not force:
-        report_notify()
-
         # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller for whom
         # this branch does not already read `"self"` — including a holder that
         # is absent, which every branch predating this feature has, and a holder
@@ -455,125 +360,72 @@ def start_cmd(
 
     step = report.current or "complete"
     append_event(agent_dir, "start", branch=branch, step=step, **_identity_kwarg(caller))
-    report_notify()
     console.print(
         f"[green]✓[/green] Session started — step: {step}, "
         f"next: {report.next_command or '(none)'}"
     )
 
 
-@app.command("notify")
-def notify_cmd(
+@app.command("report-action")
+def report_action_cmd(
     action: str = typer.Argument(
-        ..., help="What was done or skipped — 'push', 'issue-create', 'comment'."
-    ),
-    declined: bool = typer.Option(
-        False, "--declined",
-        help="The run held the authority and chose not to use it. Requires --reason.",
-    ),
-    reason: str = typer.Option(
-        None, "--reason", help="Why the action was declined."
+        ..., help="What this run did — 'push', or 'issue-close' for a close a person "
+                  "took by hand.",
     ),
 ) -> None:
-    """Record a notifying action this run took, or declined to take.
+    """Record an outward action this run took, after it succeeded.
 
-    `wfctl issue` records its own writes, so this is for the ones wfctl does not
-    perform — a push, most of all, which no wfctl verb covers and which is in the
-    notifying class all the same.
+    For what no wfctl verb performs — a push, most of all. `wfctl issue` records
+    its own writes as `issue-<verb>`, so a comment, label, create or close needs
+    nothing from you unless a person took it outside wfctl.
 
-    Declining is the half that needs a surface of its own. An action skipped
-    because the agent judged it should not act, and one refused because nobody
-    granted the authority, are the same absence in the tracker and different
-    facts about the run (FR-011) — and only one of them is a sign the grant
-    should be widened.
+    Recording an action lifts a hold `report-block` filed against the same name,
+    and this says when it did. Checked before the write for the reason `blocked
+    --clear` checked: a mistyped name would otherwise exit 0 over a hold still
+    standing, and nothing on the screen would tell the two apart. Never refuses
+    when nothing matched — a push with no hold is the ordinary case.
     """
-    from wfctl._session import (
-        action_grant,
-        record_notify_action,
-        record_notify_declined,
-    )
+    from rich.markup import escape
 
-    agent_dir, repo_root, _, issue = _resolve_context()
+    from wfctl._session import record_notify_action, standing_blocks
 
-    # Both paths, not just the action one. A decline is a claim about authority
-    # the run *had* — "may notify people, but skipped" — so filing one from a
-    # refused run overstates the grant in the flattering direction, and a decline
-    # is the single signal that says the grant should be widened. The action path
-    # below guarded this from the start; the decline path did not, which is the
-    # inversion FR-011 names, arrived at from the other side.
-    grant = action_grant(agent_dir, repo_root)
-    if not grant.granted:
-        console.print(_notify_line(grant.source, issue))
-        raise typer.Exit(1)
-
-    if declined:
-        if not reason:
-            console.print("[red]✗ --declined requires --reason[/red]")
-            raise typer.Exit(1)
-        record_notify_declined(agent_dir, action, reason)
-        # Leads with the permission it had. Without that clause the line is
-        # indistinguishable from a refusal, which is the failure FR-011 names.
-        console.print(f"may notify people, but skipped {action} — {reason}")
-        return
-
+    agent_dir, _, branch, _ = _resolve_context()
+    held = {b.action: b for b in standing_blocks(agent_dir, branch)}.get(action)
     record_notify_action(agent_dir, action)
-    console.print(f"[green]✓[/green] recorded: {action}")
+    console.print(f"[green]✓[/green] recorded: {escape(action)}")
+    if held is None:
+        return
+    if held.step:
+        console.print(
+            f"  lifted the hold on {held.step} — it reads from its own artifacts again"
+        )
+    else:
+        console.print(f"  lifted the hold on {escape(action)}")
 
 
-@app.command("blocked")
-def blocked_cmd(
+@app.command("report-block")
+def report_block_cmd(
     action: str = typer.Argument(
         ..., help="What the host refused — 'issue-comment', 'issue-create', 'push'."
     ),
     reason: str = typer.Option(
         None, "--reason", help="What the host said, quoted as given."
     ),
-    clear: bool = typer.Option(
-        False, "--clear", help="A person took the action; release the hold."
-    ),
 ) -> None:
     """Record that the agent's own host refused an outward action wfctl never ran.
 
-    Never calls `action_grant` (FR-006): a run blocked by its host is by
-    construction a run that may hold no grant, and this is the one command
-    whose whole reason to exist is answering for that run. `wfctl notify` is
-    unchanged — its gate stays closed on both its paths.
-
-    There is no spelling of this command that records a success (FR-009). The
-    narrow exception the level-2 record carves — the agent may report a
-    failure it alone witnessed, never a success — is a property of this
-    surface, not a sentence an agent has to have read: `--reason` files a
-    block, `--clear` releases one, and nothing here says "it worked".
+    There is no spelling of this command that records a success. The agent may
+    report a failure it alone witnessed; the release is `report-action`, a
+    separate verb whose whole meaning is that the action was taken — so neither
+    surface can be read as the other (`384-the-agent-reports-through-two-flat-verbs`).
     """
     from rich.markup import escape
 
     from wfctl._pipeline import _STEP_NAMES, build_report
     from wfctl._paths import resolve_spec_dir
-    from wfctl._session import record_block_cleared, record_blocked, standing_blocks
-
-    if reason and clear:
-        console.print("[red]✗ --reason and --clear are opposites — pass one[/red]")
-        raise typer.Exit(1)
+    from wfctl._session import record_blocked
 
     agent_dir, repo_root, branch, _ = _resolve_context()
-
-    if clear:
-        # Checked before writing (FR-014): a mistyped action otherwise reads a
-        # clean exit as a release that never happened.
-        standing = {b.action: b for b in standing_blocks(agent_dir, branch)}
-        block = standing.get(action)
-        if block is None:
-            console.print(f"ℹ no block standing for {escape(action)} — nothing to clear")
-            return
-        record_block_cleared(agent_dir, branch, action)
-        if block.step:
-            console.print(
-                f"[green]✓[/green] cleared: {escape(action)} — "
-                f"`{block.step}` reads from its own artifacts again"
-            )
-        else:
-            console.print(f"[green]✓[/green] cleared: {escape(action)}")
-        return
 
     if not reason:
         console.print(
@@ -597,7 +449,7 @@ def blocked_cmd(
     # `done`/`skipped` and the pipeline is `"complete"` — `next_step_content`
     # has no command for that sentinel, so `build_report` reports no current
     # step at all. A block filed in the second case (the end-session worked
-    # example: `wfctl blocked issue-close` after implementation and
+    # example: `wfctl report-block issue-close` after implementation and
     # verification are both finished) still has to hold something, or the
     # promised "the next session reads it as unfinished rather than done"
     # never happens — so it falls back to the pipeline's last named step,
@@ -638,14 +490,6 @@ def status_cmd(
     spec_dir = resolve_spec_dir(branch, repo_root)
     report = build_report(spec_dir, repo_root, agent_dir, _caller_identity())
 
-    # Read back, not corrected here. The trunk answer used to be composed at this
-    # call site, which made the console the only place the corrected grant
-    # existed — a view deciding a fact. `build_report` owns it since the
-    # integration fact needed the same answer, and the argument for asking git
-    # rather than the tracker moved with it (`_pipeline._corrected_grant`).
-    notify = report.notify
-    notify_source = report.notify_source
-
     if as_json:
         # The same object the console branch renders, in the other format. The
         # flag selects a rendering and never a second inference — two inference
@@ -664,9 +508,8 @@ def status_cmd(
             # Beside `session_started`, never instead of it. A reader that knows
             # only the old key sees no change in any row of contracts/cli.md,
             # which is the whole of SC-006 and why the field was not repurposed.
-            # Both always present, for `notify`'s reason: a consumer cannot tell
-            # an absent key from a false one, or from a wfctl too old to know the
-            # question.
+            # Both always present: a consumer cannot tell an absent key from a
+            # false one, or from a wfctl too old to know the question.
             "session_open": report.session_open,
             "session_holder": report.session_holder,
             "current": report.current,
@@ -677,20 +520,14 @@ def status_cmd(
             # notice about the ordinary case is noise; a reader that branches on
             # a key cannot tell an absent key from a false one.
             "auto_approve": report.auto_approve,
-            # Present and false when refused, never omitted (FR-004). A consumer
-            # reading a missing key as false cannot tell a refusal from a wfctl
-            # too old to know the question — which is the whole point of FR-003.
-            "notify": notify,
-            "notify_source": notify_source,
             "steps": report.steps,
-            # Always four, always in order, never filtered. A consumer reading a
+            # Always three, always in order, never filtered. A consumer reading a
             # short list learns nothing; one reading no `facts` key at all learns
-            # that this wfctl predates the question, which is the distinction
-            # `notify` is present-and-false for.
+            # that this wfctl predates the question.
             "facts": [f._asdict() for f in report.facts],
-            # Present and null while the run is progressing, never omitted, for
-            # `notify`'s reason (FR-004): a consumer reading a missing key as
-            # "not stalled" cannot tell that from a wfctl too old to count.
+            # Present and null while the run is progressing, never omitted: a
+            # consumer reading a missing key as "not stalled" cannot tell that
+            # from a wfctl too old to count.
             # `speckit-orchestrate` branches on this, so the distinction is the
             # difference between a loop that stops and one that never learns to.
             "stall": (
@@ -705,16 +542,12 @@ def status_cmd(
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
-    console.print(_notify_line(notify_source, issue))
-    # FR-013, and it prints in every state including granted — that is what makes
-    # it an answer rather than a refusal. A reader who has just been told the run
-    # may notify people will ask what else it may do, and without this line they
-    # go looking for the flag that widens it further. There is none, and the line
-    # says so rather than leaving the search to end in a wrong guess.
+    # Printed in every state. A reader wondering what this agent may do goes
+    # looking for the switch that widens it, and there is none — the line says
+    # so rather than leaving the search to end in a wrong guess.
     console.print(_IRREVERSIBLE_NOTICE)
-    # FR-001, FR-002. Unconditional like the line above it, and for the same
-    # reason: a reader who has just been told what this agent may and may never
-    # do is owed the fact that a second, unrelated authority also governs it.
+    # Unconditional like the line above it: a reader who has just been told what
+    # this agent may never do is owed who decides the rest.
     console.print(_HOST_AUTHORITY_NOTICE)
     # SC-005: a reader has to be able to tell a fresh branch from a held one
     # without opening the log. Only in this state, matching `auto_approve` two
@@ -771,10 +604,9 @@ def status_cmd(
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
 
     # Between the step table and `next:`, and printed in every state including
-    # the one where all four are met. Rendering it only when something is unmet
+    # the one where all three are met. Rendering it only when something is unmet
     # would make its *absence* carry meaning, which a reader cannot tell from a
-    # wfctl too old to know the question — the reason `notify` is present and
-    # false rather than omitted, met here on the console side.
+    # wfctl too old to know the question.
     #
     # `escape()` for the reason the remedy below is escaped: a record slug and a
     # repo-declared path both reach these strings, and `[wip]` is legal in both.

@@ -1,7 +1,8 @@
-"""The four readiness facts, and the two situations they exist to tell apart (#299).
+"""The readiness facts, and the two situations they exist to tell apart (#299).
 
-A step state answered four questions with four owners, and the payload carried
-one value for all of them. The test that matters here is the first pair below:
+A step state answered several questions with several owners, and the payload
+carried one value for all of them. There were four facts until #384 removed the
+outward-action grant the fourth one read. The test that matters here is the first pair below:
 before this feature, a branch whose architecture record was still `proposed` and
 one whose record had been accepted produced byte-identical output, and a reader
 could not see the difference the whole pipeline turns on.
@@ -21,7 +22,6 @@ from typer.testing import CliRunner
 
 from wfctl import _predicates
 from wfctl._pipeline import build_report
-from wfctl._session import NotifyGrant, record_notify_resolved
 from wfctl.cli import _FACT_GLYPH, _STATE_GLYPH, app
 
 runner = CliRunner()
@@ -30,7 +30,6 @@ FACT_NAMES = (
     "artifacts written",
     "definition of done",
     "architecture accepted",
-    "outward actions authorized",
 )
 
 RECORD = """---
@@ -100,7 +99,7 @@ def test_the_console_names_which_fact_is_missing_and_which_record_is_waiting(
 
     A block saying "something is unresolved" would pass the payload requirement
     and leave the reader exactly where they started — running a second command to
-    find out which of four questions it was.
+    find out which of the questions it was.
     """
     storyctl_dir.stage_upstream_of("tasks")
     _record(storyctl_dir.repo_root, "a-decision", "proposed")
@@ -204,72 +203,12 @@ def test_a_malformed_definition_of_done_is_unmet_and_not_absent(
     assert "malformed" in fact["detail"]
 
 
-def test_nobody_granting_authority_reads_differently_from_a_failed_read(
-    storyctl_dir: types.SimpleNamespace,
-) -> None:
-    """FR-013. Five of the grant's seven answers mean refused and are not one event.
-
-    A consumer seeing only `unmet` cannot tell a person's decision from a tracker
-    that could not be reached, which is the distinction #280 spent a whole field
-    on. The detail is where it survives into this block.
-    """
-    storyctl_dir.stage_upstream_of("tasks")
-    assert _facts()["outward actions authorized"]["detail"] == (
-        "nobody has allowed it for this work"
-    )
-
-    record_notify_resolved(
-        storyctl_dir.agent_dir, NotifyGrant(False, "unreadable"), "418-storyctl"
-    )
-    fact = _facts()["outward actions authorized"]
-    assert fact["value"] == "unmet"
-    assert "tracker" in fact["detail"]
-
-
-def test_a_granted_branch_reports_integration_authorized_met(
-    storyctl_dir: types.SimpleNamespace,
-) -> None:
-    """The other half of the pair above, which a refusal-only test cannot show.
-
-    Without it the fact could be hardwired to `unmet` and every assertion here
-    would still pass.
-    """
-    storyctl_dir.stage_upstream_of("tasks")
-    record_notify_resolved(
-        storyctl_dir.agent_dir, NotifyGrant(True, "local"), "418-storyctl"
-    )
-    fact = _facts()["outward actions authorized"]
-    assert fact["value"] == "met"
-    assert fact["detail"] == "you allowed it in this worktree"
-
-
-def test_the_trunk_has_no_integration_question_to_answer(
-    storyctl_dir: types.SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FR-012. There is no branch to integrate, so nothing was ever asked.
-
-    Reported unmet, the trunk would send its reader looking for the flag that
-    grants it — and the trunk refuses that flag by design, so the search ends
-    nowhere.
-    """
-    storyctl_dir.stage_upstream_of("tasks")
-    repo = storyctl_dir.repo_root
-    subprocess.run(["git", "-C", str(repo), "branch", "-M", "main"],
-                   check=True, capture_output=True)
-    monkeypatch.setenv("WFCTL_BRANCH", "main")
-
-    fact = _facts()["outward actions authorized"]
-    assert fact["value"] == "n/a"
-    assert fact["detail"] == "this is the trunk"
-
-
-def test_every_branch_carries_all_four_facts_in_the_same_order(
+def test_every_branch_carries_all_three_facts_in_the_same_order(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """FR-004 and FR-007, asserted on the input that has the least to say.
 
-    Nothing staged: no artifacts, no record, no grant. A payload that filtered to
+    Nothing staged: no artifacts, no record. A payload that filtered to
     what it could answer would be shortest here, and a consumer indexing the list
     would read one fact's value as another's.
     """
@@ -278,15 +217,14 @@ def test_every_branch_carries_all_four_facts_in_the_same_order(
     assert all(f["detail"] for f in payload["facts"])
 
 
-def test_a_feature_with_no_spec_dir_still_answers_three_of_the_four(
+def test_a_feature_with_no_spec_dir_still_answers_the_other_two(
     tmp_path: Path,
 ) -> None:
     """The state today's payload cannot describe at all.
 
     A branch whose feature directory does not exist still has a definition of
-    done, a record set and a grant. Only the first fact reads the spec dir, and
-    the walk returns eight `pending` steps that say nothing about the other
-    three.
+    done and a record set. Only the first fact reads the spec dir, and the walk
+    returns eight `pending` steps that say nothing about the other two.
     """
     report = build_report(None, tmp_path, tmp_path)
     facts = {f.name: f for f in report.facts}
@@ -310,7 +248,7 @@ def test_no_fact_is_derived_from_a_step(storyctl_dir: types.SimpleNamespace) -> 
 
     The rule is that a fact reads its own owner, and the way it would be broken
     is by someone reaching for the answer already computed two lines above. None
-    of the four derivations accepts a step, a state or a report — so the shortcut
+    of the derivations accepts a step, a state or a report — so the shortcut
     is not available to write, rather than merely discouraged.
     """
     import inspect
@@ -319,7 +257,6 @@ def test_no_fact_is_derived_from_a_step(storyctl_dir: types.SimpleNamespace) -> 
         _predicates.fact_artifacts_written,
         _predicates.fact_definition_of_done,
         _predicates.fact_architecture_accepted,
-        _predicates.fact_outward_actions_authorized,
     ):
         annotations = str(inspect.signature(fn))
         assert "Reading" not in annotations
@@ -332,7 +269,7 @@ def test_the_pipeline_still_has_exactly_four_step_states(
 ) -> None:
     """FR-008. The prohibition that would be broken by making this feature easier.
 
-    A fifth state meaning "some of the four facts hold" is the collapse wearing a
+    A fifth state meaning "some of the facts hold" is the collapse wearing a
     new spelling, and it is the shape a later reader will propose precisely
     because it is shorter.
     """
@@ -364,7 +301,7 @@ def test_the_console_prints_the_payload_detail_and_composes_nothing(
     """FR-015. Two renderings of one inference, never two inferences.
 
     The design remedy was composed in the console until it was moved back into
-    the payload, and this block's four detail strings are the same invitation.
+    the payload, and this block's detail strings are the same invitation.
     What holds it is that every string a reader sees is also in `--json`.
     """
     storyctl_dir.stage_upstream_of("tasks")
@@ -380,14 +317,10 @@ def test_the_block_prints_even_when_nothing_is_outstanding(
 ) -> None:
     """FR-006. Absence must not be the thing that carries the answer.
 
-    A block that appeared only on trouble would leave "all four met" and "this
-    wfctl predates the question" as the same output — which is the confusion
-    `notify` is present-and-false to avoid, met on the console side.
+    A block that appeared only on trouble would leave "all met" and "this wfctl
+    predates the question" as the same output.
     """
     storyctl_dir.stage_upstream_of("tasks")
-    record_notify_resolved(
-        storyctl_dir.agent_dir, NotifyGrant(True, "local"), "418-storyctl"
-    )
     out = _console()
     for name in FACT_NAMES:
         assert name in out
@@ -513,24 +446,6 @@ def test_a_passing_definition_of_done_names_the_tree_it_passed_on(
     assert fact["detail"] == f"passed at {sha[:7]}"
 
 
-def test_an_unrecognised_grant_source_never_claims_someone_allowed_it(
-    storyctl_dir: types.SimpleNamespace,
-) -> None:
-    """`NotifyGrant.source` is read off `events.jsonl` without validation.
-
-    Answered with the `unset` wording, a source this wfctl has never heard of
-    produced `met` beside "nobody has allowed it for this work" — a value and a
-    detail contradicting each other, about a human.
-    """
-    storyctl_dir.stage_upstream_of("tasks")
-    record_notify_resolved(
-        storyctl_dir.agent_dir, NotifyGrant(True, "from-the-future"), "418-storyctl"
-    )
-    fact = _facts()["outward actions authorized"]
-    assert fact["value"] == "unmet"
-    assert "from-the-future" in fact["detail"]
-
-
 def test_the_verification_answer_is_read_once_per_report(
     storyctl_dir: types.SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -554,25 +469,23 @@ def test_the_verification_answer_is_read_once_per_report(
     assert len(calls) == 1
 
 
-def test_the_grant_fact_never_claims_authority_to_merge(
+def test_no_fact_claims_authority_to_merge_or_to_act_outside_the_repo(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """The defect a reviewer caught after this PR was opened.
+    """Two defects, one assertion.
 
-    The first shape called this fact `integration authorized` and read it off the
-    notify grant, which `AGENTS.md` § Safety says covers pushing, commenting and
-    labelling and never merging, closing or deleting. A granted branch therefore
-    reported `integration authorized: met` — a claim of authority for an
-    irreversible action no human gave, which is worse than the silence the
-    feature replaces, because a consumer keys on the name.
+    The first shape of the grant fact was called `integration authorized` and a
+    granted branch reported it `met` — a claim of authority for an irreversible
+    action no human gave. `may this branch be merged?` has no owner in wfctl and
+    is meant not to.
 
-    `may this branch be merged?` has no owner in wfctl and is meant not to: the
-    payload must not answer it under any spelling.
+    Its successor, `outward actions authorized`, went with the grant (#384):
+    whether a command may run is the host's to answer, and a fact here would be
+    a second answer wfctl cannot compute. Neither may come back under any
+    spelling a consumer would key on.
     """
     storyctl_dir.stage_upstream_of("tasks")
-    record_notify_resolved(
-        storyctl_dir.agent_dir, NotifyGrant(True, "local"), "418-storyctl"
-    )
     names = tuple(f["name"] for f in _payload()["facts"])
-    assert not any("integration" in n or "merge" in n for n in names), names
-    assert "outward actions authorized" in names
+    assert not any(
+        word in n for n in names for word in ("integration", "merge", "authorized")
+    ), names

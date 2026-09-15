@@ -156,3 +156,6 @@ none of it is the stop.
 
 - 2026-09-13  proposed    — #364 level 2; a refusal wfctl never observed left no
   trace anywhere, and the step read the same either way
+- 2026-09-15  proposed    — #384: its decision stands and its verb is renamed.
+  `wfctl blocked` is now `wfctl report-block`, with no `--clear`; the release is
+  `report-action`. See `wfctl-records-outward-actions-and-never-gates-them`.

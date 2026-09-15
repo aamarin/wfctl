@@ -119,3 +119,6 @@ else's.
 
 - 2026-09-09  proposed    — level-2 gate of the #302 design pass, answered while
   the alternatives were still in front of the reader.
+- 2026-09-15  proposed    — #384: `labels` no longer feeds any grant; the
+  overlap with `fields` is now only an overlap. See
+  `wfctl-records-outward-actions-and-never-gates-them`.

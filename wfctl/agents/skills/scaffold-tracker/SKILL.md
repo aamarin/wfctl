@@ -38,12 +38,11 @@ are substituted per-token from the CLI options, so free text like a comment body
 is always one inert argument — no shell injection, no quoting to get right.
 Substitution is within-token, so `"--{action}-label"` becomes `--add-label`.
 
-`labels` must print **one label per line and nothing else** — it is read by
-wfctl rather than by a person, and it decides whether a run may notify anyone.
-Point it at whatever produces that (`--jq` for `gh`, a script for a backend with
-no such flag); do not point it at a command whose human-readable output happens
-to contain the labels somewhere. A backend that cannot produce the list leaves
-the verb out, and the repo grants through `wfctl start --allow-notify` instead.
+`labels` must print **one label per line and nothing else** — it is read by a
+program rather than by a person. Point it at whatever produces that (`--jq` for
+`gh`, a script for a backend with no such flag); do not point it at a command
+whose human-readable output happens to contain the labels somewhere. A backend
+that cannot produce the list leaves the verb out.
 
 `fields` must print **one JSON object and nothing else**, whose values are
 scalars or arrays of scalars. The key names are yours — wfctl neither supplies
@@ -53,9 +52,8 @@ two of those means knowing which key inside identifies one, and that key is your
 vocabulary living inside wfctl. Flatten before you hand it over (`--jq` for
 `gh`), and wfctl reports a payload that did not as a problem with this file.
 
-`fields` and `labels` overlap and are both kept. `labels` decides whether a run
-may notify anyone, which is a path worth leaving alone; a backend may declare
-either, both, or neither.
+`fields` and `labels` overlap and are both kept; a backend may declare either,
+both, or neither.
 
 `start` and `stop` are events, not values: they say *when*, and the backend
 decides what that means. wfctl wires them into worktree creation and removal, so
