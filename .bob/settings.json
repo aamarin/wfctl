@@ -1,0 +1,43 @@
+{
+  "session": {
+    "maxTurns": 0
+  },
+  "tools": {
+    "allowed": [
+      "run_shell_command(uv)",
+      "run_shell_command(wfctl)",
+      "run_shell_command(git)",
+      "run_shell_command(cat)",
+      "run_shell_command(date)",
+      "run_shell_command(echo)",
+      "run_shell_command(true)",
+      "run_shell_command(grep)",
+      "run_shell_command(head)",
+      "run_shell_command(tail)",
+      "run_shell_command(ls)",
+      "run_shell_command(sort)",
+      "run_shell_command(wc)",
+      "run_shell_command(which)",
+      "run_shell_command(du)",
+      "run_shell_command(df)",
+      "run_shell_command(source)",
+      "run_shell_command(python3)",
+      "read_file",
+      "list_files",
+      "glob",
+      "grep",
+      "execute_command(uv run wfctl)",
+      "execute_command(uv run pytest)",
+      "execute_command(uv run ruff)",
+      "execute_command(uv run mypy)",
+      "execute_command(git)"
+    ]
+  },
+  "bobShell": {
+    "lastRunVersion": "2.0.3"
+  },
+  "approval": {
+    "forbiddenApprovalGroups": [],
+    "allowed_permissions": ["skill", "todo"]
+  }
+}
