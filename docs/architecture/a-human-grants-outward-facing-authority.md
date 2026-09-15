@@ -227,3 +227,5 @@ through the contract.
 
 - 2026-09-07  proposed    — #280 level 2; #131's principle 2 had no home, and the
   middle row had no grant
+- 2026-09-15  proposed    — #384 proposes `wfctl-records-outward-actions-and-never-gates-them`
+  to supersede this; the status moves when a person accepts that record
