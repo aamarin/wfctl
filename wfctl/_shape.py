@@ -156,15 +156,26 @@ _REPLY_SENTENCE = re.compile(
 # that can be told apart without the prompt. A numeral in that same frame is not:
 # `Three things worth flagging:` introduces three things the reader has not met.
 #
-# **The coda keeps `both`, and the anaphora does not rescue it there.** A coda's
-# colon has to close its sentence, after the answer has already landed — which is
-# the structural signature of appending a second block, and a second block is
-# what rule 6 caps however familiar its contents. `Done. Both remaining issues:`
+# **Where the colon lands is the discriminator, and it is not the same question
+# as where the sentence sits.** A colon that *closes* its sentence is a lead-in
+# announcing and then breaking to its list — the structural signature of a second
+# block, which rule 6 caps however familiar its contents. `Both remaining issues:`
 # announces a list past the answer whether or not the reader knows the pair, so
-# the position carries the finding and the word is not asked to.
+# there the structure carries the finding and the word is not asked to. A colon
+# sitting mid-sentence carries nothing, so there the word is all there is.
 #
-# Removing `both` from the shared pattern took it from both matchers and silenced
-# that line (#389, found in review). The fix is two vocabularies, not one.
+# So the vocabulary is chosen by the colon, not by the position:
+#
+#   colon closes the sentence   →  _COUNT       (full set, `both` included)
+#   colon sits mid-sentence     →  _ANNOUNCING  (`both` dropped)
+#
+# Two earlier shapes of this fix each got half of it (#389, both found in
+# review). Removing `both` from the one shared pattern silenced every coda.
+# Keying the vocabulary on sentence *position* instead restored the same-line
+# coda and left the own-line one — `Done.\n\nBoth remaining issues:` — still
+# silent, because `findings` scans line by line, so a lead-in on its own line is
+# an *opening* sentence and the coda matcher never ran. That form is the more
+# common one: a lead-in that breaks to bullets usually starts its own line.
 _COUNT = (
     r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
     r"|both|several|a few)\b"
@@ -176,9 +187,13 @@ _ANNOUNCING = (
 _COUNTED = re.compile(rf"^\s*{_ANNOUNCING}[^\n]*:", re.IGNORECASE)
 # "Closes the sentence" has to mean the colon and whatever emphasis closes with
 # it. `Done. **Two things remain:**` is the bold lead-in this project recommends
-# over a heading, so a coda scan that reads `:**` as a colon with text after it
-# is blind to the form its own readers are told to write.
-_COUNTED_CODA = re.compile(
+# over a heading, so a scan that reads `:**` as a colon with text after it is
+# blind to the form its own readers are told to write.
+#
+# This one runs against every sentence, the opening included — that is what the
+# own-line coda needs, and it costs nothing elsewhere, because a closing colon is
+# the strong signal wherever it appears.
+_COUNTED_CLOSING = re.compile(
     rf"^\s*{_COUNT}[^\n]*:[\"'*_)\]]*\s*$", re.IGNORECASE
 )
 
@@ -308,12 +323,14 @@ def _sentences(line: str) -> list[str]:
 def _counted_lead_in(line: str) -> bool:
     """Whether any sentence of `line` announces a list with a count.
 
-    The opening sentence and the ones after it are asked different questions —
-    see `_COUNTED_CODA` for which, and for the corpus behind the asymmetry.
+    Two questions, and a sentence is a lead-in if either says so. A colon that
+    closes its sentence is asked of every sentence, the opening one included,
+    with the full vocabulary — see `_COUNTED_CLOSING`. A colon mid-sentence is
+    asked only of the opening one, and only of a count that can announce.
     """
     opening, *rest = _sentences(_QUOTED.sub("``", line))
-    return bool(_COUNTED.match(opening)) or any(
-        _COUNTED_CODA.match(sentence) for sentence in rest
+    return bool(_COUNTED.match(opening) or _COUNTED_CLOSING.match(opening)) or any(
+        _COUNTED_CLOSING.match(sentence) for sentence in rest
     )
 
 
