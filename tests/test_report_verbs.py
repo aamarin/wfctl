@@ -219,3 +219,16 @@ def test_status_says_who_decides_and_what_is_never_taken(
     for constant in (_IRREVERSIBLE_NOTICE, _HOST_AUTHORITY_NOTICE):
         for physical_line in constant.split("\n"):
             assert len(physical_line) <= 72, physical_line
+
+
+def test_the_status_payload_carries_no_grant_keys(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`contracts/status-payload.md` for #384: `notify` and `notify_source` leave
+    the JSON in the same change as the console line, never after it
+    (`pipeline-state-is-one-payload`). A consumer still reading `notify` gets a
+    missing key rather than a `false` that looks like a refusal nobody made."""
+    payload = _payload()
+    assert "notify" not in payload
+    assert "notify_source" not in payload
+    assert len(payload["facts"]) == 3
