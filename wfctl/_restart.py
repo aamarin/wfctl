@@ -385,13 +385,25 @@ def run_hook(
         handle=decision.handle,
     )
     if decision.texts:
-        spawn({
-            "parent": os.getpid(),
-            "handle": decision.handle,
-            "session": session,
-            "state_dir": str(state_dir),
-            "texts": decision.texts,
-        })
+        try:
+            spawn({
+                "parent": os.getpid(),
+                "handle": decision.handle,
+                "session": session,
+                "state_dir": str(state_dir),
+                "texts": decision.texts,
+            })
+        except OSError:
+            # A worker that never started writes no send event of its own, and
+            # `decide()` reads a decision with no send as "ambiguous, check
+            # again" (#371 ledger). Left unrecorded, every later reply end would
+            # retry that same read forever, silently, with no report on any of
+            # them. Recording the failure here as a send with exit -1 is the
+            # vocabulary `_send` already uses for "could not run" — it routes
+            # into the existing not-taken report instead of a new state.
+            append_event(
+                state_dir, SEND_EVENT, session=session, text=decision.texts[0], exit=-1,
+            )
     text = message(decision, repo_root)
     return json.dumps({"systemMessage": text}) if text else None
 

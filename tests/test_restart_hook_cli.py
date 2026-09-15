@@ -116,6 +116,35 @@ def test_over_the_threshold_records_the_decision_and_starts_the_worker(
     assert plan["parent"] == os.getpid()
 
 
+def test_a_spawn_that_raises_is_recorded_as_a_send_that_never_ran(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker that never started writes no send event of its own. Left
+    unrecorded, `decide()` reads the decision with no send as "ambiguous, check
+    again" on every later reply end — a silent, unbounded wedge with no report
+    (#371 ledger). The hook must record the failure itself."""
+    state = _state(tmp_path, monkeypatch)
+    t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
+
+    def boom(_: dict) -> None:
+        raise OSError("could not fork")
+
+    out = run_hook(_payload(repo, t), os.environ, boom, lambda root: "371-x")
+
+    assert out is None
+    [_, send] = _events(state)
+    assert {k: send[k] for k in ("event", "session", "text", "exit")} == {
+        "event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": -1,
+    }
+
+    # The next reply end reports rather than repeating the same silent decision.
+    out = run_hook(_payload(repo, t), os.environ, boom, lambda root: "371-x")
+    assert out is not None
+    assert json.loads(out) == {
+        "systemMessage": f"session restart never sent {END_TEXT} (workmux exited -1) — run it yourself"
+    }
+
+
 def test_a_landed_handoff_starts_the_clear_and_start_session(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
