@@ -120,8 +120,7 @@ into the transcript, and wfctl only reads it.
   in a log nobody opens (ledger entry 18, state E). How it says so is unprobed.
 - Cost per Stop, measured on this branch: 0.07–0.10 s to start wfctl, 0.02 s to
   read a 1.6 MB transcript. No model tokens on the turns it decides *nothing*.
-- Open: whether the recycler is on by default at 200000 tokens. Entry 19 read it
-  from an answer that addressed the trigger more than the default.
+- On by default at 200000 tokens in every repo with the claude layer.
 - Risk, not boundary: the classifier may refuse the agent authoring the send code
   inside `wfctl/` as it did in a scratch directory (entry 17).
 
