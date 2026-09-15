@@ -91,9 +91,10 @@ flowchart LR
         S1["/speckit.brainstorm"] --> S2["/speckit.specify"] --> S3["...plan → tasks → implement"]
     end
     subgraph Disk["specs/&lt;branch&gt;/"]
-        F1["design.md"] --> F2["spec.md"] --> F3["...plan.md → tasks.md → code"]
+        F1["design.md"] --> F2["spec.md"] --> F3["...plan.md → tasks.md"]
     end
-    Agent -.->|writes| Disk
+    Agent -.->|writes specs| Disk
+    Agent -.->|writes code| Repo["your repo"]
     Disk -.->|reads| W["wfctl status / resume"]
     W -.->|"next: /speckit.____"| Agent
 ```
