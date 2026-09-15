@@ -139,10 +139,48 @@ def test_a_coda_whose_colon_does_not_close_it_is_not_a_lead_in() -> None:
     the rule cannot reach, and accepting it added 145 such lines to the corpus
     against 165 real codas. Both lines here fire when the count opens the line,
     which is where this rule already accepts that class."""
-    assert not _shape.findings("Fixed. Both come down to one property: the "
+    assert not _shape.findings("Fixed. Three come down to one property: the "
                                "machine has to prove it finished.", BARE)
-    assert _shape.findings("Both come down to one property: the machine has to "
+    assert _shape.findings("Three come down to one property: the machine has to "
                            "prove it finished.", BARE)
+
+
+def test_an_anaphoric_count_is_never_a_lead_in() -> None:
+    """`both` refers back to a pair the reader already has, so it cannot announce
+    a list nobody asked for — which is the whole of what the rule names. It fired
+    on the counted-fact shape instead, at the one position (`_COUNTED`, opening
+    sentence, colon anywhere) where the rule accepts that class outright, and
+    `Both actions are done: …` reporting two finished pieces of work was the
+    observed case.
+
+    A numeral in the same frame is still a lead-in, because a numeral introduces
+    material the reader has not met. That contrast is the reason this is a
+    property of the word and not a softening of the rule."""
+    assert not _shape.findings("Both actions are done: #643 filed, the comment "
+                               "posted on #621.", BARE)
+    assert not _shape.findings("Both come down to one property: the machine has "
+                               "to prove it finished.", BARE)
+    assert _shape.findings("Two things worth naming: the gate and the corpus.",
+                           BARE)
+
+
+def test_the_coda_keeps_both_because_its_position_carries_the_finding() -> None:
+    """The half a single shared vocabulary got wrong (#389, found in review).
+
+    `both` is dropped from the opening sentence because there the colon may sit
+    anywhere, so the word is the whole of the evidence and an anaphoric one is
+    not enough. A coda's colon has to close its sentence, after the answer has
+    landed — that is the structural signature of a second block, and a second
+    block is what rule 6 caps however familiar its contents. So the position
+    carries this finding and the word is not asked to.
+
+    The last line is the guard that keeps the two vocabularies from collapsing
+    back into one: the same word, in the opening frame, must still read clean."""
+    assert _shape.findings("Done. Both remaining issues:", BARE)
+    assert _shape.findings("That is settled. Both problems worth an issue each:",
+                           BARE)
+    assert _shape.findings("Done. **Both things remain:**", BARE)
+    assert not _shape.findings("Both remaining issues are filed.", BARE)
 
 
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
