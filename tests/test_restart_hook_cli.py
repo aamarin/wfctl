@@ -165,9 +165,11 @@ def test_a_landed_handoff_starts_the_clear_and_start_session(
 def test_a_push_recorded_after_the_handoff_is_folded_in_before_the_clear(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The traced defect (#371 ledger): `wfctl notify push` ran eight seconds
-    after `wfctl end` wrote the summary, in the same turn, and `/clear` would
-    otherwise discard the only record of it."""
+    """The traced defect (#371 ledger): the push was recorded eight seconds after
+    `wfctl end` wrote the summary, in the same turn, and `/clear` would otherwise
+    discard the only record of it. The verb was `wfctl notify push` then and is
+    `wfctl report-action push` now; what the test pins is the event either one
+    writes, which is why the rename did not reach the assertions below."""
     state = _state(tmp_path, monkeypatch, [
         {"event": "session-restart", "session": "S", "decision": "end"},
         {"event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": 0},
