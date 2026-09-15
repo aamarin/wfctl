@@ -221,12 +221,18 @@ def _substitute(token: str, params: dict) -> str:
 def dispatch(
     agent_dir: Path,
     repo_root: Path,
+    branch: str,
     verb: str,
     params: dict,
     section: str = "verbs",
     event: str = "issue",
 ) -> int:
     """Run the configured backend's command for verb; return an exit code.
+
+    ``branch`` is what a recorded write says it is about. It is threaded in
+    rather than derived here because the caller has already resolved it, and a
+    second derivation could disagree with the one the matching hold was filed
+    under.
 
     ``section`` selects the verb map in the config: ``"verbs"`` for issues,
     ``"changes"`` for PRs/patchsets. ``event`` is the name logged for the run.
@@ -292,9 +298,9 @@ def dispatch(
         # Recorded here rather than by each caller because this is the one place
         # that knows the write succeeded — the `issue` event above says the verb
         # ran, and carries the bare verb a hold was never filed under.
-        from wfctl._session import record_notify_action
+        from wfctl._session import record_outward_action
 
-        record_notify_action(agent_dir, f"issue-{verb}")
+        record_outward_action(agent_dir, branch, f"issue-{verb}")
     return 0
 
 

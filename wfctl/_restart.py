@@ -306,7 +306,7 @@ def find_handle(repo_root: Path) -> str | None:
     return None
 
 
-# The event `record_notify_action` writes (`_session.py`), for a push reported
+# The event `record_outward_action` writes (`_session.py`), for a push reported
 # with `wfctl report-action` or a tracker write `wfctl issue` recorded itself.
 # `notify-declined` was the other until #384 removed `--declined` with the grant
 # it was a decline of; an old log's line of it is left where it is, unread.

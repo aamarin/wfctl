@@ -11,7 +11,7 @@ import json
 import types
 from pathlib import Path
 
-from wfctl._session import record_blocked, record_notify_action, standing_blocks
+from wfctl._session import record_blocked, record_outward_action, standing_blocks
 
 
 def _old_clear(agent_dir: Path, branch: str, action: str) -> None:
@@ -78,7 +78,7 @@ def test_the_most_recent_event_for_an_action_is_the_one_that_stands(
 
     # a later notify-action for the same action releases it — `report-action`,
     # or a `wfctl issue` write that succeeded on retry.
-    record_notify_action(agent_dir, "issue-comment")
+    record_outward_action(agent_dir, branch, "issue-comment")
     assert standing_blocks(agent_dir, branch) == []
 
     # blocked a third time, after the success: standing again.
@@ -98,6 +98,44 @@ def test_a_block_on_one_branch_does_not_hold_a_step_on_another(
     record_blocked(agent_dir, "418-storyctl", "issue-comment", "refused here", "decompose")
     assert standing_blocks(agent_dir, "999-other-branch") == []
     assert len(standing_blocks(agent_dir, "418-storyctl")) == 1
+
+
+def test_a_success_on_one_branch_does_not_lift_a_hold_on_another(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The release half of the test above, and the half that was missing.
+
+    Recording a tracker write as `issue-<verb>` made the two sides share a
+    vocabulary for the first time, so a branchless release started matching
+    holds the skills had filed — a successful `wfctl issue create` in one
+    worktree silently cleared another branch's hold, and its step read done with
+    the refused write never made.
+    """
+    agent_dir = storyctl_dir.agent_dir
+    record_blocked(agent_dir, "418-storyctl", "issue-create", "host refused", "decompose")
+    record_outward_action(agent_dir, "999-other-branch", "issue-create")
+
+    blocks = standing_blocks(agent_dir, "418-storyctl")
+    assert len(blocks) == 1
+    assert blocks[0].reason == "host refused"
+
+
+def test_a_release_written_before_branches_were_recorded_still_lifts_its_hold(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A `notify-action` line in a log written before #384 carries no branch,
+    and `standing_blocks` reads a missing field as matching every branch. That
+    stays true so an old log's release is not resurrected as a hold nobody is
+    working on — the narrow cost of which is the test above's scenario, which
+    could only arise from a log old enough to predate the names agreeing."""
+    agent_dir = storyctl_dir.agent_dir
+    record_blocked(agent_dir, "418-storyctl", "push", "host refused", "implement")
+    with open(agent_dir / "events.jsonl", "a") as f:
+        f.write(
+            '{"ts": "2026-01-01T00:00:00Z", "event": "notify-action", "action": "push"}\n'
+        )
+
+    assert standing_blocks(agent_dir, "418-storyctl") == []
 
 
 def test_a_non_string_step_field_is_dropped_rather_than_crashing_the_reader(

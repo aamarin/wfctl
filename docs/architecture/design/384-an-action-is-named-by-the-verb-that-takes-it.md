@@ -113,6 +113,21 @@ types anything. Holds the agent files by hand still need the name spelled right,
 and a typo still produces a hold that never lifts. `status` prints the held
 action's name, which is where a person sees a mismatch.
 
+**The name carries the verb and not the issue, so a hold is lifted by the next
+success at that verb rather than by the one it was filed for.** A refused
+comment on #384 followed by a successful comment on #300 leaves no hold, and the
+refused comment is never made. Scoping the name to an issue would fix that and
+break the thing this record is for: the skills file `report-block issue-comment`
+with no issue in it, so an id-scoped reader would stop matching the holds that
+are actually written. The block is an agent's report of what its host refused,
+and the agent is working one issue at a time — a second issue inside one held
+step is the case this trades away.
+
+Branch is the one scope that *is* carried, because `standing_blocks` already
+reads it on the block side: `record_outward_action` writes it too, so a success
+in one worktree cannot lift another worktree's hold under a shared
+`WFCTL_STATE_DIR`.
+
 Logs written before this change keep their bare `create` entries. Nothing reads
 those as holds, and `wfctl log` prints them as they are.
 
@@ -123,8 +138,13 @@ those as holds, and `wfctl log` prints them as they are.
   for `issue-close`.
 - A test runs `wfctl issue start` and asserts that no `notify-action` event is
   written.
-- `grep -rn "report-block issue-" wfctl/agents` names only actions in the
-  constant.
+- A test asserts that every `report-block issue-<x>` in `wfctl/agents/` names a
+  verb in `_RECORDED_VERBS`
+  (`test_every_issue_action_a_skill_files_names_a_verb_wfctl_records`). A name
+  nothing records is a hold nothing can lift, and the six files agree by hand.
+- A test files a block on one branch, records the same action on another, and
+  asserts the first branch's hold still stands
+  (`test_a_success_on_one_branch_does_not_lift_a_hold_on_another`).
 
 ## Log
 

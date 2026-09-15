@@ -455,6 +455,30 @@ def test_no_shipped_skill_or_command_names_what_the_grant_removal_took_out() -> 
     assert not offenders, offenders
 
 
+def test_every_issue_action_a_skill_files_names_a_verb_wfctl_records() -> None:
+    """The third check `384-an-action-is-named-by-the-verb-that-takes-it`
+    promised, and the one its whole decision rests on.
+
+    A hold is lifted by a recorded write of the same name, so a skill filing
+    `report-block issue-crate` files one nothing can ever lift: the typo is not
+    a failure at the moment of filing, it is a step that reads unfinished
+    forever. Six files agree on these names by hand today, which is the
+    agreement a check exists to keep (`a-rule-is-expressed-as-a-check`).
+    """
+    from wfctl._tracker import _RECORDED_VERBS
+
+    filed = {
+        (path.relative_to(_AGENTS), match)
+        for path in sorted(_AGENTS.rglob("*.md"))
+        for match in re.findall(r"report-block\s+issue-([a-z-]+)", path.read_text())
+    }
+    assert filed, "no skill files an issue block — this check would pass vacuously"
+    unrecordable = sorted(
+        f"{path}: issue-{verb}" for path, verb in filed if verb not in _RECORDED_VERBS
+    )
+    assert not unrecordable, unrecordable
+
+
 def test_the_design_record_skill_is_model_invocable() -> None:
     """Same shape as `test_the_panel_skill_is_model_invocable`, and the same
     reason: the trigger is a structural choice just settled in conversation,

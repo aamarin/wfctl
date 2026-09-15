@@ -148,16 +148,17 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    reads as one.
 
 5. **Outward actions are asked for, attempted, and recorded — never skipped for
-   want of a setting.** Steps 6 and 7 below both reach outside the repo: a push, a
-   comment, a label, a closed or new issue. wfctl does not decide whether those
-   may run. Your host's permission layer does, and it refuses before wfctl ever
-   starts (`wfctl-records-outward-actions-and-never-gates-them`).
+   want of a setting.** Step 7 below reaches outside the repo: a comment, a
+   label, a closed or new issue. wfctl does not decide whether those may run.
+   Your host's permission layer does, and it refuses before wfctl ever starts
+   (`wfctl-records-outward-actions-and-never-gates-them`). The same holds for a
+   push, which this step tells you to record below. Step 6 commits and reaches
+   nobody, as does writing the summary.
 
    **Ask as each step is written.** An attended session gets the question. A run
    where nobody answers takes the action rather than stopping on the question —
    there is no mode to read that says which of the two this is, and reading one
-   would be the second permission system this replaced. Committing and writing
-   the summary are unaffected either way; those reach nobody.
+   would be the second permission system this replaced.
 
    **If the host refuses, report it rather than routing around it.** Reaching
    for `gh` or another client directly defeats the one gate that exists. What

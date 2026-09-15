@@ -12,7 +12,7 @@ import types
 
 from typer.testing import CliRunner
 
-from wfctl._session import record_blocked, record_notify_action
+from wfctl._session import record_blocked, record_outward_action
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -197,7 +197,7 @@ def test_a_later_success_for_the_same_action_releases_the_hold(
     assert next(s for s in _payload()["steps"] if s["name"] == "decompose")["state"] \
         == "in_progress"
 
-    record_notify_action(storyctl_dir.agent_dir, "issue-comment")
+    record_outward_action(storyctl_dir.agent_dir, "418-storyctl", "issue-comment")
 
     assert next(s for s in _payload()["steps"] if s["name"] == "decompose")["state"] \
         == "done"
@@ -209,7 +209,7 @@ def test_a_block_after_a_success_holds_again(
     """The reverse order of the test above (FR-012): a success does not
     permanently exempt an action from ever being reported blocked again."""
     storyctl_dir.stage_upstream_of("tasks")
-    record_notify_action(storyctl_dir.agent_dir, "issue-comment")
+    record_outward_action(storyctl_dir.agent_dir, "418-storyctl", "issue-comment")
     record_blocked(
         storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused later", "decompose",
     )

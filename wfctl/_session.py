@@ -248,20 +248,28 @@ def grant_auto_approve(agent_dir: Path, granted: bool) -> None:
     append_event(agent_dir, "mode", auto_approve=granted)
 
 
-def record_notify_action(agent_dir: Path, action: str) -> None:
+def record_outward_action(agent_dir: Path, branch: str, action: str) -> None:
     """Record one outward action this run took, after it succeeded.
 
     Written by `wfctl report-action` for what no wfctl verb performs — a push —
     and by `_tracker.dispatch` for its own writes. The event keeps the name
     `notify-action` though nothing here notifies anyone any more: the event name
     is storage and the verb is interface, and renaming storage would break every
-    log already written and `_restart`'s reader of them.
+    log already written and `_restart`'s reader of them. The function is
+    interface, so it carries the name the change left behind.
+
+    `branch` is stored for the reason `record_blocked` stores it, and the two
+    have to agree: this event releases the hold that one files, and
+    `standing_blocks` reads an event with no branch as matching every branch. A
+    release that named no branch would therefore lift a hold filed on a
+    different one — unreachable until the action names agreed, which is exactly
+    what recording `issue-<verb>` arranged.
 
     The log is the destination rather than one of several: it is written whether
     or not a change is open and whether or not the session ends cleanly, and it
     is the only trace of a push that survives a restart's `/clear`.
     """
-    append_event(agent_dir, "notify-action", action=action)
+    append_event(agent_dir, "notify-action", branch=branch, action=action)
 
 
 class StandingBlock(NamedTuple):
@@ -281,7 +289,8 @@ def record_blocked(
     agent_dir: Path, branch: str, action: str, reason: str, step: str | None,
 ) -> None:
     """Record that the agent's own host refused an outward action wfctl never
-    ran (FR-005, FR-006).
+    ran (#364 FR-005, FR-006 — #384 numbers two different requirements the
+    same, so the issue is named rather than left to the reader to guess).
 
     `step` is the step `build_report` found current at call time; the agent
     supplies only the two facts it alone witnessed (`action`, `reason`).
@@ -297,7 +306,7 @@ def record_blocked(
 
 def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
     """Every action whose latest event, for this branch, is a standing block
-    (FR-012, FR-020, FR-021).
+    (#364 FR-012, FR-020, FR-021).
 
     Three event kinds share one action-keyed timeline: `blocked`,
     `block-cleared`, and `notify-action`. A `notify-action` is the release —
@@ -313,8 +322,10 @@ def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
 
     Scoped to `branch`: a shared state dir holds every branch's events, and
     reading one branch's answer off another's block is how one feature's hold
-    would land on a different one. An event with no `branch` field —
-    `notify-action` has never carried one — matches every branch.
+    would land on a different one. All three kinds carry a branch now that
+    `record_outward_action` writes one, and an event without the field matches
+    every branch — the only events missing it are `notify-action` lines written
+    before #384, which nothing filed a matching hold against anyway.
 
     Malformed lines are skipped rather than raised: every command appends here,
     so a truncated final write must not crash the reader that answers whether

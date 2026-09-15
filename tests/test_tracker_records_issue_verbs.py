@@ -56,7 +56,7 @@ def test_a_run_nobody_granted_anything_reaches_the_tracker(
     _backend(storyctl_dir.repo_root, marker)
     for verb in WRITES:
         assert _tracker.dispatch(
-            storyctl_dir.agent_dir, storyctl_dir.repo_root, verb, {"id": "418"},
+            storyctl_dir.agent_dir, storyctl_dir.repo_root, branch, verb, {"id": "418"},
         ) == 0, verb
     assert _ran(marker) == len(WRITES)
     out = capsys.readouterr().out
@@ -83,7 +83,7 @@ def test_each_write_is_recorded_under_the_name_a_block_is_filed_against(
     _backend(storyctl_dir.repo_root, tmp_path / "ran.log")
     for verb in [*WRITES, "close"]:
         _tracker.dispatch(
-            storyctl_dir.agent_dir, storyctl_dir.repo_root, verb, {"id": "418"},
+            storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", verb, {"id": "418"},
         )
     assert _actions(storyctl_dir.agent_dir) == [
         "issue-comment", "issue-create", "issue-label", "issue-close",
@@ -99,7 +99,7 @@ def test_board_moves_and_reads_record_no_action(
     _backend(storyctl_dir.repo_root, tmp_path / "ran.log")
     for verb in ("start", "stop", "view", "list"):
         _tracker.dispatch(
-            storyctl_dir.agent_dir, storyctl_dir.repo_root, verb, {"id": "418"},
+            storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", verb, {"id": "418"},
         )
     assert _actions(storyctl_dir.agent_dir) == []
 
@@ -114,7 +114,7 @@ def test_a_failed_write_records_nothing(
     trackers = root / ".agents" / "trackers"
     trackers.mkdir(parents=True, exist_ok=True)
     (trackers / "fake.json").write_text(json.dumps({"verbs": {"create": ["false"]}}))
-    assert _tracker.dispatch(storyctl_dir.agent_dir, root, "create", {}) != 0
+    assert _tracker.dispatch(storyctl_dir.agent_dir, root, "418-storyctl", "create", {}) != 0
     assert _actions(storyctl_dir.agent_dir) == []
 
 
@@ -137,7 +137,7 @@ def test_a_successful_retry_lifts_the_hold_its_refusal_filed(
 
     _backend(storyctl_dir.repo_root, tmp_path / "ran.log")
     assert _tracker.dispatch(
-        storyctl_dir.agent_dir, storyctl_dir.repo_root, verb, {"id": "418"},
+        storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", verb, {"id": "418"},
     ) == 0
 
     after = json.loads(runner.invoke(app, ["status", "--json"]).output)
@@ -164,7 +164,7 @@ def test_a_leftover_grant_file_changes_nothing(
         json.dumps({"state": "denied", "source": "local", "branch": "418-storyctl"})
     )
     assert _tracker.dispatch(
-        storyctl_dir.agent_dir, storyctl_dir.repo_root, "create", {"id": "418"},
+        storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", "create", {"id": "418"},
     ) == 0
     assert _ran(marker) == 1
     assert runner.invoke(app, ["status"]).output == before

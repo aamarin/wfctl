@@ -5,7 +5,7 @@ handoffs:
   - label: Begin Implementation
     agent: speckit.implement
     prompt: Implement the delivery plan
-allowed-tools: Read Glob Write Bash(wfctl status*) Bash(wfctl issue create*) Bash(wfctl report-action*) Bash(wfctl report-block*)
+allowed-tools: Read Glob Write Bash(wfctl status*) Bash(wfctl issue create*) Bash(wfctl report-block*)
 ---
 
 ## User Input

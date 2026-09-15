@@ -100,8 +100,9 @@ _FACT_GLYPH: dict[str, tuple[str, str]] = {
 }
 
 # The width of the longest of the three fact names, `architecture accepted`.
-# A constant because the block and its tests both need it and a literal in two
-# places is a column that drifts by one space.
+# A constant because the literal would otherwise sit inline in a loop that reads
+# as a column, where a name longer than the reserved width shifts every row and
+# nothing says what the number was for.
 _FACT_NAME_WIDTH = 21
 
 
@@ -188,8 +189,8 @@ _AUTO_APPROVE_NOTICE = (
 #
 # Naming all four pushes the sentence past one line, so it is authored as two —
 # split at the clause boundary, each half under the 72-character budget
-# `test_every_notice_line_fits_on_one_terminal_line` pins — rather than left as
-# one string for `rich` to reflow. An automatic wrap breaks at
+# `test_status_says_who_decides_and_what_is_never_taken` pins — rather than left
+# as one string for `rich` to reflow. An automatic wrap breaks at
 # whatever word the terminal width lands on, and the second half read alone is
 # a fragment; an authored break always lands between "branch" and "or".
 _IRREVERSIBLE_NOTICE = (
@@ -387,11 +388,11 @@ def report_action_cmd(
     """
     from rich.markup import escape
 
-    from wfctl._session import record_notify_action, standing_blocks
+    from wfctl._session import record_outward_action, standing_blocks
 
     agent_dir, _, branch, _ = _resolve_context()
     held = {b.action: b for b in standing_blocks(agent_dir, branch)}.get(action)
-    record_notify_action(agent_dir, action)
+    record_outward_action(agent_dir, branch, action)
     console.print(f"[green]✓[/green] recorded: {escape(action)}")
     if held is None:
         return
@@ -2023,7 +2024,7 @@ def issue_cmd(
         "title": title, "label": label, "action": action,
     }
     params = {k: v for k, v in params.items() if v is not None}
-    raise typer.Exit(_tracker.dispatch(agent_dir, repo_root, verb, params))
+    raise typer.Exit(_tracker.dispatch(agent_dir, repo_root, branch, verb, params))
 
 
 def _render_change_check(
@@ -2173,7 +2174,7 @@ def change_cmd(
     """
     from wfctl import _tracker
 
-    agent_dir, repo_root, _, issue = _resolve_context()
+    agent_dir, repo_root, branch, issue = _resolve_context()
 
     if verb == "check":
         if change_id is None:
@@ -2183,7 +2184,9 @@ def change_cmd(
 
     params = {"id": change_id} if change_id is not None else {}
     raise typer.Exit(
-        _tracker.dispatch(agent_dir, repo_root, verb, params, section="changes", event="change")
+        _tracker.dispatch(
+            agent_dir, repo_root, branch, verb, params, section="changes", event="change"
+        )
     )
 
 
