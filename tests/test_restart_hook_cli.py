@@ -19,7 +19,14 @@ from pathlib import Path
 import pytest
 
 from wfctl import _restart
-from wfctl._restart import CLEAR_TEXT, DEFAULT_THRESHOLD, END_TEXT, START_TEXT, run_hook
+from wfctl._restart import (
+    CLEAR_TEXT,
+    DEFAULT_THRESHOLD,
+    END_TEXT,
+    START_TEXT,
+    THRESHOLD_ENV,
+    run_hook,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -39,6 +46,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     monkeypatch.setenv("WFCTL_BRANCH", "371-x")
     monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    monkeypatch.delenv(THRESHOLD_ENV, raising=False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
     return root.resolve()
 
