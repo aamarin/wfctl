@@ -1151,7 +1151,6 @@ def test_promised_evidence_blocks_when_it_cannot_be_read() -> None:
     be re-derived per gate — which is how two policies got here."""
     assert blocks("inconclusive", "repo-declared") is True
     assert blocks("inconclusive", "accepted-record") is True
-    assert blocks("inconclusive", "human") is True
 
 
 def test_ambient_evidence_proceeds_when_it_cannot_be_read() -> None:

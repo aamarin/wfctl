@@ -37,12 +37,17 @@ Verdict = Literal["satisfied", "unsatisfied", "inconclusive"]
 # "promised or not", so an unrecognised source would take the ambient branch and
 # proceed — a typo failing open on evidence somebody promised. mypy is not strict
 # here, and a `str` parameter is the shape that hides it.
-Source = Literal["repo-declared", "accepted-record", "human", "ambient"]
+Source = Literal["repo-declared", "accepted-record", "ambient"]
 
 # Sources someone undertook to produce. The repo declares its commands, the
-# process accepts its records, a person records an approval — so silence from
-# one of these is a missing answer, not the absence of a question.
-_PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record", "human"})
+# process accepts its records — so silence from one of these is a missing
+# answer, not the absence of a question.
+#
+# `human` was the third, and #384 removed the only fact that named it: a person
+# granting outward-facing authority. A variant nothing produces makes the rule
+# below untestable through anything real, so it goes with the fact rather than
+# waiting for a caller that no longer has a reason to exist.
+_PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record"})
 
 
 # The four names a step's position can take. A closed set rather than `str`

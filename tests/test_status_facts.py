@@ -279,14 +279,18 @@ def test_the_pipeline_still_has_exactly_four_step_states(
 
 
 def test_the_rule_for_unavailable_evidence_is_unchanged() -> None:
-    """FR-014, pinned against all eight verdict/source pairs.
+    """FR-014, pinned against every verdict/source pair the loops below build.
+
+    Written without a count on purpose: #384 dropped the `human` source and the
+    number in this line would have gone stale with nothing to catch it (#247 is
+    that failure as its own issue).
 
     #299 answers *which question* the evidence was about; `blocks` answers what
     it means that the evidence was unavailable. They are one level apart and
     conflating them re-opens #287, so the second rule is pinned here by the
     change that had the most reason to reach for it.
     """
-    promised = ("repo-declared", "accepted-record", "human")
+    promised = ("repo-declared", "accepted-record")
     for source in promised:
         assert _predicates.blocks("inconclusive", source) is True
     assert _predicates.blocks("inconclusive", "ambient") is False
