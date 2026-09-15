@@ -5210,6 +5210,26 @@ def hook_worktree_guard_cmd() -> None:
         raise typer.Exit(code)
 
 
+@hook_app.command(_SESSION_RESTART)
+def hook_session_restart_cmd() -> None:
+    """Stop. Restart a full pane — but only after it has written its handoff.
+
+    Over `WFCTL_RESTART_THRESHOLD` tokens (`_restart.DEFAULT_THRESHOLD` when unset, `0` for off), types
+    `/end-session restart` into the pane; once a stop lands after that, types
+    `/clear` and `/start-session`. A restart that cannot finish safely — no stop
+    recorded, no workmux pane, a `/clear` that did not take — says so once in the
+    pane instead. Exits 0 on every path.
+
+    The decision is `wfctl/_restart.py`, and like the guard this function does
+    not run in practice: `wfctl/_entry.py` dispatches the exact argv there so a
+    reply end that decides nothing never loads typer and rich. It stays as the
+    command `wfctl hook --help` lists.
+    """
+    from wfctl._restart import hook_main
+
+    hook_main()
+
+
 # Where releases come from. Tags are always read from here, even for a fork
 # install: a fork's tag list freezes at fork time, so comparing against it would
 # report "latest" straight through an upstream release. Where the *branch* comes
