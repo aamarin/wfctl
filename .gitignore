@@ -102,3 +102,7 @@ node_modules/
 .bob/commands/software-design-decisions.md
 .bob/commands/architecture-decisions.md
 .bob/commands/design-levels.md
+.bob/skills/approval-settings
+.bob/skills/brainstorm
+.bob/commands/brainstorm.md
+.bob/commands/approval-settings.md

@@ -290,6 +290,7 @@ def test_uninstall_removes_native_skill_mirror(
 _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "architecture-decisions",
     "architecture-design",
+    "brainstorm",
     "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
@@ -378,9 +379,10 @@ def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
     onto the SKILL.md first, which is what this test asks for. It is the worked
     example of paying the price rather than exempting the name.
 
-    `description` and `disable-model-invocation` are the two keys a pointer needs
-    — one to be findable, one to say a human types it — and neither survives into
-    a mirrored skill's behaviour, because the skill file supplies both itself.
+    `description`, `disable-model-invocation`, and `allowed-tools` are the keys
+    a pointer may carry — the first two identify the command, and `allowed-tools`
+    scopes auto-approval for Bob Shell (preserved on the bob layer, stripped on
+    Claude). Any other key is content that would be silently dropped on suppression.
     """
     import wfctl
     from wfctl import _arch
@@ -391,9 +393,10 @@ def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
     # names would never see the addition it exists to catch.
     commands = Path(wfctl.__file__).parent / "agents" / "commands"
     carrying = {}
+    _POINTER_KEYS = {"description", "disable-model-invocation", "allowed-tools"}
     for name in sorted(n for n in _MIRRORED_SKILLS if (commands / f"{n}.md").exists()):
         keys = set(_arch._frontmatter((commands / f"{name}.md").read_text()))
-        extra = sorted(keys - {"description", "disable-model-invocation"})
+        extra = sorted(keys - _POINTER_KEYS)
         if extra:
             carrying[name] = extra
 
