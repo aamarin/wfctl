@@ -16,7 +16,7 @@ wfctl enforces spec-driven development — keeps agents on the specify → plan 
 - **Enforced order** — always points to the next required step, blocking code before spec and plan
 - **Design before spec** — `design-levels` runs design as four gated passes, so who owns what is decided out loud, not buried in code
 - **Ships with skills** — installs spec-kit skills + slash commands into the project
-- **Accountable outward actions** — issue writes, and any other outward action you record with `wfctl notify` (a push), check the same explicit grant and refuse without it ([details](docs/reference.md#outward-facing-authority-notify-blocked))
+- **Accountable outward actions** — issue writes record themselves, a push is recorded with `wfctl report-action`, and a host refusal with `wfctl report-block` holds the step until the action is taken; your agent's own permission layer decides what may run ([details](docs/reference.md#outward-actions-report-action-report-block))
 
 ## Requirements
 
@@ -120,7 +120,7 @@ lay files into your repo: **[docs/reference.md](docs/reference.md)**.
 | `change` | List/view/check code changes (PRs, patchsets) via the tracker's `changes` backend |
 | `arch context` | Print the in-force architectural contract |
 
-Full command reference, including `notify`/`blocked` and the `arch` lifecycle:
+Full command reference, including `report-action`/`report-block` and the `arch` lifecycle:
 **[docs/reference.md#commands](docs/reference.md#commands)**. That table
 summarizes each command; run `wfctl <command> --help` for its flags.
 

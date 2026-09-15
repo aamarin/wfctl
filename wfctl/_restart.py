@@ -306,18 +306,18 @@ def find_handle(repo_root: Path) -> str | None:
     return None
 
 
-# The two events `record_notify_action` and `record_notify_declined` write
-# (`_session.py`) — its own docstring already calls the session summary "a
-# rendering of" this log, which the amendment below is the first place that
-# reads true.
-_LATE_EVENTS = ("notify-action", "notify-declined")
+# The event `record_outward_action` writes (`_session.py`), for a push reported
+# with `wfctl report-action` or a tracker write `wfctl issue` recorded itself.
+# `notify-declined` was the other until #384 removed `--declined` with the grant
+# it was a decline of; an old log's line of it is left where it is, unread.
+_LATE_EVENTS = ("notify-action",)
 
 
 def amend_summary_for_late_events(state_dir: Path, events: Sequence[dict], end_pos: int) -> None:
-    """Fold a notifying action recorded after the handoff back into it.
+    """Fold an outward action recorded after the handoff back into it.
 
     `wfctl end` writes `session-summary.md` mid-turn (step 3 of `end-session`);
-    anything the same turn does afterward — a `notify push` recorded at step 5,
+    anything the same turn does afterward — a `report-action push` at step 5,
     say — has no later step that revisits the file. Once `/clear` runs next,
     that fact is gone from everywhere a person or the next session would look
     (#371 ledger: a push at 14:24:38 traced real against `origin`, eight seconds
@@ -341,11 +341,7 @@ def amend_summary_for_late_events(state_dir: Path, events: Sequence[dict], end_p
 
     lines = ["", "## Recorded After This Summary Was Written", ""]
     for e in late:
-        ts = e.get("ts", "?")
-        if e.get("event") == "notify-action":
-            lines.append(f"- {ts} — {e.get('action')}")
-        else:
-            lines.append(f"- {ts} — declined {e.get('action')}: {e.get('reason')}")
+        lines.append(f"- {e.get('ts', '?')} — {e.get('action')}")
     write_atomic(summary_file, body.rstrip("\n") + "\n" + "\n".join(lines) + "\n")
 
 

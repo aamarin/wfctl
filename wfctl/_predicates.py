@@ -37,12 +37,17 @@ Verdict = Literal["satisfied", "unsatisfied", "inconclusive"]
 # "promised or not", so an unrecognised source would take the ambient branch and
 # proceed — a typo failing open on evidence somebody promised. mypy is not strict
 # here, and a `str` parameter is the shape that hides it.
-Source = Literal["repo-declared", "accepted-record", "human", "ambient"]
+Source = Literal["repo-declared", "accepted-record", "ambient"]
 
 # Sources someone undertook to produce. The repo declares its commands, the
-# process accepts its records, a person records an approval — so silence from
-# one of these is a missing answer, not the absence of a question.
-_PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record", "human"})
+# process accepts its records — so silence from one of these is a missing
+# answer, not the absence of a question.
+#
+# `human` was the third, and #384 removed the only fact that named it: a person
+# granting outward-facing authority. A variant nothing produces makes the rule
+# below untestable through anything real, so it goes with the fact rather than
+# waiting for a caller that no longer has a reason to exist.
+_PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record"})
 
 
 # The four names a step's position can take. A closed set rather than `str`
@@ -121,30 +126,6 @@ class Fact(NamedTuple):
 # supersedes a record: that leaves the old record at `superseded`, which a human
 # did decide, and requiring `accepted` would hold such a branch forever.
 _RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
-
-# Sources whose answer could not be read, as opposed to answering no. Routed
-# through `blocks` below rather than mapped straight to a value, so the rule that
-# says what unavailable *promised* evidence means stays the one in
-# `promised-evidence-blocks-on-silence` and is not restated here.
-_UNREADABLE_GRANT = frozenset({"unreadable", "corrupt", "unknown-trunk"})
-
-# The right-hand column of the fact block, keyed on which of the seven answers
-# resolved the grant.
-#
-# Not `cli._NOTIFY_LINES`, which says the same things in longer words. That table
-# renders one standalone line, so each entry has to be a complete sentence about
-# what the run will do; these sit beside a name that has already asked the
-# question, so the sentence would repeat it. Two renderings of one fact is what
-# the payload is for — what would be wrong is two *derivations*, and there is one.
-_GRANT_DETAIL = {
-    "local": "you allowed it in this worktree",
-    "label": "you allowed it on the issue",
-    "unset": "nobody has allowed it for this work",
-    "deny": "you turned it off here",
-    "unreadable": "couldn't reach the issue tracker to check",
-    "corrupt": "couldn't read the setting for this work",
-    "unknown-trunk": "couldn't tell which branch is trunk",
-}
 
 # The design step's annotation when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
@@ -447,11 +428,11 @@ def _unkeyed_issues(text: str, key_pattern: str) -> int | None:
     """How many rows of a delivery plan promise an issue that does not exist yet.
 
     The Issue Grouping Map is authored with placeholder keys and filled in once
-    the issues are created. Creating them tells people outside the repo, so what
-    it waits on is the notify grant (#280) rather than this step, which since
-    #240 runs unattended — ungranted, the run writes the plan and stops before
-    the tracker. An unkeyed row is therefore a legitimate mid-decompose state;
-    what was wrong was reading it as a finished one (#8).
+    the issues are created. What it waits on is the creation rather than this
+    step, which since #240 runs unattended — a run whose host refuses the create
+    writes the plan, files a block, and stops before the tracker. An unkeyed row
+    is therefore a legitimate mid-decompose state; what was wrong was reading it
+    as a finished one (#8).
 
     None means there is nothing here to judge — no map, or a map with no rows. A
     delivery plan predating the table is not evidence that issues are missing, so
@@ -692,9 +673,9 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # Two steps run automatic over a rung that sits below the flag, and neither is a
 # gap left open. #283 settled `brainstorm` on reversibility. #240 settled
 # `decompose` on a narrower claim: the part of that step which reaches people is
-# creating the issues, and what stands in front of that is the notify grant
-# `speckit-delivery-plan` reads before it creates any (#280) — never this flag.
-# What the rung has to carry is therefore only the local half. A blocked step is
+# creating the issues, and what stands in front of that is the host's own
+# permission layer, which wfctl neither reads nor overrides (#384) — never this
+# flag. What the rung has to carry is therefore only the local half. A blocked step is
 # never automatic whatever the table says (`next_step_content`), which is what an
 # unkeyed map still stops.
 #
@@ -845,76 +826,27 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     return Fact(name, "unmet" if waiting else "met", named)
 
 
-def fact_outward_actions_authorized(granted: bool, source: str) -> Fact:
-    """May this branch's work reach people outside the repo? Owner: a human's grant.
-
-    Named for what the grant actually covers, which is narrower than the question
-    #299 opens with. `--allow-notify` and the `authority:notify` label permit
-    pushing, commenting, labelling and opening a change; `AGENTS.md` § Safety and
-    the flag's own help say merging, closing and deleting are never covered by
-    either, and `cli._IRREVERSIBLE_NOTICE` prints that on every `status`.
-
-    So *"may this branch be merged?"* has no owner in wfctl, deliberately and
-    permanently — "gating it would refuse the human who is the only actor allowed
-    to run it". A fact answering it from this grant would report `met` for an
-    irreversible action nobody authorized, which is worse than the silence the
-    feature replaces: a wrong answer where there had been none.
-
-    Reads the grant `build_report` resolved, already corrected for the trunk. The
-    trunk is the one `n/a` here: nothing outside the repo is waiting on the trunk,
-    so nothing was asked, and reporting it unmet would send a reader looking for a
-    flag the trunk refuses on purpose.
-
-    Routed through `blocks` rather than mapping each source to a value directly.
-    Three of the seven sources mean the answer could not be read, and what that
-    means for a *promised* source is settled by
-    `promised-evidence-blocks-on-silence`. Restating it here would be a fourth
-    copy of a rule that exists because three copies had already drifted.
-    """
-    name = "outward actions authorized"
-    if source == "trunk":
-        return Fact(name, "n/a", "this is the trunk")
-
-    # A source no wording covers is a source this wfctl cannot read. `.get` with
-    # the `unset` wording was the first shape and could contradict its own value
-    # — "met" beside "nobody has allowed it for this work" — because
-    # `NotifyGrant.source` comes back off `events.jsonl` unvalidated. Named here
-    # rather than answered with someone else's sentence.
-    if source not in _GRANT_DETAIL:
-        return Fact(name, "unmet", f"unrecognised grant source: {source}")
-
-    verdict: Verdict = (
-        "inconclusive" if source in _UNREADABLE_GRANT
-        else "satisfied" if granted
-        else "unsatisfied"
-    )
-    value: FactValue = "unmet" if blocks(verdict, "human") else "met"
-    return Fact(name, value, _GRANT_DETAIL[source])
-
-
 def facts(
-    ev: Evidence | None, repo_root: Path, granted: bool, source: str,
-    verification: str | None,
+    ev: Evidence | None, repo_root: Path, verification: str | None,
 ) -> tuple[Fact, ...]:
-    """The four, in the fixed order a consumer may index rather than search.
+    """The three, in the fixed order a consumer may index rather than search.
 
     The order runs from what the branch produced outward to what a human has
-    allowed, which is the order #299 states them in. The fourth is narrower than
-    that issue's own gloss — see `fact_outward_actions_authorized`, which says why
-    "may this be merged" is a question wfctl answers for nobody. Fixed and never filtered: a consumer reading
-    a short list learns nothing, where one reading no `facts` key at all learns
-    that this wfctl predates the question — the distinction `notify` is
-    present-and-false for.
+    ruled on. There were four until #384: the fourth read the outward-action
+    grant, which was removed because wfctl never owned "may this command run"
+    — the host's permission layer does, and refuses before wfctl's process
+    exists (`wfctl-records-outward-actions-and-never-gates-them`). Fixed and
+    never filtered: a consumer reading a short list learns nothing, where one
+    reading no `facts` key at all learns that this wfctl predates the question.
 
-    Four calls, four owners, and none of them is passed another's answer. That is
-    the constraint `readiness-is-not-a-step-state` exists to hold, and this
-    signature is where a future fifth fact would have to break it visibly.
+    Three calls, three owners, and none of them is passed another's answer. That
+    is the constraint `readiness-is-not-a-step-state` exists to hold, and this
+    signature is where a future fact would have to break it visibly.
     """
     return (
         fact_artifacts_written(ev),
         fact_definition_of_done(repo_root, verification),
         fact_architecture_accepted(repo_root),
-        fact_outward_actions_authorized(granted, source),
     )
 
 

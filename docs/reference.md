@@ -14,7 +14,7 @@ abstraction, and architecture records.
 - [The cross-worktree guard (`hook worktree-guard`)](#the-cross-worktree-guard-hook-worktree-guard)
 - [The merge install mode](#the-merge-install-mode)
 - [Issue trackers](#issue-trackers)
-- [Outward-facing authority (`notify`, `blocked`)](#outward-facing-authority-notify-blocked)
+- [Outward actions (`report-action`, `report-block`)](#outward-actions-report-action-report-block)
 - [Code changes (`wfctl change`)](#code-changes-wfctl-change)
 - [Where your specs live (`spec-root`)](#where-your-specs-live-spec-root)
 - [The architectural contract (`arch-root`, `arch context`)](#the-architectural-contract-arch-root-arch-context)
@@ -106,8 +106,8 @@ it and only the implementation ships.
 | `arch accept` | Promote a `proposed` record to `accepted`, citing where a human agreed |
 | `arch check` | Check that a written record is committed and will reach a reviewer |
 | `issue` | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`/`start`/`stop`) |
-| `notify` | Record a notifying action wfctl doesn't itself gate (a `git push`), or that one was declined |
-| `blocked` | Record that your agent's own host refused an outward action before wfctl ran |
+| `report-action` | Record an outward action wfctl didn't perform itself (a `git push`); lifts a matching hold |
+| `report-block` | Record that your agent's own host refused an outward action before wfctl ran; holds the step |
 | `change` | List/view/check code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
 | `install-skills` | Copy the skills, commands and speckit `.specify/` runtime wfctl ships into the current project |
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
@@ -539,17 +539,14 @@ wfctl issue start                      # the branch's issue; work has begun
 Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `labels`, `start`,
 `stop`.
 
-**`comment`, `create` and `label` refuse unless someone allowed this branch to
-notify people.** They reach people outside the repo, and nothing does that on a
-branch nobody granted — the first one you run prints a refusal and exits 1. A
-person lifts it with `wfctl start --allow-notify`, or by putting an
-`authority:notify` label on the branch's issue; `wfctl status` says which, in
-every state, and the run records what it did with the authority. Merging,
-closing and deleting are never covered: there is no setting for those.
+**wfctl never refuses a tracker write.** `comment`, `create`, `label` and
+`close` run when you run them; whether they *may* run is your coding agent's
+permission layer to decide, and it decides before wfctl starts. What wfctl does
+is record each one that succeeded, as `issue-comment`, `issue-create`,
+`issue-label` or `issue-close` — see [Outward actions](#outward-actions-report-action-report-block).
 
-`labels` lists one issue's labels, one per line, and is what reads that grant. A
-backend that cannot produce the list leaves the verb out and the repo grants from
-the terminal instead.
+`labels` lists one issue's labels, one per line. A backend that cannot produce
+the list leaves the verb out.
 
 `start` and `stop` report an event rather than a value — worktree creation and
 removal call them, and a backend with a board moves a column while one without
@@ -587,50 +584,43 @@ it with `wfctl tracker-check <name>`. Non-numeric issue keys (e.g. `PROJ-123`)
 are supported via the config's `key_pattern`, which also drives how wfctl maps a
 branch to its `specs/` folder.
 
-## Outward-facing authority (`notify`, `blocked`)
+## Outward actions (`report-action`, `report-block`)
 
-Two separate systems can stop an action that reaches outside the repo, and wfctl
-can see only one of them.
+wfctl does not decide whether an action that reaches outside the repo may run —
+a push, a comment, a new or closed issue. **Your coding agent's permission layer
+does.** It can refuse a `Bash` call before wfctl's process ever starts, and that
+refusal leaves no exit code, no stderr, nothing for wfctl to see.
 
-**wfctl's own grant** is the notify authority above: `comment`, `create` and
-`label` check it before running, refuse and exit 1 if it's missing, and record
-what they did either way. **Your coding agent's own permission layer** is the
-other one — it can refuse a `Bash` call (a `git push`, a `gh` invocation wfctl
-doesn't wrap) before wfctl's process ever starts, and that refusal produces no
-exit code, no stderr, nothing for wfctl to record on its own.
+What wfctl keeps is the record, because the agent's host keeps none that outlives
+the conversation. `wfctl issue` records its own writes. The two verbs below are
+for the two facts it cannot observe.
 
-`wfctl notify <action>` is for the first case where wfctl never gates the
-*action itself* — `git push` is the standing example, since no wfctl verb wraps
-it — but the recording is gated by the same grant `comment`/`create`/`label`
-check: without it, `wfctl notify` refuses and exits 1 too. Record it after
-acting:
+`wfctl report-action <action>` records an action this run took that no wfctl verb
+performs — `git push` is the standing example:
 
 ```bash
-wfctl notify push
+wfctl report-action push
 ```
 
-Pass `--declined --reason "..."` when the run held the authority and chose not
-to use it. That's a different fact than a refusal — it's the signal that the
-grant might be too narrow — so it's recorded on its own path:
+`wfctl report-block <action> --reason "..."` records that your agent's host
+refused an action. Filing a block holds the current pipeline step open, so the
+next `wfctl status` reads it as still in progress rather than silently done:
 
 ```bash
-wfctl notify comment --declined --reason "nothing new to report yet"
+wfctl report-block issue-comment --reason "org policy blocks bot comments on this repo"
 ```
 
-`wfctl blocked <action> --reason "..."` is for the second case: your agent's own
-host refused the action, and this is how the agent reports a refusal wfctl never
-witnessed. Unlike `notify`, it never checks the grant above — a run the host
-blocked is, by construction, one that may hold no grant at all. Filing a block
-holds the current pipeline step open, so the next `wfctl status` reads it as
-still in progress rather than silently done:
+**Taking the action lifts its own hold.** For each action, the most recent record
+decides. A retry that succeeds through `wfctl issue comment` records
+`issue-comment` and lifts the block above with nothing else typed; a person who
+took the action outside wfctl runs `wfctl report-action issue-comment`, which says
+which hold it lifted. Name tracker writes `issue-<verb>` so the two sides match.
 
-```bash
-wfctl blocked issue-comment --reason "org policy blocks bot comments on this repo"
-wfctl blocked issue-comment --clear   # a person took the action by hand; release the hold
-```
+There's no spelling of `report-block` that records success, and none of
+`report-action` that records a refusal.
 
-There's no spelling of `blocked` that records success — `--reason` files a
-block, `--clear` releases one, and nothing here ever says "it worked."
+Merging, force-pushing, closing an issue and deleting a branch or worktree are
+never taken by wfctl on its own, and no setting changes that.
 
 ## Code changes (`wfctl change`)
 

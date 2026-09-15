@@ -111,7 +111,7 @@ def test_a_held_branch_reports_open_false_to_another_conversation(
 def test_json_payload_carries_the_new_fields(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Both keys always present, never omitted — `notify`'s rule applied again.
+    """Both keys always present, never omitted — the payload's rule applied again.
 
     A consumer reading a missing key as false cannot tell a closed session from a
     wfctl too old to know the question, and `speckit-orchestrate` is the consumer:

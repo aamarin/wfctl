@@ -1,11 +1,11 @@
 ---
 disable-model-invocation: true
-description: Delivery decomposition for a speckit feature. Analyzes tasks.md to determine PR boundaries, group tasks into tracker issues, and map parallelization waves. Writes delivery.md, and creates the issues where the run was granted the authority to notify. Replaces /speckit.taskstoissues as the default terminus for features.
+description: Delivery decomposition for a speckit feature. Analyzes tasks.md to determine PR boundaries, group tasks into tracker issues, and map parallelization waves. Writes delivery.md, and creates the issues the plan promises. Replaces /speckit.taskstoissues as the default terminus for features.
 handoffs:
   - label: Begin Implementation
     agent: speckit.implement
     prompt: Implement the delivery plan
-allowed-tools: Read Glob Write Bash(wfctl status*) Bash(wfctl issue create*) Bash(wfctl notify*) Bash(wfctl blocked*)
+allowed-tools: Read Glob Write Bash(wfctl status*) Bash(wfctl issue create*) Bash(wfctl report-block*)
 ---
 
 ## User Input

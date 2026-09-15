@@ -302,3 +302,6 @@ declines to make on a guess.
   found the clearing rule unreachable for a run holding no grant: the release was
   gated where the report was not. `--clear` added, and the free-text action
   assumption named as where matching breaks first.
+- 2026-09-15  proposed  — #384: the grant this verb was separated from is
+  removed, so its title's reason is gone. The verb survives as `report-block`,
+  argued again in `384-the-agent-reports-through-two-flat-verbs`.
