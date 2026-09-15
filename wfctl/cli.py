@@ -2530,6 +2530,10 @@ _HOOK_GONE = {
     _SESSION_RESTART: "is gone — a full window is compacted or cleared with no handoff written first",
     _WORKTREE_GUARD: "is gone — nothing stops a Bash call reaching into a sibling worktree",
 }
+# `_report_hook_drift` indexes this by subcommand on every reported gap; a fifth
+# managed hook added without a matching line here would turn a doctor finding
+# into a KeyError instead of a message.
+assert {_settings.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} == set(_HOOK_GONE)
 
 _BACKUP_DIR = ".wf-skills-backup"
 
