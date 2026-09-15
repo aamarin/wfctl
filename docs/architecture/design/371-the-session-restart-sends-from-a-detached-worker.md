@@ -2,16 +2,16 @@
 status: proposed
 ---
 
-# The recycle's sends run in a detached Python worker that records what each send did
+# The restart's sends run in a detached Python worker that records what each send did
 
 ## Context
 
-`wfctl-performs-the-recycle` (proposed, level 2) has `wfctl hook recycle` decide
+`wfctl-performs-the-session-restart` (proposed, level 2) has `wfctl hook session-restart` decide
 on each Stop and perform the sends itself through `workmux send`, "from a
 detached process that starts after the hook has exited". It leaves the shape of
 that process to level 3.
 
-The pressure is a failure nobody saw. The personal recycler that level 1 started
+The pressure is a failure nobody saw. The personal recycle script that level 1 started
 from sends from inside the running hook, and a send that exits 0 is not a send
 that landed: on 2026-09-14 at 12:33:03 it sent `/clear` and `/start-session` to
 `619-flexible-budget`, both `send exit=0`, and the same transcript went on
@@ -48,10 +48,10 @@ question this record answers.
   session's transcript growing — which state F would then report, so the bet
   fails loudly rather than silently.
 - **That the 619 failure was the in-hook send and not something else** — a person
-  typing, a prompt already queued. The log cannot say. Falsified by a recycle
+  typing, a prompt already queued. The log cannot say. Falsified by a restart
   from a detached worker failing the same way; state F is built for either cause.
 - **That a Python interpreter start per send is cheap enough.** It runs only on a
-  recycle, a few times a day per pane, never on the Stops that decide nothing.
+  restart, a few times a day per pane, never on the Stops that decide nothing.
 
 ## Direct baseline
 
@@ -70,15 +70,15 @@ of the 619 failure. The exit codes of the sends go nowhere.
 
 ## Decision
 
-The hook spawns `python -m wfctl._recycle_send` with `start_new_session=True`,
+The hook spawns `python -m wfctl._restart_send` with `start_new_session=True`,
 passing the handle, the session id and the send plan as arguments, and returns.
 The worker waits for the hook's process to have exited, runs each `workmux send`
-through `subprocess.run`, and appends one `recycle-send` event per send carrying
+through `subprocess.run`, and appends one `session-restart-send` event per send carrying
 `session`, the text sent, and the exit code.
 
 The decision itself — nothing, send end, send clear and start, hold, skip,
-report F — stays a pure function in `wfctl/_recycle.py` over the payload, the
-occupancy and the parsed events, with `hook recycle` in `cli.py` as the thin
+report F — stays a pure function in `wfctl/_restart.py` over the payload, the
+occupancy and the parsed events, with `hook session-restart` in `cli.py` as the thin
 caller. The worker decides nothing.
 
 ## Diagram
@@ -92,11 +92,12 @@ stable    │   events.jsonl   │                  │   events.jsonl   │
                 ▲ reads                             ▲ reads   ▲ writes exit
           ┌─────┴────────────┐                ┌─────┴──────┐  │
           │ wfctl hook       │                │ wfctl hook │  │
-          │ recycle          │                │ recycle    │  │
+          │ session-restart  │                │ session-   │  │
+          │                  │                │ restart    │  │
           └─────┬────────────┘                └─────┬──────┘  │
                 │ spawns                            │ spawns  │
           ┌─────▼────────────┐                ┌─────▼─────────┴──┐
-          │ sh -c sleep; send│                │ _recycle_send    │
+          │ sh -c sleep; send│                │ _restart_send    │
           └─────┬────────────┘                └─────┬────────────┘
                 │ calls                             │ calls
           ┌─────▼────────────┐                ┌─────▼────────────┐
@@ -111,7 +112,7 @@ volatile  ┌──────────────────┐          
 
 The graphs differ by one arrow: the worker writes back to `events.jsonl`, the
 shell does not. Without it the next Stop can see that a send was *planned* — the
-hook's own `recycle` event — and cannot tell a send that failed from one that ran
+hook's own `session-restart` event — and cannot tell a send that failed from one that ran
 and did not take. State F needs only the second, but saying "sent /clear at
 12:33Z" when `workmux` exited 1 would be the same lie the 619 log tells in
 reverse. No divider is new: in both, wfctl stops at `workmux send` and the pane
@@ -125,7 +126,7 @@ is the harness's.
 - **Send synchronously inside the hook**, as the personal script does — rejected
   on the evidence above and entry 16: the pane counts a running Stop hook as work
   in progress.
-- **Re-invoke `wfctl hook recycle --send …` as the worker** instead of a module
+- **Re-invoke `wfctl hook session-restart --send …` as the worker** instead of a module
   entry point — no new entry point, but it loads `typer` and `rich` for a process
   that parses no options a person types, and adds a flag to a command whose
   argv is an installed interface (`_entry.py:1-12`).
@@ -142,25 +143,25 @@ or never sent — and the hook stays silent on the Stops that decide nothing.
 A process outlives the hook that started it. If `workmux` hangs, so does the
 worker, detached and unobserved; `subprocess.run` needs a timeout on each send.
 
-`events.jsonl` gains two event kinds, `recycle` from the hook and `recycle-send`
+`events.jsonl` gains two event kinds, `session-restart` from the hook and `session-restart-send`
 from the worker, written by two processes that can interleave with a session's own
 `wfctl` calls. `append_event` opens in append mode and writes one line, which is
 what the existing readers already rely on; a torn line is skipped by them.
 
 ## Verification
 
-- A test that the decision function, given a `recycle` event for session S and a
-  `recycle-send` with exit 0 for `/clear`, and a payload from session S, returns
+- A test that the decision function, given a `session-restart` event for session S and a
+  `session-restart-send` with exit 0 for `/clear`, and a payload from session S, returns
   *report F* — and returns *nothing* for a payload from any other session.
-- A test that a `recycle-send` with a non-zero exit produces the "never sent"
+- A test that a `session-restart-send` with a non-zero exit produces the "never sent"
   wording, not "sent and did not take".
 - A test that the hook returns before the worker sends: spawn with a stub
   `workmux` on `PATH` that records its parent pid and a timestamp.
-- A live recycle in a Claude pane, checked by transcript id changing after the
+- A live restart in a Claude pane, checked by transcript id changing after the
   send. The suite cannot reach this, and it is the assumption the record rests on.
 
 ## Log
 
-- 2026-09-15  proposed  — #371 level 3; the personal recycler's `send exit=0` on
+- 2026-09-15  proposed  — #371 level 3; the personal recycle script's `send exit=0` on
   a `/clear` that never took showed the next Stop needs to know what a send did,
   which a detached shell cannot tell it. Chosen by the user (ledger entry 27).

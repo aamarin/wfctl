@@ -2,13 +2,13 @@
 status: proposed
 ---
 
-# The recycle threshold is read from the environment, and zero turns the recycler off
+# The restart threshold is read from the environment, and zero turns the restart hook off
 
 ## Context
 
-`wfctl-performs-the-recycle` (proposed, level 2) puts the recycler on by default
+`wfctl-performs-the-session-restart` (proposed, level 2) puts the restart hook on by default
 at 200000 tokens in every repo with the claude layer. It says nothing about how a
-person moves that number or turns the recycler off, and both are needed on day
+person moves that number or turns the restart hook off, and both are needed on day
 one: a default that cannot be changed is a hook people uninstall.
 
 The pressure is what the number depends on. It is a fraction of a model's context
@@ -33,7 +33,7 @@ which agent runs is the person's fact rather than the repo's.
   `WFCTL_AGENT` are all read from the environment (`grep -rn WFCTL_ wfctl/`).
 - `AGENTS.md` § Declaring what a change must carry — `change_check` lives in
   `wfctl.json` because it is repo policy, and `.agents/` is regenerated.
-- The personal recycler reads `RECYCLE_THRESHOLD` from the environment with a
+- The personal recycle script reads `RECYCLE_THRESHOLD` from the environment with a
   default (`20a8241b-…/scratchpad/recycle/recycle-hook.sh:32`).
 
 ## Assumed
@@ -44,20 +44,20 @@ which agent runs is the person's fact rather than the repo's.
   launched from something other than a login shell — a desktop app, a service —
   where the variable is unset and the default applies silently.
 - **That the threshold is a person's choice more often than a repo's.** Falsified
-  by a repo that needs the recycler off for everyone — a repo whose sessions must
+  by a repo that needs the restart hook off for everyone — a repo whose sessions must
   never be cleared unattended — which this shape cannot express.
 
 ## Direct baseline
 
-A module constant, `RECYCLE_THRESHOLD = 200000` in `wfctl/_recycle.py`, and no
-setting. Changing it means editing wfctl; turning the recycler off means removing
+A module constant, `RESTART_THRESHOLD = 200000` in `wfctl/_restart.py`, and no
+setting. Changing it means editing wfctl; turning the restart hook off means removing
 the Stop entry from `.claude/settings.json` by hand, which the next
 `install-skills` puts back.
 
 ## Decision
 
-`wfctl hook recycle` reads `WFCTL_RECYCLE_THRESHOLD`. Unset or unparseable, it is
-200000. `0` turns the recycler off: every Stop decides *nothing*. The constant
+`wfctl hook session-restart` reads `WFCTL_RESTART_THRESHOLD`. Unset or unparseable, it is
+200000. `0` turns the restart hook off: every Stop decides *nothing*. The constant
 stays as the default and is the only place 200000 is written.
 
 ## Diagram
@@ -66,33 +66,34 @@ stays as the default and is the only place 200000 is written.
              baseline                            decision
 
           ┌────────────────────────┐          ┌────────────────────────┐
-stable    │ _recycle               │          │ _recycle               │
+stable    │ _restart               │          │ _restart               │
           │ THRESHOLD = 200000     │          │ default 200000         │
           └────────────────────────┘          └────────────────────────┘
                    ▲ reads                         ▲ reads  ▲ falls back to
           ┌────────┴───────────────┐          ┌────┴────────┴──────────┐
-          │ wfctl hook recycle     │          │ wfctl hook recycle     │
+          │ wfctl hook             │          │ wfctl hook             │
+          │ session-restart        │          │ session-restart        │
           └────────────────────────┘          └────────────────────────┘
                                                         ▲ reads
 ═══ no-hardcoded-agent: committed config │ the person's environment ═══════
                                                         │
 volatile  ┌────────────────────────┐          ┌─────────┴──────────────┐
           │ shell profile          │          │ shell profile          │
-          │ (nothing read)         │          │ WFCTL_RECYCLE_THRESHOLD│
+          │ (nothing read)         │          │ WFCTL_RESTART_THRESHOLD│
           └────────────────────────┘          └────────────────────────┘
 ```
 
 The graphs differ by one arrow across the line `no-hardcoded-agent` already
 draws. In the baseline nothing below the line is read, so the only way to change
-the number is to change wfctl, and the only way to stop the recycler is an edit
+the number is to change wfctl, and the only way to stop the restart hook is an edit
 `install-skills` reverts. The decision reads one value from the side that owns the
 model choice, and leaves the committed config naming nothing.
 
 ## Considered
 
-- **A `recycle` key in `wfctl.json`** — the house place for persistent settings,
+- **A `restart` key in `wfctl.json`** — the house place for persistent settings,
   per `_paths.py`'s own reasoning, and the only option that lets a repo turn the
-  recycler off for everyone. Sound, and it loses on fit: the number follows the
+  restart hook off for everyone. Sound, and it loses on fit: the number follows the
   model, and two people on one repo with different windows would fight over one
   committed value. If a repo-wide off switch is ever needed it is an addition to
   this, not a replacement.
@@ -107,7 +108,7 @@ model choice, and leaves the committed config naming nothing.
 
 ## Consequences
 
-A person tunes or disables the recycler without editing wfctl or fighting
+A person tunes or disables the restart hook without editing wfctl or fighting
 `install-skills`, and nothing committed says anything about their model.
 
 Every pane on a machine shares one threshold. The 619 pane and a 200k pane
@@ -125,7 +126,7 @@ threshold in force, so the question has somewhere to be answered.
 - A test that 200000 appears once in `wfctl/`, so a second copy of the default
   cannot drift from the first.
 - A live check that a value exported in the shell profile reaches the hook in a
-  workmux pane: the recycle fires at the exported value, not the default.
+  workmux pane: the restart fires at the exported value, not the default.
 
 ## Log
 

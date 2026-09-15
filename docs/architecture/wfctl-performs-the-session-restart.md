@@ -2,7 +2,7 @@
 status: proposed
 ---
 
-# wfctl decides and performs a pane's context recycle, from a Stop hook in the claude layer
+# wfctl decides and performs a pane's session restart, from a Stop hook in the claude layer
 
 ## Context
 
@@ -45,7 +45,7 @@ the Stop after that turn, send `/clear` and `/start-session` (entry 11).
 
 ## Direct baseline
 
-Nothing ships in wfctl. The recycler stays a personal script each developer
+Nothing ships in wfctl. The restart hook stays a personal script each developer
 installs by hand into `~/.claude/`, amended per ledger entry 11 to send
 `/end-session` first and to wait one Stop before clearing. wfctl's only
 contribution is what `end-session` and `start-session` already do.
@@ -58,7 +58,7 @@ that authors it (ledger entry 17), so every copy is placed by a person.
 
 ## Decision
 
-`wfctl hook recycle` is a managed Stop hook installed by `install-skills --agent
+`wfctl hook session-restart` is a managed Stop hook installed by `install-skills --agent
 claude`. On each Stop it reads the window's occupancy from the transcript's last
 usage record and the branch's `events.jsonl`, decides one of *nothing*, *send
 `/end-session`*, *send `/clear` then `/start-session`*, *hold* or *skip*, and
@@ -67,10 +67,10 @@ starts after the hook has exited.
 
 ## Owns truth
 
-wfctl owns **"is this pane due to recycle, and has the handoff it asked for
+wfctl owns **"is this pane due to restart, and has the handoff it asked for
 landed yet?"**
 
-The agent cannot own it. The recycle destroys the context that would hold the
+The agent cannot own it. The restart destroys the context that would hold the
 reading, so a session that comes back cannot tell a window cleared a minute ago
 from one never cleared — the argument of `wfctl-owns-the-recycle-verdict`, which
 was rejected for its scope and never for this. And the agent is refused the act
@@ -98,9 +98,9 @@ into the transcript, and wfctl only reads it.
   same layer, so the boundary between them is a second artifact rather than a
   second owner; it existed in #188 only because wfctl was declining the send.
 - **Fire on Claude Code's idle notification instead of Stop** — would give the
-  recycler an event of its own and make "the pane is idle" free rather than a
+  restart hook an event of its own and make "the pane is idle" free rather than a
   delay. It fires only after roughly a minute without input, so an attended
-  session answered within the minute never recycles, which is not the level-1
+  session answered within the minute never restarts, which is not the level-1
   behavior agreed (entry 19). Not probed.
 
 ## Consequences
@@ -127,5 +127,5 @@ into the transcript, and wfctl only reads it.
 ## Log
 
 - 2026-09-15  proposed    — #371: an automated `/clear` discards the session's
-  reasoning, and the decision to recycle and the act of recycling needed one owner
+  reasoning, and the decision to restart and the act of restarting needed one owner
   before a hook could be shaped. B chosen by the user in ledger entry 22.

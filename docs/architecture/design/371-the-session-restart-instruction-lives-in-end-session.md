@@ -2,17 +2,17 @@
 status: proposed
 ---
 
-# What a recycle asks of `/end-session` is written in the skill, and the hook sends one word
+# What a restart asks of `/end-session` is written in the skill, and the hook sends one word
 
 ## Context
 
-`wfctl-performs-the-recycle` (proposed, level 2) sends `/end-session` to a pane
+`wfctl-performs-the-session-restart` (proposed, level 2) sends `/end-session` to a pane
 over the threshold, and `/clear` plus `/start-session` once the handoff has
 landed. Two of `end-session`'s defaults are wrong for that turn, and the personal
-recycler this started from corrected both in the text it sent:
+restart hook this started from corrected both in the text it sent:
 
 - it closes with a bare `wfctl end`, which records a wrapped-up stop — and a
-  recycled session is the opposite, one the next session carries on without
+  restarted session is the opposite, one the next session carries on without
   being asked (`start-session` step 9 reads exactly that field);
 - it stops to ask before committing and before touching the tracker, with nobody
   at the prompt, and the `/clear` that follows would discard the question.
@@ -33,28 +33,28 @@ data under `wfctl/agents/`, and the dotted directories are generated from it.
   covers `Bash(wfctl end*)`, so the flag needs no permission change.
 - No wrapper under `wfctl/agents/commands/` reads `$ARGUMENTS`; none of them
   takes an argument today.
-- The personal recycler's `END_PROMPT` is 237 characters of instruction sent as
+- The personal recycle script's `END_PROMPT` is 237 characters of instruction sent as
   pane input (`20a8241b-…/scratchpad/recycle/recycle-hook.sh`).
 
 ## Assumed
 
 - **That text after `/end-session` reaches the skill on Claude Code.** Checked on
   Codex and Copilot with a stand-in skill that echoed its arguments (ledger entry
-  15); not on Claude. Falsified by a recycle turn that runs `end-session` and asks
+  15); not on Claude. Falsified by a restart turn that runs `end-session` and asks
   the commit question anyway — the decision survives it, since the skill section
   could key on something other than an argument, but the one-word send would not.
 - **That the model follows a skill section as reliably as a sent instruction.**
-  Both are prose in context; neither is a check. Falsified by a recycle turn that
+  Both are prose in context; neither is a check. Falsified by a restart turn that
   records a wrapped-up stop, which the `end` event's `continued` field shows.
 
 ## Direct baseline
 
-Keep the personal recycler's shape: a module constant in `wfctl/_recycle.py`
+Keep the personal recycle script's shape: a module constant in `wfctl/_restart.py`
 holding the full instruction, sent verbatim.
 
 ```
 END_PROMPT = (
-    "/end-session automatic context recycle, not a wrap-up: nobody is at the "
+    "/end-session automatic session restart, not a wrap-up: nobody is at the "
     "prompt. Close with `wfctl end --continued`, write the summary in full, and "
     "skip the commit and tracker questions …"
 )
@@ -65,10 +65,10 @@ tested as a string.
 
 ## Decision
 
-`end-session` gains a section for an invocation carrying `recycle`: close with
+`end-session` gains a section for an invocation carrying `restart`: close with
 `wfctl end --continued`, fill the summary in full, skip steps 6 and 7 and say in
 the summary that the tree was left as found. The hook sends
-`/end-session recycle` and nothing more.
+`/end-session restart` and nothing more.
 
 ## Diagram
 
@@ -77,11 +77,11 @@ the summary that the tree was left as found. The hook sends
 
           ┌──────────────────────┐              ┌──────────────────────┐
 stable    │ end-session SKILL.md │              │ end-session SKILL.md │
-          │  (steps 3, 6, 7)     │              │  + recycle section   │
+          │  (steps 3, 6, 7)     │              │  + restart section   │
           └──────────────────────┘              └──────────────────────┘
                      ▲ overridden by                       ▲ selects
           ┌──────────┴───────────┐              ┌──────────┴───────────┐
-          │ _recycle.END_PROMPT  │              │ _recycle: "recycle"  │
+          │ _restart.END_PROMPT  │              │ _restart: "restart"  │
           │ (237-char literal)   │              │                      │
           └──────────┬───────────┘              └──────────┬───────────┘
 ═════ layer-model: committed source │ generated, and sent at runtime ═════════
@@ -102,9 +102,9 @@ input below it.
 ## Considered
 
 - **The constant** — the baseline. Sound, and it is what works today. It loses on
-  who reads it: a reviewer changing `end-session` never opens `_recycle.py`, and a
+  who reads it: a reviewer changing `end-session` never opens `_restart.py`, and a
   person watching the pane gets 237 characters of instruction they did not type.
-- **A separate `recycle-session` skill** — no conditional inside `end-session`.
+- **A separate `restart-session` skill** — no conditional inside `end-session`.
   Rejected because it would restate steps 1–5 and 8, which is the drift the
   decision exists to prevent, one file over.
 - **An environment variable the hook sets for the turn** — no argument parsing.
@@ -115,23 +115,23 @@ input below it.
 
 `end-session` has an argument for the first time, and a wrapper that has never
 read one. The section has to say what happens on any other argument — ignored,
-as today — so a typo does not quietly become a recycle.
+as today — so a typo does not quietly become a restart.
 
-A person can type `/end-session recycle` by hand and get an unattended close in
+A person can type `/end-session restart` by hand and get an unattended close in
 an attended session. That is the same outcome as sending it, and not a thing the
 skill can tell apart.
 
 ## Verification
 
 - A test in the skills suite that `end-session/SKILL.md` names `--continued`
-  under the recycle section, and that `_recycle`'s send text is exactly
-  `/end-session recycle` — so the two halves cannot drift apart silently.
-- A live recycle on Claude Code whose `end` event carries `"continued": true`
+  under the restart section, and that `_restart`'s send text is exactly
+  `/end-session restart` — so the two halves cannot drift apart silently.
+- A live restart on Claude Code whose `end` event carries `"continued": true`
   and whose tree is unchanged by the turn. This is the assumption above, checked.
 
 ## Log
 
-- 2026-09-15  proposed  — #371 level 3; the recycle turn needs `end-session`
-  without its two questions and with `--continued`, and the personal recycler
+- 2026-09-15  proposed  — #371 level 3; the restart turn needs `end-session`
+  without its two questions and with `--continued`, and the personal recycle script
   said so in a string beside the hook rather than beside the skill. Chosen by the
   user (ledger entry 27).
