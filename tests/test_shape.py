@@ -164,6 +164,25 @@ def test_an_anaphoric_count_is_never_a_lead_in() -> None:
                            BARE)
 
 
+def test_the_coda_keeps_both_because_its_position_carries_the_finding() -> None:
+    """The half a single shared vocabulary got wrong (#389, found in review).
+
+    `both` is dropped from the opening sentence because there the colon may sit
+    anywhere, so the word is the whole of the evidence and an anaphoric one is
+    not enough. A coda's colon has to close its sentence, after the answer has
+    landed — that is the structural signature of a second block, and a second
+    block is what rule 6 caps however familiar its contents. So the position
+    carries this finding and the word is not asked to.
+
+    The last line is the guard that keeps the two vocabularies from collapsing
+    back into one: the same word, in the opening frame, must still read clean."""
+    assert _shape.findings("Done. Both remaining issues:", BARE)
+    assert _shape.findings("That is settled. Both problems worth an issue each:",
+                           BARE)
+    assert _shape.findings("Done. **Both things remain:**", BARE)
+    assert not _shape.findings("Both remaining issues are filed.", BARE)
+
+
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
     """Q3, and the only finding that looks at length at all."""
     found = _shape.findings("word " * 300, BARE)

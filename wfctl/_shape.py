@@ -138,27 +138,42 @@ _REPLY_SENTENCE = re.compile(
 # for", and both are shaped exactly like a lead-in — one sentence, count, colon,
 # list. Only the prompt separates them, and this pattern is matched against the
 # reply.
-# `both` is not here, and its absence is the rule's own definition rather than a
-# concession. The tell is a count that *announces* — "the count announces a list
-# nobody asked for" (SKILL.md) — and announcing requires the material to be new
-# to the reader. `both` cannot do that: it is anaphoric, so it presupposes a pair
-# already in play and can only refer back to one. `Both actions are done: #643
-# filed, the comment posted` is a counted *fact* whose colon introduces the
-# answer's own evidence, and no filling of `both` produces the shape the rule
-# names. A numeral does — `Three things worth flagging:` introduces three things
-# the reader has not met — so every numeral stays, as do `several` and `a few`,
-# which are vague but still forward-looking.
+# The two positions do not take the same vocabulary, and `both` is why. The
+# asymmetry above is about where the colon may sit; this one is about which word
+# may carry the count, and it runs the same direction for the same reason —
+# the weaker the structural evidence, the more the word has to do.
 #
-# This costs the line `Both things worth naming: …`, a real lead-in the rule no
-# longer sees. That trade is the module's own stated asymmetry (see `_COUNT`'s
-# use below): a missed hit costs attention once, a false positive costs the
-# reader's trust in every other finding — and `both` was firing on the anaphoric
-# case far more often than on the announcing one.
+# `_COUNT` is the full set and belongs to the coda. `_ANNOUNCING` drops `both`
+# and belongs to the opening.
+#
+# The tell is a count that *announces* — "the count announces a list nobody asked
+# for" (SKILL.md) — and announcing needs the material to be new to the reader.
+# `both` is anaphoric: it presupposes a pair already in play and can only point
+# back at one. In the opening sentence, where a colon is accepted anywhere, that
+# is the whole of the evidence, and it is not enough. `Both actions are done:
+# #643 filed, the comment posted` is a counted *fact* whose colon introduces the
+# answer's own evidence — the unreachable class named above, arriving in a word
+# that can be told apart without the prompt. A numeral in that same frame is not:
+# `Three things worth flagging:` introduces three things the reader has not met.
+#
+# **The coda keeps `both`, and the anaphora does not rescue it there.** A coda's
+# colon has to close its sentence, after the answer has already landed — which is
+# the structural signature of appending a second block, and a second block is
+# what rule 6 caps however familiar its contents. `Done. Both remaining issues:`
+# announces a list past the answer whether or not the reader knows the pair, so
+# the position carries the finding and the word is not asked to.
+#
+# Removing `both` from the shared pattern took it from both matchers and silenced
+# that line (#389, found in review). The fix is two vocabularies, not one.
 _COUNT = (
+    r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
+    r"|both|several|a few)\b"
+)
+_ANNOUNCING = (
     r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
     r"|several|a few)\b"
 )
-_COUNTED = re.compile(rf"^\s*{_COUNT}[^\n]*:", re.IGNORECASE)
+_COUNTED = re.compile(rf"^\s*{_ANNOUNCING}[^\n]*:", re.IGNORECASE)
 # "Closes the sentence" has to mean the colon and whatever emphasis closes with
 # it. `Done. **Two things remain:**` is the bold lead-in this project recommends
 # over a heading, so a coda scan that reads `:**` as a colon with text after it
