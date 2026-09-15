@@ -81,9 +81,8 @@ flowchart LR
 ```
 
 You install the skills once per repo (①); everything after that runs from
-inside your agent. The part worth seeing up close is ②, because it's the
-actual mechanism wfctl adds — not a diagram of the pipeline steps, but of who
-tells the truth about them:
+inside your agent. ② is the mechanism wfctl actually adds: the agent doesn't
+get to say where it is — the files on disk do.
 
 ```mermaid
 flowchart LR
@@ -99,13 +98,11 @@ flowchart LR
     W -.->|"next: /speckit.____"| Agent
 ```
 
-The agent writes artifacts; wfctl only ever reads them back off disk to decide
-what's done and what's next — it never takes the agent's word for its own
-position. The boxes inside `Agent` and `Disk` are today's spec-driven-development
-pipeline specifically, hardcoded into wfctl's own source — there's no config for
-a different one yet ([#382](https://github.com/aamarin/wfctl/issues/382) is the
-idea, not a shipped feature). What's generic is the *mechanism* this diagram
-shows: read artifacts, never trust a claim.
+The agent writes artifacts; wfctl reads them back off disk to decide what's
+done and what's next. It never takes the agent's word for it. The boxes shown
+are spec-driven development specifically — that pipeline is hardcoded into
+wfctl today, not configurable. The part that generalizes is the mechanism:
+read artifacts, don't trust claims.
 
 Full pipeline model, every command, environment variables, the issue-tracker
 and architecture-record machinery, and how `install-skills`/`install-config`
