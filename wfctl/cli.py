@@ -2451,6 +2451,7 @@ PRETOOL_EVENT = "PreToolUse"
 _USER_PROMPT = "user-prompt"
 _WORKTREE_GUARD = "worktree-guard"
 _RESPONSE_SHAPE = "response-shape"
+_SESSION_RESTART = "session-restart"
 
 HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
 # `|| true`, unlike the `UserPromptSubmit` entry, because the events differ in
@@ -2463,28 +2464,49 @@ HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
 # no non-zero exit of its own to report; every one it could produce is a version
 # mismatch or a bug, and neither is worth a per-turn error on work that was fine.
 STOP_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_RESPONSE_SHAPE} 2>/dev/null || true"
+# `|| true` for the reason `STOP_HOOK_COMMAND` gives, and it matters more here:
+# this hook types into the pane, so a loop it caused would be one it could also
+# feed. It exits 0 on every path of its own; this covers the wfctl that cannot run.
+RESTART_HOOK_COMMAND = (
+    f"{_settings.MANAGED_PREFIX}{_SESSION_RESTART} 2>/dev/null || true"
+)
 # No `|| true` here, unlike `Stop`. A non-zero exit on `PreToolUse` is the guard
 # refusing the call, which is the entire feature; swallowing it would install a
 # hook that reports and never blocks.
 GUARD_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_WORKTREE_GUARD}"
 
-# Event → the command this wfctl installs for it. One map rather than a pair of
+# `(event, command)` for every hook this wfctl installs. One table rather than
 # constants because three separate places have to agree on it: the merge, the
 # uninstall record it writes, and `doctor`'s freshness check. The first two are
 # opposite halves of the same skill — `UserPromptSubmit` re-anchors the rules
 # before a reply is written, `Stop` looks at what was actually written (#212).
 # `PreToolUse` belongs to neither: it is the cross-worktree guard, and the only
 # one of the three that blocks rather than reports.
-MANAGED_HOOKS = {
-    SETTINGS_EVENT: HOOK_COMMAND,
-    STOP_EVENT: STOP_HOOK_COMMAND,
-    PRETOOL_EVENT: GUARD_HOOK_COMMAND,
-}
+#
+# Pairs rather than an event-keyed map because an event can carry more than one
+# wfctl feature, and a row is identified by its event and subcommand together
+# (`a-managed-hook-is-owned-by-its-subcommand`).
+MANAGED_HOOKS: tuple[tuple[str, str], ...] = (
+    (SETTINGS_EVENT, HOOK_COMMAND),
+    (STOP_EVENT, STOP_HOOK_COMMAND),
+    (STOP_EVENT, RESTART_HOOK_COMMAND),
+    (PRETOOL_EVENT, GUARD_HOOK_COMMAND),
+)
+
+
+def _shipped_subcommands(event: str) -> set[str]:
+    """The subcommands this wfctl installs on `event` — what a prune keeps."""
+    return {
+        _settings.subcommand_of(command) or ""
+        for e, command in MANAGED_HOOKS
+        if e == event
+    }
+
 
 # The group matcher an event needs, for the events that have one. Its own map
-# rather than widening `MANAGED_HOOKS`' values to a pair: three call sites read
-# that map as event → command, and a tuple there would touch all three to serve
-# the one event that has a matcher. `.get` returning None is what tells
+# rather than widening `MANAGED_HOOKS`' entries to a triple: every call site reads
+# them as event and command, and a third field there would touch all of them to
+# serve the one event that has a matcher. `.get` returning None is what tells
 # `merge_hook` to leave a group's matcher alone.
 _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 
@@ -2499,12 +2521,14 @@ _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
 
-# What `doctor` says a missing entry costs. Per event, because each loses
-# something different and "the managed hook is gone" names none of them.
+# What `doctor` says a missing entry costs. Per subcommand, because each loses
+# something different and "the managed hook is gone" names none of them — and two
+# on one event lose different things.
 _HOOK_GONE = {
-    SETTINGS_EVENT: "is gone — the skills it re-anchors decay again mid-session",
-    STOP_EVENT: "is gone — nothing looks at a reply once it is written",
-    PRETOOL_EVENT: "is gone — nothing stops a Bash call reaching into a sibling worktree",
+    _USER_PROMPT: "is gone — the skills it re-anchors decay again mid-session",
+    _RESPONSE_SHAPE: "is gone — nothing looks at a reply once it is written",
+    _SESSION_RESTART: "is gone — a full window is compacted or cleared with no handoff written first",
+    _WORKTREE_GUARD: "is gone — nothing stops a Bash call reaching into a sibling worktree",
 }
 
 _BACKUP_DIR = ".wf-skills-backup"
@@ -2932,7 +2956,7 @@ def _write_settings(path: Path, settings: dict) -> None:
 
 
 def _merge_hooks(
-    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
+    repo_root: Path, agent: str, prior: dict[tuple[str, str, str], dict]
 ) -> tuple[list[dict], list[str], list[str]]:
     """Install `agent`'s managed hooks. `(records, written, problems)`.
 
@@ -2950,7 +2974,7 @@ def _merge_hooks(
     written: list[str] = []
     problems: list[str] = []
     targets = (
-        [(SETTINGS_PATH, e, c) for e, c in MANAGED_HOOKS.items()]
+        [(SETTINGS_PATH, e, c) for e, c in MANAGED_HOOKS]
         if agent == "claude"
         else []
     )
@@ -2974,7 +2998,7 @@ def _merge_hooks(
             # is a crash where the honest answer is "then wfctl did not create
             # this file". False is also the safe side of the guess — it costs an
             # empty `{}` left behind, where True costs a consumer's file.
-            (p.get("created", False) for (path_, _), p in prior.items() if path_ == rel),
+            (p.get("created", False) for (path_, *_), p in prior.items() if path_ == rel),
             not ((repo_root / rel).exists() or (repo_root / rel).is_symlink()),
         )
         for rel, _, _ in targets
@@ -2985,7 +3009,7 @@ def _merge_hooks(
         # The manifest layer is rewritten whole on every install, so a record not
         # re-emitted here is not stale — it is gone, and with it wfctl's claim on
         # an entry still sitting in the consumer's file for uninstall to remove.
-        keep = prior.get((rel, event))
+        keep = prior.get((rel, event, _settings.subcommand_of(command) or ""))
         settings, problem = _read_settings(path)
         if settings is None:
             problems.append(f"{rel}: {problem}")
@@ -2994,6 +3018,13 @@ def _merge_hooks(
         try:
             changed = _settings.merge_hook(
                 settings, event, command, _HOOK_MATCHER.get(event)
+            )
+            # After the merge, so a renamed subcommand's successor is already in
+            # the file when its predecessor leaves — the order that never has the
+            # event running neither.
+            changed = (
+                _settings.prune_unshipped(settings, event, _shipped_subcommands(event))
+                or changed
             )
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
@@ -4016,8 +4047,10 @@ def install_skills_cmd(
     # one entry and leaves every other byte of meaning in the file alone. The
     # edit is still named in the summary, because a consumer-owned file is one
     # nobody should find changed without being told.
+    # Keyed the way `_merge_hooks` looks a record up: two features on one event
+    # are two records, and a key on the event alone would hand each the other's.
     prior_merged = {
-        (m["path"], m["event"]): m
+        (m["path"], m["event"], _settings.subcommand_of(m.get("command") or "") or ""): m
         for key in _layer_keys(manifest)
         for m in manifest[key].get("merged", [])
     }
@@ -5866,8 +5899,10 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
                 )
                 continue
 
-            for event in MANAGED_HOOKS:
-                drift = _report_hook_drift(settings, layer, rel, event) or drift
+            for event, command in MANAGED_HOOKS:
+                drift = (
+                    _report_hook_drift(settings, layer, rel, event, command) or drift
+                )
     return drift
 
 
@@ -5911,11 +5946,25 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
             )
 
 
-def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool:
-    """Print what one managed entry got wrong, if anything. True when it drifted."""
+def _report_hook_drift(
+    settings: dict, layer: str, rel: str, event: str, expected: str
+) -> bool:
+    """Print what one managed entry got wrong, if anything. True when it drifted.
+
+    One call per shipped `(event, command)`, so a missing session restart and a
+    missing reply check on the same `Stop` are two findings with two costs.
+    """
     from rich.markup import escape
 
-    actual = _settings.managed_command(settings, event)
+    subcommand = _settings.subcommand_of(expected) or ""
+    actual = _settings.managed_command(settings, event, subcommand)
+    # A row on this event naming a subcommand this wfctl does not ship there is a
+    # predecessor the next install replaces — "behind", not "gone", which is what
+    # the same file read under the old event-keyed identity said, and still true.
+    renamed = actual is None and any(
+        s not in _shipped_subcommands(event)
+        for s in _settings.managed_subcommands(settings, event)
+    )
     # A tool event's hook is only as installed as its matcher: the command can be
     # byte-correct and scoped to a tool it will never see, which is the same loss
     # `_HOOK_GONE` describes reached by a route the command comparison cannot see.
@@ -5927,12 +5976,12 @@ def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool
         and expected_matcher is not None
         and _settings.managed_matcher(settings, event) != expected_matcher
     )
-    if actual == MANAGED_HOOKS[event] and not mis_scoped:
+    if actual == expected and not mis_scoped:
         return False
 
-    if actual is None:
-        state = _HOOK_GONE[event]
-    elif actual != MANAGED_HOOKS[event]:
+    if actual is None and not renamed:
+        state = _HOOK_GONE[subcommand]
+    elif actual != expected:
         # Behind wins over mis-scoped when both hold: one install repairs both,
         # and the older command is the thing a reader has to understand first.
         state = "is behind this wfctl"
@@ -5949,7 +5998,7 @@ def _report_hook_drift(settings: dict, layer: str, rel: str, event: str) -> bool
     # two lines, which both reads badly and makes assertions on these
     # strings depend on the terminal running them.
     console.print(
-        f"[cyan]⬆[/cyan] {layer}: managed {event} hook in "
+        f"[cyan]⬆[/cyan] {layer}: managed {event} hook {escape(subcommand)} in "
         f"{escape(rel)}\n  {state}",
         soft_wrap=True,
     )
