@@ -80,6 +80,13 @@ Run every pass. Trace called functions, not just the changed lines.
 - Fits existing patterns; a new pattern must be justified.
 - Clean module boundaries, dependencies flowing one way (no cycles).
 - Duplication that should be shared; coupling that shouldn't exist.
+- A new third-party dependency is coupling too, pointed outward — it has to
+  earn its place:
+  - Does the existing stack already do this? Prefer what's already there.
+  - What it costs: install/bundle size, and the transitive tree behind it.
+  - Maintained — releases and answered issues recently, not abandoned.
+  - Known vulnerabilities (`pip-audit`, `npm audit`, the advisory database).
+  - License compatible with the project's.
 
 **4. Readability & simplification** (preserve behavior — this is review, not rewrite)
 - Names describe content (`validationErrors`, not `data`/`temp`/`result`).
