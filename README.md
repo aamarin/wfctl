@@ -9,14 +9,14 @@ wfctl manages session and pipeline state for AI coding agents (Claude Code, Code
 
 ## Why wfctl
 
-wfctl operationalizes spec-driven development — keeping agents on the specify → plan → implement track instead of jumping straight to code:
+wfctl enforces spec-driven development — keeps agents on the specify → plan → implement track instead of jumping straight to code:
 
 - **Persistent by design** — session state on disk; step recoverable even if lost
-- **Truth from artifacts** — step read from real spec files, not from an agent's report; `implement` additionally gates on a definition of done wfctl runs itself (`wfctl verify`), so "done" is a recorded verdict rather than a claim
+- **Truth from artifacts** — step read from real spec files, not from an agent's report; `implement` also gates on a definition of done wfctl runs itself (`wfctl verify`), so "done" is a recorded verdict rather than a claim
 - **Enforced order** — always points to the next required step, blocking code before spec and plan
 - **Design before spec** — `design-levels` runs design as four gated passes, so who owns what is decided out loud, not buried in code
 - **Ships with skills** — installs spec-kit skills + slash commands into the project
-- **Accountable outward actions** — issue writes, and any other outward action you record with `wfctl notify` (a push, say), check the same explicit grant and refuse without it ([details](docs/reference.md#outward-facing-authority-notify-blocked))
+- **Accountable outward actions** — issue writes, and any other outward action you record with `wfctl notify` (a push), check the same explicit grant and refuse without it ([details](docs/reference.md#outward-facing-authority-notify-blocked))
 
 ## Requirements
 
@@ -70,8 +70,8 @@ and where specs should live — and records both, so it never asks again.
 /end-session                                          # summary + memory candidates
 ```
 
-Anywhere along the way, `wfctl status` shows your position and `wfctl resume`
-says what to run next. Those two are the only commands you type by hand often.
+`wfctl status` shows your position; `wfctl resume` says what to run next —
+the two commands you'll type by hand most.
 
 ## How it works
 
@@ -146,7 +146,7 @@ worktrees, architectural constraints, and release mechanics.
 
 ## Contributing
 
-Issues and PRs welcome. Please open an issue first for significant changes.
+Issues and PRs welcome — open an issue first for significant changes.
 
 ## License
 
