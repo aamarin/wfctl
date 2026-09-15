@@ -149,11 +149,18 @@ def read_events(state_dir: Path) -> list[dict]:
 
 @dataclass(frozen=True)
 class Decision:
-    """What one reply end decided. `send` is the send event a report is about."""
+    """What one reply end decided. `send` is the send event a report is about.
+
+    `end_pos` is set only on `CLEAR`: the index in `events` of the handoff's own
+    `end` record, the moment `session-summary.md` was written. `run_hook` reads
+    from there forward for anything the same turn recorded afterward, and folds
+    it back in before the clear it is about to send (#371).
+    """
 
     kind: str
     handle: str | None = None
     send: dict | None = None
+    end_pos: int | None = None
 
     @property
     def texts(self) -> list[str]:
@@ -229,11 +236,13 @@ def decide(
         # Any stop after the send, continued or not. The clear depends on the
         # handoff being newer than every earlier one, and a wrapped-up stop typed
         # by hand in a held session is that too.
-        landed = any(e.get("event") == "end" for e in events[send[0] + 1:])
-        if landed:
+        end_after = [
+            i for i in range(send[0] + 1, len(events)) if events[i].get("event") == "end"
+        ]
+        if end_after:
             handle = find_handle()
             if handle:
-                return Decision(CLEAR, handle=handle)
+                return Decision(CLEAR, handle=handle, end_pos=end_after[0])
             return Decision(NOTHING) if decided(SKIP, pos) else Decision(SKIP)
         return Decision(NOTHING) if decided(HOLD, pos) else Decision(HOLD)
 
@@ -295,6 +304,49 @@ def find_handle(repo_root: Path) -> str | None:
         if isinstance(path, str) and isinstance(handle, str) and Path(path).resolve() == root:
             return handle
     return None
+
+
+# The two events `record_notify_action` and `record_notify_declined` write
+# (`_session.py`) — its own docstring already calls the session summary "a
+# rendering of" this log, which the amendment below is the first place that
+# reads true.
+_LATE_EVENTS = ("notify-action", "notify-declined")
+
+
+def amend_summary_for_late_events(state_dir: Path, events: Sequence[dict], end_pos: int) -> None:
+    """Fold a notifying action recorded after the handoff back into it.
+
+    `wfctl end` writes `session-summary.md` mid-turn (step 3 of `end-session`);
+    anything the same turn does afterward — a `notify push` recorded at step 5,
+    say — has no later step that revisits the file. Once `/clear` runs next,
+    that fact is gone from everywhere a person or the next session would look
+    (#371 ledger: a push at 14:24:38 traced real against `origin`, eight seconds
+    after the summary it never reached). `events.jsonl` already has it; this
+    reads from `end_pos` forward and appends what it finds, once, right before
+    the clear that would otherwise outrun it.
+
+    A missing summary file is not this function's problem to raise on — there
+    is nothing to amend, and the restart still clears.
+    """
+    late = [e for e in events[end_pos + 1:] if e.get("event") in _LATE_EVENTS]
+    if not late:
+        return
+    summary_file = state_dir / "session-summary.md"
+    try:
+        body = summary_file.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    from wfctl._io import write_atomic
+
+    lines = ["", "## Recorded After This Summary Was Written", ""]
+    for e in late:
+        ts = e.get("ts", "?")
+        if e.get("event") == "notify-action":
+            lines.append(f"- {ts} — {e.get('action')}")
+        else:
+            lines.append(f"- {ts} — declined {e.get('action')}: {e.get('reason')}")
+    write_atomic(summary_file, body.rstrip("\n") + "\n" + "\n".join(lines) + "\n")
 
 
 def spawn_worker(plan: dict) -> None:
@@ -369,11 +421,13 @@ def run_hook(
     if not state_dir.is_dir():
         return None
 
-    decision = decide(
-        session, tokens, limit, read_events(state_dir), lambda: handle_for(repo_root)
-    )
+    events = read_events(state_dir)
+    decision = decide(session, tokens, limit, events, lambda: handle_for(repo_root))
     if decision.kind == NOTHING:
         return None
+
+    if decision.kind == CLEAR and decision.end_pos is not None:
+        amend_summary_for_late_events(state_dir, events, decision.end_pos)
 
     append_event(
         state_dir,

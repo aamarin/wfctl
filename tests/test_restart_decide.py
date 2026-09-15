@@ -95,9 +95,11 @@ def test_a_planned_end_not_yet_sent_decides_nothing() -> None:
 
 
 def test_a_stop_after_the_end_send_clears() -> None:
-    d = run([planned(END), sent(END_TEXT), stop()])
-    assert d == Decision(CLEAR, handle="371-x")
+    events = [planned(END), sent(END_TEXT), stop()]
+    d = run(events)
+    assert d == Decision(CLEAR, handle="371-x", end_pos=2)
     assert d.texts == [CLEAR_TEXT, START_TEXT]
+    assert events[d.end_pos]["event"] == "end"  # type: ignore[index]
 
 
 def test_a_stop_before_the_send_is_not_the_handoff() -> None:

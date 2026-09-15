@@ -25,6 +25,7 @@ from wfctl._restart import (
     END_TEXT,
     START_TEXT,
     THRESHOLD_ENV,
+    amend_summary_for_late_events,
     run_hook,
 )
 
@@ -157,6 +158,80 @@ def test_a_landed_handoff_starts_the_clear_and_start_session(
     spawned: list[dict] = []
     run_hook(_payload(repo, t), os.environ, spawned.append, lambda root: "371-x")
     assert [p["texts"] for p in spawned] == [[CLEAR_TEXT, START_TEXT]]
+
+
+# --- write state before clear: a late notify action reaches the summary ------
+
+def test_a_push_recorded_after_the_handoff_is_folded_in_before_the_clear(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The traced defect (#371 ledger): `wfctl notify push` ran eight seconds
+    after `wfctl end` wrote the summary, in the same turn, and `/clear` would
+    otherwise discard the only record of it."""
+    state = _state(tmp_path, monkeypatch, [
+        {"event": "session-restart", "session": "S", "decision": "end"},
+        {"event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": 0},
+        {"ts": "2026-09-15T14:24:30Z", "event": "end", "continued": True},
+        {"ts": "2026-09-15T14:24:38Z", "event": "notify-action", "action": "push"},
+    ])
+    (state / "session-summary.md").write_text("# Session Summary\n\nNo push mentioned.\n")
+    t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
+    spawned: list[dict] = []
+
+    run_hook(_payload(repo, t), os.environ, spawned.append, lambda root: "371-x")
+
+    assert [p["texts"] for p in spawned] == [[CLEAR_TEXT, START_TEXT]]
+    summary = (state / "session-summary.md").read_text()
+    assert "No push mentioned." in summary
+    assert "## Recorded After This Summary Was Written" in summary
+    assert "2026-09-15T14:24:38Z — push" in summary
+
+
+def test_a_declined_notify_action_is_folded_in_with_its_reason(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = _state(tmp_path, monkeypatch, [
+        {"event": "session-restart", "session": "S", "decision": "end"},
+        {"event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": 0},
+        {"ts": "2026-09-15T14:24:30Z", "event": "end", "continued": True},
+        {"ts": "2026-09-15T14:24:38Z", "event": "notify-declined",
+         "action": "issue-close", "reason": "partial progress only"},
+    ])
+    (state / "session-summary.md").write_text("# Session Summary\n")
+    t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
+
+    run_hook(_payload(repo, t), os.environ, lambda _: None, lambda root: "371-x")
+
+    summary = (state / "session-summary.md").read_text()
+    assert "declined issue-close: partial progress only" in summary
+
+
+def test_no_late_events_leaves_the_summary_untouched(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = _state(tmp_path, monkeypatch, [
+        {"event": "session-restart", "session": "S", "decision": "end"},
+        {"event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": 0},
+        {"event": "end", "continued": True},
+    ])
+    original = "# Session Summary\n\nnothing new.\n"
+    (state / "session-summary.md").write_text(original)
+    t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
+
+    run_hook(_payload(repo, t), os.environ, lambda _: None, lambda root: "371-x")
+
+    assert (state / "session-summary.md").read_text() == original
+
+
+def test_amend_with_no_summary_file_is_a_silent_no_op(tmp_path: Path) -> None:
+    """Nothing to amend, and the restart still has to clear — this must never
+    be the reason a reply end raises."""
+    events = [
+        {"event": "end"},
+        {"ts": "2026-09-15T14:24:38Z", "event": "notify-action", "action": "push"},
+    ]
+    amend_summary_for_late_events(tmp_path, events, 0)
+    assert not (tmp_path / "session-summary.md").exists()
 
 
 @pytest.mark.parametrize(
