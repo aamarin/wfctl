@@ -106,3 +106,4 @@ node_modules/
 .bob/skills/brainstorm
 .bob/commands/brainstorm.md
 .bob/commands/approval-settings.md
+.bob/settings.json
