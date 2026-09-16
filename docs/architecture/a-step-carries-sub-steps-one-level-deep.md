@@ -47,10 +47,26 @@ which is the defect.
 
 ## Decision
 
-A step in the pipeline payload carries an ordered list of sub-steps. Each sub-step
-has its own name, state, annotation and evidence path, and takes the same four
-state names a step takes. The nesting is exactly one level: a sub-step carries no
-sub-steps of its own.
+A step in the pipeline payload carries an ordered list of sub-steps. A sub-step
+has the same shape a step has — a name, a command, a continuation, and a
+**predicate** — and reports the same four state names. The nesting is exactly one
+level: a sub-step carries no sub-steps of its own.
+
+The predicate is the field that matters, and it is a callable for the reason
+`Step.predicate` already is. A repository cannot ship one, so `evidence` in
+`wfctl.json` is sugar that builds the file-exists predicate on its behalf:
+
+```
+built-in sub-step    any callable — clarify's reads a heading inside spec.md
+declared sub-step    evidence: "design/ui-contract.md"
+                       └─► the predicate "this file exists"
+```
+
+Configuration therefore expresses strictly less than a built-in predicate can,
+and that is a stated limit rather than an oversight. A pass whose output is not a
+file at a fixed path — `python-pattern-selection` may record a departure in a
+commit message instead — is out of reach of `wfctl.json` by construction, and the
+answer is to change what that pass writes, not to teach `wfctl.json` to grep.
 
 A repository appends sub-steps to a named built-in step in `wfctl.json`, keyed by
 that step's name:
@@ -110,6 +126,11 @@ a consumer has to parse back out of the parent's annotation.
 - The direct baseline above, an extra evidence path on the parent predicate —
   cheapest by a wide margin and it keeps every accepted record untouched, but the
   pass stays invisible, which is the defect rather than a cost of fixing it.
+- A sub-step carrying an evidence *path* rather than a predicate — which is what
+  this record said first, and it cannot express wfctl's own passes. `clarify`
+  reads a heading inside another step's file, so under a path-only rule the
+  built-ins would keep bespoke predicates while declared sub-steps got paths, and
+  the two would be different kinds of thing wearing one name.
 - A general tree, a step carrying sub-steps carrying sub-steps — every view
   learns recursion and every consumer learns depth, to express a nesting nobody
   has asked for. One level covers wfctl's own passes and pfms's, and a second
@@ -144,15 +165,23 @@ what a sub-step is before it can emit one. A repo-declared sub-step is
 `review_required` by default, because wfctl does not ship the command; a
 repository opts into `automatic` per sub-step once it has decided that is safe.
 
-`doctor` gains a finding for a declared sub-step whose command is not installed.
-It has both halves already — the declared command, and the command inventory
-`_pipeline` keeps so one check can reach all of it.
+`doctor` gains a finding for a declared sub-step whose command is not installed,
+and it is new logic rather than a wiring-up. The command inventory `_pipeline`
+keeps is consumed by the test suite, not by `doctor` — and a test in wfctl's own
+suite cannot reach this case anyway, because the command it would check ships
+from the consuming repository. What `doctor` already has is the installed
+command directories it walks for drift, which is where the answer is.
 
 Brainstorm's predicate reads its two artifacts in the opposite order to the
 process that produces them: it checks `design.md` first and the arch record
 second, while `design-levels` and the brainstorm skill both write the record
 first and the document last. Ordering the sub-steps correctly means fixing that
 read, not relabelling it.
+
+Making `brainstorm`'s passes visible puts wfctl's own process inside a row named
+after a spec-kit command, which is #395's question rather than this record's.
+Sub-steps are additive and hold whatever the step table ends up holding, so
+nothing here depends on how that is answered.
 
 ## Log
 
