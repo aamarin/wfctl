@@ -1,0 +1,161 @@
+---
+status: proposed
+---
+
+# A pipeline step carries sub-steps, one level deep
+
+## Context
+
+The pipeline is eight steps, hardcoded in `_STEPS`. A repository that runs a
+design pass of its own can only write that pass's position in prose. pfms does:
+`pfms-ui-design-workflow` is a committed, project-local skill whose SKILL.md says
+to run it between brainstorming and `speckit.specify`. Nothing reads that
+sentence. `wfctl status` shows the same eight rows it shows every repository,
+`next_command` routes from `brainstorm` straight to `/speckit.specify`, and a
+feature that walked past the UI design is indistinguishable from one that ran it.
+
+The same gap already exists inside wfctl, which is the part that makes this a
+boundary question rather than a feature request. `brainstorm` is not one pass. It
+runs the four design levels, escalates ownership questions to
+`architecture-decisions`, and ends with `idea-refine` writing `design.md`. Two of
+those leave artifacts the brainstorm predicate already reads — a record under the
+arch root, and `design.md` itself — and the predicate collapses both into a
+single state with a reason string hung off it. A reader is told the step is
+in progress and which one sentence is outstanding; nothing tells them how many
+passes the step has, which have run, or which command produces the missing one.
+
+So the pipeline's own structure is one level shallower than the work it tracks,
+in wfctl as much as in pfms.
+
+## Direct baseline
+
+Leave `_STEPS` flat, and let a repository name one extra evidence path that the
+parent step's predicate reads. `brainstorm` returns `in_progress` with
+`ui-design: wireframe not written` as its reason, and the existing `remedy` field
+carries `run /pfms-ui-design-workflow`. This is the mechanism `design_block`
+already provides, aimed at a repo-supplied path instead of the arch root. No view
+changes, no record is amended, and `pipeline-state-is-one-payload` is untouched.
+
+It fails at the thing it was built for. Once the artifact exists, a repository
+that configured the pass and a repository that never configured one both render
+`brainstorm ●`. The pass has no state of its own, so it has no row to appear in,
+nothing for `next_command` to point at, and no way to be reported as declared
+inapplicable rather than never run. That is #307 — a pass that found something and
+a pass that never ran are the same pull request — reproduced one level down
+instead of fixed. The baseline buys its cheapness by keeping the thing invisible,
+which is the defect.
+
+## Decision
+
+A step in the pipeline payload carries an ordered list of sub-steps. Each sub-step
+has its own name, state, annotation and evidence path, and takes the same four
+state names a step takes. The nesting is exactly one level: a sub-step carries no
+sub-steps of its own.
+
+A repository appends sub-steps to a named built-in step in `wfctl.json`, keyed by
+that step's name:
+
+```json
+{
+  "steps": {
+    "brainstorm": [
+      { "command": "/pfms-ui-design-workflow", "evidence": "design/ui-contract.md" }
+    ]
+  }
+}
+```
+
+The key is the anchor, so no sub-step declares a position. wfctl's own passes are
+sub-steps of the same shape, hardcoded in the step table and carrying no mark
+distinguishing them from a repository's — `sub_steps`, never `custom_steps`, so
+moving a built-in pass into configuration later changes where the list comes from
+rather than what a sub-step is.
+
+A pass earns a sub-step only when it leaves an artifact a reader can point at.
+`architecture-design` leaves none — it hands its result to
+`architecture-decisions` and writes nothing itself — so it stays what it is: how
+you do a sub-step, not a sub-step.
+
+## Owns truth
+
+wfctl owns "which passes does this step require, and what state is each one in?",
+and owns it as data on the payload, one level deep.
+
+The parent step's predicate cannot own it. A predicate returns one state and one
+reason, so every pass inside the step collapses into a single string — and a
+string has no state to route from, no state to count, and no state to declare
+away. Two facts a consumer needs are unrecoverable from it: which pass is
+outstanding, as something other than prose, and whether a pass exists at all on a
+repository that never configured one.
+
+## Boundary
+
+```mermaid
+flowchart LR
+    I["_infer_steps<br>reads spec artifacts"]
+    P["payload<br>steps · each with sub_steps"]
+    G["console<br>state name to glyph"]
+    J["machine view<br>emits the payload"]
+    I --> P
+    P --> G
+    P --> J
+    G -. "a sub-step's state<br>recovered from prose" .-x J
+```
+
+The dashed edge is the decision. A sub-step's state is a field, never a sentence
+a consumer has to parse back out of the parent's annotation.
+
+## Considered
+
+- The direct baseline above, an extra evidence path on the parent predicate —
+  cheapest by a wide margin and it keeps every accepted record untouched, but the
+  pass stays invisible, which is the defect rather than a cost of fixing it.
+- A general tree, a step carrying sub-steps carrying sub-steps — every view
+  learns recursion and every consumer learns depth, to express a nesting nobody
+  has asked for. One level covers wfctl's own passes and pfms's, and a second
+  level can be proposed by whoever finds they need it.
+- Insert the repository's pass as a peer of `specify` in `_STEPS`, per #339's own
+  sketch — needs an `after` anchor, which breaks when the built-in table is
+  reordered, and makes a repository's pass a peer of steps whose predicates
+  encode accepted behaviour. Keying by parent step makes the anchor free and
+  keeps the repository's pass inside the step it belongs to.
+- Path globs in `wfctl.json` deciding which branches the pass applies to —
+  evaluated against a diff that does not exist yet. The pass sits between
+  `brainstorm` and `specify`, so routing happens before any code is written, and
+  every branch would read as not matching. #620 is the concrete case: a
+  UI-driven decision whose code landed in `packages/types`, which a `client/**`
+  rule would have called backend-only.
+
+## Consequences
+
+`pipeline-state-is-one-payload` is extended, not superseded. Its claim is that
+inference produces one payload and every view is a transformation of it, with no
+fact computed inside a view; all three survive a payload whose steps carry
+sub-steps. What goes is the flatness, which that record described rather than
+claimed.
+
+`wfctl status` renders sub-steps indented under their parent. A sub-step in
+`skipped` is hidden unless `--all` is passed — the default view is deliberately
+lossy, which the record above permits precisely because nothing computes from a
+view. `--json` always carries the full tree.
+
+`next_command` can name a sub-step's command, so `speckit-orchestrate` learns
+what a sub-step is before it can emit one. A repo-declared sub-step is
+`review_required` by default, because wfctl does not ship the command; a
+repository opts into `automatic` per sub-step once it has decided that is safe.
+
+`doctor` gains a finding for a declared sub-step whose command is not installed.
+It has both halves already — the declared command, and the command inventory
+`_pipeline` keeps so one check can reach all of it.
+
+Brainstorm's predicate reads its two artifacts in the opposite order to the
+process that produces them: it checks `design.md` first and the arch record
+second, while `design-levels` and the brainstorm skill both write the record
+first and the document last. Ordering the sub-steps correctly means fixing that
+read, not relabelling it.
+
+## Log
+
+- 2026-09-16  proposed    — #339's level-2 pass; the pipeline is one level
+  shallower than the work it tracks, in wfctl as much as in the repository that
+  reported it
