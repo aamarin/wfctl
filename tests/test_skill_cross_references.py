@@ -296,6 +296,13 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     assert inline == {}, f"next_command with no skill behind it: {inline}"
 
 
+# Steps whose skill revises an artifact the same step already wrote, so the
+# wrapper needs `Edit` on top of `Write`. Named here rather than inline so a step
+# added to the pipeline has one place to declare it; the docstring below carries
+# why each of these two is in it and why the other four are not.
+_EDITS_ITS_OWN_ARTIFACT = {"specify", "implement"}
+
+
 def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     """A step whose grant cannot write is a step that reads correctly and stalls.
 
@@ -313,12 +320,23 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     that reaches it. #240 widened decompose's grant for this reason and left the
     rule unwritten, which is how the other four kept theirs.
 
-    `Edit` is pinned for `implement` alone, and by name because the reason is its
-    own: step 8 marks each finished task `[X]` in `tasks.md`, a file that already
-    exists, and `_predicates.implement` reads those marks to decide the step is
-    done. Writing it whole through `Write` is the operation most likely to drop
-    what was there — the argument `test_each_review_wrapper_allows_the_commands_the_scan_file_needs`
-    already makes for the review steps.
+    `Edit` is pinned by name for the steps that revise a file they already wrote,
+    because `Write` on one of those means rewriting it whole — the operation most
+    likely to drop what was there, which is the argument
+    `test_each_review_wrapper_allows_the_commands_the_scan_file_needs` already
+    makes for the two review steps. `implement` marks each finished task `[X]` in
+    a `tasks.md` that exists, and `_predicates.implement` reads those marks.
+    `specify` runs a validation loop over the spec it just wrote — step 7c
+    updates it for each failing checklist item, 7c.8 replaces each
+    `[NEEDS CLARIFICATION]` marker with the answer, and 7d rewrites the checklist
+    every iteration.
+
+    The set is those two and not every step, and the split is the skills' rather
+    than a judgment: brainstorm, plan, tasks and decompose each write their
+    artifact once and never reopen it, and clarify and analyze are the review
+    steps the scan-file test already pins. A step added later that revises what it
+    wrote belongs in `_EDITS_ITS_OWN_ARTIFACT` — it will pass this test without
+    the grant, and stall on the first unattended correction pass.
 
     Asserts the wrapper and not the skill. The wrapper is what `EXECUTE_COMMAND`
     resolves to, which is the route `speckit-orchestrate` actually emits; whether
@@ -334,8 +352,8 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
         allowed = _arch._frontmatter(wrapper.read_text()).get("allowed-tools", "")
         if "Write" not in allowed:
             unwritable.append(step)
-        if step == "implement" and "Edit" not in allowed:
-            unwritable.append("implement (Edit)")
+        if step in _EDITS_ITS_OWN_ARTIFACT and "Edit" not in allowed:
+            unwritable.append(f"{step} (Edit)")
     assert unwritable == [], f"cannot write its own artifact: {unwritable}"
 
 
