@@ -80,9 +80,10 @@ Run every pass. Trace called functions, not just the changed lines.
 - Fits existing patterns; a new pattern must be justified.
 - Clean module boundaries, dependencies flowing one way (no cycles).
 - Duplication that should be shared; coupling that shouldn't exist.
-- A new third-party dependency is coupling pointed outward — it earns
-  its place or it goes: what the existing stack already does, install size
-  and the tree behind it, recent releases, known advisories, license fit.
+- A new third-party dependency is coupling pointed outward — weigh it, don't
+  refuse it: what the existing stack already does, install size and the tree
+  behind it, recent releases, known advisories, license fit. One that clears
+  those beats hand-rolling the same thing.
 - Those five answers are outside the diff. Look them up, and say which ones
   you could not reach rather than passing them.
 
