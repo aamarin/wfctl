@@ -296,6 +296,49 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     assert inline == {}, f"next_command with no skill behind it: {inline}"
 
 
+def test_every_pipeline_step_may_write_its_own_artifact() -> None:
+    """A step whose grant cannot write is a step that reads correctly and stalls.
+
+    Every `_STEPS` row produces a file: `spec.md`, `research.md`, `tasks.md`, the
+    implementation sentinel. `allowed-tools` on the wrapper is what pre-approves
+    that write, and four rows carried no `Write` at all — specify, plan, tasks
+    and implement. Attended, that is a permission prompt someone answers and
+    nobody records. Unattended it is the whole run: the command resolves, the
+    workflow starts, and it stops one tool call later with nobody there to say
+    yes. `speckit.specify` was the worst of the four, because it is the first
+    step after brainstorm and so the one an unattended run reaches first.
+
+    Walks `_STEPS` rather than naming the four, so a step added to the pipeline
+    with a read-only grant fails here rather than on the first unattended run
+    that reaches it. #240 widened decompose's grant for this reason and left the
+    rule unwritten, which is how the other four kept theirs.
+
+    `Edit` is pinned for `implement` alone, and by name because the reason is its
+    own: step 8 marks each finished task `[X]` in `tasks.md`, a file that already
+    exists, and `_predicates.implement` reads those marks to decide the step is
+    done. Writing it whole through `Write` is the operation most likely to drop
+    what was there — the argument `test_each_review_wrapper_allows_the_commands_the_scan_file_needs`
+    already makes for the review steps.
+
+    Asserts the wrapper and not the skill. The wrapper is what `EXECUTE_COMMAND`
+    resolves to, which is the route `speckit-orchestrate` actually emits; whether
+    a step is reachable by skill name at all is #396, and whether it should be is
+    #398.
+    """
+    from wfctl import _arch
+    from wfctl._pipeline import _STEPS
+
+    unwritable = []
+    for step, spec in _STEPS.items():
+        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
+        allowed = _arch._frontmatter(wrapper.read_text()).get("allowed-tools", "")
+        if "Write" not in allowed:
+            unwritable.append(step)
+        if step == "implement" and "Edit" not in allowed:
+            unwritable.append("implement (Edit)")
+    assert unwritable == [], f"cannot write its own artifact: {unwritable}"
+
+
 def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:
     """The route #361 describes is a string match, and nothing else holds it.
 
