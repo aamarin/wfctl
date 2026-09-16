@@ -2609,11 +2609,12 @@ _MIRRORED_SKILLS = frozenset({
     # stops depending on which way the agent reached.
     #
     # Its `allowed-tools:` sits on the SKILL.md rather than the wrapper, because
-    # suppression drops a wrapper whole and `.claude/commands/` was the only
-    # place that key was ever read unstripped. On a skill the same grant reaches
-    # a model-initiated invocation, `Bash(wfctl install-skills*)` included —
-    # sanctioned by the Safety section of this repo's AGENTS.md, which already
-    # has `/start-session` refreshing a stale mirror unattended.
+    # suppression drops the wrapper whole for Claude — the mirror replaces it
+    # outright, taking any grant the wrapper carried with it. On a skill the
+    # same grant reaches a model-initiated invocation, `Bash(wfctl
+    # install-skills*)` included — sanctioned by the Safety section of this
+    # repo's AGENTS.md, which already has `/start-session` refreshing a stale
+    # mirror unattended.
     "start-session",
     "using-superpowers",
     "verification-before-completion",
@@ -2634,8 +2635,12 @@ _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 # `disable-model-invocation: true` causes Bob Shell to skip model invocation
 # entirely — the skill body never executes. That is the bug where /end-session
 # and other commands do nothing when invoked in Bob Shell.
+#
+# `allowed-tools` was previously listed here on the assumption it was Claude-
+# only. Bob Shell reads it on slash commands to scope tool auto-approval, so
+# stripping it is what produced approval prompts on every `read_file` call
+# during `/start-session` and others. It stays in the installed command files.
 _CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
-    "allowed-tools",
     "disable-model-invocation",
 })
 

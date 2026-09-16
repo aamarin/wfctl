@@ -2786,7 +2786,11 @@ def test_bob_install_strips_disable_model_invocation(
 ) -> None:
     """Commands installed to .bob/commands/ must not contain
     `disable-model-invocation` — Bob Shell interprets that key literally and
-    skips model invocation, so the skill body never executes."""
+    skips model invocation, so the skill body never executes.
+
+    `allowed-tools` must be preserved: Bob Shell reads it on slash commands to
+    scope tool auto-approval, and stripping it causes approval prompts on every
+    tool call during a command's execution."""
     import os
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
@@ -2805,7 +2809,8 @@ def test_bob_install_strips_disable_model_invocation(
 
     installed = (repo_root / ".bob" / "commands" / "test-cmd.md").read_text()
     assert "disable-model-invocation" not in installed
-    assert "allowed-tools" not in installed
+    # allowed-tools is preserved — Bob Shell uses it for approval scoping
+    assert "allowed-tools: Read Bash(git status*)" in installed
     # description must survive
     assert "description: A command that does something." in installed
     # body must survive
@@ -2816,7 +2821,11 @@ def test_bob_install_drops_frontmatter_block_when_only_claude_keys(
     agent_dir: Path, bundle: Path
 ) -> None:
     """When every frontmatter key is Claude-only, the block is dropped entirely
-    rather than leaving a bare `---\\n---\\n` stub."""
+    rather than leaving a bare `---\\n---\\n` stub.
+
+    `disable-model-invocation` is the only Claude-only key now; `allowed-tools`
+    is preserved for Bob Shell. A command with only `disable-model-invocation`
+    gets its block dropped."""
     import os
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
@@ -2824,7 +2833,6 @@ def test_bob_install_drops_frontmatter_block_when_only_claude_keys(
     cmd.write_text(
         "---\n"
         "disable-model-invocation: true\n"
-        "allowed-tools: Read\n"
         "---\n"
         "\nDo the thing.\n"
     )
