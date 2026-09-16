@@ -169,3 +169,5 @@ the two. A test that asserts only on `--json` does not demonstrate this decision
 
 - 2026-09-10  proposed  — #299. Where the four facts meet a reader, given that
   only one of the two views has one.
+- 2026-09-15  proposed  — #384: the block renders three facts; the outward-action
+  fact left with the grant. See `wfctl-records-outward-actions-and-never-gates-them`.

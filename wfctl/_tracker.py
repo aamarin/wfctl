@@ -17,7 +17,6 @@ from rich.console import Console
 
 from wfctl._io import append_event
 from wfctl._manifest import load_manifest
-from wfctl._session import NOTIFY_LABEL
 
 # highlight=False: don't let rich wrap quoted tokens (issue ids, verb names) in
 # ANSI — this output is parsed by agents, so keep it plain.
@@ -35,15 +34,14 @@ ALLOWED = {
     "label": {"id", "action", "label"},
     # `labels` reads what `label` writes, and is separate because reading is the
     # half a backend can decline. A tracker with no way to list an issue's labels
-    # leaves it out; the caller falls back to the surface that needs no tracker
-    # at all rather than guessing from whatever `view` happened to print.
+    # leaves it out, rather than a reader guessing from whatever `view` printed.
     "labels": {"id"},
     # `fields` reads an issue's or a change's attributes as data, where `view`
     # returns whatever the backend's client prints for a human. Separate from
     # `view` for the reason `labels` is separate from `label`: reading is the
     # half a backend can decline, and a caller that fell back to parsing `view`
     # would read every other backend as having nothing set — silently, which is
-    # the mistake the `labels` read above already made once.
+    # the mistake a label read parsing `view` once made.
     "fields": {"id"},
     # `start`/`stop` say when work on an issue began and stopped; what a backend
     # does with that is its own business. A tracker with a board moves a column,
@@ -56,70 +54,22 @@ ALLOWED = {
 ALLOWED_CHANGES = {"list": set(), "view": {"id"}, "fields": {"id"}}
 
 
-# The verbs that tell someone outside the repo, from the middle row of
-# `wfctl-classes-the-action-not-the-command`. Each of these reaches people who
-# are notified, and deleting the result later does not un-notify them.
+# The write verbs whose success is recorded as an action, under the name the
+# skills file a block against: `issue-<verb>`. The name is the writer's to get
+# right, not the reader's to normalise (`384-an-action-is-named-by-the-verb-that-
+# takes-it`) — `standing_blocks` matches on it as written, so a successful retry
+# lifts the hold its own refusal put there, and `_restart` prints the same name
+# the handoff uses.
 #
-# `close` is not here, and its absence is the decision rather than an omission.
-# Closing an issue is the irreversible row, which no grant reaches — so gating it
-# on the grant would be the wrong shape twice over: it would refuse the human who
-# is the only one allowed to do it, and wfctl cannot tell a human from an agent
-# anyway (`approval-mode-is-stored-intent`). What keeps that row safe is that
-# nothing here ever consults a grant for it.
+# `close` is here because a block is filed against it (`end-session`), and a
+# close that succeeded and recorded nothing left that hold standing with only a
+# hand-typed release to lift it. Recording is not gating: nothing in wfctl
+# refuses any of these.
 #
-# `start` and `stop` move a board column, which the spec assumes reaches nobody.
-# That assumption is recorded as unverified: if a column move does notify, these
-# two belong here and every worktree creation has been taking a notifying action
-# unprompted.
-_NOTIFYING_VERBS = {"comment", "create", "label"}
-
-
-def _refuse_notifying(agent_dir: Path, repo_root: Path, verb: str) -> int | None:
-    """Refuse a notifying verb the run was never granted, or None to proceed.
-
-    The two skills that take these actions already gate on the same answer in
-    prose, and this is the same rule expressed where it cannot be skipped
-    (`a-rule-is-expressed-as-a-check`): a violation shows up in an artifact the
-    work produces — the tracker changed — so the rule is a check rather than a
-    comment. An agent that never reads the skill still cannot comment, label or
-    open an issue on a feature nobody granted.
-
-    Reads the answer the run resolved at `wfctl start` and re-asks the branch,
-    which the record cannot answer: under a shared `WFCTL_STATE_DIR` the log is
-    not per-branch, and a grant made on a feature branch reached the trunk
-    (FR-008). Neither read touches the tracker, so this costs no round-trip.
-
-    Exit 1 rather than the 0 that a missing backend returns. That 0 means
-    "nothing was configured to do this", and a session must not fail for it. This
-    is the opposite fact — something was configured, and the run may not use it —
-    and a caller that reads a refusal as a completed write would report the
-    tracker updated when it was not.
-    """
-    from wfctl._session import action_grant, record_notify_refused
-
-    grant = action_grant(agent_dir, repo_root)
-    if grant.granted:
-        return None
-    record_notify_refused(agent_dir, verb, grant.source)
-    # Three short lines rather than two long ones: rich wraps at the terminal
-    # width, and a remedy split across a wrap arrives as a fragment. The first
-    # draft ran to 84 characters and broke mid-sentence in a real terminal.
-    console.print(
-        f"[yellow]⚠[/yellow] '{verb}' would tell people outside this repo, "
-        "and nobody allowed it"
-    )
-    # No remedy line where there is no remedy. On the trunk, and in a repo whose
-    # trunk cannot be named, neither the flag nor the label lifts this — printing
-    # them anyway sends the reader to try two things that will not work, which is
-    # the failure the trunk *status* line was written to prevent, reintroduced at
-    # the other surface.
-    if grant.source not in ("trunk", "unknown-trunk"):
-        console.print(
-            "  Allow it: [bold]wfctl start --allow-notify[/bold], "
-            f"or the [bold]{NOTIFY_LABEL}[/bold] label"
-        )
-    console.print(f"  Refused because: {grant.source}")
-    return 1
+# `start` and `stop` are not. They run from worktree hooks rather than from a
+# session's turn, nothing files a block against a board move, and recording them
+# would put one into every restarted session's handoff.
+_RECORDED_VERBS = {"comment", "create", "label", "close"}
 
 
 def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> bool:
@@ -271,12 +221,18 @@ def _substitute(token: str, params: dict) -> str:
 def dispatch(
     agent_dir: Path,
     repo_root: Path,
+    branch: str,
     verb: str,
     params: dict,
     section: str = "verbs",
     event: str = "issue",
 ) -> int:
     """Run the configured backend's command for verb; return an exit code.
+
+    ``branch`` is what a recorded write says it is about. It is threaded in
+    rather than derived here because the caller has already resolved it, and a
+    second derivation could disagree with the one the matching hold was filed
+    under.
 
     ``section`` selects the verb map in the config: ``"verbs"`` for issues,
     ``"changes"`` for PRs/patchsets. ``event`` is the name logged for the run.
@@ -312,15 +268,6 @@ def dispatch(
         console.print(f"ℹ Tracker '{name}' does not support '{verb}' — skipped")
         return 0
 
-    # After the config checks and before argv is built, so a refusal reads as a
-    # refusal rather than as a backend that could not run: a repo with no
-    # `comment` verb and a run with no authority are different answers, and only
-    # one of them is about permission.
-    if section == "verbs" and verb in _NOTIFYING_VERBS:
-        refused = _refuse_notifying(agent_dir, repo_root, verb)
-        if refused is not None:
-            return refused
-
     # {me} comes from the config's identity, not a CLI flag — inject it so a
     # backend can filter a list to the current user.
     identity = config.get("identity")
@@ -347,39 +294,14 @@ def dispatch(
         return result.returncode
 
     append_event(agent_dir, event, verb=verb, tracker=name)
-    if section == "verbs" and verb in _NOTIFYING_VERBS:
-        # FR-010, and unprompted is the point: a run that used the authority
-        # reports what it did whether or not anyone asked. Recorded here rather
-        # than by each caller because this is the one place that knows the write
-        # succeeded — the `issue` event above says the verb ran, not that anyone
-        # was told anything by it.
-        from wfctl._session import record_notify_action
+    if section == "verbs" and verb in _RECORDED_VERBS:
+        # Recorded here rather than by each caller because this is the one place
+        # that knows the write succeeded — the `issue` event above says the verb
+        # ran, and carries the bare verb a hold was never filed under.
+        from wfctl._session import record_outward_action
 
-        record_notify_action(agent_dir, verb)
+        record_outward_action(agent_dir, branch, f"issue-{verb}")
     return 0
-
-
-def read_issue_labels(repo_root: Path, issue: str) -> tuple[set[str] | None, str | None]:
-    """The labels on one issue, through the backend's own `labels` verb.
-
-    Returns `(labels, detail)`. `labels` is None when there is no answer:
-    `detail` then says why the read failed, or is None when nothing was asked —
-    no tracker configured, or one that declines `view`. A caller gating on a
-    label must keep those apart. "Nobody answered" is the ordinary state of a
-    repo with no tracker (FR-012); "the answer did not arrive" decides a whole
-    run and is reported as its own event (FR-015).
-
-    One label per line of stdout, because the verb is declared to produce that
-    and not because any backend's default output happens to look that way. An
-    earlier version ran `view` and looked for the `labels:` header `gh` prints:
-    it read every other backend as having no labels, silently, and searching the
-    whole output instead would have let an issue *about* a label grant that
-    label — #280's own body names `authority:notify` several times.
-    """
-    out, detail = _read_verb(repo_root, "verbs", "labels", issue)
-    if out is None:
-        return None, detail
-    return {line.strip() for line in out.splitlines() if line.strip()}, None
 
 
 def _read_verb(
@@ -406,19 +328,17 @@ def _read_verb(
         return None, None
     # `.get(section, {})` returns the value when the key is present, so a config
     # carrying `"verbs": null` hands back None and the membership test below
-    # raises. Nothing validates a hand-edited config at load, and with no local
-    # grant every `wfctl start` reaches this line — so the crash lands on the
-    # command a session opens with. `validate_config` already guards the shape
-    # this way; this reader had not.
+    # raises. Nothing validates a hand-edited config at load, so the crash lands
+    # on whichever command reads first. `validate_config` already guards the
+    # shape this way; this reader had not.
     verbs = config.get(section)
     if not isinstance(verbs, dict) or verb not in verbs:
         return None, None
 
     # A config that parsed is a config that is JSON, not one that is well-formed.
     # `"labels": 3` reached the comprehension below and raised TypeError out of a
-    # function whose caller documents that it never raises — taking `wfctl start`
-    # down with a traceback on a branch whose only fault was a typo in a file
-    # nothing validates at load.
+    # function whose caller documents that it never raises — a traceback on a
+    # branch whose only fault was a typo in a file nothing validates at load.
     template = verbs[verb]
     if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
         return None, f"'{verb}' must be a list of strings"
@@ -433,10 +353,9 @@ def _read_verb(
         return None, f"'{verb}' requires --{e.key}"
 
     try:
-        # Bounded because callers run unattended: `labels` is the one network
-        # call on the `start` path, and `fields` is invoked by a skill that has
-        # nobody watching it. Unbounded, either hangs forever; refused-on-timeout
-        # is the same verdict an unreachable tracker already gets.
+        # Bounded because callers run unattended: `fields` is invoked by a skill
+        # that has nobody watching it. Unbounded, it hangs forever;
+        # refused-on-timeout is the same verdict an unreachable tracker gets.
         result = subprocess.run(
             argv, capture_output=True, text=True, cwd=repo_root, timeout=15,
         )
@@ -473,8 +392,8 @@ def read_fields(
     names in the payload are the backend's own, and nothing here enumerates
     them.
 
-    Same three-state return as `read_issue_labels`, and the third state carries
-    one case that reader has no equivalent for: a payload wfctl cannot compare.
+    Same three-state return as `_read_verb`, and the third state carries one
+    case that reader has no equivalent for: a payload wfctl cannot compare.
     That is a hand-edited config rather than a tracker being unreachable, so it
     comes back as a `detail` naming the key — a traceback out of the comparison
     would send the reader to the wrong file.

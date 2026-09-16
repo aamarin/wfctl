@@ -22,7 +22,7 @@ brainstorm → specify → clarify → plan → tasks → analyze → decompose
      ↓          ↓         ↓        ↓       ↓        ↓          ↓
 design.md   spec.md  clarified plan.md tasks.md quality  delivery.md
                      spec.md                    gate     + issues,
-                                                         if granted
+                                                         if needed
 ```
 
 **`brainstorm` is the recommended entry point** — run `/speckit.brainstorm`
@@ -89,70 +89,45 @@ T006 → READ ONLY (type or build check)
 **Step 5 — Build parallelization wave table** → output wave assignments,
 then write `delivery.md`.
 
-**Step 6 — Check that this run may create issues, before creating any.**
-
-```bash
-wfctl status --json     # read `notify` and `notify_source`
-```
+**Step 6 — Create the issues, if the plan promises any that do not exist.**
+A plan whose Issue Grouping Map names issues already open — the branch's own
+issue, most often — has nothing to create; skip to the checklist.
 
 Creating an issue tells the people watching the tracker, and deleting it later
-does not un-tell them. `notify` is `false` unless a person granted this feature
-branch the authority to do that — and `false` means write `delivery.md` with its
-placeholder keys, print the line `wfctl status` prints, say how many rows are
-waiting on a key, and stop there. Not "create them and mention it": the
-notification is what cannot be undone, so the refusal has to happen before the
-call, not be reported after it.
+does not un-tell them. wfctl does not decide whether this run may do that: the
+host's permission layer does, and it refuses before wfctl starts
+(`wfctl-records-outward-actions-and-never-gates-them`). So ask as a person would
+be asked; a run where nobody answers creates them rather than stopping on the
+question.
 
-Treat any other answer — the key absent, the command failing, an older wfctl —
-as `false`.
-
-**Record a decline that was yours, not the grant's.** If the run *is* allowed to
-create issues and you decide not to — the map has rows you cannot key
-confidently, the grouping is not settled — say so where the report can see it:
-
-```bash
-wfctl notify issue-create --declined --reason "<what stopped you>"
-```
-
-An action you skipped and one you were not allowed to take leave the same empty
-tracker and are different facts about the run. Only one of them is a sign the
-grant should be widened, so filing them together loses the thing the record was
-kept for.
-
-**A plan with unkeyed rows is a legitimate state, not a failed run.** `wfctl
-status` reads `decompose` as unfinished while any row lacks a key, which is
-exactly right: the issues do not exist yet. Someone grants the authority and the
-step is re-run, or they create the issues themselves and fill the keys in. What
-would be wrong is a run that reported `decompose` complete having quietly
-skipped the half of it that reaches people.
-
-**Step 7 — Create the issues and write their keys back**, once step 6 says you
-may. Each created key replaces the placeholder in the Issue Grouping Map's
-`Issue` column.
+**Step 7 — Create the issues and write their keys back.** Each created key
+replaces the placeholder in the Issue Grouping Map's `Issue` column.
 
 ```bash
 wfctl issue create --title "<title>" --body "<context>"
 ```
 
-That verb and not `gh issue create`: wfctl refuses a notifying verb the run was
-never granted, and the refusal is the only part of step 6 that holds when nobody
-read step 6. Reaching for `gh` directly is outside it.
+That verb and not `gh issue create`: `wfctl issue` records the write as
+`issue-create`, which is what lifts a hold filed against it, and reaching for
+the backend directly is also how a host refusal gets routed around rather than
+reported.
 
-**If the host refuses the command before wfctl runs it** — Claude Code's
-auto-mode classifier and its equivalents on other hosts match the command
-string, whatever wfctl's own grant says, and wfctl never starts to record
-anything when they do. This is a different fact from step 6's refusal, and it
-needs its own report:
+**If the host refuses the create**, report it rather than working around it:
 
 ```bash
-wfctl blocked issue-create --reason "<what the host said>"
+wfctl report-block issue-create --reason "<what the host said>"
 ```
 
-No grant required, unlike every verb above it — a run refused by its host is
-by construction a run that may hold none. It holds `decompose` so the pipeline
-reads the plan as unfinished rather than as complete with an unkeyed row nobody
-explained; a person clears it with `wfctl blocked issue-create --clear` once
-they have created the issue themselves.
+It holds `decompose` so the pipeline reads the plan as unfinished rather than as
+complete with an unkeyed row nobody explained. A later successful `wfctl issue
+create` lifts the hold by itself; a person who creates the issue outside wfctl
+lifts it with `wfctl report-action issue-create`, then fills the key in.
+
+**A plan with unkeyed rows is a legitimate state, not a failed run.** `wfctl
+status` reads `decompose` as unfinished while any row lacks a key, which is
+exactly right: the issues do not exist yet. What would be wrong is a run that
+reported `decompose` complete having quietly skipped the half of it that reaches
+people.
 
 ---
 
@@ -267,9 +242,8 @@ Before marking decompose complete:
 - [ ] PR count justified with rationale (single vs. multiple)
 - [ ] Issue count equals PR count — one issue per PR, no exceptions
 - [ ] Every task assigned to exactly one wave
-- [ ] Issues created and numbered, or none were and the reason is on record —
-      step 6 refused the run, or a `wfctl notify issue-create --declined` says
-      why you stopped
+- [ ] Issues created and numbered, or none were needed, or the host refused and
+      a `wfctl report-block issue-create` says so
 - [ ] Each created key written back into the Issue Grouping Map's `Issue`
       column, replacing the placeholder it was drafted with — `wfctl status`
       reads decompose as unfinished while any row still lacks a key, and

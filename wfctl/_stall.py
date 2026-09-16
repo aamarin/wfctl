@@ -131,7 +131,7 @@ def _passes_this_sitting(events: Path, branch: str | None) -> list[dict]:
 
     **Filtered by branch**, because `WFCTL_STATE_DIR` can point several branches
     at one log — which is exactly how a notify grant made on a feature branch once
-    answered for the trunk, and why `notify-resolved` has carried a branch since.
+    answered for the trunk, before that grant was removed (#384).
     Sub-issue branches of one epic are the sharp case here: a grouping map
     resolves them to a single spec dir, so their digests are identical and their
     step names usually are too. A line written before this field existed carries

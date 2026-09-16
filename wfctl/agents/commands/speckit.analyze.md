@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the repository recording what it covered.
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(wfctl blocked*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(wfctl report-block*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
 
 ## User Input
@@ -122,7 +122,7 @@ section is.
 
 | Where it pauses | When no answer arrives |
 |---|---|
-| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied, or filed where filing is authorized and written down for filing where it is not. The counts say which findings were applied; `### Filing` is what separates a filing that happened from one somebody still has to do. |
+| Step 8, *"Would you like me to suggest concrete remediation edits for the top N issues?"* | Settle it against the policy below rather than waiting on it. Every finding is applied, or filed — and written down for filing where the host refuses the create. The counts say which findings were applied; `### Filing` is what separates a filing that happened from one somebody still has to do. |
 | Step 8's *"(Do NOT apply them automatically.)"*, and the skill's *"Do **not** modify any files"* | Overridden for an in-scope fix, and for nothing else. Stated as an override rather than left to be reconciled: a wrapper that silently contradicts the skill it points at teaches the reader to discount both. The scan-file section below counts this file's overrides of that rule. |
 | Step 7's Next Actions, *"Recommend resolving before `/speckit.implement`"* | Still written, and computed against what stands *after* remediation. A Next Actions block derived from the pre-fix report tells the reviewer to resolve findings this run already resolved, which reads as the fixes not having happened. Step 7's three outcomes do not cover what that ordering leaves most often — remediation is what clears CRITICALs, so a standing HIGH with no CRITICAL above it is the normal end state. Say so in its own line: what stands, at what severity, and that it was filed rather than fixed. *"only LOW/MEDIUM"* is false there, and reporting it as proceed-with-suggestions is the one wrong answer. |
 
@@ -130,9 +130,10 @@ section is.
 authority for design gates, and only a human hands it over; nothing here moves
 any. An in-scope fix stays inside three artifacts the pipeline regenerates, every
 fix is reported on the scan file's `→ Fixed:` line, and the one outward-facing
-action in this policy — filing — is gated already and is deferred to rather than
-routed around. Reading the grant would also leave ungoverned the exact run that
-has no rule today: #299 was an unattended pass nobody granted anything to.
+action in this policy — filing — is gated by the host already, and a refusal is
+reported rather than routed around. Reading the mode would also leave ungoverned
+the exact run that has no rule today: #299 was an unattended pass nobody granted
+anything to.
 
 **The `→ Fixed:` line is the reviewable artifact, and the edit itself is not.**
 `FEATURE_DIR` resolves outside the working tree in this repo and is gitignored at
@@ -214,24 +215,19 @@ and the finding gives its size as the reason.
 
 ### Filing, and the gate it meets
 
-**A filed finding is an issue, and `wfctl issue create` refuses by default.**
-Nothing on a fresh branch has allowed an outward-facing action
-(`a-human-grants-outward-facing-authority`), so an unattended run that was
-granted nothing cannot file — and must not look for a way around the refusal,
-which is the gate working rather than a tracker misconfigured.
+**A filed finding is an issue, created with `wfctl issue create`.** wfctl does not
+decide whether that may run — the host's permission layer does, and it refuses
+before wfctl starts (`wfctl-records-outward-actions-and-never-gates-them`). So
+attempt the create. Do not look for a way around a refusal — `gh` directly, or
+any other client — which is the one gate there is defeated by the run it
+constrains.
 
-**Read the grant before filing, rather than learning it from a refusal.**
-`wfctl status` prints it in every state — *outward actions authorized* — and the
-frontmatter already grants that read. Attempting the create and reading what
-comes back reaches the same answer and puts a refusal in the transcript of every
-correctly-behaving unattended run, which is where a reader learns to skip them.
-
-Where filing is refused the finding is still `Accepted`, and its reason carries
-both halves — why it stands, and that nobody was told:
+**If the host refuses the create**, the finding is still `Accepted`, and its
+reason carries both halves — why it stands, and that nobody was told:
 
 ```markdown
 → Accepted: out of scope — quantifying "responsive" is a product decision.
-  Not filed: outward actions are not authorized on this branch.
+  Not filed: the host refused the create ("<what it said>").
 ```
 
 That is not the finding being lost. The scan file is committed to the branch and
@@ -239,21 +235,16 @@ the reviewer reads it at the PR, which is where an unattended run's decisions ar
 reviewed anyway. What the second line buys is that a finding already filed and a
 finding somebody still has to file stop reading identically.
 
-**If the host refuses the create before wfctl runs it** — Claude Code's
-auto-mode classifier and its equivalents on other hosts match the command
-string, whatever the grant above says, and wfctl never starts to record
-anything when they do. That is a different fact from the refusal above, and it
-needs its own report:
+The refusal also needs a record wfctl can read, because it never saw one:
 
 ```bash
-wfctl blocked issue-create --reason "<what the host said>"
+wfctl report-block issue-create --reason "<what the host said>"
 ```
 
-No grant required, unlike `wfctl issue create` itself — a run refused by its
-host is by construction a run that may hold none. It holds `analyze` so the
-pipeline reads the scan as unfinished rather than complete with a filing
-nobody made; a person clears it with `wfctl blocked issue-create --clear` once
-they have filed the issue themselves.
+It holds `analyze` so the pipeline reads the scan as unfinished rather than
+complete with a filing nobody made. A later successful `wfctl issue create`
+lifts the hold by itself; a person who files the issue outside wfctl lifts it
+with `wfctl report-action issue-create`.
 
 **Here rather than in `speckit-analyze/SKILL.md`**, for the same reason pass G
 and the scan-file override above are: that skill is spec-kit-derived, and an

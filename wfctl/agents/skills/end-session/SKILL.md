@@ -147,50 +147,42 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    unfinished in **Next Session TODO**, where it is a statement of intent and
    reads as one.
 
-5. **Read what this run may do before doing any of it.**
+5. **Outward actions are asked for, attempted, and recorded — never skipped for
+   want of a setting.** Step 7 below reaches outside the repo: a comment, a
+   label, a closed or new issue. wfctl does not decide whether those may run.
+   Your host's permission layer does, and it refuses before wfctl ever starts
+   (`wfctl-records-outward-actions-and-never-gates-them`). The same holds for a
+   push, which this step tells you to record below. Step 6 commits and reaches
+   nobody, as does writing the summary.
+
+   **Ask as each step is written.** An attended session gets the question. A run
+   where nobody answers takes the action rather than stopping on the question —
+   there is no mode to read that says which of the two this is, and reading one
+   would be the second permission system this replaced.
+
+   **If the host refuses, report it rather than routing around it.** Reaching
+   for `gh` or another client directly defeats the one gate that exists. What
+   the refusal needs is a record, so the next session reads the step as
+   unfinished rather than done:
 
    ```bash
-   wfctl status --json     # read `notify` and `notify_source`
+   wfctl report-block issue-close --reason "<what your host said>"
    ```
 
-   `notify` is `false` unless a person granted this feature branch the authority
-   to tell people outside the repo. Steps 6 and 7 below both take actions in that
-   class — a comment, a label, a new issue, a push — and none of them can be
-   taken back once someone has been notified.
-
-   **`false` means do not take them.** Not "ask twice", not "take them and say
-   so afterwards": print the line `wfctl status` prints, say which of the actions
-   below you are therefore skipping, and carry on with the rest of the session
-   close. Committing and writing the summary are unaffected — those reach nobody
-   and are undone by the person who made them.
-
-   Treat any other answer — the key absent, the command failing, an older wfctl —
-   as `false`. The mode is the thing that removes a human from an outward-facing
-   decision, so an inconclusive read has to leave one in.
-
-   `notify_source` says *why*, and the report in step 8 carries it. Five values
-   mean refused and they are not the same event: nobody granted it, someone
-   turned it off, the stored answer was damaged, the tracker could not be
-   reached, or this is the trunk branch. The middle two are failures rather than
-   anyone's decision, and reporting them as a person withholding authority is the
-   thing this distinction exists to prevent.
-
-   **An attended session still asks.** The grant answers whether the authority
-   *exists*, never whether to use it here — steps 6 and 7 ask their questions
-   exactly as written. What the grant changes is what an unattended run does when
-   nobody answers: refuse, rather than proceed.
+   The name is `issue-<verb>` for a tracker write, which is the name `wfctl issue`
+   records when that write succeeds — so a later successful `wfctl issue close`
+   lifts the hold with nothing else typed. `push` for a push.
 
    **Record what wfctl cannot see.** `wfctl issue` logs its own writes, so a
-   comment or a label needs nothing from you. A push does — no wfctl verb
-   performs one, and it is in the same class:
+   comment, a label or a close needs nothing from you. A push does — no wfctl verb
+   performs one:
 
    ```bash
-   wfctl notify push                                    # after it succeeded
-   wfctl notify push --declined --reason "<why not>"    # allowed, and you didn't
+   wfctl report-action push       # after it succeeded
    ```
 
-   The second is not bookkeeping. An action you skipped and one you were refused
-   leave an identical repo, and only one of them says the grant should be wider.
+   A push leaves no other trace a restarted session can read: the summary is
+   written in step 3, and `/clear` follows the handoff.
 
 6. **Ask before committing.** If step 2 showed uncommitted changes, ask the user:
    "Commit these with a message referencing the active issue?" On yes, commit with
@@ -221,28 +213,17 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    wfctl issue create --title "<title>" --body "<context>"
    ```
 
-   **If your own host refuses one of these commands before wfctl runs** —
-   Claude Code's auto-mode classifier and its equivalents on other hosts match
-   on the command string, not on wfctl's grant, and wfctl never starts to
-   record anything when they do — report it yourself rather than letting the
-   session close as though it happened:
-
-   ```bash
-   wfctl blocked issue-close --reason "<what your host said>"
-   ```
-
-   No grant required — this is the one command wfctl never gates, because a
-   run refused by its host is by construction a run that may hold none. It
-   holds the step this session was on so the next one reads it as unfinished
-   rather than as done, and a person clears it with
-   `wfctl blocked issue-close --clear` once they have taken the action
-   themselves.
+   **If your host refuses one of these commands**, file the block step 5
+   describes, under the verb's own name — `issue-close`, `issue-comment`,
+   `issue-label`, `issue-create`. A person who then takes the action outside
+   wfctl lifts the hold with `wfctl report-action issue-close`; a later
+   successful `wfctl issue close` lifts it by itself.
 
 8. **Report:** session closed, summary written, whether the work was committed and
    the tracker updated (per the user's choices in 6–7), next steps, any blockers.
-   **Say what the grant allowed and what it refused**, naming the source — a run
-   that skipped the tracker because nobody granted it looks identical, in a
-   report that omits this, to a run that had nothing to tell anyone.
+   **Name every outward action the host refused**, with the action and what the
+   host said — a run that filed a block and a run that had nothing to tell anyone
+   leave the same tracker, and only the report says which this was.
    If ending because context is filling, remind the user they can `/clear` and
    `/start-session` to resume from the summary.
 

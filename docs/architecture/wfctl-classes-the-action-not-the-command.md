@@ -131,3 +131,6 @@ naming a lookup that does not exist.
 
 - 2026-09-07  proposed    — #277 level 2; the classes had no home, and two files
   were already citing them
+- 2026-09-15  proposed    — #384: the middle row's one check, the notify grant,
+  is removed. The classification and the irreversible row are untouched. See
+  `wfctl-records-outward-actions-and-never-gates-them`.

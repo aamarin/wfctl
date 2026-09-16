@@ -163,3 +163,6 @@ the rule already says for a promised source.
   the implementation: the fourth fact was named `integration authorized` and read
   off a grant that does not cover merging. Narrowed to what the grant owns, and
   the unowned question named rather than answered.
+- 2026-09-15  proposed    — #384 removes the fourth question's owner: the grant
+  goes, and with it the `outward actions authorized` fact, so the payload carries
+  three. See `wfctl-records-outward-actions-and-never-gates-them`.

@@ -78,10 +78,10 @@ def test_a_change_missing_what_its_issue_carries_is_reported_and_exits_one(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _configure(agent_dir.parent)
-    _answers(monkeypatch, change={"labels": []}, issue={"labels": ["authority:notify"]})
+    _answers(monkeypatch, change={"labels": []}, issue={"labels": ["P1"]})
     result = runner.invoke(app, ["change", "check", "301"])
     assert result.exit_code == 1
-    assert "labels" in result.output and "authority:notify" in result.output
+    assert "labels" in result.output and "P1" in result.output
 
 
 def test_a_change_carrying_everything_expected_exits_zero_and_says_what_it_read(

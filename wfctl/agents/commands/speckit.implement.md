@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 description: Execute the implementation plan by processing and executing all tasks defined in tasks.md
-allowed-tools: Read Glob Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl blocked*)
+allowed-tools: Read Glob Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl report-block*)
 ---
 
 ## User Input
@@ -45,13 +45,16 @@ that case, because there is nothing for it to see: no exit code, no stderr, no
 invocation. Report it yourself:
 
 ```bash
-wfctl blocked <action> --reason "<what your host said>"
+wfctl report-block <action> --reason "<what your host said>"
 ```
 
-`<action>` is a short name for what was refused — `issue-close`, `issue-comment`,
-`push`. No grant required: this is the one command wfctl never gates, because
-a run refused by its host is by construction a run that may hold none. It
-holds the step this task belonged to, so `implement` reports unfinished
-rather than done with a write nobody made — and a person releases it with
-`wfctl blocked <action> --clear` once they have taken the action themselves.
+`<action>` is a short name for what was refused — `issue-<verb>` for a tracker
+write (`issue-close`, `issue-comment`), which is the name `wfctl issue` records
+when that write succeeds, or `push`. It holds the step this task belonged to, so
+`implement` reports unfinished rather than done with a write nobody made. A
+later successful `wfctl issue` write lifts the hold by itself; a person who takes
+the action outside wfctl lifts it with `wfctl report-action <action>`.
+
+Do not route around the refusal — `gh` directly, or any other client. The host
+is the only gate on these actions, and wfctl keeps none of its own.
 

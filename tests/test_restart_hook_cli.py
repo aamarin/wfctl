@@ -165,9 +165,11 @@ def test_a_landed_handoff_starts_the_clear_and_start_session(
 def test_a_push_recorded_after_the_handoff_is_folded_in_before_the_clear(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The traced defect (#371 ledger): `wfctl notify push` ran eight seconds
-    after `wfctl end` wrote the summary, in the same turn, and `/clear` would
-    otherwise discard the only record of it."""
+    """The traced defect (#371 ledger): the push was recorded eight seconds after
+    `wfctl end` wrote the summary, in the same turn, and `/clear` would otherwise
+    discard the only record of it. The verb was `wfctl notify push` then and is
+    `wfctl report-action push` now; what the test pins is the event either one
+    writes, which is why the rename did not reach the assertions below."""
     state = _state(tmp_path, monkeypatch, [
         {"event": "session-restart", "session": "S", "decision": "end"},
         {"event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": 0},
@@ -187,9 +189,12 @@ def test_a_push_recorded_after_the_handoff_is_folded_in_before_the_clear(
     assert "2026-09-15T14:24:38Z — push" in summary
 
 
-def test_a_declined_notify_action_is_folded_in_with_its_reason(
+def test_a_declined_line_from_an_old_log_is_not_folded_in(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """`--declined` went with the grant it was a decline of (#384). A log written
+    before then can still carry the line; the handoff does not grow a section for
+    a fact about authority the run no longer has a way to hold."""
     state = _state(tmp_path, monkeypatch, [
         {"event": "session-restart", "session": "S", "decision": "end"},
         {"event": "session-restart-send", "session": "S", "text": END_TEXT, "exit": 0},
@@ -197,13 +202,13 @@ def test_a_declined_notify_action_is_folded_in_with_its_reason(
         {"ts": "2026-09-15T14:24:38Z", "event": "notify-declined",
          "action": "issue-close", "reason": "partial progress only"},
     ])
-    (state / "session-summary.md").write_text("# Session Summary\n")
+    original = "# Session Summary\n"
+    (state / "session-summary.md").write_text(original)
     t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
 
     run_hook(_payload(repo, t), os.environ, lambda _: None, lambda root: "371-x")
 
-    summary = (state / "session-summary.md").read_text()
-    assert "declined issue-close: partial progress only" in summary
+    assert (state / "session-summary.md").read_text() == original
 
 
 def test_no_late_events_leaves_the_summary_untouched(

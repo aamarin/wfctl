@@ -2,7 +2,7 @@
 
 `delivery.md` existing used to be the whole check, and the file is written
 *before* the issues exist by design — creating them tells people outside the
-repo, so it waits on the notify grant (#280) rather than on this step. So the
+repo, and a host can refuse the create, so it can wait past this step. So the
 one state these tests care about is the middle one: a plan
 on disk whose Issue Grouping Map still carries placeholders. It read `done`, and
 `implement` advances unattended since #148, so a run flowed into implementation
@@ -295,8 +295,8 @@ def test_a_feature_that_has_analyzed_enters_decompose_without_a_prompt(
     whose evidence was complete and printed "run /speckit.decompose when ready".
 
     The step it now enters unattended is the one that reaches the tracker. It is
-    step 6 of `speckit-delivery-plan` that stops there without a notify grant,
-    not this flag — argued at the rung annotation in `_predicates`.
+    the host's permission layer that can stop the create there, not this flag —
+    argued at the rung annotation in `_predicates`.
     """
     _use_tracker(tmp_path)
     feature = spec_tree(

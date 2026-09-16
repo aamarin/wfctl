@@ -239,23 +239,23 @@ def test_the_analyze_in_scope_test_counts_the_constitution_as_having_decided() -
     assert quoted in flowed
 
 
-def test_the_analyze_policy_defers_to_the_notify_gate_rather_than_around_it() -> None:
+def test_the_analyze_policy_reports_a_refused_filing_rather_than_routing_around_it() -> None:
     """Filing is the one outward-facing action in a policy nobody is watching run.
 
-    `wfctl issue create` refuses by default and only a person lifts it
-    (`a-human-grants-outward-facing-authority`), so "file it as an issue" is
-    unreachable on most branches this policy runs on. Left unsaid, the refusal
-    reads to an agent as a misconfigured tracker, and the repair it reaches for is
-    the backend directly — which is the gate defeated by the run it exists to
-    constrain.
+    The host's permission layer can refuse `wfctl issue create`, and wfctl keeps
+    no gate of its own to explain that (#384). Left unsaid, the refusal reads to
+    an agent as a misconfigured tracker, and the repair it reaches for is the
+    backend directly — which is the one gate there is, defeated by the run it
+    exists to constrain.
 
     The scan file is what catches the finding instead, and the reason line is what
     keeps "filed" and "somebody still has to file this" from rendering alike.
     """
     flowed = _flowed(_section("analyze"))
 
-    assert "refuses by default" in flowed
+    assert "wfctl report-block issue-create" in flowed
     assert "Not filed:" in flowed
+    assert "routed around" in flowed
 
 
 @pytest.mark.parametrize(
