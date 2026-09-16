@@ -2540,6 +2540,12 @@ _MIRRORED_SKILLS = frozenset({
     # does not restore them.
     "architecture-design",
     "architecture-decisions",
+    # Interactive design skill; its description triggers on "new feature / major
+    # change that needs design thinking" — a moment nobody types a command, the
+    # same reason `fanning-out-code-review` is mirrored (#124). Wrapper reaches
+    # bob/copilot layers; mirror is the Claude route (wrapper suppressed there by
+    # _mirror_supersedes_wrapper, as for every other name in this set).
+    "brainstorm",
     "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
