@@ -200,6 +200,22 @@ def test_a_lead_in_on_its_own_line_is_flagged_like_one_sharing_a_line() -> None:
                                "the comment posted.", BARE)
 
 
+def test_a_colon_glued_to_the_count_by_a_missed_boundary_is_not_a_lead_in() -> None:
+    """`_REPLY_SENTENCE`'s lookahead requires the next sentence to open with a
+    capital letter, so a real break before inline code or a lowercase word is
+    invisible to it — `_sentences` hands back "Both changes are complete.
+    `git status`:" as one fused sentence. Running the closing-colon check
+    against that fusion read the coda's colon as the count's own (found in
+    review on PR #404): a counted fact followed by an unrelated coda, not a
+    lead-in.
+
+    The numeral case is the same shape and was already accepted before this
+    branch — `_COUNTED` takes any colon in the opening sentence's remainder by
+    design (see its own comment) — so only the `both` line here is new."""
+    assert not _shape.findings("Both changes are complete. `git status`:", BARE)
+    assert _shape.findings("Two changes are complete. `git status`:", BARE)
+
+
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
     """Q3, and the only finding that looks at length at all."""
     found = _shape.findings("word " * 300, BARE)

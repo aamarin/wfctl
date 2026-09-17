@@ -198,6 +198,22 @@ _COUNTED_CLOSING = re.compile(
     rf"^\s*{_COUNT}[^\n]*:[\"'*_)\]]*\s*$", re.IGNORECASE
 )
 
+# `_REPLY_SENTENCE`'s lookahead requires the next sentence to open with a
+# capital letter, deliberately — see its own comment for why. That same
+# narrowness means a real break before inline code, a lowercase word, or a
+# numeral is invisible to it, so `_sentences` hands back the two sentences
+# fused into one. Running `_COUNTED_CLOSING` against that fused opening treats
+# a later sentence's colon as though it closed the count's own sentence:
+# "Both changes are complete. `git status`:" is a counted fact followed by an
+# unrelated coda, not a lead-in, and read as one before this guard (found in
+# review, #404).
+#
+# Loosened relative to `_REPLY_SENTENCE` on purpose — this only has to notice
+# that a break exists, not agree on what follows it — so it drops the
+# uppercase requirement and treats any sentence-ending punctuation plus
+# whitespace as proof the opening blob is not one sentence.
+_INNER_SENTENCE_END = re.compile(r"[A-Za-z0-9)\]`\"'][\"'*_)\]]*[.?!][\"'*_)\]]*\s+")
+
 # Inline code is quoted, not written, and a colon inside it is punctuation of
 # whatever is being quoted. `Two unrelated branches show `[origin/…: gone]`` is
 # a sentence, not a lead-in, and it was the only false positive the rule-6 check
@@ -328,11 +344,18 @@ def _counted_lead_in(line: str) -> bool:
     closes its sentence is asked of every sentence, the opening one included,
     with the full vocabulary — see `_COUNTED_CLOSING`. A colon mid-sentence is
     asked only of the opening one, and only of a count that can announce.
+
+    The closing-colon question is asked of `opening` only when nothing in it
+    looks like a sentence break `_sentences` failed to find — see
+    `_INNER_SENTENCE_END`. Without that guard, a count fused to an unrelated
+    coda by a missed boundary reads as the coda's own lead-in.
     """
     opening, *rest = _sentences(_QUOTED.sub("``", line))
-    return bool(_COUNTED.match(opening) or _COUNTED_CLOSING.match(opening)) or any(
-        _COUNTED_CLOSING.match(sentence) for sentence in rest
-    )
+    opening_is_one_sentence = not _INNER_SENTENCE_END.search(opening)
+    return bool(
+        _COUNTED.match(opening)
+        or (opening_is_one_sentence and _COUNTED_CLOSING.match(opening))
+    ) or any(_COUNTED_CLOSING.match(sentence) for sentence in rest)
 
 
 def findings(reply: str, prompt: str) -> list[str]:
