@@ -106,3 +106,10 @@ hand-edited.
 - 2026-09-08  proposed    — #136 installs the first entry into a consumer-owned
   file that cannot carry wfctl's marker, and uninstall needed an answer before
   the code was written.
+- 2026-09-16  noted       — #405 gives this pattern a second instance: Bob
+  Shell's `tools.allowed` in `.bob/settings.json`, same reasoning as
+  `permissions.deny` (exact-text match, no marker possible). Recorded here for
+  the same reason `install-modes.md` cross-references #136 — a reader of this
+  proposed record should not find it contradicted by shipped code. Does not
+  change this record's status; `_bob_settings.py` and `install-modes.md` are
+  where the accepted behavior actually lives.

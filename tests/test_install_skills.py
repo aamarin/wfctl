@@ -2786,7 +2786,16 @@ def test_bob_install_strips_disable_model_invocation(
 ) -> None:
     """Commands installed to .bob/commands/ must not contain
     `disable-model-invocation` — Bob Shell interprets that key literally and
-    skips model invocation, so the skill body never executes."""
+    skips model invocation, so the skill body never executes.
+
+    `allowed-tools` must survive too, but not because Bob Shell reads it —
+    grepping Bob Shell's own bundled JS turns up zero references to the key.
+    It stays because a stripper has no evidence it is Claude-specific, not
+    because keeping it does anything for Bob today; treating it as Claude-only
+    was the wrong call #142 made, not a right one this test should repeat with
+    a different justification. Bob's real approval scoping is `.bob/settings.json`
+    (see the `approval-settings` skill and `test_install_bob_tool_allows.py`,
+    which `install-skills --agent bob` merges into it automatically)."""
     import os
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
@@ -2805,7 +2814,8 @@ def test_bob_install_strips_disable_model_invocation(
 
     installed = (repo_root / ".bob" / "commands" / "test-cmd.md").read_text()
     assert "disable-model-invocation" not in installed
-    assert "allowed-tools" not in installed
+    # allowed-tools survives — it was never established as Claude-specific
+    assert "allowed-tools: Read Bash(git status*)" in installed
     # description must survive
     assert "description: A command that does something." in installed
     # body must survive
@@ -2816,7 +2826,11 @@ def test_bob_install_drops_frontmatter_block_when_only_claude_keys(
     agent_dir: Path, bundle: Path
 ) -> None:
     """When every frontmatter key is Claude-only, the block is dropped entirely
-    rather than leaving a bare `---\\n---\\n` stub."""
+    rather than leaving a bare `---\\n---\\n` stub.
+
+    `disable-model-invocation` is the only key this stripper still has evidence
+    for — Bob Shell reads it and skips model invocation on it. A command with
+    only `disable-model-invocation` gets its block dropped."""
     import os
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
@@ -2824,7 +2838,6 @@ def test_bob_install_drops_frontmatter_block_when_only_claude_keys(
     cmd.write_text(
         "---\n"
         "disable-model-invocation: true\n"
-        "allowed-tools: Read\n"
         "---\n"
         "\nDo the thing.\n"
     )
