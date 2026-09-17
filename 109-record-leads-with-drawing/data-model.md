@@ -96,8 +96,13 @@ acceptance refuses (R-002).
 |---|---|
 | no `## Log` section to append to | `no '## Log' section to append to` |
 | `_drawing(record) == ""` | `no drawing: add a fenced block under '## Boundary'` |
-| a drawing, and `diagram` is `""` | `no declared kind: add 'diagram: <one of …>' to the frontmatter` |
-| a drawing, and `diagram` not in `DIAGRAM_KINDS` | `'<value>' is not a diagram kind — use one of …` |
+| `diagram` is `""` | `no declared kind: add 'diagram: <one of …>' to the frontmatter` |
+| `diagram` not in `DIAGRAM_KINDS` | `'<value>' is not a diagram kind — use one of …` |
+
+The kind conditions do not test for a drawing. A record missing both reports
+both, which is what the ordering sentence below is about — were the kind blocker
+gated on a present drawing, such a record would report one blocker and there
+would be no order to fix.
 
 Order is reading order, and it is load-bearing for FR-005: a record with no
 drawing and no kind reports the drawing first, because adding a kind to a record

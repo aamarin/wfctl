@@ -26,10 +26,15 @@ skills change reads well, and it cannot open github.com.
 ## See the refusal
 
 ```bash
-uv run wfctl arch accept the-drawing-is-required-at-acceptance --agreed "test"
+uv run wfctl arch accept <any proposed record with no drawing> --agreed "test"
 ```
 
-Expect the refusal from `contracts/cli.md`, exit 1, and the file unchanged:
+`the-drawing-is-required-at-acceptance` was this example while it was itself
+undrawn; it carries a drawing now, which is why the slug here is not pinned to
+one record — the corpus moves as records gain drawings, and a name fixed at
+spec time drifts out from under the example the first time someone accepts it
+or draws it in. Expect the refusal from `contracts/cli.md`, exit 1, and the
+file unchanged:
 
 ```bash
 git diff --stat docs/architecture/    # empty
