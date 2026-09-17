@@ -263,8 +263,36 @@ every writer passes a non-empty f-string — but it is a semantic change, and an
 unreachable one is the kind that is reached later by someone who did not know it
 was a decision.
 
+## Settled: the module is `_evidence.py`
+
+The open question was whether `_predicates.py` may go on being called that while
+the type inside it is `EvidenceReader`. It may not, and the module's own first
+line is why: *"What each pipeline step reads, and what it concludes from it."*
+That sentence names evidence and a conclusion drawn from it, and neither word is
+"predicate" — the name was describing the callables' signature rather than the
+module's subject.
+
+`_evidence.py`, and `tests/test_evidence.py` with it. `Evidence` is defined
+there, `build_evidence` fills it, `EvidenceReader` consumes it and `Assessment`
+is what comes back; `Fact` and `facts()` read the same evidence for the status
+panel. `_evidence.Evidence` stutters slightly at a call site, which is the one
+cost and is smaller than a module named for a promise its contents do not make.
+
+Rejected: `_reading.py`, which reintroduces the exact word `Assessment` replaced;
+`_readers.py`, which names the callables again rather than the subject, and
+leaves `Evidence` looking like a guest in its own module.
+
+**It rides with #410 rather than becoming its own issue.** 47 references across
+13 files, two of them shipped agent docs (`speckit.analyze.md`,
+`writing-a-scan-file/SKILL.md`), so the sweep is real. But #410 already rewrites
+the type names this module is named after, and splitting them leaves the tree
+with `_predicates.py` defining `EvidenceReader` for however long the second PR
+takes — the inconsistency the rename exists to remove, introduced deliberately.
+`tasks.md` T002a and T002b carry it, ahead of T003 so `SubStep` is never written
+beside a `Step` spelled differently.
+
 ## Where this lands
 
-Blocks 5 and 6 of `408-drafts.md`. Nothing here changes `State`, `Evidence`, or
-the `_predicates.py` module name — the module keeps its name while the type
-inside it does not, which is the next thing that may read wrong.
+Blocks 5 and 6 of `408-drafts.md`. Nothing here changes `State`, `Evidence` or
+`Continuation` — `Continuation` names the value domain, which `on_finish` does
+not restate.

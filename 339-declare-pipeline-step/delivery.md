@@ -10,14 +10,14 @@
 
 | PR | Tasks | Files Touched | Size | Merge Condition |
 |----|-------|--------------|------|----------------|
-| PR 1 | T001–T037 | `wfctl/_pipeline.py` (modified), `wfctl/_declared.py` (created), `wfctl/_predicates.py` (modified), `wfctl/cli.py` (modified), `tests/conftest.py` (modified), `tests/test_declared.py` (created), `tests/test_cli_status.py` (created), `tests/test_predicates.py` (modified), `tests/test_pipeline_state_names.py` (modified), `tests/test_pipeline_commands.py` (modified), `tests/test_pipeline_payload_snapshot.py` (modified), `tests/pipeline_payload_snapshot.json` (modified) | L (12 files) | T013, T029 and T037 gates green; `quickstart.md` § *Declare a pass and walk a branch through it* and § *Read wfctl's own passes* walked by hand |
+| PR 1 | T001–T037 | `wfctl/_pipeline.py` (modified), `wfctl/_declared.py` (created), `wfctl/_evidence.py` (renamed from `_predicates.py`, modified), `wfctl/cli.py` (modified), `tests/conftest.py` (modified), `tests/test_declared.py` (created), `tests/test_cli_status.py` (created), `tests/test_evidence.py` (renamed from `test_predicates.py`, modified), `tests/test_pipeline_state_names.py` (modified), `tests/test_pipeline_commands.py` (modified), `tests/test_pipeline_payload_snapshot.py` (modified), `tests/pipeline_payload_snapshot.json` (modified), and nine import-only touches the rename reaches — `_stall.py`, five test modules, `speckit.analyze.md`, `writing-a-scan-file/SKILL.md` | L (12 files of substance, 9 one-line) | T002a and T002b land first, so the rename is reviewable apart from the mechanism; T013, T029 and T037 gates green; `quickstart.md` § *Declare a pass and walk a branch through it* and § *Read wfctl's own passes* walked by hand |
 | PR 2 | T038–T056 | `wfctl/_paths.py` (modified), `wfctl/cli.py` (modified), `wfctl/_pipeline.py` (modified), `AGENTS.md` (modified), `wfctl/agents/skills/*` (modified), `tests/test_step_none.py` (created), `tests/test_arch_records.py` (modified), `tests/test_paths.py` (modified), `tests/test_cli_status.py` (modified), `tests/test_pipeline_state_names.py` (modified), `tests/test_pipeline_payload_snapshot.py` (modified) | L (11 files) | PR 1 merged; T050 and T056 gates green; `install-skills` + `doctor` under `uv run`; both remaining quickstart walks done |
 
 **Rationale**: Multiple PRs. The feature is 61 tasks over 17 files — XL by the
 sizing table, which cannot ship as one PR. Two, not three: `plan.md` phases the
 work into the mechanism + US1, then US2, then US3, but US2 is 8 tasks over 5
 files and **4 of those 5 are files the mechanism PR already edits**
-(`_pipeline.py`, `_predicates.py`, `test_predicates.py`,
+(`_pipeline.py`, `_evidence.py`, `test_evidence.py`,
 `test_pipeline_state_names.py`). A PR of its own would be a stack carrying
 conflicts against its own base and saving no review size. The split that earns
 its keep is the one between *the mechanism and its consumers* and *the exit* —
