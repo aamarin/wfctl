@@ -188,6 +188,15 @@ after a spec-kit command, which is #395's question rather than this record's.
 Sub-steps are additive and hold whatever the step table ends up holding, so
 nothing here depends on how that is answered.
 
+The code says "sub-step" and everything a reader sees says "pass". That is
+deliberate rather than drift. `wfctl-counts-the-passes` already spends "pass" on
+one iteration of the orchestrate loop, and three senses of the word in one arch
+root is worse than two vocabularies with a line saying which is which. So
+`SubStep`, `sub_steps` and this record's title carry the code's spelling, and
+`spec.md`, `plan.md`, `tasks.md` and every user-facing string carry the reader's.
+The one place they meet is a future rename of the orchestrate record's word,
+which is that record's to make, not this one's.
+
 ## Log
 
 - 2026-09-16  proposed    — #339's level-2 pass; the pipeline is one level
@@ -197,3 +206,7 @@ nothing here depends on how that is answered.
   `spec.md`'s clarification Q2, which put the finding in `check config` on the
   ground that the drift report reports what wfctl installed, not what a
   repository configured for itself
+- 2026-09-17  revised     — #408: the code's "sub-step" and the artifacts'
+  "pass" are two vocabularies on purpose, because `wfctl-counts-the-passes`
+  holds "pass" for an orchestrate iteration. Recorded so the divergence is not
+  read as an oversight and renamed away
