@@ -51,10 +51,14 @@ wfctl step none ui-design --reason "backend-only; no screens change"
 ```
 
 The sub-step then reads `skipped`, carrying the sentence as its annotation. The
-file goes where `wfctl arch none` already writes — the declarations directory
-under the arch root — and carries the same guards: an empty reason is refused, a
-`<why>` placeholder is refused, and a write that landed somewhere no reviewer
-will see it warns and exits non-zero.
+file goes under a directory of its own —
+`<arch-root>/step-claims/<branch>/<step>.<name>.md`, one file per pass — and
+carries the same guards `arch none` already applies: an empty reason is refused,
+a `<why>` placeholder is refused, and a write that landed somewhere no reviewer
+will see it warns and exits non-zero. One file per pass because a branch makes as
+many claims as it has passes, and a single shared file would mean the second
+claim destroys the first. `step-claims/` joins `_paths.non_record_subtrees`, so
+no reader of the arch root counts a claim as a record.
 
 "Ran and produced nothing" and "does not apply here" are one state, not two.
 Both mean the pipeline advances and a reviewer reads a claim they can disagree
@@ -62,8 +66,11 @@ with, and "followed callable-first; no departure" and "backend-only; no screens
 change" are already distinguishable as English. A flag separating them would add
 a state nothing branches on.
 
-`wfctl arch none` becomes the level-2 instance of this verb rather than a
-mechanism of its own.
+`wfctl arch none` keeps its own verb, its own path and its own text. The two are
+siblings rather than one generalised: `arch none` overwrites a whole file holding
+a single boundary claim, and a branch with several claimed-away passes would lose
+all but the last through it. Overloading it with an optional pass argument would
+also blur refusals and a path that are specific to the boundary question.
 
 ## Owns truth
 
@@ -103,14 +110,29 @@ claim was made, that it is legible, and that it reached the reviewer.
 
 ## Consequences
 
-`wfctl step none <name>` is a new verb, and it generalises `wfctl arch none`
-rather than sitting beside it. The declarations file gains a line per declared
-sub-step instead of holding a single claim.
+`wfctl step none <name>` is a second claim-writing verb beside `wfctl arch none`,
+not a generalisation of it. Each claim is its own file under `step-claims/`, so
+two claims on one branch never contend for one path, and a repeated claim on the
+same pass replaces exactly itself.
 
-A sub-step has three reachable states and no ambiguity in any of them: `done`
-when the artifact exists, `pending` when it does not, `skipped` when someone
-declared it. Unlike the top-level pipeline, `skipped` on a sub-step has exactly
-one producer, so the glyph means one thing.
+A sub-step has four reachable states, the same four a step has: `done` when its
+predicate is satisfied, `in_progress` when the parent step is current and this
+sub-step is the outstanding one, `pending` when the parent has not been reached
+or an earlier sub-step under it is outstanding, and `skipped` when a claim exists
+for it on this branch or the parent step is itself `skipped`.
+
+`skipped` therefore has two producers, not one, and `claimed` is what tells them
+apart: non-null when a person declared the sub-step away, null when the state was
+inherited from a parent the pipeline walked past. A parent reaches `skipped` only
+by being walked past — `brainstorm` with a `spec.md` and no `design.md`,
+`clarify` with a `plan.md` already written, `implement` over a sentinel with no
+open task, `decompose` with no `delivery.md` — so an inherited `skipped` means no
+claim was ever owed, and the glyph needs none.
+
+What the claim buys is that a sub-step skipped *under a parent that ran* always
+carries a sentence. That is the property the single-producer wording was reaching
+for, and it survives intact once the field rather than the state name is what
+carries the distinction.
 
 `python-pattern-selection` under `implement` will read `skipped` on most wfctl
 branches, because producing no artifact is its normal outcome. The row still
@@ -121,3 +143,7 @@ ran the skill, and the default view hides the row once it is settled.
 
 - 2026-09-16  proposed    — #339's level-2 pass; absence is the state a
   sub-step spends most of its time in, and the only one wfctl cannot read
+- 2026-09-17  revised     — #408: the storage path, the verb's relationship to
+  `arch none`, and the state count were all written before the spec settled
+  them. `skipped` has two producers and `claimed` separates them; a fifth state
+  was rejected on this record's own ground that nothing branches on it

@@ -165,12 +165,17 @@ what a sub-step is before it can emit one. A repo-declared sub-step is
 `review_required` by default, because wfctl does not ship the command; a
 repository opts into `automatic` per sub-step once it has decided that is safe.
 
-`doctor` gains a finding for a declared sub-step whose command is not installed,
-and it is new logic rather than a wiring-up. The command inventory `_pipeline`
-keeps is consumed by the test suite, not by `doctor` — and a test in wfctl's own
-suite cannot reach this case anyway, because the command it would check ships
-from the consuming repository. What `doctor` already has is the installed
-command directories it walks for drift, which is where the answer is.
+`doctor` is not touched. A declared sub-step whose command is not installed is a
+finding about configuration the repository wrote for itself, and the drift
+report's remit is state wfctl installed — so the finding lands in `wfctl check
+config` instead, alongside every other rule this feature states about a
+declaration. That is `a-rule-is-expressed-as-a-check` applied to this feature's
+own rules, and it is what `spec.md`'s clarification Q2 settled.
+
+A test in wfctl's own suite still cannot reach the case, because the command it
+would check ships from the consuming repository. `check config` is run against a
+repository rather than shipped as an assertion about one, which is why the
+finding belongs there rather than in a suite.
 
 Brainstorm's predicate reads its two artifacts in the opposite order to the
 process that produces them: it checks `design.md` first and the arch record
@@ -188,3 +193,7 @@ nothing here depends on how that is answered.
 - 2026-09-16  proposed    — #339's level-2 pass; the pipeline is one level
   shallower than the work it tracks, in wfctl as much as in the repository that
   reported it
+- 2026-09-17  revised     — #408: the `doctor` consequence contradicted
+  `spec.md`'s clarification Q2, which put the finding in `check config` on the
+  ground that the drift report reports what wfctl installed, not what a
+  repository configured for itself
