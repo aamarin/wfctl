@@ -253,7 +253,14 @@ stating that the plan departs and why, on the record's own terms.
 
 ## 4. Two vocabularies — recommendation, and the collision
 
-Verdict: **"pass" wins, and `wfctl-counts-the-passes` gives up the word.**
+**Settled the other way, 2026-09-17.** `SubStep` is kept and
+`wfctl-counts-the-passes` keeps the word. The two vocabularies stand, and
+`a-step-carries-sub-steps-one-level-deep`'s Consequences now says so, which is
+what stops a later reader filing the divergence as drift. What follows is the
+rejected recommendation, kept for its counts and for the collision it names.
+
+Verdict as drafted: **"pass" wins, and `wfctl-counts-the-passes` gives up the
+word.**
 
 Counts, so the cost is on the table rather than asserted:
 
