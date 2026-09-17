@@ -164,23 +164,65 @@ def test_an_anaphoric_count_is_never_a_lead_in() -> None:
                            BARE)
 
 
-def test_the_coda_keeps_both_because_its_position_carries_the_finding() -> None:
+def test_a_closing_colon_keeps_both_wherever_the_sentence_sits() -> None:
     """The half a single shared vocabulary got wrong (#389, found in review).
 
-    `both` is dropped from the opening sentence because there the colon may sit
-    anywhere, so the word is the whole of the evidence and an anaphoric one is
-    not enough. A coda's colon has to close its sentence, after the answer has
-    landed — that is the structural signature of a second block, and a second
-    block is what rule 6 caps however familiar its contents. So the position
-    carries this finding and the word is not asked to.
+    `both` is dropped where the colon sits mid-sentence, because there a counted
+    fact and a lead-in are the same shape and the word is the whole of the
+    evidence. A colon that *closes* its sentence is a lead-in announcing and then
+    breaking to its list — the structural signature of a second block, which rule
+    6 caps however familiar its contents. There the structure carries the
+    finding, so the word is not asked to.
 
     The last line is the guard that keeps the two vocabularies from collapsing
-    back into one: the same word, in the opening frame, must still read clean."""
+    back into one: the same word, colon mid-sentence, must still read clean."""
     assert _shape.findings("Done. Both remaining issues:", BARE)
     assert _shape.findings("That is settled. Both problems worth an issue each:",
                            BARE)
     assert _shape.findings("Done. **Both things remain:**", BARE)
     assert not _shape.findings("Both remaining issues are filed.", BARE)
+
+
+def test_a_lead_in_on_its_own_line_is_flagged_like_one_sharing_a_line() -> None:
+    """`findings` scans line by line, so a lead-in that breaks to bullets is the
+    *opening* sentence of its own line and no coda scan ever reaches it. Keying
+    the vocabulary on sentence position therefore caught `Done. Both remaining
+    issues:` and missed the same lead-in one newline further on (#389, found in
+    review) — and the own-line form is the more common of the two, because a
+    lead-in that breaks to a list usually starts its own line.
+
+    Keying it on where the colon lands instead covers both, which is what these
+    assert: the same lead-in on one line and on two, and the mid-sentence colon
+    that must stay clean in either arrangement."""
+    assert _shape.findings("Done.\n\nBoth remaining issues:\n- a\n- b", BARE)
+    assert _shape.findings("Both remaining issues:\n- a\n- b", BARE)
+    assert not _shape.findings("Done.\n\nBoth actions are done: #643 filed, "
+                               "the comment posted.", BARE)
+
+
+def test_a_colon_glued_to_the_count_by_a_missed_boundary_is_not_a_lead_in() -> None:
+    """`_REPLY_SENTENCE`'s lookahead requires the next sentence to open with a
+    capital letter, so a real break before inline code, a lowercase word, or a
+    numeral is invisible to it — `_sentences` hands back "Both changes are
+    complete. `git status`:" as one fused sentence. Running the closing-colon
+    check against that fusion read the coda's colon as the count's own (found
+    in review on PR #404): a counted fact followed by an unrelated coda, not a
+    lead-in. One line each for the three openers `_REPLY_SENTENCE` cannot see
+    past, plus the punctuation-run case (`?!`) a first version of the guard
+    still missed, because it recognized only one terminal mark and an ellipsis
+    or `?!` is still a single one (also found in review).
+
+    The numeral-only case is the same shape and was already accepted before
+    this branch — `_COUNTED` takes any colon in the opening sentence's
+    remainder by design (see its own comment) — so only the `both` lines here
+    are new."""
+    assert not _shape.findings("Both changes are complete. `git status`:", BARE)
+    assert not _shape.findings("Both changes are complete. next up:", BARE)
+    assert not _shape.findings("Both changes are complete. 3 things remain:", BARE)
+    assert not _shape.findings(
+        "Both changes are complete?! well, next steps:", BARE
+    )
+    assert _shape.findings("Two changes are complete. `git status`:", BARE)
 
 
 def test_a_reply_that_ran_long_with_nothing_asking_for_it_is_flagged() -> None:
