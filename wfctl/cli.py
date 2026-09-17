@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import typer
 from rich.console import Console
 
-from wfctl import _bundle, _settings, _tracker
+from wfctl import _bob_settings, _bundle, _settings, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
@@ -2356,6 +2356,29 @@ _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
 
+# Bob Shell's own approval-scoping file — see the `approval-settings` skill for
+# its schema. Not `.claude/settings.json`'s: `allowed-tools` on a command's
+# frontmatter, the mechanism Claude Code reads, has no reader in Bob Shell at
+# all (grepping Bob Shell's own bundled JS for the literal key turns up
+# nothing) — #405 shipped believing it did, and this is the actual mechanism.
+BOB_SETTINGS_PATH = ".bob/settings.json"
+
+# Starter entries for a bundle whose own commands run `git` and `uv run wfctl`.
+# Read-only tools first — the lowest-risk approvals — then the two command
+# prefixes this bundle's own commands actually invoke; a project wanting more
+# extends this file by hand afterward, same as any consumer edit `doctor`
+# already treats as theirs.
+_BOB_APPROVAL_ENTRIES = (
+    "read_file",
+    "list_files",
+    "glob",
+    "grep",
+    "execute_command(git)",
+    "execute_command(uv run)",
+    "run_shell_command(git)",
+    "run_shell_command(uv run)",
+)
+
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
 # something different and "the managed hook is gone" names none of them — and two
 # on one event lose different things.
@@ -2631,15 +2654,21 @@ _MIRRORED_SKILLS = frozenset({
 _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 
 
-# Frontmatter keys that are Claude-specific and have no meaning in Bob Shell.
-# `disable-model-invocation: true` causes Bob Shell to skip model invocation
-# entirely — the skill body never executes. That is the bug where /end-session
-# and other commands do nothing when invoked in Bob Shell.
+# Frontmatter keys known to be Claude-specific and meaningless — or worse,
+# harmful — in Bob Shell. `disable-model-invocation: true` causes Bob Shell to
+# skip model invocation entirely — the skill body never executes. That is the
+# bug where /end-session and other commands do nothing when invoked in Bob
+# Shell.
 #
-# `allowed-tools` was previously listed here on the assumption it was Claude-
-# only. Bob Shell reads it on slash commands to scope tool auto-approval, so
-# stripping it is what produced approval prompts on every `read_file` call
-# during `/start-session` and others. It stays in the installed command files.
+# `allowed-tools` was previously listed here too, on the assumption it was
+# Claude-only. It isn't established to be: grepping Bob Shell's own bundled JS
+# for the literal key turns up nothing, which means Bob Shell does not read it
+# for anything, good or bad — it neither breaks on seeing it nor uses it to
+# scope tool approval the way #142 assumed. Absence of evidence that a key is
+# Bob-relevant is not evidence it is Claude-only, so it no longer belongs here.
+# Bob's real auto-approval mechanism is `.bob/settings.json` (the
+# `approval-settings` skill) — `install-skills --agent bob` merges a starter
+# allowlist into it automatically; see `_BOB_APPROVAL_ENTRIES`.
 _CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
     "disable-model-invocation",
 })
@@ -3081,6 +3110,122 @@ def _unmerge_permissions(
         _write_settings(path, settings)
         changed.add(rel)
     return changed, declined, problems
+
+
+def _managed_bob_tool_allows(agent: str) -> list[tuple[str, str]]:
+    """`(settings path, entry)` for every `tools.allowed` entry `agent` manages.
+
+    Bob-only, for the reason the permission rules are Claude-only: `tools` is
+    Bob Shell's schema, and the base layer is agent-agnostic. A list rather
+    than a constant because install, uninstall and `doctor` all have to agree
+    on the set, and a second copy of it is the drift this collapses.
+    """
+    return (
+        [(BOB_SETTINGS_PATH, entry) for entry in _BOB_APPROVAL_ENTRIES]
+        if agent == "bob"
+        else []
+    )
+
+
+def _bob_tool_allow_drift(
+    repo_root: Path, agent: str, manifest: dict
+) -> tuple[str, str, bool] | None:
+    """The first managed entry a receipt claims and the file no longer carries.
+
+    `(path, entry, added)`, where `added` is the receipt's own answer to who
+    put the entry there — shaped after `_permission_drift`, minus `related`:
+    a plain allow-list has no verb to match a hand-edited form against, so
+    there is nothing honest to show beyond the entry that went missing.
+
+    None when there is nothing to stop for, including every case wfctl cannot
+    be sure about — same posture as `_permission_drift`.
+    """
+    for rel, entry in _managed_bob_tool_allows(agent):
+        receipts = [
+            record
+            for layer in _layer_keys(manifest)
+            for record in manifest[layer].get("tools", [])
+            if record.get("path") == rel and record.get("entry") == entry
+        ]
+        if not receipts:
+            continue
+        path = repo_root / rel
+        if not path.exists():
+            continue
+        settings, _ = _read_settings(path)
+        if settings is None or _bob_settings.tool_allow_present(settings, entry):
+            continue
+        return (rel, entry, bool(receipts[0].get("added", False)))
+    return None
+
+
+def _merge_bob_tool_allows(
+    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
+) -> tuple[list[dict], list[str], list[str]]:
+    """Install `agent`'s managed `tools.allowed` entries. `(records, written,
+    problems)` — shaped after `_merge_permissions`."""
+    records: list[dict] = []
+    written: list[str] = []
+    problems: list[str] = []
+    for rel, entry in _managed_bob_tool_allows(agent):
+        path = repo_root / rel
+        keep = prior.get((rel, entry))
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            records.extend([keep] if keep else [])
+            continue
+        try:
+            added = _bob_settings.merge_tool_allow(settings, entry)
+        except ValueError as exc:
+            problems.append(f"{rel}: {exc}")
+            records.extend([keep] if keep else [])
+            continue
+        if added:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_settings(path, settings)
+            except OSError as exc:
+                problems.append(f"{rel}: {exc}")
+                records.extend([keep] if keep else [])
+                continue
+            if rel not in written:
+                written.append(rel)
+        records.append({
+            "path": rel,
+            "entry": entry,
+            "added": added or bool(keep and keep.get("added", False)),
+        })
+    return records, written, problems
+
+
+def _unmerge_bob_tool_allows(
+    repo_root: Path, records: Iterable[dict]
+) -> tuple[set[str], list[str]]:
+    """Remove the managed `tools.allowed` entries `records` describes.
+    `(files changed, problems)` — shaped after `_unmerge_permissions`, minus
+    `declined`: nothing here has a "related" form to show for one, so a
+    changed entry is simply not reported as removed."""
+    changed: set[str] = set()
+    problems: list[str] = []
+    for record in records:
+        rel, entry = record.get("path"), record.get("entry")
+        if not rel or not entry:
+            continue
+        if not record.get("added", False):
+            continue
+        path = repo_root / rel
+        if not path.exists():
+            continue
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            continue
+        if not _bob_settings.remove_tool_allow(settings, entry):
+            continue
+        _write_settings(path, settings)
+        changed.add(rel)
+    return changed, problems
 
 
 def _unmerge_hooks(
@@ -3540,6 +3685,34 @@ def install_skills_cmd(
         )
         raise typer.Exit(1)
 
+    bob_drift = None if force else _bob_tool_allow_drift(repo_root, agent, manifest)
+    if bob_drift is not None:
+        drifted_path, entry, was_wfctls = bob_drift
+        whose = (
+            "which wfctl installed"
+            if was_wfctls
+            else "which wfctl recorded as already yours"
+        )
+        console.print(
+            f"[red]✗[/red] {escape(drifted_path)} no longer carries "
+            f"[cyan]{escape(entry)}[/cyan], {whose}.",
+            soft_wrap=True,
+        )
+        forced = "wfctl install-skills --agent " + agent + " --force"
+        console.print(
+            "  Nothing was installed. Removing that entry is your call to make, so "
+            "wfctl will not\n  put it back without being told to:\n"
+            f"    keep your version   — restore [cyan]{escape(entry)}[/cyan] "
+            "by hand, or leave it out and\n"
+            "                          expect this on every install, including the "
+            "one\n                          `/start-session` runs unattended\n"
+            f"    take wfctl's        — {escape(forced)}\n"
+            "                          which records the entry as wfctl's, so a "
+            "later uninstall\n                          removes it",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
     # `--from` is one-shot, so a bare install silently discards it. Said before
     # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
     # a stale mirror unattended with `--yes`, which makes that the one place the
@@ -3916,6 +4089,16 @@ def install_skills_cmd(
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
+    prior_bob_tools = {
+        (r["path"], r["entry"]): r
+        for key in _layer_keys(manifest)
+        for r in manifest[key].get("tools", [])
+    }
+    bob_tools, bob_tools_written, bob_tools_problems = _merge_bob_tool_allows(
+        repo_root, agent, prior_bob_tools
+    )
+    merge_written.extend(rel for rel in bob_tools_written if rel not in merge_written)
+
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
     # One entry per layer that installed something. An agent with no layer of
@@ -3966,6 +4149,11 @@ def install_skills_cmd(
     # `docs/architecture/design/136-the-receipt-is-a-sibling-of-merged.md`.
     if permissions:
         manifest.setdefault(agent, {})["permissions"] = permissions
+
+    # A sibling of `permissions` for the same reason, one schema over: Bob
+    # Shell's `tools.allowed` rather than Claude Code's `permissions.deny`.
+    if bob_tools:
+        manifest.setdefault(agent, {})["tools"] = bob_tools
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -4155,6 +4343,12 @@ def install_skills_cmd(
             "added",
             soft_wrap=True,
         )
+    for problem in bob_tools_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — the managed tool-approval entry was "
+            "not added",
+            soft_wrap=True,
+        )
 
     # The path as typed, not the resolved one the manifest holds: this line is
     # read next to the command that produced it, and `../116-pr` is what the
@@ -4173,7 +4367,7 @@ def install_skills_cmd(
         # third count would bury exactly the thing worth noticing.
         console.print(
             f"\n[green]✓[/green] Merged wfctl's managed entries into {merged_rel}\n"
-            "  Your own hooks, permissions and settings are still there — "
+            "  Whatever you already had in it is still there — "
             "`wfctl uninstall-skills`\n  removes just wfctl's own entries. The rewrite "
             "reflows the file once; later installs\n  leave it closed.",
             soft_wrap=True,
@@ -4294,6 +4488,9 @@ def uninstall_skills_cmd(
     unmerged_perms, declined, perm_problems = _unmerge_permissions(
         repo_root, entry.get("permissions", [])
     )
+    unmerged_bob_tools, bob_tools_problems = _unmerge_bob_tool_allows(
+        repo_root, entry.get("tools", [])
+    )
     for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
@@ -4304,6 +4501,12 @@ def uninstall_skills_cmd(
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's permission rule may still be "
             "in this file; the record naming it is being removed either way",
+            soft_wrap=True,
+        )
+    for problem in bob_tools_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
+            "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
 
@@ -4325,13 +4528,13 @@ def uninstall_skills_cmd(
     # Asked once, with every managed entry already out of the file. `created` is
     # a fact about the file rather than about one entry, and the two passes above
     # each hold only their own half of what was in it.
-    for rel in _touched_created(entry, unmerged | unmerged_perms):
+    for rel in _touched_created(entry, unmerged | unmerged_perms | unmerged_bob_tools):
         path = repo_root / rel
         settings, _ = _read_settings(path)
         if settings == {}:
             path.unlink()
 
-    touched = unmerged | unmerged_perms
+    touched = unmerged | unmerged_perms | unmerged_bob_tools
     if touched:
         # soft_wrap, break placed by hand: rich re-wraps at the terminal edge and
         # splits "in place" across two lines under an indent that then stops
@@ -5816,6 +6019,32 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
             )
 
 
+def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
+    """Say when a managed `tools.allowed` entry this repo recorded is no longer
+    there. Shaped after `_check_managed_permissions`: a warning, not a failure
+    — a missing entry narrows Bob Shell's auto-approval, which still leaves a
+    working install, and a repo may have decided it wants the extra prompt."""
+    from rich.markup import escape
+
+    for layer in _layer_keys(manifest):
+        for record in manifest[layer].get("tools", []):
+            rel, entry = record.get("path"), record.get("entry")
+            if not record.get("added", False) or not rel or not entry:
+                continue
+            settings, _ = _read_settings(repo_root / rel)
+            if settings is None or _bob_settings.tool_allow_present(settings, entry):
+                continue
+            console.print(
+                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(entry)}[/cyan] is gone "
+                f"from {escape(rel)}\n  Bob Shell will prompt for approval on "
+                "matching tool calls without it",
+                soft_wrap=True,
+            )
+            console.print(
+                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
+            )
+
+
 def _report_hook_drift(
     settings: dict, layer: str, rel: str, event: str, expected: str
 ) -> bool:
@@ -6162,6 +6391,7 @@ def doctor_cmd() -> None:
     # avoids: it would make a repo's deliberate removal of one permission rule
     # fail every `doctor` run, and `/start-session` and CI both read the code.
     _check_managed_permissions(repo_root, manifest)
+    _check_managed_bob_tool_allows(repo_root, manifest)
 
     # Both used only by the recorded-source branch below, which prints a path
     # into a shell-shaped line.
