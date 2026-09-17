@@ -80,6 +80,12 @@ Run every pass. Trace called functions, not just the changed lines.
 - Fits existing patterns; a new pattern must be justified.
 - Clean module boundaries, dependencies flowing one way (no cycles).
 - Duplication that should be shared; coupling that shouldn't exist.
+- A new third-party dependency is coupling pointed outward — weigh it, don't
+  refuse it: what the existing stack already does, install size and the tree
+  behind it, recent releases, known advisories, license fit. One that clears
+  those beats hand-rolling the same thing.
+- Those five answers are outside the diff. Look them up, and say which ones
+  you could not reach rather than passing them.
 
 **4. Readability & simplification** (preserve behavior — this is review, not rewrite)
 - Names describe content (`validationErrors`, not `data`/`temp`/`result`).
@@ -108,7 +114,7 @@ Every finding carries a severity and a concrete fix. Order most-severe first.
 
 | Severity | Meaning | Author action |
 |----------|---------|---------------|
-| **BLOCKER** | Incorrect behavior, security hole, or data-loss risk | Must fix before merge |
+| **BLOCKER** | Incorrect behavior, security hole, data-loss risk, or a license the project can't ship under | Must fix before merge |
 | **WARNING** | Degrades quality, maintainability, or robustness | Should fix |
 | **NIT** | Style/naming/formatting preference | Optional — author's call |
 
