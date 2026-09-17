@@ -78,9 +78,16 @@ disagree.
 ## Decision
 
 Traceability is checked as agreement between the drawing's labels and the
-record's own prose. Every label in the `## Boundary` block must appear somewhere
-in `## Owns truth` or `## Decision`; a label that appears nowhere else is the
-finding.
+record's own prose. A label is reported when **none of its content words**
+appears anywhere else in the record, outside the `## Boundary` section the
+label was read from — not when the whole label fails to appear verbatim in
+`## Owns truth` or `## Decision` specifically, which is the rule this record
+first stated and Phase 0 measurement falsified (see `## Log`).
+
+Content words are a label's alphanumeric tokens of more than two characters
+that are not closed-class English. Comparing at the word level rather than the
+phrase is what makes the rule survive contact with the corpus: authors draw in
+phrases, and prose almost never repeats one whole.
 
 Resolution against code is not attempted. The record names concepts; whether a
 concept corresponds to a module is a question `views/current-state.md` already
@@ -166,3 +173,9 @@ labels a reader would call fine, the check is wrong and the baseline was right.
 ## Log
 
 - 2026-09-16  proposed  — the level-3 gate for #109's traceability scope item
+- 2026-09-16  proposed  — the stated rule (whole label against `## Owns truth`
+  / `## Decision`) was measured against the 4-record corpus in range and
+  reported 43 findings — every label — falsifying it against its own
+  Verification. Narrowed to per-content-word comparison against the whole
+  record, which reports 1 (research R-004); `## Decision` above records the
+  narrowed rule
