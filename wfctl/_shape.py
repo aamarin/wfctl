@@ -143,8 +143,9 @@ _REPLY_SENTENCE = re.compile(
 # may carry the count, and it runs the same direction for the same reason —
 # the weaker the structural evidence, the more the word has to do.
 #
-# `_COUNT` is the full set and belongs to the coda. `_ANNOUNCING` drops `both`
-# and belongs to the opening.
+# `_COUNT` is the full set and applies wherever the colon closes its sentence,
+# opening included. `_ANNOUNCING` drops `both` and applies where the colon sits
+# mid-sentence.
 #
 # The tell is a count that *announces* — "the count announces a list nobody asked
 # for" (SKILL.md) — and announcing needs the material to be new to the reader.
