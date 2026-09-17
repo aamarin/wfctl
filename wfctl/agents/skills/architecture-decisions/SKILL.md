@@ -65,12 +65,20 @@ refuses one that reaches acceptance with nothing drawn there — see "The record
 leads with a drawing" below. Add `supersedes` to the frontmatter only when this
 record replaces one.
 
-`Boundary` holds the level-2 sketch the decision came out of, and it is drawn in
-**mermaid**, not ASCII. `design-levels` draws that sketch in ASCII because a
-skill and a terminal reply both render mermaid as its own source; a record is
-read on GitHub, where it renders as a diagram. Same sketch, redrawn for where it
-lands — and `wfctl arch context` projects only the first paragraph of
-`Decision`, so neither format reaches the terminal through the projection.
+`Boundary` holds the level-2 sketch the decision came out of, drawn in
+**mermaid** unless something makes ASCII the better picture. `design-levels`
+draws that sketch in ASCII because a skill and a terminal reply both render
+mermaid as its own source; a record is read on GitHub, where it renders as a
+diagram. Same sketch, redrawn for where it lands — and `wfctl arch context`
+projects only the first paragraph of `Decision`, so neither format reaches the
+terminal through the projection.
+
+The exceptions are the ones this repo's own PR template names: placement that
+carries meaning a layout engine discards, and a drawing that has to survive a
+phone or a terminal, where mermaid fails as syntax rather than as a clipped
+picture. Nothing checks which you used — `_drawing` reads any non-empty fence
+and never looks inside it — so this is a default, not a gate, and a record that
+needs ASCII is not working around a rule.
 
 ## The record leads with a drawing
 
