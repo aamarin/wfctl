@@ -111,3 +111,24 @@ def test_vr006_fires_on_an_accepted_record_too(tmp_path: Path) -> None:
     findings = _arch.validate([_arch.parse_record(path)])
 
     assert any(f.level == "error" and f.slug == "a-decision" for f in findings)
+
+
+# --- FR-013 ------------------------------------------------------------------
+
+
+def test_nothing_reads_a_per_repository_setting_to_gate_these_checks() -> None:
+    """A negative requirement needs a test naming it, or the first opt-in added
+    later breaks something nobody wrote a test to notice.
+
+    VR-006, VR-007 and `accept_blockers` each read a record's status and its
+    file and nothing else — not `wfctl.json`, not the tracker config, not the
+    installed manifest. Checked at the source level: there is no behavioural
+    difference to assert between "reads no config" and "reads config that
+    happens to be absent in this test".
+    """
+    import inspect
+
+    for fn in (_arch.validate, _arch.accept_blockers):
+        src = inspect.getsource(fn)
+        assert "wfctl.json" not in src
+        assert "config" not in src.lower()
