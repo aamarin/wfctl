@@ -198,10 +198,11 @@ where anything can be added.
 - [ ] `Considered` carries at least one real alternative with the true reason it
       was not chosen. Losing on fit is a reason; a weakness the alternative does
       not have is never one.
-- [ ] `Boundary` carries the sketch in mermaid — including the edges the owning
-      side refuses if something crosses the boundary. Required to accept; the
-      frontmatter's `diagram:` names which of `data-flow`, `component` or
-      `state` it is.
+- [ ] `Boundary` carries the sketch — including the edges the owning side
+      refuses if something crosses the boundary. A fenced block there and a
+      `diagram:` naming one of `data-flow`, `component` or `state` are what
+      acceptance requires; mermaid is the default it is drawn in, not a third
+      requirement.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.
