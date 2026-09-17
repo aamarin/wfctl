@@ -202,17 +202,26 @@ def test_a_lead_in_on_its_own_line_is_flagged_like_one_sharing_a_line() -> None:
 
 def test_a_colon_glued_to_the_count_by_a_missed_boundary_is_not_a_lead_in() -> None:
     """`_REPLY_SENTENCE`'s lookahead requires the next sentence to open with a
-    capital letter, so a real break before inline code or a lowercase word is
-    invisible to it — `_sentences` hands back "Both changes are complete.
-    `git status`:" as one fused sentence. Running the closing-colon check
-    against that fusion read the coda's colon as the count's own (found in
-    review on PR #404): a counted fact followed by an unrelated coda, not a
-    lead-in.
+    capital letter, so a real break before inline code, a lowercase word, or a
+    numeral is invisible to it — `_sentences` hands back "Both changes are
+    complete. `git status`:" as one fused sentence. Running the closing-colon
+    check against that fusion read the coda's colon as the count's own (found
+    in review on PR #404): a counted fact followed by an unrelated coda, not a
+    lead-in. One line each for the three openers `_REPLY_SENTENCE` cannot see
+    past, plus the punctuation-run case (`?!`) a first version of the guard
+    still missed, because it recognized only one terminal mark and an ellipsis
+    or `?!` is still a single one (also found in review).
 
-    The numeral case is the same shape and was already accepted before this
-    branch — `_COUNTED` takes any colon in the opening sentence's remainder by
-    design (see its own comment) — so only the `both` line here is new."""
+    The numeral-only case is the same shape and was already accepted before
+    this branch — `_COUNTED` takes any colon in the opening sentence's
+    remainder by design (see its own comment) — so only the `both` lines here
+    are new."""
     assert not _shape.findings("Both changes are complete. `git status`:", BARE)
+    assert not _shape.findings("Both changes are complete. next up:", BARE)
+    assert not _shape.findings("Both changes are complete. 3 things remain:", BARE)
+    assert not _shape.findings(
+        "Both changes are complete?! well, next steps:", BARE
+    )
     assert _shape.findings("Two changes are complete. `git status`:", BARE)
 
 

@@ -211,8 +211,13 @@ _COUNTED_CLOSING = re.compile(
 # Loosened relative to `_REPLY_SENTENCE` on purpose — this only has to notice
 # that a break exists, not agree on what follows it — so it drops the
 # uppercase requirement and treats any sentence-ending punctuation plus
-# whitespace as proof the opening blob is not one sentence.
-_INNER_SENTENCE_END = re.compile(r"[A-Za-z0-9)\]`\"'][\"'*_)\]]*[.?!][\"'*_)\]]*\s+")
+# whitespace as proof the opening blob is not one sentence. `[.?!]+` rather
+# than one, because an ellipsis or `?!` is still a single terminal mark and a
+# guard that only recognized one character of it missed the exact fusion it
+# exists to catch (found in review, PR #404).
+_INNER_SENTENCE_END = re.compile(
+    r"[A-Za-z0-9)\]`\"'][\"'*_)\]]*[.?!]+[\"'*_)\]]*\s+"
+)
 
 # Inline code is quoted, not written, and a colon inside it is punctuation of
 # whatever is being quoted. `Two unrelated branches show `[origin/…: gone]`` is
