@@ -107,7 +107,7 @@ One file per claim, not one file holding several:
 
 ```
 <arch-root>/declarations/<branch>.md          the boundary claim — wfctl arch none
-<arch-root>/step-declarations/<branch>/<sub-step>.md   wfctl step none <sub-step>
+<arch-root>/step-claims/<branch>/<sub-step>.md        wfctl step none <sub-step>
 ```
 
 Nothing parses a declaration, so the format was never the constraint. The
@@ -130,7 +130,7 @@ the sub-steps furthest from that question are the ones most able to answer it:
 boundary is drawn, and a branch declaring it inapplicable would clear the
 level-2 gate. That is the failure `non_record_subtrees` exists to stop, met from
 a new direction, so the repair is the one already in place:
-`step-declarations/` joins that list, and the gate goes on counting only the
+`step-claims/` joins that list, and the gate goes on counting only the
 corners of the arch root where something was decided.
 
 ## Architecture decisions

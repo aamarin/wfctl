@@ -5,6 +5,17 @@
 **Status**: Draft
 **Input**: User description: "" (empty command; design context loaded from `design.md`)
 
+## Clarifications
+
+### Session 2026-09-16
+
+- Q: Must a pass's name be unique across the whole pipeline, or only within the step it is declared under? → A: Only within its step — two steps may each declare a pass called `scan`. The name is written bare in the position view, where the row's indentation under its step already qualifies it, and qualified as `<step>.<name>` wherever it is typed as an argument or written into a path. A bare name given as an argument resolves only where exactly one declared pass carries it, and is otherwise refused with the qualified candidates named. It is never resolved against the step that happens to be current: the current step is inferred from artifacts rather than set by the author, so a bare name would change meaning as unrelated work lands, with nothing on screen to say it had.
+
+- Q: Where is a declared pass whose command is not installed reported, and does it fail? → A: In a check over the repository's own configuration — the shape `tracker-check` already has — exiting non-zero on a finding. Not in the drift report, whose remit is state wfctl installed rather than configuration a repository wrote for itself. A pass may declare that no command runs it, and such a pass is not reported, so a stage a person performs by hand is expressible rather than tolerated as a dead declaration.
+- Q: FR-011 forbids a pass from recording whether it belongs to the repository or the tool, while FR-021 requires repository-declared passes to default to waiting for review. How is the default decided? → A: By which list the pass was read from, applied as that list is read. Nothing on the pass records its origin, so a pass moved from the bundle into configuration changes where the list came from and nothing else, and a repository that overrides the default produces a pass indistinguishable from a tool-shipped one. A run granted autonomy with `--auto-approve` walks past a pass that requires review, the same as it walks past the design gates.
+- Q: A step carries passes from two lists — the tool's own and the repository's. In what order do they run? → A: Written order within each list, with the tool's passes first, and a repository may override that for one of its passes by naming the sibling it goes before or after. The default therefore needs no configuration, and interleaving is available to a repository that needs its pass earlier rather than being ruled out. FR-002's prohibition on a declaration stating a position is about position in the step sequence, not order among one step's passes; it was narrowed to say so.
+- Q: FR-004 caps nesting at one level. A repository that nests a pass below another pass — is it refused, or is the deeper pass ignored? → A: Refused, by the check in FR-022, which already reports a declared pass whose command is not installed. Ignoring it leaves the repository believing in a stage that never appears, which is the failure this feature exists to remove; a declaration wfctl silently discards is indistinguishable from one it never read. The cap itself is a cost decision rather than a limit of the design — a second level makes every view recursive and every consumer depth-aware, to express a nesting nobody has asked for — so it is reopenable by whoever finds they need it, and refusing is what makes the attempt visible when someone does.
+
 ## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - A repository's own stage becomes a row the pipeline routes to (Priority: P1)
@@ -118,6 +129,9 @@ confirm the row is hidden by default and shown with the flag.
   reason off screen.
 - A repository declares several passes under one step: all of them appear, in the
   order written, and none of them declares a position of its own.
+- Two steps each declare a pass under the same name: both are accepted, both are
+  addressable as `<step>.<name>`, and the bare name is refused with both
+  candidates named rather than resolving to either.
 - A pass whose artifact is produced by a step other than its own — the pass whose
   evidence is a heading inside another step's file — reports finished from that
   heading, not from a file of its own.
@@ -127,7 +141,12 @@ confirm the row is hidden by default and shown with the flag.
 - A pass is declared away, and a later commit produces its artifact anyway: the
   claim stands, because whether a pass applies is a person's judgment and no
   artifact overturns it.
-- A repository declares a pass whose command is not installed in that repository.
+- A repository declares a pass whose command is not installed in that repository:
+  the configuration check names the pass and the missing command and exits
+  non-zero, unless the pass declared that a person performs it.
+- A repository nests a pass below another pass: the configuration check names the
+  declaration and exits non-zero, rather than loading the outer pass and dropping
+  the inner one, so the author learns the cap exists at the point they hit it.
 
 ## Requirements _(mandatory)_
 
@@ -136,19 +155,41 @@ confirm the row is hidden by default and shown with the flag.
 - **FR-001**: A repository MUST be able to declare one or more passes belonging
   inside a built-in pipeline step, without any change to the tool's own source.
 - **FR-002**: A declaration MUST be keyed by the name of the step the pass
-  belongs inside, so that no declaration states a position and reordering the
-  step table breaks nothing.
-- **FR-003**: Where a step has several declared passes, the system MUST present
-  and run them in the order they were written.
-- **FR-004**: The system MUST nest passes exactly one level below a step, and
-  MUST refuse or ignore any attempt to nest further.
+  belongs inside, so that no declaration states a position in the step sequence
+  and reordering the step table breaks nothing. Order among the passes of one
+  step is a separate question, governed by FR-003.
+- **FR-002a**: A pass's name MUST be unique among the passes declared under one
+  step. The same name under two different steps MUST be accepted, so that a
+  repository adding a pass is never refused on account of a pass under a step it
+  did not name.
+- **FR-002b**: A pass MUST be addressed as `<step>.<name>` wherever the name is
+  typed as an argument or written into a path, and MUST be presented bare in the
+  position view, where the row's indentation under its step already carries the
+  qualification.
+- **FR-002c**: A bare name given as an argument MUST resolve only where exactly
+  one declared pass carries it, and MUST otherwise be refused with the qualified
+  candidates named. It MUST NOT resolve against the step that is current, which
+  is inferred from artifacts rather than set by the author and therefore moves as
+  unrelated work lands.
+- **FR-003**: Where a step has several passes, the system MUST present and run
+  them in the order they were written, with the tool's own passes before a
+  repository's. A repository MUST be able to override that for one of its passes
+  by naming the sibling it goes before or after, so the default holds without
+  configuration and a repository that needs its pass earlier can say so.
+- **FR-003a**: A pass naming a sibling that does not exist under its step, and a
+  set of passes whose stated order cannot be satisfied, MUST both be reported by
+  the check in FR-022 rather than resolved to some arbitrary order.
+- **FR-004**: The system MUST nest passes exactly one level below a step. A
+  declaration that nests a pass below another pass MUST be reported by the check
+  in FR-022, and MUST NOT be dropped silently.
 - **FR-005**: The pipeline position MUST report each pass with a state of its own
   drawn from the same set a step uses, rather than collapsing a step's passes
   into one state.
 - **FR-006**: A step MUST report unfinished while any of its passes is
   outstanding.
 - **FR-007**: Where an outstanding pass is what holds the pipeline, the system
-  MUST name that pass's command as what to run next.
+  MUST name that pass's command as what to run next, or — where the pass declares
+  that no command runs it — name the pass and say that a person performs it.
 - **FR-008**: A pass MUST determine whether it has run by evaluating a predicate,
   not by testing for a file at a fixed path — so that a pass whose evidence is a
   section inside another step's artifact can report correctly.
@@ -161,15 +202,15 @@ confirm the row is hidden by default and shown with the flag.
   list comes from and not what a pass is.
 - **FR-012**: A person MUST be able to declare that a pass does not apply to the
   change under review, supplying a reason in their own words.
-- **FR-013**: The system MUST refuse a declaration whose reason is empty or is a
+- **FR-013**: The system MUST refuse a claim whose reason is empty or is a
   placeholder, and MUST write nothing when it refuses.
-- **FR-014**: A declaration MUST be written where it forms part of the change
+- **FR-014**: A claim MUST be written where it forms part of the change
   under review, and the system MUST tell the author and decline to advance when
   it cannot be.
-- **FR-015**: Each declaration MUST be stored so that declaring a second pass
-  inapplicable does not destroy the first claim, while declaring the same pass
+- **FR-015**: Each claim MUST be stored so that claiming a second pass
+  inapplicable does not destroy the first, while claiming the same pass
   twice replaces it.
-- **FR-016**: A declaration about a pass MUST NOT satisfy the check that asks
+- **FR-016**: A claim about a pass MUST NOT satisfy the check that asks
   whether this change put the architectural boundary question — a pass's claimed
   absence is not an answer to that question.
 - **FR-017**: The system MUST treat "the pass ran and produced nothing" and "the
@@ -181,21 +222,38 @@ confirm the row is hidden by default and shown with the flag.
   written.
 - **FR-020**: The machine-readable position MUST always carry the full tree,
   unaffected by what the human-readable view hides.
-- **FR-021**: A repository-declared pass MUST require review before the pipeline
-  continues past it, unless the repository declares otherwise, because the tool
-  does not ship the command being run.
-- **FR-022**: The system MUST report a declared pass whose command is not
-  installed in the repository [NEEDS CLARIFICATION: as a finding that fails the
-  environment check, or as a warning that does not — a finding blocks a
-  repository whose pass is run by a person rather than a command, and a warning
-  lets a broken declaration sit unnoticed].
+- **FR-021**: A pass read from a repository's configuration MUST default to
+  requiring review before the pipeline continues past it, and a pass carried with
+  the tool MUST default to continuing, because the tool cannot vouch for a
+  command it does not ship.
+- **FR-021a**: That default MUST be applied as the list is read, so that nothing
+  on a pass records which list it came from and FR-011 holds. A repository MUST
+  be able to override the default for any one pass, and an overridden pass MUST
+  be indistinguishable from a tool-shipped pass with the same setting.
+- **FR-021b**: A feature granted autonomy MUST run past a pass that requires
+  review without stopping, exactly as it does past the design gates, so that
+  autonomy stays one switch rather than one per kind of gate.
+- **FR-022**: A check over the repository's own configuration MUST report every
+  declaration it cannot honour — a pass whose command is not installed in that
+  repository, an unsatisfiable order (FR-003a), a nesting deeper than one level
+  (FR-004) — and MUST exit non-zero when it finds one, so that a dead declaration
+  fails a run somebody wired up rather than waiting to be walked into. No such
+  declaration is dropped silently: one wfctl discards without saying so is
+  indistinguishable to its author from one it never read. This is not the drift
+  report's work: that reports state wfctl installed and has since been changed,
+  and a repository's own configuration is neither.
+- **FR-022a**: A pass MUST be able to declare that no command runs it, and the
+  check in FR-022 MUST NOT report such a pass, so that a stage a person performs
+  by hand is expressible rather than tolerated as a broken declaration.
 
 ## Key Entities
 
-- **Pass**: a stage of work belonging inside one pipeline step. Carries a name, a
-  command that runs it, a predicate that says whether it has run, and whether the
-  pipeline may continue past it without review. Holds no position of its own and
-  no mark of who declared it.
+- **Pass**: a stage of work belonging inside one pipeline step. Carries a name
+  unique among that step's passes, either a command that runs it or a statement
+  that a person performs it, a predicate that says
+  whether it has run, and whether the pipeline may continue past it without
+  review. Addressed as `<step>.<name>` wherever the name is typed or written to a
+  path. Holds no position of its own and no mark of who declared it.
 - **Claimed absence**: one person's statement that one pass does not apply to one
   change, carrying the reason in their words. Lives in the change under review so
   a reviewer can disagree with it; nothing reads it back.
