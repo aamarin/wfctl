@@ -10,24 +10,25 @@ on `Step` or `_PipelineStep`, it is named as such rather than restated.
 ## SubStep — a pass, as inference holds it
 
 The in-memory shape. A `NamedTuple` beside `Step` in `_pipeline`, for the reason
-`Step` is one: the fields have names, and `predicate` is a callable rather than a
-key into a registry, so grep finds a predicate's definition and its row together.
+`Step` is one: the fields have names, and `reads` is a callable rather than a
+key into a registry, so grep finds an evidence reader's definition and its row
+together.
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `name` | `str` | Unique among one step's passes (FR-002a). Bare in the position view, `<step>.<name>` everywhere typed or written to a path (FR-002b) |
 | `command` | `str \| None` | The slash command that advances it. `None` means a person performs it (FR-022a) |
-| `continuation` | `Continuation` | `"automatic"` or `"review_required"`, the same two names `Step` carries |
-| `predicate` | `Predicate` | `(Evidence) -> Reading`, the same callable type `Step.predicate` is (FR-008) |
+| `on_finish` | `Continuation` | `"automatic"` or `"review_required"`, the same two names `Step` carries |
+| `reads` | `EvidenceReader` | `(Evidence) -> Assessment`, the same callable type `Step.reads` is (FR-008) |
 
 Nothing on it records whether it came from the bundle or from configuration
 (FR-011). The two lists are distinguishable only while they are being read,
-which is where the `continuation` default is applied (FR-021a).
+which is where the `on_finish` default is applied (FR-021a).
 
 **Where the built-in ones live.** `_STEPS["brainstorm"]` gains two, in the order
 the design levels produce them:
 
-| Name | Command | Predicate reads |
+| Name | Command | What it reads |
 | --- | --- | --- |
 | `architecture` | `/speckit.brainstorm` | a record under the arch root for this change — today's `design_block` |
 | `design-doc` | `/speckit.brainstorm` | `design.md` in the feature directory |
@@ -51,11 +52,11 @@ a list of problems; never read anywhere else.
 | `command` | one of | `str` | The slash command. Must be installed (FR-022) |
 | `manual` | one of | `true` | The pass is performed by a person (FR-022a, R10) |
 | `evidence` | yes | `str` | Path, resolved against `FEATURE_DIR` unless absolute (R3) |
-| `continuation` | no | `"automatic" \| "review_required"` | Defaults to `review_required` for a declared pass (FR-021) |
+| `on_finish` | no | `"automatic" \| "review_required"` | Defaults to `review_required` for a declared pass (FR-021) |
 | `before` / `after` | no | `str` | Names a sibling under the same step (FR-003, R9) |
 
-`evidence` is sugar and says so: it builds the file-exists predicate on the
-repository's behalf (FR-009), which is strictly less than a built-in predicate
+`evidence` is sugar and says so: it builds the file-exists reader on the
+repository's behalf (FR-009), which is strictly less than a built-in reader
 can express. A pass whose output is not a file at a fixed path is out of reach of
 `wfctl.json` by construction — the record states this as a limit rather than an
 oversight, and the answer is to change what that pass writes.
@@ -75,7 +76,7 @@ None of them is a silent drop.
 | A `before` / `after` names a sibling that exists | FR-003a |
 | The stated order is satisfiable | FR-003a |
 | A pass declares no passes of its own | FR-004 |
-| `continuation`, where present, is one of the two names | FR-021a |
+| `on_finish`, where present, is one of the two names | FR-021a |
 
 The same name under two different steps is accepted and is not a finding
 (FR-002a) — a repository adding a pass is never refused on account of a pass
@@ -133,7 +134,7 @@ a glyph.
 
 | State | Reached when |
 | --- | --- |
-| `done` | the pass's predicate is satisfied |
+| `done` | the pass's `reads` returns `done` |
 | `in_progress` | the parent step is current and this pass is the outstanding one |
 | `pending` | the parent has not been reached, or an earlier pass under it is outstanding |
 | `skipped` | a claim exists for this pass on this branch, or the parent is `skipped` |
@@ -151,14 +152,14 @@ already answers it, and `--all` renders the sentence where there is one.
 
 ### Where the parent's state comes from
 
-Its own predicate first, then its passes (R7):
+Its own `reads` first, then its passes (R7):
 
 ```
-step predicate reads `done`
+step `reads` returns `done`
   └─► any pass in_progress or pending?  ──► step is in_progress   (FR-006)
       otherwise                          ──► step is done
 
-step predicate reads `pending` or `skipped`
+step `reads` returns `pending` or `skipped`
   └─► passes are not evaluated; they take the parent's own state
 ```
 
@@ -171,5 +172,5 @@ performs it rather than naming a command.
 `speckit-orchestrate` needs no contract change for this — it treats
 `next_command` as opaque, strips the leading `/` and emits it, and never
 enumerates `steps[]`. What changes underneath is where `next_step_content` finds
-the row carrying `continuation`: today `_STEPS` alone, and `auto` is computed
+the row carrying `on_finish`: today `_STEPS` alone, and `auto` is computed
 from that lookup.

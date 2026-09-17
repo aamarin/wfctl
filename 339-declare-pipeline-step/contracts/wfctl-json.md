@@ -34,21 +34,21 @@ repository declares no passes, which is the state every repository is in today.
 | `name` | Required, non-empty, unique under this step. The same name under another step is fine |
 | `command` xor `manual` | Exactly one. `manual` is `true`; there is no `false` reading |
 | `evidence` | Required. Relative resolves against the feature directory, absolute is used as given |
-| `continuation` | Optional. `"automatic"` or `"review_required"`. Defaults to `review_required` |
+| `on_finish` | Optional. `"automatic"` or `"review_required"`. Defaults to `review_required` |
 | `before` / `after` | Optional. Names a sibling under the same step, bare |
 | Anything else | A pass declaring passes of its own is refused, not dropped |
 
 Order is written order, the tool's own passes first. `before` / `after` moves one
 pass relative to a sibling, including relative to one of wfctl's own.
 
-`continuation` defaults differ by where the list was read from, not by anything
+`on_finish` defaults differ by where the list was read from, not by anything
 on the pass: a pass read from configuration defaults to `review_required`,
 because wfctl cannot vouch for a command it does not ship; a pass carried with
-the tool defaults to `automatic`. A repository that sets `"continuation":
+the tool defaults to `automatic`. A repository that sets `"on_finish":
 "automatic"` produces a pass indistinguishable from a tool-shipped one (FR-011,
 FR-021a).
 
-`evidence` builds the file-exists predicate on the repository's behalf, and that
+`evidence` builds the file-exists reader on the repository's behalf, and that
 is the whole of what configuration can express. A pass whose evidence is a
 heading inside another file, or a line in a commit message, is out of reach of
 this file by construction; the answer is to change what that pass writes.

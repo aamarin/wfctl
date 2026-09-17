@@ -138,7 +138,7 @@ corners of the arch root where something was decided.
 Both were written during this pass and are committed on the branch as `proposed`.
 
 - `docs/architecture/a-step-carries-sub-steps-one-level-deep.md` — a step's
-  payload carries an ordered list of sub-steps, each holding a predicate as
+  payload carries an ordered list of sub-steps, each holding an evidence reader as
   `Step` already does, nested exactly one level deep
 - `docs/architecture/an-absent-artifact-is-claimed-not-inferred.md` — when a
   sub-step's artifact is missing, a person says whether the pass ran and produced
@@ -151,7 +151,7 @@ alternative here was a choice about who owns a piece of truth or about the
 contract between a repository and wfctl, so each one landed in a level-2 record
 instead — the two named in the section above, which are level-2 and bind as
 level-2. The closest thing to a level-3 choice was whether a sub-step holds an
-evidence path or a predicate, and that is recorded as a considered alternative
+evidence path or a reader, and that is recorded as a considered alternative
 inside the first of those records rather than as a decision of its own, because
 the path form cannot express wfctl's existing passes and so was never a credible
 structure.
@@ -171,7 +171,7 @@ Verified against the code during this pass:
 - every consumer of the pipeline payload lives in `cli.py`, so the views this
   change touches are contained
 - `clarify` has no artifact of its own; its evidence is a heading inside
-  `spec.md`, which is why a sub-step holds a predicate rather than a path
+  `spec.md`, which is why a sub-step holds an evidence reader rather than a path
 
 Corrected during the pass, having first been asserted:
 
@@ -188,7 +188,7 @@ Settled against the code after the pass, having been listed here as assumed:
   never enumerates `steps[]`, and it treats `next_command` as opaque — it strips
   the leading `/` and emits it. A sub-step is another value that field can take.
   What does change is where `next_step_content` finds the row carrying
-  `continuation`: today it is `_STEPS` alone, and `auto` is computed from that
+  `on_finish`: today it is `_STEPS` alone, and `auto` is computed from that
   lookup.
 - the tests can be updated. Exactly one assertion in the suite pins
   `current == "brainstorm"`; the rest read a named step's state out of a mapping,

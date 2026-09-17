@@ -169,7 +169,7 @@ of what a claim is for.
 
 ## R7 — A parent step's state is its own reading, downgraded by its passes
 
-**Decision.** Inference evaluates the step's own predicate first, then its
+**Decision.** Inference evaluates the step's own `reads` first, then its
 passes. Where the step's own reading is `done` and any pass is `in_progress` or
 `pending`, the step reports `in_progress`. Where the step's own reading is
 `pending` or `skipped`, its passes are not evaluated and report `pending` and
@@ -178,12 +178,12 @@ passes. Where the step's own reading is `done` and any pass is `in_progress` or
 **Rationale.** FR-006 requires a step to report unfinished while any pass is
 outstanding, and says nothing about a step whose own evidence is missing. The
 asymmetry is the cascade `_infer_steps` already runs: a step nothing has reached
-yet has passes nothing has reached either, and calling their predicates would
+yet has passes nothing has reached either, and calling their readers would
 spend reads to print a column of `pending` that the parent already says. A
 `skipped` step is the same argument — `design-levels` allows a change to pass
 brainstorm by, and its passes were passed by with it.
 
-This keeps `brainstorm`'s existing predicate doing the job only it can do. Its
+This keeps `brainstorm`'s existing reader doing the job only it can do. Its
 `pending` branch (nothing here yet) and its `skipped` branch (the pipeline moved
 on without one) are facts about the step, not about either pass; what its `done`
 / `in_progress` branch computes is precisely what the two passes now compute
@@ -192,7 +192,7 @@ between them, and that branch becomes the roll-up.
 **Alternatives considered.** Deriving the parent's state entirely from its
 passes — `brainstorm` would lose the `skipped` reading, and a step with no passes
 would have no state at all. Evaluating passes under a `pending` parent so the
-payload is always complete — pays predicate reads on every step of every run for
+payload is always complete — pays one read per pass on every step of every run for
 a column whose value is already determined.
 
 ## R8 — Reading and validating the declaration is its own module

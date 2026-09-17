@@ -40,17 +40,17 @@ carries it. Nothing user-visible ships here.
 
 **⚠️ CRITICAL**: no user story work can begin until this phase is complete.
 
-- [ ] T003 Add the `SubStep` NamedTuple to wfctl/_pipeline.py beside `Step` — `name`, `command: str | None`, `continuation`, `predicate` — with a docstring saying why `predicate` is a callable rather than a registry key; verify with tests/test_pipeline_state_names.py
+- [ ] T003 Add the `SubStep` NamedTuple to wfctl/_pipeline.py beside `Step` — `name`, `command: str | None`, `on_finish`, `reads` — with a docstring saying why `reads` is a callable rather than a registry key; verify with tests/test_pipeline_state_names.py
 - [ ] T004 Add `sub_steps: tuple[SubStep, ...] = ()` to `Step` in wfctl/_pipeline.py, defaulted so every existing row keeps parsing; verify with `uv run --frozen --extra dev pytest -q tests/test_pipeline_commands.py`
 - [ ] T005 [P] Create wfctl/_declared.py with `load(repo_root) -> tuple[dict[str, list[SubStep]], list[str]]`, parsing `wfctl.json`'s `steps` key and returning problems rather than raising — the shape `_verify.load_config` already uses; verify with tests/test_declared.py
-- [ ] T006 [P] Add the file-exists predicate builder for `evidence` to wfctl/_predicates.py, resolving a relative path against `FEATURE_DIR` and an absolute path as given (research.md R3); verify with tests/test_predicates.py
+- [ ] T006 [P] Add the file-exists reader builder for `evidence` to wfctl/_predicates.py, resolving a relative path against `FEATURE_DIR` and an absolute path as given (research.md R3); verify with tests/test_predicates.py
 - [ ] T007 Implement every validation rule from data-model.md § Validation rules in wfctl/_declared.py, one finding string per rule, with `<step>.<name>` as the form a finding names a pass by; verify with tests/test_declared.py
-- [ ] T008 Apply the continuation default as the list is read in wfctl/_declared.py — `review_required` for a declared pass — so nothing on a pass records its origin (FR-011, FR-021a); verify with tests/test_declared.py
+- [ ] T008 Apply the `on_finish` default as the list is read in wfctl/_declared.py — `review_required` for a declared pass — so nothing on a pass records its origin (FR-011, FR-021a); verify with tests/test_declared.py
 - [ ] T009 Add `sub_steps: list[_PipelineStep]` to `_PipelineStep` in wfctl/_pipeline.py and walk each step's passes in `_infer_steps`, tool passes before declared, with the order overrides applied; verify with tests/test_pipeline_state_names.py
 - [ ] T010 Implement the parent roll-up in `_infer_steps` — a `done` step with an outstanding pass reports `in_progress`; a `pending` or `skipped` step does not evaluate its passes (research.md R7, FR-006); verify with tests/test_pipeline_state_names.py
 - [ ] T011 Emit `sub_steps` in `build_report`'s step dicts in wfctl/_pipeline.py with the keys contracts/status-payload.md names, always complete and never filtered (FR-020); verify with tests/test_pipeline_payload_snapshot.py
-- [ ] T012 Teach `next_step_content` in wfctl/_pipeline.py to find the row carrying `continuation` among a step's passes as well as in `_STEPS`, and to return a qualified pass name with `auto=False` for a manual pass; verify with tests/test_pipeline_commands.py
-- [ ] T012a Apply the autonomy grant to a pass's continuation in wfctl/_pipeline.py — a run with `auto_approve` set yields `auto: true` for a `review_required` pass, exactly as it does past the design gates, so autonomy stays one switch rather than one per kind of gate (FR-021b); verify with tests/test_pipeline_commands.py
+- [ ] T012 Teach `next_step_content` in wfctl/_pipeline.py to find the row carrying `on_finish` among a step's passes as well as in `_STEPS`, and to return a qualified pass name with `auto=False` for a manual pass; verify with tests/test_pipeline_commands.py
+- [ ] T012a Apply the autonomy grant to a pass's `on_finish` in wfctl/_pipeline.py — a run with `auto_approve` set yields `auto: true` for a `review_required` pass, exactly as it does past the design gates, so autonomy stays one switch rather than one per kind of gate (FR-021b); verify with tests/test_pipeline_commands.py
 - [ ] T013 Validate Phase 2 with `uv run --frozen --extra dev pytest -q && uv run --frozen --extra dev ruff check wfctl/ tests/ && uv run --frozen --extra dev mypy wfctl/` — merge gate
 
 **Checkpoint**: the payload carries passes. No view renders them yet.
@@ -79,7 +79,7 @@ out the declared command as what to run next.
 - [ ] T015 [P] [US1] Write tests in tests/test_declared.py for each finding class in contracts/cli.md, one test per row of that table, each named for the failure it catches
 - [ ] T016 [P] [US1] Write a test in tests/test_declared.py that a name reused under a *different* step is accepted and is not a finding (FR-002a)
 - [ ] T017 [P] [US1] Write a test in tests/test_predicates.py that `evidence` resolves against the feature directory, not the repo root — the failure that leaves a pass reading `done` on every later branch (research.md R3)
-- [ ] T017a [P] [US1] Write a test in tests/test_predicates.py that a built-in pass's predicate can read a heading inside another step's artifact rather than a file of its own — the capability FR-008 exists for, which neither built-in pass exercises and which a regression to a path-only pass would remove without failing anything (spec edge case 5)
+- [ ] T017a [P] [US1] Write a test in tests/test_predicates.py that a built-in pass's `reads` can take a heading inside another step's artifact rather than a file of its own — the capability FR-008 exists for, which neither built-in pass exercises and which a regression to a path-only pass would remove without failing anything (spec edge case 5)
 - [ ] T018 [P] [US1] Write a test in tests/test_pipeline_state_names.py that a declared pass runs after wfctl's own and that `before` moves it ahead of one (FR-003)
 - [ ] T019 [P] [US1] Write a test in tests/test_declared.py that a cycle in `before`/`after` is a finding rather than an order (FR-003a)
 - [ ] T020 [P] [US1] Write a test in tests/test_declared.py that a pass declaring passes of its own is a finding and that the outer pass is not loaded (FR-004) — the case Question 5 settled
@@ -125,8 +125,8 @@ one names the command that produces it.
 
 ### Implementation for User Story 2
 
-- [ ] T033 [US2] Split `brainstorm` in wfctl/_predicates.py into the two pass predicates data-model.md names, leaving the step's own predicate owning only its `pending` and `skipped` branches; verify with tests/test_predicates.py
-- [ ] T034 [US2] Order the two passes architecture-then-design-doc in `_STEPS["brainstorm"]` in wfctl/_pipeline.py, which fixes the read order `design.md` flagged — the predicate checks `design.md` before the record, the reverse of the order both skills write them in; verify with tests/test_predicates.py
+- [ ] T033 [US2] Split `brainstorm` in wfctl/_predicates.py into the two pass readers data-model.md names, leaving the step's own reader owning only its `pending` and `skipped` branches; verify with tests/test_predicates.py
+- [ ] T034 [US2] Order the two passes architecture-then-design-doc in `_STEPS["brainstorm"]` in wfctl/_pipeline.py, which fixes the read order `design.md` flagged — the reader checks `design.md` before the record, the reverse of the order both skills write them in; verify with tests/test_predicates.py
 - [ ] T035 [US2] Confirm the one assertion in the suite that pins `current == "brainstorm"` still holds, and update it with a docstring saying what changed if it does not; verify with `uv run --frozen --extra dev pytest -q -k brainstorm`
 - [ ] T036 [US2] Walk quickstart.md § *Read wfctl's own passes* on a branch part-way through brainstorming; verify the four expectations it lists
 - [ ] T037 [US2] Validate Phase 4 with `uv run --frozen --extra dev pytest -q && ruff check wfctl/ tests/ && mypy wfctl/` — merge gate
@@ -166,7 +166,7 @@ confirm the row is hidden by default and shown with the flag.
 - [ ] T044 [US3] Add `step-claims` to `_paths.non_record_subtrees` with a constant beside `SCANS_DIR` and `IMPLEMENTATION_DIR`; verify with tests/test_paths.py
 - [ ] T045 [US3] Add `wfctl step none <step>.<name> --reason` to wfctl/cli.py, reusing `arch none`'s empty and `<placeholder>` guards and its `touched_on_this_branch` check; verify with tests/test_step_none.py
 - [ ] T046 [US3] Implement pass-name resolution for that command — qualified always, bare only where globally unambiguous, never against the current step (FR-002b, FR-002c); verify with tests/test_step_none.py
-- [ ] T047 [US3] Read claims in `_infer_steps` in wfctl/_pipeline.py so a claimed pass reports `skipped` and carries its reason as `claimed` in the payload — the claim is read before the pass's own predicate, so an artifact that appears after the claim does not overturn it (FR-017, spec edge case 7); verify with tests/test_pipeline_state_names.py
+- [ ] T047 [US3] Read claims in `_infer_steps` in wfctl/_pipeline.py so a claimed pass reports `skipped` and carries its reason as `claimed` in the payload — the claim is read before the pass's own `reads`, so an artifact that appears after the claim does not overturn it (FR-017, spec edge case 7); verify with tests/test_pipeline_state_names.py
 - [ ] T048 [US3] Add `--all` to `status_cmd` in wfctl/cli.py, filtering at the moment of printing and never in the payload; verify with tests/test_cli_status.py
 - [ ] T049 [US3] Walk quickstart.md § *Claim a pass away, twice* and § *The one where a wrong answer looks like success*; verify each of the seven expectations they list
 - [ ] T050 [US3] Validate Phase 5 with `uv run --frozen --extra dev pytest -q && ruff check wfctl/ tests/ && mypy wfctl/` — merge gate

@@ -31,7 +31,7 @@ the name is written in wherever it is typed (FR-002b):
 | Sibling not found | `<step>.<name> names sibling '<sibling>', which is not declared under <step>` |
 | Unsatisfiable order | `<step>: the stated order cannot be satisfied — <a>, <b>, <c>` |
 | Nested pass | `<step>.<name> declares passes of its own; passes nest one level below a step` |
-| Bad continuation | `<step>.<name> has continuation '<v>' — one of: automatic, review_required` |
+| Bad `on_finish` | `<step>.<name> has on_finish '<v>' — one of: automatic, review_required` |
 
 A pass marked `manual` is never reported for a missing command (FR-022a). A name
 reused under a *different* step is never reported (FR-002a).

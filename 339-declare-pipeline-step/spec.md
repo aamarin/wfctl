@@ -190,11 +190,11 @@ confirm the row is hidden by default and shown with the flag.
 - **FR-007**: Where an outstanding pass is what holds the pipeline, the system
   MUST name that pass's command as what to run next, or — where the pass declares
   that no command runs it — name the pass and say that a person performs it.
-- **FR-008**: A pass MUST determine whether it has run by evaluating a predicate,
+- **FR-008**: A pass MUST determine whether it has run by evaluating an evidence reader,
   not by testing for a file at a fixed path — so that a pass whose evidence is a
   section inside another step's artifact can report correctly.
 - **FR-009**: A repository MUST be able to express the common case — this pass
-  has run when this file exists — without writing a predicate itself.
+  has run when this file exists — without writing a reader itself.
 - **FR-010**: The tool's own brainstorming passes MUST be expressed as passes of
   the same kind, carried with the tool rather than configured.
 - **FR-011**: Nothing on a pass MUST mark it as belonging to a repository rather
@@ -250,7 +250,7 @@ confirm the row is hidden by default and shown with the flag.
 
 - **Pass**: a stage of work belonging inside one pipeline step. Carries a name
   unique among that step's passes, either a command that runs it or a statement
-  that a person performs it, a predicate that says
+  that a person performs it, an evidence reader that says
   whether it has run, and whether the pipeline may continue past it without
   review. Addressed as `<step>.<name>` wherever the name is typed or written to a
   path. Holds no position of its own and no mark of who declared it.

@@ -7,7 +7,7 @@
 
 A pipeline step gains an ordered list of passes, exactly one level deep. A pass
 has the shape a step has — a name, a command or a statement that a person
-performs it, a continuation, and a predicate — and reports the same four state
+performs it, an `on_finish`, and a `reads` — and reports the same four state
 names. Two lists fill it: wfctl's own, hardcoded in the step table, and a
 repository's, read from `wfctl.json` under a new `steps` key. Nothing on a pass
 records which list it came from.
@@ -38,7 +38,7 @@ is added. `doctor` is not touched.
 **Testing**: `uv run --frozen --extra dev pytest -q`, `ruff check wfctl/ tests/`, `mypy wfctl/`, then `uv run wfctl install-skills --prune --yes --agent claude` and `uv run wfctl doctor`. The five by-hand exercises in `quickstart.md`.
 **Target Platform**: macOS and Linux developer machines, anywhere the CLI runs
 **Project Type**: CLI, with the skills it ships as package data
-**Performance Goals**: no new read per `status` for a repository that declares nothing — `wfctl.json` is already read for `verify`. A repository that declares passes pays one predicate call per pass, only under a step that was reached.
+**Performance Goals**: no new read per `status` for a repository that declares nothing — `wfctl.json` is already read for `verify`. A repository that declares passes pays one `reads` call per pass, only under a step that was reached.
 **Constraints**: `pipeline-state-is-one-payload` holds — one inference, every view a rendering. A repository declaring nothing sees byte-identical output. No aliases, no migration: the `steps` key is new, and its absence is every repository's current state.
 **Scale/Scope**: 2 new modules, ~6 modules touched, 3 new CLI surfaces, 1 payload key, ~18 new tests, 1 snapshot rewritten
 
@@ -59,12 +59,12 @@ substitution is noted under Complexity Tracking.
       *Considered* section carries why a general tree was rejected — every view
       learns recursion and every consumer learns depth, to express a nesting
       nobody has asked for. The direct baseline (an extra evidence path on the
-      parent's predicate) is rejected in the record for the reason that is this
+      parent's `reads`) is rejected in the record for the reason that is this
       feature's point: the pass stays invisible, which is the defect rather than
       a cost of fixing it.
 - [x] **Ownership is stated**: wfctl owns *which passes a step requires and what
-      state each is in*, as data on the payload. The parent step's predicate
-      cannot own it — a predicate returns one state and one reason, so every pass
+      state each is in*, as data on the payload. The parent step's `reads`
+      cannot own it — one call returns one state and one reason, so every pass
       collapses into a string, and a string has no state to route from, count, or
       declare away. The repository owns *which passes exist beyond wfctl's own*,
       because only it knows its process. A person owns *whether a pass applies to
@@ -83,12 +83,12 @@ substitution is noted under Complexity Tracking.
       prose. That is the rule applied to itself, and it is what Question 5
       settled for the nesting cap.
 - [x] **`a-step-carries-sub-steps-one-level-deep`** (proposed): this plan is its
-      implementation. The predicate-not-path decision is honoured — `evidence` is
-      sugar that builds the file-exists predicate, and wfctl's own passes carry
+      implementation. The reader-not-path decision is honoured — `evidence` is
+      sugar that builds the file-exists reader, and wfctl's own passes carry
       callables that read what no path can.
 - [x] **`brainstorm-is-one-step-with-addressable-levels`** (proposed):
       `brainstorm` stays one entry in `_STEPS` with one command and one `auto`
-      flag. The two passes it gains carry predicates rather than per-level
+      flag. The two passes it gains carry evidence readers rather than per-level
       authority flags — the shapes that record rejects are four peer table
       entries and a flag per level, and T004/T034 are neither. `design-levels`
       keeps ownership of which gates run inside the step; the table carries only
@@ -139,7 +139,7 @@ specs/339-declare-pipeline-step/
 wfctl/
 ├── _declared.py         # NEW — parse and validate wfctl.json's `steps`; pure over parsed JSON
 ├── _pipeline.py         # Step gains sub_steps; _infer_steps walks them; the payload carries them
-├── _predicates.py       # brainstorm splits into two pass predicates; file-exists builder for `evidence`
+├── _predicates.py       # brainstorm splits into two pass readers; file-exists builder for `evidence`
 ├── _paths.py            # non_record_subtrees gains step-claims/
 ├── cli.py               # `check config`, `step none`, `status --all`, indented rendering
 └── agents/
@@ -164,7 +164,7 @@ Priority order is the spec's, and each phase is independently observable.
 | Phase | Delivers | Observable by |
 | --- | --- | --- |
 | 1 | `SubStep` on `Step`, `_declared`, payload + `status` rendering, `check config` | US1 — declare a pass, see the row, get the command |
-| 2 | `brainstorm`'s two built-in passes, the predicate read order fixed | US2 — wfctl's own passes report separately |
+| 2 | `brainstorm`'s two built-in passes, the read order fixed | US2 — wfctl's own passes report separately |
 | 3 | `wfctl step none`, `step-claims/`, `--all`, `non_record_subtrees` | US3 — a pass claimed away, and the gate that still holds |
 
 Phase 1 ships a mechanism with one consumer; phase 2 is the evidence it was the
