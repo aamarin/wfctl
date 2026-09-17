@@ -27,7 +27,7 @@ from wfctl._pipeline import (
     _infer_steps,
     next_step_content,
 )
-from wfctl._predicates import blocks
+from wfctl._evidence import blocks
 
 runner = CliRunner()
 
@@ -1203,7 +1203,7 @@ def test_a_blocked_design_step_is_never_automatic(
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
 
-    assert _STEPS["brainstorm"].continuation == "automatic", "guards the premise, not the rule"
+    assert _STEPS["brainstorm"].on_finish == "automatic", "guards the premise, not the rule"
 
     command, auto = next_step_content("brainstorm", "no architecture record")
     assert command == "/speckit.brainstorm"
@@ -1402,7 +1402,7 @@ def test_clarify_runs_itself_whether_or_not_markers_are_still_standing(
     `pending` is the obvious one. The second is the one worth a test: a spec
     whose `[NEEDS CLARIFICATION]` markers are still standing reads `in_progress`,
     and the natural expectation is that it blocks. It does not, because
-    `_predicates.clarify` sets no reason there — re-entering the step is what
+    `_evidence.clarify` sets no reason there — re-entering the step is what
     resolves a marker, so routing to it is the answer rather than the problem.
 
     That is also the state where routing matters most. Both `specify` and
@@ -1456,7 +1456,7 @@ def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
     """
     for name, step in _STEPS.items():
         _, auto = next_step_content(name, None)
-        assert auto == (step.continuation == "automatic"), name
+        assert auto == (step.on_finish == "automatic"), name
 
         _, auto_blocked = next_step_content(name, "some reason")
         assert auto_blocked is False, name
@@ -1475,7 +1475,7 @@ def test_a_review_required_step_would_still_be_reported_as_one(monkeypatch) -> N
     reader has to notice before trusting anything else in it.
     """
     monkeypatch.setitem(
-        _STEPS, "clarify", _STEPS["clarify"]._replace(continuation="review_required")
+        _STEPS, "clarify", _STEPS["clarify"]._replace(on_finish="review_required")
     )
     assert next_step_content("clarify", None) == ("/speckit.clarify", False)
 
@@ -1484,7 +1484,7 @@ def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
     """An edge case the spec names, and the reason it needs no guard of its own.
 
     `clarify` reads `skipped` for a spec that predates the gate — one where
-    `plan.md` already exists. #325 flipped its continuation value, and the worry
+    `plan.md` already exists. #325 flipped its `on_finish` value, and the worry
     that invites is a skipped step being run by an unattended pass. It cannot be:
     `_current_step_name` never selects a `skipped` step, so the value is never
     read for one.

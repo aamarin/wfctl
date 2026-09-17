@@ -679,7 +679,7 @@ def next_cmd() -> None:
         next_step_content,
         next_step_file,
     )
-    from wfctl._predicates import build_evidence
+    from wfctl._evidence import build_evidence
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -4732,7 +4732,7 @@ def _verification_finding() -> list[str]:
     passed. The middle one is `wfctl-runs-the-verification`'s own degrade clause
     and is what keeps a copy edit openable in a repo that checks nothing.
     """
-    from wfctl._predicates import verification_block
+    from wfctl._evidence import verification_block
 
     try:
         repo_root = get_repo_root()

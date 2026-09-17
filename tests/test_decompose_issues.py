@@ -296,7 +296,7 @@ def test_a_feature_that_has_analyzed_enters_decompose_without_a_prompt(
 
     The step it now enters unattended is the one that reaches the tracker. It is
     the host's permission layer that can stop the create there, not this flag —
-    argued at the rung annotation in `_predicates`.
+    argued at the rung annotation in `_evidence`.
     """
     _use_tracker(tmp_path)
     feature = spec_tree(

@@ -182,7 +182,7 @@ shape is a decision the constitution did not make, and condition 2 puts the fix
 out however small the edit is. So the list entry moves some of this class from
 filed to applied and not all of it: a constitution finding that is materially
 larger, or that needs a choice the principle never made, is still filed, and
-`_predicates.analyze` still reads only the report's existence. What that leaves
+`_evidence.analyze` still reads only the report's existence. What that leaves
 open is the gap *A check could see this* below already owns, not one this entry
 closed.
 
@@ -328,7 +328,7 @@ discount both.
 **Rewrite `analysis-report.md` after remediation, before writing this file.**
 Step 6b writes it before step 8 runs, so on a run that remediated anything it is
 already stale — and it is both what `Detail:` sends the reader to and the only
-thing `_predicates.analyze` reads. Leaving it is the same defect the Next Actions
+thing `_evidence.analyze` reads. Leaving it is the same defect the Next Actions
 row, the verdict and the coverage percentage each avoid, in the one artifact a
 reader is pointed at by name.
 
@@ -340,7 +340,7 @@ conversation commits counts that are already stale.
 **The two halves of that sentence used to be the same instruction and are not
 since #325.** Step 8 asks the user whether to apply remediation. With nobody
 there to answer, a run that treats it as a stop leaves `analysis-report.md`
-written — which is the whole of what `_predicates.analyze` reads, so the step
+written — which is the whole of what `_evidence.analyze` reads, so the step
 reports `done` — and no scan file at all. That is #307's defect restored on the
 one step whose scan file is cited as earning the flip, and it is reachable only
 now: before #325 the pause happened *outside* this command, with nothing yet
