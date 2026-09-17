@@ -1621,6 +1621,35 @@ def arch_accept_cmd(
         )
         raise typer.Exit(1)
 
+    # Checked here, before the write, so the reader never gets a traceback out
+    # of `_set_status` for a gap this command can see in advance — and so the
+    # wording is chosen by the console, per R-002, since three kinds of gap
+    # need three different sentences and only the console knows which ones.
+    blockers = _arch.accept_blockers(record)
+    if blockers:
+        console.print(f"[red]✗[/red] {escape(record.slug)} cannot be accepted yet.")
+        for blocker in blockers:
+            console.print(f"    {escape(blocker)}", soft_wrap=True)
+        if any(b.startswith("no declared kind") for b in blockers):
+            # Only here, not for an invalid-but-present kind: that refusal
+            # already names the three values in its own sentence, and a second
+            # listing of them right below would repeat rather than inform. An
+            # author who has never seen the vocabulary before is the one this
+            # table is for.
+            console.print()
+            width = max(len(k) for k in _arch.DIAGRAM_KINDS)
+            for kind, blurb in zip(
+                _arch.DIAGRAM_KINDS,
+                (
+                    "a value moving between two sides",
+                    "a line between components",
+                    "a sequence one thing passes through",
+                ),
+            ):
+                console.print(f"  {kind:<{width}}  {blurb}")
+        console.print(f"\n  {_arch_location(record.path, repo_root)}", soft_wrap=True)
+        raise typer.Exit(1)
+
     citation = agreed.strip()
     # UTC, like every other timestamp wfctl writes (`_session.py`, `_verify.py`,
     # `_io.py`, `_archive.py`). The cost is named rather than hidden: a maintainer

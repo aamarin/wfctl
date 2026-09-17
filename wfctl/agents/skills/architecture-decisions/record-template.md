@@ -1,5 +1,6 @@
 ---
 status: proposed
+diagram: <data-flow | component | state>
 ---
 
 # <the decision, as a statement — "wfctl runs the verification, not the agent">
@@ -30,11 +31,16 @@ unfalsifiable.">
 
 ## Boundary
 
-<Optional. The level-2 sketch, as a mermaid flowchart: one subgraph per side,
-phases down the page, an edge only where something actually crosses. Draw the
-refusals too — an `--x` edge for what the owning side never accepts from the
-other — because that edge is the decision. Delete the section if the decision
-moved authority without a flow.>
+<Required to accept — `wfctl arch accept` refuses a record with nothing drawn
+here. Declare which kind above in `diagram:` and draw that kind: `data-flow`
+for a value moving between two sides, `component` for a line between them,
+`state` for a sequence one thing passes through. A mermaid flowchart for
+`data-flow` or `component` — one subgraph per side, phases down the page, an
+edge only where something actually crosses, and the refusals too: an `--x`
+edge for what the owning side never accepts from the other, because that edge
+is the decision. A mermaid `stateDiagram-v2` for `state`. Label with the words
+this record already uses in prose — a label introducing a concept found
+nowhere else in the record is what `wfctl doctor` surfaces as drift.>
 
 ## Considered
 

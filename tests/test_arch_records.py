@@ -11,14 +11,27 @@ from wfctl import _arch
 RECORD = """\
 ---
 status: {status}
+diagram: state
 ---
 
 # A decision
+
+## Boundary
+
+```mermaid
+flowchart LR
+  A --> B
+```
 
 ## Log
 
 - 2026-03-14  accepted    — because
 """
+# A drawing and a declared kind, so a test exercising an unrelated transition
+# (a repeated status key, CRLF line endings, a multi-line note) is not also
+# exercising #109's drawing gate by accident — every `RECORD.format(...)`
+# below is a record `accept_blockers` would pass. The gate itself has its own
+# fixtures in `test_arch_accept_drawing.py`.
 
 
 def _write(root: Path, slug: str, body: str) -> Path:
@@ -744,7 +757,9 @@ def test_accepting_changes_the_status_line_the_parser_reads(tmp_path: Path) -> N
     path = _write(
         tmp_path,
         "a-decision",
-        "---\nstatus: retired\nstatus: proposed\n---\n\n# A decision\n\n## Log\n\n- 2026-03-14  proposed    — x\n",
+        "---\nstatus: retired\nstatus: proposed\ndiagram: state\n---\n\n# A decision\n\n"
+        "## Boundary\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n"
+        "## Log\n\n- 2026-03-14  proposed    — x\n",
     )
 
     _arch.accept(_arch.parse_record(path), "2026-09-10", "agreed on #321")

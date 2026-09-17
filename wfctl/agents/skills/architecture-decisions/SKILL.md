@@ -59,8 +59,11 @@ not `verification-work` or `issue-69`.
 
 Copy `record-template.md` from this skill's directory and fill it in. The
 sections are fixed — `Context`, `Direct baseline`, `Decision`, `Owns truth`,
-`Considered` and `Log` are required, `Boundary` and `Consequences` are optional.
-Add `supersedes` to the frontmatter only when this record replaces one.
+`Boundary`, `Considered` and `Log` are required; `Consequences` is optional.
+`Boundary` is not required to *write* the record, but `wfctl arch accept`
+refuses one that reaches acceptance with nothing drawn there — see "The record
+leads with a drawing" below. Add `supersedes` to the frontmatter only when this
+record replaces one.
 
 `Boundary` holds the level-2 sketch the decision came out of, and it is drawn in
 **mermaid**, not ASCII. `design-levels` draws that sketch in ASCII because a
@@ -68,6 +71,29 @@ skill and a terminal reply both render mermaid as its own source; a record is
 read on GitHub, where it renders as a diagram. Same sketch, redrawn for where it
 lands — and `wfctl arch context` projects only the first paragraph of
 `Decision`, so neither format reaches the terminal through the projection.
+
+## The record leads with a drawing
+
+Declare which kind of diagram the decision needs in the frontmatter's
+`diagram:` key, and draw it in `## Boundary`:
+
+| Kind | Suits a decision about |
+|---|---|
+| `data-flow` | a value moving between two sides — who computes it, who may assert it |
+| `component` | a line between components — what is inside, what is outside |
+| `state` | a sequence one thing passes through — a lifecycle, a transition, a gate |
+
+The author picks the kind. wfctl checks only that the record carries a drawing
+and that the declared kind is one of the three above — it never decides which
+kind the decision needed, because that would mean classifying English, and a
+heuristic wrong on one record in ten produces a refusal nobody can argue with
+(`the-author-declares-the-diagram-kind`).
+
+Draw with the labels this record already uses in `Owns truth` and `Decision`.
+A label that introduces a concept found nowhere else in the record is what
+`wfctl doctor` surfaces as a warning — not a refusal, a prompt to check whether
+the drawing and the prose still agree
+(`109-traceability-is-label-agreement`).
 
 ## The field that is not in MADR
 
@@ -164,8 +190,10 @@ where anything can be added.
 - [ ] `Considered` carries at least one real alternative with the true reason it
       was not chosen. Losing on fit is a reason; a weakness the alternative does
       not have is never one.
-- [ ] If something crosses the boundary, `Boundary` carries the sketch in
-      mermaid — including the edges the owning side refuses.
+- [ ] `Boundary` carries the sketch in mermaid — including the edges the owning
+      side refuses if something crosses the boundary. Required to accept; the
+      frontmatter's `diagram:` names which of `data-flow`, `component` or
+      `state` it is.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.

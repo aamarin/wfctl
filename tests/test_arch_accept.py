@@ -19,16 +19,19 @@ runner = CliRunner()
 
 
 def _record(root: Path, slug: str, status: str, log: str = "- 2026-03-14  proposed    — x") -> Path:
-    """A record with a `## Log`, unlike `test_remaining_commands._record`.
+    """A record with a `## Log` and a drawing, unlike `test_remaining_commands._record`.
 
-    The transition under test appends to that section and raises without one, so
-    a helper that omitted it would make every test here fail for a reason none of
-    them is about.
+    The transition under test appends to `## Log` and raises without one, so a
+    helper that omitted it would make every test here fail for a reason none of
+    them is about — and since #109, `accept` also refuses a record with no
+    drawing under `## Boundary` and no declared kind, so both ship here too.
+    The drawing gate itself is `test_arch_accept_drawing.py`'s own fixture.
     """
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{slug}.md"
     path.write_text(
-        f"---\nstatus: {status}\n---\n\n# {slug}\n\n## Decision\n\nx\n\n## Log\n\n{log}\n"
+        f"---\nstatus: {status}\ndiagram: state\n---\n\n# {slug}\n\n## Decision\n\nx\n\n"
+        f"## Boundary\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n## Log\n\n{log}\n"
     )
     return path
 

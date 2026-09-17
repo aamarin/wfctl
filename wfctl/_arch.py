@@ -24,6 +24,11 @@ IN_FORCE = "accepted"
 # misspelled — parses to "" and is excluded, never to `accepted`.
 STATUSES = frozenset({"proposed", IN_FORCE, "superseded", "rejected", "retired"})
 
+# A tuple, where `STATUSES` is a frozenset: the accept refusal prints these
+# names, and the order they print in is the order the guidance lists them in
+# (FR-012, data-model.md "Diagram kind"). Nothing prints `STATUSES`.
+DIAGRAM_KINDS = ("data-flow", "component", "state")
+
 
 @dataclass(frozen=True)
 class Record:
@@ -37,6 +42,13 @@ class Record:
     # lives in `parse_record` alone. Every reader of a record's prose would
     # otherwise re-open the file and carry its own copy of that policy.
     body: str = ""
+    # Verbatim, including a value outside `DIAGRAM_KINDS` — unlike `status`,
+    # which normalises an unrecognised value to "". Normalising here has no
+    # safe direction: folding `dataflow` into "" would report "declares no
+    # kind" against a file whose author declared one, and the author cannot
+    # see the difference between their typo and an omission. VR-006 is what
+    # names the value instead (data-model.md, R-001).
+    diagram: str = ""
 
     @property
     def in_force(self) -> bool:
@@ -131,6 +143,7 @@ def parse_record(path: Path) -> Record:
         status=status if status in STATUSES else "",
         supersedes=front.get("supersedes", ""),
         body=text,
+        diagram=front.get("diagram", ""),
     )
 
 
@@ -196,7 +209,213 @@ def validate(records: list[Record]) -> list[Finding]:
                 f"is superseded by {len(successors)} records: {', '.join(sorted(successors))}",
             ))
 
+    for record in records:
+        # VR-006: an error, and run on every status, accepted included — it
+        # reads the frontmatter, which VR-005 does not freeze, and a
+        # misspelled kind is wrong whatever the record's status. "" is
+        # excluded: absent means "not declared", which `accept_blockers`
+        # covers at the transition that actually needs it, not here.
+        if record.diagram and record.diagram not in DIAGRAM_KINDS:
+            findings.append(Finding(
+                "error", record.slug,
+                f"declares diagram '{record.diagram}', which is not a diagram kind",
+            ))
+
+    for record in records:
+        # VR-007: a warning, and `proposed` only (R-005). `superseded` and
+        # `retired` records were accepted once, so their bodies are frozen by
+        # the same rule VR-005 already applies to `accepted`; `rejected`
+        # records are never accepted, so a finding against one names work
+        # nobody will do.
+        if record.status != "proposed":
+            continue
+        drawing = _drawing(record)
+        if not drawing:
+            continue
+        # The rest of the record, with the `## Boundary` section removed
+        # entirely — comparing a label against the drawing it came from would
+        # let the label satisfy itself: its own words are always "present" in
+        # a body that includes the fence they were read out of.
+        lines = record.body.splitlines()
+        bounds = _section_bounds(lines, "## boundary")
+        rest = lines if bounds is None else lines[: bounds[0]] + lines[bounds[1] :]
+        record_words = _content_words("\n".join(rest))
+        for label in _labels(drawing):
+            label_words = _content_words(label)
+            # No readable words at all — an ASCII sketch, a fence of prose —
+            # compares nothing rather than inventing a finding (research R-004's
+            # stated limit).
+            if label_words and not (label_words & record_words):
+                findings.append(Finding(
+                    "warning", record.slug,
+                    f"drawing label '{label}' appears nowhere else in the record",
+                ))
+
     return findings
+
+
+def _drawing(record: Record) -> str:
+    """The text inside the first fenced block under `## Boundary`, or "".
+
+    Content is never inspected (clarification Q2) — a fenced block holding
+    prose is a drawing to this feature, because the alternative is a rule that
+    tells a picture from a code sample, which the corpus does not support.
+
+    The first block, not all of them: a second fence under the same heading is
+    a second drawing of the same boundary, and nothing here needs to choose
+    between them.
+
+    Reads `_md.walk_lines` directly rather than `_unfenced`, which deliberately
+    yields the complement of what this needs — lines *outside* a fence. This is
+    the one caller in the module that wants the interior.
+    """
+    lines = record.body.splitlines()
+    bounds = _section_bounds(lines, "## boundary")
+    if bounds is None:
+        return ""
+    heading, end = bounds
+    interior: list[str] = []
+    collecting = False
+    for line in _md.walk_lines(lines[heading:end]):
+        if line.inside:
+            interior.append(line.text)
+            collecting = True
+        elif collecting and line.fence:
+            # The closing delimiter of the block we were collecting — stop
+            # rather than continue into whatever follows it, which may be a
+            # second fence this function does not read.
+            break
+    return "\n".join(interior)
+
+
+def _kind_list(sep: str, last_sep: str) -> str:
+    """`DIAGRAM_KINDS` joined for a sentence, e.g. "a, b or c".
+
+    One place for the two shapes the blockers and the CLI refusal need —
+    `" | "` for a value to paste into frontmatter, `", "` plus `"or"` for a
+    sentence — so the three names are typed once here and nowhere else.
+    """
+    if len(DIAGRAM_KINDS) <= 1:
+        return sep.join(DIAGRAM_KINDS)
+    return sep.join(DIAGRAM_KINDS[:-1]) + last_sep + DIAGRAM_KINDS[-1]
+
+
+def accept_blockers(record: Record) -> list[str]:
+    """Every reason `accept` would refuse `record`, in reading order.
+
+    The single definition `acceptable` and `accept` both read (research R-002)
+    — `acceptable`'s own docstring already named the failure a second copy
+    produces: a listing built from status alone names a record whose own
+    suggested command then fails.
+
+    Status is not among them. `acceptable` tests `status == "proposed"` itself
+    and `accept` raises `ValueError(record.status)` as it does today — three
+    statuses need three different sentences, chosen by the console from
+    `record.status`, and folding them in here would make one list carry two
+    vocabularies.
+
+    Order is reading order, and it is load-bearing for FR-005: a record with
+    no drawing and no declared kind reports the drawing first, because adding a
+    kind to a record with nothing drawn fixes nothing. The kind blockers are
+    not conditioned on a drawing being present — `contracts/cli.md`'s own
+    refusal example shows both firing together — so an author sees everything
+    wrong with the record in one pass rather than discovering the second gap
+    only after fixing the first.
+    """
+    blockers: list[str] = []
+    if _log_bounds(record.body.splitlines(keepends=True)) is None:
+        blockers.append("no '## Log' section to append to")
+    if not _drawing(record):
+        blockers.append("no drawing: add a fenced block under '## Boundary'")
+    if not record.diagram:
+        blockers.append(
+            f"no declared kind: add 'diagram: {_kind_list(' | ', ' | ')}' to the frontmatter"
+        )
+    elif record.diagram not in DIAGRAM_KINDS:
+        blockers.append(
+            f"'{record.diagram}' is not a diagram kind — use {_kind_list(', ', ' or ')}"
+        )
+    return blockers
+
+
+# A node label: quoted, bracketed, or braced — the three shapes mermaid
+# accepts for a node's display text. `[*]` is excluded at the call site rather
+# than here, because the pattern that matches it is the same pattern that
+# matches every other bracketed label; the exclusion is content, not syntax.
+_QUOTED_LABEL = re.compile(r'"([^"]*)"')
+_BRACKETED_LABEL = re.compile(r"\[([^\]]*)\]")
+_BRACED_LABEL = re.compile(r"\{([^}]*)\}")
+
+# Alphanumeric tokens. `\w` also matches `_`, which a slug or an identifier
+# quoted in a drawing could carry, and treating `arch_root` as one token is
+# the reading a content-word comparison wants.
+_TOKEN = re.compile(r"[A-Za-z0-9_]+")
+
+# Closed-class English: articles, prepositions, conjunctions, pronouns,
+# auxiliaries — words that carry no concept of their own, so a label built
+# entirely from them would compare against nothing and a label that merely
+# contains one alongside a real word must not count the closed-class word as
+# evidence either way. Short (two characters or fewer, per data-model.md) is
+# excluded by length rather than by listing every one.
+_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "and", "or", "nor", "but", "not", "with", "for", "from", "into", "onto",
+    "off", "out", "over", "under", "than", "then", "when", "what", "which",
+    "who", "whom", "whose", "that", "this", "these", "those", "may", "can",
+    "could", "will", "would", "shall", "should", "has", "have", "had",
+    "does", "did", "its", "his", "her", "their", "our", "your", "you",
+    "his", "own", "per", "via", "all", "any", "one", "two", "each", "every",
+    "ever", "never", "always", "yet", "so", "too", "also", "only", "just",
+    "itself", "themselves", "there", "here", "now", "then",
+})
+
+
+def _content_words(text: str) -> set[str]:
+    """Alphanumeric tokens longer than two characters, closed-class English
+    excluded, lowercased so a comparison is case-insensitive."""
+    return {
+        tok for tok in (t.lower() for t in _TOKEN.findall(text))
+        if len(tok) > 2 and tok not in _STOPWORDS
+    }
+
+
+def _labels(drawing: str) -> list[str]:
+    """Every node label in `drawing`: quoted, bracketed, braced, or the text
+    after `:` on a transition line.
+
+    `<br/>` and `<br>` become whitespace before any of the four shapes are
+    read, so a wrapped label reads as the one phrase its author wrote rather
+    than as line-broken fragments. `[*]` — mermaid's start/end marker — yields
+    no label; it is a syntax element, not a name for anything.
+
+    Brackets and braces are read first and removed from the line before the
+    bare-quote scan runs. `A["a label"]` is mermaid's own common shape — a
+    quoted string inside brackets — and reading the quote separately as well
+    would report one label as two.
+    """
+    text = drawing.replace("<br/>", " ").replace("<br>", " ")
+    found: list[str] = []
+
+    def _take(m: re.Match[str]) -> str:
+        content = m.group(1).strip()
+        if content[:1] == '"' and content[-1:] == '"' and len(content) >= 2:
+            content = content[1:-1]
+        if content and content != "*":
+            found.append(content)
+        return ""
+
+    for line in text.splitlines():
+        remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, line))
+        for m in _QUOTED_LABEL.finditer(remainder):
+            found.append(m.group(1))
+        if "-->" in remainder:
+            arrow = remainder.index("-->")
+            colon = remainder.find(":", arrow)
+            if colon != -1:
+                after = remainder[colon + 1 :].strip()
+                if after:
+                    found.append(after)
+    return [label.strip() for label in found if label.strip()]
 
 
 def in_force(records: list[Record]) -> list[Record]:
@@ -372,31 +591,52 @@ def _unfenced(lines: list[str]) -> Iterator[tuple[int, str]]:
             yield line.number - 1, line.text.strip()
 
 
-def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
-    """`(heading index, insertion index)` for the `## Log` section, or None.
+def _section_bounds(lines: list[str], heading: str) -> tuple[int, int] | None:
+    """`(heading index, end index)` for the first `## <heading>` section, or None.
 
-    Fenced code blocks are skipped. A record that documents the record format
-    contains a fenced `## Log` — `contracts/record-format.md` is exactly such a
-    document — and matching it would append the transition inside that example,
-    editing an accepted record's body (VR-005) while the real log below never
-    records the change.
+    Generalised out of `_log_bounds`, once `_drawing` needed the identical rule
+    for `## Boundary` (research R-003). Both reasons `_log_bounds`'s docstring
+    gave for its own shape hold unchanged here: fenced examples are skipped — a
+    record documenting the record format carries a fenced example of the very
+    heading being matched, `contracts/record-format.md` for `## Log` and
+    `## Boundary` alike — and the section ends at the next `## `, not at end of
+    file, so a scan does not run past what it was asked to bound.
 
-    The insertion index is the end of the Log section, not end of file: `Log` is
-    last by convention only, and appending blind files the transition under
-    whatever heading follows. Trailing blank lines stay below the new entry so
-    the gap before the next heading survives.
+    `heading` is matched case-insensitively against a stripped line, so a caller
+    passes it lowercase (`"## log"`, `"## boundary"`) and need not think about
+    the file's own casing.
+
+    No trailing-blank trim here — that is `_log_bounds`'s own need for an
+    insertion point, not a property of "where does this section end".
     """
-    heading: int | None = None
+    heading_idx: int | None = None
     end = len(lines)
+    target = heading.lower()
     for i, stripped in _unfenced(lines):
-        if heading is None:
-            if stripped.lower() == "## log":
-                heading = i
+        if heading_idx is None:
+            if stripped.lower() == target:
+                heading_idx = i
         elif stripped.startswith("## "):
             end = i
             break
-    if heading is None:
+    if heading_idx is None:
         return None
+    return heading_idx, end
+
+
+def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
+    """`(heading index, insertion index)` for the `## Log` section, or None.
+
+    A call to `_section_bounds`, trimmed to an insertion point: `Log` is last by
+    convention only, and appending blind files the transition under whatever
+    heading follows. Trailing blank lines stay below the new entry so the gap
+    before the next heading survives — the one thing `_section_bounds` does not
+    do, because it is this caller's need and not `## Boundary`'s.
+    """
+    bounds = _section_bounds(lines, "## log")
+    if bounds is None:
+        return None
+    heading, end = bounds
     while end > heading + 1 and not lines[end - 1].strip():
         end -= 1
     return heading, end
@@ -510,20 +750,19 @@ def supersede(record: Record, date: str, reason: str) -> str:
 def acceptable(record: Record) -> bool:
     """Whether `accept` could act on this record without raising.
 
-    `proposed` is necessary but not sufficient — `accept` also needs a `## Log`
-    section to append the transition to. A listing built from status alone names
-    a record whose own suggested command then fails with "no '## Log' section to
-    append to", which is `_set_status`'s refusal and not a sentence anyone reading
-    a list of "promotable" records was told to expect.
+    `proposed` is necessary but not sufficient — `accept_blockers` names the
+    rest: a `## Log` section to append the transition to, a drawing, and a
+    declared kind that `accept` would otherwise refuse. A listing built from
+    status alone names a record whose own suggested command then fails, which
+    is not a sentence anyone reading a list of "promotable" records was told to
+    expect.
 
-    Exported rather than left for `cli` to reimplement: `_log_bounds` is a module
-    member (`the-underscore-is-the-module-contract`), and a second scan for the
-    heading, written at the call site, is the kind of copy that stops agreeing
-    with this one silently.
+    Exported rather than left for `cli` to reimplement: `accept_blockers` is a
+    module member (`the-underscore-is-the-module-contract`), and a second copy
+    of this rule at the call site is the kind of copy that stops agreeing with
+    this one silently.
     """
-    if record.status != "proposed":
-        return False
-    return _log_bounds(record.body.splitlines(keepends=True)) is not None
+    return record.status == "proposed" and not accept_blockers(record)
 
 
 def accepted_on(record: Record) -> str:
@@ -585,7 +824,17 @@ def accept(record: Record, date: str, citation: str) -> str:
     the caller that is not that one: a status is the only thing about this refusal
     that cannot be recovered from the record afterwards, since by then it is
     whatever the caller decided to do next.
+
+    Also raises when `accept_blockers` is non-empty — no drawing, no declared
+    kind, or no `## Log` section — following `_set_status`'s own precedent that
+    the module owns the invariant and every caller gets it. `wfctl arch accept`
+    calls `accept_blockers` itself first and never reaches this branch in the
+    normal case; it exists for the caller that is not the CLI, which is every
+    reason this guard needs to live here rather than only at the console.
     """
     if record.status != "proposed":
         raise ValueError(record.status)
+    blockers = accept_blockers(record)
+    if blockers:
+        raise ValueError("; ".join(blockers))
     return _set_status(record, IN_FORCE, date, citation)
