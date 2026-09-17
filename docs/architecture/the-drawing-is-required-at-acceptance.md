@@ -10,12 +10,17 @@ diagram: state
 #109 wants the drawing required. Required *when* is the question the issue does
 not ask, and the corpus answers it before any code is written.
 
-Thirty-eight records sit under this repo's arch root:
+Thirty-eight records sit under this repo's arch root. Counting a fenced block
+anywhere in the file as a drawing:
 
 |  | accepted | proposed | rejected |
 |---|---|---|---|
 | carries a drawing | 7 | 13 | 2 |
 | carries none | **5** | 11 | 0 |
+
+That is a looser measure than the gate below applies, and Consequences restates
+the count under the strict one. It is kept here because the argument that
+follows turns on the accepted column, which both measures agree is nonzero.
 
 The five are the problem. `architecture-decisions` freezes an accepted record's
 body — "exactly two things ever change", `status` and an appended `Log` line —
@@ -106,19 +111,29 @@ The gate sits on one edge. The five accepted records are already past it.
 
 ## Consequences
 
-Eleven proposed records must gain a drawing before they can be accepted. That is
-the cost of this decision stated plainly; it is real work, and it lands on
-whoever accepts them rather than on this change.
+Twenty-four proposed records must gain a drawing and a declared kind before they
+can be accepted, and until they do they do not appear in `wfctl arch accept`'s
+promotable listing. That is the cost of this decision stated plainly; it is real
+work, and it lands on whoever accepts them rather than on this change.
+
+Twenty-four rather than the eleven in Context, because the gate and that table
+measure different things. The table counts a fenced block anywhere in the file;
+the gate wants one under `## Boundary`, and a declared kind besides. Only the two
+records this decision arrives with satisfy it.
 
 `acceptable` and `accept` must agree, which is the reason `acceptable` was
 exported in the first place — its docstring already names the failure a second
 copy of the rule produces.
 
-The five accepted records with no drawing stay as they are, permanently, and
-`wfctl arch context` goes on projecting them. A reader who counts drawings
-across the corpus will always find some missing, and that is the correct
-outcome rather than a gap to close later.
+The accepted records with no drawing — five under the loose measure, ten under
+the strict one — stay as they are, permanently, and `wfctl arch context` goes on
+projecting them. A reader who counts drawings across the corpus will always find
+some missing, and that is the correct outcome rather than a gap to close later.
 
 ## Log
 
 - 2026-09-16  proposed    — the level-2 gate for #109, second of two
+- 2026-09-17  proposed    — Consequences said eleven proposed records, counting
+  files with no fenced block anywhere. The gate counts a fence under
+  `## Boundary` plus a declared kind, which twenty-four fail. The decision is
+  unchanged; its stated price was understated by more than half
