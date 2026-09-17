@@ -86,6 +86,14 @@ substitution is noted under Complexity Tracking.
       implementation. The predicate-not-path decision is honoured — `evidence` is
       sugar that builds the file-exists predicate, and wfctl's own passes carry
       callables that read what no path can.
+- [x] **`brainstorm-is-one-step-with-addressable-levels`** (proposed):
+      `brainstorm` stays one entry in `_STEPS` with one command and one `auto`
+      flag. The two passes it gains carry predicates rather than per-level
+      authority flags — the shapes that record rejects are four peer table
+      entries and a flag per level, and T004/T034 are neither. `design-levels`
+      keeps ownership of which gates run inside the step; the table carries only
+      the two passes that leave an artifact, which is why `architecture-design`
+      gets no row.
 - [x] **`an-absent-artifact-is-claimed-not-inferred`** (proposed): "ran and
       produced nothing" and "does not apply" are one state (FR-017), and the
       claim is committed to the change under review rather than inferred.
