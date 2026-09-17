@@ -369,6 +369,14 @@ _BRACED_LABEL = re.compile(r"\{([^}]*)\}")
 # table it is supposed to read nothing from (R-004's stated limit).
 _EDGE_LABEL = re.compile(r"([-.=]{2,}[>xo]?)\|([^|]*)\|")
 
+# A rounded or circular node — `A(text)`, `A((text))`. The node id must be
+# adjacent for the same reason the arrow is above: a bare `(text)` is an aside
+# in ordinary prose, and a transition label is allowed to contain one, so
+# matching it loose would split `A --> B: refuses (silently)` into two labels.
+# Circles are read first; `[^)]*` cannot cross the inner `)` of a double paren.
+_CIRCLE_LABEL = re.compile(r"\w+\(\(([^)]*)\)\)")
+_ROUNDED_LABEL = re.compile(r"\w+\(([^)]*)\)")
+
 # Alphanumeric tokens. `\w` also matches `_`, which a slug or an identifier
 # quoted in a drawing could carry, and treating `arch_root` as one token is
 # the reading a content-word comparison wants.
@@ -458,6 +466,7 @@ def _labels(drawing: str) -> list[str]:
 
         remainder = _EDGE_LABEL.sub(_take_edge, line)
         remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, remainder))
+        remainder = _ROUNDED_LABEL.sub(_take, _CIRCLE_LABEL.sub(_take, remainder))
         if "-->" in remainder:
             arrow = remainder.index("-->")
             colon = remainder.find(":", arrow)

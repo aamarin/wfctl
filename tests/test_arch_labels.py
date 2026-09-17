@@ -207,6 +207,24 @@ def test_a_mixed_transition_label_stays_one_label() -> None:
     ]
 
 
+def test_a_rounded_or_circular_node_label_is_read() -> None:
+    """`A(text)` and `A((text))` are mermaid's rounded and circular nodes, and
+    neither the bracket nor the quote scan sees an unquoted one — so a drawing
+    built from them compared as though it named nothing. Raised by the review
+    on the PR, after the panel's six."""
+    assert _arch._labels("A(invented shibboleth)") == ["invented shibboleth"]
+    assert _arch._labels("A((circle label))") == ["circle label"]
+
+
+def test_a_parenthesised_aside_is_not_its_own_label() -> None:
+    """The node id must be adjacent to the paren, for the reason the arrow must
+    be adjacent to the pipe: a bare `(text)` is an aside, and a transition label
+    may contain one. Matching it loose splits `A --> B: refuses (silently)` into
+    two labels — the same defect the mixed-quote fix above closed."""
+    assert _arch._labels("A --> B: refuses (silently)") == ["refuses (silently)"]
+    assert _arch._labels('A["text (aside)"] --> B') == ["text (aside)"]
+
+
 def test_a_bracket_inside_a_quoted_node_label_does_not_end_it() -> None:
     """`["Use [cache]"]` is a legal quoted label carrying a bracket. The
     bracketed pattern stopped at the inner `]`, yielding the fragment
