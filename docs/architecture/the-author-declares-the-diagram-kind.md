@@ -87,10 +87,10 @@ flowchart TB
   A1 --> A2
   A2 --> A3
   A2 -->|declared| W1
-  A3 -->|drawn| W2
+  A3 -->|drawing| W2
   W1 --> W2
   W2 -->|no| W3
-  A1 --x|never inferred| W1
+  A1 --x|never infers| W1
 ```
 
 The crossed edge is the decision. Everything else is a read.

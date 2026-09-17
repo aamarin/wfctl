@@ -351,13 +351,23 @@ def accept_blockers(record: Record) -> list[str]:
     return blockers
 
 
-# A node label: quoted, bracketed, or braced — the three shapes mermaid
-# accepts for a node's display text. `[*]` is excluded at the call site rather
-# than here, because the pattern that matches it is the same pattern that
-# matches every other bracketed label; the exclusion is content, not syntax.
+# A node label: quoted, bracketed, braced, or piped — the shapes mermaid
+# accepts for display text. `[*]` is excluded at the call site rather than
+# here, because the pattern that matches it is the same pattern that matches
+# every other bracketed label; the exclusion is content, not syntax.
+#
+# The bracketed pattern prefers a quoted interior, because `[^\]]*` alone stops
+# at the first `]` — and a quoted label is allowed to contain one, so
+# `["Use [cache]"]` would otherwise be read as the fragment `"Use [cache`.
 _QUOTED_LABEL = re.compile(r'"([^"]*)"')
-_BRACKETED_LABEL = re.compile(r"\[([^\]]*)\]")
+_BRACKETED_LABEL = re.compile(r"\[(\"[^\"]*\"|[^\]]*)\]")
 _BRACED_LABEL = re.compile(r"\{([^}]*)\}")
+
+# An edge label — `-->|text|`, `--x|text|`, `-.->|text|`. The arrow is required,
+# and required to be adjacent: a bare `|text|` is how ASCII box art draws a cell
+# wall, and matching that would hand the check two labels for every row of a
+# table it is supposed to read nothing from (R-004's stated limit).
+_EDGE_LABEL = re.compile(r"([-.=]{2,}[>xo]?)\|([^|]*)\|")
 
 # Alphanumeric tokens. `\w` also matches `_`, which a slug or an identifier
 # quoted in a drawing could carry, and treating `arch_root` as one token is
@@ -393,43 +403,70 @@ def _content_words(text: str) -> set[str]:
 
 
 def _labels(drawing: str) -> list[str]:
-    """Every node label in `drawing`: quoted, bracketed, braced, or the text
-    after `:` on a transition line.
+    """Every node label in `drawing`: piped, bracketed, braced, quoted, a bare
+    `subgraph` title, or the text after `:` on a transition line.
 
-    `<br/>` and `<br>` become whitespace before any of the four shapes are
-    read, so a wrapped label reads as the one phrase its author wrote rather
-    than as line-broken fragments. `[*]` — mermaid's start/end marker — yields
-    no label; it is a syntax element, not a name for anything.
+    `<br/>` and `<br>` become whitespace before any of the shapes are read, so
+    a wrapped label reads as the one phrase its author wrote rather than as
+    line-broken fragments. `[*]` — mermaid's start/end marker — yields no
+    label; it is a syntax element, not a name for anything.
 
-    Brackets and braces are read first and removed from the line before the
-    bare-quote scan runs. `A["a label"]` is mermaid's own common shape — a
+    Each shape removes what it reads before the next one runs, so one label is
+    never reported twice. `A["a label"]` is mermaid's own common shape — a
     quoted string inside brackets — and reading the quote separately as well
-    would report one label as two. The bare-quote scan removes what it reads
-    for the same reason: a quoted transition label (`A --> B: "x"`) is caught
-    by the quote scan, and the colon scan below must not read the same text a
-    second time out of what the quote scan leaves behind.
+    would report one label as two.
+
+    Order is what keeps a mixed transition label whole. `A --> B: known "x"` is
+    one label, and a bare-quote scan running first would take `"x"` out of it
+    and leave `known` behind as a second — so the colon scan runs before it and
+    claims the whole tail.
+
+    Three shapes are syntax rather than names and yield nothing: a `%%` comment
+    line, which mermaid ignores whatever it contains; `:::`, which attaches a
+    CSS class; and a `subgraph` title that is bracketed or quoted, already read
+    as a label by the shape it is written in.
     """
     text = drawing.replace("<br/>", " ").replace("<br>", " ")
     found: list[str] = []
 
-    def _take(m: re.Match[str]) -> str:
-        content = m.group(1).strip()
+    def _unquote(content: str) -> str:
         if content[:1] == '"' and content[-1:] == '"' and len(content) >= 2:
-            content = content[1:-1]
+            return content[1:-1]
+        return content
+
+    def _take(m: re.Match[str]) -> str:
+        content = _unquote(m.group(1).strip())
         if content and content != "*":
             found.append(content)
         return ""
 
     for line in text.splitlines():
-        remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, line))
-        remainder = _QUOTED_LABEL.sub(_take, remainder)
+        stripped = line.strip()
+        if stripped.startswith("%%"):
+            continue
+        if stripped.startswith("subgraph "):
+            title = stripped[len("subgraph ") :].strip()
+            if title and "[" not in title and '"' not in title:
+                found.append(title)
+                continue
+
+        def _take_edge(m: re.Match[str]) -> str:
+            content = _unquote(m.group(2).strip())
+            if content and content != "*":
+                found.append(content)
+            return m.group(1)
+
+        remainder = _EDGE_LABEL.sub(_take_edge, line)
+        remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, remainder))
         if "-->" in remainder:
             arrow = remainder.index("-->")
             colon = remainder.find(":", arrow)
-            if colon != -1:
-                after = remainder[colon + 1 :].strip()
+            if colon != -1 and remainder[colon : colon + 3] != ":::":
+                after = _unquote(remainder[colon + 1 :].strip())
                 if after:
                     found.append(after)
+                remainder = remainder[:colon]
+        _QUOTED_LABEL.sub(_take, remainder)
     return [label.strip() for label in found if label.strip()]
 
 

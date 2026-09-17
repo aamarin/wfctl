@@ -146,6 +146,74 @@ def test_an_unreadable_ascii_drawing_produces_no_finding(tmp_path: Path) -> None
     assert not [f for f in findings if f.level == "warning"]
 
 
+# --- the shapes `_labels` reads, and the three it must not -------------------
+#
+# A second review panel, run over the first panel's own fixes, found six ways
+# `_labels` read a drawing wrongly (#294 is the general form: a panel's fixes
+# are the least-reviewed code in a branch). Four are shapes this repository's
+# own records already use, so the check was silently blind to them rather than
+# theoretically incomplete.
+
+
+def test_an_edge_label_between_pipes_is_read() -> None:
+    """`A -->|text| B` is mermaid's edge-label syntax and the shape this
+    repository's records reach for most — `the-author-declares-the-diagram-kind`
+    carries four. They were read as nothing at all, so VR-007 compared a
+    drawing against the prose while ignoring most of what the drawing said."""
+    assert _arch._labels("A -->|invented shibboleth| B") == ["invented shibboleth"]
+    assert _arch._labels("A --x|never inferred| B") == ["never inferred"]
+
+
+def test_a_bare_pipe_is_not_an_edge_label() -> None:
+    """The fix for the test above, written as a bare `|text|`, reads every cell
+    wall of an ASCII box or table as a label — which is the one thing R-004
+    fixed the mechanism's limit at: an ASCII drawing yields nothing rather than
+    a false comparison. The arrow is required, and required to be adjacent."""
+    assert _arch._labels("| left side | --> | right side |") == []
+    assert _arch._labels("| a | b | c |") == []
+
+
+def test_a_bare_subgraph_title_is_read() -> None:
+    """`subgraph agent` names a grouping, and `session-state-is-re-derived`
+    titles both of its subgraphs this way. A title written as `subgraph a["x"]`
+    is already read as a bracketed label, so only the bare form was missing."""
+    assert _arch._labels("subgraph Storage Layer\nend") == ["Storage Layer"]
+    assert _arch._labels('subgraph author["the record\'s author"]') == [
+        "the record's author"
+    ]
+
+
+def test_a_comment_line_yields_no_label() -> None:
+    """Mermaid ignores a `%%` line whatever it contains, so a commented-out
+    edge is not in the picture. Reading one produced a warning about a label
+    no reader of the rendered diagram can see."""
+    assert _arch._labels("%% A --> B: invented shibboleth") == []
+
+
+def test_a_class_attachment_is_not_a_transition_label() -> None:
+    """`:::` attaches a CSS class. Read as a transition label it yields
+    `::critical` — a token that by construction appears in no record's prose,
+    so it warned every time and could never be resolved."""
+    assert _arch._labels("A --> B:::critical") == []
+
+
+def test_a_mixed_transition_label_stays_one_label() -> None:
+    """`A --> B: known "x"` is one label. A bare-quote scan running first takes
+    `"x"` out of it and leaves `known` behind as a second, so one label became
+    two findings — the same defect the quoted-transition test above pins, from
+    the side the earlier fix did not reach."""
+    assert _arch._labels('A --> B: known "invented shibboleth"') == [
+        'known "invented shibboleth"'
+    ]
+
+
+def test_a_bracket_inside_a_quoted_node_label_does_not_end_it() -> None:
+    """`["Use [cache]"]` is a legal quoted label carrying a bracket. The
+    bracketed pattern stopped at the inner `]`, yielding the fragment
+    `"Use [cache` — a warning naming a label nobody wrote."""
+    assert _arch._labels('A["Use [cache]"] --> B') == ["Use [cache]"]
+
+
 # --- the corpus run (T030) ---------------------------------------------------
 
 
