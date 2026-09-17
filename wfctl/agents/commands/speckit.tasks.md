@@ -10,7 +10,7 @@ handoffs:
     agent: speckit.implement
     prompt: Start the implementation in phases
     send: true
-allowed-tools: Read Glob Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl feature-paths*)
+allowed-tools: Read Glob Write Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl feature-paths*)
 ---
 
 ## User Input

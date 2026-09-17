@@ -296,6 +296,67 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     assert inline == {}, f"next_command with no skill behind it: {inline}"
 
 
+# Steps whose skill revises an artifact the same step already wrote, so the
+# wrapper needs `Edit` on top of `Write`. Named here rather than inline so a step
+# added to the pipeline has one place to declare it; the docstring below carries
+# why each of these two is in it and why the other four are not.
+_EDITS_ITS_OWN_ARTIFACT = {"specify", "implement"}
+
+
+def test_every_pipeline_step_may_write_its_own_artifact() -> None:
+    """A step whose grant cannot write is a step that reads correctly and stalls.
+
+    Every `_STEPS` row produces a file: `spec.md`, `research.md`, `tasks.md`, the
+    implementation sentinel. `allowed-tools` on the wrapper is what pre-approves
+    that write, and four rows carried no `Write` at all — specify, plan, tasks
+    and implement. Attended, that is a permission prompt someone answers and
+    nobody records. Unattended it is the whole run: the command resolves, the
+    workflow starts, and it stops one tool call later with nobody there to say
+    yes. `speckit.specify` was the worst of the four, because it is the first
+    step after brainstorm and so the one an unattended run reaches first.
+
+    Walks `_STEPS` rather than naming the four, so a step added to the pipeline
+    with a read-only grant fails here rather than on the first unattended run
+    that reaches it. #240 widened decompose's grant for this reason and left the
+    rule unwritten, which is how the other four kept theirs.
+
+    `Edit` is pinned by name for the steps that revise a file they already wrote,
+    because `Write` on one of those means rewriting it whole — the operation most
+    likely to drop what was there, which is the argument
+    `test_each_review_wrapper_allows_the_commands_the_scan_file_needs` already
+    makes for the two review steps. `implement` marks each finished task `[X]` in
+    a `tasks.md` that exists, and `_predicates.implement` reads those marks.
+    `specify` runs a validation loop over the spec it just wrote — step 7c
+    updates it for each failing checklist item, 7c.8 replaces each
+    `[NEEDS CLARIFICATION]` marker with the answer, and 7d rewrites the checklist
+    every iteration.
+
+    The set is those two and not every step, and the split is the skills' rather
+    than a judgment: brainstorm, plan, tasks and decompose each write their
+    artifact once and never reopen it, and clarify and analyze are the review
+    steps the scan-file test already pins. A step added later that revises what it
+    wrote belongs in `_EDITS_ITS_OWN_ARTIFACT` — it will pass this test without
+    the grant, and stall on the first unattended correction pass.
+
+    Asserts the wrapper and not the skill. The wrapper is what `EXECUTE_COMMAND`
+    resolves to, which is the route `speckit-orchestrate` actually emits; whether
+    a step is reachable by skill name at all is #396, and whether it should be is
+    #398.
+    """
+    from wfctl import _arch
+    from wfctl._pipeline import _STEPS
+
+    unwritable = []
+    for step, spec in _STEPS.items():
+        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
+        allowed = _arch._frontmatter(wrapper.read_text()).get("allowed-tools", "")
+        if "Write" not in allowed:
+            unwritable.append(step)
+        if step in _EDITS_ITS_OWN_ARTIFACT and "Edit" not in allowed:
+            unwritable.append(f"{step} (Edit)")
+    assert unwritable == [], f"cannot write its own artifact: {unwritable}"
+
+
 def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:
     """The route #361 describes is a string match, and nothing else holds it.
 
