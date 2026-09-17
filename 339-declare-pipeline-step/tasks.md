@@ -28,11 +28,9 @@ mechanism, and no story can start before it lands. PR boundaries are
 
 - [ ] T001 Add a `declaring_repo` fixture to tests/conftest.py that writes a `wfctl.json` carrying a `steps` block into a tmp repo and returns its root; verify with `uv run --frozen --extra dev pytest -q tests/conftest.py --collect-only`
 - [ ] T002 [P] Extend that fixture to seed `.agents/commands/<name>.md` so a declared command can be made installed or missing per test; verify with a throwaway assertion in tests/test_declared.py that both states are reachable
-- [ ] T002a Rename the four settled symbols across wfctl/ and tests/ before any new shape is written — `Reading` → `Assessment`, `Predicate` → `EvidenceReader`, `Step.predicate` → `Step.reads`, `Step.continuation` → `Step.on_finish` — so `SubStep` in T003 is named consistently with the `Step` it sits beside rather than diverging from it; verify with `uv run --frozen --extra dev pytest -q && uv run --frozen --extra dev mypy wfctl/`
-- [ ] T002b `git mv wfctl/_predicates.py wfctl/_evidence.py` and `tests/test_predicates.py` to `tests/test_evidence.py`, updating the 47 references across 13 files including wfctl/agents/commands/speckit.analyze.md and wfctl/agents/skills/writing-a-scan-file/SKILL.md, and rewriting the module docstring's own use of "predicate"; verify with `uv run --frozen --extra dev pytest -q` and `uv run wfctl install-skills --prune --yes --agent "$WFCTL_AGENT"`
+- [x] T002a **Done on `339-declare-pipeline-step`, not here** (`200e601`). The four settled symbols were renamed across `wfctl/` and `tests/` — `Reading` → `Assessment`, `Predicate` → `EvidenceReader`, `Step.predicate` → `Step.reads`, `Step.continuation` → `Step.on_finish`, and `Assessment.annotation` → `Assessment.display`. `_predicates.py` became `_evidence.py` with `tests/test_evidence.py` beside it. Nothing in it depends on the pass mechanism, so doing it on the parent's branch keeps this PR's diff to the feature — and T003 writes `SubStep` beside a `Step` already carrying the new names rather than diverging from it.
 
-**Checkpoint**: a test can describe a repository that declares passes, and the
-module the rest of this feature edits carries the names the feature uses.
+**Checkpoint**: a test can describe a repository that declares passes.
 
 ---
 

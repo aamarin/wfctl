@@ -282,14 +282,16 @@ Rejected: `_reading.py`, which reintroduces the exact word `Assessment` replaced
 `_readers.py`, which names the callables again rather than the subject, and
 leaves `Evidence` looking like a guest in its own module.
 
-**It rides with #410 rather than becoming its own issue.** 47 references across
-13 files, two of them shipped agent docs (`speckit.analyze.md`,
-`writing-a-scan-file/SKILL.md`), so the sweep is real. But #410 already rewrites
-the type names this module is named after, and splitting them leaves the tree
-with `_predicates.py` defining `EvidenceReader` for however long the second PR
-takes — the inconsistency the rename exists to remove, introduced deliberately.
-`tasks.md` T002a and T002b carry it, ahead of T003 so `SubStep` is never written
-beside a `Step` spelled differently.
+**Done on `339-declare-pipeline-step` itself, commit `200e601`** — 16 files,
+1723 tests, ruff and mypy green, `install-skills` and `doctor` re-run because
+two shipped agent docs name the module.
+
+It was first planned into #410, on the ground that splitting the rename from
+that PR would leave `_predicates.py` defining `EvidenceReader` until the second
+one landed. That reasoning only holds if the rename comes *second*. Landing it
+on the parent's branch, ahead of both implementation PRs, means the
+inconsistent state never exists, #410's diff stays the feature, and the rename
+sits next to this memo rather than three files away from it.
 
 ## Where this lands
 
