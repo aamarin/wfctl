@@ -88,6 +88,7 @@ class SubStep(NamedTuple):
 | `continuation` | `on_finish` | Names the moment — when this finishes, continue or pause. `continuation` left the reader to infer what it governed |
 | `predicate` (field) | `reads` | The module docstring already says *"What each step reads is `_predicates`"* — the code finally matching its own prose |
 | `Predicate` (type) | `EvidenceReader` | A predicate promises a bool; this returns a four-valued `State` plus two render strings. A *reader* may be named for what it consumes |
+| `annotation` (field on the reading) | `display` | Not an override of `reason` but a second concept beside it — the preferred presentation string, with `reason` as the fallback. See below |
 | `SubStep` | `SubStep` | Kept. Also frees "pass" for `wfctl-counts-the-passes`, which uses it for orchestrate-loop rounds |
 | `State` | `State` | Bare on purpose — see *The prefix problem* |
 
@@ -212,7 +213,7 @@ rather than describing the act that answered it.
 Its cost: 24 prose uses of "standing" in `wfctl/`, none of them identifiers, so
 a grep for the symbol is noisy even though the namespace is free.
 
-## The one field still open: `Assessment.annotation`
+## Settled: `Assessment.annotation` → `display`
 
 `annotation` names two different things one hop apart.
 
@@ -225,21 +226,42 @@ Assessment.annotation       an OVERRIDE; None means "the reason is what renders"
               └─► cli.py:848               observed.step, written to session state
 ```
 
-A rename toward presentation — `display_note`, `view_annotation` — was considered
-and rejected on inspection: the field is not view-only. It ships in the
-machine-readable payload and is written into durable session state, and
-`pipeline-state-is-one-payload` is why — the string is computed during inference
-precisely so that no view derives it.
+**The field is `display`, and the rejection above was wrong on its facts.** A
+rename toward presentation — `display_note`, `view_annotation` — was turned down
+on the ground that the field is not view-only, because it ships in the payload
+and is written into session state. Shipping in the payload is not what makes a
+value structured. Every consumer of the resolved string prints it: `cli.py:603`
+dims it beside the row, `cli.py:848` builds the handoff line `implement 0/61
+done`, and `_pipeline.py:337` writes it. Nothing branches on it and nothing
+parses it, because `reason` and `remedy` sit beside it in the same payload for
+exactly that — `_pipeline.py:584` says so outright, that `reason` is there so a
+consumer need not pull the tally back out.
 
-What would pay is renaming the *override*, where the collision actually is:
+So the two ends are not an override and its result. They are two concepts:
 
-| Candidate | Reads as |
+| Field | Means |
 | --- | --- |
-| `Assessment.override` | this replaces what would otherwise render |
-| `Assessment.instead_of_reason` | explicit, long |
-| leave as `annotation` | accepts one word meaning two things a hop apart |
+| `Assessment.display` | the preferred presentation string, when there is one |
+| `reason` | why the state is what it is — the fallback, and the routing read |
+| `_PipelineStep.annotation` | the resolved string the payload exports |
 
-`_PipelineStep.annotation` stays either way — it is the payload's public key.
+Rejected: `step_detail`, on two counts. `step_` is false because one type grades
+a step and a sub-step alike, which is the same reason `State` stays bare; and
+`detail` reads as additive, so a renderer would reasonably show it *beside*
+`reason` rather than instead of it. `override` and `instead_of_reason` both
+describe a relationship to `reason` that `display` makes unnecessary — under the
+two-concepts reading there is nothing to override, only a fallback.
+
+`_PipelineStep.annotation` stays. It is a public key in `status --json`, and
+renaming one end already dissolves the collision; renaming the other turns this
+from an internal naming fix into a public-schema migration. It remains a weak
+name for a resolved string, `text` is the candidate, and that is its own issue.
+
+**Keep `renders()` on `is None`, not `or`.** `display=""` renders as empty under
+the current form and falls through to `reason` under `or`. Unreachable today —
+every writer passes a non-empty f-string — but it is a semantic change, and an
+unreachable one is the kind that is reached later by someone who did not know it
+was a decision.
 
 ## Where this lands
 

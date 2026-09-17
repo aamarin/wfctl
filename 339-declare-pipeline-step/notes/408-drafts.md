@@ -312,15 +312,22 @@ record's phrase, and with `PipelineReport` respectively).
 Blast radius: 139 occurrences of `predicate` across `wfctl/` and `tests/`, 26 of
 `continuation`. Free today; forty-odd call sites more after #410 lands.
 
-## 6. Open, and not settled: `Assessment.annotation`
+## 6. Settled 2026-09-17: `Assessment.annotation` → `display`
 
-One word means two things a hop apart — an override on `Assessment`, a resolved
-string on `_PipelineStep`. A rename toward presentation (`display_note`) was
-inspected and rejected: the field ships in `status --json` and is written into
-session state, so it is not view-only.
+One word meant two things a hop apart — an override on `Assessment`, a resolved
+string on `_PipelineStep`. The rename toward presentation was rejected here on
+the ground that the field ships in `status --json` and so is not view-only. That
+was wrong: every consumer of the resolved string prints it, and `reason` and
+`remedy` sit beside it in the same payload precisely so nothing parses it.
 
-Candidates for the override only: `override`, `instead_of_reason`, or leave it.
-`_PipelineStep.annotation` stays regardless — it is the payload's public key.
+The field is `display`, and it is not an override — it is the preferred
+presentation string, with `reason` as the fallback and the routing read.
+`_PipelineStep.annotation` stays, being a public key; renaming one end already
+dissolves the collision. `renders()` keeps `is None` rather than `or`, so
+`display=""` goes on rendering empty.
+
+Full argument, including why `step_detail` loses on both halves, is in
+`339-naming.md` § *Settled: `Assessment.annotation` → `display`*.
 
 ## What I would do on a yes
 
