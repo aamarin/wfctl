@@ -142,6 +142,13 @@ a glyph.
 with no third outcome between them (FR-017) — `skipped` is what both reach, which
 is what `an-absent-artifact-is-claimed-not-inferred` decided.
 
+A pass reaches `skipped` two ways, and `claimed` is what separates them. A
+non-null `claimed` is a person's sentence, written by `wfctl step none` into the
+change under review. A null `claimed` on a `skipped` pass means the state was
+inherited: the parent step was walked past, so the pass was never reached and no
+claim was owed. No consumer needs a second state name for this — the field
+already answers it, and `--all` renders the sentence where there is one.
+
 ### Where the parent's state comes from
 
 Its own predicate first, then its passes (R7):
