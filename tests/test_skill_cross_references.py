@@ -560,6 +560,7 @@ def test_the_record_template_carries_every_section_a_record_needs() -> None:
         "Direct baseline",
         "Decision",
         "Owns truth",
+        "Boundary",
         "Considered",
         "Log",
     ):

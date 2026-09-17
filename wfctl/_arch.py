@@ -161,12 +161,15 @@ def load_records(root: Path) -> list[Record]:
 
 
 def validate(records: list[Record]) -> list[Finding]:
-    """Link integrity across the record set: VR-002, VR-003, VR-004.
+    """Link integrity across the record set (VR-002, VR-003, VR-004), plus the
+    diagram-kind and label-agreement rules this feature added (VR-006, VR-007).
 
     Only the rules checkable from the set alone. The status *transitions* in
     data-model.md are a review convention — records are hand-edited markdown and
     wfctl does not mediate the edits, so a status moved along an illegal path is
     not detectable here. VR-001 needs no check: an illegal value never parses.
+    There is no VR-005 check here by design — it is the frozen-body rule,
+    enforced by convention, not code.
     """
     slugs = {r.slug for r in records}
     findings: list[Finding] = []
@@ -259,11 +262,17 @@ def _drawing(record: Record) -> str:
 
     Content is never inspected (clarification Q2) — a fenced block holding
     prose is a drawing to this feature, because the alternative is a rule that
-    tells a picture from a code sample, which the corpus does not support.
+    tells a picture from a code sample, which the corpus does not support. An
+    interior that is empty or whitespace-only is not content, though: it is
+    the same "nothing drawn" `bounds is None` already returns "" for, so it is
+    stripped before the truthiness check a caller makes.
 
     The first block, not all of them: a second fence under the same heading is
     a second drawing of the same boundary, and nothing here needs to choose
-    between them.
+    between them. "First" is tracked by the opening delimiter, not by whether
+    anything was collected — an empty first block still ends the search, so a
+    scratch fence left blank does not fall through to whatever real drawing
+    follows it.
 
     Reads `_md.walk_lines` directly rather than `_unfenced`, which deliberately
     yields the complement of what this needs — lines *outside* a fence. This is
@@ -275,17 +284,21 @@ def _drawing(record: Record) -> str:
         return ""
     heading, end = bounds
     interior: list[str] = []
-    collecting = False
+    opened = False
     for line in _md.walk_lines(lines[heading:end]):
         if line.inside:
             interior.append(line.text)
-            collecting = True
-        elif collecting and line.fence:
-            # The closing delimiter of the block we were collecting — stop
-            # rather than continue into whatever follows it, which may be a
+        elif line.fence:
+            if not opened:
+                # The block's own opening delimiter — not a stop, the start of
+                # what we're reading.
+                opened = True
+                continue
+            # The closing delimiter of the block we opened — stop here,
+            # whether or not it had any interior, rather than continue into a
             # second fence this function does not read.
             break
-    return "\n".join(interior)
+    return "\n".join(interior).strip()
 
 
 def _kind_list(sep: str, last_sep: str) -> str:
@@ -364,9 +377,9 @@ _STOPWORDS = frozenset({
     "who", "whom", "whose", "that", "this", "these", "those", "may", "can",
     "could", "will", "would", "shall", "should", "has", "have", "had",
     "does", "did", "its", "his", "her", "their", "our", "your", "you",
-    "his", "own", "per", "via", "all", "any", "one", "two", "each", "every",
+    "own", "per", "via", "all", "any", "one", "two", "each", "every",
     "ever", "never", "always", "yet", "so", "too", "also", "only", "just",
-    "itself", "themselves", "there", "here", "now", "then",
+    "itself", "themselves", "there", "here", "now",
 })
 
 
@@ -391,7 +404,10 @@ def _labels(drawing: str) -> list[str]:
     Brackets and braces are read first and removed from the line before the
     bare-quote scan runs. `A["a label"]` is mermaid's own common shape — a
     quoted string inside brackets — and reading the quote separately as well
-    would report one label as two.
+    would report one label as two. The bare-quote scan removes what it reads
+    for the same reason: a quoted transition label (`A --> B: "x"`) is caught
+    by the quote scan, and the colon scan below must not read the same text a
+    second time out of what the quote scan leaves behind.
     """
     text = drawing.replace("<br/>", " ").replace("<br>", " ")
     found: list[str] = []
@@ -406,8 +422,7 @@ def _labels(drawing: str) -> list[str]:
 
     for line in text.splitlines():
         remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, line))
-        for m in _QUOTED_LABEL.finditer(remainder):
-            found.append(m.group(1))
+        remainder = _QUOTED_LABEL.sub(_take, remainder)
         if "-->" in remainder:
             arrow = remainder.index("-->")
             colon = remainder.find(":", arrow)

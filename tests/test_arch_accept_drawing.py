@@ -65,6 +65,45 @@ def test_a_record_with_no_drawing_is_refused_and_the_file_is_unchanged(
     assert path.read_text() == before
 
 
+def test_a_fence_with_only_whitespace_inside_is_no_drawing(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scaffolded fence nobody filled in must refuse the same as a missing
+    `## Boundary` section — a blank interior is not a drawing, even though
+    `_md.walk_lines` reports its one line as `inside`."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(
+        root, "a-decision", diagram="state",
+        boundary="## Boundary\n\n```mermaid\n   \n```\n\n",
+    )
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #109"])
+
+    assert result.exit_code == 1
+    assert "no drawing" in result.output
+
+
+def test_an_empty_first_fence_does_not_let_a_later_fence_stand_in_for_it(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_drawing`'s contract is "the first block, not all of them" — an empty
+    first fence is still the first block. Accepting here would mean a second,
+    unrelated fence silently promoted itself to "the drawing"."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(
+        root, "a-decision", diagram="state",
+        boundary=(
+            "## Boundary\n\n```mermaid\n```\n\nprose here\n\n"
+            "```mermaid\nflowchart LR\n  A --> B\n```\n\n"
+        ),
+    )
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #109"])
+
+    assert result.exit_code == 1
+    assert "no drawing" in result.output
+
+
 # --- scenario 2: a drawing and a kind accepts as it does today ----------
 
 
@@ -136,6 +175,25 @@ def test_a_drawing_with_no_declared_kind_is_refused_and_names_the_three_values(
     for kind in _arch.DIAGRAM_KINDS:
         assert kind in result.output
     assert path.read_text() == before
+
+
+def test_a_drawing_with_no_declared_kind_names_every_kinds_blurb(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guidance table is keyed by kind, not paired positionally with
+    `DIAGRAM_KINDS` by `zip` — this pins that every kind still prints with its
+    own blurb, which a length mismatch between the two would otherwise drop or
+    mispair with no test failing."""
+    from wfctl.cli import _DIAGRAM_KIND_BLURBS
+
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "a-decision", boundary=_BOUNDARY)
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #109"])
+
+    assert set(_DIAGRAM_KIND_BLURBS) == set(_arch.DIAGRAM_KINDS)
+    for kind in _arch.DIAGRAM_KINDS:
+        assert _DIAGRAM_KIND_BLURBS[kind] in result.output
 
 
 def test_a_kind_outside_the_set_is_refused_and_names_the_three_values(

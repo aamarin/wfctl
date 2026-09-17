@@ -1496,6 +1496,18 @@ def arch_none_cmd(
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
+# Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a
+# `zip` of two parallel sequences silently drops or mispairs a row the moment
+# the two drift out of length, with no test to catch it. Keying means a kind
+# missing its blurb raises `KeyError` instead — loud at the one call site that
+# reads it, in `test_a_drawing_with_no_declared_kind_names_every_kinds_blurb`.
+_DIAGRAM_KIND_BLURBS: dict[str, str] = {
+    "data-flow": "a value moving between two sides",
+    "component": "a line between components",
+    "state": "a sequence one thing passes through",
+}
+
+
 @arch_app.command("accept")
 def arch_accept_cmd(
     slug: str = typer.Argument(
@@ -1638,15 +1650,8 @@ def arch_accept_cmd(
             # table is for.
             console.print()
             width = max(len(k) for k in _arch.DIAGRAM_KINDS)
-            for kind, blurb in zip(
-                _arch.DIAGRAM_KINDS,
-                (
-                    "a value moving between two sides",
-                    "a line between components",
-                    "a sequence one thing passes through",
-                ),
-            ):
-                console.print(f"  {kind:<{width}}  {blurb}")
+            for kind in _arch.DIAGRAM_KINDS:
+                console.print(f"  {kind:<{width}}  {_DIAGRAM_KIND_BLURBS[kind]}")
         console.print(f"\n  {_arch_location(record.path, repo_root)}", soft_wrap=True)
         raise typer.Exit(1)
 
@@ -5662,11 +5667,14 @@ def _check_arch_records(repo_root: Path) -> bool:
 
     The one check here that reads a directory wfctl never wrote — `arch_root`
     defaults to `docs/architecture`, which a repo may have been keeping ADRs in
-    long before it installed anything. That set can only reach `warning`: an
-    `error` needs a `supersedes:` frontmatter key, which is this tool's own
-    convention and not MADR's or adr-tools', while `status: superseded` alone is
-    the VR-002 warning. A repo that never adopted the feature can be nagged; it
-    cannot be failed.
+    long before it installed anything. Supersession alone can only reach
+    `warning` there: an `error` from VR-003/VR-004 needs a `supersedes:`
+    frontmatter key, which is this tool's own convention and not MADR's or
+    adr-tools', while `status: superseded` alone is the VR-002 warning. VR-006
+    (#109) is the exception: a foreign record that happens to carry a
+    `diagram:` key outside `DIAGRAM_KINDS` gets an `error` with no dependency on
+    `supersedes:` at all, because a misspelled kind is wfctl's own convention
+    being read back, not a convention the record has to have opted into.
 
     Validates the top-level tier only, because `load_records` globs one level.
     That is the tier boundary `design-levels` draws and `arch none` already

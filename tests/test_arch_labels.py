@@ -110,6 +110,25 @@ def test_vr007_fires_on_proposed_only(tmp_path: Path, status: str) -> None:
     assert not [f for f in findings if "shibboleth" in f.message]
 
 
+def test_a_quoted_transition_label_is_read_once_not_twice(tmp_path: Path) -> None:
+    """`A --> B: "x"` is caught by the bare-quote scan; the colon scan that
+    follows it must not read the same text a second time out of what the
+    quote scan left behind, or one label produces two near-identical findings
+    — one of them carrying stray `"` characters in its message."""
+    body = _record(
+        "proposed",
+        '```mermaid\nstateDiagram-v2\n  A --> B: "a wholly invented shibboleth"\n```',
+        extra_prose="Nothing here mentions that concept at all.",
+    )
+    path = _write(tmp_path, "a-decision", body)
+
+    findings = _arch.validate([_arch.parse_record(path)])
+
+    warnings = [f for f in findings if f.level == "warning"]
+    assert len(warnings) == 1
+    assert warnings[0].message.count("shibboleth") == 1
+
+
 def test_an_unreadable_ascii_drawing_produces_no_finding(tmp_path: Path) -> None:
     """Research R-004's stated limit: the check reads bracketed or quoted
     labels. An ASCII box drawing yields none, and the check compares nothing
