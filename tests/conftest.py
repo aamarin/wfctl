@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._predicates import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+from wfctl._evidence import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
 
 # Set before any wfctl import: `wfctl.cli` builds its `Console()` at module
 # scope, and rich resolves the color system there — a fixture would run too

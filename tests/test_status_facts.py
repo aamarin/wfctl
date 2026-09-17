@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _predicates
+from wfctl import _evidence
 from wfctl._pipeline import build_report
 from wfctl.cli import _FACT_GLYPH, _STATE_GLYPH, app
 
@@ -254,12 +254,12 @@ def test_no_fact_is_derived_from_a_step(storyctl_dir: types.SimpleNamespace) -> 
     import inspect
 
     for fn in (
-        _predicates.fact_artifacts_written,
-        _predicates.fact_definition_of_done,
-        _predicates.fact_architecture_accepted,
+        _evidence.fact_artifacts_written,
+        _evidence.fact_definition_of_done,
+        _evidence.fact_architecture_accepted,
     ):
         annotations = str(inspect.signature(fn))
-        assert "Reading" not in annotations
+        assert "Assessment" not in annotations
         assert "_PipelineStep" not in annotations
         assert "State" not in annotations
 
@@ -292,11 +292,11 @@ def test_the_rule_for_unavailable_evidence_is_unchanged() -> None:
     """
     promised = ("repo-declared", "accepted-record")
     for source in promised:
-        assert _predicates.blocks("inconclusive", source) is True
-    assert _predicates.blocks("inconclusive", "ambient") is False
+        assert _evidence.blocks("inconclusive", source) is True
+    assert _evidence.blocks("inconclusive", "ambient") is False
     for source in (*promised, "ambient"):
-        assert _predicates.blocks("satisfied", source) is False
-        assert _predicates.blocks("unsatisfied", source) is True
+        assert _evidence.blocks("satisfied", source) is False
+        assert _evidence.blocks("unsatisfied", source) is True
 
 
 def test_the_console_prints_the_payload_detail_and_composes_nothing(
@@ -461,7 +461,7 @@ def test_the_verification_answer_is_read_once_per_report(
     and record reads twice. Counted rather than measured — a timing assertion
     would be machine-dependent, and the count is the thing that regressed.
     """
-    from wfctl import _predicates as pred
+    from wfctl import _evidence as pred
 
     calls = []
     real = pred.verification_block

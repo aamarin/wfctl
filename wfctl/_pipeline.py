@@ -1,7 +1,7 @@
 """The step table, the walk over it, and the commands wfctl names.
 
 Two jobs, not the three this said before #314. What each step *reads* is
-`_predicates`; what remains here is the order the steps come in, the cascade,
+`_evidence`; what remains here is the order the steps come in, the cascade,
 and the one payload every view renders.
 
 Inference and display stay together deliberately, and that is the half of the
@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple
 
-from wfctl import _predicates, _stall
+from wfctl import _evidence, _stall
 from wfctl._paths import arch_root, is_in_tree
-from wfctl._predicates import DESIGN_BLOCK_REASON, Fact, Predicate, State, build_evidence
+from wfctl._evidence import DESIGN_BLOCK_REASON, EvidenceReader, Fact, State, build_evidence
 
 # step → (slash command that advances it, whether speckit-orchestrate may proceed
 # without pausing). The second value is a name rather than a Boolean because a
@@ -49,40 +49,40 @@ class Step(NamedTuple):
     all three positional unpacks, so a two-element unpack against a three-field
     row raises `ValueError` rather than quietly taking the first two.
 
-    `predicate` is a callable and not a name to look up. A `gate: str` field
+    `reads` is a callable and not a name to look up. A `gate: str` field
     would need a second table mapping names to functions, which is the registry
     #100 ruled out, and it would cost `grep`: written this way, searching for a
-    predicate finds its definition and its row here.
+    reader finds its definition and its row here.
     """
 
     command: str
-    continuation: Continuation
-    predicate: Predicate
+    on_finish: Continuation
+    reads: EvidenceReader
 
 
 _STEPS: dict[str, Step] = {
-    "brainstorm": Step("/speckit.brainstorm", _AUTOMATIC,       _predicates.brainstorm),
-    "specify":    Step("/speckit.specify",    _AUTOMATIC,       _predicates.specify),
-    "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _predicates.clarify),
-    "plan":       Step("/speckit.plan",       _AUTOMATIC,       _predicates.plan),
-    "tasks":      Step("/speckit.tasks",      _AUTOMATIC,       _predicates.tasks),
-    "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _predicates.analyze),
-    "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _predicates.decompose),
-    "implement":  Step("/speckit.implement",  _AUTOMATIC,       _predicates.implement),
+    "brainstorm": Step("/speckit.brainstorm", _AUTOMATIC,       _evidence.brainstorm),
+    "specify":    Step("/speckit.specify",    _AUTOMATIC,       _evidence.specify),
+    "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _evidence.clarify),
+    "plan":       Step("/speckit.plan",       _AUTOMATIC,       _evidence.plan),
+    "tasks":      Step("/speckit.tasks",      _AUTOMATIC,       _evidence.tasks),
+    "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
+    "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
+    "implement":  Step("/speckit.implement",  _AUTOMATIC,       _evidence.implement),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
 _STEP_NAMES = list(_STEPS)
 
-# Two conditions hold over every predicate, and both are facts about this walk
+# Two conditions hold over every reader, and both are facts about this walk
 # rather than about any one of them. `cascade` at the foot of the loop forces every
-# step after the first `pending` one to `pending` without calling its predicate — so
-# a satisfied predicate is necessary and never sufficient. And `skipped` advances the
-# pipeline exactly as `done` does (`infer_pipeline`), so a predicate reaching it
+# step after the first `pending` one to `pending` without calling its reader — so
+# a satisfied reader is necessary and never sufficient. And `skipped` advances the
+# pipeline exactly as `done` does (`infer_pipeline`), so a reader reaching it
 # passes its step on none of the evidence it reads.
 #
-# What each predicate actually proves is documented beside the predicates, in
-# `_predicates.py`. It moved there with them for the reason it gave for being here:
+# What each reader actually proves is documented beside the readers, in
+# `_evidence.py`. It moved there with them for the reason it gave for being here:
 # `knowledge-placement` puts a fact about one file in that file, and it is a fact
 # about the arms — which are no longer below this line.
 
@@ -176,7 +176,7 @@ class _PipelineStep:
 
 
 def _infer_steps(
-    spec_dir: Path | None, repo_root: Path, ev: _predicates.Evidence | None = None
+    spec_dir: Path | None, repo_root: Path, ev: _evidence.Evidence | None = None
 ) -> list[_PipelineStep]:
     """Internal: return steps carrying `done` / `in_progress` / `pending` / `skipped`.
 
@@ -214,7 +214,7 @@ def _infer_steps(
             steps.append(_PipelineStep(name, "pending", None))
             continue
 
-        reading = step.predicate(ev)
+        reading = step.reads(ev)
         step_state = _PipelineStep(
             name, reading.state, reading.renders(), reading.reason
         )
@@ -355,7 +355,7 @@ def _current_step_name(steps: list[_PipelineStep]) -> str:
     which then writes its `## Clarifications` into a one-character document;
     clarify goes `done`, specify becomes current, and `/speckit.specify`
     regenerates the file from the template and destroys the section just written.
-    `_predicates.clarify` names that sequence as the thing its own marker branch
+    `_evidence.clarify` names that sequence as the thing its own marker branch
     exists to prevent.
 
     `reason` is what tells them apart, and it is not a proxy: the marker branch
@@ -431,7 +431,7 @@ def next_step_content(
             return "wfctl verify", False
         return _STEPS[step].command, False
     row = _STEPS.get(step)
-    return (row.command, row.continuation == _AUTOMATIC) if row else ("", False)
+    return (row.command, row.on_finish == _AUTOMATIC) if row else ("", False)
 
 
 @dataclass(frozen=True)
@@ -551,7 +551,7 @@ def build_report(
     # read of it below.
     holder = session_open_for(agent_dir, session_id, branch)
 
-    # One read, two consumers. The step predicates and the artifacts fact ask the
+    # One read, two consumers. The step readers and the artifacts fact ask the
     # same three files, and two reads of them can disagree while an implementing
     # agent is writing — the window `build_report` was made to close for the
     # blocked reason, met again by a field added beside it.
@@ -566,7 +566,7 @@ def build_report(
     # fact's owner is asked directly. Either way it is asked once — two calls per
     # report was the cost the panel measured, and the seam below says why.
     verification = (
-        _predicates.verification_block(repo_root) if ev is None else ev.verification
+        _evidence.verification_block(repo_root) if ev is None else ev.verification
     )
     name = _current_step_name(raw)
     # `_infer_steps` has already asked; `verification_block` reads the config,
@@ -602,7 +602,7 @@ def build_report(
         session_open=holder in ("self", "unknown"),
         session_holder=holder,
         auto_approve=read_auto_approve(agent_dir),
-        facts=_predicates.facts(ev, repo_root, verification),
+        facts=_evidence.facts(ev, repo_root, verification),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.
