@@ -8,6 +8,8 @@ disagreeing about what a fence is.
 """
 from __future__ import annotations
 
+import re
+
 from wfctl import _arch
 
 
@@ -107,5 +109,11 @@ def test_kinds_match_the_shipped_template() -> None:
     )
     template = template_path.read_text()
 
-    for kind in _arch.DIAGRAM_KINDS:
-        assert kind in template, f"{kind} is not mentioned in the shipped template"
+    declared = re.search(r"^diagram: <([^>]+)>", template, re.MULTILINE)
+    assert declared is not None, "the template no longer offers a diagram kind"
+    offered = {alt.strip() for alt in declared.group(1).split("|")}
+
+    assert offered == set(_arch.DIAGRAM_KINDS), (
+        f"template offers {sorted(offered)}, code permits "
+        f"{sorted(_arch.DIAGRAM_KINDS)}"
+    )
