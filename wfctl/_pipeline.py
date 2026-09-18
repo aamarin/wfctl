@@ -354,9 +354,19 @@ def _pass_states(
     all. `done` runs them in written order with a per-pass cascade exactly like
     the step-level one below it: the first pass that is not `done` is
     `in_progress`, and everything after it is `pending` without its reader
-    being called. `pending` or `skipped` means none of them are — every pass
-    takes the parent's own state, which is what "not yet reached" and "passed
-    by with the parent" both mean for a pass nobody has looked at.
+    being called. `skipped` means none of them are, and neither is a pass —
+    inherited `skipped` is what "passed by with the parent" means. Every other
+    reading — `pending`, and `in_progress` for a reason that is the step's own
+    and not a pass's — means the step has not finished *its own* half yet, so
+    no pass under it has been reached either; both report `pending`, which is
+    the only one of the four names data-model.md's table gives a not-yet-`done`
+    parent's passes.
+
+    The `in_progress` case is the one an earlier pass at this function got
+    wrong: mirroring the parent's own `in_progress` onto every pass made a
+    step whose own artifact was merely unfinished — `specify` with sections
+    still missing, say — report every declared pass under it as outstanding
+    at once, which is not one of the four states a pass can honestly hold.
     """
     result: list[_PipelineSubStep] = []
     cascade = False
@@ -365,8 +375,11 @@ def _pass_states(
         if reason is not None:
             result.append(_PipelineSubStep(sub.name, "skipped", None, sub.command, sub.on_finish, claimed=reason))
             continue
+        if own_state == "skipped":
+            result.append(_PipelineSubStep(sub.name, "skipped", None, sub.command, sub.on_finish))
+            continue
         if own_state != "done":
-            result.append(_PipelineSubStep(sub.name, own_state, None, sub.command, sub.on_finish))
+            result.append(_PipelineSubStep(sub.name, "pending", None, sub.command, sub.on_finish))
             continue
         if cascade:
             result.append(_PipelineSubStep(sub.name, "pending", None, sub.command, sub.on_finish))

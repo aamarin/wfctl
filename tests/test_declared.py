@@ -221,6 +221,38 @@ def test_a_declared_pass_runs_after_wfctls_own_and_before_moves_it_ahead(
     assert [s.name for s in passes["brainstorm"]] == ["ui-design", "architecture", "design-doc"]
 
 
+def test_a_step_in_progress_for_its_own_reasons_leaves_its_passes_pending(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """R7 has no row for a parent whose own reading is `in_progress` — only
+    `done`, `pending` and `skipped` are named, and the state a not-yet-`done`
+    parent's passes report is `pending` in every one of them (data-model.md's
+    own table has no "inherits in_progress" row).
+
+    Mirroring the parent's own `in_progress` onto its passes instead — the
+    first shape this function had — made a step whose own artifact was merely
+    unfinished report every declared pass under it as outstanding at once,
+    which is not one of the four states a pass can honestly hold, and is not
+    what a repository declaring a pass under `specify` (or any step besides
+    `brainstorm`) would see the moment that step's own spec was incomplete.
+    """
+    from wfctl._pipeline import _infer_steps
+
+    declaring_repo.write_config({"specify": [
+        {"name": "extra", "manual": True, "evidence": "x.md"},
+    ]})
+    spec_dir = declaring_repo.root / "specs" / "1-feature"
+    spec_dir.mkdir(parents=True)
+    # No required sections — `specify`'s own reading is `in_progress`, not
+    # from any pass.
+    (spec_dir / "spec.md").write_text("# Spec\n\nincomplete\n")
+
+    steps = _infer_steps(spec_dir, declaring_repo.root)
+    specify = next(s for s in steps if s.name == "specify")
+    assert specify.state == "in_progress"
+    assert [s.state for s in specify.sub_steps] == ["pending"]
+
+
 def test_a_declared_passs_evidence_resolves_against_the_feature_directory(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
