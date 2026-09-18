@@ -162,6 +162,13 @@ def _load_step(
             continue
 
         command = entry.get("command") if has_command else None
+        if command is not None and not isinstance(command, str):
+            # Unchecked, this reaches `is_installed`'s `str.lstrip` call below
+            # (or, with no checker supplied, `_pipeline`'s runtime read) and
+            # raises `TypeError` instead of landing as a `check config`
+            # finding like every other malformed field here.
+            problems.append(f"{qualified} has a 'command' that is not a string")
+            continue
         if command is not None and is_installed is not None and not is_installed(command):
             problems.append(
                 f"{qualified} names {command}, which is not installed in this repository"
@@ -181,10 +188,19 @@ def _load_step(
             )
             continue
 
+        before = entry.get("before")
+        if before is not None and not isinstance(before, str):
+            problems.append(f"{qualified} has a 'before' that is not a string")
+            continue
+        after = entry.get("after")
+        if after is not None and not isinstance(after, str):
+            problems.append(f"{qualified} has an 'after' that is not a string")
+            continue
+
         seen.add(name)
         sub = SubStep(name=name, command=command, on_finish=on_finish,
                       reads=build_file_exists_reader(evidence))
-        parsed.append((sub, entry.get("before"), entry.get("after")))
+        parsed.append((sub, before, after))
 
     ordered, order_problems = _ordered(step, parsed)
     problems.extend(order_problems)

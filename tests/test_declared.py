@@ -125,6 +125,17 @@ def test_an_uninstalled_command_is_a_finding(declaring_repo: types.SimpleNamespa
     assert any("/never-shipped" in p and "not installed" in p for p in problems)
 
 
+def test_a_non_string_command_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
+    """A JSON number or array in `command` reached `is_installed`'s `lstrip`
+    call unchecked and raised `TypeError` instead of landing as a finding —
+    caught here, before it is ever asked whether it is installed."""
+    declaring_repo.write_config({"specify": [
+        {"name": "x", "command": 7, "evidence": "a.md"},
+    ]})
+    _, problems = _declared.load(declaring_repo.root, is_installed=lambda c: True)
+    assert any("'command' that is not a string" in p for p in problems)
+
+
 def test_no_is_installed_checker_skips_that_one_rule(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
@@ -174,6 +185,25 @@ def test_a_sibling_that_does_not_exist_is_a_finding(
     ]})
     _, problems = _declared.load(declaring_repo.root)
     assert any("names sibling 'ghost'" in p and "not declared" in p for p in problems)
+
+
+def test_a_non_string_before_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
+    """A JSON array or object in `before` reached `_known`'s `sibling in
+    by_name` unchecked and raised `TypeError: unhashable type` instead of
+    landing as a finding — caught here, before ordering ever runs."""
+    declaring_repo.write_config({"specify": [
+        {"name": "x", "manual": True, "evidence": "a.md", "before": ["ghost"]},
+    ]})
+    _, problems = _declared.load(declaring_repo.root)
+    assert any("'before' that is not a string" in p for p in problems)
+
+
+def test_a_non_string_after_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
+    declaring_repo.write_config({"specify": [
+        {"name": "x", "manual": True, "evidence": "a.md", "after": {"ghost": True}},
+    ]})
+    _, problems = _declared.load(declaring_repo.root)
+    assert any("'after' that is not a string" in p for p in problems)
 
 
 def test_a_pass_naming_itself_as_a_sibling_is_a_finding(
@@ -315,3 +345,23 @@ def test_a_declared_passes_evidence_resolves_against_the_feature_directory(
     # The repo root itself never gets the file — proof the reader looked in
     # the feature directory and nowhere else.
     assert not (declaring_repo.root / "seen.md").exists()
+
+
+def test_a_directory_named_as_evidence_is_never_done(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """A directory `.exists()` and generally reports a nonzero `st_size` too,
+    so the old check would mark the pass `done` with no file ever written —
+    the promised artifact missing and nothing saying so."""
+    from wfctl._evidence import build_evidence
+
+    declaring_repo.write_config({"specify": [
+        {"name": "x", "manual": True, "evidence": "seen.md"},
+    ]})
+    passes, _ = _declared.load(declaring_repo.root)
+    reader = passes["specify"][0].reads
+
+    spec_dir = declaring_repo.root / "specs" / "1-feature"
+    (spec_dir / "seen.md").mkdir(parents=True)
+    ev = build_evidence(spec_dir, declaring_repo.root)
+    assert reader(ev).state == "in_progress"
