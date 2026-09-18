@@ -153,6 +153,21 @@ def test_a_sibling_that_does_not_exist_is_a_finding(
     assert any("names sibling 'ghost'" in p and "not declared" in p for p in problems)
 
 
+def test_a_pass_naming_itself_as_a_sibling_is_a_finding(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """A self-referencing `before`/`after` adds a self-loop edge that
+    `_toposort` never violates (an item's own index never exceeds itself), so
+    without this check it settles silently on the first pass instead of
+    surfacing as the unsatisfiable order it actually is."""
+    declaring_repo.write_config({"specify": [
+        {"name": "x", "manual": True, "evidence": "a.md", "before": "x"},
+    ]})
+    passes, problems = _declared.load(declaring_repo.root)
+    assert any("x names itself as a sibling" in p for p in problems)
+    assert "specify" not in passes
+
+
 def test_a_cycle_in_before_after_is_a_finding_not_an_order(
     declaring_repo: types.SimpleNamespace,
 ) -> None:

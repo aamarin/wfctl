@@ -310,6 +310,29 @@ def test_a_claimed_pass_stays_skipped_once_its_artifact_appears(
     assert ui_design["claimed"] == "backend-only"
 
 
+def test_a_claimed_pass_is_seen_on_a_branch_name_containing_a_slash(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`step_none_cmd` writes its claim under `Path(branch).name`, since the
+    branch reaches it as a path segment (`wfctl/cli.py`); `_step_claims` must
+    read it back from that same directory rather than the raw branch string,
+    or a branch containing `/` writes a claim inference can never find. The
+    slash sits after the issue-key prefix so `resolve_spec_dir` still finds
+    this fixture's feature directory — the claims mismatch is what is under
+    test, not spec-dir resolution."""
+    monkeypatch.setenv("WFCTL_BRANCH", "418-storyctl/extra")
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+    runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "backend-only"])
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+    ui_design = next(s for s in brainstorm["sub_steps"] if s["name"] == "ui-design")
+    assert ui_design["state"] == "skipped"
+    assert ui_design["claimed"] == "backend-only"
+
+
 def test_a_report_with_a_command_and_no_auto_flag_cannot_be_built() -> None:
     """`auto` is bound by the same pairing as `next_command`, not exempt from it.
 

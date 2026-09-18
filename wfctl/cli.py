@@ -608,8 +608,16 @@ def status_cmd(
         # carries the same annotation it always did (`speckit-orchestrate` and
         # `--json` see no change), but the console would otherwise print it
         # twice — once here and again on the outstanding pass's own row below,
-        # which is where contracts/cli.md's example puts the detail.
-        held_by_pass = any(sub["is_current"] for sub in step["sub_steps"])
+        # which is where contracts/cli.md's example puts the detail. Equality,
+        # not just `is_current`: `_apply_block_hold` runs after the roll-up and
+        # overwrites the step's own annotation with a host-block message
+        # without touching `sub_steps`, so a stale outstanding pass can still
+        # be `is_current` while carrying a different, no-longer-true reason —
+        # `is_current` alone would suppress the block message it should defer to.
+        held_by_pass = any(
+            sub["is_current"] and sub["annotation"] == step["annotation"]
+            for sub in step["sub_steps"]
+        )
         ann = (
             f"  [dim]{escape(step['annotation'])}[/dim]"
             if step["annotation"] and not held_by_pass else ""
