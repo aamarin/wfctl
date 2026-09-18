@@ -170,6 +170,12 @@ read as settled fact are routinely wrong.
 Both would otherwise have surfaced during implementation, after the contracts
 were written against them.
 
+**What informs the structural choice this gate then checks is
+`.agents/skills/clean-code`** — what a module owns, where a decision belongs,
+whether failure is part of the API, what a test proves. It writes nothing and
+runs no design loop, which is what lets it sit here beside
+`architecture-design` rather than competing with it.
+
 **When the structure was chosen against a credible alternative, the choice is
 written as a record too, not only as a section.** Use
 `.agents/skills/software-design-decisions`, which carries the template the record
@@ -191,9 +197,13 @@ The condition is the skill's own. Every constraint it carries is about a Python
 mechanism, and `design-levels` runs over features, screens, schemas and CLI
 surfaces in any language — so routing every level-4 pass there would hand a Go or
 TypeScript implementer guidance about ORM sessions and callables, which is worse
-than the verification-only route it replaced. There is no equivalent skill for
-another language yet; in one, this level is the two verification skills, as it
-was before.
+than the verification-only route it replaced. There is no equivalent
+*pattern-selection* skill for another language yet.
+
+**In every language, Python included**, use `.agents/skills/clean-code` for the
+part of this level that no mechanism catalog covers — naming, a function's
+responsibility and effects, what a comment has to earn. It writes nothing and
+mints no verdict either.
 
 It is not a gate and mints no verdict. This gate asks nothing and writes nothing;
 what gets written is a *departure* from one of those constraints, and the skill

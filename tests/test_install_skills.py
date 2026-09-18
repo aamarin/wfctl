@@ -291,6 +291,7 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "architecture-decisions",
     "architecture-design",
     "brainstorm",
+    "clean-code",
     "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",

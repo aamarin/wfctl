@@ -2546,6 +2546,18 @@ _MIRRORED_SKILLS = frozenset({
     # bob/copilot layers; mirror is the Claude route (wrapper suppressed there by
     # _mirror_supersedes_wrapper, as for every other name in this set).
     "brainstorm",
+    # `python-pattern-selection`'s case at two levels rather than one:
+    # `design-levels` names this skill by path at level 3 and again at level 4,
+    # and an agent that read either pointer and reached for `Skill(clean-code)`
+    # is refused without membership. The mirror does not make a refused route
+    # work — it removes the fork, so the outcome stops depending on which way
+    # the agent reached.
+    #
+    # Defended on reaching an agent mid-implementation, like that entry and
+    # unlike `architecture-design`'s, so `speckit.implement`'s ceiling has to
+    # grant what its Authority section names. It grants `Read`, `Glob` and
+    # `Bash(wfctl arch context*)`, which is all of it; nothing widens here.
+    "clean-code",
     "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
