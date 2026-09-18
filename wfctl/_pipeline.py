@@ -338,7 +338,7 @@ def _infer_steps(
 
 def _pass_states(
     step_name: str,
-    subs: "tuple[SubStep, ...] | list[SubStep]",
+    subs: tuple[SubStep, ...] | list[SubStep],
     ev: _evidence.Evidence | None,
     own_state: State,
     claims: dict[str, str],
@@ -423,7 +423,7 @@ def _step_claims(repo_root: Path, branch: str) -> dict[str, str]:
     return claims
 
 
-def _outstanding_pass(step: "_PipelineStep | None") -> "_PipelineSubStep | None":
+def _outstanding_pass(step: _PipelineStep | None) -> _PipelineSubStep | None:
     """The one pass holding `step` up, or None — at most one is ever
     `in_progress`, because `_pass_states`' own cascade stops at the first.
     """
@@ -594,7 +594,7 @@ def next_step_content(
     blocked: str | None = None,
     *,
     tasks_open: bool = False,
-    outstanding: "_PipelineSubStep | None" = None,
+    outstanding: _PipelineSubStep | None = None,
     auto_approve: bool = False,
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.

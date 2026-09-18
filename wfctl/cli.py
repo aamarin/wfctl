@@ -5135,7 +5135,7 @@ check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own 
 app.add_typer(check_app, name="check")
 
 
-def _is_installed(repo_root: Path) -> "Callable[[str], bool]":
+def _is_installed(repo_root: Path) -> Callable[[str], bool]:
     """Whether a declared pass's command ships from a command layer this
     repository has installed — `.agents/commands`, `.claude/commands`,
     `.bob/commands` — checked by filesystem existence, the same test `doctor`

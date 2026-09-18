@@ -49,6 +49,29 @@ def test_duplicate_name_under_one_step_is_a_finding(declaring_repo: types.Simple
     assert any("specify.x is declared twice" in p for p in problems)
 
 
+def test_a_name_containing_a_slash_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
+    """`step_none_cmd` builds a claim path from this name unvalidated — an
+    unrejected `/` walks that write outside `step-claims/<branch>/` (and a
+    name split across segments is never read back by `_step_claims`'s
+    single-level glob either way), so `check config` must catch it before
+    `step none` ever runs."""
+    declaring_repo.write_config({"specify": [
+        {"name": "../../../tmp/evil", "manual": True, "evidence": "a.md"},
+    ]})
+    _, problems = _declared.load(declaring_repo.root)
+    assert any("is not a valid pass name" in p for p in problems)
+
+
+def test_a_name_of_dot_dot_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
+    """`Path('..').name == '..'`, so a slash check alone would let this one
+    through — the lone segment that is still a traversal."""
+    declaring_repo.write_config({"specify": [
+        {"name": "..", "manual": True, "evidence": "a.md"},
+    ]})
+    _, problems = _declared.load(declaring_repo.root)
+    assert any("is not a valid pass name" in p for p in problems)
+
+
 def test_the_same_name_under_two_different_steps_is_accepted(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
@@ -268,7 +291,7 @@ def test_a_step_in_progress_for_its_own_reasons_leaves_its_passes_pending(
     assert [s.state for s in specify.sub_steps] == ["pending"]
 
 
-def test_a_declared_passs_evidence_resolves_against_the_feature_directory(
+def test_a_declared_passes_evidence_resolves_against_the_feature_directory(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
     """research.md R3: repo-root-relative would leave the pass reading `done`

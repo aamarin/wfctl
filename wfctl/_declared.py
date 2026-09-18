@@ -130,6 +130,16 @@ def _load_step(
             problems.append(f"{step}[{i}] has no 'name'")
             continue
         qualified = f"{step}.{name}"
+        if name != Path(name).name or name == "..":
+            # `step_none_cmd` builds a claim file from this name unvalidated
+            # (`STEP_CLAIMS_DIR / branch / f"{step}.{name}.md"`) — a name
+            # containing '/' or '..' walks that write outside the directory
+            # it is meant to land in, and a name split across path segments
+            # is never read back by `_step_claims`'s single-level glob either
+            # way. Caught here so `check config` reports it before
+            # `step none` ever runs.
+            problems.append(f"{qualified} is not a valid pass name — '/' and '..' are rejected")
+            continue
         if name in seen:
             problems.append(f"{qualified} is declared twice under one step")
             continue
