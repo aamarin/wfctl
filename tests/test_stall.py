@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from wfctl._predicates import Evidence
+from wfctl._evidence import Evidence
 from wfctl._stall import STALL_AFTER, digest, find_stall
 
 

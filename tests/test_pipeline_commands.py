@@ -27,7 +27,7 @@ from wfctl._pipeline import (
     _infer_steps,
     next_step_content,
 )
-from wfctl._predicates import blocks
+from wfctl._evidence import blocks
 
 runner = CliRunner()
 
@@ -271,6 +271,29 @@ def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
 
     out = runner.invoke(app, ["status"]).output
 
+    assert "brainstorm   ▶" in out
+    assert "no architecture record" in out
+
+
+def test_a_claimed_pass_does_not_answer_the_boundary_question(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """SC-006, the wrong answer that looks like success: a `step-claims/` file
+    is exactly as untracked-by-git-diff-recursion a corner of the arch root as
+    `scans/` and `implementation/` — left out of `non_record_subtrees`, the
+    claim itself would count as the branch having touched the arch root, and
+    the boundary gate would read cleared with nobody having drawn one."""
+    import json as _json
+
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (storyctl_dir.repo_root / "wfctl.json").write_text(_json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+
+    runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "backend-only"])
+
+    out = runner.invoke(app, ["status"]).output
     assert "brainstorm   ▶" in out
     assert "no architecture record" in out
 
@@ -1136,6 +1159,58 @@ def test_the_file_an_agent_reads_names_the_command_status_prints(
     assert "next: wfctl verify" in runner.invoke(app, ["status"]).output
 
 
+# --- a declared pass's routing (#339) ------------------------------------------
+
+
+def test_a_manual_pass_names_the_pass_and_never_a_command(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """FR-007, FR-022a: a person performs this pass, so `next` and `status`
+    name the qualified pass rather than handing out a command nobody ships."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")  # design.md, satisfying design-doc
+    runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])  # satisfies architecture
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+    runner.invoke(app, ["start"])
+
+    result = runner.invoke(app, ["next"])
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    assert result.exit_code == 0
+    assert "brainstorm.ui-design" in written
+    assert "auto: false" in written
+    assert "a person performs this pass" in written
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["next_command"] == "brainstorm.ui-design"
+    assert payload["auto"] is False
+
+
+def test_auto_approve_does_not_stop_at_a_review_required_pass(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """FR-021b: autonomy is one switch, not one per kind of gate — the same
+    grant that already answers a design gate unattended also carries a
+    declared pass's default `review_required` past the pause."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [
+            {"name": "ui-design", "command": "/pfms-ui-design-workflow", "evidence": "x.md"},
+        ]}}
+    ))
+    (storyctl_dir.repo_root / ".agents" / "commands").mkdir(parents=True)
+    (storyctl_dir.repo_root / ".agents" / "commands" / "pfms-ui-design-workflow.md").write_text("x")
+    runner.invoke(app, ["start", "--auto-approve"])
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["next_command"] == "/pfms-ui-design-workflow"
+    assert payload["auto"] is True
+
+
 # --- the inconclusive rule (#100) ---------------------------------------------
 #
 # The gates disagreed here and each was locally right: `verification_block`
@@ -1203,7 +1278,7 @@ def test_a_blocked_design_step_is_never_automatic(
     _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
 
-    assert _STEPS["brainstorm"].continuation == "automatic", "guards the premise, not the rule"
+    assert _STEPS["brainstorm"].on_finish == "automatic", "guards the premise, not the rule"
 
     command, auto = next_step_content("brainstorm", "no architecture record")
     assert command == "/speckit.brainstorm"
@@ -1402,7 +1477,7 @@ def test_clarify_runs_itself_whether_or_not_markers_are_still_standing(
     `pending` is the obvious one. The second is the one worth a test: a spec
     whose `[NEEDS CLARIFICATION]` markers are still standing reads `in_progress`,
     and the natural expectation is that it blocks. It does not, because
-    `_predicates.clarify` sets no reason there — re-entering the step is what
+    `_evidence.clarify` sets no reason there — re-entering the step is what
     resolves a marker, so routing to it is the answer rather than the problem.
 
     That is also the state where routing matters most. Both `specify` and
@@ -1456,7 +1531,7 @@ def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
     """
     for name, step in _STEPS.items():
         _, auto = next_step_content(name, None)
-        assert auto == (step.continuation == "automatic"), name
+        assert auto == (step.on_finish == "automatic"), name
 
         _, auto_blocked = next_step_content(name, "some reason")
         assert auto_blocked is False, name
@@ -1475,7 +1550,7 @@ def test_a_review_required_step_would_still_be_reported_as_one(monkeypatch) -> N
     reader has to notice before trusting anything else in it.
     """
     monkeypatch.setitem(
-        _STEPS, "clarify", _STEPS["clarify"]._replace(continuation="review_required")
+        _STEPS, "clarify", _STEPS["clarify"]._replace(on_finish="review_required")
     )
     assert next_step_content("clarify", None) == ("/speckit.clarify", False)
 
@@ -1484,7 +1559,7 @@ def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
     """An edge case the spec names, and the reason it needs no guard of its own.
 
     `clarify` reads `skipped` for a spec that predates the gate — one where
-    `plan.md` already exists. #325 flipped its continuation value, and the worry
+    `plan.md` already exists. #325 flipped its `on_finish` value, and the worry
     that invites is a skipped step being run by an unattended pass. It cannot be:
     `_current_step_name` never selects a `skipped` step, so the value is never
     read for one.

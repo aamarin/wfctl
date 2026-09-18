@@ -5,7 +5,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -476,12 +476,16 @@ def report_block_cmd(
 
 @app.command("status")
 def status_cmd(
-    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON"),
+    show_all: bool = typer.Option(
+        False, "--all", help="Show a settled-away pass too, with its reason"
+    ),
 ) -> None:
     """Show pipeline progress."""
     from rich.markup import escape
 
     from wfctl._pipeline import (
+        MANUAL_PASS_WHY,
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
@@ -600,9 +604,57 @@ def status_cmd(
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
         glyph, color = _STATE_GLYPH[step["state"]]
         sym_fmt = f"[{color}]{glyph}[/{color}]"
-        ann = f"  [dim]{escape(step['annotation'])}[/dim]" if step["annotation"] else ""
+        # Suppressed when a pass is what is holding the step: the payload still
+        # carries the same annotation it always did (`speckit-orchestrate` and
+        # `--json` see no change), but the console would otherwise print it
+        # twice — once here and again on the outstanding pass's own row below,
+        # which is where contracts/cli.md's example puts the detail. Equality,
+        # not just `is_current`: `_apply_block_hold` runs after the roll-up and
+        # overwrites the step's own annotation with a host-block message
+        # without touching `sub_steps`, so a stale outstanding pass can still
+        # be `is_current` while carrying a different, no-longer-true reason —
+        # `is_current` alone would suppress the block message it should defer to.
+        held_by_pass = any(
+            sub["is_current"] and sub["annotation"] == step["annotation"]
+            for sub in step["sub_steps"]
+        )
+        ann = (
+            f"  [dim]{escape(step['annotation'])}[/dim]"
+            if step["annotation"] and not held_by_pass else ""
+        )
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
+
+        for sub in step["sub_steps"]:
+            # A settled-away pass is hidden by default (FR-018) — `--all`
+            # brings it back, carrying its claim if it has one. The pass
+            # holding the pipeline is never `skipped`, so this filter alone
+            # never hides the row a reader most needs (contracts/cli.md).
+            if sub["state"] == "skipped" and not show_all:
+                continue
+            sub_glyph, sub_color = _STATE_GLYPH[sub["state"]]
+            sub_sym = f"[{sub_color}]{sub_glyph}[/{sub_color}]"
+            # 16, not 14: "architecture" is 12 characters, and the 2-space
+            # indent plus a 14-wide ljust left it flush against the glyph with
+            # no gap at all — the one built-in pass name that reaches the
+            # column the parent's own `ljust(12)` was sized for.
+            sub_name = f"  {sub['name']}".ljust(16)
+            if sub["claimed"]:
+                detail = f"  [dim]claimed: {escape(sub['claimed'])}[/dim]"
+            elif sub["annotation"]:
+                # The pass's own reason, where it has one — `brainstorm`'s
+                # architecture pass carries `no architecture record for this
+                # change` exactly where the old single-reader arm did.
+                detail = f"  [dim]{escape(sub['annotation'])}[/dim]"
+            elif sub["is_current"]:
+                # No reason of its own: the command that clears it, or the
+                # by-hand sentence for a manual pass, beside the outstanding
+                # row (T024) — `design-doc` in contracts/cli.md's own example.
+                what = sub["command"] or MANUAL_PASS_WHY
+                detail = f"  [dim]{escape(what)}[/dim]"
+            else:
+                detail = ""
+            console.print(f"{sub_name}{sub_sym}{detail}")
 
     # Between the step table and `next:`, and printed in every state including
     # the one where all three are met. Rendering it only when something is unmet
@@ -671,16 +723,19 @@ def next_cmd() -> None:
     from rich.markup import escape
 
     from wfctl._pipeline import (
+        MANUAL_PASS_WHY,
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
         _apply_block_hold,
         _current_step_name,
         _infer_steps,
+        _outstanding_pass,
         next_step_content,
         next_step_file,
     )
-    from wfctl._predicates import build_evidence
+    from wfctl._evidence import build_evidence
     from wfctl._io import append_event
+    from wfctl._session import auto_approve as read_auto_approve
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -708,6 +763,11 @@ def next_cmd() -> None:
     # the command: this is the file an agent acts on, and a step whose only
     # stated fix lives in `status` is one the agent cannot clear.
     remedy = next((s.remedy for s in steps if s.name == step_name), None)
+    # Same routing `build_report` applies for `status`: a step whose own
+    # reading is `done` with an outstanding pass names that pass's command
+    # here too, or this file sends the agent back to a step that has already
+    # finished its own half.
+    outstanding = _outstanding_pass(next((s for s in steps if s.name == step_name), None))
 
     # No special case for a missing spec dir. It used to force `/speckit.specify`,
     # from when an absent design read as "skipped" and specify was the honest
@@ -715,7 +775,16 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, blocked, tasks_open=bool(ev and ev.tasks_open))
+    command, auto = next_step_content(
+        step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
+        outstanding=outstanding, auto_approve=read_auto_approve(agent_dir),
+    )
+
+    # A manual pass carries no `reason` of its own — `blocked` stays what the
+    # step's own reading set, which is None here (a manual pass only becomes
+    # outstanding once the step's own reading is already `done`). The contract
+    # names the sentence explicitly rather than leaving the slot empty.
+    why = MANUAL_PASS_WHY if outstanding is not None and outstanding.command is None else blocked
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -723,7 +792,7 @@ def next_cmd() -> None:
         # The reason and the remedy travel with the command. Without them this
         # file says "run this to continue" over a step that is blocked, and the
         # one view that carried why — `status` — is not the view an agent reads.
-        content = next_step_file(command, auto, blocked, remedy)
+        content = next_step_file(command, auto, why, remedy)
     else:
         content = STORY_COMPLETE_FILE
 
@@ -736,8 +805,8 @@ def next_cmd() -> None:
 
     if command:
         console.print(f"→ Next step: {command} (auto: {auto_str})")
-        if blocked:
-            console.print(f"  [dim]{escape(blocked)}[/dim]")
+        if why:
+            console.print(f"  [dim]{escape(why)}[/dim]")
     else:
         console.print(STORY_COMPLETE_CONSOLE)
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
@@ -1494,6 +1563,101 @@ def arch_none_cmd(
         raise typer.Exit(1)
 
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
+
+
+step_app = typer.Typer(no_args_is_help=True, help="Declare a pipeline pass inapplicable.")
+app.add_typer(step_app, name="step")
+
+
+@step_app.command("none")
+def step_none_cmd(
+    qualified: str = typer.Argument(
+        ..., help="<step>.<name>, or a bare <name> when it names exactly one pass"
+    ),
+    reason: str = typer.Option(..., "--reason", help="Why this pass does not apply."),
+) -> None:
+    """Declare that one pipeline pass does not apply to the change under review.
+
+    Generalises `wfctl arch none` (`an-absent-artifact-is-claimed-not-inferred`)
+    and refuses on the same two grounds — an empty reason, and a `<why>`
+    placeholder — but writes its own file rather than sharing `arch none`'s: a
+    branch makes one boundary claim and as many pass claims as it has passes,
+    and `arch none`'s whole-file overwrite would lose all but the last (FR-015).
+
+    A bare `<name>` resolves only when exactly one pass anywhere carries it —
+    never against whichever step happens to be current (FR-002c), which moves
+    as unrelated work lands and would make the same command resolve
+    differently from one day to the next.
+    """
+    from rich.markup import escape
+
+    from wfctl import _declared
+    from wfctl._io import write_atomic
+    from wfctl._paths import STEP_CLAIMS_DIR
+
+    _, repo_root, branch, _ = _resolve_context()
+
+    if not reason.strip():
+        # Same argument `arch none` already makes: the claim exists to be a
+        # sentence a reviewer can disagree with, and an empty one is the
+        # silent omission this command was built to stop.
+        console.print("[red]✗[/red] --reason cannot be empty: say why this pass does not apply.")
+        raise typer.Exit(1)
+    if re.fullmatch(r"<[^>]*>", reason.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
+            "say why this pass does not apply."
+        )
+        raise typer.Exit(1)
+
+    passes, _ = _declared.load(repo_root)
+
+    if "." in qualified:
+        step, _, name = qualified.partition(".")
+        match = next((s for s in passes.get(step, []) if s.name == name), None)
+        if match is None:
+            names = ", ".join(s.name for s in passes.get(step, [])) or "(none)"
+            console.print(
+                f"[red]✗[/red] {escape(qualified)} is not a declared pass. "
+                f"Under {escape(step)}: {escape(names)}"
+            )
+            raise typer.Exit(1)
+    else:
+        name = qualified
+        matches = [step for step, subs in passes.items() if any(s.name == name for s in subs)]
+        if not matches:
+            console.print(f"[red]✗[/red] '{escape(name)}' is not a declared pass")
+            raise typer.Exit(1)
+        if len(matches) > 1:
+            console.print(
+                f"[red]✗[/red] '{escape(name)}' is declared under "
+                f"{' and '.join(matches)} — qualify it"
+            )
+            raise typer.Exit(1)
+        step = matches[0]
+
+    branch_name = Path(branch).name
+    qualified_name = f"{step}.{name}"
+    # One file per pass (research.md R6): a second claim on a *different* pass
+    # must not destroy the first, which `arch none`'s single `<branch>.md`
+    # would (FR-015, SC-005). A second claim on *this* pass replaces exactly
+    # itself, the same overwrite-not-append rule `arch none` follows.
+    path = arch_root(repo_root) / STEP_CLAIMS_DIR / branch_name / f"{qualified_name}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, f"# {qualified_name} does not apply — {branch_name}\n\n{reason}\n")
+
+    if touched_on_this_branch(repo_root, path) is not True:
+        console.print(
+            f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
+            "part of the change under\n  review — the root is outside the working tree, "
+            "or git is ignoring it. No\n  reviewer will see this claim.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    console.print(
+        f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
+    )
 
 
 @arch_app.command("accept")
@@ -4719,6 +4883,85 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own configuration.")
+# A new group rather than a peer of `tracker-check`/`check-body`'s existing
+# hyphenated shape: #402 records `check <thing>` as the direction this repo's
+# verb vocabulary is moving in, and naming this one into the grouped form from
+# its first commit means the eventual rename is one verb shorter rather than
+# one longer. Renaming the other two here would be a drive-by on a surface
+# this feature does not otherwise touch, and it is #402's to do.
+app.add_typer(check_app, name="check")
+
+
+def _is_installed(repo_root: Path) -> Callable[[str], bool]:
+    """Whether a declared pass's command ships from a command layer this
+    repository has installed — `.agents/commands`, `.claude/commands`,
+    `.bob/commands` — checked by filesystem existence, the same test `doctor`
+    would apply if this were its question (research.md R5). Every layer's
+    directory is checked, not only whichever agent this session happens to run
+    under: the repository may have several installed, and a command that
+    shipped from one of them is installed regardless of which agent is asking.
+    """
+    dirs = [dst for src, dst in _BASE_TARGETS if src == "agents/commands"]
+    dirs += [
+        dst for targets in _AGENT_TARGETS.values() for src, dst in targets
+        if src == "agents/commands"
+    ]
+
+    def installed(command: str) -> bool:
+        name = command.lstrip("/") + ".md"
+        return any((repo_root / d / name).exists() for d in dirs)
+
+    return installed
+
+
+@check_app.command("config")
+def check_config_cmd() -> None:
+    """Validate this repository's own declared pipeline passes.
+
+    Every rule `wfctl.json`'s `steps` key must satisfy, in one run (FR-022) —
+    the repository's own configuration, never wfctl's installed state, which
+    is `doctor`'s remit and not this one's (research.md R5). Nothing here is
+    dropped silently: a declaration this command discards without saying so is
+    indistinguishable to its author from one wfctl never read.
+    """
+    from rich.markup import escape
+
+    from wfctl import _declared
+
+    repo_root = get_repo_root()
+    config_path = repo_root / _declared.CONFIG_PATH
+
+    if not config_path.exists():
+        console.print("[green]✓[/green] no configuration to check")
+        return
+
+    _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
+    if problems:
+        console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
+        for problem in problems:
+            console.print(f"  - {escape(problem)}")
+        raise typer.Exit(1)
+
+    # Counted from the raw declaration rather than from `_declared.load`'s
+    # return, which also carries wfctl's own built-in passes — this message is
+    # about what the repository itself wrote, not about what inference reads.
+    try:
+        declared = json.loads(config_path.read_text()).get("steps") or {}
+    except (json.JSONDecodeError, OSError):
+        declared = {}
+    n_passes = sum(len(v) for v in declared.values() if isinstance(v, list))
+    if not n_passes:
+        console.print(f"[green]✓[/green] {_declared.CONFIG_PATH}: no passes declared")
+        return
+    n_steps = sum(1 for v in declared.values() if isinstance(v, list) and v)
+    console.print(
+        f"[green]✓[/green] {_declared.CONFIG_PATH}: {n_passes} "
+        f"pass{'es' if n_passes != 1 else ''} under "
+        f"{n_steps} step{'s' if n_steps != 1 else ''}"
+    )
+
+
 def _verification_finding() -> list[str]:
     """Why `wfctl verify` has not passed against this tree, as a finding. Or none.
 
@@ -4732,7 +4975,7 @@ def _verification_finding() -> list[str]:
     passed. The middle one is `wfctl-runs-the-verification`'s own degrade clause
     and is what keeps a copy edit openable in a repo that checks nothing.
     """
-    from wfctl._predicates import verification_block
+    from wfctl._evidence import verification_block
 
     try:
         repo_root = get_repo_root()

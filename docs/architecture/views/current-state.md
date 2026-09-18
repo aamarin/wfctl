@@ -19,14 +19,14 @@ when this drawing stops matching it. See **Staleness** below.
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
-      │      ╎ 4 private crossings into _pipeline
+      │      ╎ 7 private crossings into _pipeline (2 from _declared)
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 439   _predicates 603   _arch 458   _archive 339   │      ┊
+   │ _pipeline 439   _evidence 603   _arch 458   _archive 339   │      ┊
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
-   │ _change 199     _stall 137       _restart 415                │      ┊
+   │ _change 199     _stall 137       _restart 415   _declared    │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -39,14 +39,14 @@ when this drawing stops matching it. See **Staleness** below.
    │ _io 43                            0 out · 5 in   │      _tracker
    │ _md 98                            0 out · 3 in   │      _verify cli
    ╰──────────────────────────────────────────────────╯  ◄── _arch _shape
-                                                             _predicates
+                                                             _evidence
 ```
 
 `_entry` is drawn above the two it reaches because it is the only one with no
 importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` reaches `_guard` directly and nothing else, which is
 what lets the guard run without `cli` — see the surface split below. The line
-counts were re-derived for #314, which split `_pipeline` into it and `_predicates`
+counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
 `cli` reaches `_pipeline._apply_block_hold` directly from `next_cmd`, the same
 private-crossing shape as the two `_infer_steps`/`_current_step_name` calls
@@ -272,7 +272,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _change _stall _restart
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _change _stall _restart _declared
 resolution  _paths _manifest
 mechanism   _io _md
 ```
@@ -288,4 +288,7 @@ cli -> _pipeline._current_step_name
 cli -> _pipeline._infer_steps
 cli -> _pipeline._apply_block_hold
 cli -> _pipeline._STEP_NAMES
+cli -> _pipeline._outstanding_pass
+_declared -> _pipeline._STEP_NAMES
+_declared -> _pipeline._STEPS
 ```

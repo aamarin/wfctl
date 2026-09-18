@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import types
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._predicates import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+from wfctl._evidence import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
 
 # Set before any wfctl import: `wfctl.cli` builds its `Console()` at module
 # scope, and rich resolves the color system there — a fixture would run too
@@ -363,3 +364,32 @@ def repo_root(tmp_path: Path) -> Path:
     No commit — `git_repo` is the variant for tests that need one.
     """
     return init_git(tmp_path)
+
+
+@pytest.fixture
+def declaring_repo(tmp_path: Path) -> types.SimpleNamespace:
+    """A repo that can carry a `wfctl.json` `steps` block, for `_declared` and
+    `wfctl check config`.
+
+    Separate from `storyctl_dir`: the declared-pass tests exercise `_declared`
+    and the check command directly against a repo root, and need neither the
+    state dir nor the env overrides that fixture sets up for command-level
+    pipeline tests.
+    """
+    root = git_repo(tmp_path)
+
+    def write_config(steps: dict) -> None:
+        (root / "wfctl.json").write_text(json.dumps({"steps": steps}, indent=2))
+
+    def install_command(name: str) -> None:
+        """Seed `.agents/commands/<name>.md`, so a declared command resolves
+        installed. Absence is the other reachable state — a test wanting it
+        simply does not call this.
+        """
+        commands = root / ".agents" / "commands"
+        commands.mkdir(parents=True, exist_ok=True)
+        (commands / f"{name.lstrip('/')}.md").write_text(f"# {name}\n")
+
+    return types.SimpleNamespace(
+        root=root, write_config=write_config, install_command=install_command
+    )
