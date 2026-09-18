@@ -213,6 +213,27 @@ def _file_exists(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+def build_file_exists_reader(evidence: str) -> EvidenceReader:
+    """A reader that reports `done` once `evidence` exists — sugar for a
+    declared pass, and the whole of what `wfctl.json` can express
+    (`a-step-carries-sub-steps-one-level-deep`).
+
+    Resolved against the feature directory, never the repository root: a path
+    resolved against the root names one file for every branch, so the first
+    branch to write it would leave the pass reading `done` on every branch
+    after — a false `done` no later run corrects (research.md R3). An absolute
+    path is used as given, the escape hatch for a committed artifact a
+    repository wants shared across branches.
+    """
+    path = Path(evidence)
+
+    def reader(ev: "Evidence") -> Assessment:
+        target = path if path.is_absolute() else ev.spec_dir / path
+        return Assessment("done" if _file_exists(target) else "in_progress")
+
+    return reader
+
+
 # The sections each artifact must carry for its step to pass. wfctl's own list,
 # not one read from the template — `required-sections-are-wfctls`. Inference
 # reads a spec directory and nothing else, and the template it would otherwise
@@ -581,12 +602,29 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     """
     if not _file_exists(spec_dir / "design.md"):
         return None
+    return _architecture_answered(spec_dir, repo_root)
+
+
+def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
+    """Whether the boundary question was put and answered — a record touched
+    on this branch, `wfctl arch none`'s declaration, or a later step having
+    already run.
+
+    Split out of `design_block` rather than inlined in both callers:
+    `design_block` only reaches this once `design.md` exists, which is exactly
+    the read order `design.md` itself flagged as backwards — an architecture
+    record answers this regardless of whether the design document has been
+    written yet, and `brainstorm_architecture` (the pass) and `brainstorm`
+    (the step's own `pending`-vs-`done` read, before any pass runs) both need
+    that answer without design_block's `design.md` guard.
+
+    The `spec.md` escape carries over unconditionally, though: "advance past
+    the design step" is one transition, and a gate that stayed up through
+    plan, tasks and implement would refuse work that already answered by
+    moving on — true of the whole step and of this one pass alike, whether or
+    not `design.md` was ever written.
+    """
     if _file_exists(spec_dir / "spec.md"):
-        # Past the boundary. "Advance past the design step" is one transition,
-        # and a gate that stayed up through plan, tasks and implement would
-        # refuse work that already answered by moving on. `spec.md` is what
-        # "a later step ran" looks like — the same stand-in the brainstorm arm
-        # uses to tell `skipped` from `pending`.
         return None
 
     from wfctl._paths import non_record_subtrees, touched_on_this_branch
@@ -897,19 +935,57 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
     )
 
 
+def brainstorm_architecture(ev: Evidence) -> Assessment:
+    """Whether the boundary question was put and answered — a record, or a
+    `wfctl arch none` declaration.
+
+    One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
+    directly rather than `design_block`, which answers the same question with
+    two extra guards that belong to the whole step (`design.md` exists;
+    `spec.md` does not) — `design.md` is the other pass's business, and a
+    branch past `spec.md` never reaches this reader at all, because `brainstorm`
+    reports `skipped` before any pass runs (research.md R7).
+    """
+    reason = _architecture_answered(ev.spec_dir, ev.repo_root)
+    return Assessment("done" if reason is None else "in_progress", reason)
+
+
+def brainstorm_design_doc(ev: Evidence) -> Assessment:
+    """Whether `design.md` was written. `brainstorm`'s other built-in pass."""
+    return Assessment("done" if _file_exists(ev.spec_dir / "design.md") else "in_progress")
+
+
 def brainstorm(ev: Evidence) -> Assessment:
-    """Whether the boundary question was put, and whether it was answered."""
+    """Has the pipeline reached this step, or moved past it?
+
+    Owns only its `pending` and `skipped` branches now
+    (`a-step-carries-sub-steps-one-level-deep`) — what used to be this
+    function's `in_progress`/`done` branch is the roll-up of its two passes,
+    computed in `_pipeline._infer_steps` (research.md R7), because a single
+    reader collapsing two artifacts into one string is the defect the record
+    exists to fix.
+
+    Still has to tell "nothing here yet" from "something has started", since
+    that is what decides `pending` versus handing off to the passes at all —
+    checking `design.md` alone would read `pending` for a branch that has an
+    architecture record and nothing else, which is the read order `design.md`
+    itself flagged as backwards (`brainstorm_architecture` runs first in
+    `_STEPS`, and this checks the same evidence in the same order: the record
+    before the document, because that is the order `design-levels` and the
+    brainstorm skill write them in).
+    """
     if _file_exists(ev.spec_dir / "design.md"):
-        # A design document is the artifact; the boundary question is the step.
-        # `design.md` on disk with no record for it means the step produced its
-        # file and not its answer — the same shape `implement` reads when every
-        # box is ticked and the definition of done has not passed.
-        reason = design_block(ev.spec_dir, ev.repo_root)
-        return Assessment("in_progress" if reason else "done", reason)
+        return Assessment("done")
     if _file_exists(ev.spec_dir / "spec.md"):
         # Passed by: the pipeline moved on without one, which `design-levels`
         # explicitly allows for a change that draws no new boundary.
         return Assessment("skipped")
+    if _architecture_answered(ev.spec_dir, ev.repo_root) is None:
+        # No design.md, but the boundary question is already answered — the
+        # architecture pass is done and the design-doc pass is what remains.
+        # "Done" here is the own-reading the roll-up downgrades to
+        # `in_progress`, not a claim that the step is finished.
+        return Assessment("done")
     # Nothing has happened here yet. Distinct from the branch above, and the two
     # need opposite advice — this is where the reader is sent, that is already
     # behind them. `spec.md` stands in for "a later step ran": every step after

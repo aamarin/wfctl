@@ -68,6 +68,32 @@ def test_every_predicate_takes_evidence_and_returns_a_reading(tmp_path: Path) ->
         assert reading.state in STATES, f"{name} returned state {reading.state!r}"
 
 
+def test_a_reader_can_take_a_heading_inside_another_steps_artifact(
+    tmp_path: Path,
+) -> None:
+    """FR-008: a `SubStep.reads` is a plain callable, not `evidence`'s
+    file-exists sugar alone — `clarify` already reads a heading inside
+    `spec.md` rather than a file of its own, and a declared pass that could
+    only express "this file exists" would be a real narrowing of what a
+    built-in pass can do. Neither `architecture` nor `design-doc` exercises
+    this today; a regression to a path-only signature would not fail either
+    of them, which is exactly why the capability needs its own reader here."""
+    from wfctl._pipeline import SubStep
+
+    def reads_a_heading(ev: Evidence) -> Assessment:
+        return Assessment("done" if "## Approved" in ev.spec_text else "in_progress")
+
+    sub = SubStep(name="approval", command=None, on_finish="review_required",
+                  reads=reads_a_heading)
+
+    feature = tmp_path / "specs" / "314-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("# Spec\n\n## Approved\n\nyes\n")
+    ev = build_evidence(feature, tmp_path)
+
+    assert sub.reads(ev).state == "done"
+
+
 def test_a_predicate_takes_exactly_one_argument() -> None:
     """No reader has grown a second parameter with a default.
 
