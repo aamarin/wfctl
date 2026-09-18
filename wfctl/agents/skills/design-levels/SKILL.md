@@ -170,6 +170,12 @@ read as settled fact are routinely wrong.
 Both would otherwise have surfaced during implementation, after the contracts
 were written against them.
 
+**What informs the structural choice this gate then checks is
+`.agents/skills/clean-code`** — what a module owns, where a decision belongs,
+what sits at the edge of what you control, whether failure is part of the API,
+what a test proves. It writes nothing and runs no design loop, which is what
+lets it sit here beside `architecture-design` rather than competing with it.
+
 **When the structure was chosen against a credible alternative, the choice is
 written as a record too, not only as a section.** Use
 `.agents/skills/software-design-decisions`, which carries the template the record
@@ -179,7 +185,7 @@ its own decision rests on, because `design.md` is gitignored and a reviewer
 reading the PR never opens it. A structural choice with no credible alternative
 earns no record, and saying so is the answer.
 
-### 4. Implementation — the mechanism, then the verification skills
+### 4. Implementation — the mechanism, how it reads, then the verification skills
 
 **When the implementation is Python**, use
 `.agents/skills/python-pattern-selection` while writing the code: it names the
@@ -191,14 +197,18 @@ The condition is the skill's own. Every constraint it carries is about a Python
 mechanism, and `design-levels` runs over features, screens, schemas and CLI
 surfaces in any language — so routing every level-4 pass there would hand a Go or
 TypeScript implementer guidance about ORM sessions and callables, which is worse
-than the verification-only route it replaced. There is no equivalent skill for
-another language yet; in one, this level is the two verification skills, as it
-was before.
+than the verification-only route it replaced. There is no equivalent
+*pattern-selection* skill for another language yet.
 
 It is not a gate and mints no verdict. This gate asks nothing and writes nothing;
 what gets written is a *departure* from one of those constraints, and the skill
 routes that to the commit message or to `<arch-root>/implementation/` depending
 on whether a later reader would go looking for it.
+
+**In every language, Python included**, use `.agents/skills/clean-code` for the
+part of this level that no mechanism catalog covers — naming, a function's
+responsibility and effects, what a comment has to earn. It writes nothing and
+mints no verdict either.
 
 Then `verification-before-completion` and `code-review`, unchanged — in every
 language, Python included. Both fire after the code exists, which is why the
@@ -324,8 +334,9 @@ cannot see it.
   deliberate departure from one of its constraints leaves a note under
   `<arch-root>/implementation/`, for level 3's reason and not a new one —
   `tasks.md` lives in the same gitignored `specs/` that a reviewer reading the PR
-  never opens. In another language nothing is routed here, and the level is the
-  two verification skills.
+  never opens. `.agents/skills/clean-code` runs at this level in every language,
+  Python included, and lands nothing at all; where there is no mechanism catalog
+  it is the whole of the level in front of the two verification skills.
 
 `plan-template.md`'s Constitution Check re-checks that ownership is stated. It
 **verifies** the answer; it does not derive it. Arriving at `speckit.plan`

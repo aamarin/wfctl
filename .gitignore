@@ -107,3 +107,5 @@ node_modules/
 .bob/commands/brainstorm.md
 .bob/commands/approval-settings.md
 .bob/settings.json
+.bob/skills/clean-code
+.bob/commands/clean-code.md
