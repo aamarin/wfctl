@@ -24,7 +24,9 @@ only `uv run` answers the question this branch cares about.
 The end-to-end exercise for User Story 1. A test that constructs the payload
 directly has not tested that a repository can reach it.
 
-1. In a scratch repository, add to `wfctl.json`:
+1. In a scratch repository, add to `wfctl.json`, and seed the command as
+   installed (`check config`'s own job is to say when it is not, so the
+   exercise needs it present to reach the rest of the walkthrough):
 
    ```json
    { "steps": { "brainstorm": [
@@ -33,16 +35,31 @@ directly has not tested that a repository can reach it.
          "evidence": "ui-contract.md" } ] } }
    ```
 
+   ```bash
+   mkdir -p .agents/commands
+   echo '# ui' > .agents/commands/pfms-ui-design-workflow.md
+   ```
+
 2. `uv run wfctl check config` — expect `✓ wfctl.json: 1 pass under 1 step`,
    exit 0.
 3. `uv run wfctl status` — expect `ui-design` indented under `brainstorm`, after
-   wfctl's own two passes, with `○`.
+   wfctl's own two passes, all three `○`: nothing under `brainstorm` has run
+   yet, so the step's own reading is `pending` and no pass — declared or
+   built-in — is evaluated ahead of it (research.md R7).
 4. `uv run wfctl status --json` — expect the pass in `sub_steps` with
    `"manual": false` and `"claimed": null`.
-5. Ask what to do next. Expect `/pfms-ui-design-workflow`, not
+5. Satisfy wfctl's own two passes — a record under `wfctl arch-root`, or
+   `wfctl arch none --reason "…"`, and a `design.md` in the feature directory.
+   Written order runs the tool's passes before the repository's (FR-003), so
+   `ui-design` is not reachable before they are.
+6. `uv run wfctl status` — `architecture` and `design-doc` now read `●`,
+   `ui-design` reads `▶`, and `brainstorm` itself reads `▶` rather than `●`:
+   the step's own artifacts are there, but a pass under it is still
+   outstanding (research.md R7, FR-006).
+7. Ask what to do next. Expect `/pfms-ui-design-workflow`, not
    `/speckit.brainstorm`, and `auto: false` — a declared pass defaults to
    requiring review.
-6. Write `ui-contract.md` into the feature directory. Re-read the position:
+8. Write `ui-contract.md` into the feature directory. Re-read the position:
    the pass reports `●` and the step moves on.
 
 ## Read wfctl's own passes
@@ -53,8 +70,9 @@ or not the passes appear, so this one has to be looked at.
 
 1. On a branch with an architecture record written and no `design.md`:
    `uv run wfctl status`.
-2. Expect `architecture ●` and `design-doc ○`, each on its own row, and
-   `brainstorm ▶`.
+2. Expect `architecture ●` and `design-doc ▶` — the outstanding pass draws the
+   same glyph an outstanding step does — each on its own row, and `brainstorm
+   ▶`.
 3. Expect the next command to name what writes the outstanding artifact.
 4. Confirm nothing on either row says it came from wfctl rather than from
    configuration (FR-011).

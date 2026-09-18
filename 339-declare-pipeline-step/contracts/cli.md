@@ -66,9 +66,14 @@ pass is hidden (FR-018):
 ```
 brainstorm   ▶  ← current
   architecture ●
-  design-doc   ○  /speckit.brainstorm
+  design-doc   ▶  /speckit.brainstorm
 specify      ○
 ```
+
+A pass's glyph is drawn from the same four-state map a step's is (`_STATE_GLYPH`)
+— the row holding the pipeline reads `▶`, not a fifth symbol invented for
+passes. `design-doc` above is `▶` for the same reason `brainstorm` itself is:
+it is the one thing outstanding.
 
 A pass that is holding the pipeline is always shown, claimed or not — the row
 stays visible until it is settled, so a step never reports itself unfinished with
