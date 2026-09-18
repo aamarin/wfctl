@@ -16,6 +16,7 @@ you are holding right now, not on where the guidance came from.
 | a function's responsibility, its arguments, its side effects | [references/functions.md](references/functions.md) |
 | whether a comment earns its place, or how a file is laid out | [references/comments-and-formatting.md](references/comments-and-formatting.md) |
 | what a class or module owns, where a decision belongs, how a system is assembled | [references/classes-and-modules.md](references/classes-and-modules.md) |
+| the same knowledge expressed in more than one place | [references/classes-and-modules.md](references/classes-and-modules.md) |
 | failure, absence, cleanup, what a caller can act on | [references/errors.md](references/errors.md) |
 | a third-party library, a service, an OS call, a component that does not exist yet | [references/boundaries.md](references/boundaries.md) |
 | what a test proves, and which behaviour is worth a test | [references/tests.md](references/tests.md) |
@@ -148,10 +149,6 @@ Review for consequences, not rule violations. Prioritise findings that could
 produce incorrect behaviour, conceal an important effect, or make the next
 change unsafe.
 
-For each material finding, state the location and the observed evidence, the
-likely consequence, the smallest credible improvement direction, and any
-trade-off or missing information that affects confidence.
-
 Do not report formatter output, personal taste, or a theoretical abstraction
 preference as a substantive defect. Do not demand a broad rewrite where a
 rename, an extraction, a boundary check or a focused test resolves the risk.
@@ -159,11 +156,10 @@ rename, an extraction, a boundary check or a focused test resolves the risk.
 If nothing material is wrong, say so. Do not invent findings to populate a
 checklist.
 
-**Severity is `code-review`'s, not this skill's.** The catalog grades a
-*consequence* — Critical, High, Medium, Low — and `code-review` grades what the
-author must do about it — BLOCKER, WARNING, NIT. They are different scales and
-this skill converts between them nowhere. A catalog row is a hypothesis about
-consequence; the reviewer classifies the confirmed finding.
+What turns a hypothesis into a finding, and how a consequence is graded, are
+both in [references/review-catalog.md](references/review-catalog.md) — including
+why that grading is not `code-review`'s BLOCKER / WARNING / NIT and converts
+into it nowhere.
 
 ## Translate, do not imitate
 
