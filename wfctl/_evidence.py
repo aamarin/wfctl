@@ -210,7 +210,10 @@ class Evidence:
 
 
 def _file_exists(path: Path) -> bool:
-    return path.exists() and path.stat().st_size > 0
+    # `is_file()`, not `exists()`: a directory exists and generally reports a
+    # nonzero `st_size` too, so `evidence` naming one would read `done` with
+    # no file ever written — the promised artifact missing and nothing saying so.
+    return path.is_file() and path.stat().st_size > 0
 
 
 def build_file_exists_reader(evidence: str) -> EvidenceReader:
