@@ -2553,8 +2553,9 @@ _MIRRORED_SKILLS = frozenset({
     # work — it removes the fork, so the outcome stops depending on which way
     # the agent reached.
     #
-    # Defended on reaching an agent mid-implementation, like that entry and
-    # unlike `architecture-design`'s, so `speckit.implement`'s ceiling has to
+    # Defended on reaching an agent mid-implementation, like
+    # `python-pattern-selection` below and unlike `architecture-design`'s, so
+    # `speckit.implement`'s ceiling has to
     # grant what its Authority section names. It grants `Read`, `Glob` and
     # `Bash(wfctl arch context*)`, which is all of it; nothing widens here.
     "clean-code",
@@ -2568,11 +2569,11 @@ _MIRRORED_SKILLS = frozenset({
     # which is the failure it was written for. Nothing else in the tree says the
     # skill has to be discoverable.
     "opening-a-change",
-    # The only entry whose skill fires *during* implementation, which is what
-    # makes the mirror necessary rather than convenient. `software-design-decisions`
-    # below is reachable by an agent reading `design-levels` as text; this one
-    # fires at the moment a mechanism is picked, and no agent is reading a skill
-    # at that moment. `design-levels` §4 names it by path so the pointer exists,
+    # Fires *during* implementation, which is what makes the mirror necessary
+    # rather than convenient. `clean-code` above is the other entry that does.
+    # `software-design-decisions` below is reachable by an agent reading
+    # `design-levels` as text; this one fires at the moment a mechanism is
+    # picked, and no agent is reading a skill at that moment. `design-levels` §4 names it by path so the pointer exists,
     # and this entry is what makes the pointer resolvable — the pair is #150's
     # fix applied one level down.
     #
