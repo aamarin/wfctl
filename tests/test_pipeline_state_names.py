@@ -244,6 +244,72 @@ def test_a_report_with_a_current_step_and_no_command_cannot_be_built(
         )
 
 
+# --- brainstorm's two built-in passes (#339) ----------------------------------
+
+
+def test_the_architecture_pass_and_the_design_doc_pass_read_independently(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """US2 acceptance 1: each pass proves its own artifact and nothing about
+    the other — `brainstorm_design_doc` reads `design.md` alone, whatever the
+    architecture pass would say about the record, and vice versa."""
+    from wfctl._evidence import brainstorm_architecture, brainstorm_design_doc, build_evidence
+
+    # No design.md at all, and no arch root under this tmp_path — the record
+    # check reads `inconclusive` (ambient, ungated) rather than `unsatisfied`.
+    feature = spec_tree()
+    ev = build_evidence(feature, tmp_path)
+    assert brainstorm_design_doc(ev).state == "in_progress"
+
+    (feature / "design.md").write_text("# design\n")
+    ev = build_evidence(feature, tmp_path)
+    assert brainstorm_design_doc(ev).state == "done"
+    # design.md alone says nothing about the architecture pass — with no arch
+    # root touched and no trunk to compare against, it reads `inconclusive`
+    # (ambient) and does not block.
+    assert brainstorm_architecture(ev).state == "done"
+
+
+def test_a_written_record_with_no_design_doc_leaves_exactly_one_pass_outstanding(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-006, and the read order `design.md` itself flagged as backwards: an
+    architecture record with no `design.md` used to read `pending` — nothing
+    here yet — because the old single reader checked `design.md` first. It
+    reads `in_progress` now, with the design-doc pass the one thing missing."""
+    root = storyctl_dir.repo_root / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    root.mkdir(parents=True)
+    (root / "a-decision.md").write_text("---\nstatus: proposed\n---\n\n# A decision\n")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+    assert brainstorm["state"] == "in_progress"
+    outstanding = [s for s in brainstorm["sub_steps"] if s["state"] == "in_progress"]
+    assert [s["name"] for s in outstanding] == ["design-doc"]
+    assert next(s for s in brainstorm["sub_steps"] if s["name"] == "architecture")["state"] == "done"
+
+
+def test_a_claimed_pass_stays_skipped_once_its_artifact_appears(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Spec edge case 7: whether a pass applies is a person's judgment, and no
+    artifact overturns it — the claim is read before the pass's own reader
+    runs, in `_pass_states`, so a file appearing afterwards changes nothing."""
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+    runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "backend-only"])
+
+    (storyctl_dir.spec_dir / "x.md").write_text("written after the claim")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+    ui_design = next(s for s in brainstorm["sub_steps"] if s["name"] == "ui-design")
+    assert ui_design["state"] == "skipped"
+    assert ui_design["claimed"] == "backend-only"
+
+
 def test_a_report_with_a_command_and_no_auto_flag_cannot_be_built() -> None:
     """`auto` is bound by the same pairing as `next_command`, not exempt from it.
 

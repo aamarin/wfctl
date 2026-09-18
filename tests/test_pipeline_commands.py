@@ -275,6 +275,29 @@ def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
     assert "no architecture record" in out
 
 
+def test_a_claimed_pass_does_not_answer_the_boundary_question(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """SC-006, the wrong answer that looks like success: a `step-claims/` file
+    is exactly as untracked-by-git-diff-recursion a corner of the arch root as
+    `scans/` and `implementation/` — left out of `non_record_subtrees`, the
+    claim itself would count as the branch having touched the arch root, and
+    the boundary gate would read cleared with nobody having drawn one."""
+    import json as _json
+
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (storyctl_dir.repo_root / "wfctl.json").write_text(_json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+
+    runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "backend-only"])
+
+    out = runner.invoke(app, ["status"]).output
+    assert "brainstorm   ▶" in out
+    assert "no architecture record" in out
+
+
 def test_a_declaration_advances(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
@@ -1134,6 +1157,58 @@ def test_the_file_an_agent_reads_names_the_command_status_prints(
 
     assert "Next step: wfctl verify" in written
     assert "next: wfctl verify" in runner.invoke(app, ["status"]).output
+
+
+# --- a declared pass's routing (#339) ------------------------------------------
+
+
+def test_a_manual_pass_names_the_pass_and_never_a_command(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """FR-007, FR-022a: a person performs this pass, so `next` and `status`
+    name the qualified pass rather than handing out a command nobody ships."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")  # design.md, satisfying design-doc
+    runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])  # satisfies architecture
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+    runner.invoke(app, ["start"])
+
+    result = runner.invoke(app, ["next"])
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    assert result.exit_code == 0
+    assert "brainstorm.ui-design" in written
+    assert "auto: false" in written
+    assert "a person performs this pass" in written
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["next_command"] == "brainstorm.ui-design"
+    assert payload["auto"] is False
+
+
+def test_auto_approve_does_not_stop_at_a_review_required_pass(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """FR-021b: autonomy is one switch, not one per kind of gate — the same
+    grant that already answers a design gate unattended also carries a
+    declared pass's default `review_required` past the pause."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [
+            {"name": "ui-design", "command": "/pfms-ui-design-workflow", "evidence": "x.md"},
+        ]}}
+    ))
+    (storyctl_dir.repo_root / ".agents" / "commands").mkdir(parents=True)
+    (storyctl_dir.repo_root / ".agents" / "commands" / "pfms-ui-design-workflow.md").write_text("x")
+    runner.invoke(app, ["start", "--auto-approve"])
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["next_command"] == "/pfms-ui-design-workflow"
+    assert payload["auto"] is True
 
 
 # --- the inconclusive rule (#100) ---------------------------------------------

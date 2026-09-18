@@ -68,7 +68,12 @@ def test_a_held_step_adds_no_new_state_name_and_no_new_payload_key(
 ) -> None:
     """FR-018. A held step is `in_progress` with the reason on its annotation
     and reason fields — the shape `verification_block` already uses — and the
-    payload gains no new top-level key and no new step field."""
+    payload gains no new top-level key and no new step field.
+
+    `sub_steps` is the one exception, added by #339 for every step alike —
+    always present and empty for the seven with nothing to split — so it is
+    named here rather than making this test read as broken by that feature.
+    """
     storyctl_dir.stage_upstream_of("tasks")
     before_keys = set(_payload().keys())
 
@@ -80,7 +85,9 @@ def test_a_held_step_adds_no_new_state_name_and_no_new_payload_key(
     assert set(payload.keys()) == before_keys
     held = next(s for s in payload["steps"] if s["name"] == "decompose")
     assert held["state"] in ("done", "in_progress", "pending", "skipped")
-    assert set(held.keys()) == {"name", "state", "annotation", "reason", "remedy", "is_current"}
+    assert set(held.keys()) == {
+        "name", "state", "annotation", "reason", "remedy", "is_current", "sub_steps",
+    }
 
 
 def test_two_actions_blocked_against_the_same_step_report_the_latest(

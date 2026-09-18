@@ -17,7 +17,7 @@ one that does until someone runs it.
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -40,6 +40,31 @@ _AUTOMATIC: Continuation = "automatic"
 _REVIEW_REQUIRED: Continuation = "review_required"
 
 
+class SubStep(NamedTuple):
+    """A pass, one level below a step (`a-step-carries-sub-steps-one-level-deep`).
+
+    The same shape `Step` has, minus the field a pass cannot vary on its own:
+    `command` is `str | None` rather than `str`, and `None` is the whole of
+    what "a person performs this pass" means once a declaration's `manual: true`
+    has already been resolved into this shape — the ambiguity `command: null`
+    would carry in `wfctl.json` itself (research.md R10) does not survive
+    parsing, because `_declared` requires the affirmative key before it ever
+    builds one of these.
+
+    `reads` is a callable for the reason `Step.reads` is one: a `gate: str`
+    field needs a second table mapping names to functions, and this way `grep`
+    finds a reader's definition beside the row that names it. `evidence` in
+    `wfctl.json` is sugar built by `build_file_exists_reader` — strictly less
+    than a built-in reader can express, and a stated limit rather than an
+    oversight.
+    """
+
+    name: str
+    command: str | None
+    on_finish: Continuation
+    reads: EvidenceReader
+
+
 class Step(NamedTuple):
     """One row of the table: how to advance the step, and how to read it.
 
@@ -53,15 +78,31 @@ class Step(NamedTuple):
     would need a second table mapping names to functions, which is the registry
     #100 ruled out, and it would cost `grep`: written this way, searching for a
     reader finds its definition and its row here.
+
+    `sub_steps` defaults to empty so every existing row keeps parsing. Only
+    `brainstorm` carries any today — the artifacts it already produces are what
+    earn a pass its own row (`a-step-carries-sub-steps-one-level-deep`); the
+    other seven steps have exactly one artifact each and nothing to split.
     """
 
     command: str
     on_finish: Continuation
     reads: EvidenceReader
+    sub_steps: tuple[SubStep, ...] = ()
 
 
 _STEPS: dict[str, Step] = {
-    "brainstorm": Step("/speckit.brainstorm", _AUTOMATIC,       _evidence.brainstorm),
+    "brainstorm": Step(
+        "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm,
+        sub_steps=(
+            # Architecture before design-doc: the order `design-levels` and the
+            # brainstorm skill actually write them in, and the reverse of the
+            # order the step's own reader used to check them — see
+            # `_evidence.brainstorm`'s docstring for why that read was backwards.
+            SubStep("architecture", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_architecture),
+            SubStep("design-doc", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_design_doc),
+        ),
+    ),
     "specify":    Step("/speckit.specify",    _AUTOMATIC,       _evidence.specify),
     "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _evidence.clarify),
     "plan":       Step("/speckit.plan",       _AUTOMATIC,       _evidence.plan),
@@ -145,6 +186,12 @@ DESIGN_BLOCK_HELP = (
     '      wfctl arch none --reason "<why>"'
 )
 
+# What `next` names for a manual pass, in the `why:` slot `next_step_file`
+# already carries for a blocked step (contracts/cli.md § `wfctl next`). Public
+# beside `DESIGN_BLOCK_HELP` because `cli` is the one writer of that file and
+# needs the exact sentence, not a paraphrase of it composed at the call site.
+MANUAL_PASS_WHY = "a person performs this pass"
+
 # What `next` and `resume` name for a blocked design step: the step itself.
 #
 # Not a remedy command. The two answers are "write a record" and "declare there
@@ -161,6 +208,27 @@ DESIGN_BLOCK_HELP = (
 
 
 @dataclass
+class _PipelineSubStep:
+    """A pass, as inference holds it — `SubStep`'s declared shape plus what was
+    read from it.
+
+    `claimed` is not a fifth state. `state` is one of the same four names a
+    step carries; `claimed` is the field that tells the two producers of
+    `skipped` apart (`an-absent-artifact-is-claimed-not-inferred`) — a
+    non-null reason a person wrote, or `None` when the state was inherited
+    from a parent the pipeline walked past and no claim was ever owed.
+    """
+
+    name: str
+    state: State
+    annotation: str | None
+    command: str | None
+    on_finish: Continuation
+    claimed: str | None = None
+    is_current: bool = False
+
+
+@dataclass
 class _PipelineStep:
     name: str
     state: State
@@ -173,6 +241,10 @@ class _PipelineStep:
     # resolving it in a view is what left `status --json` carrying the reason
     # without the fix.
     remedy: str | None = None
+    # Always present, always complete — every pass this step has, including a
+    # settled-away one (FR-020). Empty for the seven steps with nothing to
+    # split, and for a report built with no spec dir at all.
+    sub_steps: list[_PipelineSubStep] = field(default_factory=list)
 
 
 def _infer_steps(
@@ -206,25 +278,139 @@ def _infer_steps(
     # gain it.
     if ev is None:
         ev = build_evidence(spec_dir, repo_root)
+
+    # Lazy: `_declared` imports this module at its own top level to reach
+    # `_STEPS`, so importing it back at *our* top level would cycle. A
+    # function-scoped import is the same shape `_apply_block_hold` already uses
+    # to reach `_session`.
+    from wfctl import _declared
+    from wfctl._paths import resolve_branch
+
+    passes_by_step, _ = _declared.load(repo_root)
+    claims = _step_claims(repo_root, resolve_branch(repo_root))
+
     steps: list[_PipelineStep] = []
     cascade = False
 
     for name, step in _STEPS.items():
         if cascade:
-            steps.append(_PipelineStep(name, "pending", None))
+            steps.append(_PipelineStep(
+                name, "pending", None,
+                sub_steps=_pass_states(name, passes_by_step.get(name, ()), None, "pending", claims),
+            ))
             continue
 
         reading = step.reads(ev)
         step_state = _PipelineStep(
             name, reading.state, reading.renders(), reading.reason
         )
+        step_state.sub_steps = _pass_states(
+            name, passes_by_step.get(name, ()), ev, reading.state, claims
+        )
+        # The roll-up (research.md R7): a step whose own reading is `done` with
+        # an outstanding pass has not finished. The parent's `annotation` and
+        # `reason` take the outstanding pass's own — `brainstorm`'s architecture
+        # pass carries `DESIGN_BLOCK_REASON` exactly where the old single-reader
+        # arm did, so `_design_remedy` below keys on it exactly as before and
+        # a consumer reading the *step's* fields (`speckit-orchestrate`, or
+        # `_infer_steps`' own callers) sees no change for that case. A pass with
+        # nothing to say (`design-doc`) leaves both `None`, which is new: the
+        # old reader could not reach "record done, document missing" without
+        # reading `design.md` first, the read order `design.md` itself flagged
+        # as backwards.
+        outstanding = next((s for s in step_state.sub_steps if s.state == "in_progress"), None)
+        if outstanding is not None:
+            step_state.state = "in_progress"
+            step_state.annotation = outstanding.annotation
+            step_state.reason = outstanding.annotation
         step_state.remedy = _design_remedy(step_state, repo_root)
         steps.append(step_state)
 
+        # Cascade on the step's *own* reading, unchanged from before this
+        # feature: a step whose own artifact is missing was already not
+        # evaluating passes above (the `own_state != "done"` arm of
+        # `_pass_states`), so the roll-up never changes what triggers this.
         if reading.state == "pending":
             cascade = True
 
     return steps
+
+
+def _pass_states(
+    step_name: str,
+    subs: "tuple[SubStep, ...] | list[SubStep]",
+    ev: _evidence.Evidence | None,
+    own_state: State,
+    claims: dict[str, str],
+) -> list["_PipelineSubStep"]:
+    """One reading per pass under `step_name` (research.md R7,
+    `an-absent-artifact-is-claimed-not-inferred`).
+
+    A claim wins first and unconditionally (spec edge case 7): a person's
+    judgment that a pass does not apply is not overturned by an artifact that
+    appears later, or by the step not having been reached yet.
+
+    Otherwise the parent's own reading gates whether passes are evaluated at
+    all. `done` runs them in written order with a per-pass cascade exactly like
+    the step-level one below it: the first pass that is not `done` is
+    `in_progress`, and everything after it is `pending` without its reader
+    being called. `pending` or `skipped` means none of them are — every pass
+    takes the parent's own state, which is what "not yet reached" and "passed
+    by with the parent" both mean for a pass nobody has looked at.
+    """
+    result: list[_PipelineSubStep] = []
+    cascade = False
+    for sub in subs:
+        reason = claims.get(f"{step_name}.{sub.name}")
+        if reason is not None:
+            result.append(_PipelineSubStep(sub.name, "skipped", None, sub.command, sub.on_finish, claimed=reason))
+            continue
+        if own_state != "done":
+            result.append(_PipelineSubStep(sub.name, own_state, None, sub.command, sub.on_finish))
+            continue
+        if cascade:
+            result.append(_PipelineSubStep(sub.name, "pending", None, sub.command, sub.on_finish))
+            continue
+        assert ev is not None  # own_state == "done" is only reachable once Evidence exists
+        reading = sub.reads(ev)
+        if reading.state != "done":
+            cascade = True
+        result.append(
+            _PipelineSubStep(sub.name, reading.state, reading.renders(), sub.command, sub.on_finish)
+        )
+    return result
+
+
+def _step_claims(repo_root: Path, branch: str) -> dict[str, str]:
+    """Every pass claimed away on `branch`: `<step>.<name>` -> reason.
+
+    One file per pass under `<arch-root>/step-claims/<branch>/`, written by
+    `wfctl step none` — read from disk on every inference, like every other
+    fact this module reads (`session-state-is-re-derived`); nothing here is
+    cached.
+    """
+    from wfctl._paths import STEP_CLAIMS_DIR
+
+    directory = arch_root(repo_root) / STEP_CLAIMS_DIR / branch
+    if not directory.is_dir():
+        return {}
+    claims: dict[str, str] = {}
+    for path in sorted(directory.glob("*.md")):
+        # Body: "# <step>.<name> does not apply — <branch>\n\n<reason>\n" — the
+        # header and the blank line beneath it are `wfctl step none`'s own
+        # formatting, stripped here rather than duplicated as a second parser.
+        _, _, rest = path.read_text().partition("\n\n")
+        claims[path.stem] = rest.strip()
+    return claims
+
+
+def _outstanding_pass(step: "_PipelineStep | None") -> "_PipelineSubStep | None":
+    """The one pass holding `step` up, or None — at most one is ever
+    `in_progress`, because `_pass_states`' own cascade stops at the first.
+    """
+    if step is None:
+        return None
+    return next((s for s in step.sub_steps if s.state == "in_progress"), None)
 
 
 def arch_location(root: Path, repo_root: Path) -> str:
@@ -385,9 +571,29 @@ def infer_pipeline(spec_dir: Path | None, repo_root: Path) -> list[tuple[str, bo
 
 
 def next_step_content(
-    step: str, blocked: str | None = None, *, tasks_open: bool = False
+    step: str,
+    blocked: str | None = None,
+    *,
+    tasks_open: bool = False,
+    outstanding: "_PipelineSubStep | None" = None,
+    auto_approve: bool = False,
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
+
+    `outstanding` is the pass holding `step` up, when one is (FR-007) —
+    computed by the caller via `_outstanding_pass`, for the reason `blocked` is
+    passed rather than recomputed: it is read off the same `_infer_steps` walk
+    the caller already has, and asking again here would be a second inference.
+    Checked after `blocked`: a host block on the *step* is filed against the
+    step name (`_apply_block_hold`), never against one of its passes, and it
+    means the same thing regardless of what a pass underneath happens to read.
+
+    A manual pass (`command is None`) returns the qualified pass name and
+    `auto=False` always — nothing here ships the command that would run it.
+    Otherwise `auto_approve` can turn a `review_required` pass automatic, the
+    same grant that already answers a design gate without a person
+    (`_AUTO_APPROVE_NOTICE`): autonomy is one switch, not one per kind of gate
+    (FR-021b).
 
     An undefined step yields ("", False) rather than raising: `_current_step_name`
     returns "complete" for a story with nothing left, and the caller reads the
@@ -430,6 +636,10 @@ def next_step_content(
         if step == "implement" and not tasks_open:
             return "wfctl verify", False
         return _STEPS[step].command, False
+    if outstanding is not None:
+        if outstanding.command is None:
+            return f"{step}.{outstanding.name}", False
+        return outstanding.command, (outstanding.on_finish == _AUTOMATIC or auto_approve)
     row = _STEPS.get(step)
     return (row.command, row.on_finish == _AUTOMATIC) if row else ("", False)
 
@@ -573,7 +783,14 @@ def build_report(
     # loads a record and shells out to git, and `status` runs on every session
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
-    command, auto = next_step_content(name, blocked, tasks_open=bool(ev and ev.tasks_open))
+    granted = read_auto_approve(agent_dir)
+    outstanding = _outstanding_pass(next((s for s in raw if s.name == name), None))
+    if outstanding is not None:
+        outstanding.is_current = True
+    command, auto = next_step_content(
+        name, blocked, tasks_open=bool(ev and ev.tasks_open),
+        outstanding=outstanding, auto_approve=granted,
+    )
     digest_now = None if ev is None else _stall.digest(ev)
     return PipelineReport(
         steps=[
@@ -592,6 +809,22 @@ def build_report(
                 # exactly why it used to be computed in the console view.
                 "remedy": s.remedy,
                 "is_current": s.name == name,
+                # Always present and always complete (FR-020) — every pass this
+                # step has, settled-away ones included. `--all` is a console
+                # filter applied at the moment of printing; nothing here is
+                # ever dropped from the payload.
+                "sub_steps": [
+                    {
+                        "name": sub.name,
+                        "state": sub.state,
+                        "annotation": sub.annotation,
+                        "command": sub.command,
+                        "manual": sub.command is None,
+                        "claimed": sub.claimed,
+                        "is_current": sub.is_current,
+                    }
+                    for sub in s.sub_steps
+                ],
             }
             for s in raw
         ],
@@ -601,7 +834,7 @@ def build_report(
         session_started=session_started(agent_dir, branch),
         session_open=holder in ("self", "unknown"),
         session_holder=holder,
-        auto_approve=read_auto_approve(agent_dir),
+        auto_approve=granted,
         facts=_evidence.facts(ev, repo_root, verification),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
