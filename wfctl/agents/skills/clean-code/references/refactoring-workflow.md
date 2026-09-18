@@ -3,20 +3,11 @@
 Use this reference to improve structure while preserving externally observable
 behaviour.
 
-## Establish the contract first
+## What a refactor adds to the contract
 
 Refactoring changes how code expresses behaviour, not the behaviour promised to
-callers. Establish which observations must stay stable before changing
-anything.
-
-The contract is usually wider than the return value:
-
-- errors and diagnostic context;
-- side effects and their ordering;
-- persisted data and migration behaviour;
-- events, logs, metrics or commands consumed externally;
-- timing, resource or concurrency guarantees;
-- public names, serialisation and compatibility surfaces.
+callers, so the contract inventory any change starts from is the whole of what
+must stay stable here — nothing is added to it by the work being structural.
 
 Where the task also changes behaviour, identify the behavioural change
 explicitly and keep its proof distinguishable from the structural cleanup.
@@ -108,15 +99,11 @@ Capture larger work separately rather than smuggling it into the current patch.
 ## Final verification
 
 Run focused tests after each meaningful transformation, and the broader suite
-the change justifies at the end. Then inspect the diff for:
+the change justifies at the end. Beyond the diff inspection any finished change
+gets, a structural one leaves two traces of its own:
 
-- accidental behaviour changes;
-- stale names and comments;
-- newly unused code or imports;
 - duplicated paths left by a partial move;
-- changed error or ordering semantics;
-- public, persisted or serialised contract drift;
-- formatting-only noise obscuring the review.
+- changed error or ordering semantics.
 
 Report the behaviour preserved, the structural problems addressed, the checks
 run, and any uncertainty that remains.

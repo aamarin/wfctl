@@ -89,8 +89,15 @@ Before changing code:
 1. Read repository instructions, nearby code, tests, and the accepted records.
 2. Identify the observable behaviour, public interfaces, invariants, side
    effects, and important failure modes.
-3. Identify what a cleanup must not erase: compatibility, latency, memory,
-   transactions, ordering, security, accessibility, deployment behaviour.
+3. Identify what a cleanup must not erase. The contract is usually wider than
+   the return value:
+   - errors and diagnostic context;
+   - side effects and their ordering;
+   - persisted data and migration behaviour;
+   - events, logs, metrics or commands consumed externally;
+   - timing, resource and concurrency guarantees;
+   - public names, serialisation and compatibility surfaces;
+   - latency, memory, security, accessibility and deployment behaviour.
 4. Decide whether the task is implementation, refactoring, review, or a
    combination. Keep behavioural and structural reasoning distinguishable even
    when they happen in one patch.
@@ -189,8 +196,9 @@ example is needed, write a fresh, domain-neutral one.
 - Confirm the requested behaviour and the relevant failure paths.
 - Run the repository's formatter, static checks and tests where they exist and
   are in scope.
-- Inspect the final diff for accidental behaviour changes, dead code, stale
-  comments and public contract drift.
+- Inspect the final diff for accidental behaviour changes, stale names and
+  comments, newly unused code or imports, public, persisted or serialised
+  contract drift, and formatting-only noise obscuring the review.
 - Distinguish what you verified from what you are recommending.
 - Say what became clearer, and cite the evidence you used to conclude the
   change is safe.
