@@ -21,15 +21,20 @@ decides whether that routing table can be written at all.
 
 ## Verified
 
-- `references/design-boundaries-tests.md` is 157 lines carrying eight `##`
+The first three bullets describe the pre-split draft, which was never committed —
+it existed only in the working tree this change replaced. They are the baseline
+the split is measured against and nothing else in the repository carries it, so
+they stand as testimony rather than as something a later reader can re-run.
+
+- `references/design-boundaries-tests.md` was 157 lines carrying eight `##`
   sections: Objects/Data/Responsibility, Errors and Absence, External and
   Uncertain Boundaries, Tests as Design and Safety Net, Classes/Modules/Change,
   System Assembly, A Simple-Design Check, Design Review Prompts.
-- `references/functions-comments-formatting.md` is 94 lines carrying four:
+- `references/functions-comments-formatting.md` was 94 lines carrying four:
   Functions and Procedures, Comments, Formatting and Locality, Local Review
   Prompts.
-- `references/source-map.md`'s "Distilled location" column names the seven
-  current filenames, four of its rows pointing at
+- `references/source-map.md`'s "Distilled location" column named the seven draft
+  filenames, four of its rows pointing at
   `references/design-boundaries-tests.md` and three at
   `references/functions-comments-formatting.md`.
 - `wfctl/agents/skills/speckit-delivery-plan/references/` holds three files and
@@ -38,8 +43,11 @@ decides whether that routing table can be written at all.
 - `MANIFEST.in` reads `graft wfctl/agents`, and its own comment says `graft`
   "walks with `os.walk` and filters nothing" — so a new subdirectory ships
   without a packaging change.
-- `wfctl/cli.py:3876` — `shutil.copytree(item, dest, dirs_exist_ok=True)` — so
-  `install-skills` copies a skill's subdirectories rather than its top level.
+- `install_skills_cmd`'s copy loop in `wfctl/cli.py` reaches each item with
+  `shutil.copytree(item, dest, dirs_exist_ok=True)` — so `install-skills` copies
+  a skill's subdirectories rather than its top level. Cited by name rather than
+  by line: this change moved that call twelve lines, and the next one will move
+  it again.
 - `tests/test_skill_cross_references.py:22` —
   `_REFERENCE = re.compile(r"\.agents/skills/([a-z0-9][a-z0-9-]*)")` — the check
   sees a skill name and nothing below it, so no test reads a `references/` path.
@@ -132,9 +140,9 @@ file count is not the argument — the ratio of what is read to what was asked i
 
 ## Consequences
 
-Ten reference files ship where there were seven, and none of them is seen by
+Eleven reference files ship where there were seven, and none of them is seen by
 `test_skill_cross_references.py` — its regex captures a skill name and stops.
-That is #218's exact shape, at ten times the count, so the tree is verified by
+That is #218's exact shape, at twice the count, so the tree is verified by
 listing `.agents/skills/clean-code/references/` after `install-skills` rather
 than by a green suite. #218 remains the issue that would make this checkable;
 this change does not close it.
