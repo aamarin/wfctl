@@ -401,10 +401,16 @@ def _step_claims(repo_root: Path, branch: str) -> dict[str, str]:
     `wfctl step none` — read from disk on every inference, like every other
     fact this module reads (`session-state-is-re-derived`); nothing here is
     cached.
+
+    `Path(branch).name`, matching `step_none_cmd`'s own write path: `branch`
+    reaches both as a path segment, and a branch containing `/` (a common
+    convention this repo's own worktree-handle rule doesn't require) would
+    otherwise make the writer and this reader disagree about which directory
+    the claim lives in — a claim recorded as successful and never seen again.
     """
     from wfctl._paths import STEP_CLAIMS_DIR
 
-    directory = arch_root(repo_root) / STEP_CLAIMS_DIR / branch
+    directory = arch_root(repo_root) / STEP_CLAIMS_DIR / Path(branch).name
     if not directory.is_dir():
         return {}
     claims: dict[str, str] = {}

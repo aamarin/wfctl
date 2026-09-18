@@ -31,7 +31,7 @@ carries no evidence of which it was, and nothing wfctl can read will supply it.
 
 Reuse the `skipped` the pipeline already infers. `brainstorm` returns `skipped`
 today when `spec.md` exists, meaning "a later step ran without this one"
-(`_predicates.py`). Applied to a sub-step, the same rule costs nothing to write
+(`_evidence.py`). Applied to a sub-step, the same rule costs nothing to write
 and needs no new command.
 
 It marks the wrong branches. Every backend feature would read `skipped`, and so

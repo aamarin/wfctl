@@ -206,8 +206,17 @@ def _ordered(
     successors: dict[str, set[str]] = {n: set() for n in order}
 
     def _known(owner: str, sibling: str) -> bool:
-        """Whether `sibling` is a real pass under `step` — records the finding
-        for `owner` (always `sub.name`) when it is not."""
+        """Whether `sibling` is a real, distinct pass under `step` — records
+        the finding for `owner` (always `sub.name`) when it is not.
+
+        A pass naming itself is caught here rather than left to `_toposort`:
+        the self-loop edge it would add is never violated (an item's own
+        index never exceeds itself), so it settles silently on the first pass
+        instead of surfacing as the unsatisfiable order it actually is.
+        """
+        if sibling == owner:
+            problems.append(f"{step}.{owner} names itself as a sibling")
+            return False
         if sibling in by_name:
             return True
         problems.append(
