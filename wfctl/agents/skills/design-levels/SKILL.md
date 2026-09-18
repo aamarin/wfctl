@@ -172,9 +172,9 @@ were written against them.
 
 **What informs the structural choice this gate then checks is
 `.agents/skills/clean-code`** — what a module owns, where a decision belongs,
-whether failure is part of the API, what a test proves. It writes nothing and
-runs no design loop, which is what lets it sit here beside
-`architecture-design` rather than competing with it.
+what sits at the edge of what you control, whether failure is part of the API,
+what a test proves. It writes nothing and runs no design loop, which is what
+lets it sit here beside `architecture-design` rather than competing with it.
 
 **When the structure was chosen against a credible alternative, the choice is
 written as a record too, not only as a section.** Use
@@ -185,7 +185,7 @@ its own decision rests on, because `design.md` is gitignored and a reviewer
 reading the PR never opens it. A structural choice with no credible alternative
 earns no record, and saying so is the answer.
 
-### 4. Implementation — the mechanism, then the verification skills
+### 4. Implementation — the mechanism, how it reads, then the verification skills
 
 **When the implementation is Python**, use
 `.agents/skills/python-pattern-selection` while writing the code: it names the
