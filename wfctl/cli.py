@@ -1565,18 +1565,6 @@ def arch_none_cmd(
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
-# Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a
-# `zip` of two parallel sequences silently drops or mispairs a row the moment
-# the two drift out of length, with no test to catch it. Keying means a kind
-# missing its blurb raises `KeyError` instead — loud at the one call site that
-# reads it, in `test_a_drawing_with_no_declared_kind_names_every_kinds_blurb`.
-_DIAGRAM_KIND_BLURBS: dict[str, str] = {
-    "data-flow": "a value moving between two sides",
-    "component": "a line between components",
-    "state": "a sequence one thing passes through",
-}
-
-
 step_app = typer.Typer(no_args_is_help=True, help="Declare a pipeline pass inapplicable.")
 app.add_typer(step_app, name="step")
 
@@ -1670,6 +1658,18 @@ def step_none_cmd(
     console.print(
         f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
     )
+
+
+# Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a
+# `zip` of two parallel sequences silently drops or mispairs a row the moment
+# the two drift out of length, with no test to catch it. Keying means a kind
+# missing its blurb raises `KeyError` instead — loud at the one call site that
+# reads it, in `test_a_drawing_with_no_declared_kind_names_every_kinds_blurb`.
+_DIAGRAM_KIND_BLURBS: dict[str, str] = {
+    "data-flow": "a value moving between two sides",
+    "component": "a line between components",
+    "state": "a sequence one thing passes through",
+}
 
 
 @arch_app.command("accept")
