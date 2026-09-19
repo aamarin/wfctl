@@ -172,9 +172,11 @@ cases that sentinel used to leave indistinguishable. Decided in
 
 `_outstanding_pass` and `_STEPS` are #339's, and they break the rule one level
 further down for the reason the four above break it at the top. A step's passes
-are the same table with another row: `next` and `status` reach
-`_outstanding_pass` to name the pass holding a step up, which is what they
-already reach `_current_step_name` for one level higher, and `_declared` reads
+are the same table with another row: `next` reaches `_outstanding_pass` to name
+the pass holding a step up, which is what it already reaches
+`_current_step_name` for one level higher. `status` needs the same answer and is
+not a second crossing — it calls `build_report`, which is public and composes
+`_outstanding_pass` itself. And `_declared` reads
 `_STEPS` because ordering a repository's declared pass against wfctl's own means
 knowing what wfctl's own are called. `_STEP_NAMES` is the one name here crossed
 from two modules — `_declared` needs it so that a declaration naming a step
