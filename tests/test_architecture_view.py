@@ -149,7 +149,7 @@ def test_only_the_declared_edge_runs_upward(bands: dict[str, str]) -> None:
     assert upward == declared
 
 
-def test_the_private_crossings_are_the_six_the_view_draws() -> None:
+def test_the_private_crossings_are_the_nine_the_view_draws() -> None:
     """Nine private names cross a module boundary, and the view names them.
 
     Six until #339 added three: `_declared` reaches `_pipeline._STEP_NAMES` and
@@ -159,7 +159,7 @@ def test_the_private_crossings_are_the_six_the_view_draws() -> None:
     `status` to the pass holding a step up, the same way it already reaches
     `_current_step_name` for the step doing the same job one level up.
 
-    Both directions matter: a seventh crossing is drift the drawing missed, and
+    Both directions matter: a tenth crossing is drift the drawing missed, and
     a crossing that gets resolved leaves the drawing claiming a problem the
     code no longer has.
     """

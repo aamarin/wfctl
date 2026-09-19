@@ -53,8 +53,8 @@ and is why this drawing changed at all then. #364 added a third and a fourth:
 private-crossing shape as the two `_infer_steps`/`_current_step_name` calls
 beside it and for the matching reason, and `_pipeline._STEP_NAMES` from
 `blocked_cmd`, which needs the pipeline's terminal step name to hold something
-once every step reads `done` — see **Six private names crossing
-into `cli`** below.
+once every step reads `done` — see **Nine private names cross a module
+boundary** below.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
 imports nothing back — not because resolution reaches it. Neither `_paths` nor
@@ -139,23 +139,26 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Six private names crossing into `cli`
+### Nine private names cross a module boundary
 
 ```
-   cli → _paths._SPEC_DIR_OVERRIDE       "WFCTL_SPEC_DIR"
-   cli → _paths._STATE_DIR_OVERRIDE      "WFCTL_STATE_DIR"
-   cli → _pipeline._current_step_name    which step still blocks
-   cli → _pipeline._infer_steps          the whole inference
-   cli → _pipeline._apply_block_hold     the host-block override, for `next`
-   cli → _pipeline._STEP_NAMES           the terminal step, for `blocked`
+   cli       → _paths._SPEC_DIR_OVERRIDE     "WFCTL_SPEC_DIR"
+   cli       → _paths._STATE_DIR_OVERRIDE    "WFCTL_STATE_DIR"
+   cli       → _pipeline._current_step_name  which step still blocks
+   cli       → _pipeline._infer_steps        the whole inference
+   cli       → _pipeline._apply_block_hold   the host-block override, for `next`
+   cli       → _pipeline._STEP_NAMES         the terminal step, for `blocked`
+   cli       → _pipeline._outstanding_pass   which pass holds the step up
+   _declared → _pipeline._STEP_NAMES         the step a declaration may name
+   _declared → _pipeline._STEPS              the passes it is ordered against
 ```
 
-Named without line numbers on purpose: these six are the `crossings` block
+Named without line numbers on purpose: these nine are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
 `_pipeline.py:53` states the rule the module intends — *"Public because `cli`
-imports them — the data above stays private"* — and four names on that same
+imports them — the data above stays private"* — and six names on that same
 module break it. `_apply_block_hold` joins the other two for the reason
 `next_cmd` gives inline: `build_report` already composes it with `_infer_steps`,
 but `next` cannot call `build_report` itself (`next_step_content`'s own docstring
@@ -166,6 +169,17 @@ pipeline's own last step to hold once `build_report.current` reads `None` for
 "nothing is left to run" rather than "no feature claims this branch" — the two
 cases that sentinel used to leave indistinguishable. Decided in
 `the-underscore-is-the-module-contract`.
+
+`_outstanding_pass` and `_STEPS` are #339's, and they break the rule one level
+further down for the reason the four above break it at the top. A step's passes
+are the same table with another row: `next` and `status` reach
+`_outstanding_pass` to name the pass holding a step up, which is what they
+already reach `_current_step_name` for one level higher, and `_declared` reads
+`_STEPS` because ordering a repository's declared pass against wfctl's own means
+knowing what wfctl's own are called. `_STEP_NAMES` is the one name here crossed
+from two modules — `_declared` needs it so that a declaration naming a step
+wfctl does not have is a `wfctl check config` finding rather than a silent
+drop.
 
 ### Two domain modules print, and the graph cannot see it
 
@@ -251,7 +265,7 @@ defines, two of which write durable records. One flag governs four gates, so
 The drawing is checked, not trusted. `tests/test_architecture_view.py` parses
 the three blocks below out of *this file*, re-derives the import graph from
 `wfctl/*.py` with an AST pass, and fails if they disagree. A new module with no
-band, an edge that runs upward, a fifth private crossing, or a crossing that
+band, an edge that runs upward, a tenth private crossing, or a crossing that
 gets fixed without the drawing being updated — each of those turns the drawing
 red rather than stale.
 
