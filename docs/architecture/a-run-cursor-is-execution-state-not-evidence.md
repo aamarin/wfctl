@@ -164,17 +164,27 @@ split rather than a demotion.
 look alike rather than unlike. An unfilled `slot` step returns
 `StepStatus.SKIPPED` with `output={"slot": <name>}`
 (`workflows/steps/slot/__init__.py:49`) — *no overlay filled this extension
-point, so execution may proceed*. wfctl's `skipped` is inferred too, from the
-bare existence of a later artifact, and means *a later step ran without this one*
-(`_pipeline.py:80`, `:345`). wfctl also declines, deliberately, to attach a
-reason to it: the comment above that branch in `_predicates.py` says a `skipped`
-step is never the current step, so "a reason here would reach no consumer".
+point, so execution may proceed*.
 
-Neither side's `skipped` carries a reviewer-facing justification today, which is
-why mapping one onto the other during a migration would look correct. It is not:
-one is a fact about the workflow definition — nothing filled a slot — and the
-other a fact about the branch. A step the engine never offered would arrive at a
-wfctl reader as a step wfctl walked past, and the two are not the same claim.
+wfctl's `skipped` is inferred too, and four predicates produce it with no single
+gloss between them. Two read a later artifact and mean *a later step ran without
+this one*: `brainstorm` with a `spec.md` and no `design.md`
+(`_predicates.py:912`), and `clarify` with a `plan.md` already written (`:992`).
+The other two mean something else — that the work has already shipped, so
+blocking here would strand the pipeline with no route to `/end-session`: `tasks`
+over an `implement-complete.md` sentinel with no task in the file (`:1031`), and
+`decompose` with no `delivery.md` when the tasks it would group are closed
+(`:1065`). None of the four carries a reason, deliberately; the comment above the
+`clarify` arm says a `skipped` step is never the current step, so "a reason here
+would reach no consumer", and the explanation goes in `annotation` instead.
+
+What those four share is not a meaning but a subject: each is a fact about this
+branch. The slot's `SKIPPED` is a fact about the workflow definition, and it
+holds identically on every branch that workflow runs on. That is the difference a
+migration would erase — and because neither side's `skipped` carries a
+reviewer-facing justification, erasing it would look correct. A step the engine
+never offered would arrive at a wfctl reader as a step wfctl walked past, and the
+two are not the same claim.
 
 Giving wfctl's side a committed reason is in flight under #339 and has not
 merged; its records sit on that branch, so nothing in this repo's arch root
