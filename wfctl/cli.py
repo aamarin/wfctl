@@ -1589,6 +1589,8 @@ def step_none_cmd(
     as unrelated work lands and would make the same command resolve
     differently from one day to the next.
     """
+    from contextlib import suppress
+
     from rich.markup import escape
 
     from wfctl import _declared
@@ -1647,10 +1649,24 @@ def step_none_cmd(
     write_atomic(path, f"# {qualified_name} does not apply — {branch_name}\n\n{reason}\n")
 
     if touched_on_this_branch(repo_root, path) is not True:
+        # Removed, where `arch none` above leaves its declaration behind. That
+        # file is inert: the design gate asks the same visibility question
+        # before honouring it, so a refused declaration changes nothing and the
+        # gate stays up — failing towards still-blocked. `_step_claims` asks
+        # nothing. It globs this directory and honours what it finds, so a file
+        # left here reads the pass `skipped` and walks the pipeline past a claim
+        # this command has just refused to record — failing towards advanced.
+        # Refusing and recording are not both available.
+        path.unlink(missing_ok=True)
+        with suppress(OSError):
+            # Only when this run created it and nothing else landed there; a
+            # non-empty directory raises and is left alone.
+            path.parent.rmdir()
         console.print(
-            f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
-            "part of the change under\n  review — the root is outside the working tree, "
-            "or git is ignoring it. No\n  reviewer will see this claim.",
+            f"[yellow]⚠[/yellow] Did not record {escape(qualified_name)}: "
+            f"{_arch_location(path, repo_root)} would not be\n  part of the change under "
+            "review — the root is outside the working tree,\n  or git is ignoring it. No "
+            "reviewer would see the claim, so nothing\n  was written.",
             soft_wrap=True,
         )
         raise typer.Exit(1)

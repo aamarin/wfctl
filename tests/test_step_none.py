@@ -12,6 +12,7 @@ import json
 import types
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from wfctl.cli import app
@@ -199,3 +200,48 @@ def test_a_second_claim_on_the_same_pass_replaces_it(
     text = claim.read_text()
     assert "second reason" in text
     assert "first reason" not in text
+
+
+def test_a_claim_no_reviewer_can_see_is_not_left_on_disk(
+    storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The exit code and the tree have to agree.
+
+    This is where `step none` parts company with `arch none`, which leaves its
+    declaration behind on the same refusal. That one is inert: the design gate
+    asks the same visibility question before honouring it, so the file changes
+    nothing and the gate stays up. `_step_claims` asks nothing — it globs the
+    branch's claim directory and honours what it finds — so a file left here
+    turns the pass `skipped` and walks the pipeline past a claim this command
+    has just refused to record. Refusing and recording are not both available.
+    """
+    outside = tmp_path_factory.mktemp("records-kept-elsewhere")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+    _declare(storyctl_dir, {
+        "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}],
+    })
+
+    result = runner.invoke(app, ["step", "none", "brainstorm.ui-design",
+                                  "--reason", "backend-only change"])
+
+    assert result.exit_code == 1
+    assert not (outside / "step-claims" / "418-storyctl" / "brainstorm.ui-design.md").exists()
+
+
+def test_a_refused_claim_does_not_settle_the_pass(
+    storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The consequence the test above exists to prevent, asserted where it
+    would be felt: inference must not read a refused claim as a settled pass."""
+    outside = tmp_path_factory.mktemp("records-kept-elsewhere")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+    _declare(storyctl_dir, {
+        "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}],
+    })
+    runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "backend-only"])
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+    ui_design = next(s for s in brainstorm["sub_steps"] if s["name"] == "ui-design")
+    assert ui_design["state"] != "skipped"
+    assert ui_design["claimed"] is None
