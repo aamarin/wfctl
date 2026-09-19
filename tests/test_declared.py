@@ -365,3 +365,30 @@ def test_a_directory_named_as_evidence_is_never_done(
     (spec_dir / "seen.md").mkdir(parents=True)
     ev = build_evidence(spec_dir, declaring_repo.root)
     assert reader(ev).state == "in_progress"
+
+
+def test_a_declared_pass_is_listed_before_the_feature_directory_exists(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """A `pending` step reports its passes, and *why* it is pending must not
+    change that.
+
+    `_infer_steps` returns early when no feature directory has been resolved,
+    and that arm built bare steps carrying no `sub_steps` at all — so the same
+    `pending` step rendered two ways depending on which arm produced it. The
+    cascade arm calls `_pass_states` with exactly these arguments, which is the
+    shape this one now matches. A consumer reading `status --json` on a branch
+    before its spec directory exists could not see the pipeline the repository
+    had declared.
+    """
+    from wfctl._pipeline import _infer_steps
+
+    declaring_repo.write_config({"brainstorm": [
+        {"name": "ui-design", "manual": True, "evidence": "x.md"},
+    ]})
+
+    steps = _infer_steps(None, declaring_repo.root)
+    brainstorm = next(s for s in steps if s.name == "brainstorm")
+
+    assert "ui-design" in [s.name for s in brainstorm.sub_steps]
+    assert {s.state for s in brainstorm.sub_steps} == {"pending"}

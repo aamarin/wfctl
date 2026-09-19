@@ -268,8 +268,30 @@ def _infer_steps(
     live git state from. It was carried unused for a while after the design doc
     moved into the spec dir; #69 gave it a job again.
     """
+    # Lazy: `_declared` imports this module at its own top level to reach
+    # `_STEPS`, so importing it back at *our* top level would cycle. A
+    # function-scoped import is the same shape `_apply_block_hold` already uses
+    # to reach `_session`.
+    from wfctl import _declared
+    from wfctl._paths import resolve_branch
+
+    # Above the no-spec-dir arm, not below it. A pass is declared by the
+    # repository and claimed away per branch; neither fact needs a feature
+    # directory, and a step that is `pending` reports its passes whichever arm
+    # produced it. Building bare steps here instead rendered the same `pending`
+    # step two ways, and left a consumer unable to see the declared pipeline
+    # until a spec directory happened to exist.
+    passes_by_step, _ = _declared.load(repo_root)
+    claims = _step_claims(repo_root, resolve_branch(repo_root))
+
     if spec_dir is None:
-        return [_PipelineStep(name, "pending", None) for name in _STEP_NAMES]
+        return [
+            _PipelineStep(
+                name, "pending", None,
+                sub_steps=_pass_states(name, passes_by_step.get(name, ()), None, "pending", claims),
+            )
+            for name in _STEP_NAMES
+        ]
 
     # Accepted from the caller when it has one, because `build_report` needs the
     # same reads for the four facts. Built here otherwise, so `next` and the
@@ -278,16 +300,6 @@ def _infer_steps(
     # gain it.
     if ev is None:
         ev = build_evidence(spec_dir, repo_root)
-
-    # Lazy: `_declared` imports this module at its own top level to reach
-    # `_STEPS`, so importing it back at *our* top level would cycle. A
-    # function-scoped import is the same shape `_apply_block_hold` already uses
-    # to reach `_session`.
-    from wfctl import _declared
-    from wfctl._paths import resolve_branch
-
-    passes_by_step, _ = _declared.load(repo_root)
-    claims = _step_claims(repo_root, resolve_branch(repo_root))
 
     steps: list[_PipelineStep] = []
     cascade = False
