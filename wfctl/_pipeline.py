@@ -444,6 +444,33 @@ def _outstanding_pass(step: _PipelineStep | None) -> _PipelineSubStep | None:
     return next((s for s in step.sub_steps if s.state == "in_progress"), None)
 
 
+def manual_pass_reason(
+    blocked: str | None, outstanding: _PipelineSubStep | None
+) -> str | None:
+    """The reason a view shows for a step held by a manual pass.
+
+    A manual pass carries none of its own, and neither does its step: by the
+    time a pass is outstanding the step's own reading is `done`, so the slot is
+    empty exactly where a view most needs it filled.
+
+    **Applied after routing, never before.** `next_step_content` reads a
+    non-None `blocked` as a held step and returns the step's own command
+    without ever looking at the outstanding pass, so filling the reason first
+    turns `brainstorm.ui-design` into `/speckit.brainstorm` — the sentence
+    explaining the pass would bury the pass.
+
+    One function rather than the substitution `next` used to make inline.
+    `resume` composes the same `next-step.md` from the report's step reason,
+    found it empty, and wrote "run this command to continue" over a pass
+    nothing ships a command for. `pipeline-state-is-one-payload`: a view
+    compensating locally for a field the payload left blank is the shape that
+    record rules out, and the second view is where it always shows.
+    """
+    if outstanding is not None and outstanding.command is None:
+        return MANUAL_PASS_WHY
+    return blocked
+
+
 def arch_location(root: Path, repo_root: Path) -> str:
     """How a path under the arch root is named in output.
 
@@ -822,6 +849,13 @@ def build_report(
         name, blocked, tasks_open=bool(ev and ev.tasks_open),
         outstanding=outstanding, auto_approve=granted,
     )
+    # After the routing call above, for the reason `manual_pass_reason` gives.
+    # Written onto the step rather than kept beside the payload: `resume` and
+    # every other reader take the reason off the step, and a second field
+    # carrying the same answer is the two-vocabularies problem one level down.
+    current = next((s for s in raw if s.name == name), None)
+    if current is not None:
+        current.reason = manual_pass_reason(current.reason, outstanding)
     digest_now = None if ev is None else _stall.digest(ev)
     return PipelineReport(
         steps=[

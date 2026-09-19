@@ -723,13 +723,13 @@ def next_cmd() -> None:
     from rich.markup import escape
 
     from wfctl._pipeline import (
-        MANUAL_PASS_WHY,
         STORY_COMPLETE_CONSOLE,
         STORY_COMPLETE_FILE,
         _apply_block_hold,
         _current_step_name,
         _infer_steps,
         _outstanding_pass,
+        manual_pass_reason,
         next_step_content,
         next_step_file,
     )
@@ -780,11 +780,10 @@ def next_cmd() -> None:
         outstanding=outstanding, auto_approve=read_auto_approve(agent_dir),
     )
 
-    # A manual pass carries no `reason` of its own — `blocked` stays what the
-    # step's own reading set, which is None here (a manual pass only becomes
-    # outstanding once the step's own reading is already `done`). The contract
-    # names the sentence explicitly rather than leaving the slot empty.
-    why = MANUAL_PASS_WHY if outstanding is not None and outstanding.command is None else blocked
+    # Shared with `build_report`, which applies it to the same step's `reason`
+    # for `resume` and `status`. Inline here once, and `resume` wrote
+    # "run this command to continue" over a pass no command runs.
+    why = manual_pass_reason(blocked, outstanding)
 
     next_step_md = agent_dir / "next-step.md"
     if command:

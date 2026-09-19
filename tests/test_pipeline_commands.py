@@ -1579,3 +1579,55 @@ def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
     # here too and comes first, so a walk that wrongly selected skipped steps
     # would return `brainstorm` and satisfy an inequality against `clarify`.
     assert _current_step_name(_infer_steps(spec, tmp_path)) == "tasks"
+
+
+def test_resume_says_a_manual_pass_is_a_persons_to_perform(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """The twin of `test_a_manual_pass_names_the_pass_and_never_a_command`,
+    for the other writer of the same file.
+
+    `next` substituted `MANUAL_PASS_WHY` at its own call site. `resume`
+    serialises the step's `reason` off the report, which is None while a manual
+    pass is outstanding — the step's own reading is `done` by then — so it
+    wrote `Next step: brainstorm.ui-design` under "run this command to
+    continue" over a pass nothing ships a command for. One file, two composers,
+    and the field only one of them filled.
+    """
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+    runner.invoke(app, ["start"])
+
+    assert runner.invoke(app, ["resume"]).exit_code == 0
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+    assert "brainstorm.ui-design" in written
+    assert "a person performs this pass" in written
+
+
+def test_the_manual_sentence_does_not_reroute_the_step_to_its_own_command(
+    storyctl_dir: types.SimpleNamespace, monkeypatch,
+) -> None:
+    """Why the substitution lands after routing and not before.
+
+    `next_step_content` reads a non-None `blocked` as a held step and returns
+    the step's *own* command before it ever looks at the outstanding pass. Fill
+    the reason earlier and `brainstorm.ui-design` becomes `/speckit.brainstorm`
+    — the sentence explaining the pass would have buried the pass.
+    """
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
+    ))
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+
+    assert payload["next_command"] == "brainstorm.ui-design"
+    assert brainstorm["reason"] == "a person performs this pass"
