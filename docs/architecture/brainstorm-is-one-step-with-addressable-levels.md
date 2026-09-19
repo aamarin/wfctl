@@ -44,9 +44,24 @@ Any answer here has to survive that failure mode.
 The four levels become addressable as a separate concern that a switch can name,
 owned by `design-levels` rather than by the step table.
 
-`_STEPS` keeps answering exactly one question — which command advances this
-step — and gains no second axis. A per-level authority switch reads the level
-vocabulary, not the step table.
+`_STEPS` gains no per-level flag. What that rejects is a second axis on the
+entry itself: a table whose value type is `(command, auto)` cannot express a
+gate whose exit condition is a written artifact, and four flags carrying four
+levels is the split `_pipeline.py:16` records the failure of — an entry could
+carry level policy for a step that has no levels, and nothing would say so.
+
+A step entry carrying an ordered list of passes, each with a predicate of its
+own, is not that shape. The predicate is what expresses the artifact condition,
+and a step with no passes carries an empty list rather than inapplicable policy.
+So the table's value type may grow a pass list; what it may not grow is a flag
+per level.
+
+The ownership line is unchanged and narrower than it reads. `design-levels` owns
+which gates run inside `brainstorm` and what returning to one means. The step
+table carries only those passes that leave an artifact a reader can point at —
+`architecture-design` hands its result to `architecture-decisions` and writes
+nothing itself, so it gets no pass. Two of four levels are addressable in the
+table; all four remain `design-levels`'.
 
 The mechanism for that addressability is #127's and #151's to design. This
 record fixes only which side owns the question.
@@ -107,3 +122,7 @@ meet it.
 ## Log
 
 - 2026-09-04  proposed    — #149 phase 1: `brainstorm` addressability, per #151
+- 2026-09-17  revised     — #408: the "no second axis" sentence was reasoning
+  about a `(command, auto)` value type that #339 replaces with a
+  predicate-carrying pass list. The ownership claim is unchanged, and the
+  artifact-versus-gate split it implies is now written down.

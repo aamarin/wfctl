@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from wfctl._paths import (
+    STEP_CLAIMS_DIR,
     claim_conflicts,
     delivery_issue_keys,
+    non_record_subtrees,
     project_name,
     resolve_agent_dir,
     resolve_branch,
@@ -978,3 +980,13 @@ def test_claim_conflicts_reads_an_unlistable_spec_root_without_raising(
     finally:
         # Restored so the tmp_path teardown can remove it.
         root.chmod(0o755)
+
+
+def test_non_record_subtrees_names_step_claims(tmp_path: Path) -> None:
+    """#339, `an-absent-artifact-is-claimed-not-inferred`: a claimed-away pass
+    decides nothing about the boundary a record decides, so it joins `scans/`
+    and `implementation/` on the list every reader of the arch root is handed
+    (AGENTS.md, #370) — a fourth reader added later inherits the exclusion
+    from here rather than having to find every call site that needs it."""
+    arch = tmp_path / "docs" / "architecture"
+    assert arch / STEP_CLAIMS_DIR in non_record_subtrees(arch)

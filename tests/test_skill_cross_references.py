@@ -372,7 +372,7 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     likely to drop what was there, which is the argument
     `test_each_review_wrapper_allows_the_commands_the_scan_file_needs` already
     makes for the two review steps. `implement` marks each finished task `[X]` in
-    a `tasks.md` that exists, and `_predicates.implement` reads those marks.
+    a `tasks.md` that exists, and `_evidence.implement` reads those marks.
     `specify` runs a validation loop over the spec it just wrote — step 7c
     updates it for each failing checklist item, 7c.8 replaces each
     `[NEEDS CLARIFICATION]` marker with the answer, and 7d rewrites the checklist
