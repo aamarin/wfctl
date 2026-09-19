@@ -5127,11 +5127,13 @@ def tracker_check_cmd(
 
 check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own configuration.")
 # A new group rather than a peer of `tracker-check`/`check-body`'s existing
-# hyphenated shape: #402 records `check <thing>` as the direction this repo's
-# verb vocabulary is moving in, and naming this one into the grouped form from
-# its first commit means the eventual rename is one verb shorter rather than
-# one longer. Renaming the other two here would be a drive-by on a surface
-# this feature does not otherwise touch, and it is #402's to do.
+# hyphenated shape: #402 proposes `check <thing>` — noun group plus verb for
+# anything with an object — and is open, so the direction is where the argument
+# is going rather than somewhere it has arrived. Naming this one into the
+# grouped form from its first commit costs nothing if #402 settles that way and
+# leaves one verb to rename if it does not. Renaming the other two here would be
+# a drive-by on a surface this feature does not otherwise touch, and it is
+# #402's to do either way.
 app.add_typer(check_app, name="check")
 
 
