@@ -95,7 +95,7 @@ neither ever edits the other's.
 ## What every section carries
 
 - **Verdict** — exactly one of `satisfied`, `unsatisfied`, `inconclusive`. Those
-  are `_predicates.Verdict`'s three values, used with its meanings, so a later
+  are `_evidence.Verdict`'s three values, used with its meanings, so a later
   gate can read this file through `blocks(verdict, "repo-declared")` without a
   fourth vocabulary being invented first. Nothing reads it today. What each means
   for your step is in the wrapper that sent you here.

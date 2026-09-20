@@ -222,7 +222,7 @@ def test_the_analyze_in_scope_test_counts_the_constitution_as_having_decided() -
     fix that brings a drifted artifact back into line decides nothing — the
     constitution decided it — but condition 2 named only the three artifacts and
     the design records, so the fix read as out of scope and got filed.
-    `_predicates.analyze` reads the report's existence, so `implement` would then
+    `_evidence.analyze` reads the report's existence, so `implement` would then
     run over a known CRITICAL.
     """
     flowed = _flowed(_section("analyze"))

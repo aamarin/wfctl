@@ -482,7 +482,7 @@ def test_the_clarify_wrapper_requires_every_marker_to_be_gone() -> None:
     `speckit-clarify/SKILL.md` never mentions the marker syntax — `grep -c` returns
     zero — and its behaviour rule sends a low-impact marker down the "no critical
     ambiguities detected" path, which writes the `## Clarifications` section and
-    suggests advancing. `_predicates.clarify` reads a standing marker as the scan
+    suggests advancing. `_evidence.clarify` reads a standing marker as the scan
     being unfinished, so that successful pass leaves the step `in_progress`.
 
     Before #325 that cost a stop a human could see. After it the step is automatic
@@ -505,7 +505,7 @@ def test_the_analyze_wrapper_forbids_leaving_without_a_scan_file() -> None:
 
     The wrapper orders the scan file after step 8 so `Acted on` and `Accepted`
     carry settled counts. Step 8 asks the user whether to apply remediation, and
-    `analysis-report.md` — the whole of what `_predicates.analyze` reads — is
+    `analysis-report.md` — the whole of what `_evidence.analyze` reads — is
     already written by 6b. So a run that treats step 8 as a stop reports the step
     `done` with no scan file at all, on the one step whose scan file #325 cites as
     earning the flip. Before the flip the pause happened outside this command,
@@ -593,7 +593,7 @@ def test_an_implementation_note_does_not_answer_the_design_gate(
     subtree covers both rather than leaving a reader that skips one and not the
     other.
     """
-    from wfctl._predicates import design_block
+    from wfctl._evidence import design_block
 
     repo = _repo(tmp_path / "r")
     arch = repo / "docs" / "architecture"

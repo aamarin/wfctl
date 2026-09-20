@@ -1,6 +1,6 @@
 """The properties #314 bought, asserted so a later change cannot quietly spend them.
 
-The snapshot beside this file pins what the predicates *conclude*. This pins
+The snapshot beside this file pins what the readers *conclude*. This pins
 their *shape* — that all eight still share one signature, that the step table
 still holds one for every step, and that the one rule about inconclusive
 evidence is still reached by everything that can produce an inconclusive
@@ -23,9 +23,9 @@ from typing import get_args
 
 import pytest
 
-from wfctl import _pipeline, _predicates
+from wfctl import _pipeline, _evidence
 from wfctl._pipeline import _STEP_NAMES, _STEPS
-from wfctl._predicates import Evidence, Reading, State, build_evidence
+from wfctl._evidence import Evidence, Assessment, State, build_evidence
 
 STATES = set(get_args(State))
 
@@ -35,8 +35,8 @@ def _pipeline_source() -> str:
     return _pipeline.__file__
 
 
-def _evidence(tmp_path: Path) -> Evidence:
-    """An empty feature dir — every predicate's `pending` arm, and none of its reads."""
+def _evidence_for(tmp_path: Path) -> Evidence:
+    """An empty feature dir — every reader's `pending` arm, and none of its reads."""
     feature = tmp_path / "specs" / "314-feature"
     feature.mkdir(parents=True)
     return build_evidence(feature, tmp_path)
@@ -47,11 +47,11 @@ def test_every_step_declares_a_predicate() -> None:
 
     mypy rejects a row missing its third element outright; this covers the case
     mypy cannot see — a row present in `_STEPS` but absent from `_STEP_NAMES`, or
-    a predicate that is not callable because something rebound it.
+    a reader that is not callable because something rebound it.
     """
     assert set(_STEPS) == set(_STEP_NAMES)
     for name, step in _STEPS.items():
-        assert callable(step.predicate), f"{name} has no predicate"
+        assert callable(step.reads), f"{name} has no evidence reader"
 
 
 def test_every_predicate_takes_evidence_and_returns_a_reading(tmp_path: Path) -> None:
@@ -59,45 +59,71 @@ def test_every_predicate_takes_evidence_and_returns_a_reading(tmp_path: Path) ->
 
     The shared signature is the whole of #314's scope item 1, and it is exactly
     what the rest of the suite cannot see: every existing assertion would still
-    pass if one predicate quietly took a second argument.
+    pass if one reader quietly took a second argument.
     """
-    ev = _evidence(tmp_path)
+    ev = _evidence_for(tmp_path)
     for name, step in _STEPS.items():
-        reading = step.predicate(ev)
-        assert isinstance(reading, Reading), f"{name} did not return a Reading"
+        reading = step.reads(ev)
+        assert isinstance(reading, Assessment), f"{name} did not return an Assessment"
         assert reading.state in STATES, f"{name} returned state {reading.state!r}"
 
 
+def test_a_reader_can_take_a_heading_inside_another_steps_artifact(
+    tmp_path: Path,
+) -> None:
+    """FR-008: a `SubStep.reads` is a plain callable, not `evidence`'s
+    file-exists sugar alone — `clarify` already reads a heading inside
+    `spec.md` rather than a file of its own, and a declared pass that could
+    only express "this file exists" would be a real narrowing of what a
+    built-in pass can do. Neither `architecture` nor `design-doc` exercises
+    this today; a regression to a path-only signature would not fail either
+    of them, which is exactly why the capability needs its own reader here."""
+    from wfctl._pipeline import SubStep
+
+    def reads_a_heading(ev: Evidence) -> Assessment:
+        return Assessment("done" if "## Approved" in ev.spec_text else "in_progress")
+
+    sub = SubStep(name="approval", command=None, on_finish="review_required",
+                  reads=reads_a_heading)
+
+    feature = tmp_path / "specs" / "314-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("# Spec\n\n## Approved\n\nyes\n")
+    ev = build_evidence(feature, tmp_path)
+
+    assert sub.reads(ev).state == "done"
+
+
 def test_a_predicate_takes_exactly_one_argument() -> None:
-    """No predicate has grown a second parameter with a default.
+    """No reader has grown a second parameter with a default.
 
     Calling them all in the test above would not catch that — a defaulted
-    parameter is invisible at the call site and is how one predicate would drift
+    parameter is invisible at the call site and is how one reader would drift
     back out of the shared shape.
     """
     for name, step in _STEPS.items():
-        params = list(inspect.signature(step.predicate).parameters)
+        params = list(inspect.signature(step.reads).parameters)
         # Arity, not the name. `params == ["ev"]` reads the same and fails on a
         # rename, which is a test about spelling wearing a test about shape.
         assert len(params) == 1, f"{name} takes {params}"
 
 
-def test_the_annotation_is_the_reason_except_where_a_predicate_says_otherwise() -> None:
-    """`Reading.renders()` is the one place that decision is made.
+def test_the_display_string_is_the_reason_except_where_a_reader_says_otherwise() -> None:
+    """`Assessment.renders()` is the one place that decision is made.
 
-    Seven steps leave `annotation` unset and render their reason; `implement`
+    Seven steps leave `display` unset and render their reason; `implement`
     sets it because it prefixes a tally its reason cannot be recovered from.
     A view that recomposed this itself would be the second inference path
     `pipeline-state-is-one-payload` forbids.
     """
-    assert Reading("done").renders() is None
-    assert Reading("in_progress", "because").renders() == "because"
-    assert Reading("in_progress", "because", "1/2 done  because").renders() == (
+    assert Assessment("done").renders() is None
+    assert Assessment("in_progress", "because").renders() == "because"
+    assert Assessment("in_progress", "because", "1/2 done  because").renders() == (
         "1/2 done  because"
     )
-    # An annotation that is deliberately empty is still an answer, and must not
+    # A display string that is deliberately empty is still an answer, and must not
     # fall back to the reason.
-    assert Reading("done", "because", "").renders() == ""
+    assert Assessment("done", "because", "").renders() == ""
 
 
 def test_every_inconclusive_verdict_goes_through_blocks() -> None:
@@ -112,7 +138,7 @@ def test_every_inconclusive_verdict_goes_through_blocks() -> None:
     "no other function reaches this conclusion", and a call-based test can only
     show that the paths it happened to exercise did the right thing.
     """
-    tree = ast.parse(Path(_predicates.__file__).read_text())
+    tree = ast.parse(Path(_evidence.__file__).read_text())
 
     constructs_verdict: set[str] = set()
     calls_blocks: set[str] = set()
@@ -141,10 +167,10 @@ def test_every_inconclusive_verdict_goes_through_blocks() -> None:
 
 
 def test_evidence_is_frozen() -> None:
-    """A predicate cannot change what a later predicate sees.
+    """A reader cannot change what a later reader sees.
 
     Mutable, the step order would become load-bearing — and the order is the
-    walk's business. Each predicate decides its own step from evidence, and
+    walk's business. Each reader decides its own step from evidence, and
     nothing else.
     """
     # Positional, so a field added to `Evidence` breaks this line rather than
@@ -160,7 +186,7 @@ def test_the_step_table_rejects_a_row_without_a_predicate(tmp_path: Path) -> Non
     """FR-003 is a type error, and this is what re-checks that it still is.
 
     The invariant was demonstrated by hand when #314 landed — a `_STEPS` row
-    missing its predicate reports `[dict-item]` — but nothing re-ran it, so
+    missing its reader reports `[dict-item]` — but nothing re-ran it, so
     replacing `Step` with a plain tuple or widening the annotation to
     `dict[str, tuple]` would pass the whole suite while spending the property
     the table was chosen for.
@@ -186,9 +212,9 @@ def test_the_step_table_rejects_a_row_without_a_predicate(tmp_path: Path) -> Non
     module = tmp_path / "bad_table.py"
     module.write_text(
         "from wfctl._pipeline import Step, _AUTOMATIC\n"
-        "from wfctl import _predicates\n"
+        "from wfctl import _evidence\n"
         "rows: dict[str, Step] = {\n"
-        '    "ok": Step("/x", _AUTOMATIC, _predicates.specify),\n'
+        '    "ok": Step("/x", _AUTOMATIC, _evidence.specify),\n'
         '    "bad": ("/y", _AUTOMATIC),\n'
         "}\n"
     )
@@ -196,7 +222,7 @@ def test_the_step_table_rejects_a_row_without_a_predicate(tmp_path: Path) -> Non
         [sys.executable, "-m", "mypy", "--no-error-summary", str(module)],
         capture_output=True, text=True, cwd=Path(__file__).parent.parent,
     )
-    assert result.returncode != 0, "a row without a predicate type-checked"
+    assert result.returncode != 0, "a row without a reader type-checked"
     assert "dict-item" in result.stdout, result.stdout
 
 
@@ -204,15 +230,15 @@ def test_the_step_table_rejects_a_row_without_a_predicate(tmp_path: Path) -> Non
 def test_a_predicate_cannot_return_a_state_outside_the_four(tmp_path: Path) -> None:
     """FR-004, re-checked for the reason above.
 
-    `State` narrows `str`, so widening it back — or annotating a predicate's
+    `State` narrows `str`, so widening it back — or annotating a reader's
     return as `tuple[str, ...]` — is invisible at runtime and to every other
     test here.
     """
     module = tmp_path / "bad_state.py"
     module.write_text(
-        "from wfctl._predicates import Evidence, Reading\n"
-        "def broken(ev: Evidence) -> Reading:\n"
-        '    return Reading("finished")\n'
+        "from wfctl._evidence import Evidence, Assessment\n"
+        "def broken(ev: Evidence) -> Assessment:\n"
+        '    return Assessment("finished")\n'
     )
     result = subprocess.run(
         [sys.executable, "-m", "mypy", "--no-error-summary", str(module)],

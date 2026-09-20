@@ -7,11 +7,11 @@ evidence moves whenever someone decides a rung was too weak, which is four open
 issues at the time of writing (#308, #309, #240, #299). Held in one module those
 were the same diff, and a reviewer could not tell which half a change came from.
 
-Every predicate here has one signature — `(Evidence) -> Reading` — so `_STEPS`
+Every reader here has one signature — `(Evidence) -> Assessment` — so `_STEPS`
 can hold it and the walk never names a step. The signature was extracted rather
 than designed: `_implement_verdict` already returned a state and a reason, and
 the six values in `Evidence` are the reads the walk already performed before its
-loop began. `Reading`'s third field arrived later, to carry the one annotation
+loop began. `Assessment`'s third field arrived later, to carry the one string
 that is not simply a reason.
 
 `_pipeline` imports from here and never the reverse. The step table lives there
@@ -52,22 +52,22 @@ _PROMISED: frozenset[Source] = frozenset({"repo-declared", "accepted-record"})
 
 # The four names a step's position can take. A closed set rather than `str`
 # because `pipeline-state-is-one-payload` writes these four out by hand and
-# nothing checked them — a predicate returning "finished" type-checked fine and
+# nothing checked them — a reader returning "finished" type-checked fine and
 # rendered as an unknown glyph. `done` and `skipped` both advance the pipeline;
 # `in_progress` and `pending` both hold it, and differ in whether anything ran.
 State = Literal["done", "in_progress", "pending", "skipped"]
 
 
-class Reading(NamedTuple):
-    """What one predicate concluded: the state, why, and what to render.
+class Assessment(NamedTuple):
+    """What one reader concluded: the state, why, and what to render.
 
     `reason` rather than a bool because the caller renders the string, and a
     caller that only needs to know *whether* the step is blocked reads it as
     truthy.
 
-    `annotation` defaults to `None`, which means "the reason is what renders" —
+    `display` defaults to `None`, which means "the reason is what renders" —
     true of seven steps. `implement` is the eighth: it prefixes a task tally, so
-    its annotation carries something its reason cannot be recovered from, and the
+    its display string carries something its reason cannot be recovered from, and the
     routing read wants the reason alone. Carried here rather than composed in the
     walk so the walk never has to know which step is the exception — that branch
     was the last `if name ==` left in it.
@@ -75,15 +75,15 @@ class Reading(NamedTuple):
 
     state: State
     reason: str | None = None
-    annotation: str | None = None
+    display: str | None = None
 
     def renders(self) -> str | None:
         """What a view shows for this step."""
-        return self.reason if self.annotation is None else self.annotation
+        return self.reason if self.display is None else self.display
 
 
-# What every step's predicate is.
-Predicate = Callable[["Evidence"], Reading]
+# What every step reads its evidence with.
+EvidenceReader = Callable[["Evidence"], Assessment]
 
 
 # The three values one readiness fact takes. A closed set for `State`'s reason —
@@ -127,14 +127,14 @@ class Fact(NamedTuple):
 # did decide, and requiring `accepted` would hold such a branch forever.
 _RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
 
-# The design step's annotation when the boundary question went unanswered. Short
+# The design step's display string when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
 # `_pipeline.DESIGN_BLOCK_HELP`, which is formatted with a per-repo location.
 # Here rather than there because it is what this module concludes; the help is
 # how a view renders that conclusion.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
-# The tasks step's annotation when its file holds no task (#308). Names the file
+# The tasks step's display string when its file holds no task (#308). Names the file
 # rather than the step, because `status` prints it on the `tasks` row and "no
 # tasks" there reads as a judgement about the work rather than about the artifact.
 _TASKS_EMPTY_REASON = "tasks.md holds no task"
@@ -163,19 +163,19 @@ def blocks(verdict: Verdict, source: Source) -> bool:
 class Evidence:
     """The reads the walk already performed before its loop, given a name.
 
-    Not everything the predicates read, and deliberately not: `decompose` opens
+    Not everything the readers read, and deliberately not: `decompose` opens
     `delivery.md` and the tracker config inside itself, `implement` reaches a
-    verification record and git through `verification_block`, and five predicates
+    verification record and git through `verification_block`, and five readers
     `stat` their own artifact. Those stay deferred because `cascade` means most
     runs never reach them — what is gathered here is what the walk paid for
     unconditionally before this change, and nothing more.
 
-    Frozen because a predicate that mutated it would make the step order
-    significant, and the order is the walk's business — a predicate decides its
+    Frozen because a reader that mutated it would make the step order
+    significant, and the order is the walk's business — a reader decides its
     own step from evidence and nothing else.
 
     `spec_dir` is a `Path` and not `Path | None`: the walk returns eight pending
-    steps before building this, so no predicate is ever reached without one and
+    steps before building this, so no reader is ever reached without one and
     none carries a guard for it.
     """
 
@@ -187,16 +187,16 @@ class Evidence:
     spec_text: str
     has_markers: bool
     # `plan.md`, blanked the same way and for the same reason: since #309 the
-    # plan predicate reads its sections, and `plan-template.md` carries `#` lines
+    # plan reader reads its sections, and `plan-template.md` carries `#` lines
     # inside fenced blocks — so an unblanked read would count a section the
     # document only illustrates. Empty when the file is absent.
     plan_text: str
     tasks_text: str
     tasks_open: bool
     # The tally, taken beside the one read of the file rather than recomputed by
-    # each of the two predicates that need it (#308). `tasks_total` is zero for a
+    # each of the two readers that need it (#308). `tasks_total` is zero for a
     # file that holds no task *and* for no file at all — `tasks_text` is what
-    # tells those apart, and both predicates check it first.
+    # tells those apart, and both readers check it first.
     tasks_done: int
     tasks_total: int
     # `verification_block`'s answer, read once. Deferred until #299, on the
@@ -210,7 +210,31 @@ class Evidence:
 
 
 def _file_exists(path: Path) -> bool:
-    return path.exists() and path.stat().st_size > 0
+    # `is_file()`, not `exists()`: a directory exists and generally reports a
+    # nonzero `st_size` too, so `evidence` naming one would read `done` with
+    # no file ever written — the promised artifact missing and nothing saying so.
+    return path.is_file() and path.stat().st_size > 0
+
+
+def build_file_exists_reader(evidence: str) -> EvidenceReader:
+    """A reader that reports `done` once `evidence` exists — sugar for a
+    declared pass, and the whole of what `wfctl.json` can express
+    (`a-step-carries-sub-steps-one-level-deep`).
+
+    Resolved against the feature directory, never the repository root: a path
+    resolved against the root names one file for every branch, so the first
+    branch to write it would leave the pass reading `done` on every branch
+    after — a false `done` no later run corrects (research.md R3). An absolute
+    path is used as given, the escape hatch for a committed artifact a
+    repository wants shared across branches.
+    """
+    path = Path(evidence)
+
+    def reader(ev: "Evidence") -> Assessment:
+        target = path if path.is_absolute() else ev.spec_dir / path
+        return Assessment("done" if _file_exists(target) else "in_progress")
+
+    return reader
 
 
 # The sections each artifact must carry for its step to pass. wfctl's own list,
@@ -225,7 +249,7 @@ def _file_exists(path: Path) -> bool:
 #
 # Stems rather than whole lines. The template's own `_(mandatory)_` suffix
 # reaches real specs verbatim, so a whole-line match would reject the corpus
-# these were measured against. Template order, because the annotation lists what
+# these were measured against. Template order, because the display string lists what
 # is missing and that is the order the reader will look for them in.
 _REQUIRED_SPEC_SECTIONS: tuple[str, ...] = (
     "User Scenarios & Testing",
@@ -313,7 +337,7 @@ def _missing_reason(missing: tuple[str, ...]) -> str | None:
     """The held step's line, or None when nothing is missing.
 
     Names them rather than counting them: the reader fixes the artifact without
-    opening it, which is what the annotation slot is for. Template order comes
+    opening it, which is what the display slot is for. Template order comes
     from the constant, so the list reads in the order the document declares.
     """
     return f"missing: {', '.join(missing)}" if missing else None
@@ -354,9 +378,9 @@ def _task_tally(tasks_text: str) -> tuple[int, int]:
     """How many tasks are ticked, and how many there are.
 
     One spelling for the three readers that need it — `_tasks_open`, the `tasks`
-    predicate, and the tally `implement` annotates with. The count is what they
+    reader, and the tally `implement` displays. The count is what they
     would each have written out, and #262 is what two hand-written copies of a
-    tasks predicate cost.
+    tasks reader cost.
 
     A total of zero is not the same fact as an empty string, and the difference
     is #308: no file means the step has not run, and a file with no box in it
@@ -390,7 +414,7 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
 
     A function rather than a local, because a local answers the reads inside
     `_infer_steps` and cannot reach `next_step_content`, which spelled the
-    predicate with the boxes alone and routed a story whose definition of done
+    reader with the boxes alone and routed a story whose definition of done
     had not passed straight back to `/speckit.implement` with `auto: true`
     (#262). The sentinel exists precisely for the story whose boxes are not a
     reliable signal, so dropping it inverts the case it was written for.
@@ -406,7 +430,7 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     if total:
         return done < total
     # No box anywhere. An absent file is not this function's question — the
-    # predicates that care read `tasks_text` and report `pending` before asking —
+    # readers that care read `tasks_text` and report `pending` before asking —
     # so the remaining case is the file that exists and holds no task.
     return bool(tasks_text)
 
@@ -581,12 +605,29 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     """
     if not _file_exists(spec_dir / "design.md"):
         return None
+    return _architecture_answered(spec_dir, repo_root)
+
+
+def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
+    """Whether the boundary question was put and answered — a record touched
+    on this branch, `wfctl arch none`'s declaration, or a later step having
+    already run.
+
+    Split out of `design_block` rather than inlined in both callers:
+    `design_block` only reaches this once `design.md` exists, which is exactly
+    the read order `design.md` itself flagged as backwards — an architecture
+    record answers this regardless of whether the design document has been
+    written yet, and `brainstorm_architecture` (the pass) and `brainstorm`
+    (the step's own `pending`-vs-`done` read, before any pass runs) both need
+    that answer without design_block's `design.md` guard.
+
+    The `spec.md` escape carries over unconditionally, though: "advance past
+    the design step" is one transition, and a gate that stayed up through
+    plan, tasks and implement would refuse work that already answered by
+    moving on — true of the whole step and of this one pass alike, whether or
+    not `design.md` was ever written.
+    """
     if _file_exists(spec_dir / "spec.md"):
-        # Past the boundary. "Advance past the design step" is one transition,
-        # and a gate that stayed up through plan, tasks and implement would
-        # refuse work that already answered by moving on. `spec.md` is what
-        # "a later step ran" looks like — the same stand-in the brainstorm arm
-        # uses to tell `skipped` from `pending`.
         return None
 
     from wfctl._paths import non_record_subtrees, touched_on_this_branch
@@ -604,27 +645,27 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     return DESIGN_BLOCK_REASON if blocks(verdict, "ambient") else None
 
 
-# What each predicate proves (#300, epic #100 scope 5). The rungs, weakest first:
+# What each reader proves (#300, epic #100 scope 5). The rungs, weakest first:
 # 1 an artifact was written; 2 the artifact has structure; 3 known questions were
 # addressed, syntactically; 4 promised external objects exist; 5 executable
 # completion criteria passed; 6 a decision has authority; 7 integration was approved.
 #
 # Rungs are not the four facts above, and the two vocabularies are kept apart on
-# purpose (#299). A rung grades how strongly *one predicate* proves something
+# purpose (#299). A rung grades how strongly *one reader* proves something
 # about *its own step*; a fact is one of four questions about the branch. Only
 # rungs 6 and 7 line up one-to-one, with `fact_architecture_accepted` and
-# `fact_integration_authorized` — the two no predicate here reaches. Rungs 1
+# `fact_integration_authorized` — the two no reader here reaches. Rungs 1
 # through 5 are all evidence that a step's artifacts were written and how well,
 # which is a single fact, so a stated mapping would be right about two rows and
 # wrong about five.
 #
-# Beside the predicates by `knowledge-placement`: a fact about one file belongs to
+# Beside the readers by `knowledge-placement`: a fact about one file belongs to
 # that file, and this is a fact about the functions below. It sat in `_pipeline.py`
 # until #314, when the functions moved and it did not — which is exactly the drift
 # its own closing line warns about.
 #
 # The two conditions that hold over all eight are facts about the *walk*, not about
-# any predicate, and they are stated in `_pipeline.py` where the walk is.
+# any reader, and they are stated in `_pipeline.py` where the walk is.
 #
 #   brainstorm  1, and a gesture at 6 rather than 6 itself: a design doc exists and
 #               git says some path under `<arch>/` outside `design/` changed on this
@@ -660,7 +701,7 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 #               the tasks read closed, and a repo-declared verification passed
 #               against this tree.
 #
-# `blocks` is consulted three times, by the three predicates whose evidence has an
+# `blocks` is consulted three times, by the three readers whose evidence has an
 # inconclusive state to judge — `implement` as `repo-declared`, `brainstorm` and
 # `decompose` as `ambient`. `tasks` reads inside its file and still reaches none:
 # the file is read or it is absent, and one holding no task is `unsatisfied`, which
@@ -688,7 +729,7 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 # and one written wrong are one file to this check, and refusing both strands
 # every feature written before the map existed.
 #
-# Nothing pins these lines to the predicates they describe — re-read the function
+# Nothing pins these lines to the readers they describe — re-read the function
 # before trusting one.
 
 
@@ -696,7 +737,7 @@ def fact_artifacts_written(ev: Evidence | None) -> Fact:
     """Did this feature's steps write their artifacts? Owner: the spec dir.
 
     Reads `Evidence`'s three texts and no step's conclusion. That distinction is
-    the feature: the predicates read these same three files, and reading their
+    the feature: the readers read these same three files, and reading their
     *verdicts* instead would be the collapse `readiness-is-not-a-step-state`
     undoes.
 
@@ -706,7 +747,7 @@ def fact_artifacts_written(ev: Evidence | None) -> Fact:
     empty files, and those are different states.
 
     Stops at the three `Evidence` gathers. Reaching further — `delivery.md`, the
-    checklists — means re-implementing predicates that own those reads, and
+    checklists — means re-implementing readers that own those reads, and
     `Evidence` is this repo's own definition of what the walk already paid for.
     """
     name = "artifacts written"
@@ -851,16 +892,16 @@ def facts(
 
 
 def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
-    """Read once, for all eight predicates.
+    """Read once, for all eight readers.
 
     Public because the walk calls it, and because it is the only way to make an
     `Evidence` that reflects the disk — a caller assembling one by hand is
     writing a fixture, which is fine and is not this.
 
-    Both file reads happen here rather than inside the predicates that want
+    Both file reads happen here rather than inside the readers that want
     them. `tasks.md` is read by three steps and `spec.md` by two, and an
     implementing agent may be rewriting either while `status` runs — so two
-    predicates reading the same file could disagree about it inside a single
+    readers reading the same file could disagree about it inside a single
     inference, and the payload would carry both answers.
     """
     tasks_md = spec_dir / "tasks.md"
@@ -897,28 +938,66 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
     )
 
 
-def brainstorm(ev: Evidence) -> Reading:
-    """Whether the boundary question was put, and whether it was answered."""
+def brainstorm_architecture(ev: Evidence) -> Assessment:
+    """Whether the boundary question was put and answered — a record, or a
+    `wfctl arch none` declaration.
+
+    One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
+    directly rather than `design_block`, which answers the same question with
+    two extra guards that belong to the whole step (`design.md` exists;
+    `spec.md` does not) — `design.md` is the other pass's business, and a
+    branch past `spec.md` never reaches this reader at all, because `brainstorm`
+    reports `skipped` before any pass runs (research.md R7).
+    """
+    reason = _architecture_answered(ev.spec_dir, ev.repo_root)
+    return Assessment("done" if reason is None else "in_progress", reason)
+
+
+def brainstorm_design_doc(ev: Evidence) -> Assessment:
+    """Whether `design.md` was written. `brainstorm`'s other built-in pass."""
+    return Assessment("done" if _file_exists(ev.spec_dir / "design.md") else "in_progress")
+
+
+def brainstorm(ev: Evidence) -> Assessment:
+    """Has the pipeline reached this step, or moved past it?
+
+    Owns only its `pending` and `skipped` branches now
+    (`a-step-carries-sub-steps-one-level-deep`) — what used to be this
+    function's `in_progress`/`done` branch is the roll-up of its two passes,
+    computed in `_pipeline._infer_steps` (research.md R7), because a single
+    reader collapsing two artifacts into one string is the defect the record
+    exists to fix.
+
+    Still has to tell "nothing here yet" from "something has started", since
+    that is what decides `pending` versus handing off to the passes at all —
+    checking `design.md` alone would read `pending` for a branch that has an
+    architecture record and nothing else, which is the read order `design.md`
+    itself flagged as backwards (`brainstorm_architecture` runs first in
+    `_STEPS`, and this checks the same evidence in the same order: the record
+    before the document, because that is the order `design-levels` and the
+    brainstorm skill write them in).
+    """
     if _file_exists(ev.spec_dir / "design.md"):
-        # A design document is the artifact; the boundary question is the step.
-        # `design.md` on disk with no record for it means the step produced its
-        # file and not its answer — the same shape `implement` reads when every
-        # box is ticked and the definition of done has not passed.
-        reason = design_block(ev.spec_dir, ev.repo_root)
-        return Reading("in_progress" if reason else "done", reason)
+        return Assessment("done")
     if _file_exists(ev.spec_dir / "spec.md"):
         # Passed by: the pipeline moved on without one, which `design-levels`
         # explicitly allows for a change that draws no new boundary.
-        return Reading("skipped")
+        return Assessment("skipped")
+    if _architecture_answered(ev.spec_dir, ev.repo_root) is None:
+        # No design.md, but the boundary question is already answered — the
+        # architecture pass is done and the design-doc pass is what remains.
+        # "Done" here is the own-reading the roll-up downgrades to
+        # `in_progress`, not a claim that the step is finished.
+        return Assessment("done")
     # Nothing has happened here yet. Distinct from the branch above, and the two
     # need opposite advice — this is where the reader is sent, that is already
     # behind them. `spec.md` stands in for "a later step ran": every step after
     # this one cascades through specify, so nothing can be past brainstorm
     # without it.
-    return Reading("pending")
+    return Assessment("pending")
 
 
-def specify(ev: Evidence) -> Reading:
+def specify(ev: Evidence) -> Assessment:
     """A spec exists, carries its mandatory sections, and has no marker left.
 
     Presence is asked of the file, not of `spec_text`: a spec that is one fenced
@@ -927,7 +1006,7 @@ def specify(ev: Evidence) -> Reading:
     calls the same directory `skipped` from `_file_exists`.
     """
     if not _file_exists(ev.spec_dir / "spec.md"):
-        return Reading("pending")
+        return Assessment("pending")
     if TEMPLATE_PLACEHOLDER in ev.spec_text:
         # Ahead of the marker check, and that ordering is the whole of what it
         # adds here. The spec template ships `[NEEDS CLARIFICATION` markers of
@@ -938,18 +1017,18 @@ def specify(ev: Evidence) -> Reading:
         #
         # A spec someone has actually written carries no `ACTION REQUIRED`, so a
         # real open marker still reaches the branch below.
-        return Reading("in_progress", UNWRITTEN_TEMPLATE)
+        return Assessment("in_progress", UNWRITTEN_TEMPLATE)
     if ev.has_markers:
         # Keeps priority over the section read: a marked spec is clarify's
         # business, and naming missing sections beside a marker would route the
         # reader to the wrong command. No reason, which is what
         # `_current_step_name` reads to know clarify can clear this one.
-        return Reading("in_progress")
+        return Assessment("in_progress")
     reason = _missing_reason(_missing_sections(ev.spec_text, _REQUIRED_SPEC_SECTIONS))
-    return Reading("in_progress" if reason else "done", reason)
+    return Assessment("in_progress" if reason else "done", reason)
 
 
-def clarify(ev: Evidence) -> Reading:
+def clarify(ev: Evidence) -> Assessment:
     """The clarification scan ran, and left nothing standing.
 
     clarify has no file of its own — its artifact is the `## Clarifications`
@@ -966,22 +1045,22 @@ def clarify(ev: Evidence) -> Reading:
     """
     scanned = re.search(r"^##[ \t]+Clarifications\b", ev.spec_text, re.MULTILINE)
     if scanned and not ev.has_markers:
-        return Reading("done")
+        return Assessment("done")
     if ev.has_markers:
         # markers are clarify's actual job — no bypass, whatever else exists.
         # in_progress here also keeps _current_step_name's skip branch firing, so
         # a marked spec routes to clarify rather than back to specify.
-        return Reading("in_progress")
+        return Assessment("in_progress")
     if _file_exists(ev.spec_dir / "plan.md"):
         # a spec that predates the gate — planning already passed through where
         # clarify now sits. skipped not done: the scan genuinely never ran, and
         # saying otherwise would hide that. Does not block, so an in-flight story
         # is not sent back to clarify a spec its implementation is already built on.
         #
-        # The annotation is what stops it being silent (#309): `skipped` advances
+        # The display string is what stops it being silent (#309): `skipped` advances
         # the pipeline exactly as `done` does, and this branch passes the step on
         # the plan's existence rather than on any evidence a scan happened. In
-        # `annotation` and not `reason` — a `skipped` step is never
+        # `display` and not `reason` — a `skipped` step is never
         # `_current_step_name`, so a reason here would reach no consumer, and it
         # would widen what that field means in exchange for nothing observable.
         #
@@ -989,25 +1068,25 @@ def clarify(ev: Evidence) -> Reading:
         # The question is whether planning already passed through here, which a
         # thin plan still answers yes; tightening it would send an in-flight spec
         # back to re-clarify a document its plan is already built on.
-        return Reading("skipped", annotation=CLARIFY_UNSCANNED)
-    return Reading("in_progress")
+        return Assessment("skipped", display=CLARIFY_UNSCANNED)
+    return Assessment("in_progress")
 
 
-def plan(ev: Evidence) -> Reading:
+def plan(ev: Evidence) -> Assessment:
     """A plan exists and carries the sections a plan carries."""
     if not _file_exists(ev.spec_dir / "plan.md"):
-        return Reading("pending")
+        return Assessment("pending")
     if TEMPLATE_PLACEHOLDER in ev.plan_text:
         # Ordered before the section read on purpose: `setup-plan.sh` runs
         # `cp plan-template.md plan.md`, so the document this step most often
         # meets carries every required heading and no content. Structure alone
         # has nothing to say about it and would report `done`.
-        return Reading("in_progress", UNWRITTEN_TEMPLATE)
+        return Assessment("in_progress", UNWRITTEN_TEMPLATE)
     reason = _missing_reason(_missing_sections(ev.plan_text, _REQUIRED_PLAN_SECTIONS))
-    return Reading("in_progress" if reason else "done", reason)
+    return Assessment("in_progress" if reason else "done", reason)
 
 
-def tasks(ev: Evidence) -> Reading:
+def tasks(ev: Evidence) -> Assessment:
     """A task list exists and holds at least one task (#308).
 
     Never reads what a task *says*, nor whether it is ticked — a file of open
@@ -1015,9 +1094,9 @@ def tasks(ev: Evidence) -> Reading:
     all, which cleared both this step and `implement` while proving nothing.
     """
     if not ev.tasks_text:
-        return Reading("pending")
+        return Assessment("pending")
     if ev.tasks_total:
-        return Reading("done")
+        return Assessment("done")
     if _file_exists(ev.spec_dir / "checklists" / "implement-complete.md"):
         # A story declared implemented over a file with no task in it. `skipped`
         # rather than `done`, for clarify's reason: the step genuinely produced
@@ -1028,20 +1107,20 @@ def tasks(ev: Evidence) -> Reading:
         # Not a second escape from #308. The sentinel is written by hand at the
         # end of implementation, which is the declaration that was missing when a
         # bare file cleared both steps unattended.
-        return Reading("skipped")
+        return Assessment("skipped")
     # The step wrote its artifact and put no task in it, which is the same shape
     # `brainstorm` reads when `design.md` exists with no record behind it: a file
     # produced, an answer not.
-    return Reading("in_progress", _TASKS_EMPTY_REASON)
+    return Assessment("in_progress", _TASKS_EMPTY_REASON)
 
 
-def analyze(ev: Evidence) -> Reading:
+def analyze(ev: Evidence) -> Assessment:
     """An analysis report exists."""
     report = ev.spec_dir / "checklists" / "analysis-report.md"
-    return Reading("done" if _file_exists(report) else "pending")
+    return Assessment("done" if _file_exists(report) else "pending")
 
 
-def decompose(ev: Evidence) -> Reading:
+def decompose(ev: Evidence) -> Assessment:
     """A delivery plan exists, and every issue row it groups names a key.
 
     Two questions, deliberately not one. `blocks` answers *is an unkeyed row a
@@ -1049,7 +1128,7 @@ def decompose(ev: Evidence) -> Reading:
     the second into the first would change behaviour: past the point where the
     work is closed the reader is being sent to `/speckit.decompose`, which does
     not backfill a table, for a story that has already shipped — and no route to
-    `/end-session` exists while a step blocks. The annotation still says what is
+    `/end-session` exists while a step blocks. The display string still says what is
     missing; it just stops standing in the way. Clarify's `skipped` arm declines
     the same trap in the same terms.
 
@@ -1062,8 +1141,8 @@ def decompose(ev: Evidence) -> Reading:
     delivery_md = ev.spec_dir / "delivery.md"
     if not _file_exists(delivery_md):
         if ev.tasks_text and not ev.tasks_open:
-            return Reading("skipped")
-        return Reading("pending")
+            return Assessment("skipped")
+        return Assessment("pending")
 
     # Writing the plan is not the whole step — `speckit-delivery-plan`'s own
     # checklist requires the issues it groups to exist. Read from the file's text
@@ -1079,7 +1158,7 @@ def decompose(ev: Evidence) -> Reading:
         "inconclusive" if unkeyed is None else "unsatisfied" if unkeyed else "satisfied"
     )
     if not blocks(verdict, "ambient"):
-        return Reading("done")
+        return Assessment("done")
 
     # What was read, not what it implies. The rows are the whole evidence:
     # "issues not created" is a claim about the tracker, and it is the wrong one
@@ -1087,10 +1166,10 @@ def decompose(ev: Evidence) -> Reading:
     assert unkeyed is not None  # `unsatisfied` is the only arm that blocks here
     plural = "" if unkeyed == 1 else "s"
     reason = f"{unkeyed} issue row{plural} without a key"
-    return Reading("in_progress" if ev.tasks_open else "done", reason)
+    return Assessment("in_progress" if ev.tasks_open else "done", reason)
 
 
-def implement(ev: Evidence) -> Reading:
+def implement(ev: Evidence) -> Assessment:
     """The tasks read closed, and a repo-declared verification passed on this tree.
 
     One owner for a verdict that was composed at two sites — this arm and the
@@ -1101,7 +1180,7 @@ def implement(ev: Evidence) -> Reading:
     path.
     """
     if not ev.tasks_text:
-        return Reading("pending")
+        return Assessment("pending")
 
     # No tally where there is nothing to tally. `0/0 done` is how #308 was
     # reported, and beside any state it reads as a count of work rather than as
@@ -1109,12 +1188,12 @@ def implement(ev: Evidence) -> Reading:
     tally = f"{ev.tasks_done}/{ev.tasks_total} done" if ev.tasks_total else None
 
     if ev.tasks_open:
-        return Reading("in_progress", None, tally)
+        return Assessment("in_progress", None, tally)
     # Tasks read complete. Before #69 that was the whole check, and both routes
     # to it are written by the agent doing the work. A configured definition of
     # done gets the last word.
     blocked = ev.verification
     if blocked:
-        annotation = f"{tally}  {blocked}" if tally else blocked
-        return Reading("in_progress", blocked, annotation)
-    return Reading("done", None, tally)
+        display = f"{tally}  {blocked}" if tally else blocked
+        return Assessment("in_progress", blocked, display)
+    return Assessment("done", None, tally)
