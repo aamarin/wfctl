@@ -47,9 +47,14 @@ not restated here.
 - That a consumer would read a shipped contract file. Falsified if #424 lands
   without opening it, which would leave the file worth having for the reviewer
   alone — still a reason to keep it, but a weaker one than this record claims.
-- That the regeneration path will not be run reflexively. Falsified by the first
-  pull request that regenerates the file and moves the version in one commit
-  with no argument in its body.
+- That the regeneration path will not be run reflexively. Withdrawn by #423's
+  clarify scan, which made running it the intended path: a version typed by hand
+  to turn a red test green is a reflex too, and a cheaper one to perform without
+  thinking. What the assumption was protecting — the author deciding whether a
+  break should be published — is carried instead by the hold that writes the
+  paths and leaves the version, and by the commit body saying which of the two
+  reasons applied. Neither is a check, and the reviewer reading the version move
+  in the diff is what stands behind them.
 
 ## Direct baseline
 
@@ -135,6 +140,17 @@ A regeneration command makes the update path one step, and makes a thoughtless
 bump one step as well. The commit body is where the argument has to be, which is
 a convention rather than a check.
 
+What this file checks is the set of key paths and the type at each one, and that
+is the whole of it. A contract change carried in a value passes untouched: a
+fourth kind reaching a consumer written for three, a `detail` that keeps its type
+and changes what it reports, a reordering of the rank. The keys are identical, so
+the check is silent and the version does not move — and a consumer pinning that
+version is given no signal that anything changed. Stated here because the check
+passing is the evidence a reader will take for the contract holding, and the two
+are not the same claim.
+`wfctl-owns-whether-a-worktree-wants-a-human` carries why that class is named
+rather than closed.
+
 ## Verification
 
 A test that renames a key in the payload builder and asserts the suite fails
@@ -145,3 +161,4 @@ what a golden file needs and a constant would need equally.
 ## Log
 
 - 2026-09-20  proposed  — #423's level-3 gate; written before `design.md` so the document can cite it by path
+- 2026-09-20  revised   — `Consequences` now states what the check does not cover, so a green check is not read as the contract holding; the third `Assumed` is withdrawn, regeneration having become the intended path in #423's clarify scan. Still proposed, so the body was revised rather than superseded

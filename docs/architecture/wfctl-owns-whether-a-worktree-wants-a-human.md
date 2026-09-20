@@ -138,11 +138,24 @@ record already forbids.
 
 `attention` is part of the versioned surface, so a condition added later is a
 contract change and moves the version. So is the rank: a reordering changes what
-a consumer is shown without changing any key, which is the one contract change
-the shape check in
-`docs/architecture/design/423-the-promised-shape-is-a-shipped-data-file.md`
-cannot see. That gap is named here rather than closed, because the alternative is
-encoding a rank order in a shape file whose whole job is key paths and types.
+a consumer is shown without changing any key.
+
+That makes `attention` the field where this contract stops being carried by keys.
+A consumer written for three kinds meets a fourth and falls through every branch
+it has; a `detail` that keeps its type and changes what it reports is read
+confidently and wrongly; a reordering shows a different condition for the same
+state. Each leaves every key path and every type identical, so the shape check in
+`docs/architecture/design/423-the-promised-shape-is-a-shipped-data-file.md` is
+silent and the version does not move — a consumer pinning one gets no signal at
+all. The rank is the instance this record was written around; it is not the
+only one, and a reader who takes it as the only one will assume the check covers
+the rest.
+
+The class is named here rather than closed. Closing it means encoding an
+ordering, and a set of permitted values, in a file whose whole job is key paths
+and types — which is a different mechanism rather than a wider version of that
+one. What stands in its place is that all of it is derived in one place, so a
+reviewer reading that place sees the change.
 
 The three conditions and their order must be derived in one place. A fourth added
 inside `cli` rather than beside the other three is how the console and the
@@ -162,3 +175,4 @@ again.
 
 - 2026-09-20  proposed    — #423's level-2 gate; the first programmatic consumer (#424) is unstarted, so the contract is being written before anything is held to it
 - 2026-09-20  revised     — `attention` carries one ranked condition rather than every applicable one; the list moves to `Considered` with the causal argument that displaced it. Still proposed, so the body was revised rather than superseded
+- 2026-09-20  revised     — the rank was named as "the one contract change the shape check cannot see"; #423's clarify scan widened it to the class, a fourth kind and a re-meant `detail` being the same hole. Still proposed
