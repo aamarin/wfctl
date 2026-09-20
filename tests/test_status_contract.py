@@ -7,14 +7,22 @@ this file proves what it says is true.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from importlib import resources
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import CONTRACT_FIXTURE_PAYLOADS, CONTRACT_FIXTURES
-from wfctl._contract import bump, build_live_probe_repo, diff_message, merge_type_paths, type_paths
+from wfctl._contract import (
+    bump,
+    build_live_probe_repo,
+    diff_message,
+    isolated_subprocess_env,
+    merge_type_paths,
+    type_paths,
+)
 from wfctl._pipeline import STATUS_PAYLOAD_VERSION
 
 
@@ -38,12 +46,34 @@ def _live_payload() -> dict:
     (FR-013b, 423-the-promised-shape-is-a-shipped-data-file.md § Decision).
     """
     root = build_live_probe_repo()
-    env = dict(os.environ)
-    env["WFCTL_STATE_DIR"] = str(root / ".agent-runs")
+    env = isolated_subprocess_env(WFCTL_STATE_DIR=str(root / ".agent-runs"))
     result = subprocess.run(
         [_wfctl(), "status", "--json"], cwd=root, env=env, capture_output=True, check=True,
     )
     return json.loads(result.stdout)
+
+
+def test_isolated_subprocess_env_strips_every_wfctl_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The live probe's env-building used to clear only `WFCTL_STATE_DIR`
+    (`aee1167`), leaving `WFCTL_BRANCH`/`WFCTL_SPEC_DIR`/`WFCTL_ARCH_DIR`/
+    `WFCTL_REPO_ROOT` to leak straight through from a developer's own shell
+    into the throwaway repo's `wfctl status` subprocess — the same defect
+    class, three siblings left open. Asserts the fix strips the whole
+    `WFCTL_` namespace instead of denylisting one variable at a time."""
+    monkeypatch.setenv("WFCTL_BRANCH", "some-other-branch")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", "/tmp/should-not-leak")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", "/tmp/should-not-leak-either")
+    monkeypatch.setenv("WFCTL_REPO_ROOT", "/tmp/should-not-leak-either")
+    monkeypatch.setenv("SOME_OTHER_VAR", "keep-me")
+
+    env = isolated_subprocess_env(WFCTL_STATE_DIR="/wanted")
+
+    assert env["WFCTL_STATE_DIR"] == "/wanted"
+    assert env["SOME_OTHER_VAR"] == "keep-me"
+    for leaked in ("WFCTL_BRANCH", "WFCTL_SPEC_DIR", "WFCTL_ARCH_DIR", "WFCTL_REPO_ROOT"):
+        assert leaked not in env
 
 
 def _observed_paths() -> dict[str, str]:

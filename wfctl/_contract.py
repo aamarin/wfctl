@@ -18,6 +18,7 @@ one function.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -189,6 +190,20 @@ class FixtureRepo:
     agent_dir: Path
     spec_dir: Path
     branch: str = FIXTURE_BRANCH
+
+
+def isolated_subprocess_env(**overrides: str) -> dict[str, str]:
+    """The invoking shell's environment with every `WFCTL_`-prefixed key
+    cleared, then `overrides` set on top — so a developer's own
+    `WFCTL_BRANCH`/`WFCTL_SPEC_DIR`/`WFCTL_ARCH_DIR`/`WFCTL_REPO_ROOT`
+    (`wfctl/_paths.py`'s override set) never leaks into a throwaway repo's
+    `wfctl status` subprocess the way `WFCTL_STATE_DIR` alone once did
+    (#423). Stripping the whole prefix closes the class of leak rather than
+    the one variable that happened to get caught by flakiness first.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("WFCTL_")}
+    env.update(overrides)
+    return env
 
 
 def _init_throwaway_repo(prefix: str, branch: str) -> Path:
