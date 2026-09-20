@@ -486,6 +486,7 @@ def status_cmd(
 
     from wfctl._pipeline import (
         MANUAL_PASS_WHY,
+        STATUS_PAYLOAD_VERSION,
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
@@ -501,7 +502,8 @@ def status_cmd(
         # paths is what `pipeline-state-is-one-payload` rejects, not two formats.
         # Without this an agent's only source of per-step state is the block
         # below, whose glyphs are lossy by construction.
-        console.print_json(data={
+        payload = {
+            "version": STATUS_PAYLOAD_VERSION,
             "issue": issue,
             "branch": branch,
             # Which feature the steps below were counted from, null when none
@@ -543,7 +545,25 @@ def status_cmd(
                     "unchanged": list(report.stall.unchanged),
                 }
             ),
-        })
+            # Present and null exactly like `stall` above, and for the same
+            # reason: a consumer reading a missing key as "nothing wants a
+            # person" cannot tell that from a wfctl too old to answer (FR-003).
+            "attention": (
+                None if report.attention is None
+                else {
+                    "kind": report.attention.kind,
+                    "step": report.attention.step,
+                    "detail": report.attention.detail,
+                }
+            ),
+        }
+        # Bytes, not `console.print_json`: `console` decides to style from the
+        # terminal it believes it is attached to, and `FORCE_COLOR` or a real
+        # pty settle that belief regardless of `NO_COLOR` — which suppresses
+        # colour and not emphasis, the `\x1b[1m{` this corrupted every
+        # machine-readable key with (FR-001, research.md § 1). `sys.stdout`
+        # never makes that decision.
+        sys.stdout.write(json.dumps(payload) + "\n")
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
@@ -750,7 +770,7 @@ def next_cmd() -> None:
     # artifacts say, and this is the file an agent actually acts on — `status`
     # showing the hold while `next` sends the agent to re-run the refused step
     # is the disagreement FR-016's asymmetry depends on not existing.
-    steps = _apply_block_hold(steps, agent_dir, branch)
+    steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
