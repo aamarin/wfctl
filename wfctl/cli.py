@@ -5247,20 +5247,32 @@ def contract_regenerate_cmd(
     )
     from wfctl._pipeline import STATUS_PAYLOAD_VERSION
 
-    maps = [
-        type_paths(_contract_status_payload(env.repo_root, env.agent_dir))
-        for env in fixture_states().values()
-    ]
-    # `agent_dir` isolated the same way `test_status_contract.py`'s own live
-    # run does (`_live_payload`): without it, `WFCTL_STATE_DIR` from the
-    # invoking shell leaks into what this probe promises is isolated, and
-    # `spec_dir`'s observed type flips depending on what that shell happened
-    # to have resolved.
+    import shutil
+
+    # Every throwaway repo this command builds — five fixtures plus the live
+    # probe — is a `tempfile.mkdtemp` directory `_init_throwaway_repo` never
+    # removes; this is the one caller that runs outside a test process and
+    # gets no OS-level temp cleanup between invocations, so it removes its own.
+    states = fixture_states()
     live_root = build_live_probe_repo()
-    maps.append(
-        type_paths(_contract_status_payload(live_root, live_root / ".agent-runs"))
-    )
-    observed = merge_type_paths(*maps)
+    try:
+        maps = [
+            type_paths(_contract_status_payload(env.repo_root, env.agent_dir))
+            for env in states.values()
+        ]
+        # `agent_dir` isolated the same way `test_status_contract.py`'s own
+        # live run does (`_live_payload`): without it, `WFCTL_STATE_DIR` from
+        # the invoking shell leaks into what this probe promises is isolated,
+        # and `spec_dir`'s observed type flips depending on what that shell
+        # happened to have resolved.
+        maps.append(
+            type_paths(_contract_status_payload(live_root, live_root / ".agent-runs"))
+        )
+        observed = merge_type_paths(*maps)
+    finally:
+        for env in states.values():
+            shutil.rmtree(env.repo_root, ignore_errors=True)
+        shutil.rmtree(live_root, ignore_errors=True)
 
     contract_path = Path(__file__).resolve().parent / "contracts" / "status-payload.json"
     if contract_path.exists():

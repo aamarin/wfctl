@@ -23,6 +23,26 @@ CONTRACT_PATH = (
 PIPELINE_PATH = Path(__file__).resolve().parent.parent / "wfctl" / "_pipeline.py"
 
 
+def test_regenerate_cleans_up_its_throwaway_repos() -> None:
+    """`_init_throwaway_repo` never removes the directory it creates — five
+    fixture repos plus the live probe, six per run, with no cleanup short of
+    OS temp reaping. This is the one caller invoked repeatedly by a developer
+    rather than once per test process, so it removes what it built."""
+    import tempfile
+
+    before = {
+        p.name for p in Path(tempfile.gettempdir()).glob("contract-*")
+    }
+
+    result = runner.invoke(app, ["contract", "regenerate"])
+    assert result.exit_code == 0
+
+    after = {
+        p.name for p in Path(tempfile.gettempdir()).glob("contract-*")
+    }
+    assert after == before
+
+
 def test_a_clean_tree_reports_no_change_and_writes_nothing() -> None:
     before = CONTRACT_PATH.read_bytes()
     result = runner.invoke(app, ["contract", "regenerate"])
