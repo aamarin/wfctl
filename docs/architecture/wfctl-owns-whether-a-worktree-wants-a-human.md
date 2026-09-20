@@ -17,8 +17,8 @@ Three conditions mean a person is wanted, and all three already exist inside
 
 - the host refused an outward action, so only a person can take it
   (`standing_blocks`, applied by `_apply_block_hold`);
-- a declared pass is one a person performs — a sub-step whose `command` is
-  `None`, which `next` already names with `MANUAL_PASS_WHY`;
+- a declared pass is one a person performs — a sub-step carrying
+  `manual: true`, which `next` already names with `MANUAL_PASS_WHY`;
 - the loop repeated a step with the evidence unchanged (`_stall.find_stall`).
 
 Two of the three are read from `events.jsonl` in the XDG state directory, which
@@ -33,8 +33,8 @@ and nothing fails.
 
 Add no field. A consumer answers the question with three reads: `stall` for the
 third condition, a prefix match on `steps[].annotation` for the first, and a walk
-of `steps[].sub_steps[]` looking for `state == "pending"` with `command == null`
-for the second.
+of `steps[].sub_steps[]` for an entry that is `manual` and still `pending` for the
+second.
 
 This works today, in the sense that the information is recoverable. What it does
 not survive is a second consumer: the condition set is a judgment, each consumer
@@ -75,7 +75,7 @@ flowchart TB
     subgraph wfctl
         E["events.jsonl<br>XDG state dir, outside the repo"]
         S["stall<br>passes with evidence unchanged"]
-        D["declared passes<br>command is None"]
+        D["declared passes<br>manual is true"]
         B["build_report<br>derives attention"]
         E --> B
         S --> B
