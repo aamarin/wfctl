@@ -5251,7 +5251,15 @@ def contract_regenerate_cmd(
         type_paths(_contract_status_payload(env.repo_root, env.agent_dir))
         for env in fixture_states().values()
     ]
-    maps.append(type_paths(_contract_status_payload(build_live_probe_repo())))
+    # `agent_dir` isolated the same way `test_status_contract.py`'s own live
+    # run does (`_live_payload`): without it, `WFCTL_STATE_DIR` from the
+    # invoking shell leaks into what this probe promises is isolated, and
+    # `spec_dir`'s observed type flips depending on what that shell happened
+    # to have resolved.
+    live_root = build_live_probe_repo()
+    maps.append(
+        type_paths(_contract_status_payload(live_root, live_root / ".agent-runs"))
+    )
     observed = merge_type_paths(*maps)
 
     contract_path = Path(__file__).resolve().parent / "contracts" / "status-payload.json"
