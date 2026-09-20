@@ -219,7 +219,7 @@ repository's own passes, keyed by the built-in step they belong to:
     "brainstorm": [
       { "name": "ui-design",
         "command": "/pfms-ui-design-workflow",
-        "evidence": "ui-contract.md" }
+        "evidence": "ui-design-contract.md" }
     ]
   }
 }
