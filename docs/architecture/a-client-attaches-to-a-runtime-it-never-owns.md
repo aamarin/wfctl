@@ -10,11 +10,12 @@ diagram: component
 A feature in this repository runs inside a stack of units that line up one to
 one: a branch has a worktree, the worktree has a workmux environment, the
 environment has a tmux session. That alignment is observed rather than proposed —
-`.workmux.yaml:26` is `mode: session` here and pfms's `:24` is the same, and
-`tmux list-sessions` shows `wfctl__419-misfiled-record-check`,
-`wfctl__423-status-contract-version`, `wfctl__435-concern-routes-three-ways`,
-`wfctl__436-client-attaches-never-owns` and `pfms__621-variance-report-screen`,
-one per feature worktree.
+`.workmux.yaml:26` is `mode: session` here, and a second repository built on the
+same layout declares it too, so `tmux list-sessions` shows
+`wfctl__419-misfiled-record-check`, `wfctl__423-status-contract-version`,
+`wfctl__435-concern-routes-three-ways` and
+`wfctl__436-client-attaches-never-owns` beside that repository's feature sessions
+under its own prefix, one per feature worktree.
 
 It lines up for feature worktrees and for nothing else. A main checkout has no
 session at all — `workmux list` reports `main` with `MUX -` — and `0-0` is a
@@ -72,8 +73,8 @@ nor `wfctl archive-specs`.
 What that costs depends on where the repository keeps its specs. On the default
 `<repo>/specs` it is the silent loss of the feature's design artifacts, which is
 what `pre_remove` carries no `|| true` to prevent and says so in its own comment.
-In this repository and in pfms it is not: both declare a spec root outside the
-worktree, and `archive-specs` prints `✓ spec dir is durable … nothing there was
+In this repository and in the second one above it is not: both declare a spec
+root outside the worktree, and `archive-specs` prints `✓ spec dir is durable … nothing there was
 at risk, nothing copied`. Here the hook's loss is the board column alone. The
 baseline's real defect is therefore not one guaranteed catastrophe but that the
 severity is a per-repository configuration detail nobody consults at the moment
