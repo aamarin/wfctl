@@ -59,7 +59,7 @@ what kind of concern it is:
   that already exists. Prefer an upstream extension mechanism to minting a
   second wfctl stage for it.
 - **A method** — it says how the work is performed. It belongs inside the skill
-  that performs the work, and a method does not become a lifecycle node by
+  that performs the work, and a method does not become a lifecycle step by
   being important.
 
 The evidence-shape test runs second, and only on the first arm: given a
@@ -119,8 +119,8 @@ flowchart LR
         I["inserts and invokes the step"]
     end
     subgraph wfctl["wfctl"]
-        E["reads the evidence<br>done · pending · skipped"]
-        N["wfctl step none<br>a claim a reviewer can disagree with"]
+        E["was the obligation met?"]
+        N["claimed inapplicable<br>a claim a reviewer can disagree with"]
     end
     C --> S
     C --> H
@@ -180,8 +180,16 @@ express.
 The middle arm names no mechanism, and no supervisory surface is named anywhere
 in this record. #426 and #428 are where Spec Kit's hooks are evaluated, and this
 record is what makes their result readable — a hook that works settles the
-middle arm, and a hook that does not sends the concern to one of the other two
+middle arm, and a hook that does not send the concern to one of the other two
 rather than leaving it unplaced.
+
+`level-3-owns-structural-heuristics.md` and
+`brainstorm-is-one-step-with-addressable-levels.md` are both `proposed` and both
+still state the disavowed test — "does the skill write anything," "leaves an
+artifact a reader can point at" — as their own reason for excluding
+`architecture-design`, the identical example this record uses to refute it.
+Neither is touched by this change. That is known and pending reconciliation,
+not an oversight this record failed to notice in itself.
 
 The test has no check behind it, and that is the answer `a-rule-is-expressed-as-a-check`
 gives rather than a gap in it. A violation is a concern filed under the wrong
