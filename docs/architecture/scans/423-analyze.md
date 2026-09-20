@@ -118,8 +118,14 @@
 ### Filing
 
 - **The level-3 record's Decision predates FR-013a** — covers G1, the one
-  accepted finding. Not filed: not attempted; an issue create is an outward
-  action and the reviewer is present to decide it.
+  accepted finding. **Resolved in session rather than filed.** The reviewer took
+  it up directly: the record's `Decision` was revised, and the revision surfaced
+  a second defect the finding had not seen — a fixture-only union compares the
+  shipped file against the test helper's transcription of the payload's top
+  level, not against what `status_cmd` returns. That is now FR-013b, with
+  FR-013a and FR-014a amended to take the union of the fixture states and one
+  live subprocess run, and T021 and T031 revised to match. The issue body below
+  is kept as the record of what the finding said before it was resolved.
   Title: `The 423 level-3 record's Decision says one live payload; clarify settled on five fixture states and nothing revised it`
   Body:
 

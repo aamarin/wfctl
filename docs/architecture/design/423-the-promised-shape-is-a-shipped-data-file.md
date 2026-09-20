@@ -70,8 +70,24 @@ rename, on a removal and on an unrecorded addition, and the diff of the
 
 The promised shape is `wfctl/contracts/status-payload.json`, shipped as package
 data: the version, and a sorted map of dotted key path to type name. One test
-walks the live payload and compares both directions, failing with the offending
-paths named and the bump the change owes.
+walks the union of what two sources emit and compares both directions against
+the file, failing with the offending paths named and the bump the change owes.
+
+The two sources are five `PipelineReport` fixtures, each constructed to hold one
+named condition, and one live `wfctl status --json` run in a subprocess. Neither
+reaches what the other does. An ordinary worktree emits `attention: null`,
+`stall: null` and `sub_steps: []` on every step, so a walk of a live payload
+alone reports every path beneath them as recorded-but-unemitted and fails on a
+clean tree — the fixtures are the only route to those. The live run is the only
+route to the other half: the payload's top level is transcribed by hand from the
+dict literal in `status_cmd`, so a fixture route that reassembles it in test code
+compares the file against the test's transcription rather than against what the
+command returns. A key added at `wfctl/cli.py:504` and forgotten in that
+transcription is invisible to a fixture-only walk, and is exactly the one-line
+diff this record exists to catch.
+
+Regeneration reads the same union, which is what keeps that property: a key added
+to the payload reaches the shipped file only by running the real command.
 
 ## Diagram
 
@@ -162,3 +178,4 @@ what a golden file needs and a constant would need equally.
 
 - 2026-09-20  proposed  — #423's level-3 gate; written before `design.md` so the document can cite it by path
 - 2026-09-20  revised   — `Consequences` now states what the check does not cover, so a green check is not read as the contract holding; the third `Assumed` is withdrawn, regeneration having become the intended path in #423's clarify scan. Still proposed, so the body was revised rather than superseded
+- 2026-09-20  revised   — `Decision` said "one test walks the live payload", written at the level-3 gate before `/speckit.clarify` settled FR-013a on a union of fixture states. It now names both sources and why each is load-bearing: the fixtures reach the paths a clean tree never emits, and the live run is what makes the file a promise about `status_cmd` rather than about the test helper that transcribes it. Still proposed, so revised rather than superseded
