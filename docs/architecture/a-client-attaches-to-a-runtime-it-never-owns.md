@@ -156,6 +156,7 @@ flowchart LR
         A["attach · present"]
         G{"environment reported<br>AND session missing?"}
         I["surfaces the inconsistency and stops"]
+        K["a workspace id it assigned itself"]
     end
     L -->|"handle or worktree path"| A
     L --> G
@@ -163,16 +164,19 @@ flowchart LR
     G -->|"both"| I
     G -->|"never had a session"| A
     I -.->|"the human repairs<br>through workmux"| V
-    A --x|"may not create, recreate,<br>rename or destroy"| C
+    A --x|"may not create or recreate"| C
     I --x|"never reconciles by creating"| C
-    A --x|"never a workspace id it assigned itself"| L
+    A --x|"never the correlation key"| K
 ```
 
-The three `--x` edges are the decision. The one leaving the recovery path is the
-half most easily dropped: a client that reconciles by creating has taken the
-create half of the lifecycle, and it arrived through a recovery path rather than
-a create path, which is precisely why stating the invariant alone states the easy
-half. The gate above it is the other half of that — both facts are required, so a
+The three `--x` edges are the decision. They land on `workmux add` because the
+create half is the one a recovery path reaches; the invariant's other verbs land
+elsewhere in the same band — destroy on `workmux remove`, rename on a verb this
+drawing does not carry — and the refusal there is the same refusal. The one
+leaving the recovery path is the half most easily dropped: a client that
+reconciles by creating has taken the create half of the lifecycle, and it
+arrived through a recovery path rather than a create path, which is precisely
+why stating the invariant alone states the easy half. The gate above it is the other half of that — both facts are required, so a
 checkout that never had a session is presented rather than reported.
 
 ## Considered
