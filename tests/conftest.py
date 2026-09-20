@@ -6,10 +6,14 @@ import subprocess
 import types
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from wfctl._evidence import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+
+if TYPE_CHECKING:
+    from wfctl._pipeline import PipelineReport
 
 # Set before any wfctl import: `wfctl.cli` builds its `Console()` at module
 # scope, and rich resolves the color system there — a fixture would run too
@@ -317,6 +321,96 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
         make_spec_artifact=make_spec_artifact,
         stage_upstream_of=stage_upstream_of,
     )
+
+
+def payload_of(
+    report: "PipelineReport", issue: str, branch: str, spec_dir: Path | None
+) -> dict:
+    """The exact dict `status_cmd` serialises, from a `PipelineReport` built
+    with no CLI in the call — the half of FR-013a/FR-013b's union a fixture
+    state can reach on its own.
+
+    A hand transcription of the dict literal at `wfctl/cli.py:504`, kept in
+    sync by `test_status_contract.py`'s live subprocess run rather than by
+    this file: a key added to that literal and forgotten here is a path no
+    fixture emits, and only the live half of the union catches it
+    (423-the-promised-shape-is-a-shipped-data-file.md § Decision).
+    """
+    from wfctl._pipeline import STATUS_PAYLOAD_VERSION
+
+    return {
+        "version": STATUS_PAYLOAD_VERSION,
+        "issue": issue,
+        "branch": branch,
+        "spec_dir": str(spec_dir) if spec_dir is not None else None,
+        "session_started": report.session_started,
+        "session_open": report.session_open,
+        "session_holder": report.session_holder,
+        "current": report.current,
+        "next_command": report.next_command,
+        "auto": report.auto,
+        "auto_approve": report.auto_approve,
+        "steps": report.steps,
+        "facts": [f._asdict() for f in report.facts],
+        "stall": (
+            None if report.stall is None
+            else {
+                "step": report.stall.step,
+                "passes": report.stall.passes,
+                "unchanged": list(report.stall.unchanged),
+            }
+        ),
+        "attention": (
+            None if report.attention is None
+            else {
+                "kind": report.attention.kind,
+                "step": report.attention.step,
+                "detail": report.attention.detail,
+            }
+        ),
+    }
+
+
+def _build_contract_fixtures() -> tuple[dict[str, "PipelineReport"], dict[str, dict]]:
+    """The five named states FR-013a asks for, each a `PipelineReport` built
+    through `build_report` against its own throwaway repo, paired with the
+    exact payload `payload_of` would build from it.
+
+    The repos themselves come from `wfctl._contract.fixture_states` rather
+    than from logic duplicated in this file: `wfctl contract regenerate`
+    needs the identical five states at runtime, in an installed tree with no
+    `tests/` package to import from, so FR-014a's "the same union" is only
+    true when both callers build it from one function — which has to live in
+    `wfctl/`, the only package both sides can reach.
+
+    Both dicts, rather than the reports alone: `payload_of` needs the
+    `branch` and `spec_dir` each state carries, which live on the
+    `FixtureRepo` and nowhere else once this function returns.
+
+    Built once, at import time, rather than re-built per test: every consumer
+    reads the same five reports, and none of them mutates one — a handful of
+    `git init` calls is cheap next to the live `wfctl status --json` subprocess
+    `test_status_contract.py` runs beside them.
+    """
+    from wfctl._contract import fixture_states
+    from wfctl._pipeline import build_report
+
+    reports: dict[str, object] = {}
+    payloads: dict[str, dict] = {}
+    for name, env in fixture_states().items():
+        report = build_report(env.spec_dir, env.repo_root, env.agent_dir)
+        reports[name] = report
+        payloads[name] = payload_of(report, "423", env.branch, env.spec_dir)
+
+    return reports, payloads
+
+
+# Module scope, not a fixture: `test_status_contract.py` needs the union of
+# every state's paths, computed once and shared, the same reasoning
+# `_build_contract_fixtures` gives for building the reports once.
+CONTRACT_FIXTURES: dict[str, "PipelineReport"]
+CONTRACT_FIXTURE_PAYLOADS: dict[str, dict]
+CONTRACT_FIXTURES, CONTRACT_FIXTURE_PAYLOADS = _build_contract_fixtures()
 
 
 @pytest.fixture

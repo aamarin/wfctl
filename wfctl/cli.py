@@ -5172,6 +5172,139 @@ check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own 
 app.add_typer(check_app, name="check")
 
 
+contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape contract.")
+app.add_typer(contract_app, name="contract")
+
+
+def _contract_wfctl_binary() -> str:
+    """The console script installed beside this interpreter, matching how
+    `tests/test_status_contract.py`'s own live run reaches it: `Path(sys.exe).parent
+    / "wfctl"` is `uv run wfctl`'s binary, not whatever is first on `PATH`.
+    """
+    return str(Path(sys.executable).parent / "wfctl")
+
+
+def _contract_status_payload(cwd: Path, agent_dir: Path | None = None) -> dict:
+    """One `wfctl status --json` run in `cwd`, parsed — production's version
+    of the subprocess call `test_status_contract.py._live_payload` makes for
+    the test suite, reused here rather than duplicated a third time because
+    both need exactly the same call and neither can import the other.
+    """
+    import subprocess
+
+    env = dict(os.environ)
+    if agent_dir is not None:
+        env["WFCTL_STATE_DIR"] = str(agent_dir)
+    result = subprocess.run(
+        [_contract_wfctl_binary(), "status", "--json"],
+        cwd=cwd, env=env, capture_output=True, check=True,
+    )
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+@contract_app.command("regenerate")
+def contract_regenerate_cmd(
+    hold_version: bool = typer.Option(
+        False, "--hold-version",
+        help="Write the observed paths, but leave the version where it is (FR-014b).",
+    ),
+) -> None:
+    """Rewrite `wfctl/contracts/status-payload.json` from the same union the
+    shape check compares against.
+
+    Five throwaway fixture repos (`wfctl._contract.fixture_states`) plus one
+    live run of `wfctl status --json` against a sixth, isolated repo with no
+    feature resolved — FR-013a and FR-013b's union, and the same one
+    `test_status_contract.py` compares the shipped file against, so a clean
+    tree runs this and gets no diff back. The live run does not use the repo
+    this command was invoked in; `wfctl._contract.build_live_probe_repo`'s own
+    docstring says why.
+
+    A version bump edits `wfctl/_pipeline.py` too, not only the JSON file:
+    `STATUS_PAYLOAD_VERSION` is the value `status_cmd` actually emits
+    (FR-011), so a regenerate that touched only the shipped file would leave
+    the two disagreeing — the one thing `test_status_contract.py`'s
+    version-agreement test exists to catch, on this command's own commit.
+    """
+    from wfctl._contract import (
+        apply_bump,
+        bump,
+        build_live_probe_repo,
+        diff_message,
+        fixture_states,
+        merge_type_paths,
+        type_paths,
+    )
+    from wfctl._pipeline import STATUS_PAYLOAD_VERSION
+
+    maps = [
+        type_paths(_contract_status_payload(env.repo_root, env.agent_dir))
+        for env in fixture_states().values()
+    ]
+    maps.append(type_paths(_contract_status_payload(build_live_probe_repo())))
+    observed = merge_type_paths(*maps)
+
+    contract_path = Path(__file__).resolve().parent / "contracts" / "status-payload.json"
+    if contract_path.exists():
+        existing = json.loads(contract_path.read_text())
+        recorded, current_version = existing["paths"], existing["version"]
+    else:
+        recorded, current_version = {}, STATUS_PAYLOAD_VERSION
+
+    which = bump(recorded, observed)
+    new_version = current_version if hold_version else apply_bump(current_version, which)
+
+    from wfctl._io import write_atomic
+
+    write_atomic(
+        contract_path,
+        json.dumps(
+            {"version": new_version, "paths": dict(sorted(observed.items()))}, indent=2,
+        ) + "\n",
+    )
+
+    version_line_moved = False
+    if not hold_version and new_version != current_version:
+        version_line_moved = _rewrite_status_payload_version(new_version)
+
+    message = diff_message(recorded, observed)
+    if message is None:
+        console.print("[green]✓[/green] no change — the shape file already matches")
+        return
+    console.print(message)
+    if hold_version:
+        console.print(
+            f"[yellow]paths updated, version held at {current_version}[/yellow] — "
+            "say why in the commit body; the comparison cannot make that judgment"
+        )
+    elif version_line_moved:
+        console.print(f"[green]✓[/green] {current_version} -> {new_version} ({which})")
+    else:
+        console.print(
+            f"[red]✗[/red] paths updated, but STATUS_PAYLOAD_VERSION in "
+            f"wfctl/_pipeline.py could not be moved to {new_version} automatically "
+            "— edit it by hand"
+        )
+
+
+def _rewrite_status_payload_version(new_version: str) -> bool:
+    """Move `STATUS_PAYLOAD_VERSION`'s literal in `wfctl/_pipeline.py` to
+    `new_version`. Returns whether it found the one line to rewrite.
+
+    A targeted substitution on the declaration line rather than an edit
+    through `_contract`, which only computes the bump — writing source code
+    is `cli`'s business the same way writing the JSON file two lines up is,
+    and `_pipeline.py` is a sibling module this one already imports from.
+    """
+    path = Path(__file__).resolve().parent / "_pipeline.py"
+    text = path.read_text()
+    pattern = re.compile(r'^STATUS_PAYLOAD_VERSION = "[^"]*"$', re.MULTILINE)
+    if len(pattern.findall(text)) != 1:
+        return False
+    path.write_text(pattern.sub(f'STATUS_PAYLOAD_VERSION = "{new_version}"', text, count=1))
+    return True
+
+
 def _is_installed(repo_root: Path) -> Callable[[str], bool]:
     """Whether a declared pass's command ships from a command layer this
     repository has installed — `.agents/commands`, `.claude/commands`,
