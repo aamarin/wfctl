@@ -60,22 +60,27 @@ It fails the first time a session is missing after a reboot. workmux ships the
 safe repair — `workmux resurrect`, "Restore worktree windows after a tmux or
 computer crash" — so the fast fix and the correct fix are both one command, and
 nothing at the prompt distinguishes them. `cmux local-tmux` starts and manages
-its own tmux server (claimed by cmux's `docs/local-tmux.md`; unverified here,
-because cmux is not installed). A session it created is one workmux did not.
+its own tmux server (claimed by cmux's `docs/local-tmux.md` in
+`manaflow-ai/cmux`; unverified here, because cmux is not installed). A session
+it created is one workmux did not.
 
 The cost of that is narrower than it first looks, and worth stating exactly. A
 teardown still runs `pre_remove`, because `workmux remove` is keyed on the
 worktree rather than on any session's provenance. The loss needs a second step:
 the human tears the feature down through the client too, having adopted it for
 recovery. Then `pre_remove` never fires, and with it neither `wfctl issue stop`
-nor `wfctl archive-specs`.
+nor `wfctl archive-specs`. That second step needs a client that can remove a git
+worktree, which no candidate is shown to do — cmux's own documentation scopes it
+to the client surface — so this is a shape to watch for rather than a path open
+today.
 
 What that costs depends on where the repository keeps its specs. On the default
 `<repo>/specs` it is the silent loss of the feature's design artifacts, which is
 what `pre_remove` carries no `|| true` to prevent and says so in its own comment.
 In this repository and in the second one above it is not: both declare a spec
-root outside the worktree, and `archive-specs` prints `✓ spec dir is durable … nothing there was
-at risk, nothing copied`. Here the hook's loss is the board column alone. The
+root outside the worktree, and `archive-specs` prints `✓ spec dir is durable …
+nothing there was at risk, nothing copied`. Here the hook's loss is the board
+column alone. The
 baseline's real defect is therefore not one guaranteed catastrophe but that the
 severity is a per-repository configuration detail nobody consults at the moment
 of the convenience.
@@ -88,9 +93,12 @@ may not own that runtime's lifecycle, in three parts:
 - **The invariant.** It may not create, recreate, rename or destroy the runtime.
 - **The recovery protocol.** Where workmux reports an environment that once had a
   session and tmux has none, the client surfaces the inconsistency and stops. It
-  never reconciles by creating. A checkout that never had a session — a main
-  checkout, which `workmux list` reports as `MUX -` — is not an inconsistency and
-  is not surfaced.
+  never reconciles by creating. A checkout that never had a session is not an
+  inconsistency and is not surfaced, and `workmux list --json` is what separates
+  the two: a main checkout reports `is_main: true` with `mode: window`, where a
+  feature worktree whose session died reports `false` and `session`. Not
+  `is_open` — the main checkout reports `false` there while its pane is
+  reachable, which `_restart.py:285-287` says in as many words.
 - **The correlation key.** The client correlates its view to a feature by the
   workmux handle or the worktree path. Never by a workspace id it assigned
   itself.
@@ -114,9 +122,10 @@ whose session is gone, and that disagreement is a real state a client will meet.
 **wfctl owns _"what does the durable evidence prove about this feature?"_.** The
 client cannot compute it: the evidence is artifacts on disk and a per-branch
 record outside the worktree, re-derived on every read, and a client that cached a
-verdict would be asserting a fact it did not check. Named here because a row a
-client draws visibly has three sources behind it, and the client owns none of
-them.
+verdict would be asserting a fact it did not check. That much is
+`wfctl-runs-the-verification` and `session-state-is-re-derived`, both accepted,
+restated rather than extended. It is named here because a row a client draws
+visibly has three sources behind it, and the client owns none of them.
 
 The client owns no correlation key either. The mapping is derivable from
 `workmux list` plus the live session list on every read, and a client that
@@ -178,11 +187,12 @@ checkout that never had a session is presented rather than reported.
   comes back and the environment behind it does not.
 - **Let the client shell out to `workmux resurrect` on the human's behalf.** The
   one alternative that repairs correctly, and the closest call here. Rejected
-  because the client cannot tell the state that wants `resurrect` from the one
-  that wants nothing — a main checkout reads identically — and a client that
-  guesses right nine times establishes the habit that makes the tenth
-  unreviewable. Surfacing costs one command and keeps the judgment where the
-  configuration is.
+  because it is the invariant's own case wearing the right tool: a client that
+  runs `resurrect` has caused the runtime to be created, and workmux's binary
+  doing the creating changes who typed the command rather than who decided. A
+  client that guesses right nine times establishes the habit that makes the
+  tenth unreviewable. Surfacing costs one command and keeps the judgment where
+  the per-repository configuration is.
 - **Move the lifecycle into the client; workmux becomes a one-shot bootstrap.**
   Genuinely simpler for a human, and what a client that owns its own environments
   should do. It loses because `pre_create`, `post_create` and `pre_remove` are
