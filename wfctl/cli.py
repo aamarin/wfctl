@@ -5275,13 +5275,18 @@ def contract_regenerate_cmd(
         shutil.rmtree(live_root, ignore_errors=True)
 
     contract_path = Path(__file__).resolve().parent / "contracts" / "status-payload.json"
-    if contract_path.exists():
+    contract_existed = contract_path.exists()
+    if contract_existed:
         existing = json.loads(contract_path.read_text())
         recorded, current_version = existing["paths"], existing["version"]
     else:
+        # No prior baseline to diff against — `bump({}, observed)` would read
+        # every observed path as newly added and always return "minor", a
+        # bump this run does not owe: nothing changed shape, the file was
+        # simply absent. Skip the comparison and write the current constant.
         recorded, current_version = {}, STATUS_PAYLOAD_VERSION
 
-    which = bump(recorded, observed)
+    which = bump(recorded, observed) if contract_existed else None
     new_version = current_version if hold_version else apply_bump(current_version, which)
 
     from wfctl._io import write_atomic
@@ -5296,6 +5301,13 @@ def contract_regenerate_cmd(
     version_line_moved = False
     if not hold_version and new_version != current_version:
         version_line_moved = _rewrite_status_payload_version(new_version)
+
+    if not contract_existed:
+        console.print(
+            f"[green]✓[/green] contract file created at {new_version} — "
+            "no prior baseline to compare against"
+        )
+        return
 
     message = diff_message(recorded, observed)
     if message is None:

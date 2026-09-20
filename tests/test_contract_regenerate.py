@@ -70,6 +70,29 @@ def test_hold_version_moves_the_paths_and_leaves_the_version() -> None:
         CONTRACT_PATH.write_text(original)
 
 
+def test_a_missing_file_is_created_without_a_spurious_bump() -> None:
+    """`bump({}, observed)` reads every observed path as newly added and
+    always returns "minor" — a bump this case does not owe, since nothing
+    changed shape; there was simply no prior file to diff against."""
+    from wfctl._pipeline import STATUS_PAYLOAD_VERSION
+
+    original_contract = CONTRACT_PATH.read_text()
+    original_pipeline = PIPELINE_PATH.read_text()
+    try:
+        CONTRACT_PATH.unlink()
+
+        result = runner.invoke(app, ["contract", "regenerate"])
+
+        assert result.exit_code == 0
+        assert "no prior baseline" in result.output
+        after = json.loads(CONTRACT_PATH.read_text())
+        assert after["version"] == STATUS_PAYLOAD_VERSION
+        assert PIPELINE_PATH.read_text() == original_pipeline
+    finally:
+        CONTRACT_PATH.write_text(original_contract)
+        PIPELINE_PATH.write_text(original_pipeline)
+
+
 def test_a_bump_moves_both_the_file_and_the_pipeline_constant() -> None:
     original_contract = CONTRACT_PATH.read_text()
     original_pipeline = PIPELINE_PATH.read_text()
