@@ -192,6 +192,16 @@ class FixtureRepo:
     branch: str = FIXTURE_BRANCH
 
 
+def wfctl_binary() -> str:
+    """The console script installed beside this interpreter — `uv run
+    wfctl`'s own binary, not whatever is first on `PATH`. One copy shared by
+    `wfctl contract regenerate` and the test suite's own live runs, rather
+    than the same one-liner re-derived at each call site."""
+    import sys
+
+    return str(Path(sys.executable).parent / "wfctl")
+
+
 def isolated_subprocess_env(**overrides: str) -> dict[str, str]:
     """The invoking shell's environment with every `WFCTL_`-prefixed key
     cleared, then `overrides` set on top — so a developer's own

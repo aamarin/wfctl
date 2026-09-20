@@ -15,17 +15,11 @@ import os
 import pty
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-
-def _wfctl() -> str:
-    """The console script installed beside this interpreter — the one `uv run
-    wfctl` resolves to, so the subprocess exercises the checkout under test
-    rather than whatever `wfctl` happens to be first on `PATH`."""
-    return str(Path(sys.executable).parent / "wfctl")
+from wfctl._contract import wfctl_binary
 
 
 @pytest.fixture
@@ -55,7 +49,7 @@ def test_raw_stdout_parses_with_color_forced_on(repo: Path, tmp_path: Path) -> N
     env = _env(FORCE_COLOR="3", WFCTL_STATE_DIR=str(state_dir))
 
     result = subprocess.run(
-        [_wfctl(), "status", "--json"], cwd=repo, env=env, capture_output=True,
+        [wfctl_binary(), "status", "--json"], cwd=repo, env=env, capture_output=True,
     )
 
     assert b"\x1b" not in result.stdout, result.stdout
@@ -69,7 +63,7 @@ def test_raw_stdout_parses_under_a_pty(repo: Path, tmp_path: Path) -> None:
 
     master, slave = pty.openpty()
     proc = subprocess.Popen(
-        [_wfctl(), "status", "--json"], cwd=repo, env=env,
+        [wfctl_binary(), "status", "--json"], cwd=repo, env=env,
         stdout=slave, stderr=subprocess.PIPE,
     )
     os.close(slave)
@@ -100,7 +94,7 @@ def test_raw_stdout_keeps_non_ascii_bytes_as_utf8() -> None:
     env = fixture_states()["blocked"]
     try:
         result = subprocess.run(
-            [_wfctl(), "status", "--json"], cwd=env.repo_root,
+            [wfctl_binary(), "status", "--json"], cwd=env.repo_root,
             env={**os.environ, "WFCTL_STATE_DIR": str(env.agent_dir)},
             capture_output=True, check=True,
         )
@@ -124,7 +118,7 @@ def test_piping_into_a_closed_reader_exits_clean_not_a_traceback(
     env = _env(WFCTL_STATE_DIR=str(state_dir))
 
     proc = subprocess.run(
-        ["bash", "-c", 'set -o pipefail; "$0" status --json | head -c 1 >/dev/null', _wfctl()],
+        ["bash", "-c", 'set -o pipefail; "$0" status --json | head -c 1 >/dev/null', wfctl_binary()],
         cwd=repo, env=env, capture_output=True, timeout=5,
     )
 

@@ -5186,14 +5186,6 @@ contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape
 app.add_typer(contract_app, name="contract")
 
 
-def _contract_wfctl_binary() -> str:
-    """The console script installed beside this interpreter, matching how
-    `tests/test_status_contract.py`'s own live run reaches it: `Path(sys.exe).parent
-    / "wfctl"` is `uv run wfctl`'s binary, not whatever is first on `PATH`.
-    """
-    return str(Path(sys.executable).parent / "wfctl")
-
-
 def _contract_status_payload(cwd: Path, agent_dir: Path | None = None) -> dict:
     """One `wfctl status --json` run in `cwd`, parsed — production's version
     of the subprocess call `test_status_contract.py._live_payload` makes for
@@ -5202,11 +5194,11 @@ def _contract_status_payload(cwd: Path, agent_dir: Path | None = None) -> dict:
     """
     import subprocess
 
-    from wfctl._contract import isolated_subprocess_env
+    from wfctl._contract import isolated_subprocess_env, wfctl_binary
 
     overrides = {"WFCTL_STATE_DIR": str(agent_dir)} if agent_dir is not None else {}
     result = subprocess.run(
-        [_contract_wfctl_binary(), "status", "--json"],
+        [wfctl_binary(), "status", "--json"],
         cwd=cwd, env=isolated_subprocess_env(**overrides), capture_output=True, check=True,
     )
     return json.loads(result.stdout)  # type: ignore[no-any-return]

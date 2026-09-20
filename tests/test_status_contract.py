@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import tempfile
 from importlib import resources
 from pathlib import Path
@@ -24,15 +23,9 @@ from wfctl._contract import (
     isolated_subprocess_env,
     merge_type_paths,
     type_paths,
+    wfctl_binary,
 )
 from wfctl._pipeline import STATUS_PAYLOAD_VERSION
-
-
-def _wfctl() -> str:
-    """The console script installed beside this interpreter — `uv run wfctl`'s
-    own binary, matching `test_status_payload_bytes.py`'s reason for reaching
-    it this way rather than trusting whatever is first on `PATH`."""
-    return str(Path(sys.executable).parent / "wfctl")
 
 
 def _live_payload() -> dict:
@@ -50,7 +43,7 @@ def _live_payload() -> dict:
     root = build_live_probe_repo()
     env = isolated_subprocess_env(WFCTL_STATE_DIR=str(root / ".agent-runs"))
     result = subprocess.run(
-        [_wfctl(), "status", "--json"], cwd=root, env=env, capture_output=True, check=True,
+        [wfctl_binary(), "status", "--json"], cwd=root, env=env, capture_output=True, check=True,
     )
     return json.loads(result.stdout)
 
