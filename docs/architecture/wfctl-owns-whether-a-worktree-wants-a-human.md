@@ -42,13 +42,20 @@ makes it separately, and nothing brings a later-added condition to any of them.
 
 ## Decision
 
-wfctl derives `attention` where the payload is built, as a list — one entry per
-condition that currently wants a person, each carrying the step it applies to,
-its kind, and a detail. The list is empty when nothing wants a person; it is
-never null.
+wfctl derives `attention` where the payload is built, as one answer or none: the
+highest-ranked condition that currently wants a person, carrying the step it
+applies to, its kind, and a detail. It is `null` when nothing wants a person.
 
-The raw conditions stay in the payload unchanged. `attention` is a summary over
-material a consumer can still read directly, not a replacement for it.
+The rank is `blocked`, then `manual`, then `stalled` — cause before symptom. A
+worktree that is both blocked and stalled is usually stalled *because* it is
+blocked: the loop retries a step the host is holding, and the evidence does not
+move. Reporting the block reports what to do about it; reporting the stall
+reports what the block is doing.
+
+The raw conditions stay in the payload unchanged. `attention` is a verdict over
+material a consumer can still read directly, not a replacement for it — which is
+what keeps the single answer from being lossy in the way that matters: the
+second condition is still there for a consumer that wants it.
 
 ## Owns truth
 
@@ -68,6 +75,11 @@ it is already a field. It is derived here anyway, because a judgment split acros
 two owners is one that drifts: the whole defect being corrected is each consumer
 maintaining its own idea of what counts.
 
+wfctl owns the **rank** for the same reason it owns the condition set. A rank
+held by each consumer is the same drift one field further down, and the ordering
+rests on a causal claim about wfctl's own loop that a consumer is not positioned
+to make.
+
 ## Boundary
 
 ```mermaid
@@ -76,17 +88,17 @@ flowchart TB
         E["events.jsonl<br>XDG state dir, outside the repo"]
         S["stall<br>passes with evidence unchanged"]
         D["declared passes<br>manual is true"]
-        B["build_report<br>derives attention"]
+        B["build_report<br>derives attention, ranked"]
         E --> B
         S --> B
         D --> B
     end
     subgraph consumer["a consumer — #424, a hook, a script"]
-        R["reads attention[]"]
-        F["filters by kind where it disagrees"]
+        R["reads attention"]
+        F["reads the raw conditions where it wants more"]
         R --> F
     end
-    B -- "attention[] — step, kind, detail" --> R
+    B -- "attention — step, kind, detail, or null" --> R
     E -. "read the private log directly" .-x consumer
     R -. "assert it needs a human" .-x B
     B -. "derive it while rendering" .-x B
@@ -110,11 +122,14 @@ record already forbids.
   on fault: this decision keeps those raw conditions in the payload too, so the
   freedom that option protects is not given up. What it does not deliver is one
   answer, and one answer is what #421's acceptance test is written against.
-- One ranked reason instead of a list — rejected because a worktree can be
-  blocked and stalled at once, and a field that reports one of them moves the
-  ranking into each consumer, which is the drift this record exists to stop. A
-  dashboard tile shows a count and a top entry, so it never needed the field to
-  pick.
+- Every applicable condition, as a list — the shape this record carried while it
+  was being drafted. It loses to the causal relationship between the conditions
+  rather than to any fault of its own: a blocked worktree that is also stalled is
+  stalled because of the block, so the list's second entry is generally a
+  consequence of its first, and a reader is invited to treat two views of one
+  problem as two problems. Where the conditions are genuinely independent the
+  list would have been the better shape, and the raw fields are what a consumer
+  needing that reads instead.
 - Derive it in `status` while rendering, where the annotation is already
   assembled — refused by `pipeline-state-is-one-payload`, whose boundary sketch
   draws "a fact computed while printing" as an edge the payload does not accept.
@@ -122,12 +137,22 @@ record already forbids.
 ## Consequences
 
 `attention` is part of the versioned surface, so a condition added later is a
-contract change and moves the version.
+contract change and moves the version. So is the rank: a reordering changes what
+a consumer is shown without changing any key, which is the one contract change
+the shape check in
+`docs/architecture/design/423-the-promised-shape-is-a-shipped-data-file.md`
+cannot see. That gap is named here rather than closed, because the alternative is
+encoding a rank order in a shape file whose whole job is key paths and types.
 
-The three conditions must be derived in one place. A fourth added inside `cli`
-rather than beside the other three is how the console and the machine view start
-disagreeing, which is the failure `pipeline-state-is-one-payload` was accepted to
-prevent.
+The three conditions and their order must be derived in one place. A fourth added
+inside `cli` rather than beside the other three is how the console and the
+machine view start disagreeing, which is the failure
+`pipeline-state-is-one-payload` was accepted to prevent.
+
+A worktree wanting a human for two reasons shows one. The second is still in the
+payload, in the field it was always in, and a consumer that wants it reads there
+— but a consumer reading only `attention` sees a partial picture by design, and
+that is the price of the single answer.
 
 The block condition's detail is derived from `StandingBlock.action`, not from the
 rendered annotation. The annotation stays a rendering and becomes free to reword
@@ -136,3 +161,4 @@ again.
 ## Log
 
 - 2026-09-20  proposed    — #423's level-2 gate; the first programmatic consumer (#424) is unstarted, so the contract is being written before anything is held to it
+- 2026-09-20  revised     — `attention` carries one ranked condition rather than every applicable one; the list moves to `Considered` with the causal argument that displaced it. Still proposed, so the body was revised rather than superseded
