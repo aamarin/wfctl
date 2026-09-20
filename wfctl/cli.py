@@ -5343,7 +5343,13 @@ def _rewrite_status_payload_version(new_version: str) -> bool:
     pattern = re.compile(r'^STATUS_PAYLOAD_VERSION = "[^"]*"$', re.MULTILINE)
     if len(pattern.findall(text)) != 1:
         return False
-    path.write_text(pattern.sub(f'STATUS_PAYLOAD_VERSION = "{new_version}"', text, count=1))
+    from wfctl._io import write_atomic
+
+    # `write_atomic`, not a plain `write_text`, for the same reason the JSON
+    # file two lines up gets it: this module is live and importable, and a
+    # concurrent `wfctl status` or pytest worker reading it mid-write would
+    # otherwise see a truncated file rather than the whole one or the other.
+    write_atomic(path, pattern.sub(f'STATUS_PAYLOAD_VERSION = "{new_version}"', text, count=1))
     return True
 
 
