@@ -67,8 +67,10 @@ lifecycle step, does it leave an artifact a reader can point at?
 `a-step-carries-sub-steps-one-level-deep` owns that test, and this record
 changes nothing in it but its order.
 
-Where the concern is a lifecycle step, Spec Kit inserts and invokes it and
-wfctl judges whether the obligation was met.
+Where the concern is a lifecycle step, two questions come with it and this
+record answers one. wfctl judges whether the obligation was met. Who inserts the
+pass and invokes it is open — wfctl is what answers it today, by reading the
+declaration, picking the pass that is due, and naming the command.
 
 The worked example is a UI design pass. It is a lifecycle step: `specify` reads
 a design that the pass produced, so something downstream differs because it
@@ -84,12 +86,6 @@ exists, an arm has already been chosen.
 
 ## Owns truth
 
-Spec Kit owns *"when does this pass run, and what invokes it?"*. wfctl cannot
-compute it: dispatch order is a fact about a process, and a branch carries the
-artifacts that exist, not the identity of the step that produced them or the
-order anything was asked for. Re-derivation has nothing to read, because the
-fact was never an artifact.
-
 wfctl owns *"was this pass's obligation met, or claimed inapplicable?"*. Spec
 Kit cannot compute it: its engine has no evidence concept at all —
 `a-run-cursor-is-execution-state-not-evidence` establishes that by grep over
@@ -97,11 +93,24 @@ Kit cannot compute it: its engine has no evidence concept at all —
 predicate, not-applicable or re-derivation — and its `gate` step stores the
 user's pick as a value carrying no reason, which is the half a reviewer needs.
 
-This is `a-run-cursor-is-execution-state-not-evidence` one level down. That
-record splits a *run*: the engine's cursor against wfctl's derivation. This one
-splits a *pass*, and the second does not follow from the first. A tool can own
-sequencing for a whole run and still be the right owner of a single pass's
-verdict; saying it is not requires saying so.
+*"When does this pass run, and what invokes it?"* has no owner here, and the
+omission is this record's decision rather than a gap in it. wfctl answers it
+today: `_outstanding_pass` picks the pass that is due, `next_step_content`
+returns its command, and `speckit-orchestrate` emits what it was handed. What
+wfctl cannot do is *re-derive* that answer from artifacts afterwards — dispatch
+order is a fact about a process, and a branch carries the artifacts that exist,
+not the order anything was asked for. Those are two different claims, and
+reading the second as the first is what would put an owner here. Whether
+dispatch moves to Spec Kit's engine is #426's question, and #426 is allowed to
+answer no: its stop condition leaves sequencing where it is.
+
+What this record refuses is the arrangement where the two questions are treated
+as one. This is `a-run-cursor-is-execution-state-not-evidence` one level down.
+That record splits a *run*: the engine's cursor against wfctl's derivation. This
+one splits a *pass*, and the second split does not follow from the first. A tool
+can own sequencing for a whole run and still be the right owner of a single
+pass's verdict. Neither follows from the other, so the verdict stays wfctl's
+whichever way #426 lands on the dispatcher.
 
 ## Boundary
 
@@ -115,8 +124,8 @@ flowchart LR
     subgraph skill["the skill that performs the work"]
         M["method"]
     end
-    subgraph speckit["Spec Kit"]
-        I["inserts and invokes the step"]
+    subgraph dispatch["dispatcher — open, #426"]
+        I["inserts and invokes the step<br>wfctl today"]
     end
     subgraph wfctl["wfctl"]
         E["was the obligation met?"]
@@ -130,14 +139,13 @@ flowchart LR
     E --> N
     I -. "the step returned ok" .-x E
     M -. "it is important" .-x S
-    E -. "when does this pass run?" .-x I
 ```
 
-Three dashed edges, three refusals. wfctl never accepts that a step returned as
-evidence its obligation was met. A method never becomes a lifecycle step on the
-strength of being important. And wfctl does not answer Spec Kit's question
-either — drawing only the first two would read as a demotion rather than a
-split.
+Two dashed edges, two refusals. wfctl never accepts that a step returned as
+evidence its obligation was met. And a method never becomes a lifecycle step on
+the strength of being important. The dispatcher is drawn as a box rather than as
+a tool because #426 has not answered who fills it; wfctl does today, and an
+edge refusing Spec Kit's question cannot be drawn before Spec Kit has it.
 
 ## Considered
 
@@ -166,6 +174,14 @@ split.
   again, and `a-step-carries-sub-steps-one-level-deep` already states the limit
   and the remedy: change what the pass writes, do not teach `wfctl.json` to
   grep.
+- **Name Spec Kit the dispatcher here, as the settled half of the split** — the
+  tidier record, and the one this was first drafted as. It loses on being
+  untrue twice over. wfctl dispatches today, so the claim fails as a
+  description; and #426 exists to decide whether that moves, with a stop
+  condition that leaves sequencing where it is, so the claim also reports a
+  spike's result before the spike. #421 held this position once and walked back
+  from it — *"do not migrate sequencing merely to delete wfctl code"* — which
+  is the reason a record is the wrong place to reinstate it quietly.
 
 ## Consequences
 
