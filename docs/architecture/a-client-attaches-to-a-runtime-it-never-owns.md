@@ -91,14 +91,20 @@ A presentation client may attach to a workmux-owned runtime and present it. It
 may not own that runtime's lifecycle, in three parts:
 
 - **The invariant.** It may not create, recreate, rename or destroy the runtime.
-- **The recovery protocol.** Where workmux reports an environment that once had a
-  session and tmux has none, the client surfaces the inconsistency and stops. It
-  never reconciles by creating. A checkout that never had a session is not an
-  inconsistency and is not surfaced, and `workmux list --json` is what separates
-  the two: a main checkout reports `is_main: true` with `mode: window`, where a
-  feature worktree whose session died reports `false` and `session`. Not
-  `is_open` — the main checkout reports `false` there while its pane is
-  reachable, which `_restart.py:285-287` says in as many words.
+- **The recovery protocol.** Where workmux reports an environment and tmux has
+  no session for it, the client surfaces the disagreement and stops. It never
+  reconciles by creating. The main checkout is excluded, and `workmux list
+  --json` is what excludes it: it reports `is_main: true` with `mode: window`
+  where every feature worktree reports `false` and `session`. Not `is_open` —
+  the main checkout reports `false` there while its pane is reachable, which
+  `_restart.py:285-287` says in as many words.
+
+  Those two fields say what a worktree *is*, not what it once had, and nothing
+  in `workmux list --json` says the second. A feature worktree someone created
+  with bare `git worktree add` never had a session and reads exactly like one
+  whose session died. That costs a client that surfaces nothing — it reports a
+  worktree a human has to look at either way, and creates nothing in either
+  case. It is what a client that repaired would get wrong.
 - **The correlation key.** The client correlates its view to a feature by the
   workmux handle or the worktree path. Never by a workspace id it assigned
   itself.
@@ -162,7 +168,7 @@ flowchart LR
     L --> G
     S --> G
     G -->|"both"| I
-    G -->|"never had a session"| A
+    G -->|"the main checkout"| A
     I -.->|"the human repairs<br>through workmux"| V
     A --x|"may not create or recreate"| C
     I --x|"never reconciles by creating"| C
@@ -176,8 +182,10 @@ drawing does not carry — and the refusal there is the same refusal. The one
 leaving the recovery path is the half most easily dropped: a client that
 reconciles by creating has taken the create half of the lifecycle, and it
 arrived through a recovery path rather than a create path, which is precisely
-why stating the invariant alone states the easy half. The gate above it is the other half of that — both facts are required, so a
-checkout that never had a session is presented rather than reported.
+why stating the invariant alone states the easy half. The gate above it is the
+other half of that — both facts are required, so the main checkout, which
+reports no session and is not meant to have one, is presented rather than
+reported.
 
 ## Considered
 
@@ -185,10 +193,13 @@ checkout that never had a session is presented rather than reported.
   environment, and that is what it is built for — this is fit, not fault. Here
   workmux owns it, so adopting `local-tmux` means two creators for one session.
 - **Let the client recreate a missing session.** It is the fastest recovery and
-  it is the one the invariant exists to refuse. Recreation is not recovery: the
-  recreated session carries none of `post_create`'s work — no `install-skills`,
-  no `wfctl issue start`, none of the configured windows and panes — so the pane
-  comes back and the environment behind it does not.
+  it is the one the invariant exists to refuse. Recreation is not recovery, and
+  what it misses is the session-local half: `install-skills` has already written
+  into the worktree and `wfctl issue start` has already moved the board, and a
+  lost tmux server takes neither away. What does not come back is what
+  `post_create` puts *inside* the session — the configured windows and panes,
+  and the agent in the one that carries it. The pane comes back and the
+  environment the repository configured inside it does not.
 - **Let the client shell out to `workmux resurrect` on the human's behalf.** The
   one alternative that repairs correctly, and the closest call here. Rejected
   because it is the invariant's own case wearing the right tool: a client that
