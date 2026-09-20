@@ -93,6 +93,39 @@ def test_a_missing_file_is_created_without_a_spurious_bump() -> None:
         PIPELINE_PATH.write_text(original_pipeline)
 
 
+def test_a_version_move_that_cannot_find_the_declaration_fails_and_writes_nothing() -> None:
+    """`_rewrite_status_payload_version` returns `False` when it cannot find
+    exactly one `STATUS_PAYLOAD_VERSION = "..."` line — an innocuous reformat
+    upstream, say. Before this test, the command wrote the bumped contract
+    file first and only printed a red line about it, exiting 0: a script
+    driving this command reads success, and the tree is left with the shipped
+    file and the constant disagreeing — exactly what the version-agreement
+    test in test_status_contract.py exists to catch, but only once committed."""
+    import wfctl.cli as cli_module
+
+    original_contract = CONTRACT_PATH.read_text()
+    original_pipeline = PIPELINE_PATH.read_text()
+    try:
+        corrupted = json.loads(original_contract)
+        corrupted["paths"]["spec_dir"] = "string"
+        CONTRACT_PATH.write_text(json.dumps(corrupted, indent=2))
+
+        original_rewrite = cli_module._rewrite_status_payload_version
+        cli_module._rewrite_status_payload_version = lambda new_version: False
+        try:
+            result = runner.invoke(app, ["contract", "regenerate"])
+        finally:
+            cli_module._rewrite_status_payload_version = original_rewrite
+
+        assert result.exit_code != 0
+        assert "could not be moved" in result.output
+        assert CONTRACT_PATH.read_text() == json.dumps(corrupted, indent=2)
+        assert PIPELINE_PATH.read_text() == original_pipeline
+    finally:
+        CONTRACT_PATH.write_text(original_contract)
+        PIPELINE_PATH.write_text(original_pipeline)
+
+
 def test_a_bump_moves_both_the_file_and_the_pipeline_constant() -> None:
     original_contract = CONTRACT_PATH.read_text()
     original_pipeline = PIPELINE_PATH.read_text()

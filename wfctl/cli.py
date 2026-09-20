@@ -5282,6 +5282,21 @@ def contract_regenerate_cmd(
     which = bump(recorded, observed) if contract_existed else None
     new_version = current_version if hold_version else apply_bump(current_version, which)
 
+    # Attempted before the contract file is written, not after: writing the
+    # bumped file and then failing to move the constant leaves the shipped
+    # contract and `STATUS_PAYLOAD_VERSION` disagreeing on disk — exactly what
+    # the version-agreement test exists to catch, but only once that state is
+    # committed. Ordering the attempt first means a failed move never writes
+    # the contract file at all, and the command can exit nonzero honestly.
+    if not hold_version and new_version != current_version:
+        if not _rewrite_status_payload_version(new_version):
+            console.print(
+                f"[red]✗[/red] STATUS_PAYLOAD_VERSION in wfctl/_pipeline.py could "
+                f"not be moved to {new_version} automatically — edit it by hand, "
+                "then rerun. Contract file not written."
+            )
+            raise typer.Exit(1)
+
     from wfctl._io import write_atomic
 
     write_atomic(
@@ -5290,10 +5305,6 @@ def contract_regenerate_cmd(
             {"version": new_version, "paths": dict(sorted(observed.items()))}, indent=2,
         ) + "\n",
     )
-
-    version_line_moved = False
-    if not hold_version and new_version != current_version:
-        version_line_moved = _rewrite_status_payload_version(new_version)
 
     if not contract_existed:
         console.print(
@@ -5312,14 +5323,8 @@ def contract_regenerate_cmd(
             f"[yellow]paths updated, version held at {current_version}[/yellow] — "
             "say why in the commit body; the comparison cannot make that judgment"
         )
-    elif version_line_moved:
-        console.print(f"[green]✓[/green] {current_version} -> {new_version} ({which})")
     else:
-        console.print(
-            f"[red]✗[/red] paths updated, but STATUS_PAYLOAD_VERSION in "
-            f"wfctl/_pipeline.py could not be moved to {new_version} automatically "
-            "— edit it by hand"
-        )
+        console.print(f"[green]✓[/green] {current_version} -> {new_version} ({which})")
 
 
 def _rewrite_status_payload_version(new_version: str) -> bool:
