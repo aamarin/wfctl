@@ -231,18 +231,19 @@ def _init_throwaway_repo(prefix: str, branch: str) -> Path:
             ["git", "-C", str(root), "config", "user.email", "test@test.com"],
             ["git", "-C", str(root), "config", "user.name", "Test"],
         ):
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=15)
         (root / "README.md").write_text("x\n")
         subprocess.run(
-            ["git", "-C", str(root), "add", "README.md"], check=True, capture_output=True,
+            ["git", "-C", str(root), "add", "README.md"],
+            check=True, capture_output=True, timeout=15,
         )
         subprocess.run(
             ["git", "-C", str(root), "commit", "-q", "-m", "init"],
-            check=True, capture_output=True,
+            check=True, capture_output=True, timeout=15,
         )
         subprocess.run(
             ["git", "-C", str(root), "checkout", "-q", "-b", branch],
-            check=True, capture_output=True,
+            check=True, capture_output=True, timeout=15,
         )
         return root
     except BaseException:

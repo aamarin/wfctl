@@ -5199,7 +5199,8 @@ def _contract_status_payload(cwd: Path, agent_dir: Path | None = None) -> dict:
     overrides = {"WFCTL_STATE_DIR": str(agent_dir)} if agent_dir is not None else {}
     result = subprocess.run(
         [wfctl_binary(), "status", "--json"],
-        cwd=cwd, env=isolated_subprocess_env(**overrides), capture_output=True, check=True,
+        cwd=cwd, env=isolated_subprocess_env(**overrides),
+        capture_output=True, check=True, timeout=15,
     )
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
