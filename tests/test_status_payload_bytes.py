@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import pty
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -87,3 +88,46 @@ def test_raw_stdout_parses_under_a_pty(repo: Path, tmp_path: Path) -> None:
 
     assert b"\x1b" not in raw, raw
     json.loads(raw)
+
+
+def test_raw_stdout_keeps_non_ascii_bytes_as_utf8() -> None:
+    """A blocked step's remedy carries a real em dash (`_block_remedy`) —
+    `json.dumps`' default `ensure_ascii=True` would escape it to `\\u2014`
+    instead of writing raw UTF-8, a byte-level regression `console.print_json`
+    never had until the swap to a bare `sys.stdout.write` (FR-001)."""
+    from wfctl._contract import fixture_states
+
+    env = fixture_states()["blocked"]
+    try:
+        result = subprocess.run(
+            [_wfctl(), "status", "--json"], cwd=env.repo_root,
+            env={**os.environ, "WFCTL_STATE_DIR": str(env.agent_dir)},
+            capture_output=True, check=True,
+        )
+    finally:
+        shutil.rmtree(env.repo_root, ignore_errors=True)
+
+    assert "—".encode() in result.stdout, result.stdout
+    assert b"\\u2014" not in result.stdout
+    json.loads(result.stdout)
+
+
+def test_piping_into_a_closed_reader_exits_clean_not_a_traceback(
+    repo: Path, tmp_path: Path,
+) -> None:
+    """The exact shell shape the handoff reproduced this with: `wfctl status
+    --json | head -c 1` used to raise `BrokenPipeError` as an uncaught
+    traceback once `console.print_json`'s swallowed handling was lost in the
+    swap to a bare `sys.stdout.write`."""
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    env = _env(WFCTL_STATE_DIR=str(state_dir))
+
+    proc = subprocess.run(
+        ["bash", "-c", 'set -o pipefail; "$0" status --json | head -c 1 >/dev/null', _wfctl()],
+        cwd=repo, env=env, capture_output=True, timeout=5,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert b"BrokenPipeError" not in proc.stderr
+    assert b"Traceback" not in proc.stderr

@@ -562,8 +562,18 @@ def status_cmd(
         # pty settle that belief regardless of `NO_COLOR` — which suppresses
         # colour and not emphasis, the `\x1b[1m{` this corrupted every
         # machine-readable key with (FR-001, research.md § 1). `sys.stdout`
-        # never makes that decision.
-        sys.stdout.write(json.dumps(payload) + "\n")
+        # never makes that decision. `ensure_ascii=False` and the swallowed
+        # `BrokenPipeError` are what `console.print_json` gave for free and a
+        # bare `sys.stdout.write` does not: without the first, a non-ASCII
+        # byte in any string field (an em dash in a `remedy`) round-trips as
+        # `\uXXXX` instead of raw UTF-8; without the second, `wfctl status
+        # --json | head -1` raises instead of exiting clean.
+        try:
+            sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except BrokenPipeError:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            raise typer.Exit(code=0) from None
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
