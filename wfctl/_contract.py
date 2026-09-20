@@ -211,24 +211,37 @@ def _init_throwaway_repo(prefix: str, branch: str) -> Path:
     checked out explicitly — the init sequence every throwaway repo below
     shares, whether or not it goes on to get a `specs/` directory.
     """
+    import shutil
     import tempfile
 
     root = Path(tempfile.mkdtemp(prefix=prefix))
-    for cmd in (
-        ["git", "init", "-q", str(root)],
-        ["git", "-C", str(root), "config", "user.email", "test@test.com"],
-        ["git", "-C", str(root), "config", "user.name", "Test"],
-    ):
-        subprocess.run(cmd, check=True, capture_output=True)
-    (root / "README.md").write_text("x\n")
-    subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(root), "commit", "-q", "-m", "init"], check=True, capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(root), "checkout", "-q", "-b", branch], check=True, capture_output=True,
-    )
-    return root
+    try:
+        for cmd in (
+            ["git", "init", "-q", str(root)],
+            ["git", "-C", str(root), "config", "user.email", "test@test.com"],
+            ["git", "-C", str(root), "config", "user.name", "Test"],
+        ):
+            subprocess.run(cmd, check=True, capture_output=True)
+        (root / "README.md").write_text("x\n")
+        subprocess.run(
+            ["git", "-C", str(root), "add", "README.md"], check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(root), "commit", "-q", "-m", "init"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(root), "checkout", "-q", "-b", branch],
+            check=True, capture_output=True,
+        )
+        return root
+    except BaseException:
+        # A git call failing partway through would otherwise leave this
+        # `mkdtemp` directory on disk with nothing pointing at it — the same
+        # leak `fixture_states`'s own callers guard against for the repos
+        # they finish building, closed here at its actual source instead.
+        shutil.rmtree(root, ignore_errors=True)
+        raise
 
 
 def build_fixture_repo(name: str) -> FixtureRepo:
@@ -343,64 +356,77 @@ def fixture_states() -> dict[str, FixtureRepo]:
     sub-step's `annotation` is ever a real sentence rather than `null` — is
     reachable at all.
     """
+    import shutil
+
     from wfctl._paths import STEP_CLAIMS_DIR, arch_root
     from wfctl._session import record_blocked
     from wfctl._stall import digest
 
     states: dict[str, FixtureRepo] = {}
+    try:
+        # Staged the whole way through, nothing declared beyond the built-ins —
+        # a finished story, the one state where `current`/`next_command`/`auto`
+        # reach their `null` arm; every other state below is forced mid-pipeline
+        # by a block or an outstanding pass.
+        quiet = build_fixture_repo("quiet")
+        states["quiet"] = quiet
+        stage_upstream_of(quiet, "tasks")
 
-    # Staged the whole way through, nothing declared beyond the built-ins —
-    # a finished story, the one state where `current`/`next_command`/`auto`
-    # reach their `null` arm; every other state below is forced mid-pipeline
-    # by a block or an outstanding pass.
-    quiet = build_fixture_repo("quiet")
-    stage_upstream_of(quiet, "tasks")
-    states["quiet"] = quiet
+        blocked = build_fixture_repo("blocked")
+        states["blocked"] = blocked
+        stage_upstream_of(blocked, "tasks")
+        record_blocked(
+            blocked.agent_dir, blocked.branch, "issue-comment", "org policy", "decompose",
+        )
 
-    blocked = build_fixture_repo("blocked")
-    stage_upstream_of(blocked, "tasks")
-    record_blocked(
-        blocked.agent_dir, blocked.branch, "issue-comment", "org policy", "decompose",
-    )
-    states["blocked"] = blocked
+        manual = build_fixture_repo("manual")
+        states["manual"] = manual
+        stage_upstream_of(manual, "tasks")
+        (manual.repo_root / "wfctl.json").write_text(json.dumps({
+            "steps": {"decompose": [{"name": "review", "manual": True, "evidence": "ghost.md"}]},
+        }))
 
-    manual = build_fixture_repo("manual")
-    stage_upstream_of(manual, "tasks")
-    (manual.repo_root / "wfctl.json").write_text(json.dumps({
-        "steps": {"decompose": [{"name": "review", "manual": True, "evidence": "ghost.md"}]},
-    }))
-    states["manual"] = manual
+        stalled = build_fixture_repo("stalled")
+        states["stalled"] = stalled
+        stage_upstream_of(stalled, "tasks", tasks="- [ ] T001 open\n")
+        # Four identical `resume` observations, hand-written rather than run
+        # through the CLI: `fixture_states` builds outside any command's own
+        # session, with no session log to append a real one to yet. `find_stall`
+        # needs `passes >= STALL_AFTER (3)`, which is `observations - 1`.
+        from wfctl._evidence import build_evidence
 
-    stalled = build_fixture_repo("stalled")
-    stage_upstream_of(stalled, "tasks", tasks="- [ ] T001 open\n")
-    # Four identical `resume` observations, hand-written rather than run
-    # through the CLI: `fixture_states` builds outside any command's own
-    # session, with no session log to append a real one to yet. `find_stall`
-    # needs `passes >= STALL_AFTER (3)`, which is `observations - 1`.
-    from wfctl._evidence import build_evidence
+        mark = digest(build_evidence(stalled.spec_dir, stalled.repo_root))
+        events = "\n".join(
+            json.dumps({
+                "ts": "2026-01-01T00:00:00Z", "event": "resume",
+                "step": "implement", "digest": mark,
+            })
+            for _ in range(4)
+        ) + "\n"
+        (stalled.agent_dir / "events.jsonl").write_text(events)
 
-    mark = digest(build_evidence(stalled.spec_dir, stalled.repo_root))
-    events = "\n".join(
-        json.dumps({
-            "ts": "2026-01-01T00:00:00Z", "event": "resume",
-            "step": "implement", "digest": mark,
-        })
-        for _ in range(4)
-    ) + "\n"
-    (stalled.agent_dir / "events.jsonl").write_text(events)
-    states["stalled"] = stalled
+        nested = build_fixture_repo("nested")
+        states["nested"] = nested
+        stage_upstream_of(nested, "brainstorm")
+        (nested.repo_root / "wfctl.json").write_text(json.dumps({
+            "steps": {"decompose": [{"name": "sign-off", "manual": True, "evidence": "never.md"}]},
+        }))
+        claim = (
+            arch_root(nested.repo_root) / STEP_CLAIMS_DIR / FIXTURE_BRANCH
+            / "decompose.sign-off.md"
+        )
+        claim.parent.mkdir(parents=True, exist_ok=True)
+        claim.write_text(
+            f"# decompose.sign-off does not apply — {FIXTURE_BRANCH}\n\n"
+            "not needed for this change\n",
+        )
 
-    nested = build_fixture_repo("nested")
-    stage_upstream_of(nested, "brainstorm")
-    (nested.repo_root / "wfctl.json").write_text(json.dumps({
-        "steps": {"decompose": [{"name": "sign-off", "manual": True, "evidence": "never.md"}]},
-    }))
-    claim = arch_root(nested.repo_root) / STEP_CLAIMS_DIR / FIXTURE_BRANCH / "decompose.sign-off.md"
-    claim.parent.mkdir(parents=True, exist_ok=True)
-    claim.write_text(
-        f"# decompose.sign-off does not apply — {FIXTURE_BRANCH}\n\n"
-        "not needed for this change\n",
-    )
-    states["nested"] = nested
-
-    return states
+        return states
+    except BaseException:
+        # A git subprocess failing partway through (disk full, a future
+        # fixture step raising) would otherwise leak every repo already built
+        # before the one that failed — `contract_regenerate_cmd`'s own
+        # `finally` can only clean up what this function actually returns.
+        for repo in states.values():
+            shutil.rmtree(repo.repo_root, ignore_errors=True)
+        raise

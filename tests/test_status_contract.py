@@ -9,12 +9,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 from importlib import resources
 from pathlib import Path
 
 import pytest
 
 from tests.conftest import CONTRACT_FIXTURE_PAYLOADS, CONTRACT_FIXTURES
+from wfctl import _contract
 from wfctl._contract import (
     bump,
     build_live_probe_repo,
@@ -74,6 +76,60 @@ def test_isolated_subprocess_env_strips_every_wfctl_override(
     assert env["SOME_OTHER_VAR"] == "keep-me"
     for leaked in ("WFCTL_BRANCH", "WFCTL_SPEC_DIR", "WFCTL_ARCH_DIR", "WFCTL_REPO_ROOT"):
         assert leaked not in env
+
+
+def test_init_throwaway_repo_cleans_up_after_a_failed_git_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A git call failing partway through `_init_throwaway_repo` used to leave
+    its `mkdtemp` directory on disk with nothing pointing at it — the same
+    leak class `54abeca` fixed for the happy path, left open on the exception
+    path until now."""
+    real_run = subprocess.run
+    calls = {"n": 0}
+
+    def flaky_run(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] == 2:  # "git config user.email", mid-init
+            raise subprocess.CalledProcessError(1, cmd)
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(_contract.subprocess, "run", flaky_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _contract._init_throwaway_repo("contract-fail-test-", "some-branch")
+
+    leaked = list(Path(tempfile.gettempdir()).glob("contract-fail-test-*"))
+    assert leaked == [], f"leaked: {leaked}"
+
+
+def test_fixture_states_cleans_up_already_built_repos_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`fixture_states()` used to build its five repos outside any try block
+    it owned itself, and used to track each one in `states` only *after* its
+    staging finished — a failure on the third fixture's staging (not just its
+    build) left the first two, plus the third's own already-built repo, with
+    no reference anywhere to clean them up."""
+    real_stage = _contract.stage_upstream_of
+    built: list[Path] = []
+    calls = {"n": 0}
+
+    def flaky_stage(env, step, tasks="- [x] T001 done\n"):  # type: ignore[no-untyped-def]
+        built.append(env.repo_root)
+        calls["n"] += 1
+        if calls["n"] == 3:  # "manual"'s staging, third fixture built
+            raise RuntimeError("simulated staging failure")
+        return real_stage(env, step, tasks)
+
+    monkeypatch.setattr(_contract, "stage_upstream_of", flaky_stage)
+
+    with pytest.raises(RuntimeError):
+        _contract.fixture_states()
+
+    assert len(built) == 3, "expected the failure on the third fixture staged"
+    for root in built:
+        assert not root.exists(), f"leaked: {root}"
 
 
 def _observed_paths() -> dict[str, str]:
