@@ -12,6 +12,7 @@ import types
 
 from typer.testing import CliRunner
 
+from wfctl._session import record_blocked
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -19,6 +20,12 @@ runner = CliRunner()
 
 def _declare(storyctl_dir: types.SimpleNamespace, steps: dict) -> None:
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"steps": steps}))
+
+
+def _stall_on(storyctl_dir: types.SimpleNamespace) -> None:
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    for _ in range(4):
+        assert runner.invoke(app, ["resume"]).exit_code == 0
 
 
 def test_a_repository_that_declares_nothing_renders_byte_identically(
@@ -119,3 +126,72 @@ def test_check_config_exits_nonzero_on_a_finding(storyctl_dir: types.SimpleNames
     result = runner.invoke(app, ["check", "config"])
     assert result.exit_code == 1
     assert "declares no command and is not marked manual" in result.output
+
+
+# --- T014: the console rendering is untouched by `attention` (FR-002, SC-003) ---
+
+def test_console_rendering_never_mentions_attention_in_any_state(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`attention` is a JSON-only field, derived beside sentences the console
+    already prints. Adding it must not add a word, a line or move a byte of
+    what a person reading `wfctl status` sees — proven across all three
+    conditions it answers for, plus the condition where none of them hold."""
+    quiet = runner.invoke(app, ["status"]).output
+    assert "attention" not in quiet.lower()
+
+    storyctl_dir.stage_upstream_of("tasks")
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "issue-comment", "refused", "decompose",
+    )
+    blocked = runner.invoke(app, ["status"]).output
+    assert "attention" not in blocked.lower()
+    assert "blocked: host refused issue-comment" in blocked
+
+
+def test_console_rendering_unchanged_for_manual_and_stalled(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _declare(storyctl_dir, {
+        "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "ui-contract.md"}],
+    })
+    manual = runner.invoke(app, ["status"]).output
+    assert "attention" not in manual.lower()
+
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
+    _stall_on(storyctl_dir)
+    stalled = runner.invoke(app, ["status"]).output
+    assert "attention" not in stalled.lower()
+    assert "was attempted 3 times and changed nothing" in stalled
+
+
+# --- T025: the shape check is silent in front of a person (FR-015, SC-006) ---
+
+def test_status_never_prints_anything_about_the_shape_check(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The comparison runs with the test suite and nowhere else — a mismatch
+    between the shipped file and the live payload is the author's mistake, and
+    it must surface where the author is, never on a person's screen. `version`
+    itself is expected in the JSON payload (FR-011); what must never appear is
+    a message *about* the check — a bump owed, a path named, a regeneration
+    verb. Exercised across states, including one that is both blocked and
+    stalled, since FR-015 is unconditional rather than a claim about the quiet
+    case alone."""
+    phrases = (
+        "owes a major", "owes a minor", "unrecorded", "no longer emitted",
+        "contract regenerate", "shape file", "status-payload",
+    )
+
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 open\n")
+    _stall_on(storyctl_dir)
+    record_blocked(
+        storyctl_dir.agent_dir, "418-storyctl", "push", "refused", "decompose",
+    )
+
+    console = runner.invoke(app, ["status"]).output
+    payload = runner.invoke(app, ["status", "--json"]).output
+    for phrase in phrases:
+        assert phrase not in console.lower()
+        assert phrase not in payload.lower()

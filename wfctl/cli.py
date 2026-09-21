@@ -486,6 +486,7 @@ def status_cmd(
 
     from wfctl._pipeline import (
         MANUAL_PASS_WHY,
+        STATUS_PAYLOAD_VERSION,
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
@@ -501,7 +502,8 @@ def status_cmd(
         # paths is what `pipeline-state-is-one-payload` rejects, not two formats.
         # Without this an agent's only source of per-step state is the block
         # below, whose glyphs are lossy by construction.
-        console.print_json(data={
+        payload = {
+            "version": STATUS_PAYLOAD_VERSION,
             "issue": issue,
             "branch": branch,
             # Which feature the steps below were counted from, null when none
@@ -543,7 +545,35 @@ def status_cmd(
                     "unchanged": list(report.stall.unchanged),
                 }
             ),
-        })
+            # Present and null exactly like `stall` above, and for the same
+            # reason: a consumer reading a missing key as "nothing wants a
+            # person" cannot tell that from a wfctl too old to answer (FR-003).
+            "attention": (
+                None if report.attention is None
+                else {
+                    "kind": report.attention.kind,
+                    "step": report.attention.step,
+                    "detail": report.attention.detail,
+                }
+            ),
+        }
+        # Bytes, not `console.print_json`: `console` decides to style from the
+        # terminal it believes it is attached to, and `FORCE_COLOR` or a real
+        # pty settle that belief regardless of `NO_COLOR` — which suppresses
+        # colour and not emphasis, the `\x1b[1m{` this corrupted every
+        # machine-readable key with (FR-001, research.md § 1). `sys.stdout`
+        # never makes that decision. `ensure_ascii=False` and the swallowed
+        # `BrokenPipeError` are what `console.print_json` gave for free and a
+        # bare `sys.stdout.write` does not: without the first, a non-ASCII
+        # byte in any string field (an em dash in a `remedy`) round-trips as
+        # `\uXXXX` instead of raw UTF-8; without the second, `wfctl status
+        # --json | head -1` raises instead of exiting clean.
+        try:
+            sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except BrokenPipeError:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            raise typer.Exit(code=0) from None
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
@@ -750,7 +780,7 @@ def next_cmd() -> None:
     # artifacts say, and this is the file an agent actually acts on — `status`
     # showing the hold while `next` sends the agent to re-run the refused step
     # is the disagreement FR-016's asymmetry depends on not existing.
-    steps = _apply_block_hold(steps, agent_dir, branch)
+    steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
@@ -5150,6 +5180,175 @@ check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own 
 # a drive-by on a surface this feature does not otherwise touch, and it is
 # #402's to do either way.
 app.add_typer(check_app, name="check")
+
+
+contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape contract.")
+app.add_typer(contract_app, name="contract")
+
+
+def _contract_status_payload(cwd: Path, agent_dir: Path | None = None) -> dict:
+    """One `wfctl status --json` run in `cwd`, parsed — production's version
+    of the subprocess call `test_status_contract.py._live_payload` makes for
+    the test suite, reused here rather than duplicated a third time because
+    both need exactly the same call and neither can import the other.
+    """
+    import subprocess
+
+    from wfctl._contract import isolated_subprocess_env, wfctl_binary
+
+    overrides = {"WFCTL_STATE_DIR": str(agent_dir)} if agent_dir is not None else {}
+    result = subprocess.run(
+        [wfctl_binary(), "status", "--json"],
+        cwd=cwd, env=isolated_subprocess_env(**overrides),
+        capture_output=True, check=True, timeout=15,
+    )
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+@contract_app.command("regenerate")
+def contract_regenerate_cmd(
+    hold_version: bool = typer.Option(
+        False, "--hold-version",
+        help="Write the observed paths, but leave the version where it is (FR-014b).",
+    ),
+) -> None:
+    """Rewrite `wfctl/contracts/status-payload.json` from the same union the
+    shape check compares against.
+
+    Five throwaway fixture repos (`wfctl._contract.fixture_states`) plus one
+    live run of `wfctl status --json` against a sixth, isolated repo with no
+    feature resolved — FR-013a and FR-013b's union, and the same one
+    `test_status_contract.py` compares the shipped file against, so a clean
+    tree runs this and gets no diff back. The live run does not use the repo
+    this command was invoked in; `wfctl._contract.build_live_probe_repo`'s own
+    docstring says why.
+
+    A version bump edits `wfctl/_pipeline.py` too, not only the JSON file:
+    `STATUS_PAYLOAD_VERSION` is the value `status_cmd` actually emits
+    (FR-011), so a regenerate that touched only the shipped file would leave
+    the two disagreeing — the one thing `test_status_contract.py`'s
+    version-agreement test exists to catch, on this command's own commit.
+    """
+    from wfctl._contract import (
+        apply_bump,
+        bump,
+        build_live_probe_repo,
+        diff_message,
+        fixture_states,
+        merge_type_paths,
+        type_paths,
+    )
+    from wfctl._pipeline import STATUS_PAYLOAD_VERSION
+
+    import shutil
+
+    # Every throwaway repo this command builds — five fixtures plus the live
+    # probe — is a `tempfile.mkdtemp` directory `_init_throwaway_repo` never
+    # removes; this is the one caller that runs outside a test process and
+    # gets no OS-level temp cleanup between invocations, so it removes its own.
+    states = fixture_states()
+    live_root = build_live_probe_repo()
+    try:
+        maps = [
+            type_paths(_contract_status_payload(env.repo_root, env.agent_dir))
+            for env in states.values()
+        ]
+        # `agent_dir` isolated the same way `test_status_contract.py`'s own
+        # live run does (`_live_payload`): without it, `WFCTL_STATE_DIR` from
+        # the invoking shell leaks into what this probe promises is isolated,
+        # and `spec_dir`'s observed type flips depending on what that shell
+        # happened to have resolved.
+        maps.append(
+            type_paths(_contract_status_payload(live_root, live_root / ".agent-runs"))
+        )
+        observed = merge_type_paths(*maps)
+    finally:
+        for env in states.values():
+            shutil.rmtree(env.repo_root, ignore_errors=True)
+        shutil.rmtree(live_root, ignore_errors=True)
+
+    contract_path = Path(__file__).resolve().parent / "contracts" / "status-payload.json"
+    contract_existed = contract_path.exists()
+    if contract_existed:
+        existing = json.loads(contract_path.read_text())
+        recorded, current_version = existing["paths"], existing["version"]
+    else:
+        # No prior baseline to diff against — `bump({}, observed)` would read
+        # every observed path as newly added and always return "minor", a
+        # bump this run does not owe: nothing changed shape, the file was
+        # simply absent. Skip the comparison and write the current constant.
+        recorded, current_version = {}, STATUS_PAYLOAD_VERSION
+
+    which = bump(recorded, observed) if contract_existed else None
+    new_version = current_version if hold_version else apply_bump(current_version, which)
+
+    # Attempted before the contract file is written, not after: writing the
+    # bumped file and then failing to move the constant leaves the shipped
+    # contract and `STATUS_PAYLOAD_VERSION` disagreeing on disk — exactly what
+    # the version-agreement test exists to catch, but only once that state is
+    # committed. Ordering the attempt first means a failed move never writes
+    # the contract file at all, and the command can exit nonzero honestly.
+    if not hold_version and new_version != current_version:
+        if not _rewrite_status_payload_version(new_version):
+            console.print(
+                f"[red]✗[/red] STATUS_PAYLOAD_VERSION in wfctl/_pipeline.py could "
+                f"not be moved to {new_version} automatically — edit it by hand, "
+                "then rerun. Contract file not written."
+            )
+            raise typer.Exit(1)
+
+    from wfctl._io import write_atomic
+
+    write_atomic(
+        contract_path,
+        json.dumps(
+            {"version": new_version, "paths": dict(sorted(observed.items()))}, indent=2,
+        ) + "\n",
+    )
+
+    if not contract_existed:
+        console.print(
+            f"[green]✓[/green] contract file created at {new_version} — "
+            "no prior baseline to compare against"
+        )
+        return
+
+    message = diff_message(recorded, observed)
+    if message is None:
+        console.print("[green]✓[/green] no change — the shape file already matches")
+        return
+    console.print(message)
+    if hold_version:
+        console.print(
+            f"[yellow]paths updated, version held at {current_version}[/yellow] — "
+            "say why in the commit body; the comparison cannot make that judgment"
+        )
+    else:
+        console.print(f"[green]✓[/green] {current_version} -> {new_version} ({which})")
+
+
+def _rewrite_status_payload_version(new_version: str) -> bool:
+    """Move `STATUS_PAYLOAD_VERSION`'s literal in `wfctl/_pipeline.py` to
+    `new_version`. Returns whether it found the one line to rewrite.
+
+    A targeted substitution on the declaration line rather than an edit
+    through `_contract`, which only computes the bump — writing source code
+    is `cli`'s business the same way writing the JSON file two lines up is,
+    and `_pipeline.py` is a sibling module this one already imports from.
+    """
+    path = Path(__file__).resolve().parent / "_pipeline.py"
+    text = path.read_text()
+    pattern = re.compile(r'^STATUS_PAYLOAD_VERSION = "[^"]*"$', re.MULTILINE)
+    if len(pattern.findall(text)) != 1:
+        return False
+    from wfctl._io import write_atomic
+
+    # `write_atomic`, not a plain `write_text`, for the same reason the JSON
+    # file two lines up gets it: this module is live and importable, and a
+    # concurrent `wfctl status` or pytest worker reading it mid-write would
+    # otherwise see a truncated file rather than the whole one or the other.
+    write_atomic(path, pattern.sub(f'STATUS_PAYLOAD_VERSION = "{new_version}"', text, count=1))
+    return True
 
 
 def _is_installed(repo_root: Path) -> Callable[[str], bool]:

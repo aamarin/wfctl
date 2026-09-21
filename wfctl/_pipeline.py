@@ -19,11 +19,17 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _evidence, _stall
 from wfctl._paths import arch_root, is_in_tree
 from wfctl._evidence import DESIGN_BLOCK_REASON, EvidenceReader, Fact, State, build_evidence
+
+if TYPE_CHECKING:
+    # Under the guard rather than at module scope, matching every other read
+    # of `_session` below (`auto_approve`, `standing_blocks`): a function-scoped
+    # import there, so a type-only one stays off the runtime import path too.
+    from wfctl._session import StandingBlock
 
 # step → (slash command that advances it, whether speckit-orchestrate may proceed
 # without pausing). The second value is a name rather than a Boolean because a
@@ -191,6 +197,14 @@ DESIGN_BLOCK_HELP = (
 # beside `DESIGN_BLOCK_HELP` because `cli` is the one writer of that file and
 # needs the exact sentence, not a paraphrase of it composed at the call site.
 MANUAL_PASS_WHY = "a person performs this pass"
+
+# The shape `status --json` promises, as `major.minor` (FR-011, research.md §
+# 2). Read here and emitted directly by `status_cmd` — never read from
+# `wfctl/contracts/status-payload.json` at runtime, so a package built without
+# that file, which `test_packaging.py` catches before release, cannot break a
+# caller that only ever asked the running command. The shipped file records
+# the same value; `test_status_contract.py` is what proves the two agree.
+STATUS_PAYLOAD_VERSION = "1.0"
 
 # What `next` and `resume` name for a blocked design step: the step itself.
 #
@@ -471,6 +485,38 @@ def manual_pass_reason(
     return blocked
 
 
+def _derive_attention(
+    name: str,
+    block: "StandingBlock | None",
+    outstanding: _PipelineSubStep | None,
+    stall: "_stall.Stall | None",
+) -> Attention | None:
+    """The one condition meaning a person is wanted, ranked blocked → manual →
+    stalled — cause before symptom (FR-005, FR-006, data-model.md § Rank).
+
+    Every argument is material `build_report` has already read for its own
+    reasons — `block` from `_apply_block_hold`'s `by_step`, `outstanding` from
+    `_outstanding_pass`, `stall` from `_stall.find_stall` — so this adds no new
+    read (FR-009). `outstanding.command is None` is the same test
+    `manual_pass_reason` makes: an outstanding pass with a command is not one a
+    person performs, so it is not this condition.
+
+    `detail` never reads from a sentence composed for a person (FR-007, FR-008):
+    a block's is the raw `action`, a manual pass's is its dotted name, a
+    stall's is written here as an observation of what was seen.
+    """
+    if block is not None:
+        return Attention("blocked", name, block.action)
+    if outstanding is not None and outstanding.command is None:
+        return Attention("manual", name, f"{name}.{outstanding.name}")
+    if stall is not None:
+        return Attention(
+            "stalled", stall.step,
+            f"{stall.step} repeated {stall.passes} times with evidence unchanged",
+        )
+    return None
+
+
 def arch_location(root: Path, repo_root: Path) -> str:
     """How a path under the arch root is named in output.
 
@@ -546,7 +592,7 @@ def _block_remedy(step_name: str, action: str) -> str:
 
 def _apply_block_hold(
     steps: list[_PipelineStep], agent_dir: Path, branch: str
-) -> list[_PipelineStep]:
+) -> tuple[list[_PipelineStep], dict[str, "StandingBlock"]]:
     """Override a step's own reading with a host block reported against it
     (FR-010, FR-011).
 
@@ -568,6 +614,12 @@ def _apply_block_hold(
     actions can hold the same step, and `standing_blocks` returns them oldest
     first, so the one that lands in `by_step` is the most recently filed —
     the answer a report should give when asked which block currently applies.
+
+    Returns `by_step` beside the steps, for `build_report`'s `attention`
+    derivation to read the current step's own `StandingBlock` — its `action`,
+    not the composed `annotation` this loop writes onto the step (FR-007). A
+    second call to `standing_blocks` there would reopen the same window this
+    function was written to close.
     """
     from wfctl._session import standing_blocks
 
@@ -580,7 +632,7 @@ def _apply_block_hold(
         step.reason = block.reason
         step.annotation = f"blocked: host refused {block.action}"
         step.remedy = _block_remedy(step.name, block.action)
-    return steps
+    return steps, by_step
 
 
 def _current_step_name(steps: list[_PipelineStep]) -> str:
@@ -702,6 +754,24 @@ def next_step_content(
     return (row.command, row.on_finish == _AUTOMATIC) if row else ("", False)
 
 
+class Attention(NamedTuple):
+    """One condition meaning a person is wanted, at most one per report
+    (`wfctl-owns-whether-a-worktree-wants-a-human`, data-model.md § Attention).
+
+    `kind` is one of exactly three names — `blocked`, `manual`, `stalled` — and
+    is not the raw material each is derived from: that stays on `steps` and
+    `stall` unchanged, so a consumer can still read a condition this field did
+    not pick. `detail` is captured at derivation time, from the fact itself
+    (`StandingBlock.action`, the outstanding pass's dotted name, the stall's own
+    count) and never from a sentence composed for a person to read, which stays
+    free to be reworded (FR-007, FR-008).
+    """
+
+    kind: str
+    step: str
+    detail: str
+
+
 @dataclass(frozen=True)
 class PipelineReport:
     """Where a feature stands — everything a caller needs from one inference.
@@ -765,6 +835,14 @@ class PipelineReport:
     # derived for itself would be a source of pipeline truth living outside it.
     # `None` is the common case — a run that is progressing has nothing to say.
     stall: "_stall.Stall | None" = None
+    # Beside `stall`, never instead of it — the same pairing `session_open`
+    # keeps beside `session_started` two fields up. Derived in `build_report`
+    # from material that function has already read (`standing_blocks`,
+    # `_outstanding_pass`, `_stall.find_stall`), ranked blocked → manual →
+    # stalled, cause before symptom (FR-006, FR-009, data-model.md § Rank).
+    # Defaulted like `stall` beside it: `None` is the common case, a run with
+    # nothing to say.
+    attention: "Attention | None" = None
     # This pass's own digest, for `resume` to record. On the report rather than
     # recomputed at the call site because the two reads could disagree while an
     # implementing agent is writing — the window `build_report`'s own seam
@@ -828,7 +906,7 @@ def build_report(
     # After `_infer_steps` returns, never inside its loop — see
     # `_apply_block_hold`'s own docstring for why splicing it into the loop
     # would cascade a hold past every step legitimately `done` after it.
-    raw = _apply_block_hold(raw, agent_dir, branch)
+    raw, by_step = _apply_block_hold(raw, agent_dir, branch)
     # One read, whether or not a feature directory resolved. `Evidence` carries
     # it when there is one; with none there is no evidence to carry it and the
     # fact's owner is asked directly. Either way it is asked once — two calls per
@@ -857,6 +935,15 @@ def build_report(
     if current is not None:
         current.reason = manual_pass_reason(current.reason, outstanding)
     digest_now = None if ev is None else _stall.digest(ev)
+    # Computed once, here, rather than inline in both the `attention` and
+    # `stall` keyword arguments below — the same one-read argument this
+    # function already makes for `verification` and for `by_step`.
+    stall = _stall.find_stall(
+        agent_dir,
+        branch=branch,
+        current=digest_now,
+        covered=tuple(n for n in _stall.COVERED if spec_dir and (spec_dir / n).exists()),
+    )
     return PipelineReport(
         steps=[
             {
@@ -901,6 +988,7 @@ def build_report(
         session_holder=holder,
         auto_approve=granted,
         facts=_evidence.facts(ev, repo_root, verification),
+        attention=_derive_attention(name, by_step.get(name), outstanding, stall),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.
@@ -910,11 +998,6 @@ def build_report(
         # claim on the screen a person reads right after acting on it; `covered`
         # so the report names the files that are there rather than three
         # constants, two of which `status` may be reporting as missing.
-        stall=_stall.find_stall(
-            agent_dir,
-            branch=branch,
-            current=digest_now,
-            covered=tuple(n for n in _stall.COVERED if spec_dir and (spec_dir / n).exists()),
-        ),
+        stall=stall,
         evidence_digest=digest_now,
     )
