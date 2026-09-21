@@ -269,7 +269,7 @@ _REQUIRED_PLAN_SECTIONS: tuple[str, ...] = (
 # so it rejects real work. No spec or plan on disk carries this one, and both
 # templates do — which is the pair a placeholder marker needs.
 #
-# Blanking leaves it alone: `_quoted_out` removes fences and inline spans, and
+# Blanking leaves it alone: `quoted_out` removes fences and inline spans, and
 # this lives in an HTML comment. That is deliberate. A document quoting this
 # constant inside a fence is discussing it, not carrying it.
 TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"
@@ -281,7 +281,7 @@ UNWRITTEN_TEMPLATE = "still the template"
 CLARIFY_UNSCANNED = "scan never ran"
 
 
-def _missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
+def missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
     r"""Which of `required` the document does not carry, in the order given.
 
     `^##[ \t]+<name>(?!\w)` is `clarify`'s idiom for its own heading, reused
@@ -319,7 +319,7 @@ def _missing_reason(missing: tuple[str, ...]) -> str | None:
     return f"missing: {', '.join(missing)}" if missing else None
 
 
-def _quoted_out(text: str) -> str:
+def quoted_out(text: str) -> str:
     """Markdown with its fenced blocks and inline spans blanked out.
 
     An artifact that *documents* a syntax must not read as using it — a spec
@@ -369,7 +369,7 @@ def _task_tally(tasks_text: str) -> tuple[int, int]:
     Matched anywhere on the line rather than at a list bullet — real files write
     `**Checkpoint**: [X] T006 …`, and anchoring to `- [ ]` loses those.
     """
-    text = _quoted_out(tasks_text)
+    text = quoted_out(tasks_text)
     done = len(re.findall(r"\[x\]", text, re.IGNORECASE))
     return done, done + len(re.findall(r"\[ \]", text))
 
@@ -589,14 +589,14 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
         # uses to tell `skipped` from `pending`.
         return None
 
-    from wfctl._paths import non_record_subtrees, touched_on_this_branch
+    from wfctl._paths import DESIGN_DIR, non_record_subtrees, touched_on_this_branch
 
     arch = arch_root(repo_root)
     # Three states in, three states out. `touched_on_this_branch` already returns
     # `None` for "git cannot answer" and says in its own docstring why — the old
     # call site spent that third state on `is False` one line after computing it.
     touched = touched_on_this_branch(
-        repo_root, arch, exclude=[*non_record_subtrees(arch), arch / "design"]
+        repo_root, arch, exclude=[*non_record_subtrees(arch), arch / DESIGN_DIR]
     )
     verdict: Verdict = (
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
@@ -875,10 +875,10 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         #
         # One helper for both artifacts (#308): a spec documenting a marker and a
         # tasks file documenting a task line are the same hazard.
-        spec_text = _quoted_out(spec_md.read_text())
+        spec_text = quoted_out(spec_md.read_text())
 
     plan_md = spec_dir / "plan.md"
-    plan_text = _quoted_out(plan_md.read_text()) if _file_exists(plan_md) else ""
+    plan_text = quoted_out(plan_md.read_text()) if _file_exists(plan_md) else ""
 
     done, total = _task_tally(tasks_text)
     return Evidence(
@@ -945,7 +945,7 @@ def specify(ev: Evidence) -> Reading:
         # reader to the wrong command. No reason, which is what
         # `_current_step_name` reads to know clarify can clear this one.
         return Reading("in_progress")
-    reason = _missing_reason(_missing_sections(ev.spec_text, _REQUIRED_SPEC_SECTIONS))
+    reason = _missing_reason(missing_sections(ev.spec_text, _REQUIRED_SPEC_SECTIONS))
     return Reading("in_progress" if reason else "done", reason)
 
 
@@ -1003,7 +1003,7 @@ def plan(ev: Evidence) -> Reading:
         # meets carries every required heading and no content. Structure alone
         # has nothing to say about it and would report `done`.
         return Reading("in_progress", UNWRITTEN_TEMPLATE)
-    reason = _missing_reason(_missing_sections(ev.plan_text, _REQUIRED_PLAN_SECTIONS))
+    reason = _missing_reason(missing_sections(ev.plan_text, _REQUIRED_PLAN_SECTIONS))
     return Reading("in_progress" if reason else "done", reason)
 
 

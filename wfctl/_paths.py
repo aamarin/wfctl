@@ -294,6 +294,14 @@ SCANS_DIR = "scans"
 # and has to be dropped for it.
 IMPLEMENTATION_DIR = "implementation"
 
+# The arch-root subtree holding level-3 design records. Unlike the two above it
+# *is* a record tier, so it is absent from `non_record_subtrees` and every
+# caller that wants it dropped says so itself. It has a name here anyway,
+# because the placement check reads it as a tier rather than dropping it, and a
+# literal at one call site and a constant at the other is how `scans/` came to
+# be spelled out four times.
+DESIGN_DIR = "design"
+
 
 def non_record_subtrees(arch: Path) -> list[Path]:
     """The corners of the arch root holding documents that decided nothing.

@@ -39,8 +39,8 @@ from wfctl._predicates import (
     TEMPLATE_PLACEHOLDER,
     _REQUIRED_PLAN_SECTIONS,
     _REQUIRED_SPEC_SECTIONS,
-    _missing_sections,
-    _quoted_out,
+    missing_sections,
+    quoted_out,
 )
 
 _TEMPLATES = Path(str(files("wfctl"))) / "specify" / "templates"
@@ -341,7 +341,7 @@ def test_the_matcher_finds_every_required_section_in_the_templates_themselves() 
         ("spec-template.md", _REQUIRED_SPEC_SECTIONS),
         ("plan-template.md", _REQUIRED_PLAN_SECTIONS),
     ):
-        missing = _missing_sections(_quoted_out((_TEMPLATES / template).read_text()), required)
+        missing = missing_sections(quoted_out((_TEMPLATES / template).read_text()), required)
         assert missing == (), f"{template}: the matcher cannot find {list(missing)}"
 
 

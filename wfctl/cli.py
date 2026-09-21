@@ -5667,6 +5667,85 @@ def _check_arch_records(repo_root: Path) -> bool:
     return any(f.level == "error" for f in findings)
 
 
+def _check_record_placement(repo_root: Path) -> bool:
+    """Report a record whose headings disagree with the tier holding it.
+
+    A record's level is carried by the directory it sits in, and until this
+    check nothing asked whether the file agreed. `load_records` globs one level,
+    so a level-2 record written under `design/` is not reported wrong by `arch
+    context` — it is absent, and a session loads a contract silently lacking it
+    (#419).
+
+    The tiers are globbed by name rather than walked, and `load_records` is not
+    called for either. Both are decided in
+    `design/419-placement-reads-the-tiers-by-name.md`, and the second is the one
+    worth restating here: `parse_record` applies `STATUSES`, the level-2
+    vocabulary, so every `approved` design record comes back with an empty
+    status. The loader classifies by tier before the placement question is
+    asked, which is the assumption under test.
+
+    `implementation/` is a destination and never a source. A note there decided
+    nothing and is where the `⚠` row sends a record that weighed nothing, so
+    reading it back as a tier would report the repair as a fresh finding.
+    """
+    from rich.markup import escape
+
+    from wfctl import _arch
+    from wfctl._paths import DESIGN_DIR
+    from wfctl._predicates import missing_sections, quoted_out
+
+    def carries(text: str, section: str) -> bool:
+        return missing_sections(text, (section,)) == ()
+
+    root = arch_root(repo_root)
+    findings: list[tuple[str, Path, str]] = []
+    for tier, directory in (("root", root), (DESIGN_DIR, root / DESIGN_DIR)):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.md")):
+            try:
+                text = quoted_out(path.read_text())
+            except (OSError, UnicodeDecodeError):
+                # `parse_record`'s rule, and for its reason: a record root is a
+                # directory anyone can drop a file into, and one undecodable
+                # file must not take down the read of the whole tier.
+                continue
+            if carries(text, _arch.LEVEL_2_SECTION):
+                if tier == DESIGN_DIR:
+                    findings.append((
+                        "error", path,
+                        f"carries `{_arch.LEVEL_2_SECTION}` but sits under {DESIGN_DIR}/ —"
+                        " a level-2 decision filed here binds nothing. Move it to the"
+                        " arch root.",
+                    ))
+            elif carries(text, _arch.LEVEL_3_SECTION):
+                if tier == "root":
+                    findings.append((
+                        "error", path,
+                        f"carries `{_arch.LEVEL_3_SECTION}` and no"
+                        f" `{_arch.LEVEL_2_SECTION}` — a level-3 record at the arch root"
+                        f" is projected as though it bound something. Move it to"
+                        f" {DESIGN_DIR}/.",
+                    ))
+            else:
+                findings.append((
+                    "warning", path,
+                    f"carries neither `{_arch.LEVEL_2_SECTION}` nor"
+                    f" `{_arch.LEVEL_3_SECTION}` — it weighed nothing, so it belongs"
+                    " under implementation/.",
+                ))
+
+    for level, path, message in findings:
+        marker = "[red]✗[/red]" if level == "error" else "[yellow]⚠[/yellow]"
+        # `_arch_location` escapes its own return; escaping it again would print
+        # the backslashes it inserted.
+        console.print(
+            f"{marker} {_arch_location(path, repo_root)}: {escape(message)}",
+            soft_wrap=True,
+        )
+    return any(level == "error" for level, _, _ in findings)
+
+
 def _report_double_claimed_keys(repo_root: Path) -> None:
     """Name an issue key that two features both claim.
 
@@ -6128,6 +6207,7 @@ def doctor_cmd() -> None:
         _check_spec_root_migration(repo_root),
         _check_verify_config(repo_root),
         _check_arch_records(repo_root),
+        _check_record_placement(repo_root),
     ]):
         exit_code = 1
 

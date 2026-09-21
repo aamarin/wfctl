@@ -24,6 +24,19 @@ IN_FORCE = "accepted"
 # misspelled — parses to "" and is excluded, never to `accepted`.
 STATUSES = frozenset({"proposed", IN_FORCE, "superseded", "rejected", "retired"})
 
+# The heading each tier's template requires and the other's does not, which is
+# what makes a record's level readable from the file rather than only from the
+# directory holding it. `Owns truth` is asked first and `Diagram` only in its
+# absence: the first is what makes a record bind, and a diagram drawn beside one
+# is decoration on a decision that still owns something.
+#
+# Named here and held against the templates by a test, for the reason
+# `required-sections-are-wfctls` already gives about `spec.md` and `plan.md`: a
+# check that opened a template at read time would need an answer for the repo
+# that installed none, and both answers are wrong.
+LEVEL_2_SECTION = "Owns truth"
+LEVEL_3_SECTION = "Diagram"
+
 
 @dataclass(frozen=True)
 class Record:

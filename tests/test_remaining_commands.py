@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl import _workmux
+from wfctl._arch import LEVEL_2_SECTION
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -423,8 +424,14 @@ def _record(
     # Emitted only when asked: an empty `supersedes:` is a *value*, not an absent
     # key, and `validate` would read the empty string as a claim to check.
     link = f"supersedes: {supersedes}\n" if supersedes else ""
+    # `Owns truth` is what makes a file at the arch root a level-2 record, and
+    # since #419 `doctor` says so: without it these fixtures are records that
+    # weighed nothing, and every test here that asserts a *silent* doctor would
+    # be reading a placement warning instead. From the constant rather than
+    # typed, so the section cannot be renamed out from under the fixture.
     path.write_text(
-        f"---\nstatus: {status}\n{link}---\n\n# {slug}\n\n## Decision\n\n{decision}\n"
+        f"---\nstatus: {status}\n{link}---\n\n# {slug}\n\n"
+        f"## {LEVEL_2_SECTION}\n\nwfctl owns \"x?\"\n\n## Decision\n\n{decision}\n"
     )
     return path
 
