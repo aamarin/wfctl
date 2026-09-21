@@ -27,6 +27,12 @@ passes the step has, which have run, or which command produces the missing one.
 So the pipeline's own structure is one level shallower than the work it tracks,
 in wfctl as much as in pfms.
 
+This record's subject is narrow, and the narrowing is worth stating because the
+record was read wider than it is. It answers *how a pass is represented once it
+is a pass*. Whether a repo-specific concern is a pass at all — rather than a
+hook on an existing stage, or a method inside the skill that does the work — is
+`a-repo-concern-earns-a-step-hook-or-method`'s question, and it runs first.
+
 ## Direct baseline
 
 Leave `_STEPS` flat, and let a repository name one extra evidence path that the
@@ -58,7 +64,7 @@ The predicate is the field that matters, and it is a callable for the reason
 
 ```
 built-in sub-step    any callable — clarify's reads a heading inside spec.md
-declared sub-step    evidence: "design/ui-contract.md"
+declared sub-step    evidence: "design/ui-design-contract.md"
                        └─► the predicate "this file exists"
 ```
 
@@ -75,7 +81,7 @@ that step's name:
 {
   "steps": {
     "brainstorm": [
-      { "command": "/pfms-ui-design-workflow", "evidence": "design/ui-contract.md" }
+      { "command": "/pfms-ui-design-workflow", "evidence": "design/ui-design-contract.md" }
     ]
   }
 }
@@ -88,9 +94,18 @@ moving a built-in pass into configuration later changes where the list comes fro
 rather than what a sub-step is.
 
 A pass earns a sub-step only when it leaves an artifact a reader can point at.
-`architecture-design` leaves none — it hands its result to
-`architecture-decisions` and writes nothing itself — so it stays what it is: how
-you do a sub-step, not a sub-step.
+This is the second of two tests and never the first. What kind of concern the
+thing is has already been answered by
+`a-repo-concern-earns-a-step-hook-or-method`; what is left for this record is
+whether an activity already established as a lifecycle pass has a state worth
+carrying, or whether it is prose that belongs in a skill.
+
+`architecture-design` fails the first test, not this one. It is how a sub-step is
+performed — the method by which a level-2 answer is reached — and it would still
+be a method if it wrote a file on every run. Reading its exclusion as a verdict
+about evidence is what made this test look like the whole rule, and the reading
+is wrong in a direction that matters: any discipline willing to emit a path would
+pass it.
 
 ## Owns truth
 
@@ -146,8 +161,19 @@ a consumer has to parse back out of the parent's annotation.
   every branch would read as not matching. #620 is the concrete case: a
   UI-driven decision whose code landed in `packages/types`, which a `client/**`
   rule would have called backend-only.
+- Carry the concern-kind test here too, so one record answers both "is this a
+  pass?" and "does it earn a row?" — the reading this record already attracted,
+  and it loses on what it costs a reader rather than on being unworkable. Two
+  tests with different subjects under one heading means the one that is not
+  asked about gets answered silently.
 
 ## Consequences
+
+Whether a concern is a lifecycle pass at all is settled before this record is
+consulted, by `a-repo-concern-earns-a-step-hook-or-method`. The two tests run in
+order — what kind of concern is this, then does it leave an artifact — and this
+record owns only the second. A reader who arrives here asking the first question
+is in the wrong file, which is the failure the two records exist to separate.
 
 `pipeline-state-is-one-payload` is extended, not superseded. Its claim is that
 inference produces one payload and every view is a transformation of it, with no
@@ -210,3 +236,7 @@ which is that record's to make, not this one's.
   "pass" are two vocabularies on purpose, because `wfctl-counts-the-passes`
   holds "pass" for an orchestrate iteration. Recorded so the divergence is not
   read as an oversight and renamed away
+- 2026-09-20  revised     — #435: the evidence-shape test read as the whole rule
+  for when a concern earns a pass, and reached the right verdict on
+  `architecture-design` by the wrong route. Scoped to the second of two tests,
+  with the first named; `ui-contract.md` respelled `ui-design-contract.md`
