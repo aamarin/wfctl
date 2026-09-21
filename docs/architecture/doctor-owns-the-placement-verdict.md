@@ -32,10 +32,27 @@ record is written, which is the cheapest moment to move a file.
 ## Decision
 
 `doctor` gains a placement check beside `_check_arch_records`. It reads every
-record under the arch root and reports one whose sections do not match the
-directory holding it: a file under `design/` carrying `Owns truth` is a level-2
-decision that has stopped binding, and one carrying neither `Owns truth` nor
-`Diagram` weighed nothing and belongs under `implementation/`.
+record under the arch root, asks which level's required section the file carries,
+and reports the file when the directory holding it disagrees. Three answers are
+findings:
+
+| The file | What it is | Marker |
+|---|---|---|
+| Under `design/`, carries `Owns truth` | a level-2 decision that has stopped binding | `✗` |
+| At the root, carries `Diagram` and not `Owns truth` | a level-3 record filed up, which `arch context` loads and prints as though it bound something | `✗` |
+| Carries neither section, either directory | it weighed nothing and belongs under `implementation/` | `⚠` |
+
+`Owns truth` is asked first and `Diagram` only in its absence, so a file carrying
+both is level-2 rather than a fourth case. That follows from what the section
+means: `Owns truth` is what makes a record bind, and a diagram drawn beside one
+is decoration on a decision that still owns something. Reading the two sections
+as an exclusive pair would have forced an answer for a shape that is not actually
+ambiguous.
+
+The second row is the first one's mirror, and it is the direction #419 does not
+mention. Filing a level-2 record down hides it; filing a level-3 record up
+publishes it, and a session then loads a contract carrying a decision nobody
+meant to bind. Both are wrong the moment they land, so both reach the exit code.
 
 `arch check` and the `status` design gate keep the questions they already ask.
 Neither is extended, and neither is retired.
@@ -47,7 +64,7 @@ Neither is extended, and neither is retired.
 `arch check` cannot: it is handed one path by a caller who already has that
 record in mind, so it can only ever confirm a suspicion someone already had. The
 failure here is that nobody suspects anything — a misfiled record produces no
-symptom, which is why it survived 56 records and two years. A check that reaches
+symptom, which is why it survived 57 records and two years. A check that reaches
 only named paths reproduces the silence it was built to break.
 
 `status` cannot either, and for a reason of its own rather than the same one: its
@@ -70,6 +87,12 @@ construction, and correctness is outside its purpose by decision.
   It describes a command that does not exist; `wfctl.json` validation is reached
   through `wfctl change check`, not a `check` group. Building the group to hold
   one finding also skips the question of what else belongs in it, which is #443.
+- **Both sections as a finding of its own** — a file carrying `Owns truth` and
+  `Diagram` together is ambiguous about its level, so a third marker could ask
+  its author which they meant. Rejected: the ambiguity is in the pair, not in
+  the file. One of the two sections decides whether a record binds and the other
+  does not, so asking them in order answers the question that a fourth finding
+  would only have forwarded to a human.
 - **`doctor`'s remit as originally written** — "state wfctl installed or seeded"
   would have excluded this outright, and #419 argues from that reading. #113
   already widened it: `_check_arch_records` reads a directory wfctl never wrote,
@@ -80,10 +103,10 @@ construction, and correctness is outside its purpose by decision.
 ## Consequences
 
 A finding that reaches the exit code turns `/start-session` and the definition of
-done red, so the two cases are not equal and cannot share a marker: a rule that
-has stopped binding is wrong today and takes `✗`, while a note in the wrong
-drawer takes `⚠` and only nags. That split is this decision's, not the
-implementation's.
+done red, so the cases are not equal and cannot share a marker: a record whose
+directory makes it lie about whether it binds is wrong today and takes `✗`, while
+a note in the wrong drawer takes `⚠` and only nags. That split is this decision's,
+not the implementation's.
 
 `doctor` runs unprompted at every session start, which its own docstring names as
 a hazard — "a magnet for anything you want noticed, and each arrival costs the
@@ -91,8 +114,12 @@ exit code some of its meaning". This is the second check admitted under the
 widened remit, and #443 exists to decide the admission list before there is a
 third.
 
-Left open: a record carrying both `Owns truth` and `Diagram` satisfies neither
-branch of the rule, and whether that is a finding is undecided.
+Nothing on disk trips any of the three rows. All 57 records carry exactly one of
+the two sections and sit in the directory that section names — 39 with `Owns
+truth` at the root, 18 with `Diagram` under `design/`, none with both and none
+with neither. A check that fires on a correctly-placed record gets ignored and
+then removed, so that run is the evidence this decision rests on rather than a
+fixture built to agree with it.
 
 ## Log
 
@@ -100,3 +127,7 @@ branch of the rule, and whether that is a finding is undecided.
   is misfiled; `arch check`, `status` and `doctor` each answer a different
   question about the same tree, and only one of them reaches a record nobody
   named.
+- 2026-09-21  amended  — the rule now asks `Owns truth` before `Diagram` rather
+  than treating them as an exclusive pair, which settles the both-sections case
+  the first draft left open, and a level-3 record filed up at the root is a
+  finding in its own right. Run over all 57 records on disk: no false positives.
