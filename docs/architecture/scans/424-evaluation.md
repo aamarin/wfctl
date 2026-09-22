@@ -9,13 +9,13 @@ before it started.
 
 ## Session 2026-09-22
 
-- Verdict: **inconclusive**
+- Verdict: **satisfied**
 - Scope: #424's first half — install and evaluate `agent-dashboard` — was
   withdrawn in the issue's own comment of 2026-09-20 and was not run.
   `agent-dashboard` was never installed. What was run is the narrowed
   experiment that comment leaves standing.
 - Ran against: 5 live `mode: session` worktrees; 12 tmux sessions on the
-  default server.
+  default server, 11 at the time of the second run.
 - Versions: cmux 0.64.25 (106), tmux 3.6a, workmux 0.1.211, wfctl 0.20.0.
 - Detail: no `FEATURE_DIR` artifact — this branch ran no pipeline step, so
   there is no fuller document for this file to point at. Everything the
@@ -26,12 +26,21 @@ The experiment, as #424's comment states it:
 > Can one cmux workspace attach to one existing workmux-owned tmux session and
 > present `wfctl status` without taking ownership of that session?
 
-**Inconclusive rather than unsatisfied**, and the distinction is the whole
-reason this section is worth reading. cmux's *local* tmux integration cannot do
-it, and that is settled below. cmux has a second integration — `ssh-tmux`,
-which mirrors the sessions of a tmux server it does not own — that is not
-reachable on this machine and was therefore not exercised. The unsurveyed half
-is the half that might answer yes.
+**The answer is yes, and it took two runs to get there.** The first run
+surveyed cmux's *local* tmux integration, which cannot do it — settled in
+findings 1 and 2 — and left the verdict at `inconclusive` because cmux's second
+integration, `ssh-tmux`, was not reachable on this machine. The machine's owner
+then enabled Remote Login and cmux's "Remote tmux" beta setting, and the second
+run exercised it. Finding 8 is that run: the mirror presents every workmux-owned
+session as a workspace, correlates on the session name, takes no ownership, and
+carries a line of wfctl's own output on the row.
+
+**This section holds both runs**, because a second scan finding something is
+only meaningful given what the first one found. Findings 1 through 7 are the
+first run and stand as written; findings 8 and 9 are the second. Where the
+second contradicts the first, the first is left in place and the later finding
+says so — a struck claim is the one thing a reader most needs to see, and
+deleting it leaves nothing to disagree with.
 
 ### Coverage
 
@@ -39,16 +48,23 @@ is the half that might answer yes.
 | --- | --- |
 | A · `local-tmux` — can it see a workmux-owned session? | Clear (it cannot; finding 1) |
 | B · `local-tmux` — does it act on one it was not given? | Clear (it cannot see one to act on; finding 2) |
-| C · `ssh-tmux` / `mosh-tmux` — the control-mode path | **Deferred** — not reachable here; finding 3 |
-| D · Presenting `wfctl status` in a row | Outstanding (finding 4) |
+| C · `ssh-tmux` / `mosh-tmux` — the control-mode path | Clear (it mirrors without owning; findings 3, 8) |
+| D · Presenting `wfctl status` in a row | Clear (demonstrated on a mirrored row; findings 4, 8) |
 | E · A sidebar as the presentation surface | Clear (it cannot fetch; finding 5) |
 | F · `attention` as a supervisory column | Clear (finding 6) |
 | G · The payload as a consumed contract across worktrees | Outstanding (finding 7) |
+| H · What a mirrored row reports about its own worktree | Outstanding (finding 9) |
 
-Pass C is the one that holds the verdict at `inconclusive`. It is `Deferred`
-rather than `Clear` because nothing was learned by running it — only that it
-cannot be run here without a change to this machine that is not an agent's to
-make.
+Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
+nothing had been learned by running it, only that it could not be run here
+without a change to this machine that was not an agent's to make. The second run
+had that change and closes it.
+
+Pass H is the second run's own, added when it found something the first run had
+no way to see. A pass named after the fact is the thing the "name your rows
+before you start" rule exists to prevent, so it is marked as what it is: the
+mirror was not expected to say anything about a worktree beyond its name, and it
+does.
 
 ## The handoff this branch carried was written against the withdrawn half
 
@@ -154,7 +170,7 @@ Worth a follow-up line on the record: a client that *names* a runtime it did not
 create has taken the name, which is the part of ownership that survives having
 taken none of the powers.
 
-## Finding 3 — the path that might answer yes was not reachable, and was not run
+## Finding 3 — the path that might answer yes was not reachable in the first run
 
 `cmux ssh-tmux` is a second integration, and it does the thing finding 1 says
 `local-tmux` cannot:
@@ -182,16 +198,20 @@ personal machine — a security posture change that belongs to whoever owns the
 machine, not to an evaluation. The second reason is the "Remote tmux" beta
 setting, which is a cmux Settings change and cheap by comparison.
 
-**So the verdict is `inconclusive` and not `unsatisfied`.** What a reader should
-take from this file is that the local path is closed and the control-mode path
-is untested — not that cmux cannot do it. Two questions stay open and both are
-cheap to answer once Remote Login is on:
+**That held the verdict at `inconclusive` rather than `unsatisfied`** for the
+duration of the first run: the local path was closed and the control-mode path
+untested, which is not the same as cmux being unable to do it. Two questions
+stayed open, both cheap to answer once Remote Login was on:
 
 - Does a mirrored workspace carry cmux's attention ring, unread badge and status
   lane, or are those keyed to surfaces cmux created?
 - Control mode can issue `kill-session`. Does cmux's mirror ever do so — on
   workspace close, on disconnect, on reconcile? That is the record's invariant
   asked of the one path that can actually break it.
+
+Both are answered in finding 8. This finding is left as written rather than
+folded into that one, because what it records is why an evaluation stopped where
+it did, and that reason is still true of any machine with Remote Login off.
 
 ## Finding 4 — the state-carrying verbs are gated; the `local-tmux` family is not
 
@@ -296,26 +316,149 @@ were first written down as "for #423's follow-up", which was wrong twice over:
 #423 is closed, and it named no successor — so both would have been parked
 where nothing picks them up.
 
+## Finding 8 — the mirror attaches without owning, and a wfctl line reaches the row
+
+The machine's owner enabled Remote Login and cmux's "Remote tmux" beta setting —
+cmux Settings → Beta Features → Remote tmux, a GUI toggle with no key in
+`cmux.json` and none in the app's `defaults` — and `cmux ssh-tmux localhost`,
+run from a terminal inside cmux, produced:
+
+```
+Connecting to localhost…
+Authenticated; opening remote tmux mirror for localhost…
+OK host=localhost workspaces=11 window=C78A7B17-4E1B-4767-A531-71AA332B7B3E
+```
+
+Eleven sessions on the default socket, eleven workspaces in the sidebar. This is
+the thing finding 1 says `local-tmux` cannot do, done by the other integration.
+
+**Ownership was not taken, which is the record's invariant.** Measured before
+and after, from the tmux side:
+
+| What was checked | Before | After |
+| --- | --- | --- |
+| sessions on the default server | 11 | 11 |
+| `session_created` on each | — | unchanged on all 11 |
+| `wfctl__426-overlay-boundary-spike` | `attached=0` | `attached=0` |
+
+The detached session is the one that carries the weight. A client that reconciles
+by recreating what it cannot see would have attached or replaced it; the mirror
+left it detached, which is what a client that owns nothing does. No
+`kill-session` was issued on any path exercised here — opening the mirror,
+selecting workspaces, leaving it open across the rest of this session.
+
+**The correlation key is the tmux session name, which is the workmux handle.**
+`cmux workspace list --id-format both` labels every mirrored workspace with the
+session name and nothing else:
+
+```
+  workspace:2 F194C2CE-…  wfctl__426-overlay-boundary-spike
+* workspace:3 21F91121-…  wfctl__425-restart-holds-on-child-work  [selected]
+  workspace:4 6DB3275D-…  wfctl__424-observer-dashboard-eval
+```
+
+A UUID exists per workspace, as it does for every cmux workspace. What the record
+forbids is correlating *to a feature* by a client-assigned id, and the name is
+what carries that correlation here — `wfctl__<handle>`, which is workmux's own.
+The one local workspace in the same window is labelled by path instead, which is
+the visible difference between a workspace cmux created and one it is mirroring.
+
+**A line of wfctl's own output reaches the row.** An OSC 9 notification written
+to a mirrored session's idle pane arrives in cmux's sidebar as that workspace's
+subtitle, and the workspace sorts to the top of the list:
+
+```
+$ uv run wfctl status --json | …                 # in the 424 worktree
+#424 · brainstorm · next /speckit.brainstorm
+
+$ printf '\033]9;#424 · brainstorm · next /speckit.brainstorm\007' > /dev/ttys034
+```
+
+rendered as:
+
+```
+wfctl__424-observer-dashboard-eval
+#424 · brainstorm · next /speckit.brainstorm
+~/Development/wfctl/wt/424-observer-dashboard-e…
+```
+
+That is #424's question answered end to end: wfctl's own verdict, on a row that
+names a workmux handle, in a client that owns none of it. It was done with a
+`printf` into a tty and nothing was committed — the pane wrote its own row, which
+is the one shape that needs no joiner and also the one that cannot scale, since a
+pane running an agent is not going to describe itself on a schedule.
+
+**What this does not establish.** The escape was written directly to the pane's
+tty rather than emitted by a program running in it, so nothing here shows that an
+agent's own OSC notifications survive the control-mode hop; `allow-passthrough`
+governs that and was not varied. The mirror was also exercised over `localhost`
+only, where the SSH hop is degenerate.
+
+## Finding 9 — a mirrored row can report the wrong worktree
+
+Two mirrored workspaces print a path that is not theirs:
+
+| Sidebar row | Path shown | `session_path` reports |
+| --- | --- | --- |
+| `wfctl__425-restart-holds-on-child-work` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/425-restart-holds-on-child-work` |
+| `wfctl__426-overlay-boundary-spike` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/426-overlay-boundary-spike` |
+| `wfctl__419-misfiled-record-check` | `~/Development/wfctl/wt/419-misfiled-record-check` | matches |
+| `pfms__653-variance-ledger` | `~/Development/pfms/wt/653-variance-ledger` | matches |
+
+Three more rows — `wfctl__397-handoff-records-work-in-flight`, `pfms__pfms-specs`,
+`pfms__656-detail-panel` — show no path at all. Read at full sidebar width, so
+this is not truncation: `424` and `425` differ in the third character of the
+segment.
+
+tmux answers correctly for every session, by both `session_path` and
+`pane_current_path`, so the wrong value is not being read from there. What the
+three wrong-or-absent wfctl rows have in common is that their sessions were
+created within thirty seconds of each other and of 424's, which is a correlation
+and not a cause — one observation, not a mechanism, and it is recorded here as
+the former.
+
+**Why it matters more than a cosmetic bug.** The record's correlation clause says
+the client correlates on the workmux handle or the worktree path, never on an id
+it assigned. This mirror correlates on the handle, which is the clause satisfied
+— and it *also* displays a path, which a reader will use to tell two rows apart.
+A supervisory screen exists to answer "which worktree needs me?", and a row
+carrying the right name over the wrong directory answers it wrongly in the one
+way the reader cannot detect. `cwd` as a display hint is already demoted by
+cmux's own doc; this is the demotion earning itself.
+
+Not filed against cmux. One machine, one run, `localhost`, and no minimal
+reproduction attempted.
+
 ## What it would cost to get #424's screen anyway
 
-Three pieces, none of them in wfctl, and the first is conditional on finding 3:
+Three pieces, none of them in wfctl. **Two of them now exist**, and the second
+run is what moved them:
 
-1. **A pane or a mirror per worktree.** Either an ordinary cmux terminal running
-   `tmux attach -t wfctl__<handle>` — which works, because cmux is a terminal
-   emulator, and which cmux models as a shell rather than a session, so no
-   attention ring or status lane is keyed to it — or the `ssh-tmux` mirror,
-   which does model them as workspaces and is the untested path.
-2. **A sidecar.** A process started inside cmux, or holding the socket password,
+1. **A pane or a mirror per worktree.** `cmux ssh-tmux localhost` supplies it —
+   one workspace per session, ownership untouched, finding 8. The alternative is
+   an ordinary cmux terminal running `tmux attach -t wfctl__<handle>`, which also
+   works but which cmux models as a shell rather than a session, so no attention
+   ring or status lane is keyed to it. The mirror is the one that carries a row.
+2. **Correlation on the workmux handle.** Supplied by the mirror, which labels
+   each workspace with the tmux session name and nothing else. This is what
+   `a-client-attaches-to-a-runtime-it-never-owns` asks for, and it arrives for
+   free rather than being configured. `cwd` is the tempting second key and cmux's
+   own doc demotes it — "Title and cwd remain display and diagnostic hints only" —
+   which finding 9 turns from a caution into an observed defect.
+3. **A sidecar.** A process started inside cmux, or holding the socket password,
    polling `workmux list --json` and each worktree's `wfctl status --json`, and
-   pushing rows with `cmux set-status` / `cmux log`. This is the whole of the
-   join, and it is the piece that does not exist.
-3. **Correlation on the workmux handle.** Not on cmux's workspace UUID, which
-   `a-client-attaches-to-a-runtime-it-never-owns` refuses by name. `cwd` is a
-   tempting second key and cmux's own doc demotes it — "Title and cwd remain
-   display and diagnostic hints only" — so it is a hint, not an identity.
+   pushing rows with `cmux set-status` / `cmux log`. **This is the whole of what
+   is left, and it is still the piece that does not exist.**
 
-Piece 2 is a second orchestration plane wearing a smaller name, which is the
-thing the #424 comment declined. Recorded as the cost, not as a proposal.
+So the shape of the answer has changed. It was "two of three pieces missing, and
+one of those cannot be evaluated here"; it is now "one piece missing, and it is
+the one the #424 comment declined" — a second orchestration plane wearing a
+smaller name. A one-shot stands in for it in finding 8, where the pane wrote its
+own row with a `printf`; what a sidecar adds is doing that on a schedule, for
+every worktree, without a person in the loop.
+
+Recorded as the cost, not as a proposal. The decision is whose it was before:
+the piece is small, and being small was never the objection to it.
 
 ## Evidence
 
@@ -337,3 +480,19 @@ Two rows are checkable without any of that, and both were confirmed
 independently: 424's own row by running the command here, and 419's absent
 `version` and `attention` from git, since `STATUS_PAYLOAD_VERSION` entered in
 #441 and `419`'s branch point predates it.
+
+**The second run's evidence divides the same way.** Findings 8 and 9 rest on
+three sources, and only the first is reproducible from a shell alone:
+
+- `tmux list-sessions` / `tmux list-panes -a`, before and after the mirror, for
+  the session count, the creation timestamps, the attach counts and every
+  `session_path`. All reads, all re-runnable.
+- `cmux ssh-tmux localhost` and `cmux workspace list --id-format both`, which
+  must be run from a terminal *inside* cmux — the socket refuses an outside
+  process, which is finding 4 met from the other side. Their output is quoted
+  above as they printed it.
+- The sidebar itself, for what a row displays. There is no CLI that reports a
+  mirrored workspace's subtitle or its path — `workspace list` prints neither —
+  so finding 9 rests on reading the rendered sidebar at full width. That is the
+  weakest evidence in this file and it is the whole basis of that finding, which
+  is why it is recorded as an observation rather than filed as a bug.
