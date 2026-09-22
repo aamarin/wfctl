@@ -310,10 +310,16 @@ memory of it — load them before doing anything else.
      mid-request has to hand the request back before doing anything else —
      reading it and not saying it leaves the user re-asking, which is the whole
      of what the section prevents. Absent, still `(fill in)`, or saying nothing
-     was in flight: report none of the three. Every summary written before this
-     section existed lacks it, and `worktree-handoff` documents use their own
-     shape and never carried it, so absent is the ordinary case rather than a
-     signal — and a placeholder handed to the user reads as a real request
+     was in flight: none of the three is a request, so none of them is reported
+     as one. Every summary written before this section existed lacks it, and
+     `worktree-handoff` documents use their own shape and never carried it, so
+     absent is the ordinary case rather than a signal. **The placeholder is not
+     the ordinary case, and it is not yours to judge:** `wfctl start` in step 2
+     prints a `⚠` when the last handoff left the section as the template wrote
+     it, which says the session before was in the middle of something nobody
+     recorded. Carry that line into the freshness bullet like any other. Saying
+     nothing there is the failure one turn later — the request is already gone,
+     and silence is what stops anyone knowing it was asked
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
    - **Alignment**: aligned, or the likely-done / untracked items from step 7

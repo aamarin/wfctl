@@ -395,14 +395,50 @@ NEXT_ACTION_PLACEHOLDER = "- [ ] (fill in)"
 # request that was cut off is context for the instruction below it. Not for
 # safety — `names_no_first_action` breaks on the first `## `, so this section
 # could sit either side of that heading without reaching its scan.
-#
-# The rule that this section gets filled is prose in `end-session`, not a check
-# here, and the reason is the order the restart path runs in: `end` writes the
-# scaffold at step 3 and the agent fills it at step 4, so the one place wfctl
-# reads the file back — the `--continued` warning in `cli.py` — sees the
-# placeholder on every run by design. What runs after step 4 is
-# `amend_summary_for_late_events`, which is `_restart.py`'s (#425).
 IN_FLIGHT = "## In Flight"
+IN_FLIGHT_PLACEHOLDER = "- (fill in)"
+
+
+def in_flight_unfilled(summary: str) -> bool:
+    """Was this handoff's in-flight section left as the template wrote it?
+
+    `a-rule-is-expressed-as-a-check`: a violation of "fill this in" is visible in
+    `session-summary.md`, which the work already produces, so the rule is a check
+    over that artifact or it is the rule's absence documented. `end-session`'s
+    prose states it; this is what observes it.
+
+    **It cannot fire where the rule binds, and that is the point.** `end` writes
+    the scaffold at step 3 and the agent fills it at step 4, so every reader
+    inside `end` — the `--continued` warning included — sees the placeholder on
+    every run by construction and can say nothing about what came after. The
+    reader that runs on the far side is `wfctl start`, in the session the restart
+    spawned, which is why the warning lands there and reads as a report on the
+    session before rather than a nudge to the one being closed.
+
+    So what this buys is not prevention. It is that a request dropped under
+    context pressure stops being silent: today an agent that skips the section
+    leaves nobody who knows it was ever asked, and `/start-session` suppresses
+    the placeholder rather than reporting it as a request nobody made. Holding
+    the restart until the section is filled would prevent it, and that is
+    `_restart.py`'s to do (#425); the two compose, and this stops firing when it
+    lands.
+
+    `_TEMPLATE_MARK` first, for `names_no_first_action`'s reason: a `worktree-handoff`
+    document uses its own shape and never carries this section, so a file `end`
+    did not write is not judged at all rather than judged absent.
+    """
+    if _TEMPLATE_MARK not in summary or IN_FLIGHT not in summary:
+        return False
+    body = summary[summary.index(IN_FLIGHT) + len(IN_FLIGHT) :]
+    # To the next heading, so a section someone filled in *below* this one does
+    # not answer for it — the same bound `names_no_first_action` walks.
+    for line in body.splitlines():
+        if line.startswith("## "):
+            break
+        stripped = line.strip()
+        if stripped and stripped != IN_FLIGHT_PLACEHOLDER:
+            return False
+    return True
 
 # The line that says `end` wrote this file: the title `_render_session_summary`
 # opens with, which `end-session`'s own fill-in template repeats verbatim.
@@ -438,7 +474,7 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
         f"## What We Accomplished\n\n"
         f"- (fill in)\n\n"
         f"{IN_FLIGHT}\n\n"
-        f"- (fill in)\n\n"
+        f"{IN_FLIGHT_PLACEHOLDER}\n\n"
         f"{NEXT_SESSION_TODO}\n\n"
         f"{NEXT_ACTION_PLACEHOLDER}\n"
     )
