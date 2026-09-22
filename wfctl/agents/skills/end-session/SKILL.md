@@ -31,11 +31,16 @@ discarded — so this turn is the handoff, and the only one. Three steps change:
   nothing else. Add one line saying this was an automatic session restart and
   that the tree was left as found.
 
-  **`## In Flight` is this path's section, and a stop here is never "Nothing".**
-  An attended close stops where the session chose to; this one stops where the
-  context ran out, mid-request, with nobody at the prompt to re-ask. Write it
-  first, whatever order it sits in on the page — it is the section nothing else
-  can reconstruct, and the one a handoff cut short drops.
+  **`## In Flight` is this path's section, and a stop the context forced is
+  never "Nothing".** An attended close stops where the session chose to; this
+  one stops mid-request with nobody at the prompt to re-ask. Write it first,
+  whatever order it sits in on the page — it is the section nothing else can
+  reconstruct, and the one a handoff cut short drops.
+
+  The condition is what rules the empty answer out, not the word that was
+  typed. Nothing here can tell the hook from a person typing the same input,
+  and a person who types it at a clean stopping point has "Nothing; between
+  tasks" as the true answer. Claiming otherwise would have them invent one.
 - **Steps 6 and 7 are skipped.** Do not ask about committing or the tracker: the
   question would sit at a prompt nobody reads until `/clear` discards it. Leave
   uncommitted work uncommitted and the tracker untouched, and say so in the

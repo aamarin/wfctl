@@ -100,7 +100,11 @@ def test_the_restart_path_rules_out_the_empty_answer() -> None:
     assert restart, "end-session/SKILL.md has no `restart` section"
     prose = _flat(restart.group(1))
     assert _session.IN_FLIGHT in prose
-    assert 'a stop here is never "Nothing"' in prose
+    assert 'a stop the context forced is never "Nothing"' in prose
+    # The condition rules it out, not the input: the same file says a person
+    # typing this by hand is indistinguishable from the hook, and one who does
+    # so at a clean stop has "Nothing" as the true answer.
+    assert "not the word that was typed" in prose
 
 
 def test_step_9_takes_its_quote_from_the_next_action_section_alone() -> None:
