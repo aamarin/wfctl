@@ -149,7 +149,7 @@ same close as the hook; nothing here can tell the two apart, and it does not try
 
 5. **Outward actions are asked for, attempted, and recorded — never skipped for
    want of a setting.** Step 7 below reaches outside the repo: a comment, a
-   label, a closed or new issue. wfctl does not decide whether those may run.
+   closed or new issue. wfctl does not decide whether those may run.
    Your host's permission layer does, and it refuses before wfctl ever starts
    (`wfctl-records-outward-actions-and-never-gates-them`). The same holds for a
    push, which this step tells you to record below. Step 6 commits and reaches
@@ -205,9 +205,10 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    wfctl issue view "$ISSUE"
    wfctl issue close "$ISSUE" --comment "Completed this session."   # only if still open
 
-   # If work is only partially done, leave it open with a progress note:
+   # If work is only partially done, leave it open with a progress note. Its
+   # state is not yours to set here: `wfctl issue start` and `stop` carry that,
+   # and a repo running the workmux lifecycle has already called them.
    wfctl issue comment "$ISSUE" --body "Partial progress: <what remains>"
-   wfctl issue label "$ISSUE" --action add --label in-progress
 
    # Reconcile any secondary issues noted in step 2 the same way, and file new work:
    wfctl issue create --title "<title>" --body "<context>"
@@ -215,9 +216,9 @@ same close as the hook; nothing here can tell the two apart, and it does not try
 
    **If your host refuses one of these commands**, file the block step 5
    describes, under the verb's own name — `issue-close`, `issue-comment`,
-   `issue-label`, `issue-create`. A person who then takes the action outside
-   wfctl lifts the hold with `wfctl report-action issue-close`; a later
-   successful `wfctl issue close` lifts it by itself.
+   `issue-create`. A person who then takes the action outside wfctl lifts the
+   hold with `wfctl report-action issue-close`; a later successful
+   `wfctl issue close` lifts it by itself.
 
 8. **Report:** session closed, summary written, whether the work was committed and
    the tracker updated (per the user's choices in 6–7), next steps, any blockers.
