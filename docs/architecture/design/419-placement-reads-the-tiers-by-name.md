@@ -41,7 +41,8 @@ that `_check_arch_records` states: wfctl reads the arch root and never writes it
   lookahead is `(?!\w)` and not `\b`.
 - `_predicates.py:322` — `_quoted_out(text)` blanks fenced blocks and inline
   spans, over `_md.walk`, so a document illustrating a heading does not carry
-  one.
+  one. HTML comments were added to that list later on this branch, which
+  `419-the-template-check-reads-its-own-projection` records.
 - `_md.py:15` — "This yields per-line state and projects nothing." The fence
   walker holds no projection, by its own statement; `_quoted_out` is one of the
   three shapes it names as the callers'.
