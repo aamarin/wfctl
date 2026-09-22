@@ -207,7 +207,7 @@ same close as the hook; nothing here can tell the two apart, and it does not try
 
    # If work is only partially done, leave it open with a progress note. Its
    # state is not yours to set here: `wfctl issue start` and `stop` carry that,
-   # and the worktree hooks already run them.
+   # and a repo running the workmux lifecycle has already called them.
    wfctl issue comment "$ISSUE" --body "Partial progress: <what remains>"
 
    # Reconcile any secondary issues noted in step 2 the same way, and file new work:
