@@ -145,6 +145,11 @@ scrolled past between two fan-outs does not. Repeating it on every *shrink*
 instead would bury the first copy under a line per child reporting, which is the
 one that matters.
 
+The cost of that rule is a session that launches a child every turn while holding:
+each launch is growth, so each reply end prints the line again. That is the same
+message repeated rather than a wrong one, and the alternative — saying it once and
+staying silent through every later fan-out — is the failure this rule replaced.
+
 ## Verification
 
 - `tests/test_restart_decide.py::test_the_children_hold_is_reported_once_and_then_says_nothing`

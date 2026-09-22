@@ -210,6 +210,24 @@ def test_a_fan_out_still_running_holds_the_restart_and_sends_nothing(
     )}
 
 
+def test_a_decision_with_no_children_writes_no_children_key(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The field is written only where it answers something. `decide` reads it back
+    to tell a second fan-out from the one it already held, and an empty list on
+    every other decision is a row answering that question for a decision nobody
+    asked it — which is also the shape a stale reader would mistake for a hold that
+    carried no children."""
+    state = _state(tmp_path, monkeypatch)
+    t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
+
+    run_hook(_payload(repo, t), os.environ, lambda plan: None, lambda root: "371-x")
+
+    [event] = _events(state)
+    assert event["decision"] == "end"
+    assert "children" not in event
+
+
 def test_the_restart_runs_once_the_panel_has_reported(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
