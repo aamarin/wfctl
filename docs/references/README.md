@@ -109,3 +109,47 @@ prevention; it is that removal takes a deliberate act which leaves a diff. The
 level-2 pass has to say whether that is worth the machinery, or whether the
 honest answer for a single-operator repo is prose plus the tracker's own branch
 protection — rather than citing the rows above as though they settled it.
+
+---
+
+## Naming a value that lives inside more than one parent
+
+Added 2026-09-16, while deciding #339's Question 1 — a sub-step's declaration
+carries `command` and `evidence` and no name field at all, and `wfctl status`
+and `wfctl step none` both need one to print and to take. Raised by the
+observation that two different steps can each declare a pass called the same
+thing, which is not hypothetical: wfctl's own `ui-design`-shaped pass and a
+repository's could collide under different parents on day one.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| [Command Line Interface Guidelines](https://clig.dev) | *"Don't have ambiguous or similarly-named commands."* Cautions against confusable names generally, but stops short of this question — it never addresses the same short name legitimately existing under two different parents | A revision of the guide that rules on cross-scope collision directly. None exists as searched |
+| [Kubernetes: Namespaces](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces) | Resource names must be unique within a namespace; the same name can be reused in a different namespace. A bare name resolves against the current namespace, and `namespace/name` disambiguates | A sub-step's parent step turning out not to be a stable identity to scope against — steps reordered or renamed mid-declaration. `_STEPS` is a fixed built-in table, so this does not apply |
+| [Terraform: Resource Addressing](https://developer.hashicorp.com/terraform/cli/state/resource-addressing) | The address is always `type.name`; no command anywhere accepts a bare `name`. Uniqueness is enforced by never offering the ambiguous case a syntax | An existing ergonomic bare form already shipping in this CLI for a comparably-scoped value. `wfctl arch none` and its declaration are typed and read with no qualifier, because there is exactly one of them per branch — the precedent this repo already set is a bare form where the scope is unambiguous, not always-qualified |
+| [Dealing With Git Tag & Branch Collisions](https://www.conradakunga.com/blog/dealing-with-git-tag-branch-collissions/) | Git resolves a bare ref name across `refs/heads/` and `refs/tags/` by silent precedence, and the practical fix teams adopt is a naming convention nobody tools enforce — "never name a tag and a branch the same" | A namespace at git's scale — many refs, no load-time check possible. A repository's declared sub-steps are a short list read once at config load, where refusing a collision outright costs nothing and needs no convention to remember |
+
+### What the set argues, taken together
+
+Kubernetes' shape fits a value with a real, fixed parent, which a sub-step has —
+FR-002 already keys the declaration to the step it lives inside. Terraform's
+stricter always-qualified rule is what a namespace needs once bare names stop
+being safely unambiguous at its scale; wfctl's own precedent (`wfctl arch none`)
+shows the CLI already prefers a bare form wherever the scope makes one
+unambiguous, so adopting Terraform's rule here would be tightening past what the
+problem's size requires. Git is the cautionary case for doing nothing: a
+collision space left to convention instead of a load-time check is exactly the
+shape of bug this codebase can refuse for free, since the declaration is static
+configuration read once rather than refs created continuously by many actors.
+
+### The strongest argument against
+
+The kubectl analogy quietly assumes the current step is as legible as the
+current namespace, and it is not — a namespace is set once per shell session and
+named on every prompt; a step is inferred by wfctl from artifacts on disk and an
+author does not carry it in working memory the way `kubectl config
+current-context` makes visible. So a bare `wfctl step none ui-design` that
+"resolves against the current step" may resolve against a step the author is not
+actually thinking of, silently — the Kubernetes precedent transfers the
+convenience without the context cue that keeps it safe. Whoever settles Question
+1 has to weigh that against always requiring `<step>.<name>`, not treat the
+Kubernetes row as though it settled the ergonomics question by itself.

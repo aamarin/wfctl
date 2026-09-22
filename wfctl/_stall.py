@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from wfctl._predicates import Evidence
+    from wfctl._evidence import Evidence
 
 # Attempts that changed nothing, not observations of them. Three rather than two
 # because a step legitimately taking a second run is common, and a bound that
@@ -88,7 +88,7 @@ def digest(ev: "Evidence") -> str:
 
     From `Evidence` rather than from the rendered step line, which is the level-3
     decision (`332-progress-is-measured-in-artifacts`): `clarify` and `specify`
-    both return `Reading("in_progress")` with no reason and no annotation while
+    both return `Assessment("in_progress")` with no reason and no display string while
     markers stand, so a pass resolving two of six markers renders identically to
     one resolving none. The bytes distinguish them; the rendering cannot.
 

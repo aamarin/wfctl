@@ -19,14 +19,15 @@ when this drawing stops matching it. See **Staleness** below.
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
-      │      ╎ 4 private crossings into _pipeline
+      │      ╎ 7 private crossings into _pipeline (2 from _declared)
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 439   _predicates 603   _arch 458   _archive 339   │      ┊
+   │ _pipeline 439   _evidence 603    _arch 458      _archive 339 │      ┊
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
-   │ _change 199     _stall 137       _restart 415                │      ┊
+   │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
+   │ _bob_settings 96                                             │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -39,21 +40,21 @@ when this drawing stops matching it. See **Staleness** below.
    │ _io 43                            0 out · 5 in   │      _tracker
    │ _md 98                            0 out · 3 in   │      _verify cli
    ╰──────────────────────────────────────────────────╯  ◄── _arch _shape
-                                                             _predicates
+                                                             _evidence
 ```
 
 `_entry` is drawn above the two it reaches because it is the only one with no
 importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` reaches `_guard` directly and nothing else, which is
 what lets the guard run without `cli` — see the surface split below. The line
-counts were re-derived for #314, which split `_pipeline` into it and `_predicates`
+counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
 `cli` reaches `_pipeline._apply_block_hold` directly from `next_cmd`, the same
 private-crossing shape as the two `_infer_steps`/`_current_step_name` calls
 beside it and for the matching reason, and `_pipeline._STEP_NAMES` from
 `blocked_cmd`, which needs the pipeline's terminal step name to hold something
-once every step reads `done` — see **Six private names crossing
-into `cli`** below.
+once every step reads `done` — see **Nine private names cross a module
+boundary** below.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
 imports nothing back — not because resolution reaches it. Neither `_paths` nor
@@ -138,23 +139,26 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Six private names crossing into `cli`
+### Nine private names cross a module boundary
 
 ```
-   cli → _paths._SPEC_DIR_OVERRIDE       "WFCTL_SPEC_DIR"
-   cli → _paths._STATE_DIR_OVERRIDE      "WFCTL_STATE_DIR"
-   cli → _pipeline._current_step_name    which step still blocks
-   cli → _pipeline._infer_steps          the whole inference
-   cli → _pipeline._apply_block_hold     the host-block override, for `next`
-   cli → _pipeline._STEP_NAMES           the terminal step, for `blocked`
+   cli       → _paths._SPEC_DIR_OVERRIDE     "WFCTL_SPEC_DIR"
+   cli       → _paths._STATE_DIR_OVERRIDE    "WFCTL_STATE_DIR"
+   cli       → _pipeline._current_step_name  which step still blocks
+   cli       → _pipeline._infer_steps        the whole inference
+   cli       → _pipeline._apply_block_hold   the host-block override, for `next`
+   cli       → _pipeline._STEP_NAMES         the terminal step, for `blocked`
+   cli       → _pipeline._outstanding_pass   which pass holds the step up
+   _declared → _pipeline._STEP_NAMES         the step a declaration may name
+   _declared → _pipeline._STEPS              the passes it is ordered against
 ```
 
-Named without line numbers on purpose: these six are the `crossings` block
+Named without line numbers on purpose: these nine are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
 `_pipeline.py:53` states the rule the module intends — *"Public because `cli`
-imports them — the data above stays private"* — and four names on that same
+imports them — the data above stays private"* — and six names on that same
 module break it. `_apply_block_hold` joins the other two for the reason
 `next_cmd` gives inline: `build_report` already composes it with `_infer_steps`,
 but `next` cannot call `build_report` itself (`next_step_content`'s own docstring
@@ -165,6 +169,19 @@ pipeline's own last step to hold once `build_report.current` reads `None` for
 "nothing is left to run" rather than "no feature claims this branch" — the two
 cases that sentinel used to leave indistinguishable. Decided in
 `the-underscore-is-the-module-contract`.
+
+`_outstanding_pass` and `_STEPS` are #339's, and they break the rule one level
+further down for the reason the four above break it at the top. A step's passes
+are the same table with another row: `next` reaches `_outstanding_pass` to name
+the pass holding a step up, which is what it already reaches
+`_current_step_name` for one level higher. `status` needs the same answer and is
+not a second crossing — it calls `build_report`, which is public and composes
+`_outstanding_pass` itself. And `_declared` reads
+`_STEPS` because ordering a repository's declared pass against wfctl's own means
+knowing what wfctl's own are called. `_STEP_NAMES` is the one name here crossed
+from two modules — `_declared` needs it so that a declaration naming a step
+wfctl does not have is a `wfctl check config` finding rather than a silent
+drop.
 
 ### Two domain modules print, and the graph cannot see it
 
@@ -250,7 +267,7 @@ defines, two of which write durable records. One flag governs four gates, so
 The drawing is checked, not trusted. `tests/test_architecture_view.py` parses
 the three blocks below out of *this file*, re-derives the import graph from
 `wfctl/*.py` with an AST pass, and fails if they disagree. A new module with no
-band, an edge that runs upward, a fifth private crossing, or a crossing that
+band, an edge that runs upward, a tenth private crossing, or a crossing that
 gets fixed without the drawing being updated — each of those turns the drawing
 red rather than stale.
 
@@ -272,7 +289,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _predicates _arch _archive _guard _verify _tracker _workmux _settings _shape _session _bundle _change _stall _restart
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract
 resolution  _paths _manifest
 mechanism   _io _md
 ```
@@ -288,4 +305,9 @@ cli -> _pipeline._current_step_name
 cli -> _pipeline._infer_steps
 cli -> _pipeline._apply_block_hold
 cli -> _pipeline._STEP_NAMES
+cli -> _pipeline._outstanding_pass
+_contract -> _evidence._REQUIRED_SPEC_SECTIONS
+_contract -> _evidence._REQUIRED_PLAN_SECTIONS
+_declared -> _pipeline._STEP_NAMES
+_declared -> _pipeline._STEPS
 ```

@@ -217,6 +217,53 @@ def test_the_level_3_gate_names_the_design_record_skill() -> None:
     assert "software-design-decisions" in set(_REFERENCE.findall(gate))
 
 
+def test_the_level_3_gate_names_the_structural_heuristics_skill() -> None:
+    """Level 3 had two skills and neither was a method — the first of #412's
+    three gaps. A pointer is the only thing that gets an agent to the one that
+    closes it, because nothing else in `design-levels` says structure has
+    heuristics at all.
+
+    Scoped to the section rather than the file, for the reason the level-2 gate
+    test gives at length. Level 4 names the same skill thirty lines down, so a
+    whole-file match goes green on a §3 that never mentions it — and that is
+    precisely the half a careless edit drops."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    section = gate.split("### 3. Design")[1].split("### 4. Implementation")[0]
+    assert "clean-code" in set(_REFERENCE.findall(section))
+
+
+def test_the_level_4_gate_names_the_structural_heuristics_skill() -> None:
+    """`python-pattern-selection` is Python's alone and says so, which left an
+    implementer in any other language routed to the two verification skills and
+    nothing in front of them. This reference is the language-neutral half.
+
+    The sentence it replaced — "there is no equivalent skill for another
+    language yet" — sat in the file being false with nothing to catch it, since
+    no test reads a sentence. This one reads the route instead, which is the
+    form that survives the next rewrite of the prose around it.
+
+    Scoped like its level-3 twin and against the same failure: §3 names the
+    skill, so the file matches whatever §4 happens to say."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    section = gate.split("### 4. Implementation")[1].split("## Rendering")[0]
+    assert "clean-code" in set(_REFERENCE.findall(section))
+
+
+def test_the_readability_pass_names_the_review_catalog() -> None:
+    """The readability lens asks a reviewer to judge and, before this reference,
+    named nothing to judge against. `fanning-out-code-review` sends every one of
+    its reviewers through this rubric and states that the rubric is what does
+    not vary between them, so this single pointer is what reaches a whole panel
+    — and editing the panel skill instead would contradict that rule.
+
+    Scoped to the passes because the file names the skill nowhere else: over the
+    whole file the assertion goes green on a pointer that has drifted out of the
+    lens it belongs to and into Red Flags."""
+    rubric = (_AGENTS / "skills" / "code-review" / "SKILL.md").read_text()
+    passes = rubric.split("## Step 4")[1].split("## Step 5")[0]
+    assert "clean-code" in set(_REFERENCE.findall(passes))
+
+
 def test_the_design_record_skill_asks_git_whether_the_record_landed() -> None:
     """A record nobody can open is the failure the format exists to prevent, and
     it is invisible: the file is on disk, the session reports success, and the
@@ -325,7 +372,7 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     likely to drop what was there, which is the argument
     `test_each_review_wrapper_allows_the_commands_the_scan_file_needs` already
     makes for the two review steps. `implement` marks each finished task `[X]` in
-    a `tasks.md` that exists, and `_predicates.implement` reads those marks.
+    a `tasks.md` that exists, and `_evidence.implement` reads those marks.
     `specify` runs a validation loop over the spec it just wrote — step 7c
     updates it for each failing checklist item, 7c.8 replaces each
     `[NEEDS CLARIFICATION]` marker with the answer, and 7d rewrites the checklist
@@ -621,6 +668,7 @@ def test_the_record_template_carries_every_section_a_record_needs() -> None:
         "Direct baseline",
         "Decision",
         "Owns truth",
+        "Boundary",
         "Considered",
         "Log",
     ):

@@ -22,7 +22,7 @@ dependencies = [
 # ruff is pinned to a minor, not floated: its default rule set widens between
 # releases (0.16 added ~40 findings to this repo over 0.15), so an unpinned
 # linter turns someone else's release into a red build on an untouched branch.
-dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3"]
+dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1"]
 
 [dependency-groups]
 # The same three tools, reached the way `uv run` reaches things. uv installs a
@@ -54,6 +54,7 @@ testpaths = ["tests"]
 markers = [
     "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
     "runs_mypy: shells out to mypy, so it costs seconds rather than milliseconds",
+    "builds_wheel: shells out to a real `python -m build`, so it costs seconds rather than milliseconds",
 ]
 
 [tool.ruff.lint]

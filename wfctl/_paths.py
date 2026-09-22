@@ -294,6 +294,14 @@ SCANS_DIR = "scans"
 # and has to be dropped for it.
 IMPLEMENTATION_DIR = "implementation"
 
+# The arch-root subtree holding a person's claim that one pipeline pass does
+# not apply to this change (#339, `an-absent-artifact-is-claimed-not-inferred`).
+# A claim answers a narrower question than a record does and decides nothing
+# about the boundary a record decides — left out, `wfctl step none` would
+# double as an unintended way to satisfy the design gate (FR-016, SC-006), the
+# same failure `scans/` and `implementation/` are excluded to prevent.
+STEP_CLAIMS_DIR = "step-claims"
+
 # The arch-root subtree holding level-3 design records. Unlike the two above it
 # *is* a record tier, so it is absent from `non_record_subtrees` and every
 # caller that wants it dropped says so itself. It has a name here anyway,
@@ -312,7 +320,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
     is the failure this replaces: `scans/` was named at each of them, and the
     second such subtree had to find all four.
     """
-    return [arch / SCANS_DIR, arch / IMPLEMENTATION_DIR]
+    return [arch / SCANS_DIR, arch / IMPLEMENTATION_DIR, arch / STEP_CLAIMS_DIR]
 
 
 def touched_on_this_branch(

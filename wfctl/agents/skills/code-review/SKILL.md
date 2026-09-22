@@ -93,6 +93,10 @@ Run every pass. Trace called functions, not just the changed lines.
 - No nested ternaries, boolean-flag params, clever tricks that need a mental pause.
 - Comments explain *why*, never *what*; delete `// increment counter`.
 - Apply Chesterton's Fence: understand why code exists (git blame) before calling it removable.
+- The catalog behind this lens is `.agents/skills/clean-code`'s review catalog —
+  smells ordered by consequence. It generates hypotheses; the severity below
+  stays yours, and a hypothesis is a finding only with a location, evidence, a
+  consequence and a bounded fix.
 
 **5. Performance**
 - N+1 queries, unbounded loops/fetches, missing pagination on lists.

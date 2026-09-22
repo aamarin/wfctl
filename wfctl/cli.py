@@ -5,14 +5,14 @@ import json
 import os
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 import typer
 from rich.console import Console
 
-from wfctl import _bundle, _settings, _tracker
+from wfctl import _bob_settings, _bundle, _settings, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
@@ -476,12 +476,17 @@ def report_block_cmd(
 
 @app.command("status")
 def status_cmd(
-    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON")
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON"),
+    show_all: bool = typer.Option(
+        False, "--all", help="Show a settled-away pass too, with its reason"
+    ),
 ) -> None:
     """Show pipeline progress."""
     from rich.markup import escape
 
     from wfctl._pipeline import (
+        MANUAL_PASS_WHY,
+        STATUS_PAYLOAD_VERSION,
         STORY_COMPLETE_CONSOLE,
         build_report,
     )
@@ -497,7 +502,8 @@ def status_cmd(
         # paths is what `pipeline-state-is-one-payload` rejects, not two formats.
         # Without this an agent's only source of per-step state is the block
         # below, whose glyphs are lossy by construction.
-        console.print_json(data={
+        payload = {
+            "version": STATUS_PAYLOAD_VERSION,
             "issue": issue,
             "branch": branch,
             # Which feature the steps below were counted from, null when none
@@ -539,7 +545,35 @@ def status_cmd(
                     "unchanged": list(report.stall.unchanged),
                 }
             ),
-        })
+            # Present and null exactly like `stall` above, and for the same
+            # reason: a consumer reading a missing key as "nothing wants a
+            # person" cannot tell that from a wfctl too old to answer (FR-003).
+            "attention": (
+                None if report.attention is None
+                else {
+                    "kind": report.attention.kind,
+                    "step": report.attention.step,
+                    "detail": report.attention.detail,
+                }
+            ),
+        }
+        # Bytes, not `console.print_json`: `console` decides to style from the
+        # terminal it believes it is attached to, and `FORCE_COLOR` or a real
+        # pty settle that belief regardless of `NO_COLOR` — which suppresses
+        # colour and not emphasis, the `\x1b[1m{` this corrupted every
+        # machine-readable key with (FR-001, research.md § 1). `sys.stdout`
+        # never makes that decision. `ensure_ascii=False` and the swallowed
+        # `BrokenPipeError` are what `console.print_json` gave for free and a
+        # bare `sys.stdout.write` does not: without the first, a non-ASCII
+        # byte in any string field (an em dash in a `remedy`) round-trips as
+        # `\uXXXX` instead of raw UTF-8; without the second, `wfctl status
+        # --json | head -1` raises instead of exiting clean.
+        try:
+            sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except BrokenPipeError:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            raise typer.Exit(code=0) from None
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
@@ -600,9 +634,57 @@ def status_cmd(
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
         glyph, color = _STATE_GLYPH[step["state"]]
         sym_fmt = f"[{color}]{glyph}[/{color}]"
-        ann = f"  [dim]{escape(step['annotation'])}[/dim]" if step["annotation"] else ""
+        # Suppressed when a pass is what is holding the step: the payload still
+        # carries the same annotation it always did (`speckit-orchestrate` and
+        # `--json` see no change), but the console would otherwise print it
+        # twice — once here and again on the outstanding pass's own row below,
+        # which is where contracts/cli.md's example puts the detail. Equality,
+        # not just `is_current`: `_apply_block_hold` runs after the roll-up and
+        # overwrites the step's own annotation with a host-block message
+        # without touching `sub_steps`, so a stale outstanding pass can still
+        # be `is_current` while carrying a different, no-longer-true reason —
+        # `is_current` alone would suppress the block message it should defer to.
+        held_by_pass = any(
+            sub["is_current"] and sub["annotation"] == step["annotation"]
+            for sub in step["sub_steps"]
+        )
+        ann = (
+            f"  [dim]{escape(step['annotation'])}[/dim]"
+            if step["annotation"] and not held_by_pass else ""
+        )
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
+
+        for sub in step["sub_steps"]:
+            # A settled-away pass is hidden by default (FR-018) — `--all`
+            # brings it back, carrying its claim if it has one. The pass
+            # holding the pipeline is never `skipped`, so this filter alone
+            # never hides the row a reader most needs (contracts/cli.md).
+            if sub["state"] == "skipped" and not show_all:
+                continue
+            sub_glyph, sub_color = _STATE_GLYPH[sub["state"]]
+            sub_sym = f"[{sub_color}]{sub_glyph}[/{sub_color}]"
+            # 16, not 14: "architecture" is 12 characters, and the 2-space
+            # indent plus a 14-wide ljust left it flush against the glyph with
+            # no gap at all — the one built-in pass name that reaches the
+            # column the parent's own `ljust(12)` was sized for.
+            sub_name = f"  {sub['name']}".ljust(16)
+            if sub["claimed"]:
+                detail = f"  [dim]claimed: {escape(sub['claimed'])}[/dim]"
+            elif sub["annotation"]:
+                # The pass's own reason, where it has one — `brainstorm`'s
+                # architecture pass carries `no architecture record for this
+                # change` exactly where the old single-reader arm did.
+                detail = f"  [dim]{escape(sub['annotation'])}[/dim]"
+            elif sub["is_current"]:
+                # No reason of its own: the command that clears it, or the
+                # by-hand sentence for a manual pass, beside the outstanding
+                # row (T024) — `design-doc` in contracts/cli.md's own example.
+                what = sub["command"] or MANUAL_PASS_WHY
+                detail = f"  [dim]{escape(what)}[/dim]"
+            else:
+                detail = ""
+            console.print(f"{sub_name}{sub_sym}{detail}")
 
     # Between the step table and `next:`, and printed in every state including
     # the one where all three are met. Rendering it only when something is unmet
@@ -676,11 +758,14 @@ def next_cmd() -> None:
         _apply_block_hold,
         _current_step_name,
         _infer_steps,
+        _outstanding_pass,
+        manual_pass_reason,
         next_step_content,
         next_step_file,
     )
-    from wfctl._predicates import build_evidence
+    from wfctl._evidence import build_evidence
     from wfctl._io import append_event
+    from wfctl._session import auto_approve as read_auto_approve
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -695,7 +780,7 @@ def next_cmd() -> None:
     # artifacts say, and this is the file an agent actually acts on — `status`
     # showing the hold while `next` sends the agent to re-run the refused step
     # is the disagreement FR-016's asymmetry depends on not existing.
-    steps = _apply_block_hold(steps, agent_dir, branch)
+    steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
@@ -708,6 +793,11 @@ def next_cmd() -> None:
     # the command: this is the file an agent acts on, and a step whose only
     # stated fix lives in `status` is one the agent cannot clear.
     remedy = next((s.remedy for s in steps if s.name == step_name), None)
+    # Same routing `build_report` applies for `status`: a step whose own
+    # reading is `done` with an outstanding pass names that pass's command
+    # here too, or this file sends the agent back to a step that has already
+    # finished its own half.
+    outstanding = _outstanding_pass(next((s for s in steps if s.name == step_name), None))
 
     # No special case for a missing spec dir. It used to force `/speckit.specify`,
     # from when an absent design read as "skipped" and specify was the honest
@@ -715,7 +805,15 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
-    command, auto = next_step_content(step_name, blocked, tasks_open=bool(ev and ev.tasks_open))
+    command, auto = next_step_content(
+        step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
+        outstanding=outstanding, auto_approve=read_auto_approve(agent_dir),
+    )
+
+    # Shared with `build_report`, which applies it to the same step's `reason`
+    # for `resume` and `status`. Inline here once, and `resume` wrote
+    # "run this command to continue" over a pass no command runs.
+    why = manual_pass_reason(blocked, outstanding)
 
     next_step_md = agent_dir / "next-step.md"
     if command:
@@ -723,7 +821,7 @@ def next_cmd() -> None:
         # The reason and the remedy travel with the command. Without them this
         # file says "run this to continue" over a step that is blocked, and the
         # one view that carried why — `status` — is not the view an agent reads.
-        content = next_step_file(command, auto, blocked, remedy)
+        content = next_step_file(command, auto, why, remedy)
     else:
         content = STORY_COMPLETE_FILE
 
@@ -736,8 +834,8 @@ def next_cmd() -> None:
 
     if command:
         console.print(f"→ Next step: {command} (auto: {auto_str})")
-        if blocked:
-            console.print(f"  [dim]{escape(blocked)}[/dim]")
+        if why:
+            console.print(f"  [dim]{escape(why)}[/dim]")
     else:
         console.print(STORY_COMPLETE_CONSOLE)
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
@@ -1496,6 +1594,129 @@ def arch_none_cmd(
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
+step_app = typer.Typer(no_args_is_help=True, help="Declare a pipeline pass inapplicable.")
+app.add_typer(step_app, name="step")
+
+
+@step_app.command("none")
+def step_none_cmd(
+    qualified: str = typer.Argument(
+        ..., help="<step>.<name>, or a bare <name> when it names exactly one pass"
+    ),
+    reason: str = typer.Option(..., "--reason", help="Why this pass does not apply."),
+) -> None:
+    """Declare that one pipeline pass does not apply to the change under review.
+
+    Generalises `wfctl arch none` (`an-absent-artifact-is-claimed-not-inferred`)
+    and refuses on the same two grounds — an empty reason, and a `<why>`
+    placeholder — but writes its own file rather than sharing `arch none`'s: a
+    branch makes one boundary claim and as many pass claims as it has passes,
+    and `arch none`'s whole-file overwrite would lose all but the last (FR-015).
+
+    A bare `<name>` resolves only when exactly one pass anywhere carries it —
+    never against whichever step happens to be current (FR-002c), which moves
+    as unrelated work lands and would make the same command resolve
+    differently from one day to the next.
+    """
+    from contextlib import suppress
+
+    from rich.markup import escape
+
+    from wfctl import _declared
+    from wfctl._io import write_atomic
+    from wfctl._paths import STEP_CLAIMS_DIR
+
+    _, repo_root, branch, _ = _resolve_context()
+
+    if not reason.strip():
+        # Same argument `arch none` already makes: the claim exists to be a
+        # sentence a reviewer can disagree with, and an empty one is the
+        # silent omission this command was built to stop.
+        console.print("[red]✗[/red] --reason cannot be empty: say why this pass does not apply.")
+        raise typer.Exit(1)
+    if re.fullmatch(r"<[^>]*>", reason.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
+            "say why this pass does not apply."
+        )
+        raise typer.Exit(1)
+
+    passes, _ = _declared.load(repo_root)
+
+    if "." in qualified:
+        step, _, name = qualified.partition(".")
+        match = next((s for s in passes.get(step, []) if s.name == name), None)
+        if match is None:
+            names = ", ".join(s.name for s in passes.get(step, [])) or "(none)"
+            console.print(
+                f"[red]✗[/red] {escape(qualified)} is not a declared pass. "
+                f"Under {escape(step)}: {escape(names)}"
+            )
+            raise typer.Exit(1)
+    else:
+        name = qualified
+        matches = [step for step, subs in passes.items() if any(s.name == name for s in subs)]
+        if not matches:
+            console.print(f"[red]✗[/red] '{escape(name)}' is not a declared pass")
+            raise typer.Exit(1)
+        if len(matches) > 1:
+            console.print(
+                f"[red]✗[/red] '{escape(name)}' is declared under "
+                f"{' and '.join(matches)} — qualify it"
+            )
+            raise typer.Exit(1)
+        step = matches[0]
+
+    branch_name = Path(branch).name
+    qualified_name = f"{step}.{name}"
+    # One file per pass (research.md R6): a second claim on a *different* pass
+    # must not destroy the first, which `arch none`'s single `<branch>.md`
+    # would (FR-015, SC-005). A second claim on *this* pass replaces exactly
+    # itself, the same overwrite-not-append rule `arch none` follows.
+    path = arch_root(repo_root) / STEP_CLAIMS_DIR / branch_name / f"{qualified_name}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, f"# {qualified_name} does not apply — {branch_name}\n\n{reason}\n")
+
+    if touched_on_this_branch(repo_root, path) is not True:
+        # Removed, where `arch none` above leaves its declaration behind. That
+        # file is inert: the design gate asks the same visibility question
+        # before honouring it, so a refused declaration changes nothing and the
+        # gate stays up — failing towards still-blocked. `_step_claims` asks
+        # nothing. It globs this directory and honours what it finds, so a file
+        # left here reads the pass `skipped` and walks the pipeline past a claim
+        # this command has just refused to record — failing towards advanced.
+        # Refusing and recording are not both available.
+        path.unlink(missing_ok=True)
+        with suppress(OSError):
+            # Only when this run created it and nothing else landed there; a
+            # non-empty directory raises and is left alone.
+            path.parent.rmdir()
+        console.print(
+            f"[yellow]⚠[/yellow] Did not record {escape(qualified_name)}: "
+            f"{_arch_location(path, repo_root)} would not be\n  part of the change under "
+            "review — the root is outside the working tree,\n  or git is ignoring it. No "
+            "reviewer would see the claim, so nothing\n  was written.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    console.print(
+        f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
+    )
+
+
+# Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a
+# `zip` of two parallel sequences silently drops or mispairs a row the moment
+# the two drift out of length, with no test to catch it. Keying means a kind
+# missing its blurb raises `KeyError` instead — loud at the one call site that
+# reads it, in `test_a_drawing_with_no_declared_kind_names_every_kinds_blurb`.
+_DIAGRAM_KIND_BLURBS: dict[str, str] = {
+    "data-flow": "a value moving between two sides",
+    "component": "a line between components",
+    "state": "a sequence one thing passes through",
+}
+
+
 @arch_app.command("accept")
 def arch_accept_cmd(
     slug: str = typer.Argument(
@@ -1619,6 +1840,28 @@ def arch_accept_cmd(
             "instead.",
             soft_wrap=True,
         )
+        raise typer.Exit(1)
+
+    # Checked here, before the write, so the reader never gets a traceback out
+    # of `_set_status` for a gap this command can see in advance — and so the
+    # wording is chosen by the console, per R-002, since three kinds of gap
+    # need three different sentences and only the console knows which ones.
+    blockers = _arch.accept_blockers(record)
+    if blockers:
+        console.print(f"[red]✗[/red] {escape(record.slug)} cannot be accepted yet.")
+        for blocker in blockers:
+            console.print(f"    {escape(blocker)}", soft_wrap=True)
+        if any(b.startswith("no declared kind") for b in blockers):
+            # Only here, not for an invalid-but-present kind: that refusal
+            # already names the three values in its own sentence, and a second
+            # listing of them right below would repeat rather than inform. An
+            # author who has never seen the vocabulary before is the one this
+            # table is for.
+            console.print()
+            width = max(len(k) for k in _arch.DIAGRAM_KINDS)
+            for kind in _arch.DIAGRAM_KINDS:
+                console.print(f"  {kind:<{width}}  {_DIAGRAM_KIND_BLURBS[kind]}")
+        console.print(f"\n  {_arch_location(record.path, repo_root)}", soft_wrap=True)
         raise typer.Exit(1)
 
     citation = agreed.strip()
@@ -2356,6 +2599,29 @@ _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
 
+# Bob Shell's own approval-scoping file — see the `approval-settings` skill for
+# its schema. Not `.claude/settings.json`'s: `allowed-tools` on a command's
+# frontmatter, the mechanism Claude Code reads, has no reader in Bob Shell at
+# all (grepping Bob Shell's own bundled JS for the literal key turns up
+# nothing) — #405 shipped believing it did, and this is the actual mechanism.
+BOB_SETTINGS_PATH = ".bob/settings.json"
+
+# Starter entries for a bundle whose own commands run `git` and `uv run wfctl`.
+# Read-only tools first — the lowest-risk approvals — then the two command
+# prefixes this bundle's own commands actually invoke; a project wanting more
+# extends this file by hand afterward, same as any consumer edit `doctor`
+# already treats as theirs.
+_BOB_APPROVAL_ENTRIES = (
+    "read_file",
+    "list_files",
+    "glob",
+    "grep",
+    "execute_command(git)",
+    "execute_command(uv run)",
+    "run_shell_command(git)",
+    "run_shell_command(uv run)",
+)
+
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
 # something different and "the managed hook is gone" names none of them — and two
 # on one event lose different things.
@@ -2546,6 +2812,19 @@ _MIRRORED_SKILLS = frozenset({
     # bob/copilot layers; mirror is the Claude route (wrapper suppressed there by
     # _mirror_supersedes_wrapper, as for every other name in this set).
     "brainstorm",
+    # `python-pattern-selection`'s case at two levels rather than one:
+    # `design-levels` names this skill by path at level 3 and again at level 4,
+    # and an agent that read either pointer and reached for `Skill(clean-code)`
+    # is refused without membership. The mirror does not make a refused route
+    # work — it removes the fork, so the outcome stops depending on which way
+    # the agent reached.
+    #
+    # Defended on reaching an agent mid-implementation, like
+    # `python-pattern-selection` below and unlike `architecture-design`'s, so
+    # `speckit.implement`'s ceiling has to
+    # grant what its Authority section names. It grants `Read`, `Glob` and
+    # `Bash(wfctl arch context*)`, which is all of it; nothing widens here.
+    "clean-code",
     "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
@@ -2556,11 +2835,11 @@ _MIRRORED_SKILLS = frozenset({
     # which is the failure it was written for. Nothing else in the tree says the
     # skill has to be discoverable.
     "opening-a-change",
-    # The only entry whose skill fires *during* implementation, which is what
-    # makes the mirror necessary rather than convenient. `software-design-decisions`
-    # below is reachable by an agent reading `design-levels` as text; this one
-    # fires at the moment a mechanism is picked, and no agent is reading a skill
-    # at that moment. `design-levels` §4 names it by path so the pointer exists,
+    # Fires *during* implementation, which is what makes the mirror necessary
+    # rather than convenient. `clean-code` above is the other entry that does.
+    # `software-design-decisions` below is reachable by an agent reading
+    # `design-levels` as text; this one fires at the moment a mechanism is
+    # picked, and no agent is reading a skill at that moment. `design-levels` §4 names it by path so the pointer exists,
     # and this entry is what makes the pointer resolvable — the pair is #150's
     # fix applied one level down.
     #
@@ -2609,11 +2888,12 @@ _MIRRORED_SKILLS = frozenset({
     # stops depending on which way the agent reached.
     #
     # Its `allowed-tools:` sits on the SKILL.md rather than the wrapper, because
-    # suppression drops a wrapper whole and `.claude/commands/` was the only
-    # place that key was ever read unstripped. On a skill the same grant reaches
-    # a model-initiated invocation, `Bash(wfctl install-skills*)` included —
-    # sanctioned by the Safety section of this repo's AGENTS.md, which already
-    # has `/start-session` refreshing a stale mirror unattended.
+    # suppression drops the wrapper whole for Claude — the mirror replaces it
+    # outright, taking any grant the wrapper carried with it. On a skill the
+    # same grant reaches a model-initiated invocation, `Bash(wfctl
+    # install-skills*)` included — sanctioned by the Safety section of this
+    # repo's AGENTS.md, which already has `/start-session` refreshing a stale
+    # mirror unattended.
     "start-session",
     "using-superpowers",
     "verification-before-completion",
@@ -2630,12 +2910,22 @@ _MIRRORED_SKILLS = frozenset({
 _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 
 
-# Frontmatter keys that are Claude-specific and have no meaning in Bob Shell.
-# `disable-model-invocation: true` causes Bob Shell to skip model invocation
-# entirely — the skill body never executes. That is the bug where /end-session
-# and other commands do nothing when invoked in Bob Shell.
+# Frontmatter keys known to be Claude-specific and meaningless — or worse,
+# harmful — in Bob Shell. `disable-model-invocation: true` causes Bob Shell to
+# skip model invocation entirely — the skill body never executes. That is the
+# bug where /end-session and other commands do nothing when invoked in Bob
+# Shell.
+#
+# `allowed-tools` was previously listed here too, on the assumption it was
+# Claude-only. It isn't established to be: grepping Bob Shell's own bundled JS
+# for the literal key turns up nothing, which means Bob Shell does not read it
+# for anything, good or bad — it neither breaks on seeing it nor uses it to
+# scope tool approval the way #142 assumed. Absence of evidence that a key is
+# Bob-relevant is not evidence it is Claude-only, so it no longer belongs here.
+# Bob's real auto-approval mechanism is `.bob/settings.json` (the
+# `approval-settings` skill) — `install-skills --agent bob` merges a starter
+# allowlist into it automatically; see `_BOB_APPROVAL_ENTRIES`.
 _CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
-    "allowed-tools",
     "disable-model-invocation",
 })
 
@@ -3076,6 +3366,122 @@ def _unmerge_permissions(
         _write_settings(path, settings)
         changed.add(rel)
     return changed, declined, problems
+
+
+def _managed_bob_tool_allows(agent: str) -> list[tuple[str, str]]:
+    """`(settings path, entry)` for every `tools.allowed` entry `agent` manages.
+
+    Bob-only, for the reason the permission rules are Claude-only: `tools` is
+    Bob Shell's schema, and the base layer is agent-agnostic. A list rather
+    than a constant because install, uninstall and `doctor` all have to agree
+    on the set, and a second copy of it is the drift this collapses.
+    """
+    return (
+        [(BOB_SETTINGS_PATH, entry) for entry in _BOB_APPROVAL_ENTRIES]
+        if agent == "bob"
+        else []
+    )
+
+
+def _bob_tool_allow_drift(
+    repo_root: Path, agent: str, manifest: dict
+) -> tuple[str, str, bool] | None:
+    """The first managed entry a receipt claims and the file no longer carries.
+
+    `(path, entry, added)`, where `added` is the receipt's own answer to who
+    put the entry there — shaped after `_permission_drift`, minus `related`:
+    a plain allow-list has no verb to match a hand-edited form against, so
+    there is nothing honest to show beyond the entry that went missing.
+
+    None when there is nothing to stop for, including every case wfctl cannot
+    be sure about — same posture as `_permission_drift`.
+    """
+    for rel, entry in _managed_bob_tool_allows(agent):
+        receipts = [
+            record
+            for layer in _layer_keys(manifest)
+            for record in manifest[layer].get("tools", [])
+            if record.get("path") == rel and record.get("entry") == entry
+        ]
+        if not receipts:
+            continue
+        path = repo_root / rel
+        if not path.exists():
+            continue
+        settings, _ = _read_settings(path)
+        if settings is None or _bob_settings.tool_allow_present(settings, entry):
+            continue
+        return (rel, entry, bool(receipts[0].get("added", False)))
+    return None
+
+
+def _merge_bob_tool_allows(
+    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
+) -> tuple[list[dict], list[str], list[str]]:
+    """Install `agent`'s managed `tools.allowed` entries. `(records, written,
+    problems)` — shaped after `_merge_permissions`."""
+    records: list[dict] = []
+    written: list[str] = []
+    problems: list[str] = []
+    for rel, entry in _managed_bob_tool_allows(agent):
+        path = repo_root / rel
+        keep = prior.get((rel, entry))
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            records.extend([keep] if keep else [])
+            continue
+        try:
+            added = _bob_settings.merge_tool_allow(settings, entry)
+        except ValueError as exc:
+            problems.append(f"{rel}: {exc}")
+            records.extend([keep] if keep else [])
+            continue
+        if added:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_settings(path, settings)
+            except OSError as exc:
+                problems.append(f"{rel}: {exc}")
+                records.extend([keep] if keep else [])
+                continue
+            if rel not in written:
+                written.append(rel)
+        records.append({
+            "path": rel,
+            "entry": entry,
+            "added": added or bool(keep and keep.get("added", False)),
+        })
+    return records, written, problems
+
+
+def _unmerge_bob_tool_allows(
+    repo_root: Path, records: Iterable[dict]
+) -> tuple[set[str], list[str]]:
+    """Remove the managed `tools.allowed` entries `records` describes.
+    `(files changed, problems)` — shaped after `_unmerge_permissions`, minus
+    `declined`: nothing here has a "related" form to show for one, so a
+    changed entry is simply not reported as removed."""
+    changed: set[str] = set()
+    problems: list[str] = []
+    for record in records:
+        rel, entry = record.get("path"), record.get("entry")
+        if not rel or not entry:
+            continue
+        if not record.get("added", False):
+            continue
+        path = repo_root / rel
+        if not path.exists():
+            continue
+        settings, problem = _read_settings(path)
+        if settings is None:
+            problems.append(f"{rel}: {problem}")
+            continue
+        if not _bob_settings.remove_tool_allow(settings, entry):
+            continue
+        _write_settings(path, settings)
+        changed.add(rel)
+    return changed, problems
 
 
 def _unmerge_hooks(
@@ -3535,6 +3941,34 @@ def install_skills_cmd(
         )
         raise typer.Exit(1)
 
+    bob_drift = None if force else _bob_tool_allow_drift(repo_root, agent, manifest)
+    if bob_drift is not None:
+        drifted_path, entry, was_wfctls = bob_drift
+        whose = (
+            "which wfctl installed"
+            if was_wfctls
+            else "which wfctl recorded as already yours"
+        )
+        console.print(
+            f"[red]✗[/red] {escape(drifted_path)} no longer carries "
+            f"[cyan]{escape(entry)}[/cyan], {whose}.",
+            soft_wrap=True,
+        )
+        forced = "wfctl install-skills --agent " + agent + " --force"
+        console.print(
+            "  Nothing was installed. Removing that entry is your call to make, so "
+            "wfctl will not\n  put it back without being told to:\n"
+            f"    keep your version   — restore [cyan]{escape(entry)}[/cyan] "
+            "by hand, or leave it out and\n"
+            "                          expect this on every install, including the "
+            "one\n                          `/start-session` runs unattended\n"
+            f"    take wfctl's        — {escape(forced)}\n"
+            "                          which records the entry as wfctl's, so a "
+            "later uninstall\n                          removes it",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
     # `--from` is one-shot, so a bare install silently discards it. Said before
     # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
     # a stale mirror unattended with `--yes`, which makes that the one place the
@@ -3911,6 +4345,16 @@ def install_skills_cmd(
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
+    prior_bob_tools = {
+        (r["path"], r["entry"]): r
+        for key in _layer_keys(manifest)
+        for r in manifest[key].get("tools", [])
+    }
+    bob_tools, bob_tools_written, bob_tools_problems = _merge_bob_tool_allows(
+        repo_root, agent, prior_bob_tools
+    )
+    merge_written.extend(rel for rel in bob_tools_written if rel not in merge_written)
+
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
     # One entry per layer that installed something. An agent with no layer of
@@ -3961,6 +4405,11 @@ def install_skills_cmd(
     # `docs/architecture/design/136-the-receipt-is-a-sibling-of-merged.md`.
     if permissions:
         manifest.setdefault(agent, {})["permissions"] = permissions
+
+    # A sibling of `permissions` for the same reason, one schema over: Bob
+    # Shell's `tools.allowed` rather than Claude Code's `permissions.deny`.
+    if bob_tools:
+        manifest.setdefault(agent, {})["tools"] = bob_tools
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -4150,6 +4599,12 @@ def install_skills_cmd(
             "added",
             soft_wrap=True,
         )
+    for problem in bob_tools_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — the managed tool-approval entry was "
+            "not added",
+            soft_wrap=True,
+        )
 
     # The path as typed, not the resolved one the manifest holds: this line is
     # read next to the command that produced it, and `../116-pr` is what the
@@ -4168,7 +4623,7 @@ def install_skills_cmd(
         # third count would bury exactly the thing worth noticing.
         console.print(
             f"\n[green]✓[/green] Merged wfctl's managed entries into {merged_rel}\n"
-            "  Your own hooks, permissions and settings are still there — "
+            "  Whatever you already had in it is still there — "
             "`wfctl uninstall-skills`\n  removes just wfctl's own entries. The rewrite "
             "reflows the file once; later installs\n  leave it closed.",
             soft_wrap=True,
@@ -4289,6 +4744,9 @@ def uninstall_skills_cmd(
     unmerged_perms, declined, perm_problems = _unmerge_permissions(
         repo_root, entry.get("permissions", [])
     )
+    unmerged_bob_tools, bob_tools_problems = _unmerge_bob_tool_allows(
+        repo_root, entry.get("tools", [])
+    )
     for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
@@ -4299,6 +4757,12 @@ def uninstall_skills_cmd(
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's permission rule may still be "
             "in this file; the record naming it is being removed either way",
+            soft_wrap=True,
+        )
+    for problem in bob_tools_problems:
+        console.print(
+            f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
+            "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
 
@@ -4320,13 +4784,13 @@ def uninstall_skills_cmd(
     # Asked once, with every managed entry already out of the file. `created` is
     # a fact about the file rather than about one entry, and the two passes above
     # each hold only their own half of what was in it.
-    for rel in _touched_created(entry, unmerged | unmerged_perms):
+    for rel in _touched_created(entry, unmerged | unmerged_perms | unmerged_bob_tools):
         path = repo_root / rel
         settings, _ = _read_settings(path)
         if settings == {}:
             path.unlink()
 
-    touched = unmerged | unmerged_perms
+    touched = unmerged | unmerged_perms | unmerged_bob_tools
     if touched:
         # soft_wrap, break placed by hand: rich re-wraps at the terminal edge and
         # splits "in place" across two lines under an indent that then stops
@@ -4706,6 +5170,256 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own configuration.")
+# A new group rather than a peer of `tracker-check`/`check-body`'s existing
+# hyphenated shape: #402 proposes `check <thing>` — noun group plus verb for
+# anything with an object — and is open, so the direction is where the argument
+# is going rather than somewhere it has arrived. Naming this one into the
+# grouped form from its first commit costs nothing if #402 settles that way and
+# leaves one verb to rename if it does not. Renaming the other two here would be
+# a drive-by on a surface this feature does not otherwise touch, and it is
+# #402's to do either way.
+app.add_typer(check_app, name="check")
+
+
+contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape contract.")
+app.add_typer(contract_app, name="contract")
+
+
+def _contract_status_payload(cwd: Path, agent_dir: Path | None = None) -> dict:
+    """One `wfctl status --json` run in `cwd`, parsed — production's version
+    of the subprocess call `test_status_contract.py._live_payload` makes for
+    the test suite, reused here rather than duplicated a third time because
+    both need exactly the same call and neither can import the other.
+    """
+    import subprocess
+
+    from wfctl._contract import isolated_subprocess_env, wfctl_binary
+
+    overrides = {"WFCTL_STATE_DIR": str(agent_dir)} if agent_dir is not None else {}
+    result = subprocess.run(
+        [wfctl_binary(), "status", "--json"],
+        cwd=cwd, env=isolated_subprocess_env(**overrides),
+        capture_output=True, check=True, timeout=15,
+    )
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+@contract_app.command("regenerate")
+def contract_regenerate_cmd(
+    hold_version: bool = typer.Option(
+        False, "--hold-version",
+        help="Write the observed paths, but leave the version where it is (FR-014b).",
+    ),
+) -> None:
+    """Rewrite `wfctl/contracts/status-payload.json` from the same union the
+    shape check compares against.
+
+    Five throwaway fixture repos (`wfctl._contract.fixture_states`) plus one
+    live run of `wfctl status --json` against a sixth, isolated repo with no
+    feature resolved — FR-013a and FR-013b's union, and the same one
+    `test_status_contract.py` compares the shipped file against, so a clean
+    tree runs this and gets no diff back. The live run does not use the repo
+    this command was invoked in; `wfctl._contract.build_live_probe_repo`'s own
+    docstring says why.
+
+    A version bump edits `wfctl/_pipeline.py` too, not only the JSON file:
+    `STATUS_PAYLOAD_VERSION` is the value `status_cmd` actually emits
+    (FR-011), so a regenerate that touched only the shipped file would leave
+    the two disagreeing — the one thing `test_status_contract.py`'s
+    version-agreement test exists to catch, on this command's own commit.
+    """
+    from wfctl._contract import (
+        apply_bump,
+        bump,
+        build_live_probe_repo,
+        diff_message,
+        fixture_states,
+        merge_type_paths,
+        type_paths,
+    )
+    from wfctl._pipeline import STATUS_PAYLOAD_VERSION
+
+    import shutil
+
+    # Every throwaway repo this command builds — five fixtures plus the live
+    # probe — is a `tempfile.mkdtemp` directory `_init_throwaway_repo` never
+    # removes; this is the one caller that runs outside a test process and
+    # gets no OS-level temp cleanup between invocations, so it removes its own.
+    states = fixture_states()
+    live_root = build_live_probe_repo()
+    try:
+        maps = [
+            type_paths(_contract_status_payload(env.repo_root, env.agent_dir))
+            for env in states.values()
+        ]
+        # `agent_dir` isolated the same way `test_status_contract.py`'s own
+        # live run does (`_live_payload`): without it, `WFCTL_STATE_DIR` from
+        # the invoking shell leaks into what this probe promises is isolated,
+        # and `spec_dir`'s observed type flips depending on what that shell
+        # happened to have resolved.
+        maps.append(
+            type_paths(_contract_status_payload(live_root, live_root / ".agent-runs"))
+        )
+        observed = merge_type_paths(*maps)
+    finally:
+        for env in states.values():
+            shutil.rmtree(env.repo_root, ignore_errors=True)
+        shutil.rmtree(live_root, ignore_errors=True)
+
+    contract_path = Path(__file__).resolve().parent / "contracts" / "status-payload.json"
+    contract_existed = contract_path.exists()
+    if contract_existed:
+        existing = json.loads(contract_path.read_text())
+        recorded, current_version = existing["paths"], existing["version"]
+    else:
+        # No prior baseline to diff against — `bump({}, observed)` would read
+        # every observed path as newly added and always return "minor", a
+        # bump this run does not owe: nothing changed shape, the file was
+        # simply absent. Skip the comparison and write the current constant.
+        recorded, current_version = {}, STATUS_PAYLOAD_VERSION
+
+    which = bump(recorded, observed) if contract_existed else None
+    new_version = current_version if hold_version else apply_bump(current_version, which)
+
+    # Attempted before the contract file is written, not after: writing the
+    # bumped file and then failing to move the constant leaves the shipped
+    # contract and `STATUS_PAYLOAD_VERSION` disagreeing on disk — exactly what
+    # the version-agreement test exists to catch, but only once that state is
+    # committed. Ordering the attempt first means a failed move never writes
+    # the contract file at all, and the command can exit nonzero honestly.
+    if not hold_version and new_version != current_version:
+        if not _rewrite_status_payload_version(new_version):
+            console.print(
+                f"[red]✗[/red] STATUS_PAYLOAD_VERSION in wfctl/_pipeline.py could "
+                f"not be moved to {new_version} automatically — edit it by hand, "
+                "then rerun. Contract file not written."
+            )
+            raise typer.Exit(1)
+
+    from wfctl._io import write_atomic
+
+    write_atomic(
+        contract_path,
+        json.dumps(
+            {"version": new_version, "paths": dict(sorted(observed.items()))}, indent=2,
+        ) + "\n",
+    )
+
+    if not contract_existed:
+        console.print(
+            f"[green]✓[/green] contract file created at {new_version} — "
+            "no prior baseline to compare against"
+        )
+        return
+
+    message = diff_message(recorded, observed)
+    if message is None:
+        console.print("[green]✓[/green] no change — the shape file already matches")
+        return
+    console.print(message)
+    if hold_version:
+        console.print(
+            f"[yellow]paths updated, version held at {current_version}[/yellow] — "
+            "say why in the commit body; the comparison cannot make that judgment"
+        )
+    else:
+        console.print(f"[green]✓[/green] {current_version} -> {new_version} ({which})")
+
+
+def _rewrite_status_payload_version(new_version: str) -> bool:
+    """Move `STATUS_PAYLOAD_VERSION`'s literal in `wfctl/_pipeline.py` to
+    `new_version`. Returns whether it found the one line to rewrite.
+
+    A targeted substitution on the declaration line rather than an edit
+    through `_contract`, which only computes the bump — writing source code
+    is `cli`'s business the same way writing the JSON file two lines up is,
+    and `_pipeline.py` is a sibling module this one already imports from.
+    """
+    path = Path(__file__).resolve().parent / "_pipeline.py"
+    text = path.read_text()
+    pattern = re.compile(r'^STATUS_PAYLOAD_VERSION = "[^"]*"$', re.MULTILINE)
+    if len(pattern.findall(text)) != 1:
+        return False
+    from wfctl._io import write_atomic
+
+    # `write_atomic`, not a plain `write_text`, for the same reason the JSON
+    # file two lines up gets it: this module is live and importable, and a
+    # concurrent `wfctl status` or pytest worker reading it mid-write would
+    # otherwise see a truncated file rather than the whole one or the other.
+    write_atomic(path, pattern.sub(f'STATUS_PAYLOAD_VERSION = "{new_version}"', text, count=1))
+    return True
+
+
+def _is_installed(repo_root: Path) -> Callable[[str], bool]:
+    """Whether a declared pass's command ships from a command layer this
+    repository has installed — `.agents/commands`, `.claude/commands`,
+    `.bob/commands` — checked by filesystem existence, the same test `doctor`
+    would apply if this were its question (research.md R5). Every layer's
+    directory is checked, not only whichever agent this session happens to run
+    under: the repository may have several installed, and a command that
+    shipped from one of them is installed regardless of which agent is asking.
+    """
+    dirs = [dst for src, dst in _BASE_TARGETS if src == "agents/commands"]
+    dirs += [
+        dst for targets in _AGENT_TARGETS.values() for src, dst in targets
+        if src == "agents/commands"
+    ]
+
+    def installed(command: str) -> bool:
+        name = command.lstrip("/") + ".md"
+        return any((repo_root / d / name).exists() for d in dirs)
+
+    return installed
+
+
+@check_app.command("config")
+def check_config_cmd() -> None:
+    """Validate this repository's own declared pipeline passes.
+
+    Every rule `wfctl.json`'s `steps` key must satisfy, in one run (FR-022) —
+    the repository's own configuration, never wfctl's installed state, which
+    is `doctor`'s remit and not this one's (research.md R5). Nothing here is
+    dropped silently: a declaration this command discards without saying so is
+    indistinguishable to its author from one wfctl never read.
+    """
+    from rich.markup import escape
+
+    from wfctl import _declared
+
+    repo_root = get_repo_root()
+    config_path = repo_root / _declared.CONFIG_PATH
+
+    if not config_path.exists():
+        console.print("[green]✓[/green] no configuration to check")
+        return
+
+    _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
+    if problems:
+        console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
+        for problem in problems:
+            console.print(f"  - {escape(problem)}")
+        raise typer.Exit(1)
+
+    # Counted from the raw declaration rather than from `_declared.load`'s
+    # return, which also carries wfctl's own built-in passes — this message is
+    # about what the repository itself wrote, not about what inference reads.
+    try:
+        declared = json.loads(config_path.read_text()).get("steps") or {}
+    except (json.JSONDecodeError, OSError):
+        declared = {}
+    n_passes = sum(len(v) for v in declared.values() if isinstance(v, list))
+    if not n_passes:
+        console.print(f"[green]✓[/green] {_declared.CONFIG_PATH}: no passes declared")
+        return
+    n_steps = sum(1 for v in declared.values() if isinstance(v, list) and v)
+    console.print(
+        f"[green]✓[/green] {_declared.CONFIG_PATH}: {n_passes} "
+        f"pass{'es' if n_passes != 1 else ''} under "
+        f"{n_steps} step{'s' if n_steps != 1 else ''}"
+    )
+
+
 def _verification_finding() -> list[str]:
     """Why `wfctl verify` has not passed against this tree, as a finding. Or none.
 
@@ -4719,7 +5433,7 @@ def _verification_finding() -> list[str]:
     passed. The middle one is `wfctl-runs-the-verification`'s own degrade clause
     and is what keeps a copy edit openable in a repo that checks nothing.
     """
-    from wfctl._predicates import verification_block
+    from wfctl._evidence import verification_block
 
     try:
         repo_root = get_repo_root()
@@ -5633,11 +6347,14 @@ def _check_arch_records(repo_root: Path) -> bool:
 
     The one check here that reads a directory wfctl never wrote — `arch_root`
     defaults to `docs/architecture`, which a repo may have been keeping ADRs in
-    long before it installed anything. That set can only reach `warning`: an
-    `error` needs a `supersedes:` frontmatter key, which is this tool's own
-    convention and not MADR's or adr-tools', while `status: superseded` alone is
-    the VR-002 warning. A repo that never adopted the feature can be nagged; it
-    cannot be failed.
+    long before it installed anything. Supersession alone can only reach
+    `warning` there: an `error` from VR-003/VR-004 needs a `supersedes:`
+    frontmatter key, which is this tool's own convention and not MADR's or
+    adr-tools', while `status: superseded` alone is the VR-002 warning. VR-006
+    (#109) is the exception: a foreign record that happens to carry a
+    `diagram:` key outside `DIAGRAM_KINDS` gets an `error` with no dependency on
+    `supersedes:` at all, because a misspelled kind is wfctl's own convention
+    being read back, not a convention the record has to have opted into.
 
     Validates the top-level tier only, because `load_records` globs one level.
     That is the tier boundary `design-levels` draws and `arch none` already
@@ -5718,7 +6435,7 @@ def _check_record_placement(repo_root: Path) -> bool:
 
     from wfctl import _arch
     from wfctl._paths import DESIGN_DIR, IMPLEMENTATION_DIR
-    from wfctl._predicates import missing_sections, quoted_out
+    from wfctl._evidence import missing_sections, quoted_out
 
     def carries(text: str, section: str) -> bool:
         return missing_sections(text, (section,)) == ()
@@ -5922,6 +6639,32 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
             console.print(
                 "    every install refuses until this is settled, including the "
                 "one `/start-session`\n    runs unattended"
+            )
+            console.print(
+                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
+            )
+
+
+def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
+    """Say when a managed `tools.allowed` entry this repo recorded is no longer
+    there. Shaped after `_check_managed_permissions`: a warning, not a failure
+    — a missing entry narrows Bob Shell's auto-approval, which still leaves a
+    working install, and a repo may have decided it wants the extra prompt."""
+    from rich.markup import escape
+
+    for layer in _layer_keys(manifest):
+        for record in manifest[layer].get("tools", []):
+            rel, entry = record.get("path"), record.get("entry")
+            if not record.get("added", False) or not rel or not entry:
+                continue
+            settings, _ = _read_settings(repo_root / rel)
+            if settings is None or _bob_settings.tool_allow_present(settings, entry):
+                continue
+            console.print(
+                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(entry)}[/cyan] is gone "
+                f"from {escape(rel)}\n  Bob Shell will prompt for approval on "
+                "matching tool calls without it",
+                soft_wrap=True,
             )
             console.print(
                 f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
@@ -6276,6 +7019,7 @@ def doctor_cmd() -> None:
     # avoids: it would make a repo's deliberate removal of one permission rule
     # fail every `doctor` run, and `/start-session` and CI both read the code.
     _check_managed_permissions(repo_root, manifest)
+    _check_managed_bob_tool_allows(repo_root, manifest)
 
     # Both used only by the recorded-source branch below, which prints a path
     # into a shell-shaped line.

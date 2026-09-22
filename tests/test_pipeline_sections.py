@@ -34,7 +34,7 @@ from wfctl._pipeline import (
     next_step_content,
     next_step_file,
 )
-from wfctl._predicates import (
+from wfctl._evidence import (
     CLARIFY_UNSCANNED,
     TEMPLATE_PLACEHOLDER,
     _REQUIRED_PLAN_SECTIONS,
@@ -407,7 +407,7 @@ def test_the_table_pins_every_steps_unattended_flag() -> None:
     reader catches by seeing all eight rows at once and an assertion split across
     files does not catch at all.
     """
-    assert {name: step.continuation for name, step in _STEPS.items()} == {
+    assert {name: step.on_finish for name, step in _STEPS.items()} == {
         "brainstorm": "automatic",
         "specify": "automatic",
         "clarify": "automatic",
@@ -430,7 +430,7 @@ def test_no_step_still_waits_for_a_human_once_it_has_finished() -> None:
     on passing. `waiting == []` cannot be edited into passing without someone
     writing down that a step waits, which is the claim #325 is about.
     """
-    waiting = [name for name, step in _STEPS.items() if step.continuation != "automatic"]
+    waiting = [name for name, step in _STEPS.items() if step.on_finish != "automatic"]
     assert waiting == [], f"steps still stopping a finished pipeline: {waiting}"
 
 

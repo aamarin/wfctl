@@ -6,7 +6,7 @@ status: proposed
 
 ## Context
 
-`quoted_out` is the projection every structural read in `_predicates` matches
+`quoted_out` is the projection every structural read in `_evidence` matches
 against: markdown with the parts that only *illustrate* syntax blanked out, so a
 document quoting a heading does not read as carrying one. Until #419 it blanked
 two shapes, fenced blocks and inline spans.
@@ -33,7 +33,7 @@ and that record's argument is what rules out fixing this locally.
 
 ## Verified
 
-- `_predicates.py:286` — `TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"`. The
+- `_evidence.py:310` — `TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"`. The
   comment block above it stated the dependency outright before this change —
   the constant lives in an HTML comment, `quoted_out` left those alone, "and
   that is deliberate" — which is what made widening the projection a decision
@@ -42,10 +42,10 @@ and that record's argument is what rules out fixing this locally.
   and closing markers are each on their own line. `spec-template.md:70-73` is
   the same shape. The multi-line form is the one that matters: a heading matches
   at the start of a line, so a marker and a heading on one line never counted.
-- `_predicates.py:1027` and `:1096` — `specify` and `plan` each read the
+- `_evidence.py:1106` and `:1175` — `specify` and `plan` each read the
   placeholder before anything structural, and both matched
   `TEMPLATE_PLACEHOLDER in ev.spec_text` / `ev.plan_text` before this decision.
-- `_predicates.py:949` — `build_evidence` is the one place `quoted_out` is
+- `_evidence.py:990` — `build_evidence` is the one place `quoted_out` is
   applied to `spec.md` and `plan.md`, so a second projection has one call site
   per artifact and not one per predicate.
 - `_md.py:15` — "This yields per-line state and projects nothing. Each caller
@@ -167,7 +167,7 @@ by name at the point it asks.
 ## Consequences
 
 `Evidence` grows two fields, and every hand-built fixture changes with it. The
-positional construction in `tests/test_predicates.py` is deliberate for exactly
+positional construction in `tests/test_evidence.py` is deliberate for exactly
 this — it breaks rather than defaulting, which is how a field added to the
 dataclass is forced through the builder.
 

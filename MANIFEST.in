@@ -18,3 +18,9 @@
 # carries these into the wheel and not only the sdist.
 graft wfctl/agents
 graft wfctl/specify
+
+# `wfctl/contracts/status-payload.json` is wfctl's own, not vendored — grafted
+# anyway rather than a `[tool.setuptools.package-data]` entry, so a data file
+# ships by one mechanism in this repo rather than two (research.md § 4,
+# 423-the-promised-shape-is-a-shipped-data-file.md).
+graft wfctl/contracts

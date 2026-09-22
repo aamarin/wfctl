@@ -59,6 +59,12 @@ alone: run `uv run wfctl install-skills` and exercise the thing you changed. The
 suite checks that skills ship and cross-reference correctly, not that they read
 well.
 
+A change to this repo's own `wfctl.json` — its `steps` key included — is
+verified by `uv run wfctl check config`, not by `doctor`. `doctor`'s remit is
+drift between what wfctl installed and what it now ships; a repository's own
+configuration is neither, so a bad declaration there is invisible to it and
+would otherwise ship silent.
+
 `uv run` again, for the sharper half of the same reason. A bare `wfctl` installs
 *its own* copy of the skill you just edited — the command succeeds, the tree
 looks installed, and your change is nowhere in it. Only `.agents/` is overwritten,
@@ -201,6 +207,45 @@ deliberately — it cannot tell a stale copy from one the project edited, and th
 copy loop takes no backup for a path already on record. So a verb added upstream
 sits unreachable until `wfctl install-skills --tracker github` is run, and
 `tracker-check` printing a short verb list is the tell.
+
+## Declaring a stage of your own
+
+`wfctl.json` holds a `steps` key beside `verify` and `change_check` — a
+repository's own passes, keyed by the built-in step they belong to:
+
+```json
+{
+  "steps": {
+    "brainstorm": [
+      { "name": "ui-design",
+        "command": "/pfms-ui-design-workflow",
+        "evidence": "ui-design-contract.md" }
+    ]
+  }
+}
+```
+
+It lives here for the same reason `change_check` does: `.agents/` is
+gitignored and rewritten by `install-skills`, so a policy written there works
+for one session and vanishes with no error. `evidence` is sugar — it builds a
+reader that reports the pass done once that path exists under the feature
+directory — and it is the whole of what this file can express; a pass whose
+output is not a file at a fixed path needs a different mechanism, not a grep
+taught to `wfctl.json`.
+
+Every rule a declaration must satisfy is a `wfctl check config` finding
+instead of a silent drop — an unknown step name, a pass with both `command`
+and `manual`, an uninstalled command, an unsatisfiable `before`/`after` order.
+Run it after editing `wfctl.json`, the same way `tracker-check` earns its own
+run after a tracker config. `doctor` says nothing about a declared pass: its
+remit is state wfctl installed that has since drifted, and a repository's own
+configuration is neither.
+
+A pass declared inapplicable to one change is `wfctl step none <step>.<name>
+--reason "…"`, which writes a claim into the change under review — a second
+verb beside `wfctl arch none`, not a generalisation of it, because a branch
+makes as many pass claims as it has passes and `arch none`'s whole-file
+overwrite would lose all but the last.
 
 ## Releasing
 

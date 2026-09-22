@@ -35,15 +35,15 @@ that `_check_arch_records` states: wfctl reads the arch root and never writes it
   in `STATUSES`, so every approved design record parses to `status=""`.
 - `_paths.py:306` — `non_record_subtrees(arch)` returns
   `[arch / "scans", arch / "implementation"]`. `design/` is not in it, and is
-  excluded separately by `_predicates.py:599`.
-- `_predicates.py:284` — `_missing_sections(text, required)` matches
+  excluded separately by `_evidence.py:736`.
+- `_evidence.py:319` — `missing_sections(text, required)` matches
   `^##[ \t]+<name>(?!\w)` under MULTILINE, and its docstring records why the
   lookahead is `(?!\w)` and not `\b`.
-- `_predicates.py:322` at the time this was written — `_quoted_out(text)` blanks
-  fenced blocks and inline spans, over `_md.walk`, so a document illustrating a
-  heading does not carry one. It is public `quoted_out` at `:413` now, and it
-  blanks HTML comments too, both by decisions later on this branch — the rename
-  by this record's own Decision, the third shape by
+- `_evidence.py:437` — `quoted_out(text)` blanks fenced blocks and inline spans,
+  over `_md.walk`, so a document illustrating a heading does not carry one. It
+  was `_quoted_out` in `_predicates.py` when this was written; the rename to
+  public is this record's own Decision, the move to `_evidence.py` is the
+  trunk's (`a197e92`), and HTML comments joined the list by
   `419-the-template-check-reads-its-own-projection`.
 - `_md.py:15` — "This yields per-line state and projects nothing." The fence
   walker holds no projection, by its own statement; `_quoted_out` is one of the
@@ -98,7 +98,7 @@ for once.
               baseline                           decision
 
 stable   ┌──────────────────┐              ┌──────────────────┐
-         │ _arch            │              │ _predicates      │
+         │ _arch            │              │ _evidence        │
          │  .load_records   │              │  .missing_       │
          │  .parse_record   │              │   sections       │
          │  STATUSES        │              │  .quoted_out     │
@@ -151,8 +151,8 @@ line is a heading.
   callers share. Rejected on the module's own statement: `_md` yields per-line
   state and projects nothing, and it names the blanked-text shape as a caller's.
   Contradicting that in passing costs more than a rename.
-- **Function-local imports between `_arch` and `_predicates`** — avoids the
-  rename and any import-time cycle, mirroring what `_predicates` already does
+- **Function-local imports between `_arch` and `_evidence`** — avoids the
+  rename and any import-time cycle, mirroring what `_evidence` already does
   toward `_arch`. Rejected because two peers importing each other lazily means
   neither reads alone; putting the check at the top of the stack, in `cli.py`,
   needs no edge between them at all.

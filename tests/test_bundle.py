@@ -141,23 +141,30 @@ def test_content_hash_distinguishes_a_path_boundary_from_its_content(
 
 
 def test_trees_match_the_grafted_directories_in_manifest_in() -> None:
-    """Guards the pairing between `TREES` and `MANIFEST.in`.
+    """Guards the pairing between `TREES` and `MANIFEST.in`, for vendored trees.
 
     A third vendored tree has to be added in both places: the graft ships the
     files, `TREES` decides what gets hashed. The dangerous direction is grafting
-    a tree and forgetting `TREES` — the files ship, nothing ever hashes them, and
-    drift in them stays invisible to `doctor` forever.
+    a vendored tree and forgetting `TREES` — the files ship, nothing ever hashes
+    them, and drift in them stays invisible to `doctor` forever.
 
     Asserting a literal here would not catch that: `TREES` would still equal its
     old value and the test would pass. Reading `MANIFEST.in` is what makes the
     assertion bidirectional rather than a change-detector for one of the two.
+
+    `contracts` is grafted but excluded here on purpose: it is wfctl's own file,
+    not vendored content copied into a consuming repo, so `TREES` hashing it
+    would make `doctor` drift-check it as if it were — the shape file already has
+    its own version-agreement check, in `test_status_contract.py`. `MANIFEST.in`
+    says the same thing at the graft line.
     """
     manifest = (Path(__file__).parent.parent / "MANIFEST.in").read_text()
+    non_vendored_grafts = {"contracts"}
     grafted = {
         line.split()[1].removeprefix("wfctl/")
         for line in manifest.splitlines()
         if line.startswith("graft ")
-    }
+    } - non_vendored_grafts
 
     assert grafted == set(TREES)
 

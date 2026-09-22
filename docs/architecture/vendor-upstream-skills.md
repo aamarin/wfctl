@@ -81,6 +81,17 @@ last line and no entry to add to `NOTICES.md`. Its constraints restate Python
 design guidance that is public and unowned. Absence here is the positive claim
 that it is wfctl's own, not a declaration nobody made.
 
+`clean-code` is absent for that same reason and it is stated rather than left
+to the default, because the same trap is one sentence away: it was built from an
+agent-generated draft, its commit message says so, and a reader who takes "draft"
+for "upstream" goes looking for a row. There is no upstream project, no
+repository, no licence and no copyright holder, so there is nothing to name on a
+last line and no entry to add to `NOTICES.md`. Its references synthesize public,
+unowned engineering guidance and reproduce no sample program from any source;
+`references/source-map.md` names the book the synthesis is of, which is a
+citation rather than a derivation. Absence here is the positive claim that it is
+wfctl's own.
+
 `speckit-brainstorm`, `speckit-delivery-plan` and `speckit-orchestrate` are
 absent because they are wfctl's own: all three score 0% against every spec-kit
 command template. `speckit-brainstorm` joined them at #361, which split it out
@@ -277,3 +288,8 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   why: its source was agent-generated and has no upstream project, so a review
   panel reading its commit message went looking for a row that is owed to nobody
   (#370)
+- 2026-09-17  amended     — `clean-code` named as wfctl's own on the same
+  grounds, in the change that added it rather than after it, and with the one
+  fact `python-pattern-selection`'s paragraph did not have to carry: its
+  `references/source-map.md` names a book, and a citation is not a derivation
+  (#412)
