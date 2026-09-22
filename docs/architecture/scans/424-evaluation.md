@@ -1,12 +1,11 @@
 # Evaluation scan — #424
 
-A third genre on this shelf, deliberately. `scans/` holds `<issue>-clarify.md`
-and `<issue>-analyze.md`, both written by a pipeline step; this branch ran no
-pipeline step, and the thing needing to reach a reviewer is an experiment's
-result. `writing-a-scan-file` governs what a section carries and is followed
-here; what it cannot supply is the coverage rows, which it delegates to "the
-wrapper that sent you here" and no wrapper sent this one. The rows below are
-this evaluation's own, named before it started.
+An `evaluation` — the kind of scan file with no pipeline step behind it. This
+branch ran none; the thing needing to reach a reviewer is an experiment's result.
+`writing-a-scan-file` governs what a section carries and is followed here. The
+one thing it delegates to "the wrapper that sent you here" is the coverage rows,
+and no wrapper sent this one, so the rows below are this evaluation's own, named
+before it started.
 
 ## Session 2026-09-22
 
