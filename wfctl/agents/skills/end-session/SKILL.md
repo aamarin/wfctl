@@ -216,9 +216,9 @@ same close as the hook; nothing here can tell the two apart, and it does not try
 
    **If your host refuses one of these commands**, file the block step 5
    describes, under the verb's own name — `issue-close`, `issue-comment`,
-   `issue-label`, `issue-create`. A person who then takes the action outside
-   wfctl lifts the hold with `wfctl report-action issue-close`; a later
-   successful `wfctl issue close` lifts it by itself.
+   `issue-create`. A person who then takes the action outside wfctl lifts the
+   hold with `wfctl report-action issue-close`; a later successful
+   `wfctl issue close` lifts it by itself.
 
 8. **Report:** session closed, summary written, whether the work was committed and
    the tracker updated (per the user's choices in 6–7), next steps, any blockers.
