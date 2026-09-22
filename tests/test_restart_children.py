@@ -149,9 +149,9 @@ def test_an_unreadable_transcript_reports_no_children(tmp_path: Path) -> None:
 def test_a_child_that_reported_mid_turn_is_not_outstanding(tmp_path: Path) -> None:
     """The shape the first reader missed, and the one that made this hold
     permanent: every notification arriving while the parent was working read as
-    no report at all, so the pane held past its threshold with no way out. Two
-    independent reviewers measured 200 of 489 launches in this repo's own
-    transcripts reading as outstanding, 141 of which had reported."""
+    no report at all, so the pane held past its threshold with no way out. Of 496
+    launches across this repo's 325 session transcripts, 207 read as outstanding
+    under the first reader and 148 of those had in fact reported."""
     t = transcript(tmp_path, launch("a1"), absorbed("a1"))
     assert outstanding_children(t) == []
 
@@ -172,20 +172,53 @@ def test_a_queued_notification_alone_does_not_release_the_hold(tmp_path: Path) -
     assert outstanding_children(t) == ["Review panel r1"]
 
 
-def test_a_prompt_snapshot_quoting_a_notification_does_not_release_the_hold(
+def test_a_typed_prompt_quoting_a_notification_does_not_release_the_hold(
     tmp_path: Path,
 ) -> None:
-    """The near miss beside the shape above. A `prompt_snapshot` attachment
-    carries whatever the turn's prompt held, which for this branch includes
-    sessions discussing notifications — two such records sit in the transcript
-    this fix was measured on. It is an attachment with a `prompt`, and only the
-    requirement that the tag be the *whole* of it keeps the two apart."""
-    snapshot = json.dumps({
+    """The near miss beside the shape above, in the shape that actually occurs.
+
+    `queued_command` is the only attachment type in 1512 transcripts that carries
+    a `prompt` string, and a person can type one that quotes a report — asking
+    about the notification they just saw. The quote lands mid-sentence, which is
+    what separates it from a delivery: a delivery opens a line.
+
+    This test replaces one built on a `prompt_snapshot` carrying a `prompt`. No
+    such record exists — 0 of 1898 snapshots have that key, so the test passed
+    over a shape the harness never writes and the branch it named was never the
+    one keeping the two apart.
+    """
+    typed = json.dumps({
         "type": "attachment",
-        "attachment": {"type": "prompt_snapshot", "prompt": (
-            "Here is what a report looks like: <task-notification>\n"
+        "attachment": {"type": "queued_command", "prompt": (
+            "what does it mean when I get a <task-notification>\n"
             "<task-id>a1</task-id>\n</task-notification>"
         )},
     })
-    t = transcript(tmp_path, launch("a1"), snapshot)
+    t = transcript(tmp_path, launch("a1"), typed)
     assert outstanding_children(t) == ["Review panel r1"]
+
+
+def test_a_delivery_behind_the_harness_caution_paragraph_releases_the_hold(
+    tmp_path: Path,
+) -> None:
+    """The second way a real report was thrown away, and the reason the reader is
+    anchored to a line rather than to the start of the string.
+
+    The harness prefixes some deliveries with a caution telling the model not to
+    read the notification as something the user said. The tag then begins 494
+    characters in, and a reader requiring it to open the whole string discarded
+    the record together with the `<task-id>` that was the only reason to read it.
+    35 such deliveries sit in the corpus, against 4 prose mentions — and the two
+    separate cleanly on whether the tag opens its line.
+    """
+    prefixed = json.dumps({
+        "type": "user",
+        "message": {"content": (
+            "[SYSTEM NOTIFICATION - NOT USER INPUT]\n"
+            "This is an automated background-task event, NOT a message from the "
+            "user.\n\n"
+            "<task-notification>\n<task-id>a1</task-id>\n</task-notification>"
+        )},
+    })
+    t = transcript(tmp_path, launch("a1"), prefixed)
+    assert outstanding_children(t) == []

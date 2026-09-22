@@ -65,8 +65,10 @@ proceed with the restart, recording that the bound was reached.
 
 The hold has no automatic exit. It is released when the transcript stops showing
 an outstanding child, and by nothing else. The pane message names the other way
-out in the same sentence: `run /end-session restart yourself if they never
-report`.
+out in the same sentence: `run /end-session restart then /clear yourself if they
+never report`. Both commands, because the hook sends neither once a hold is on
+record — a hand-typed stop records no *planned* end, so the branch that would
+send the clear is never reached.
 
 That is the decision #425 asks for. It is not "wait forever" — a held reply end
 returns, and the next one re-derives from scratch — and it is not a timeout,
@@ -91,7 +93,7 @@ stable    │ decide()               │          │ decide()               │
           ┌────────────────────────┐          ┌────────────────────────┐
 volatile  │ the pane: a restart it │          │ the pane: "run         │
           │ did not ask for        │          │ /end-session restart   │
-          │                        │          │ yourself"              │
+          │                        │          │ then /clear yourself"  │
           └────────────────────────┘          └────────────────────────┘
 ```
 
@@ -136,9 +138,12 @@ handed back rather than taken anyway.
 Nothing in wfctl counts holds, so nothing can drift out of step with the
 transcript. The absence is the feature.
 
-The failure mode is a person who never reads the pane. The message is printed
-once per session, on the reply end that first holds, so a pane scrolled past
-carries no second copy — the same trade every other report here makes.
+The failure mode is a person who never reads the pane. The message is printed on
+the reply end that first holds and again whenever the outstanding set grows, so a
+second fan-out sent later carries its own copy of the escape hatch; a pane
+scrolled past between two fan-outs does not. Repeating it on every *shrink*
+instead would bury the first copy under a line per child reporting, which is the
+one that matters.
 
 ## Verification
 

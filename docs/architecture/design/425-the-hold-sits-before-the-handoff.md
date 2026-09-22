@@ -91,9 +91,16 @@ reads is the one that can carry them.
 
 ## Considered
 
-- **Both points** — the baseline. It enforces #425's sentence as written and
-  wins nothing: the handoff it protects was written blind. It is also one more
-  transcript pass on the clear path, spent to reach a worse artifact.
+- **Both points** — the baseline. It enforces #425's sentence as written, and it
+  is the one alternative that closes the exposure this decision accepts: a child
+  spawned *after* the handoff request has gone out is lost in the clear, and a
+  second check on the clear path would catch it. What it costs is one more
+  transcript pass per restart, 20–28 ms on the largest transcripts here. It was
+  not taken because the child it would save is one this session chose to launch
+  after asking to be restarted, and holding the clear for it reopens a restart
+  already under way — the thing
+  `test_a_restart_already_under_way_is_not_held_by_a_later_child` pins. If that
+  exposure is ever met in practice, this is the bullet to reverse.
 - **The clear only** — the most literal reading, and the weakest. It permits the
   exact sequence #425 is about, with the fan-out's results arriving after the
   summary and the clear merely delayed.

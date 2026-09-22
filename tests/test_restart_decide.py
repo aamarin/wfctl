@@ -255,10 +255,30 @@ def test_a_second_fan_out_is_held_out_loud_rather_than_silently() -> None:
 
 def test_a_second_fan_out_of_identically_named_children_still_speaks() -> None:
     """Descriptions are all the event records, so two panels named alike are
-    indistinguishable by name. The count separates them: more children than the
-    last hold carried is growth whatever they are called."""
+    indistinguishable by name. The multiset separates them: one more child called
+    `reviewer` than the last hold carried is growth whatever they are called."""
     events = [planned(HOLD_CHILDREN, children=("reviewer",))]
     assert run(events, children=("reviewer", "reviewer")).kind == HOLD_CHILDREN
+
+
+def test_a_new_child_reusing_a_reported_name_speaks_though_the_total_fell() -> None:
+    """The case a set difference paired with a rising count could not see, and the
+    one the review panel walks into every run: it names its reviewers `r1`, `r2`,
+    `r3` each time. Two of three report, a fresh panel starts, and its first child
+    is called `r1` again — the set is unchanged and the total has *fallen* from
+    three to two, so the old test read a shrinking panel and stayed silent over a
+    fan-out nobody had been told about. Counting the names answers both halves."""
+    events = [planned(HOLD_CHILDREN, children=("r1", "r2", "r3"))]
+    assert run(events, children=("r1", "r1")).kind == HOLD_CHILDREN
+
+
+def test_a_malformed_children_row_is_read_as_no_children_held() -> None:
+    """Every other reader of this log treats a shape it did not write as absent,
+    and the safe direction here is to speak: a row `Counter` cannot tally as names
+    would otherwise tally its characters and answer a different question."""
+    events = [{"event": "session-restart", "session": S,
+               "decision": HOLD_CHILDREN, "children": "r1"}]
+    assert run(events, children=("r1",)).kind == HOLD_CHILDREN
 
 
 def test_a_hand_typed_stop_does_not_clear_a_held_pane() -> None:

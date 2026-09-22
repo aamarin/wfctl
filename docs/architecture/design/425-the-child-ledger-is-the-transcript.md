@@ -28,32 +28,40 @@ wfctl maintained would be exactly such a cursor.
 - `wfctl/_restart.py:98` — `occupancy` already opens the transcript named in the
   Stop payload on every reply end, so a second reader of the same file adds a
   pass and no new dependency.
-- Across this repository's own Claude Code transcripts, 471 `toolUseResult`
-  records carry `"status": "async_launched"` and 6 carry `"status": "forked"`;
-  every one of the 477 also carries a string `agentId`, and no other record shape
-  carries that key.
+- Every count below is measured over one population: this repository's 325
+  session transcripts, excluding subagents' own `agent-*` logs. That is the only
+  population the reader ever sees — the restart is a `Stop` hook, never
+  `SubagentStop`, so the transcript it is handed is always a session's.
+- 490 `toolUseResult` records carry `"status": "async_launched"` and 6 carry
+  `"status": "forked"`; every one of the 496 also carries a string `agentId`, and
+  no other record shape carries that key.
 - A child's report reaches the transcript in two shapes, and which one depends on
   what the parent was doing. At its prompt, the parent gets a `"type": "user"`
-  record whose `message.content` is a string beginning `<task-notification>` —
-  483 of those. Mid-turn, the notification is absorbed into the running turn and
+  record whose `message.content` is a string carrying `<task-notification>` at the
+  head of a line — 486 of those. Mid-turn, the notification is absorbed into the running turn and
   the only record is a top-level `attachment` whose `prompt` carries the same
-  tags. Reading the first alone left 200 of 489 launches looking outstanding when
-  141 of them had reported; reading both leaves 57.
+  tags. Reading the first alone left 207 of 496 launches looking outstanding when
+  148 of them had reported; reading both leaves 59.
 - A merely queued copy is not a report. The same notification also passes through
   `queue-operation` records, and an item can leave that queue unsent
   (`resume_failed`), so the queue is not read. The attachment is written as the
   item leaves the queue *into* the turn — `enqueue`, then `remove` with reason
   `absorbed_mid_turn`, then the attachment carrying the rendered text.
-- Ten records mention the same tags inside a *list* of content blocks, and two
-  more inside a `prompt_snapshot` attachment — an agent writing about
-  notifications rather than receiving one. Requiring the tag to be the whole of
-  the string, rather than anywhere in it, is what separates them.
-- Across 320 of this repository's transcripts, 57 launches are still outstanding
-  when their transcript ends. 51 of them reported into a *later* transcript in
-  the same project — the pane was cleared between the launch and the report,
-  which is the failure #425 describes, and the session that received those 51
-  reports had no record that any of them were expected. The remaining 6 have no
-  report anywhere on disk.
+- Records mention the same tags while writing about notifications rather than
+  receiving one, and two separate mechanisms keep them out. A *list* of content
+  blocks is excluded by reading string content only. Prose inside a string is
+  excluded by requiring the tag to open a line: across 1512 transcripts every
+  such mention sits mid-sentence, usually inside backticks, and every one of the
+  35 deliveries the harness prefixes with a caution paragraph opens its line.
+  Anchoring on the start of the *string* instead — the first shape of this rule —
+  discarded those 35 along with the `<task-id>` that releases the hold. A
+  `prompt_snapshot` attachment is not the case to reason from: 0 of its 1898
+  records carry a `prompt` key at all.
+- 59 launches are still outstanding when their transcript ends. 54 of them
+  reported into a *later* transcript in the same project — the pane was cleared
+  between the launch and the report, which is the failure #425 describes, and the
+  session that received those 54 reports had no record that any of them were
+  expected. The remaining 5 have no report anywhere on disk.
 - The launch's own tool-result text: "never quote or paste any part of it,
   including the agentId below, into a user-facing reply."
 - `docs/architecture/session-state-is-re-derived.md` — "no session file is
@@ -83,10 +91,13 @@ opens the transcript once, as it does today.
 ## Decision
 
 `outstanding_children(transcript)` reads the harness's transcript. A launch is a
-`toolUseResult` carrying a string `agentId`; the report is a later `"type":
-"user"` record whose string content begins `<task-notification>` and names that
-id. What is outstanding is the difference, re-derived on every reply end, and
-wfctl records no child of its own.
+`toolUseResult` carrying a string `agentId`. The report is a later record naming
+that id, in either shape the harness writes one: a `"type": "user"` record whose
+content is the notification, or — when the child finished while the parent was
+mid-turn — a top-level `attachment` whose `prompt` carries it. In both, the tag
+has to open a line, which is what separates a delivery from prose about one. What
+is outstanding is the difference, re-derived on every reply end, and wfctl records
+no child of its own.
 
 The decision event carries the resulting descriptions so the log says which
 children held the restart. That is a note about a decision already made, not the

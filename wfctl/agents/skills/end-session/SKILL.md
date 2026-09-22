@@ -22,6 +22,13 @@ context window is full, and types `/clear` and `/start-session` once this turn
 has recorded its stop. Nobody is at the prompt, and the context is about to be
 discarded — so this turn is the handoff, and the only one. Three steps change:
 
+**Unless you typed the command yourself, in which case nothing follows it.** A
+pane held for outstanding subagents says to run `/end-session restart` and then
+`/clear`, and it says both because the hook sends neither: it records the hold,
+not a planned end, so the branch that would send the clear is never reached. Write
+the handoff exactly as below — it is still the last thing this context holds — and
+then run `/clear` yourself.
+
 - **Step 3 runs `wfctl end --continued`**, not bare `wfctl end`. A restarted
   session is one the next session carries on without being asked, and
   `/start-session` reads that from the stop this records. A bare `end` says the

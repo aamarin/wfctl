@@ -47,6 +47,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,6 +143,13 @@ _AGENT_ID = "agentId"
 _NOTIFICATION = "<task-notification>"
 _TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 
+# A delivered notification opens a line of its own; prose naming the tag has it
+# mid-sentence. The harness prefixes some deliveries with a caution paragraph —
+# "[SYSTEM NOTIFICATION - NOT USER INPUT]", then a blank line — so the tag is not
+# always the start of the string, and a reader anchored there threw the report
+# away along with the `<task-id>` that was the whole point of reading it.
+_DELIVERED = re.compile(r"(?:\A|\n)[ \t]*" + re.escape(_NOTIFICATION))
+
 # A child with no description of its own. A fork records none, and the count is
 # what the hold turns on, so an unnamed child still has to occupy a row.
 UNNAMED_CHILD = "subagent"
@@ -172,20 +180,26 @@ def _notifications(record: dict) -> list[str]:
     the queue *into* the turn, and a notification-bearing attachment that was
     never rendered does not occur.
 
-    The notification has to be the *whole* of the string, not a substring: an
-    agent that writes about task notifications puts the same tags in its own
-    reply, and a looser read would let a session talk itself out of the hold.
+    The notification has to *open a line*, not merely appear somewhere: an agent
+    that writes about task notifications puts the same tags in its own prose, and
+    a looser read would let a session talk itself out of the hold. Requiring it to
+    open the whole string — which this did first — is the same rule one notch too
+    tight: the harness prefixes some deliveries with a caution paragraph and a
+    blank line, and those were discarded along with the `<task-id>` that was the
+    only reason to read them. Measured across 1512 transcripts, the two
+    populations separate cleanly on the line: 35 prefixed deliveries, every tag
+    opening a line, against 4 prose mentions, every tag mid-sentence.
     """
     texts = []
     if record.get("type") == "user":
         message = record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
-        if isinstance(content, str) and content.lstrip().startswith(_NOTIFICATION):
+        if isinstance(content, str) and _DELIVERED.search(content):
             texts.append(content)
     attachment = record.get("attachment")
     if isinstance(attachment, dict):
         prompt = attachment.get("prompt")
-        if isinstance(prompt, str) and prompt.lstrip().startswith(_NOTIFICATION):
+        if isinstance(prompt, str) and _DELIVERED.search(prompt):
             texts.append(prompt)
     return texts
 
@@ -375,19 +389,30 @@ def decide(
     children = tuple(find_children())
     if children:
         held = decided(HOLD_CHILDREN)
-        # Said once per fan-out, not once per session. A panel reporting one at a
+        # Said once per growth, not once per session. A panel reporting one at a
         # time shrinks this set on every reply end, and a message for each shrink
         # would bury the one that mattered — but a *new* panel sent later is a
         # new hold, and the first version stayed silent for it, leaving the only
-        # copy of the escape hatch unprinted. Growth is the signal: a description
-        # the last hold did not carry, or more children than it held. Identity is
-        # the description because that is all the event records — two fan-outs
-        # with identical descriptions read as one, which is the cost of keeping
+        # copy of the escape hatch unprinted.
+        #
+        # The signal is a description the hold does not already account for, and
+        # it is counted rather than set-tested: descriptions repeat. A panel names
+        # its reviewers `r1`, `r2`, `r3` every run, so a set difference is empty
+        # exactly when a new fan-out reuses an earlier name — and pairing it with
+        # a rising total missed the case where one child reports as another
+        # launches under its name, which shrinks the total while the set stays put.
+        # The multiset answers both in one question.
+        #
+        # Identity is still the description, because that is all the event records
+        # — two fan-outs named alike read as one, which is the cost of keeping
         # `agentId` out of the log.
         if held:
-            before = tuple(held[1].get("children") or ())
-            grew = set(children) - set(before) or len(children) > len(before)
-            if not grew:
+            # A row this reader cannot make sense of counts as no children held,
+            # which speaks. `Counter` of a stray string would tally its characters
+            # and answer a different question quietly, and every reader of this
+            # log already treats a shape it did not write as absent.
+            before = held[1].get("children")
+            if not Counter(children) - Counter(before if isinstance(before, list) else ()):
                 return Decision(NOTHING)
         return Decision(HOLD_CHILDREN, children=children)
 
