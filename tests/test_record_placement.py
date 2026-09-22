@@ -45,6 +45,21 @@ def _write(root: Path, name: str, *sections: str) -> Path:
     return path
 
 
+def _adopted(root: Path) -> Path:
+    """One correctly-filed level-2 record, so the tier is wfctl's to judge.
+
+    Called by name rather than folded into `_arch_root`, because a fixture that
+    granted adoption invisibly would let the gate be deleted with every test
+    still passing. A tree carrying only the misfiled record is the *unadopted*
+    case and is silent by design — which is what these tests would then be
+    asserting the opposite of.
+
+    Tests writing into `design/` need no call: the directory is itself one of
+    the two signals, and `_write` creates it.
+    """
+    return _write(root, "already-adopted.md", LEVEL_2_SECTION)
+
+
 def test_a_level_2_record_under_design_is_an_error(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -67,6 +82,7 @@ def test_a_level_3_record_at_the_arch_root_is_an_error(
     a record; filing up publishes one, so `arch context` projects a design note
     as though it bound something."""
     root = _arch_root(agent_dir, monkeypatch)
+    _adopted(root)
     _write(root, "filed-up.md", LEVEL_3_SECTION, "Considered")
 
     result = runner.invoke(app, ["doctor"])
@@ -103,6 +119,7 @@ def test_a_record_carrying_neither_section_only_warns(
     the two cannot share a marker: `doctor`'s exit code turns `/start-session`
     and the definition of done red."""
     root = _arch_root(agent_dir, monkeypatch)
+    _adopted(root)
     _write(root, "just-a-note.md", "Context", "Considered")
 
     result = runner.invoke(app, ["doctor"])
@@ -151,6 +168,7 @@ def test_a_heading_illustrated_in_a_fenced_block_does_not_satisfy_the_check(
     heading must not read as carrying one. That is what `quoted_out` is in the
     path for, and a local regex would have dropped it."""
     root = _arch_root(agent_dir, monkeypatch)
+    _adopted(root)
     path = root / "illustrates.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -210,6 +228,71 @@ def test_an_absent_design_directory_is_not_a_finding(
 
     assert "sound.md" not in result.output
     assert result.exit_code == 0
+
+
+def test_an_arch_root_that_never_adopted_the_format_is_left_alone(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`docs/architecture` is where a project already keeps ADRs, and the
+    default puts this check over all of them.
+
+    An adr-tools record carries `Status`, `Context`, `Decision`,
+    `Consequences` — none of them wfctl's — and one drawing a diagram would
+    have been read as a level-3 record filed up, which is an error row. So a
+    repo that installed wfctl and never wrote a record got a red
+    `/start-session` over forty files it was right about. `_check_arch_records`
+    states the limit for this same directory: nagged, never failed.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    _write(root, "0001-record-architecture-decisions.md", "Status", "Context")
+    _write(root, "0002-use-postgres.md", "Status", LEVEL_3_SECTION)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "0001-record-architecture-decisions.md" not in result.output
+    assert "0002-use-postgres.md" not in result.output
+    assert result.exit_code == 0
+
+
+def test_one_sound_record_opens_the_gate_over_the_whole_root(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate is self-clearing, which is why it is read off the tree and not
+    from a configured exemption.
+
+    The same two ADRs as the test above, and the repo has now written one
+    record of its own. Nothing about the ADRs changed; what changed is that
+    this root is one wfctl's convention is in use in, so the legacy files are
+    reported too. That is the cost of the gate, paid once, and the alternative
+    is a repo permanently exempt from a check it has started needing.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    _write(root, "0002-use-postgres.md", "Status", LEVEL_3_SECTION)
+    _adopted(root)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "0002-use-postgres.md" in result.output
+    assert result.exit_code == 1
+
+
+def test_a_design_directory_alone_is_adoption(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second of the two signals, and the one #419 needs.
+
+    A repo whose only wfctl record is a level-2 one misfiled into `design/`
+    has nothing carrying `Owns truth` at the root — so keying adoption on that
+    alone would make the failure this issue was opened for the one case the
+    check cannot see.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    _write(root, f"{DESIGN_DIR}/misfiled.md", LEVEL_2_SECTION)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "misfiled.md" in result.output
+    assert result.exit_code == 1
 
 
 def test_the_section_constants_are_the_ones_the_templates_require() -> None:

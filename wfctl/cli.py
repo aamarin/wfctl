@@ -5687,6 +5687,32 @@ def _check_record_placement(repo_root: Path) -> bool:
     `implementation/` is a destination and never a source. A note there decided
     nothing and is where the `⚠` row sends a record that weighed nothing, so
     reading it back as a tier would report the repair as a fresh finding.
+
+    Silent entirely over an arch root that has not adopted the format, which is
+    the limit `_check_arch_records` states for the same directory — nagged, not
+    failed — held to by a check that has no `supersedes:` key to earn it the way
+    that one does. `docs/architecture` is the default because it is where a
+    project already keeps ADRs, so the population reached here is mostly other
+    people's records: a forty-record adr-tools tree carries neither section
+    forty times, and one of them carrying an ordinary `Diagram` heading turns
+    `/start-session` red in a repo that did nothing wrong.
+
+    Adoption is read off the tree rather than off each file. A per-file test —
+    frontmatter, a `status:` key — was the alternative, and MADR carries one
+    too, so it answers "is this a record" and never "is this *ours*". The tree
+    answers the second: a `design/` directory or one root record carrying
+    `Owns truth` is a thing only these two templates produce. It is also
+    self-clearing, which a configured exemption would not be — the first record
+    a repo writes opens the gate over every file, legacy ones included.
+
+    `Diagram` is not one of the two signals, and the asymmetry is the price.
+    A repo whose *only* record is a level-3 one misfiled up at the root, with no
+    `design/` directory yet, reads as unadopted and is not reported. Admitting
+    `Diagram` would close that and reopen the whole foreign-tree case with it,
+    because an ordinary ADR draws diagrams and never claims to own truth. The
+    gap needs all three of: no level-2 record anywhere, no `design/`, and a
+    first design record filed wrong — and the next correctly-placed record of
+    either tier closes it.
     """
     from rich.markup import escape
 
@@ -5697,18 +5723,30 @@ def _check_record_placement(repo_root: Path) -> bool:
     def carries(text: str, section: str) -> bool:
         return missing_sections(text, (section,)) == ()
 
+    def readable(path: Path) -> str | None:
+        try:
+            return quoted_out(path.read_text())
+        except (OSError, UnicodeDecodeError):
+            # `parse_record`'s rule, and for its reason: a record root is a
+            # directory anyone can drop a file into, and one undecodable file
+            # must not take down the read of the whole tier.
+            return None
+
     root = arch_root(repo_root)
+    adopted = (root / DESIGN_DIR).is_dir() or any(
+        text is not None and carries(text, _arch.LEVEL_2_SECTION)
+        for text in (readable(path) for path in sorted(root.glob("*.md")))
+    )
+    if not adopted:
+        return False
+
     findings: list[tuple[str, Path, str]] = []
     for tier, directory in (("root", root), (DESIGN_DIR, root / DESIGN_DIR)):
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.md")):
-            try:
-                text = quoted_out(path.read_text())
-            except (OSError, UnicodeDecodeError):
-                # `parse_record`'s rule, and for its reason: a record root is a
-                # directory anyone can drop a file into, and one undecodable
-                # file must not take down the read of the whole tier.
+            text = readable(path)
+            if text is None:
                 continue
             if carries(text, _arch.LEVEL_2_SECTION):
                 if tier == DESIGN_DIR:
