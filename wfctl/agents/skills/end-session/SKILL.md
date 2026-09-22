@@ -149,7 +149,7 @@ same close as the hook; nothing here can tell the two apart, and it does not try
 
 5. **Outward actions are asked for, attempted, and recorded — never skipped for
    want of a setting.** Step 7 below reaches outside the repo: a comment, a
-   label, a closed or new issue. wfctl does not decide whether those may run.
+   closed or new issue. wfctl does not decide whether those may run.
    Your host's permission layer does, and it refuses before wfctl ever starts
    (`wfctl-records-outward-actions-and-never-gates-them`). The same holds for a
    push, which this step tells you to record below. Step 6 commits and reaches
