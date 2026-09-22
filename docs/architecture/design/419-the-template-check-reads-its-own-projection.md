@@ -33,20 +33,22 @@ and that record's argument is what rules out fixing this locally.
 
 ## Verified
 
-- `_predicates.py:285` — `TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"`, with a
-  comment block above it stating the dependency outright: it lives in an HTML
-  comment and `quoted_out` leaves those alone, "and that is deliberate".
-- `plan-template.md:14-18` — the string sits inside a comment whose `<!--` and
-  `-->` are each on their own line. `spec-template.md:70-74` is the same shape.
-  The multi-line form is the one that matters: a heading matches at the start of
-  a line, so `<!-- ## Diagram -->` on one line never counted.
-- `_predicates.py:1029` and `:1098` — `specify` and `plan` each read the
+- `_predicates.py:286` — `TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"`. The
+  comment block above it stated the dependency outright before this change —
+  the constant lives in an HTML comment, `quoted_out` left those alone, "and
+  that is deliberate" — which is what made widening the projection a decision
+  rather than an oversight. This change rewrites that comment.
+- `plan-template.md:14-18` — the string sits inside a comment whose opening
+  and closing markers are each on their own line. `spec-template.md:70-73` is
+  the same shape. The multi-line form is the one that matters: a heading matches
+  at the start of a line, so a marker and a heading on one line never counted.
+- `_predicates.py:1027` and `:1096` — `specify` and `plan` each read the
   placeholder before anything structural, and both matched
   `TEMPLATE_PLACEHOLDER in ev.spec_text` / `ev.plan_text` before this decision.
-- `_predicates.py:946` — `build_evidence` is the one place `quoted_out` is
+- `_predicates.py:949` — `build_evidence` is the one place `quoted_out` is
   applied to `spec.md` and `plan.md`, so a second projection has one call site
   per artifact and not one per predicate.
-- `_md.py:14` — "This yields per-line state and projects nothing. Each caller
+- `_md.py:15` — "This yields per-line state and projects nothing. Each caller
   wants a different shape from the same walk." The walker states that the
   projection is the caller's, which is where a comment cut has to live.
 - `tests/test_pipeline_sections.py:664` and `:685` — two tests written before
@@ -76,6 +78,14 @@ readers take one setting each. `quoted_out` is `comments=True` and stays the
 name every structural read calls — the placement check, `specify`'s section and
 marker reads, `plan`'s sections, the task tally. `_still_the_template(text)` is
 `comments=False`, and is the only caller that keeps them.
+
+The blanking runs fences first, then inline spans, then the comment cut. Each
+pass removes text that the next one would otherwise read as syntax, so a
+document that only *illustrates* `<!--` never opens one — which is the contract
+`quoted_out` already stated for fences, carried to the shape this decision adds.
+Two consequences follow and both are deliberate: a `-->` quoted inline no longer
+closes a comment that is genuinely open, and an unpaired backtick before `<!--`
+still opens one.
 
 `Evidence` carries `spec_is_template` and `plan_is_template`, computed in
 `build_evidence` from the raw file text. The predicates read the boolean rather
@@ -169,7 +179,15 @@ future reader who wanted them: the parameter is on `_blanked` and not on
 
 The two projections can drift apart in one direction without any test noticing:
 a shape added to `_blanked` under `comments=True` only. Nothing structural
-prevents it, and the verification below is what would catch it.
+prevents it, so the verification below pins the disagreement itself rather than
+only the behaviour either setting produces.
+
+`_arch._headings` is a second projection of the same files and it blanks fences
+alone, so after this change the placement check and `_log_bounds` / `supersede`
+disagree about a heading parked in a comment. The reachable case is narrow — a
+`## Log` inside a comment would take an appended transition — and it is left
+open here rather than widened in passing, because `_arch`'s readers write to a
+record and this one only reads.
 
 ## Verification
 
@@ -178,6 +196,15 @@ prevents it, and the verification below is what would catch it.
 - A test that a `spec.md` whose sections are all inside `<!-- -->` reads
   `in_progress`, and one that a comment closed on the same line leaves the rest
   of the file intact — the guard on a scanner that would swallow to EOF.
+- A test asserting the two settings disagree about a verbatim template:
+  `_still_the_template` true, and the marker absent from `quoted_out`. This is
+  the drift named in Consequences, and it is the only assertion that fails on
+  the day someone widens `quoted_out` without asking what the other reader
+  wanted.
+- One test per ordering pass: a marker quoted in an inline span does not open a
+  comment, and one carried inside a fenced block does not either. Both were
+  written against a mutation, because a fixture quoting a marker *pair* balances
+  it and passes against the defect.
 - A test that a record whose only `## Diagram` sits in a comment draws the `⚠`
   row and exit 0 rather than an error row.
 - `uv run wfctl doctor` over this repository prints no placement finding, and
@@ -188,3 +215,7 @@ prevents it, and the verification below is what would catch it.
 - 2026-09-22  proposed  — a panel reviewer found the comment misread, and the
   first fix for it broke the template check on its way past. Andre chose this
   over a local cut in the placement check and over shipping the misread unfixed.
+  A second panel then found that the cut ran before inline spans were blanked,
+  so a quoted `<!--` opened a real comment — the same class of defect this
+  record exists to close, arriving by a new route. The ordering above is that
+  finding's answer.

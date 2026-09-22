@@ -39,10 +39,12 @@ that `_check_arch_records` states: wfctl reads the arch root and never writes it
 - `_predicates.py:284` — `_missing_sections(text, required)` matches
   `^##[ \t]+<name>(?!\w)` under MULTILINE, and its docstring records why the
   lookahead is `(?!\w)` and not `\b`.
-- `_predicates.py:322` — `_quoted_out(text)` blanks fenced blocks and inline
-  spans, over `_md.walk`, so a document illustrating a heading does not carry
-  one. HTML comments were added to that list later on this branch, which
-  `419-the-template-check-reads-its-own-projection` records.
+- `_predicates.py:322` at the time this was written — `_quoted_out(text)` blanks
+  fenced blocks and inline spans, over `_md.walk`, so a document illustrating a
+  heading does not carry one. It is public `quoted_out` at `:413` now, and it
+  blanks HTML comments too, both by decisions later on this branch — the rename
+  by this record's own Decision, the third shape by
+  `419-the-template-check-reads-its-own-projection`.
 - `_md.py:15` — "This yields per-line state and projects nothing." The fence
   walker holds no projection, by its own statement; `_quoted_out` is one of the
   three shapes it names as the callers'.

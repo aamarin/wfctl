@@ -39,6 +39,7 @@ from wfctl._predicates import (
     TEMPLATE_PLACEHOLDER,
     _REQUIRED_PLAN_SECTIONS,
     _REQUIRED_SPEC_SECTIONS,
+    _still_the_template,
     missing_sections,
     quoted_out,
 )
@@ -637,6 +638,90 @@ def test_a_comment_closed_on_the_same_line_leaves_the_rest_of_the_file(
     step = _step(spec_tree(content={"spec.md": noted}), tmp_path, "specify")
 
     assert step.state == "done"
+
+
+def test_a_comment_marker_quoted_inline_does_not_open_a_comment(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Three reviewers found this independently, and it is the reason the cut
+    runs last (#419).
+
+    A spec that *writes about* HTML comments quotes `<!--` in backticks, and a
+    projection that cut comments before blanking spans read that as a real
+    opener — blanking every line to the next `-->` or to the end of the file.
+    Every section after the sentence disappeared, so the step could never pass
+    however much was written.
+
+    The document under test is the one this module's own docstring calls the
+    common case: an artifact that documents the syntax it is checked against.
+
+    Only the opener is quoted, and that is the whole test. A sentence quoting
+    both markers balances them — the comment opens and closes on the one line
+    and the document survives, so a fixture carrying the pair passes against the
+    defect and proves nothing.
+    """
+    documented = (
+        "# Spec\n\nA section is parked by putting `<!--` above it.\n\n"
+        + SPEC_SECTIONS
+    )
+
+    step = _step(spec_tree(content={"spec.md": documented}), tmp_path, "specify")
+
+    assert step.state == "done"
+
+
+def test_a_comment_opened_inside_a_fence_never_begins(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The other half of the ordering, which had no test until the panel asked.
+
+    A fenced block illustrating a comment carries a bare `<!--` on its own line.
+    The fence is blanked whole before the cut, so nothing opens; cut first and
+    the block's opener would run past the closing fence and take the sections
+    below it.
+    """
+    illustrated = "# Spec\n\n```\n<!--\n```\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": illustrated}), tmp_path, "specify")
+
+    assert step.state == "done"
+
+
+def test_an_unclosed_comment_blanks_the_rest_of_the_document(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The residual the two tests above leave, stated rather than discovered.
+
+    An author who opens a comment and never closes it has parked everything
+    below it, and that is what the projection reports. It matches what `_md`
+    already does with an unclosed fence, so the two quoting shapes fail the same
+    way rather than two ways.
+    """
+    unclosed = "# Spec\n\n<!--\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": unclosed}), tmp_path, "specify")
+
+    assert step.state == "in_progress"
+
+
+@pytest.mark.parametrize("template", ["spec-template.md", "plan-template.md"])
+def test_the_two_projections_disagree_about_the_placeholder(template: str) -> None:
+    """The split itself, which nothing else pins (#419).
+
+    `quoted_out` and `_still_the_template` are two settings of one projection,
+    and the whole point is that they answer this document differently: the
+    template marker lives in an HTML comment, so the structural read must not
+    see it and the template read must. The end-to-end tests below pass for other
+    reasons too — the plan template is caught by its missing content as well —
+    so this is the assertion that fails on the day someone widens `quoted_out`
+    again without asking what the other reader wanted.
+    """
+    verbatim = (_TEMPLATES / template).read_text()
+
+    assert _still_the_template(verbatim), "the template read lost its marker"
+    assert TEMPLATE_PLACEHOLDER not in quoted_out(verbatim), (
+        "the structural read can see the marker, so it is not blanking comments"
+    )
 
 
 def test_the_required_plan_sections_do_not_contradict_the_template() -> None:

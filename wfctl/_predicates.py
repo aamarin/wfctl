@@ -181,9 +181,9 @@ class Evidence:
 
     spec_dir: Path
     repo_root: Path
-    # `spec.md` with fenced blocks and inline spans blanked, so a spec that
-    # *documents* a marker or a heading does not read as having one. Empty when
-    # the file is absent.
+    # `spec.md` with fenced blocks, inline spans and HTML comments blanked, so a
+    # spec that *documents* a marker or a heading — or has parked a section in a
+    # comment — does not read as having one. Empty when the file is absent.
     spec_text: str
     has_markers: bool
     # Read off a projection that keeps HTML comments, because the marker that
@@ -194,7 +194,8 @@ class Evidence:
     # `plan.md`, blanked the same way and for the same reason: since #309 the
     # plan predicate reads its sections, and `plan-template.md` carries `#` lines
     # inside fenced blocks — so an unblanked read would count a section the
-    # document only illustrates. Empty when the file is absent.
+    # document only illustrates. Comments are cut here too, since #419. Empty
+    # when the file is absent.
     plan_text: str
     # `spec_is_template`, asked of the plan. This is the one the check was
     # written for: `setup-plan.sh` copies the template, so the document this
@@ -343,21 +344,18 @@ def _uncommented(line: str, inside: bool) -> tuple[str, bool]:
     matcher that must not see them.
     """
     out: list[str] = []
-    i = 0
-    while i < len(line):
+    while True:
         if inside:
-            end = line.find("-->", i)
-            if end == -1:
+            _, closed, line = line.partition("-->")
+            if not closed:
                 return "".join(out), True
-            i, inside = end + 3, False
+            inside = False
         else:
-            start = line.find("<!--", i)
-            if start == -1:
-                out.append(line[i:])
+            before, opened, line = line.partition("<!--")
+            out.append(before)
+            if not opened:
                 return "".join(out), False
-            out.append(line[i:start])
-            i, inside = start + 4, True
-    return "".join(out), inside
+            inside = True
 
 
 def _blanked(text: str, *, comments: bool) -> str:
@@ -370,14 +368,19 @@ def _blanked(text: str, *, comments: bool) -> str:
     `ACTION REQUIRED`, which both templates ship inside a comment, so a
     comment-cutting projection reads every untouched copy as written work.
 
-    They shared one projection until #419 because nothing had forced them apart,
-    and the first fix for the comment misread broke the template check on its way
-    past.
+    The comment cut runs last, after both quoting shapes have been blanked. A
+    document that *illustrates* `<!--` — inside a fence or inside backticks —
+    must not open one, and this module's opening contract says such documents
+    are the common case rather than the exotic one. Run the cut first and a
+    quoted opener swallows every line to the next `-->` or to the end of the
+    file, which is the failure the whole projection exists to prevent, arriving
+    by a new route.
 
-    Order within a line is fixed: fences, then comments, then inline spans. A
-    fence may carry the characters `<!--` while illustrating one, so blanking
-    comments first would open a comment inside the block that quotes it and run
-    it to the end of the file.
+    Two consequences of that order, both deliberate. A `-->` quoted inline no
+    longer closes a comment that is genuinely open — a departure from HTML, and
+    the right answer for a projection whose subject is what a document quotes.
+    And an *unpaired* backtick before `<!--` still opens one, which is the same
+    residual the inline-span rule below already carries.
     """
     out: list[str] = []
     commented = False
@@ -387,10 +390,10 @@ def _blanked(text: str, *, comments: bool) -> str:
             # never begins: `commented` is deliberately left untouched here.
             out.append("")
             continue
-        body = line.text
+        body = re.sub(r"`[^`\n]+`", "", line.text)
         if comments:
             body, commented = _uncommented(body, commented)
-        out.append(re.sub(r"`[^`\n]+`", "", body))
+        out.append(body)
     return "\n".join(out)
 
 
@@ -959,18 +962,13 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
     tasks_md = spec_dir / "tasks.md"
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
+    # Blank the quoting shapes before matching, so an artifact that *documents* a
+    # marker or a heading doesn't read as having one. One helper for all of them
+    # (#308): a spec documenting a marker and a tasks file documenting a task line
+    # are the same hazard.
     spec_md = spec_dir / "spec.md"
-    spec_raw = ""
-    spec_text = ""
-    if _file_exists(spec_md):
-        # Blank out fenced blocks and inline spans before matching, so a spec that
-        # *documents* a marker or a heading doesn't read as having one. Both specify
-        # and clarify match against the result.
-        #
-        # One helper for both artifacts (#308): a spec documenting a marker and a
-        # tasks file documenting a task line are the same hazard.
-        spec_raw = spec_md.read_text()
-        spec_text = quoted_out(spec_raw)
+    spec_raw = spec_md.read_text() if _file_exists(spec_md) else ""
+    spec_text = quoted_out(spec_raw)
 
     plan_md = spec_dir / "plan.md"
     plan_raw = plan_md.read_text() if _file_exists(plan_md) else ""
