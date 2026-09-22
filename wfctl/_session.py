@@ -385,6 +385,17 @@ def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
 NEXT_SESSION_TODO = "## Next Session TODO"
 NEXT_ACTION_PLACEHOLDER = "- [ ] (fill in)"
 
+# The section holding what the session was in the middle of. It is rendered here
+# rather than left to `end-session`'s prose because this is the file an
+# unattended restart edits: a section already present as a placeholder is a slot,
+# and an instruction to add one is a step that gets skipped under exactly the
+# context pressure that fired the restart (#397).
+#
+# Above `NEXT_SESSION_TODO` on purpose. `names_no_first_action` reads from that
+# heading to the next `## `, so anything placed below it would answer for a
+# next-action section nobody filled.
+IN_FLIGHT = "## In Flight"
+
 # The line that says `end` wrote this file: the title `_render_session_summary`
 # opens with, which `end-session`'s own fill-in template repeats verbatim.
 #
@@ -417,6 +428,8 @@ def _render_session_summary(branch: str, observed: Observations) -> str:
         f"**Boundary**: {observed.boundary}\n"
         f"**Tree**: {observed.tree}\n\n"
         f"## What We Accomplished\n\n"
+        f"- (fill in)\n\n"
+        f"{IN_FLIGHT}\n\n"
         f"- (fill in)\n\n"
         f"{NEXT_SESSION_TODO}\n\n"
         f"{NEXT_ACTION_PLACEHOLDER}\n"

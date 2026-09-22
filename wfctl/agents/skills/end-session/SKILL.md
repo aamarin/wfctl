@@ -30,6 +30,11 @@ discarded — so this turn is the handoff, and the only one. Three steps change:
   decisions and **Next Session TODO** are written for a session that will read
   nothing else. Add one line saying this was an automatic session restart and
   that the tree was left as found.
+- **Step 4's `## In Flight` is this path's section**, and here it is never
+  "Nothing". An attended close stops where the session chose to stop; this one
+  stops where the context ran out, mid-request, with nobody at the prompt to
+  re-ask. Fill it before the retrospective sections — they are recoverable from
+  git after the clear and this is not.
 - **Steps 6 and 7 are skipped.** Do not ask about committing or the tracker: the
   question would sit at a prompt nobody reads until `/clear` discards it. Leave
   uncommitted work uncommitted and the tracker untouched, and say so in the
@@ -128,6 +133,10 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    ## Files Changed
    - `path` — {what changed} (from git diff --stat)
 
+   ## In Flight
+   - {the last thing the user asked, quoted — or "Nothing; between tasks"}
+   - {how far it got: what ran, what came back, whether an answer was reached}
+
    ## Next Session TODO
    - [ ] {highest-priority next step}
    - [ ] {new TODO/FIXME found in step 2, if worth tracking}
@@ -139,6 +148,25 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    **CRITICAL:** Fill every field with the actual data from step 2's scan — never
    leave `(fill in)` or template placeholders. No commits this session → "No
    commits." No blockers → "None."
+
+   **In Flight is the one section step 2's scan cannot reach.** The other four
+   are recoverable — git holds the commits, the diff holds the files, the
+   pipeline holds the position. What the session was *doing* when it stopped is
+   held only by the turn writing this, and a restart discards that turn. A
+   question asked a hundred seconds before the context filled had nowhere to
+   land, so a correct handoff threw it away and the user re-asked it from memory
+   (#397).
+
+   Write it in the past tense, as a record of what was happening. **Anything
+   that still needs doing also gets a `Next Session TODO` item** — that is the
+   section `/start-session` step 9 quotes to name a first action, and a line
+   here that reads as an instruction competes with it for that role. In Flight
+   carries the context a one-line TODO cannot hold; the TODO carries the
+   instruction.
+
+   "Nothing; between tasks" is a real answer and the common one. A session that
+   ends at a clean stopping point had nothing in flight, and saying so is not
+   the same as leaving the section unfilled.
 
    Do not add a status line. There used to be one — `in progress | complete |
    blocked` — and nothing could observe which of the three was true, so it was

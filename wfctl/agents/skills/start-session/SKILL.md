@@ -206,8 +206,17 @@ memory of it — load them before doing anything else.
    Then the one thing no artifact can reconstruct, from the state dir
    (`$(wfctl state-dir)`):
    - `session-summary.md` — the last session's handoff (accomplishments,
-     decisions, and **Next Session TODO**). This is the primary context after a
-     `/clear`; read it fully. If absent, this is the first session on the branch.
+     decisions, **In Flight**, and **Next Session TODO**). This is the primary
+     context after a `/clear`; read it fully. If absent, this is the first
+     session on the branch.
+
+     **`## In Flight` is what the last session was in the middle of** — the
+     request it never answered, the search whose results are now gone with the
+     transcript. It is not the first action and does not decide a row; step 9
+     reads **Next Session TODO** for that, as it always has. What this section
+     changes is that a question the user asked before an unattended restart
+     reaches them again from the handoff instead of from their memory (#397).
+     "Nothing; between tasks" is its ordinary value and needs no report.
    - `events.jsonl` — one line per wfctl event on this branch. Step 9 needs one
      more fact out of it: the **most recent** stop, and which of the two kinds it
      was. Only `wfctl end` writes a stop.
@@ -297,6 +306,10 @@ memory of it — load them before doing anything else.
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
+   - **In flight**: the summary's `## In Flight`, verbatim, when it says anything
+     other than that nothing was. A session picked up mid-request has to hand the
+     request back before doing anything else — reading it and not saying it
+     leaves the user re-asking, which is the whole of what the section prevents
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
    - **Alignment**: aligned, or the likely-done / untracked items from step 7
@@ -349,6 +362,15 @@ memory of it — load them before doing anything else.
    what makes the branch visible from outside — step 8 reports which row this
    session took, so a wrong turn is a mismatch someone can point at rather than a
    matter of tone.
+
+   **The quote comes from `## Next Session TODO`, and from nowhere else in the
+   file.** `## In Flight` records a request the last session did not finish, and
+   a request quoted there keeps the imperative it was asked in — "run this",
+   "find the conversation where I pasted it". Read as a first action it is one:
+   it is just an unrelated one, aimed at a session that has since ended. A
+   handoff whose only imperative sentence sits there names no first action, which
+   is the last row. Nothing about In Flight is lost by that — step 8 has already
+   reported it verbatim, and the user answers it themselves.
 
    **Do not try to tell a handoff from a previous session's summary by reading
    the file.** Provenance is not recoverable from its content or its timestamps:
