@@ -109,18 +109,26 @@ the claim holds.
 
 The record — `status: proposed`, so a constraint this project has drawn and not
 yet accepted, and absent from `wfctl arch context` — asks three things of a
-presentation client. Two are passed and one is failed:
+presentation client. One is passed vacuously and two are never exercised:
 
 | The record asks | cmux does | |
 | --- | --- | --- |
 | never create, recreate, rename or destroy a workmux-owned runtime | never touches it — it cannot see it | passed, vacuously |
 | where workmux reports an environment and tmux has no session, surface and stop | never evaluates that condition; `attach` errors because its own registry is empty | not exercised |
-| correlate on workmux handle or worktree path, never a client-assigned id | its registry's primary key is a client-assigned UUID | **failed** |
+| correlate on workmux handle or worktree path, never a client-assigned id | assigns a UUID to a session it started itself; never presented a workmux-owned one, so never correlated a view to a feature at all | not exercised |
 
 Row two is not a pass. The recovery protocol fires where *workmux reports an
 environment and tmux has no session*; what was observed is a session missing
 from cmux's registry while the tmux session exists — finding 1 restated, not
 the protocol answered.
+
+Row three is not a failure either, and calling it one was the headline verdict's
+error repeated inside the table. The clause governs the key a client uses to
+correlate *its view* to *a feature*; the transcript below shows cmux naming a
+session it created, carrying a name and a UUID side by side. A UUID in a registry
+is a data-model fact, not a correlation key exercised against a workmux-owned
+runtime — and `local-tmux` never presented one. Which key a mirrored workspace
+would correlate on is the `ssh-tmux` question, finding 3's, and it is open.
 
 The hazard that remains is a name collision rather than a mutation. Asked to
 start a session under a name already live on the default server, cmux creates
