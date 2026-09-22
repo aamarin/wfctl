@@ -38,8 +38,17 @@ OVER = DEFAULT_THRESHOLD + 1
 
 
 def planned(kind: str, session: str = S, children: tuple[str, ...] = ()) -> dict:
-    return {"ts": "2026-09-15T12:00:00Z", "event": "session-restart",
-            "session": session, "decision": kind, "children": list(children)}
+    """A recorded decision, shaped as `run_hook` writes one.
+
+    `children` is present only where there are any — an event carrying an empty
+    list is a shape production stopped writing, and a fixture that emits it tests
+    the reader against a log no version of this code produces.
+    """
+    event = {"ts": "2026-09-15T12:00:00Z", "event": "session-restart",
+             "session": session, "decision": kind}
+    if children:
+        event["children"] = list(children)
+    return event
 
 
 def sent(text: str, code: int = 0, session: str = S, ts: str = "2026-09-15T12:33:03Z") -> dict:

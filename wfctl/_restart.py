@@ -174,11 +174,15 @@ def _notifications(record: dict) -> list[str]:
 
     The `attachment` is on the delivered side of that line, which its own
     `queued_command` type makes easy to doubt: the name says where the item came
-    from, not what became of it. The queue's records settle it, in this order —
-    `enqueue`, then `remove` with reason `absorbed_mid_turn`, then the attachment
-    carrying the rendered notification. The record is written as the item leaves
-    the queue *into* the turn, and a notification-bearing attachment that was
-    never rendered does not occur.
+    from, not what became of it. What settles it is that the attachment is written
+    as the item leaves the queue *into* the turn. The usual trace is `enqueue`,
+    then `remove` with reason `absorbed_mid_turn`, then the attachment — 333 of
+    360 here — but it is not the whole of what occurs, and the claim does not rest
+    on it: an id can be enqueued more than once, `remove` can carry no reason, and
+    6 of the 360 have no queue record at all. What does not occur is the other
+    direction. No launch this reader still calls outstanding has a queue record
+    saying its report was delivered, so nothing is being held on the strength of
+    ignoring one.
 
     The notification has to *open a line*, not merely appear somewhere: an agent
     that writes about task notifications puts the same tags in its own prose, and
