@@ -205,9 +205,10 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    wfctl issue view "$ISSUE"
    wfctl issue close "$ISSUE" --comment "Completed this session."   # only if still open
 
-   # If work is only partially done, leave it open with a progress note:
+   # If work is only partially done, leave it open with a progress note. Its
+   # state is not yours to set here: `wfctl issue start` and `stop` carry that,
+   # and the worktree hooks already run them.
    wfctl issue comment "$ISSUE" --body "Partial progress: <what remains>"
-   wfctl issue label "$ISSUE" --action add --label in-progress
 
    # Reconcile any secondary issues noted in step 2 the same way, and file new work:
    wfctl issue create --title "<title>" --body "<context>"
