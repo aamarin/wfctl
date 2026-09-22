@@ -186,11 +186,20 @@ class Evidence:
     # the file is absent.
     spec_text: str
     has_markers: bool
+    # Read off a projection that keeps HTML comments, because the marker that
+    # answers this lives inside one — see `_still_the_template`. A bool and not
+    # the second projection itself: the text would answer other questions too,
+    # and every other question wants comments cut.
+    spec_is_template: bool
     # `plan.md`, blanked the same way and for the same reason: since #309 the
     # plan predicate reads its sections, and `plan-template.md` carries `#` lines
     # inside fenced blocks — so an unblanked read would count a section the
     # document only illustrates. Empty when the file is absent.
     plan_text: str
+    # `spec_is_template`, asked of the plan. This is the one the check was
+    # written for: `setup-plan.sh` copies the template, so the document this
+    # step most often meets carries every required heading and no content.
+    plan_is_template: bool
     tasks_text: str
     tasks_open: bool
     # The tally, taken beside the one read of the file rather than recomputed by
@@ -269,9 +278,10 @@ _REQUIRED_PLAN_SECTIONS: tuple[str, ...] = (
 # so it rejects real work. No spec or plan on disk carries this one, and both
 # templates do — which is the pair a placeholder marker needs.
 #
-# Blanking leaves it alone: `quoted_out` removes fences and inline spans, and
-# this lives in an HTML comment. That is deliberate. A document quoting this
-# constant inside a fence is discussing it, not carrying it.
+# It lives inside an HTML comment, and since #419 `quoted_out` cuts those — so
+# the check reads a projection of its own, `_still_the_template`, which blanks
+# fences and keeps comments. A document quoting this constant inside a fence is
+# discussing it, not carrying it.
 TEMPLATE_PLACEHOLDER = "ACTION REQUIRED"
 
 # Short, because they render inline in the step table beside the step's name.
@@ -319,8 +329,86 @@ def _missing_reason(missing: tuple[str, ...]) -> str | None:
     return f"missing: {', '.join(missing)}" if missing else None
 
 
+def _uncommented(line: str, inside: bool) -> tuple[str, bool]:
+    """One line with its HTML-comment spans cut out, and the state after it.
+
+    Carries `inside` across lines because a comment is the one quoting shape
+    here that a line cannot answer alone: `<!--` on its own line makes every
+    line after it inert until `-->`, which is exactly the shape a reader uses
+    to park a section of a record without deleting it.
+
+    Scanned rather than matched by regex. `re.DOTALL` over the whole document
+    would work and cannot run here — `_md.walk` has already split the text, and
+    re-joining it to run one regex would put fenced lines back in front of a
+    matcher that must not see them.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(line):
+        if inside:
+            end = line.find("-->", i)
+            if end == -1:
+                return "".join(out), True
+            i, inside = end + 3, False
+        else:
+            start = line.find("<!--", i)
+            if start == -1:
+                out.append(line[i:])
+                return "".join(out), False
+            out.append(line[i:start])
+            i, inside = start + 4, True
+    return "".join(out), inside
+
+
+def _blanked(text: str, *, comments: bool) -> str:
+    """Fenced blocks and inline spans blanked always, HTML comments on request.
+
+    `comments` is a parameter because two readers of the same file want opposite
+    answers out of it. "Is this heading written" says no to a section parked
+    inside `<!-- -->` — parking a section is how an author keeps the text
+    without publishing it. "Is this still the template" has to say *yes* to
+    `ACTION REQUIRED`, which both templates ship inside a comment, so a
+    comment-cutting projection reads every untouched copy as written work.
+
+    They shared one projection until #419 because nothing had forced them apart,
+    and the first fix for the comment misread broke the template check on its way
+    past.
+
+    Order within a line is fixed: fences, then comments, then inline spans. A
+    fence may carry the characters `<!--` while illustrating one, so blanking
+    comments first would open a comment inside the block that quotes it and run
+    it to the end of the file.
+    """
+    out: list[str] = []
+    commented = False
+    for line in _md.walk(text):
+        if line.inside or line.fence:
+            # A fenced line is blanked whole, so a comment opened inside one
+            # never begins: `commented` is deliberately left untouched here.
+            out.append("")
+            continue
+        body = line.text
+        if comments:
+            body, commented = _uncommented(body, commented)
+        out.append(re.sub(r"`[^`\n]+`", "", body))
+    return "\n".join(out)
+
+
+def _still_the_template(text: str) -> bool:
+    """Whether this document is an untouched copy of the template it came from.
+
+    A function rather than a `TEMPLATE_PLACEHOLDER in ev.spec_text` at each call
+    site, because the projection it reads is not the one the other checks read:
+    this one keeps HTML comments, and `quoted_out` has cut them since #419.
+
+    Fences and inline spans are still blanked, for the reason they always were —
+    a document quoting this constant is discussing the check, not failing it.
+    """
+    return TEMPLATE_PLACEHOLDER in _blanked(text, comments=False)
+
+
 def quoted_out(text: str) -> str:
-    """Markdown with its fenced blocks and inline spans blanked out.
+    """Markdown with its fenced blocks, HTML comments and inline spans blanked.
 
     An artifact that *documents* a syntax must not read as using it — a spec
     showing what a clarification marker looks like has no marker, and a
@@ -343,11 +431,16 @@ def quoted_out(text: str) -> str:
     Inline spans stay a local regex. `_md` answers a question about lines and
     this one is within a line; `[^`\n]+` excludes newline so an unpaired
     backtick cannot swallow the rest of the file.
+
+    HTML comments are the third shape and arrived last (#419): a `## Diagram`
+    parked inside `<!-- -->` was read as a heading the record carried, so a note
+    nobody meant to publish took an error row.
+
+    Every caller wants that except the template-placeholder check, which is why
+    the projection itself lives in `_blanked` and this is one of its two
+    settings. `_still_the_template` is the other.
     """
-    return "\n".join(
-        "" if line.inside or line.fence else re.sub(r"`[^`\n]+`", "", line.text)
-        for line in _md.walk(text)
-    )
+    return _blanked(text, comments=True)
 
 
 def _task_tally(tasks_text: str) -> tuple[int, int]:
@@ -867,6 +960,7 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
     tasks_text = tasks_md.read_text() if _file_exists(tasks_md) else ""
 
     spec_md = spec_dir / "spec.md"
+    spec_raw = ""
     spec_text = ""
     if _file_exists(spec_md):
         # Blank out fenced blocks and inline spans before matching, so a spec that
@@ -875,17 +969,21 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         #
         # One helper for both artifacts (#308): a spec documenting a marker and a
         # tasks file documenting a task line are the same hazard.
-        spec_text = quoted_out(spec_md.read_text())
+        spec_raw = spec_md.read_text()
+        spec_text = quoted_out(spec_raw)
 
     plan_md = spec_dir / "plan.md"
-    plan_text = quoted_out(plan_md.read_text()) if _file_exists(plan_md) else ""
+    plan_raw = plan_md.read_text() if _file_exists(plan_md) else ""
+    plan_text = quoted_out(plan_raw)
 
     done, total = _task_tally(tasks_text)
     return Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
         spec_text=spec_text,
+        spec_is_template=_still_the_template(spec_raw),
         plan_text=plan_text,
+        plan_is_template=_still_the_template(plan_raw),
         # templates emit `[NEEDS CLARIFICATION: <question>]`, so the bracketed
         # literal `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix
         has_markers="[NEEDS CLARIFICATION" in spec_text,
@@ -928,7 +1026,7 @@ def specify(ev: Evidence) -> Reading:
     """
     if not _file_exists(ev.spec_dir / "spec.md"):
         return Reading("pending")
-    if TEMPLATE_PLACEHOLDER in ev.spec_text:
+    if ev.spec_is_template:
         # Ahead of the marker check, and that ordering is the whole of what it
         # adds here. The spec template ships `[NEEDS CLARIFICATION` markers of
         # its own, so an untouched copy is `in_progress` either way — but as a
@@ -997,7 +1095,7 @@ def plan(ev: Evidence) -> Reading:
     """A plan exists and carries the sections a plan carries."""
     if not _file_exists(ev.spec_dir / "plan.md"):
         return Reading("pending")
-    if TEMPLATE_PLACEHOLDER in ev.plan_text:
+    if ev.plan_is_template:
         # Ordered before the section read on purpose: `setup-plan.sh` runs
         # `cp plan-template.md plan.md`, so the document this step most often
         # meets carries every required heading and no content. Structure alone

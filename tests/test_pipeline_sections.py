@@ -601,6 +601,44 @@ def test_a_heading_only_illustrated_survives_every_fence_shape(
         assert step.state == "in_progress", f"{label}: illustrated heading counted as written"
 
 
+def test_a_heading_parked_in_an_html_comment_does_not_count(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The third quoting shape, after fences and inline spans (#419).
+
+    Commenting a section out is how an author parks it without losing the text,
+    so a `spec.md` whose sections are all inside `<!-- -->` has written none of
+    them — and read as complete before this, which is the same failure the
+    fence shapes above cause by another route.
+
+    The comment is opened and closed on its own lines, which is the shape that
+    matters: a heading is matched at the start of a line, so a single-line
+    `<!-- ## Foo -->` never counted and the multi-line form always did.
+    """
+    commented = "# Spec\n\n<!--\n" + SPEC_SECTIONS + "-->\n"
+
+    step = _step(spec_tree(content={"spec.md": commented}), tmp_path, "specify")
+
+    assert step.state == "in_progress"
+
+
+def test_a_comment_closed_on_the_same_line_leaves_the_rest_of_the_file(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The guard on the cut: a comment ends where it says it ends.
+
+    A scanner that treated `<!--` as swallowing everything after it would pass
+    this test's opposite and fail the pipeline on any spec carrying an editorial
+    note above its sections — which is most of them. The note is cut, the
+    sections below it survive.
+    """
+    noted = "# Spec\n\n<!-- TODO: tighten the wording -->\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": noted}), tmp_path, "specify")
+
+    assert step.state == "done"
+
+
 def test_the_required_plan_sections_do_not_contradict_the_template() -> None:
     """A required list may out-strict its template; it may not contradict it.
 

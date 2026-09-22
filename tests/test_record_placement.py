@@ -96,7 +96,8 @@ def test_a_level_3_record_under_design_is_silent(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The most common shape in the tree, and the one cell of the grid no other
-    test here covers — 19 of this repo's 58 records are exactly this.
+    test here covers — 20 of this repo's 59 records were exactly this when it
+    was written, and the share is why it is worth a fixture of its own.
 
     Every other test asserts that something is *said*. A regression that warned
     on a correctly-filed design record would leave all of them passing, and the
@@ -180,6 +181,36 @@ def test_a_heading_illustrated_in_a_fenced_block_does_not_satisfy_the_check(
 
     assert "illustrates.md" in result.output
     assert "implementation/" in result.output
+
+
+def test_a_heading_parked_in_an_html_comment_does_not_satisfy_the_check(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A panel reviewer's blocker, and the case the fenced test above misses.
+
+    Commenting a section out is how an author parks it without losing the text.
+    A note whose only `Diagram` sat inside `<!-- -->` was read as a level-3
+    record filed up at the root — an error row and a red exit for a file that
+    had written no section at all. The `⚠` below is the right answer: it
+    weighed nothing, which is what the comment says about it.
+
+    The comment opens and closes on its own lines because that is the half that
+    fires: headings match at the start of a line, so `<!-- ## Diagram -->` on
+    one line never counted and was never the defect.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    _adopted(root)
+    path = root / "parked.md"
+    path.write_text(
+        f"---\nstatus: proposed\n---\n\n# a note\n\n## Context\n\n"
+        f"<!--\n## {LEVEL_3_SECTION}\n\nnot ready\n-->\n"
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "parked.md" in result.output
+    assert "weighed nothing" in result.output
+    assert result.exit_code == 0
 
 
 def test_implementation_notes_are_never_read_as_a_tier(
