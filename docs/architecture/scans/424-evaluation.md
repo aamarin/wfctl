@@ -388,6 +388,29 @@ names a workmux handle, in a client that owns none of it. It was done with a
 is the one shape that needs no joiner and also the one that cannot scale, since a
 pane running an agent is not going to describe itself on a schedule.
 
+**The mirror is a client with a keyboard, not a view.** Each tmux window arrives
+as a tab named after it — `term`, `deploy`, `agent` — and the `agent` tab renders
+the running agent's live output. It also accepts input, which reaches the real
+pane. Observed by typing `tmux a` into a mirrored `term` tab and getting tmux's
+own refusal back:
+
+```
+sessions should be nested with care, unset $TMUX to force
+```
+
+That refusal is the evidence, not the failure: `$TMUX` is set inside a mirrored
+pane, so the pane is a genuine client of the session rather than a rendering of
+one, and `tmux a` there asks tmux to attach a session to itself.
+
+This is worth stating because the record's invariant is about what a client may
+*do* to a runtime, and it is written in terms of session lifecycle — create,
+recreate, rename, destroy. A client that issues none of those and still puts a
+keyboard on every agent's pane satisfies the invariant as written. Whether that
+is the whole of what the invariant meant to protect is a question for the record,
+not for this scan: a supervisory screen answering "which worktree needs me?" with
+eleven live input surfaces behind it is a different object from a dashboard, and
+the difference does not appear anywhere in the clause it passes.
+
 **What this does not establish.** The escape was written directly to the pane's
 tty rather than emitted by a program running in it, so nothing here shows that an
 agent's own OSC notifications survive the control-mode hop; `allow-passthrough`
