@@ -306,10 +306,14 @@ memory of it — load them before doing anything else.
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)
-   - **In flight**: the summary's `## In Flight`, verbatim, when it says anything
-     other than that nothing was. A session picked up mid-request has to hand the
-     request back before doing anything else — reading it and not saying it
-     leaves the user re-asking, which is the whole of what the section prevents
+   - **In flight**: the summary's `## In Flight`, verbatim. A session picked up
+     mid-request has to hand the request back before doing anything else —
+     reading it and not saying it leaves the user re-asking, which is the whole
+     of what the section prevents. Absent, still `(fill in)`, or saying nothing
+     was in flight: report none of the three. Every summary written before this
+     section existed lacks it, and `worktree-handoff` documents use their own
+     shape and never carried it, so absent is the ordinary case rather than a
+     signal — and a placeholder handed to the user reads as a real request
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
    - **Alignment**: aligned, or the likely-done / untracked items from step 7

@@ -4,9 +4,14 @@ A restart fires when the context fills, mid-request, with nobody at the prompt.
 The five sections the template asked for were all retrospective, so the turn
 that wrote the handoff had nowhere to put the question the user had asked a
 hundred seconds earlier — and a handoff that was correct about everything it
-covered discarded it anyway. These tests hold the section in the two places it
-has to exist at once: the scaffold `end` writes, and the template `end-session`
-tells the agent to fill.
+covered discarded it anyway.
+
+What the change ships is prose in two skills plus one heading in the scaffold,
+so these tests are the whole of what holds it. Each asserts on the clause that
+carries the rule rather than on the heading being mentioned nearby: a check the
+violating artifact passes is what `a-rule-is-expressed-as-a-check` calls the
+rule's absence, documented, and three of these did exactly that on first
+writing.
 """
 from __future__ import annotations
 
@@ -25,6 +30,25 @@ def _scaffold() -> str:
         "397-handoff-records-work-in-flight",
         _session.Observations(step="brainstorm", boundary="unanswered", tree="clean"),
     )
+
+
+def _flat(text: str) -> str:
+    """One line, single-spaced. Every rule below is a sentence the file wraps."""
+    return " ".join(text.split())
+
+
+def _step(skill: Path, n: int) -> str:
+    """One numbered step of a workflow, bounded by the next one.
+
+    Bounded rather than open-ended: `re.S` with a trailing `.*` runs to EOF, so a
+    rule that had moved out of the step into a later one would still be found and
+    the test that exists to hold it in place would not notice.
+    """
+    match = re.search(
+        rf"^{n}\. .*?(?=^\d+\. \*\*|^\d+\. [A-Z]|\Z)", skill.read_text(), re.S | re.M
+    )
+    assert match, f"{skill.name} has no step {n}"
+    return _flat(match.group(0))
 
 
 def _template_headings() -> list[str]:
@@ -62,61 +86,52 @@ def test_the_scaffold_headings_follow_the_template_order() -> None:
     assert scaffold == [h for h in template if h in scaffold]
 
 
-def test_in_flight_sits_above_the_next_action_section() -> None:
-    """`names_no_first_action` reads from `## Next Session TODO` to the next `## `.
-    Placed below it, a filled In Flight would answer for a next-action section
-    nobody wrote, and the warning at the last moment an operator could fix it
-    would never fire."""
-    scaffold = _scaffold()
-    assert scaffold.index(_session.IN_FLIGHT) < scaffold.index(_session.NEXT_SESSION_TODO)
-    assert _session.names_no_first_action(scaffold)
-
-
-def test_a_filled_in_flight_does_not_answer_for_the_next_action() -> None:
-    """The regression the ordering above exists to prevent, exercised rather than
-    asserted about."""
-    filled = _scaffold().replace(
-        f"{_session.IN_FLIGHT}\n\n- (fill in)",
-        f"{_session.IN_FLIGHT}\n\n- User asked which record owns the boundary; unanswered.",
-    )
-    assert _session.names_no_first_action(filled)
-
-
 def test_the_restart_path_rules_out_the_empty_answer() -> None:
-    """"Nothing; between tasks" is the ordinary value everywhere else. On the path
-    that stops mid-request with nobody at the prompt it is never true, and a
-    template offering it as an option is one an unattended agent will take."""
-    section = re.search(
+    """A stop where the context ran out was mid-something by construction.
+
+    "Nothing" is the ordinary answer everywhere else, and an unattended agent
+    offered it will take it. The clause ruling it out is what this holds — an
+    earlier version asserted only that the heading appeared in the section, and
+    stayed green when the clause was deleted.
+    """
+    restart = re.search(
         r"^## When the input is `restart`\n(.*?)(?=^## )", END_SESSION.read_text(), re.S | re.M
     )
-    assert section, "end-session/SKILL.md has no `restart` section"
-    assert _session.IN_FLIGHT in section.group(1)
+    assert restart, "end-session/SKILL.md has no `restart` section"
+    prose = _flat(restart.group(1))
+    assert _session.IN_FLIGHT in prose
+    assert 'a stop here is never "Nothing"' in prose
 
 
 def test_step_9_takes_its_quote_from_the_next_action_section_alone() -> None:
     """The routing In Flight could break, held by the sentence that scopes it.
 
-    A request quoted in In Flight keeps the imperative it was asked in, so step
-    9 scanning the whole file for a quotable first action can find one there and
+    A request quoted in In Flight keeps the imperative it was asked in, so step 9
+    scanning the whole file for a quotable first action can find one there and
     start on work aimed at a session that has already ended. Filling the section
     correctly is what produces that sentence, which is why tense advice in
     `end-session` is not where this can be fixed.
+
+    Naming the source is the assertion. An earlier version asserted "and from
+    nowhere else in the file", which survives swapping the two sections and so
+    passed on the exact inversion the sentence exists to prevent.
     """
-    text = START_SESSION.read_text()
-    step_9 = re.search(r"^9\. \*\*Answer the question.*", text, re.S | re.M)
-    assert step_9, "start-session/SKILL.md has no step 9"
-    # Whitespace-normalised: the sentence is wrapped across lines in the file,
-    # and a rewrap would otherwise fail a rule it left intact.
-    prose = " ".join(step_9.group(0).split())
-    assert "and from nowhere else in the file" in prose
-    assert _session.IN_FLIGHT in prose
+    step_9 = _step(START_SESSION, 9)
+    assert f"The quote comes from `{_session.NEXT_SESSION_TODO}`" in step_9
+    assert _session.IN_FLIGHT in step_9
 
 
 def test_start_session_reports_what_was_in_flight() -> None:
     """A section written and never read is the same loss one level along: the user
     re-asks their question because the session that could see it said nothing."""
-    text = START_SESSION.read_text()
-    assert _session.IN_FLIGHT in text
-    step_8 = re.search(r"^8\. Report status.*?(?=^9\. )", text, re.S | re.M)
-    assert step_8, "start-session/SKILL.md has no step 8"
-    assert "In Flight" in step_8.group(0)
+    step_8 = _step(START_SESSION, 8)
+    assert f"the summary's `{_session.IN_FLIGHT}`, verbatim" in step_8
+
+
+def test_step_8_does_not_report_the_unfilled_placeholder() -> None:
+    """This change ships `- (fill in)` into the scaffold, and every summary older
+    than the section has no section at all. Reported as content, a placeholder
+    reaches the user as an outstanding request nobody made."""
+    step_8 = _step(START_SESSION, 8)
+    assert "still `(fill in)`" in step_8
+    assert "report none of the three" in step_8

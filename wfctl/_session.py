@@ -391,9 +391,17 @@ NEXT_ACTION_PLACEHOLDER = "- [ ] (fill in)"
 # and an instruction to add one is a step that gets skipped under exactly the
 # context pressure that fired the restart (#397).
 #
-# Above `NEXT_SESSION_TODO` on purpose. `names_no_first_action` reads from that
-# heading to the next `## `, so anything placed below it would answer for a
-# next-action section nobody filled.
+# Above `NEXT_SESSION_TODO` for reading order and to match step 4's template: the
+# request that was cut off is context for the instruction below it. Not for
+# safety — `names_no_first_action` breaks on the first `## `, so this section
+# could sit either side of that heading without reaching its scan.
+#
+# The rule that this section gets filled is prose in `end-session`, not a check
+# here, and the reason is the order the restart path runs in: `end` writes the
+# scaffold at step 3 and the agent fills it at step 4, so the one place wfctl
+# reads the file back — the `--continued` warning in `cli.py` — sees the
+# placeholder on every run by design. What runs after step 4 is
+# `amend_summary_for_late_events`, which is `_restart.py`'s (#425).
 IN_FLIGHT = "## In Flight"
 
 # The line that says `end` wrote this file: the title `_render_session_summary`

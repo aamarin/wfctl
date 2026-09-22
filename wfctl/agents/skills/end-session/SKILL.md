@@ -30,11 +30,12 @@ discarded — so this turn is the handoff, and the only one. Three steps change:
   decisions and **Next Session TODO** are written for a session that will read
   nothing else. Add one line saying this was an automatic session restart and
   that the tree was left as found.
-- **Step 4's `## In Flight` is this path's section**, and here it is never
-  "Nothing". An attended close stops where the session chose to stop; this one
-  stops where the context ran out, mid-request, with nobody at the prompt to
-  re-ask. Fill it before the retrospective sections — they are recoverable from
-  git after the clear and this is not.
+
+  **`## In Flight` is this path's section, and a stop here is never "Nothing".**
+  An attended close stops where the session chose to; this one stops where the
+  context ran out, mid-request, with nobody at the prompt to re-ask. Write it
+  first, whatever order it sits in on the page — it is the section nothing else
+  can reconstruct, and the one a handoff cut short drops.
 - **Steps 6 and 7 are skipped.** Do not ask about committing or the tracker: the
   question would sit at a prompt nobody reads until `/clear` discards it. Leave
   uncommitted work uncommitted and the tracker untouched, and say so in the
@@ -149,13 +150,15 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    leave `(fill in)` or template placeholders. No commits this session → "No
    commits." No blockers → "None."
 
-   **In Flight is the one section step 2's scan cannot reach.** The other four
-   are recoverable — git holds the commits, the diff holds the files, the
-   pipeline holds the position. What the session was *doing* when it stopped is
-   held only by the turn writing this, and a restart discards that turn. A
-   question asked a hundred seconds before the context filled had nowhere to
-   land, so a correct handoff threw it away and the user re-asked it from memory
-   (#397).
+   **In Flight is the only section about work that landed nowhere.** The other
+   five describe something that already exists: commits, files, decisions the
+   session reached, blockers it hit. Three of those the step 2 scan can rebuild
+   on its own, and the other two the session can write from what it settled. A
+   request it never got to is held by the turn writing this and by nothing else,
+   which also makes it the first casualty of a handoff written in a hurry —
+   nothing on disk is there to remind the writer it happened. A question asked a
+   hundred seconds before the context filled had nowhere to land, so a correct
+   handoff threw it away and the user re-asked it from memory (#397).
 
    Write it in the past tense, as a record of what was happening. **Anything
    that still needs doing also gets a `Next Session TODO` item** — that is the
