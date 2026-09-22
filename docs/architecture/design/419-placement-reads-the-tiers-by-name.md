@@ -24,7 +24,7 @@ that `_check_arch_records` states: wfctl reads the arch root and never writes it
 
 ## Verified
 
-- `_arch.py:147` — `load_records` returns
+- `_arch.py:150` — `load_records` returns
   `[parse_record(p) for p in sorted(root.glob("*.md"), ...)]`. One level, root
   only; `design/` is unreachable through it.
 - `_arch.py:25` — `STATUSES = frozenset({"proposed", IN_FORCE, "superseded",
@@ -33,7 +33,7 @@ that `_check_arch_records` states: wfctl reads the arch root and never writes it
 - `software-design-decisions/design-record-template.md:17` — a level-3 record's
   status runs `proposed -> approved -> superseded | rejected`. `approved` is not
   in `STATUSES`, so every approved design record parses to `status=""`.
-- `_paths.py:298` — `non_record_subtrees(arch)` returns
+- `_paths.py:306` — `non_record_subtrees(arch)` returns
   `[arch / "scans", arch / "implementation"]`. `design/` is not in it, and is
   excluded separately by `_predicates.py:599`.
 - `_predicates.py:284` — `_missing_sections(text, required)` matches
@@ -51,8 +51,9 @@ that `_check_arch_records` states: wfctl reads the arch root and never writes it
 - `architecture-decisions/record-template.md:24` carries `## Owns truth`;
   `software-design-decisions/design-record-template.md:53` carries `## Diagram`.
   Both templates are wfctl's own, not derived.
-- Run over the corpus, 2026-09-21: 57 records, 39 with `Owns truth` at the root,
-  18 with `Diagram` under `design/`, none with both, none with neither.
+- Run over the corpus, 2026-09-21: 58 records, 39 with `Owns truth` at the root,
+  19 with `Diagram` under `design/`, none with both, none with neither. The 19
+  counts this record.
 
 ## Assumed
 
@@ -75,7 +76,7 @@ reader.
 
 The check globs the two tiers by name, `<root>/*.md` and `<root>/design/*.md`,
 and does not call `load_records`. It reads each file's text and asks
-`_missing_sections` for the tier headings, over `_quoted_out` output. It lives
+`missing_sections` for the tier headings, over `quoted_out` output. It lives
 in `cli.py` beside `_check_arch_records`, as `_check_record_placement`, and
 composes its dependencies at the call the way the check beside it already does.
 

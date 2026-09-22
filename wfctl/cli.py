@@ -5691,7 +5691,7 @@ def _check_record_placement(repo_root: Path) -> bool:
     from rich.markup import escape
 
     from wfctl import _arch
-    from wfctl._paths import DESIGN_DIR
+    from wfctl._paths import DESIGN_DIR, IMPLEMENTATION_DIR
     from wfctl._predicates import missing_sections, quoted_out
 
     def carries(text: str, section: str) -> bool:
@@ -5732,7 +5732,7 @@ def _check_record_placement(repo_root: Path) -> bool:
                     "warning", path,
                     f"carries neither `{_arch.LEVEL_2_SECTION}` nor"
                     f" `{_arch.LEVEL_3_SECTION}` — it weighed nothing, so it belongs"
-                    " under implementation/.",
+                    f" under {IMPLEMENTATION_DIR}/.",
                 ))
 
     for level, path, message in findings:
@@ -6164,12 +6164,13 @@ def doctor_cmd() -> None:
 
     Two of the checks below are freshness (the tool version, the content hash);
     the rest are integrity (the teardown hook, the spec-root move, the definition
-    of done, the record set, abandoned entries and managed hooks) — `npm
-    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap`, the
-    double-claimed-key report and the missing-agent-layer notice are in neither,
-    because none of them ever becomes a finding. Named rather than counted: a
-    numeral here has gone stale three times, and one that has to agree with the
-    list beside it is a second place to be wrong.
+    of done, the record set, record placement, abandoned entries and managed
+    hooks) — `npm outdated` and `npm doctor` under one name.
+    `_warn_missing_bootstrap`, the double-claimed-key report and the
+    missing-agent-layer notice are in neither, because none of them ever
+    becomes a finding. Named rather than counted: a numeral here has gone stale
+    three times, and one that has to agree with the list beside it is a second
+    place to be wrong.
 
     An earlier count made the sixth check the sign to split the two halves. It
     arrived unremarked and so did the seventh, which is the evidence that the

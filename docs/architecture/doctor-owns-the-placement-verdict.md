@@ -64,8 +64,9 @@ Neither is extended, and neither is retired.
 `arch check` cannot: it is handed one path by a caller who already has that
 record in mind, so it can only ever confirm a suspicion someone already had. The
 failure here is that nobody suspects anything — a misfiled record produces no
-symptom, which is why it survived 57 records and two years. A check that reaches
-only named paths reproduces the silence it was built to break.
+symptom, which is why it survived the whole corpus and the whole of the time
+records have existed here. A check that reaches only named paths reproduces the
+silence it was built to break.
 
 `status` cannot either, and for a reason of its own rather than the same one: its
 design gate is scoped to one branch, excludes `design/` by name, and answers only
@@ -114,12 +115,17 @@ exit code some of its meaning". This is the second check admitted under the
 widened remit, and #443 exists to decide the admission list before there is a
 third.
 
-Nothing on disk trips any of the three rows. All 57 records carry exactly one of
-the two sections and sit in the directory that section names — 39 with `Owns
-truth` at the root, 18 with `Diagram` under `design/`, none with both and none
-with neither. A check that fires on a correctly-placed record gets ignored and
-then removed, so that run is the evidence this decision rests on rather than a
-fixture built to agree with it.
+Nothing on disk trips any of the three rows. Run 2026-09-21: all 58 records
+carry exactly one of the two sections and sit in the directory that section
+names — 39 with `Owns truth` at the root, 19 with `Diagram` under `design/`,
+none with both and none with neither. A check that fires on a correctly-placed
+record gets ignored and then removed, so that run is the evidence this decision
+rests on rather than a fixture built to agree with it.
+
+The count is dated because it drifts with every record added, including the two
+this change writes. What the run establishes is the verdict — no false positive
+on a corpus nobody built to agree with it — and the test that re-establishes it
+declines to assert a number for the same reason.
 
 ## Log
 

@@ -76,6 +76,26 @@ def test_a_level_3_record_at_the_arch_root_is_an_error(
     assert result.exit_code == 1
 
 
+def test_a_level_3_record_under_design_is_silent(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The most common shape in the tree, and the one cell of the grid no other
+    test here covers — 19 of this repo's 58 records are exactly this.
+
+    Every other test asserts that something is *said*. A regression that warned
+    on a correctly-filed design record would leave all of them passing, and the
+    corpus test only sees it because it was taught to read stdout; this sees it
+    from a fixture, which is what fails on a laptop with no records checked out.
+    """
+    root = _arch_root(agent_dir, monkeypatch)
+    _write(root, f"{DESIGN_DIR}/well-filed.md", LEVEL_3_SECTION, "Considered")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "well-filed.md" not in result.output
+    assert result.exit_code == 0
+
+
 def test_a_record_carrying_neither_section_only_warns(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -226,7 +246,7 @@ def test_each_template_carries_its_own_section_and_not_the_others() -> None:
     reason="run from a checkout that carries wfctl's own architecture records",
 )
 def test_this_repositorys_own_records_produce_no_placement_finding(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The gate the decision rests on, and the one a fixture cannot give.
 
@@ -235,10 +255,20 @@ def test_this_repositorys_own_records_produce_no_placement_finding(
     they only prove the predicate agrees with itself. 58 records at the time
     this was written; the assertion is on the verdict, not the count, because a
     number here would drift with every record added.
+
+    Silence and not just `False`: the return value carries the `error` rows
+    alone, so a regression that `⚠`'d every correctly-filed record would leave
+    this passing. That run is what the decision's `Assumed` block names as its
+    falsifier, and this is the only test positioned to see it.
     """
     repo_root = Path(__file__).resolve().parents[1]
-    # Delete rather than pop: an ambient `WFCTL_ARCH_DIR` would point this at
-    # some other repo's records and the test would pass for the wrong reason.
-    monkeypatch.delenv("WFCTL_ARCH_DIR", raising=False)
+    # Set rather than delete: deleting only clears the override, and resolution
+    # then falls through to this repo's manifest and the main checkout's — both
+    # gitignored and machine-local, so on a box declaring `arch_root` elsewhere
+    # this asserted about another repo's records and passed for that reason.
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(repo_root / "docs" / "architecture"))
 
-    assert _check_record_placement(repo_root) is False
+    failed = _check_record_placement(repo_root)
+
+    assert capsys.readouterr().out == ""
+    assert failed is False
