@@ -206,7 +206,7 @@ def test_a_fan_out_still_running_holds_the_restart_and_sends_nothing(
     assert out is not None
     assert json.loads(out) == {"systemMessage": (
         "session restart held: 1 subagent still running — context not cleared; "
-        "run /end-session restart yourself if they never report"
+        "run /end-session restart then /clear yourself if they never report"
     )}
 
 

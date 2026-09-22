@@ -85,6 +85,11 @@ default 200000 tokens, `WFCTL_RESTART_THRESHOLD=0` turns it off per-shell).
 Nobody is at the prompt when it fires, so keep `session-summary.md`'s **Next
 Session TODO** current — it may be the only thing the next session reads.
 
+It will not fire while subagents you launched are still out: their results have
+nowhere to land once the pane is cleared, so the restart waits for the last one
+rather than handing off without them. A pane that has stopped restarting and
+says so is usually that, and the line names the two commands that take it back.
+
 `specs/` is gitignored, and this repo records a `spec_root` *outside* the working
 tree. `<repo>/specs` is the default, not the truth: resolution is
 `WFCTL_SPEC_DIR`, then this repo's manifest, then the main checkout's manifest,

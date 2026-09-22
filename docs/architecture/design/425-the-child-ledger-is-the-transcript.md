@@ -32,13 +32,28 @@ wfctl maintained would be exactly such a cursor.
   records carry `"status": "async_launched"` and 6 carry `"status": "forked"`;
   every one of the 477 also carries a string `agentId`, and no other record shape
   carries that key.
-- The same corpus holds 483 records of `"type": "user"` whose `message.content`
-  is a string beginning `<task-notification>`, each naming one `<task-id>`. Ten
-  further records mention the same tags inside a *list* of content blocks — an
-  agent writing about notifications rather than receiving one.
-- A transcript under `wt/100-gate-evidence-contract` launched six children and
-  ends with two whose notification never arrived: the failure #425 describes,
-  already in this repository's history.
+- A child's report reaches the transcript in two shapes, and which one depends on
+  what the parent was doing. At its prompt, the parent gets a `"type": "user"`
+  record whose `message.content` is a string beginning `<task-notification>` —
+  483 of those. Mid-turn, the notification is absorbed into the running turn and
+  the only record is a top-level `attachment` whose `prompt` carries the same
+  tags. Reading the first alone left 200 of 489 launches looking outstanding when
+  141 of them had reported; reading both leaves 57.
+- A merely queued copy is not a report. The same notification also passes through
+  `queue-operation` records, and an item can leave that queue unsent
+  (`resume_failed`), so the queue is not read. The attachment is written as the
+  item leaves the queue *into* the turn — `enqueue`, then `remove` with reason
+  `absorbed_mid_turn`, then the attachment carrying the rendered text.
+- Ten records mention the same tags inside a *list* of content blocks, and two
+  more inside a `prompt_snapshot` attachment — an agent writing about
+  notifications rather than receiving one. Requiring the tag to be the whole of
+  the string, rather than anywhere in it, is what separates them.
+- Across 320 of this repository's transcripts, 57 launches are still outstanding
+  when their transcript ends. 51 of them reported into a *later* transcript in
+  the same project — the pane was cleared between the launch and the report,
+  which is the failure #425 describes, and the session that received those 51
+  reports had no record that any of them were expected. The remaining 6 have no
+  report anywhere on disk.
 - The launch's own tool-result text: "never quote or paste any part of it,
   including the agentId below, into a user-facing reply."
 - `docs/architecture/session-state-is-re-derived.md` — "no session file is

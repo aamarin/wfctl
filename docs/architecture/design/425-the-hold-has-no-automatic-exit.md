@@ -38,11 +38,23 @@ which is the point of it.
 ## Assumed
 
 - **That a child failing to report is rare enough to be a person's problem.**
-  Every one of the 477 launches in this repository's transcripts that had a
-  notification got it within the same session; the two that did not are the
-  #425 failure itself, where the session was cleared out from under them.
+  Of 489 launches across 320 of this repository's transcripts, 6 have no report
+  anywhere on disk — the case a person has to resolve, because nothing else can
+  tell a slow child from a dead one. A further 51 reported only into a later
+  transcript, the session having been cleared out from under them: those are the
+  #425 failure rather than this assumption's risk, and the hold is what removes
+  them.
+
+  This number was wrong when the record was first written, and wrongly small.
+  It said two, measured with a reader that knew one of the two shapes a
+  notification arrives in, so a report absorbed into a running turn counted as no
+  report at all. Measuring the hold's own risk with the instrument the hold
+  depends on is the mistake worth naming here: the reader was not a detail below
+  this decision, it was the decision's evidence.
+
   Falsified by a harness release that drops notifications routinely, which would
-  make held panes the common case rather than the exception.
+  make held panes the common case rather than the exception. At 6 in 489 that
+  condition is not met; at the 200 the first reader reported, it would have been.
 
 ## Direct baseline
 

@@ -39,11 +39,14 @@ inside it a condition sits.
 
 ## Assumed
 
-- **That a session does not fan out during its own wrap-up turn.** `/end-session`
-  walks its steps and spawns nothing. Falsified by a person typing a request into
-  a held pane after the handoff request went out, whose children would then be
-  cleared away — the case this decision accepts, and the reason it is written
-  down rather than assumed away.
+- **That a session does not fan out between the handoff request and the stop it
+  waits for.** That window is not one turn. `/end-session` itself walks its steps
+  and spawns nothing, but the restart sits in `hold` for as many reply ends as it
+  takes for a stop to be recorded, and nothing bounds them — a person who comes
+  back to a held pane can run a whole panel inside it, and the first stop after
+  that clears the pane with no children check. Falsified by exactly that, and it
+  is the case this decision accepts rather than the narrower one-turn version
+  first written here.
 
 ## Direct baseline
 

@@ -303,8 +303,10 @@ def decide(
     and should not pay for them. Neither has a default: a correctness condition
     that a caller can omit is one that new callers will omit.
 
-    The rules, first match wins, are `data-model.md`'s table; the comments below
-    carry why each sits where it does.
+    The rules, first match wins, are `data-model.md`'s table, with one exception:
+    the children hold is #425's and that table is #371's, so `hold-children` has
+    no row there and the decision tree it draws has no branch for it. The comments
+    below carry why each rule sits where it does.
     """
     # Off, and under the threshold, first. A restart in progress is always over
     # it — neither the handoff turn nor a clear that did not take shrinks the
@@ -372,8 +374,21 @@ def decide(
     # planned twice (#425) — so there would be no second turn to fold them into.
     children = tuple(find_children())
     if children:
-        if decided(HOLD_CHILDREN):
-            return Decision(NOTHING)
+        held = decided(HOLD_CHILDREN)
+        # Said once per fan-out, not once per session. A panel reporting one at a
+        # time shrinks this set on every reply end, and a message for each shrink
+        # would bury the one that mattered — but a *new* panel sent later is a
+        # new hold, and the first version stayed silent for it, leaving the only
+        # copy of the escape hatch unprinted. Growth is the signal: a description
+        # the last hold did not carry, or more children than it held. Identity is
+        # the description because that is all the event records — two fan-outs
+        # with identical descriptions read as one, which is the cost of keeping
+        # `agentId` out of the log.
+        if held:
+            before = tuple(held[1].get("children") or ())
+            grew = set(children) - set(before) or len(children) > len(before)
+            if not grew:
+                return Decision(NOTHING)
         return Decision(HOLD_CHILDREN, children=children)
 
     handle = find_handle()
@@ -398,9 +413,16 @@ def message(decision: Decision, repo_root: Path) -> str | None:
         # it. There is no automatic one on purpose: a hold that expires is the
         # timeout #425 rejects, and the only party who can tell a slow child from
         # a dead one is whoever comes back to the pane.
+        #
+        # Both commands, because the hook will not supply the second. A hand-typed
+        # `/end-session restart` records a stop but no *planned* end, so `decide`
+        # never reaches the branch that sends the clear — it falls back here,
+        # finds the hold already recorded and decides nothing. Naming one command
+        # left the person holding half a sequence with nothing to say so.
         return (
             f"session restart held: {count} {noun} still running — context not "
-            "cleared; run /end-session restart yourself if they never report"
+            "cleared; run /end-session restart then /clear yourself if they "
+            "never report"
         )
     if decision.kind == SKIP:
         return f"session restart skipped: no workmux pane for {repo_root}"
@@ -574,6 +596,11 @@ def run_hook(
     if decision.kind == CLEAR and decision.end_pos is not None:
         amend_summary_for_late_events(state_dir, events, decision.end_pos)
 
+    # `children` only where there are any. `decide` reads this field back to tell
+    # a second fan-out from the one it already held, and an empty list on every
+    # other decision is a row that answers that question for a decision which was
+    # never asked it.
+    extra = {"children": list(decision.children)} if decision.children else {}
     append_event(
         state_dir,
         DECISION_EVENT,
@@ -582,7 +609,7 @@ def run_hook(
         occupancy=tokens,
         threshold=limit,
         handle=decision.handle,
-        children=list(decision.children),
+        **extra,
     )
     if decision.texts:
         try:

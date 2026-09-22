@@ -37,9 +37,9 @@ S = "session-1"
 OVER = DEFAULT_THRESHOLD + 1
 
 
-def planned(kind: str, session: str = S) -> dict:
+def planned(kind: str, session: str = S, children: tuple[str, ...] = ()) -> dict:
     return {"ts": "2026-09-15T12:00:00Z", "event": "session-restart",
-            "session": session, "decision": kind}
+            "session": session, "decision": kind, "children": list(children)}
 
 
 def sent(text: str, code: int = 0, session: str = S, ts: str = "2026-09-15T12:33:03Z") -> dict:
@@ -224,15 +224,51 @@ def test_the_children_hold_is_reported_once_and_then_says_nothing() -> None:
     copies of a line that has not changed."""
     events: list[dict] = []
     assert run(events, children=("reviewer r1",)).kind == HOLD_CHILDREN
-    events.append(planned(HOLD_CHILDREN))
+    events.append(planned(HOLD_CHILDREN, children=("reviewer r1",)))
     assert run(events, children=("reviewer r1",)).kind == NOTHING
 
 
 def test_the_restart_begins_once_the_last_child_has_reported() -> None:
     """The hold's ordinary exit, and the reason it needs no timer: it is
     re-derived on every reply end and ends when the evidence changes."""
-    events = [planned(HOLD_CHILDREN)]
+    events = [planned(HOLD_CHILDREN, children=("reviewer r1",))]
     assert run(events, children=()).kind == END
+
+
+def test_a_panel_reporting_one_at_a_time_does_not_repeat_the_hold() -> None:
+    """The set shrinks on every reply end a panel of three produces. Each shrink
+    is the same hold with less left in it, and a line per shrink would bury the
+    first copy — the one carrying the escape hatch."""
+    events = [planned(HOLD_CHILDREN, children=("r1", "r2", "r3"))]
+    assert run(events, children=("r2", "r3")).kind == NOTHING
+    assert run(events, children=("r3",)).kind == NOTHING
+
+
+def test_a_second_fan_out_is_held_out_loud_rather_than_silently() -> None:
+    """The first version said the hold once per session, not once per fan-out. A
+    panel sent after an earlier one had already held left the person with a
+    session that would not restart and nothing on screen saying why — and the
+    pane message is the only place the escape hatch exists."""
+    events = [planned(HOLD_CHILDREN, children=("r1",))]
+    assert run(events, children=("r9",)).kind == HOLD_CHILDREN
+
+
+def test_a_second_fan_out_of_identically_named_children_still_speaks() -> None:
+    """Descriptions are all the event records, so two panels named alike are
+    indistinguishable by name. The count separates them: more children than the
+    last hold carried is growth whatever they are called."""
+    events = [planned(HOLD_CHILDREN, children=("reviewer",))]
+    assert run(events, children=("reviewer", "reviewer")).kind == HOLD_CHILDREN
+
+
+def test_a_hand_typed_stop_does_not_clear_a_held_pane() -> None:
+    """Why the pane message names `/clear` as well. A person taking the escape
+    hatch writes a stop, but no *planned* end — so `decide` never reaches the
+    branch that sends the clear, falls through to here, and finds the hold
+    already recorded. Nothing is sent and nothing further is said, which is why
+    half the sequence in that string left them stuck."""
+    events = [planned(HOLD_CHILDREN, children=("r1",)), stop()]
+    assert run(events, children=("r1",)).kind == NOTHING
 
 
 def test_a_restart_already_under_way_is_not_held_by_a_later_child() -> None:
@@ -260,7 +296,7 @@ def test_each_reporting_decision_has_its_contract_text() -> None:
     )
     assert message(Decision(HOLD_CHILDREN, children=("r1", "r2")), ROOT) == (
         "session restart held: 2 subagents still running — context not cleared; "
-        "run /end-session restart yourself if they never report"
+        "run /end-session restart then /clear yourself if they never report"
     )
     assert message(Decision(NOT_TAKEN, send=sent(CLEAR_TEXT)), ROOT) == (
         "session restart sent /clear at 12:33Z and this session is still here — "
@@ -296,7 +332,7 @@ def test_the_children_hold_names_the_escape_hatch_and_no_agent_id() -> None:
     person, and this string is printed in their pane."""
     text = message(Decision(HOLD_CHILDREN, children=("r1", "r2")), ROOT)
     assert text is not None
-    assert "run /end-session restart yourself" in text
+    assert "run /end-session restart then /clear yourself" in text
     assert "r1" not in text
 
 
