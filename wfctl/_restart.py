@@ -147,18 +147,55 @@ _TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 UNNAMED_CHILD = "subagent"
 
 
+def _notifications(record: dict) -> list[str]:
+    """Every `<task-notification>` this transcript record delivered to the session.
+
+    The harness writes a child's report into more than one record shape, and which
+    one it picks turns on what the parent was doing when the child finished. A
+    session sitting at its prompt gets a `user` record whose content is the
+    notification. A session *mid-turn* has the notification absorbed into the
+    running turn instead, and the only record of it is an `attachment`. Reading
+    the first shape alone missed the second, which is the more common one — and a
+    child read as outstanding forever holds the restart forever, because the hold
+    has no automatic exit.
+
+    A queued copy is not a delivery. The same notification also passes through
+    `queue-operation` records, but a queued item can be removed unsent
+    (`resume_failed`), so counting one would release the hold for a report that
+    never reached the session — the one direction this reader must not fail in.
+
+    The `attachment` is on the delivered side of that line, which its own
+    `queued_command` type makes easy to doubt: the name says where the item came
+    from, not what became of it. The queue's records settle it, in this order —
+    `enqueue`, then `remove` with reason `absorbed_mid_turn`, then the attachment
+    carrying the rendered notification. The record is written as the item leaves
+    the queue *into* the turn, and a notification-bearing attachment that was
+    never rendered does not occur.
+
+    The notification has to be the *whole* of the string, not a substring: an
+    agent that writes about task notifications puts the same tags in its own
+    reply, and a looser read would let a session talk itself out of the hold.
+    """
+    texts = []
+    if record.get("type") == "user":
+        message = record.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str) and content.lstrip().startswith(_NOTIFICATION):
+            texts.append(content)
+    attachment = record.get("attachment")
+    if isinstance(attachment, dict):
+        prompt = attachment.get("prompt")
+        if isinstance(prompt, str) and prompt.lstrip().startswith(_NOTIFICATION):
+            texts.append(prompt)
+    return texts
+
+
 def outstanding_children(transcript: Path) -> list[str]:
     """Children this session launched that have not reported back, oldest first.
 
     A launch is a `toolUseResult` carrying an `agentId` — one shape for both an
-    async subagent and a fork. The report is a later user record whose content is
-    a `<task-notification>` naming that id.
-
-    The notification has to be the *whole* of a string content, not a substring of
-    the line: an agent that writes about task notifications puts the same tags in
-    its own reply, and a looser read would let a session talk itself out of the
-    hold. Across this repo's own transcripts that distinction is 483 real
-    notifications against 10 records that merely quote one.
+    async subagent and a fork. The report is a later `<task-notification>` naming
+    that id; `_notifications` owns which record shapes count as one.
 
     Descriptions, never ids. The launch result says in its own text that an
     `agentId` is internal metadata that must not reach a person, and this list
@@ -191,11 +228,8 @@ def outstanding_children(transcript: Path) -> list[str]:
                             described if isinstance(described, str) and described
                             else UNNAMED_CHILD
                         )
-                if record.get("type") == "user":
-                    message = record.get("message")
-                    content = message.get("content") if isinstance(message, dict) else None
-                    if isinstance(content, str) and content.lstrip().startswith(_NOTIFICATION):
-                        reported.update(_TASK_ID.findall(content))
+                for text in _notifications(record):
+                    reported.update(_TASK_ID.findall(text))
     except OSError:
         return []
     return [name for agent_id, name in launched.items() if agent_id not in reported]

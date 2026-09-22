@@ -42,6 +42,23 @@ def notification(agent_id: str) -> str:
     })
 
 
+def absorbed(agent_id: str) -> str:
+    """The same report, delivered while the session was mid-turn.
+
+    The harness folds a notification that arrives during a running turn into that
+    turn as an `attachment` instead of writing a `user` record for it. It is the
+    shape a fanned-out session produces most, because a parent waiting on a panel
+    is usually working while the panel reports.
+    """
+    return json.dumps({
+        "type": "attachment",
+        "attachment": {"prompt": (
+            f"<task-notification>\n<task-id>{agent_id}</task-id>\n"
+            "<tool-use-id>toolu_1</tool-use-id>\n</task-notification>"
+        )},
+    })
+
+
 def transcript(tmp_path: Path, *lines: str) -> Path:
     path = tmp_path / "t.jsonl"
     path.write_text("\n".join(lines) + "\n")
@@ -127,3 +144,48 @@ def test_an_unreadable_transcript_reports_no_children(tmp_path: Path) -> None:
     restart with nothing able to release it. `occupancy` already decides
     *nothing* on the same file, so the hook never reaches this reading."""
     assert outstanding_children(tmp_path / "missing.jsonl") == []
+
+
+def test_a_child_that_reported_mid_turn_is_not_outstanding(tmp_path: Path) -> None:
+    """The shape the first reader missed, and the one that made this hold
+    permanent: every notification arriving while the parent was working read as
+    no report at all, so the pane held past its threshold with no way out. Two
+    independent reviewers measured 200 of 489 launches in this repo's own
+    transcripts reading as outstanding, 141 of which had reported."""
+    t = transcript(tmp_path, launch("a1"), absorbed("a1"))
+    assert outstanding_children(t) == []
+
+
+def test_a_queued_notification_alone_does_not_release_the_hold(tmp_path: Path) -> None:
+    """A queued item can be removed unsent — `resume_failed` in the corpus — so a
+    queue record is not evidence the session ever saw the report. Releasing on one
+    would clear a pane with a child still out, which is #425's own failure."""
+    queued = json.dumps({
+        "type": "queue-operation",
+        "operation": "enqueue",
+        "content": (
+            "<task-notification>\n<task-id>a1</task-id>\n"
+            "<tool-use-id>toolu_1</tool-use-id>\n</task-notification>"
+        ),
+    })
+    t = transcript(tmp_path, launch("a1"), queued)
+    assert outstanding_children(t) == ["Review panel r1"]
+
+
+def test_a_prompt_snapshot_quoting_a_notification_does_not_release_the_hold(
+    tmp_path: Path,
+) -> None:
+    """The near miss beside the shape above. A `prompt_snapshot` attachment
+    carries whatever the turn's prompt held, which for this branch includes
+    sessions discussing notifications — two such records sit in the transcript
+    this fix was measured on. It is an attachment with a `prompt`, and only the
+    requirement that the tag be the *whole* of it keeps the two apart."""
+    snapshot = json.dumps({
+        "type": "attachment",
+        "attachment": {"type": "prompt_snapshot", "prompt": (
+            "Here is what a report looks like: <task-notification>\n"
+            "<task-id>a1</task-id>\n</task-notification>"
+        )},
+    })
+    t = transcript(tmp_path, launch("a1"), snapshot)
+    assert outstanding_children(t) == ["Review panel r1"]
