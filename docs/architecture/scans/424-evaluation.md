@@ -6,7 +6,7 @@ branch ran none; the thing needing to reach a reviewer is an experiment's result
 one thing it delegates to "the wrapper that sent you here" is the coverage rows,
 and no wrapper sent this one, so the rows below are this evaluation's own.
 
-**Passes A through G were named before the run; H, I and J were not.** They are
+**Passes A through G were named before the run; H, I, J and K were not.** They are
 marked as such in the table, because a coverage table's job is to show what a run
 set out to cover — that is what makes an unreached pass visible — and a row
 added afterwards cannot do that job. Removing them instead would hide findings 9 and 10
@@ -66,6 +66,7 @@ that rule to itself.
 | H · What a mirrored row reports about its own worktree | Outstanding (finding 9) — **pass added after the run** |
 | I · Whether a session created after connect gets a row | Outstanding (finding 10) — **pass added after the run** |
 | J · Whether anything already writes wfctl status to a row | Clear (`~/.local/bin/wfctl-rows` does; finding 11) — **pass added after the run** |
+| K · Whether tearing the mirror down and reconnecting repairs a stale set | Clear (it does, and costs every status line; finding 12) — **pass added after the run** |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
@@ -552,10 +553,9 @@ ssh proceeds, and the transcript's own next line is `Authenticated;`. What faile
 is the phase after authentication, which is cmux's mirror-open. The control master
 is the obvious suspect and it is not the observed cause.
 
-**The remedy is likewise untried.** `ssh -O exit` on that socket followed by a
-fresh `cmux ssh-tmux localhost` is the obvious repair and no run of it is
-recorded, so "tear it down and reconnect" is a proposal in this file and not a
-result.
+**The remedy was untried when this finding was written, and has since been run.**
+`ssh -O exit` on that socket followed by a fresh `cmux ssh-tmux localhost` does
+repair the set — finding 12 records the run, and what it costs.
 
 **What this does to the record.** The recovery clause covers one direction —
 *workmux reports an environment and tmux has no session, so surface and stop*.
@@ -683,6 +683,93 @@ process cmux did not start, so an actual tick needs a cmux-native terminal —
 `cmux new-workspace --name wfctl-rows --command wfctl-rows` is the form the
 script's own docstring recommends.
 
+## Finding 12 — the repair for finding 10 wipes every status line
+
+Finding 10 recorded that a session created after the mirror connects never gets a
+row, and named tear-down-and-reconnect as the obvious repair while marking it
+untried. It has now been tried. **It works, and it costs everything the poller
+had written.**
+
+Nine tmux sessions existed; six had rows. `pfms__667-flexing-accounts-zero` and
+`pfms__671-ledger-expand-all` had been created about four hours after the mirror
+connected and were absent from the sidebar, though `workmux list`, `git worktree
+list` and the directories on disk all had them, and `671` already carried a
+commit.
+
+```
+$ ssh -O check -S ~/.cmux/ssh/tmux-localhost-….sock localhost
+Master running (pid=24921)
+
+$ ssh -O exit  -S ~/.cmux/ssh/tmux-localhost-….sock localhost
+Exit request sent.
+
+$ ssh -O check -S ~/.cmux/ssh/tmux-localhost-….sock localhost
+Control socket connect(…): No such file or directory
+```
+
+Then, from a cmux-native terminal:
+
+```
+$ cmux ssh-tmux localhost
+Authenticated; opening remote tmux mirror for localhost…
+OK host=localhost workspaces=9 window=C78A7B17-…
+```
+
+Nine rows. Both missing worktrees present. **The repair is real and #461 can
+stop calling it a proposal.**
+
+**Ownership survived the teardown, which is a stronger result than the original
+run produced.** Every one of the nine tmux sessions was still alive immediately
+after the master exited, all detached, none killed:
+
+```
+$ tmux list-sessions -F "#{session_name} attached=#{session_attached}"
+Orchestrator attached=0
+pfms__561-chart-of-accounts-screen attached=0
+…
+wfctl__424-observer-dashboard-eval attached=0
+```
+
+Finding 8 established the mirror issues no `kill-session` while running. This
+establishes it does not take the sessions with it when it dies, which is the case
+a client that owned anything would fail.
+
+**Every status line was lost.** `set-status` values are stored per workspace, and
+reconnecting builds new workspaces — so all six lines finding 11 describes went
+with the old ones. The rows came back blank.
+
+**And the poller died with them.** It had been started as
+`cmux workspace create --name wfctl-rows --command wfctl-rows`, so its process
+was a child of a workspace the teardown removed. `ps` reported zero afterwards.
+
+```
+  before teardown          after reconnect
+  ───────────────          ───────────────
+  6 rows                   9 rows          ← the repair
+  6 status lines           0 status lines  ← the cost
+  poller running           poller dead     ← and it cannot refill them
+```
+
+**The two defects compound rather than sit side by side.** Finding 10 costs you
+the newest worktree; its repair costs you every other worktree's verdict, and
+removes the one thing that could put them back. A person who reconnects to see
+the worktree they just made ends up with a screen that lists everything and
+knows nothing about any of it — and nothing on that screen says so, because a
+blank status line and a worktree with no verdict render identically.
+
+**What would fix the compounding, stated as options rather than a
+recommendation.** Running the poller somewhere the teardown does not reach is the
+obvious one, and the script's own docstring rules out the easy version: it must
+run in a terminal cmux created, or hold `CMUX_SOCKET_PASSWORD`. A workspace that
+survives its own mirror's teardown may not exist. Whether a local
+path-workspace — which is not mirrored, and did survive here — can host it is
+untested and is the cheap experiment. `#461` is where that belongs.
+
+**Limits.** One teardown, one reconnect, `localhost`. The reconnect was run from
+a local path-workspace; whether it works from elsewhere is untested. Nothing here
+says how the mirror behaves if the master dies unexpectedly rather than on
+request.
+
 ## What it would cost to get #424's screen anyway
 
 Three pieces, none of them in wfctl. **Two of them now exist**, and the second
@@ -695,12 +782,13 @@ run is what moved them:
    ring or status lane is keyed to it. The mirror is the one that carries a row.
 
    **It supplies rows for the sessions that existed when it connected, and adds
-   none afterwards** (finding 10). A worktree created since is absent, and reconnecting
-   over the top of the existing mirror fails. Tearing it down first is the
-   obvious repair and is untried, so treat it as the next thing to check rather
-   than as a known step. Whoever builds piece 3 inherits the gap either way: the
-   poller learns about a new worktree from `workmux list` one tick later and has
-   no row to write it to.
+   none afterwards** (finding 10). A worktree created since is absent, and
+   reconnecting over the top of the existing mirror fails; tearing the control
+   master down first and then reconnecting does work, and costs every status line
+   on the screen plus the poller itself (finding 12). Whoever runs piece 3
+   inherits both: the poller learns about a new worktree from `workmux list` one
+   tick later and has no row to write it to, and the repair for that removes the
+   poller.
 2. **Correlation on the workmux handle.** Supplied by the mirror, which labels
    each workspace with the tmux session name and nothing else. This is what
    `a-client-attaches-to-a-runtime-it-never-owns` asks for, and it arrives for
@@ -748,11 +836,13 @@ missing, and one of those cannot be evaluated here". It became "one piece
 missing, and it is the one the #424 comment declined". It is now **none
 missing** — the screen exists and carries wfctl's verdicts today.
 
-What is left is not a piece but three defects and a home. Piece 1 misreports
-half its paths (finding 9) and never notices a new session (finding 10). Piece 3
-is not running, and a stale row looks exactly like a fresh one. And piece 3 lives
-in `~/.local/bin` rather than in any repository, which is what #459 stays open
-for.
+What is left is not a piece but four defects and a home. Piece 1 misreports five
+of the ten rows read (finding 9) and never notices a new session (finding 10).
+The repair for that erases every status line and kills the poller, so the two
+compound (finding 12). A stale row looks exactly like a fresh one, and a row
+whose verdict was wiped looks exactly like a worktree with nothing to say. And
+piece 3 lives in `~/.local/bin` rather than in any repository, which is what #459
+stays open for.
 
 A one-shot stands in for the missing piece in finding 8, where the pane wrote
 its own row with a `printf`; what a sidecar adds is doing that on a schedule, for
