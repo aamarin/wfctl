@@ -65,7 +65,7 @@ that rule to itself.
 | G · The payload as a consumed contract across worktrees | Outstanding (finding 7) |
 | H · What a mirrored row reports about its own worktree | Outstanding (finding 9) — **pass added after the run** |
 | I · Whether a session created after connect gets a row | Outstanding (finding 10) — **pass added after the run** |
-| J · Whether anything already writes wfctl status to a row | Outstanding (finding 11) — **pass added after the run** |
+| J · Whether anything already writes wfctl status to a row | Clear (`~/.local/bin/wfctl-rows` does; finding 11) — **pass added after the run** |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
@@ -588,20 +588,12 @@ up as a tab, were not tested; the heading and the conclusion above are narrowed
 to the case that was, which is why neither says the set is frozen. Not filed
 against cmux for the same reasons as finding 9.
 
-## Finding 11 — six rows carry a wfctl status line, from a source this run could not identify
+## Finding 11 — the poller exists, and lives outside every repository
 
-Later the same day, after the tmux server had turned over, the sidebar looked
-like this:
+Later the same day the sidebar showed a status line under every mirrored row —
+six of them, across two repositories, in sessions this evaluation never touched:
 
 ```
-…/wfctl/wt/424-observer-dashboard-eval
-  424-observer-dashboard-eval
-  PR #460  open                            ← cmux's own git metadata
-
-Orchestrator
-  ~/Development/pfms
-  ~/Development/wfctl
-
 wfctl__424-observer-dashboard-eval
   #424 · brainstorm · next /speckit.brainstorm
 pfms__pfms-specs
@@ -616,56 +608,80 @@ pfms__561-chart-of-accounts-screen
   #561 · brainstorm · next /speckit.brainstorm
 ```
 
-**Every mirrored row carries a wfctl status line. Neither non-mirrored row
-does.** Six rows, two repositories, and sessions this evaluation never touched.
-The `done` rows even render a shorter form than the rest, which a naive
-formatter would not: a row whose step is `done` has no next command, and these
-omit it rather than printing an empty tail.
+**`~/.local/bin/wfctl-rows` writes them.** A 5.5 KB Python script whose docstring
+opens *"Decided on aamarin/wfctl#459: a join, not an orchestration plane."* It
+reads `workmux list`, runs `wfctl status` in each worktree, matches the tmux
+session name to a cmux workspace through `session_path`, and writes one status
+key per row with `cmux set-status wfctl <line>`. It takes `--interval` (default
+15s), `--once`, and `--dry-run`. It caches nothing: the worktree list, the
+verdict and the workspace mapping are all re-derived every tick, which is
+`session-state-is-re-derived` applied to a display surface.
 
-**What wrote them is not established.** Finding 8 put one such line on one row
-with a `printf` into a pane's tty, by hand. These are six, in two repositories,
-in a tmux server that had restarted since. Checked and ruled out:
+So the piece the cost section below calls missing is built, and #459's question
+is answered — the join is a join, not a plane.
 
-| Candidate | Result |
-| --- | --- |
-| a poller process | `ps` shows cmux and its seven `ssh -CC` mirror clients, nothing else |
-| wfctl emitting OSC itself | no escape sequence anywhere under `wfctl/` |
-| a hook in either repo's `.claude/settings.json` | wfctl's four are `user-prompt`, `response-shape`, `session-restart`, `worktree-guard`; pfms declares none that touch a terminal |
-| a script in the shell profile or the dev tree | nothing matching, and no shell script modified that day |
+**It is not running, and the lines are frozen at 09:26.** The rows are
+`set-status` values, which cmux persists per workspace, so a screen that has not been updated
+in hours looks identical to one updated a second ago. That is worth more than it
+sounds: the supervisory screen's whole promise is that a glance tells you the
+current state, and nothing on it distinguishes current from stale.
 
-So the line between this and finding 8 is not a difference of mechanism but of
-knowledge: there, a command was run and its effect observed; here, an effect is
-observed and no command is known. **An evaluation that reports the second as
-though it were the first is the failure this file has already made twice**, so it
-is written down as what it is — a real observation with an unidentified cause,
-which someone with access to how these sessions are started can probably resolve
-in a minute.
+**It inherits finding 10 rather than fixing it.** The write is guarded by
+`elif name in refs` — a row is updated only if a workspace already carries that
+session name. A worktree created after the mirror connected has no workspace, so
+the poller reads it from `workmux list`, finds nowhere to put it, and skips it
+without a word. Knowing a worktree exists and having no row for it is exactly
+#461.
 
-**It bears directly on #459**, which asks whether to build a poller. If something
-is already doing this job, the question is not "build it" but "find what is doing
-it and decide whether to keep it". That is the first thing that branch should
-establish, and it is cheaper than the decision it was filed to make.
+**Two slots, not one.** An OSC 9 notification and a `set-status` value render as
+separate lines on the same row, which this evaluation established by accident:
+a probe string written to the notification slot appeared *above* the status line
+rather than replacing it. Finding 8's `printf` demonstration therefore used a
+different channel from the one the poller uses, and both work.
 
-**One thing this run did settle.** `cmux workspace list` was run against the new
-state and printed eight workspaces by title alone — no subtitle, no path:
+### What this evaluation got wrong, and how
+
+**An earlier version of this finding said the source could not be identified.**
+It listed four candidates ruled out — no poller process, no escape sequence in
+`wfctl/`, no hook in either repo, nothing in the shell profile — and concluded
+that someone with access to how the sessions start could probably resolve it.
+
+Every one of those checks was correct and the conclusion was still wrong,
+because the search never looked in the one place the answer was guaranteed to
+be. `#459` was filed to decide whether to build this, a worktree was created for
+it, and its handoff was written by the same session that then could not find
+what it produced. The worktree had since been removed, its transcript showed
+design sketches rather than a finished script, and that was allowed to stand for
+*nothing survived it* — when what survives a worktree is whatever it wrote
+outside the worktree, which for a developer tool is `~/.local/bin`.
+
+The general form is worth keeping: **a negative result about provenance is only
+as good as the places it looked, and "I checked four plausible places" is not
+"it is not findable."** The earlier text named its checks, which is what makes
+this correctable rather than merely wrong.
+
+### Where it lives is now the open question
+
+`wfctl-rows` is an untracked file in one developer's `~/.local/bin`. It is in no
+repository, has no tests, and its only record of the decision behind it is its
+own docstring. #459 remains open for that reason: the question it asked has been
+answered in practice and nowhere durably, so the branch that closes it has to
+decide where the script belongs — and `wfctl/` is probably not the answer, since
+a display surface for one macOS terminal app should not ship to every repo that
+installs wfctl.
+
+### What a later reader can re-run
 
 ```
-* workspace:1  …/wfctl/wt/424-observer-dashboard-eval  [selected]
-  workspace:9  Orchestrator
-  workspace:3  wfctl__424-observer-dashboard-eval
-  …
+cat ~/.local/bin/wfctl-rows        # the script and its docstring
+wfctl-rows --dry-run --once        # prints the rows it would write
+ps aux | grep wfctl-rows           # whether anything is keeping them current
 ```
 
-That confirms the Evidence ledger's claim rather than relieving it: the verb
-reports which rows exist, which is the half finding 10 needed, and reports
-nothing about what a row *displays*, which is the half finding 9 needed. Finding
-9's counts still have no second source.
-
-**Not re-testable here.** The session set turned over completely between the runs
-— `425`, `426`, `419`, `397` and the `459-poller-decision` session are gone;
-`561`, `564`, `565`, `669` and `Orchestrator` are new, all reconnected at 09:21.
-Finding 10's question cannot be re-asked against this state without creating a
-worktree on purpose, which was not done.
+The first two work from any shell. Writing rows does not: the socket refuses a
+process cmux did not start, so an actual tick needs a cmux-native terminal —
+`cmux new-workspace --name wfctl-rows --command wfctl-rows` is the form the
+script's own docstring recommends.
 
 ## What it would cost to get #424's screen anyway
 
@@ -691,13 +707,18 @@ run is what moved them:
    free rather than being configured. `cwd` is the tempting second key and cmux's
    own doc demotes it — "Title and cwd remain display and diagnostic hints only" —
    which finding 9 turns from a caution into an observed defect.
-3. **A sidecar.** A process started inside cmux, or holding the socket password,
-   polling `workmux list --json` and each worktree's `wfctl status --json`, and
-   pushing rows with `cmux set-status` / `cmux log`. **This is the whole of what
-   is left** — and finding 11 is six rows that look exactly like its output,
-   from a source this evaluation could not identify. So "the piece that does not
-   exist" is what this file established and no longer what it can claim: the
-   first thing to settle is whether something already does this.
+3. **A sidecar.** **This one is built.** `~/.local/bin/wfctl-rows` polls
+   `workmux list` and each worktree's `wfctl status`, and pushes one line per row
+   with `cmux set-status` — finding 11. It was written on #459 and decided there
+   to be a join rather than an orchestration plane: it caches nothing and owns no
+   fact, so it re-derives everything on every tick.
+
+   Two things it does not settle. It is not running, and a stale row is
+   indistinguishable from a current one, because `set-status` values persist. And
+   it skips a session that has no workspace, so it inherits finding 10 whole —
+   it can learn a worktree exists and have nowhere to write it.
+
+   It also lives in no repository, which is the question #459 is still open for.
 
    **It cannot run in a mirrored pane.** `cmux ssh-tmux localhost`, typed into a
    mirrored pane, returned finding 4's refusal:
@@ -722,11 +743,16 @@ run is what moved them:
    **Verified over `localhost` only**, like everything else in the second run. A
    genuinely remote host may differ, and no claim here reaches one.
 
-So the shape of the answer has changed. It was "two of three pieces missing, and
-one of those cannot be evaluated here"; it is now "one piece missing, and it is
-the one the #424 comment declined" — a second orchestration plane wearing a
-smaller name. The two pieces that now exist are not perfect: piece 1 misreports
-half its paths and does not notice new sessions.
+So the shape of the answer has changed twice. It was "two of three pieces
+missing, and one of those cannot be evaluated here". It became "one piece
+missing, and it is the one the #424 comment declined". It is now **none
+missing** — the screen exists and carries wfctl's verdicts today.
+
+What is left is not a piece but three defects and a home. Piece 1 misreports
+half its paths (finding 9) and never notices a new session (finding 10). Piece 3
+is not running, and a stale row looks exactly like a fresh one. And piece 3 lives
+in `~/.local/bin` rather than in any repository, which is what #459 stays open
+for.
 
 A one-shot stands in for the missing piece in finding 8, where the pane wrote
 its own row with a `printf`; what a sidecar adds is doing that on a schedule, for
