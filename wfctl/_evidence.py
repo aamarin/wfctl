@@ -405,19 +405,44 @@ def _blanked(text: str, *, comments: bool) -> str:
     the right answer for a projection whose subject is what a document quotes.
     And an *unpaired* backtick before `<!--` still opens one, which is the same
     residual the inline-span rule below already carries.
+
+    The two shapes are resolved in one pass rather than two, and whichever opens
+    first wins the lines after it. Two passes cannot express that: fences have to
+    run first so a `<!--` shown inside a block never opens a comment, and
+    comments have to run first so a ``` shown inside a comment never opens a
+    block — a circle, and `_md.walk` resolving every fence up front is the half
+    of it that used to ship. A parked section holding a fence whose closer
+    carries an info string left that fence open past the `-->`, and every heading
+    in the rest of the document was blanked, so the artifact could never pass.
+
+    Which shape is open governs the parse for *both* settings; `comments` picks
+    only whether the cut text or the uncut text is emitted. That is why
+    `_uncommented` runs either way. Letting the settings disagree about the parse
+    would put `ACTION REQUIRED` behind a fence for one reader and not the other,
+    and the two would drift with nothing asserting on the difference.
     """
     out: list[str] = []
+    marker: str | None = None
     commented = False
-    for line in _md.walk(text):
-        if line.inside or line.fence:
+    for line in text.splitlines():
+        if marker is not None:
             # A fenced line is blanked whole, so a comment opened inside one
             # never begins: `commented` is deliberately left untouched here.
             out.append("")
+            if _md.closes_fence(line, marker):
+                marker = None
             continue
-        body = re.sub(r"`[^`\n]+`", "", line.text)
-        if comments:
-            body, commented = _uncommented(body, commented)
-        out.append(body)
+        if not commented:
+            # A fence marker sits within three leading spaces, so nothing on the
+            # line can precede it — being inside a comment at the *start* of the
+            # line is the whole of the test.
+            marker = _md.opens_fence(line)
+            if marker is not None:
+                out.append("")
+                continue
+        body = re.sub(r"`[^`\n]+`", "", line)
+        cut, commented = _uncommented(body, commented)
+        out.append(cut if comments else body)
     return "\n".join(out)
 
 

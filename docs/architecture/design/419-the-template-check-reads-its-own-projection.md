@@ -79,13 +79,28 @@ name every structural read calls — the placement check, `specify`'s section an
 marker reads, `plan`'s sections, the task tally. `_still_the_template(text)` is
 `comments=False`, and is the only caller that keeps them.
 
-The blanking runs fences first, then inline spans, then the comment cut. Each
-pass removes text that the next one would otherwise read as syntax, so a
-document that only *illustrates* `<!--` never opens one — which is the contract
-`quoted_out` already stated for fences, carried to the shape this decision adds.
-Two consequences follow and both are deliberate: a `-->` quoted inline no longer
-closes a comment that is genuinely open, and an unpaired backtick before `<!--`
-still opens one.
+The blanking runs in one pass, and whichever quoting shape opens first governs
+the lines after it. A `<!--` shown inside a fenced block never opens a comment,
+and a ``` shown inside a parked section never opens a block — which is the
+contract `quoted_out` already stated for fences, carried to the shape this
+decision adds and then carried back. Two consequences follow and both are
+deliberate: a `-->` quoted inline no longer closes a comment that is genuinely
+open, and an unpaired backtick before `<!--` still opens one.
+
+One pass rather than two, because the two orders each fix what the other breaks
+and neither is first. Resolving every fence up front — `_md.walk` over the whole
+document, which is what this record first shipped — leaves a fence opened inside
+a parked section still open at the `-->`, so the close is skipped and every
+heading below it is blanked. Cutting comments up front loses the other half by
+the same symmetry. The interleaved scan is the only shape that holds both, and
+it is why `_blanked` drives `_md.opens_fence` / `_md.closes_fence` per line
+instead of consuming `_md.walk`. The fence *rule* stays in `_md`; only the
+decision about which shape is open comes back here, where the second shape is.
+
+Which shape is open governs the parse for both settings. `comments` picks only
+whether the cut text or the uncut text is emitted, so `_uncommented` runs either
+way — two settings that disagreed about the parse would put `ACTION REQUIRED`
+behind a fence for one reader and not the other.
 
 `Evidence` carries `spec_is_template` and `plan_is_template`, computed in
 `build_evidence` from the raw file text. The predicates read the boolean rather
@@ -102,13 +117,15 @@ wants comments cut.
              baseline                             decision
 
 stable  ┌──────────────────┐              ┌──────────────────────┐
-        │ _md.walk         │              │ _md.walk             │
+        │ _md.walk         │              │ _md.opens_fence      │
+        │                  │              │ _md.closes_fence     │
         └────────┬─────────┘              └──────────┬───────────┘
-                 │ per-line fence state              │ per-line fence state
+                 │ fences, whole document            │ the fence rule, per line
         ┌────────▼─────────┐              ┌──────────▼───────────┐
         │ quoted_out       │              │ _blanked(comments=)  │
-        │  fences + spans  │              └───┬──────────────┬───┘
-        └──┬────────────┬──┘                  │ True         │ False
+        │  fences + spans  │              │  one interleaved scan│
+        └──┬────────────┬──┘              └───┬──────────────┬───┘
+           │            │                     │ True         │ False
            │ calls      │ calls        ┌──────▼─────┐  ┌─────▼──────────────┐
            │            │              │ quoted_out │  │ _still_the_template│
    ┌───────▼──────┐ ┌───▼──────────┐   └──┬─────────┘  └─────┬──────────────┘
@@ -127,7 +144,8 @@ volatile ┌─────────┐ ┌──────────┐ 
          └─────────┘ └──────────┘   └─────────┘       └──────────┘
 ```
 
-The graphs differ by where the comment question is answered. In the baseline it
+The graphs differ by where the comment question is answered, and by how much of
+the fence question the walker is allowed to answer ahead of it. In the baseline it
 is answered once, inside the one check that noticed it, and `quoted_out` goes on
 returning a projection that is wrong for every other caller — so `spec.md` with
 its sections commented out still reads as written, and the next reader who finds
@@ -180,7 +198,13 @@ future reader who wanted them: the parameter is on `_blanked` and not on
 The two projections can drift apart in one direction without any test noticing:
 a shape added to `_blanked` under `comments=True` only. Nothing structural
 prevents it, so the verification below pins the disagreement itself rather than
-only the behaviour either setting produces.
+only the behaviour either setting produces — and, since the interleaved scan,
+pins the *agreement* too, because the parse is now shared where the cut is not.
+
+`_md` grows two exported predicates and keeps one implementation of the rule
+behind them; `walk_lines` was rewritten to call them so there is no second copy
+to drift. A caller that only wants fences still reaches for the walk, which is
+unchanged for `_arch` and `_shape`.
 
 `_arch._headings` is a second projection of the same files and it blanks fences
 alone, so after this change the placement check and `_log_bounds` / `supersede`
@@ -205,6 +229,15 @@ record and this one only reads.
   comment, and one carried inside a fenced block does not either. Both were
   written against a mutation, because a fixture quoting a marker *pair* balances
   it and passes against the defect.
+- The same claim from the other side: a fence left open inside a parked section
+  ends with the comment rather than outliving it, over three fence shapes. The
+  fixture that matters carries a closer with an info string — CommonMark says it
+  does not close, so an author who wrote a balanced-looking pair has left a
+  block open, and every heading below it used to be blanked with no verdict
+  saying why.
+- A test that both settings agree about a fence parked in a comment. It is the
+  one that fails if `_uncommented` is ever made conditional on `comments` again,
+  which is the shape the pass order had before.
 - A test that a record whose only `## Diagram` sits in a comment draws the `⚠`
   row and exit 0 rather than an error row.
 - `uv run wfctl doctor` over this repository prints no placement finding, and
@@ -219,3 +252,10 @@ record and this one only reads.
   so a quoted `<!--` opened a real comment — the same class of defect this
   record exists to close, arriving by a new route. The ordering above is that
   finding's answer.
+- 2026-09-23  proposed  — a review on the pull request found the third arrival
+  of the same defect, and the one that showed the two-pass shape could not close
+  it: resolving fences first leaves a fence opened inside a parked section open
+  past the `-->`. Fixing it by cutting comments first would only swap which half
+  breaks, so the passes were merged into one interleaved scan and `_md`'s fence
+  rule was exported per line to drive it. The Decision and Consequences above
+  are rewritten; the split this record exists for is unchanged.

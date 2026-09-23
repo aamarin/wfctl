@@ -704,6 +704,60 @@ def test_an_unclosed_comment_blanks_the_rest_of_the_document(
     assert step.state == "in_progress"
 
 
+@pytest.mark.parametrize(
+    ("label", "parked"),
+    [
+        ("closer carries an info string", "```text\nexample\n```text\n"),
+        ("opener never closed", "```\nexample\n"),
+        ("tilde fence, never closed", "~~~\nexample\n"),
+    ],
+)
+def test_a_fence_left_open_inside_a_parked_section_ends_with_it(
+    label: str, parked: str, spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The comment closes the fence with it, because the comment opened first.
+
+    Parking a section that holds a code block is the ordinary case — it is the
+    reason `<!-- -->` is worth blanking at all — and the block only has to be
+    left *open* for the old order to lose the rest of the file. A closer
+    carrying an info string is the way that happens without anyone noticing:
+    CommonMark says it does not close, so ```` ```text ```` … ```` ```text ````
+    reads as one unterminated block, and an author who wrote it sees a balanced
+    pair.
+
+    Before this the fence was resolved over the whole document first, so it was
+    still open at the `-->`, the close was skipped, and every heading below was
+    blanked. The artifact could never reach `done` however much was written, and
+    nothing said why.
+
+    Each row is a fence the comment outlives. The verdict is the same for all
+    three because the rule is about which shape opened first, not about which
+    fence syntax was used.
+    """
+    spec = "# Spec\n\n<!--\n" + parked + "-->\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": spec}), tmp_path, "specify")
+
+    assert step.state == "done", f"{label}: the parked fence outlived its comment"
+
+
+def test_both_settings_agree_about_a_fence_parked_in_a_comment() -> None:
+    """One parse, two cuts — the drift the record names, pinned.
+
+    `quoted_out` and `_still_the_template` differ over whether a comment's text
+    is emitted. They must not differ over *which shape is open*, or a fence
+    parked in a comment blanks the rest of the document for one reader and not
+    the other — and `ACTION REQUIRED` lives in a comment, so the reader it would
+    silently blank is the one deciding whether anybody has written this file.
+
+    This is why `_uncommented` runs for both settings and `comments` picks only
+    the text. Drop that and the template read below stops finding its marker.
+    """
+    parked = "<!--\n```text\nexample\n```text\n-->\n\n" + TEMPLATE_PLACEHOLDER
+
+    assert _still_the_template(parked), "the fence in the comment hid the marker"
+
+
 @pytest.mark.parametrize("template", ["spec-template.md", "plan-template.md"])
 def test_the_two_projections_disagree_about_the_placeholder(template: str) -> None:
     """The split itself, which nothing else pins (#419).
