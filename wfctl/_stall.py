@@ -92,11 +92,13 @@ def digest(ev: "Evidence") -> str:
     markers stand, so a pass resolving two of six markers renders identically to
     one resolving none. The bytes distinguish them; the rendering cannot.
 
-    `Evidence` holds the *blanked* text — fenced blocks and inline spans are
-    replaced before it is built, so an edit confined to a fenced block reads as no
-    progress here. That is the same read every predicate makes, which is why it is
-    the right one to compare; what it costs is that "unchanged" means unchanged
-    outside quoted blocks, and the render sites say so.
+    `Evidence` holds the *blanked* text — fenced blocks, inline spans and, since
+    #419, HTML comments are replaced before it is built, so an edit confined to
+    any of them reads as no progress here. That is the same read every predicate
+    makes, which is why it is the right one to compare; what it costs is that
+    "unchanged" means unchanged outside quoted text, and the render sites say so.
+    Parking a section in a comment is a real edit that this call cannot see, and
+    it is the same trade the fenced case already made.
 
     Truncated, because the only question asked of it is whether two passes match.
     A collision costs one missed stop, which a person still catches; carrying the

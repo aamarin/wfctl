@@ -39,8 +39,9 @@ from wfctl._evidence import (
     TEMPLATE_PLACEHOLDER,
     _REQUIRED_PLAN_SECTIONS,
     _REQUIRED_SPEC_SECTIONS,
-    _missing_sections,
-    _quoted_out,
+    _still_the_template,
+    missing_sections,
+    quoted_out,
 )
 
 _TEMPLATES = Path(str(files("wfctl"))) / "specify" / "templates"
@@ -341,7 +342,7 @@ def test_the_matcher_finds_every_required_section_in_the_templates_themselves() 
         ("spec-template.md", _REQUIRED_SPEC_SECTIONS),
         ("plan-template.md", _REQUIRED_PLAN_SECTIONS),
     ):
-        missing = _missing_sections(_quoted_out((_TEMPLATES / template).read_text()), required)
+        missing = missing_sections(quoted_out((_TEMPLATES / template).read_text()), required)
         assert missing == (), f"{template}: the matcher cannot find {list(missing)}"
 
 
@@ -599,6 +600,182 @@ def test_a_heading_only_illustrated_survives_every_fence_shape(
     for label, text in shapes.items():
         step = _step(spec_tree(content={"spec.md": text}), tmp_path, "specify")
         assert step.state == "in_progress", f"{label}: illustrated heading counted as written"
+
+
+def test_a_heading_parked_in_an_html_comment_does_not_count(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The third quoting shape, after fences and inline spans (#419).
+
+    Commenting a section out is how an author parks it without losing the text,
+    so a `spec.md` whose sections are all inside `<!-- -->` has written none of
+    them — and read as complete before this, which is the same failure the
+    fence shapes above cause by another route.
+
+    The comment is opened and closed on its own lines, which is the shape that
+    matters: a heading is matched at the start of a line, so a single-line
+    `<!-- ## Foo -->` never counted and the multi-line form always did.
+    """
+    commented = "# Spec\n\n<!--\n" + SPEC_SECTIONS + "-->\n"
+
+    step = _step(spec_tree(content={"spec.md": commented}), tmp_path, "specify")
+
+    assert step.state == "in_progress"
+
+
+def test_a_comment_closed_on_the_same_line_leaves_the_rest_of_the_file(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The guard on the cut: a comment ends where it says it ends.
+
+    A scanner that treated `<!--` as swallowing everything after it would pass
+    this test's opposite and fail the pipeline on any spec carrying an editorial
+    note above its sections — which is most of them. The note is cut, the
+    sections below it survive.
+    """
+    noted = "# Spec\n\n<!-- TODO: tighten the wording -->\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": noted}), tmp_path, "specify")
+
+    assert step.state == "done"
+
+
+def test_a_comment_marker_quoted_inline_does_not_open_a_comment(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Three reviewers found this independently, and it is the reason the cut
+    runs last (#419).
+
+    A spec that *writes about* HTML comments quotes `<!--` in backticks, and a
+    projection that cut comments before blanking spans read that as a real
+    opener — blanking every line to the next `-->` or to the end of the file.
+    Every section after the sentence disappeared, so the step could never pass
+    however much was written.
+
+    The document under test is the one this module's own docstring calls the
+    common case: an artifact that documents the syntax it is checked against.
+
+    Only the opener is quoted, and that is the whole test. A sentence quoting
+    both markers balances them — the comment opens and closes on the one line
+    and the document survives, so a fixture carrying the pair passes against the
+    defect and proves nothing.
+    """
+    documented = (
+        "# Spec\n\nA section is parked by putting `<!--` above it.\n\n"
+        + SPEC_SECTIONS
+    )
+
+    step = _step(spec_tree(content={"spec.md": documented}), tmp_path, "specify")
+
+    assert step.state == "done"
+
+
+def test_a_comment_opened_inside_a_fence_never_begins(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The other half of the ordering, which had no test until the panel asked.
+
+    A fenced block illustrating a comment carries a bare `<!--` on its own line.
+    The fence is blanked whole before the cut, so nothing opens; cut first and
+    the block's opener would run past the closing fence and take the sections
+    below it.
+    """
+    illustrated = "# Spec\n\n```\n<!--\n```\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": illustrated}), tmp_path, "specify")
+
+    assert step.state == "done"
+
+
+def test_an_unclosed_comment_blanks_the_rest_of_the_document(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The residual the two tests above leave, stated rather than discovered.
+
+    An author who opens a comment and never closes it has parked everything
+    below it, and that is what the projection reports. It matches what `_md`
+    already does with an unclosed fence, so the two quoting shapes fail the same
+    way rather than two ways.
+    """
+    unclosed = "# Spec\n\n<!--\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": unclosed}), tmp_path, "specify")
+
+    assert step.state == "in_progress"
+
+
+@pytest.mark.parametrize(
+    ("label", "parked"),
+    [
+        ("closer carries an info string", "```text\nexample\n```text\n"),
+        ("opener never closed", "```\nexample\n"),
+        ("tilde fence, never closed", "~~~\nexample\n"),
+    ],
+)
+def test_a_fence_left_open_inside_a_parked_section_ends_with_it(
+    label: str, parked: str, spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The comment closes the fence with it, because the comment opened first.
+
+    Parking a section that holds a code block is the ordinary case — it is the
+    reason `<!-- -->` is worth blanking at all — and the block only has to be
+    left *open* for the old order to lose the rest of the file. A closer
+    carrying an info string is the way that happens without anyone noticing:
+    CommonMark says it does not close, so ```` ```text ```` … ```` ```text ````
+    reads as one unterminated block, and an author who wrote it sees a balanced
+    pair.
+
+    Before this the fence was resolved over the whole document first, so it was
+    still open at the `-->`, the close was skipped, and every heading below was
+    blanked. The artifact could never reach `done` however much was written, and
+    nothing said why.
+
+    Each row is a fence the comment outlives. The verdict is the same for all
+    three because the rule is about which shape opened first, not about which
+    fence syntax was used.
+    """
+    spec = "# Spec\n\n<!--\n" + parked + "-->\n\n" + SPEC_SECTIONS
+
+    step = _step(spec_tree(content={"spec.md": spec}), tmp_path, "specify")
+
+    assert step.state == "done", f"{label}: the parked fence outlived its comment"
+
+
+def test_both_settings_agree_about_a_fence_parked_in_a_comment() -> None:
+    """One parse, two cuts — the drift the record names, pinned.
+
+    `quoted_out` and `_still_the_template` differ over whether a comment's text
+    is emitted. They must not differ over *which shape is open*, or a fence
+    parked in a comment blanks the rest of the document for one reader and not
+    the other — and `ACTION REQUIRED` lives in a comment, so the reader it would
+    silently blank is the one deciding whether anybody has written this file.
+
+    This is why `_uncommented` runs for both settings and `comments` picks only
+    the text. Drop that and the template read below stops finding its marker.
+    """
+    parked = "<!--\n```text\nexample\n```text\n-->\n\n" + TEMPLATE_PLACEHOLDER
+
+    assert _still_the_template(parked), "the fence in the comment hid the marker"
+
+
+@pytest.mark.parametrize("template", ["spec-template.md", "plan-template.md"])
+def test_the_two_projections_disagree_about_the_placeholder(template: str) -> None:
+    """The split itself, which nothing else pins (#419).
+
+    `quoted_out` and `_still_the_template` are two settings of one projection,
+    and the whole point is that they answer this document differently: the
+    template marker lives in an HTML comment, so the structural read must not
+    see it and the template read must. The end-to-end tests below pass for other
+    reasons too — the plan template is caught by its missing content as well —
+    so this is the assertion that fails on the day someone widens `quoted_out`
+    again without asking what the other reader wanted.
+    """
+    verbatim = (_TEMPLATES / template).read_text()
+
+    assert _still_the_template(verbatim), "the template read lost its marker"
+    assert TEMPLATE_PLACEHOLDER not in quoted_out(verbatim), (
+        "the structural read can see the marker, so it is not blanking comments"
+    )
 
 
 def test_the_required_plan_sections_do_not_contradict_the_template() -> None:

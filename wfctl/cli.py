@@ -6424,6 +6424,123 @@ def _check_arch_records(repo_root: Path) -> bool:
     return any(f.level == "error" for f in findings)
 
 
+def _check_record_placement(repo_root: Path) -> bool:
+    """Report a record whose headings disagree with the tier holding it.
+
+    A record's level is carried by the directory it sits in, and until this
+    check nothing asked whether the file agreed. `load_records` globs one level,
+    so a level-2 record written under `design/` is not reported wrong by `arch
+    context` — it is absent, and a session loads a contract silently lacking it
+    (#419).
+
+    The tiers are globbed by name rather than walked, and `load_records` is not
+    called for either. Both are decided in
+    `design/419-placement-reads-the-tiers-by-name.md`, and the second is the one
+    worth restating here: `parse_record` applies `STATUSES`, the level-2
+    vocabulary, so every `approved` design record comes back with an empty
+    status. The loader classifies by tier before the placement question is
+    asked, which is the assumption under test.
+
+    `implementation/` is a destination and never a source. A note there decided
+    nothing and is where the `⚠` row sends a record that weighed nothing, so
+    reading it back as a tier would report the repair as a fresh finding.
+
+    Silent entirely over an arch root that has not adopted the format, which is
+    the limit `_check_arch_records` states for the same directory — nagged, not
+    failed — held to by a check that has no `supersedes:` key to earn it the way
+    that one does. `docs/architecture` is the default because it is where a
+    project already keeps ADRs, so the population reached here is mostly other
+    people's records: a forty-record adr-tools tree carries neither section
+    forty times, and one of them carrying an ordinary `Diagram` heading turns
+    `/start-session` red in a repo that did nothing wrong.
+
+    Adoption is read off the tree rather than off each file. A per-file test —
+    frontmatter, a `status:` key — was the alternative, and MADR carries one
+    too, so it answers "is this a record" and never "is this *ours*". The tree
+    answers the second: a `design/` directory or one root record carrying
+    `Owns truth` is a thing only these two templates produce. It is also
+    self-clearing, which a configured exemption would not be — the first record
+    a repo writes opens the gate over every file, legacy ones included.
+
+    `Diagram` is not one of the two signals, and the asymmetry is the price.
+    A repo whose *only* record is a level-3 one misfiled up at the root, with no
+    `design/` directory yet, reads as unadopted and is not reported. Admitting
+    `Diagram` would close that and reopen the whole foreign-tree case with it,
+    because an ordinary ADR draws diagrams and never claims to own truth. The
+    gap needs all three of: no level-2 record anywhere, no `design/`, and a
+    first design record filed wrong — and the next correctly-placed record of
+    either tier closes it.
+    """
+    from rich.markup import escape
+
+    from wfctl import _arch
+    from wfctl._paths import DESIGN_DIR, IMPLEMENTATION_DIR
+    from wfctl._evidence import missing_sections, quoted_out
+
+    def carries(text: str, section: str) -> bool:
+        return missing_sections(text, (section,)) == ()
+
+    def readable(path: Path) -> str | None:
+        try:
+            return quoted_out(path.read_text())
+        except (OSError, UnicodeDecodeError):
+            # `parse_record`'s rule, and for its reason: a record root is a
+            # directory anyone can drop a file into, and one undecodable file
+            # must not take down the read of the whole tier.
+            return None
+
+    root = arch_root(repo_root)
+    adopted = (root / DESIGN_DIR).is_dir() or any(
+        text is not None and carries(text, _arch.LEVEL_2_SECTION)
+        for text in (readable(path) for path in sorted(root.glob("*.md")))
+    )
+    if not adopted:
+        return False
+
+    findings: list[tuple[str, Path, str]] = []
+    for tier, directory in (("root", root), (DESIGN_DIR, root / DESIGN_DIR)):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.md")):
+            text = readable(path)
+            if text is None:
+                continue
+            if carries(text, _arch.LEVEL_2_SECTION):
+                if tier == DESIGN_DIR:
+                    findings.append((
+                        "error", path,
+                        f"carries `{_arch.LEVEL_2_SECTION}` but sits under {DESIGN_DIR}/ —"
+                        " a level-2 decision filed here binds nothing. Move it to the"
+                        " arch root.",
+                    ))
+            elif carries(text, _arch.LEVEL_3_SECTION):
+                if tier == "root":
+                    findings.append((
+                        "error", path,
+                        f"carries `{_arch.LEVEL_3_SECTION}` and no"
+                        f" `{_arch.LEVEL_2_SECTION}` — a level-3 record at the arch root"
+                        f" is projected as though it bound something. Move it to"
+                        f" {DESIGN_DIR}/.",
+                    ))
+            else:
+                findings.append((
+                    "warning", path,
+                    f"carries neither `{_arch.LEVEL_2_SECTION}` nor"
+                    f" `{_arch.LEVEL_3_SECTION}` — it weighed nothing, so it belongs"
+                    f" under {IMPLEMENTATION_DIR}/.",
+                ))
+
+    for level, path, message in findings:
+        marker = "[red]✗[/red]" if level == "error" else "[yellow]⚠[/yellow]"
+        # `_arch_location` escapes its own return; escaping it again would print
+        # the backslashes it inserted.
+        console.print(
+            f"{marker} {_arch_location(path, repo_root)}: {escape(message)}",
+            soft_wrap=True,
+        )
+    return any(level == "error" for level, _, _ in findings)
+
+
 def _report_double_claimed_keys(repo_root: Path) -> None:
     """Name an issue key that two features both claim.
 
@@ -6868,12 +6985,13 @@ def doctor_cmd() -> None:
 
     Two of the checks below are freshness (the tool version, the content hash);
     the rest are integrity (the teardown hook, the spec-root move, the definition
-    of done, the record set, abandoned entries and managed hooks) — `npm
-    outdated` and `npm doctor` under one name. `_warn_missing_bootstrap`, the
-    double-claimed-key report and the missing-agent-layer notice are in neither,
-    because none of them ever becomes a finding. Named rather than counted: a
-    numeral here has gone stale three times, and one that has to agree with the
-    list beside it is a second place to be wrong.
+    of done, the record set, record placement, abandoned entries and managed
+    hooks) — `npm outdated` and `npm doctor` under one name.
+    `_warn_missing_bootstrap`, the double-claimed-key report and the
+    missing-agent-layer notice are in neither, because none of them ever
+    becomes a finding. Named rather than counted: a numeral here has gone stale
+    three times, and one that has to agree with the list beside it is a second
+    place to be wrong.
 
     An earlier count made the sixth check the sign to split the two halves. It
     arrived unremarked and so did the seventh, which is the evidence that the
@@ -6911,6 +7029,7 @@ def doctor_cmd() -> None:
         _check_spec_root_migration(repo_root),
         _check_verify_config(repo_root),
         _check_arch_records(repo_root),
+        _check_record_placement(repo_root),
     ]):
         exit_code = 1
 

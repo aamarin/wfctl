@@ -29,6 +29,38 @@ from typing import NamedTuple
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
+def opens_fence(line: str) -> str | None:
+    """The delimiter run this line opens a fenced block with, or None.
+
+    Exported beside the walk for the caller that cannot use it. `_evidence`
+    interleaves fences with a second quoting shape, and has to decide *per line*
+    which of the two is open; a walk that has already resolved every fence has
+    made that decision for it, and made it the wrong way round for a fence that
+    only exists inside an HTML comment. The rule itself stays here, which is the
+    whole of what this module is for — a caller reaching for these is reusing
+    the fence rule, not carrying a fourth copy of it.
+    """
+    fence = _FENCE.match(line)
+    return fence.group(1) if fence else None
+
+
+def closes_fence(line: str, marker: str) -> bool:
+    """Whether this line closes a block opened with `marker`.
+
+    CommonMark's rule, and the reason it is not a prefix match: same character,
+    at least as long as the opener, and no info string. A prefix match closes on
+    ```` ```python ```` appearing *inside* a block, which is what every reader
+    here has to survive.
+    """
+    fence = _FENCE.match(line)
+    return (
+        fence is not None
+        and fence.group(1)[0] == marker[0]
+        and len(fence.group(1)) >= len(marker)
+        and not fence.group(2).strip()
+    )
+
+
 class Line(NamedTuple):
     """One line of the document, and where it sits relative to the fences."""
 
@@ -69,18 +101,13 @@ def walk_lines(lines: Iterable[str]) -> Iterator[Line]:
     marker: str | None = None
     opened = 0
     for number, line in enumerate(lines, 1):
-        fence = _FENCE.match(line)
         if marker is None:
-            yield Line(number, line, False, None, bool(fence))
-            if fence:
-                marker, opened = fence.group(1), number
+            opener = opens_fence(line)
+            yield Line(number, line, False, None, opener is not None)
+            if opener is not None:
+                marker, opened = opener, number
             continue
-        if (
-            fence
-            and fence.group(1)[0] == marker[0]
-            and len(fence.group(1)) >= len(marker)
-            and not fence.group(2).strip()
-        ):
+        if closes_fence(line, marker):
             marker = None
             yield Line(number, line, False, None, True)
             continue
