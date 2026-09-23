@@ -6,7 +6,7 @@ branch ran none; the thing needing to reach a reviewer is an experiment's result
 one thing it delegates to "the wrapper that sent you here" is the coverage rows,
 and no wrapper sent this one, so the rows below are this evaluation's own.
 
-**Passes A through G were named before the run; H and I were not.** They are
+**Passes A through G were named before the run; H, I and J were not.** They are
 marked as such in the table, because a coverage table's job is to show what a run
 set out to cover — that is what makes an unreached pass visible — and a row
 added afterwards cannot do that job. Removing them instead would hide findings 9 and 10
@@ -65,6 +65,7 @@ that rule to itself.
 | G · The payload as a consumed contract across worktrees | Outstanding (finding 7) |
 | H · What a mirrored row reports about its own worktree | Outstanding (finding 9) — **pass added after the run** |
 | I · Whether a session created after connect gets a row | Outstanding (finding 10) — **pass added after the run** |
+| J · Whether anything already writes wfctl status to a row | Outstanding (finding 11) — **pass added after the run** |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
@@ -587,6 +588,85 @@ up as a tab, were not tested; the heading and the conclusion above are narrowed
 to the case that was, which is why neither says the set is frozen. Not filed
 against cmux for the same reasons as finding 9.
 
+## Finding 11 — six rows carry a wfctl status line, from a source this run could not identify
+
+Later the same day, after the tmux server had turned over, the sidebar looked
+like this:
+
+```
+…/wfctl/wt/424-observer-dashboard-eval
+  424-observer-dashboard-eval
+  PR #460  open                            ← cmux's own git metadata
+
+Orchestrator
+  ~/Development/pfms
+  ~/Development/wfctl
+
+wfctl__424-observer-dashboard-eval
+  #424 · brainstorm · next /speckit.brainstorm
+pfms__pfms-specs
+  #unknown · brainstorm · next /speckit.brainstorm
+pfms__669-eyebrow-utility
+  #669 · brainstorm · next /speckit.brainstorm
+pfms__565-chart-writable
+  #565 · done
+pfms__564-chart-follows-interview
+  #564 · done
+pfms__561-chart-of-accounts-screen
+  #561 · brainstorm · next /speckit.brainstorm
+```
+
+**Every mirrored row carries a wfctl status line. Neither non-mirrored row
+does.** Six rows, two repositories, and sessions this evaluation never touched.
+The `done` rows even render a shorter form than the rest, which a naive
+formatter would not: a row whose step is `done` has no next command, and these
+omit it rather than printing an empty tail.
+
+**What wrote them is not established.** Finding 8 put one such line on one row
+with a `printf` into a pane's tty, by hand. These are six, in two repositories,
+in a tmux server that had restarted since. Checked and ruled out:
+
+| Candidate | Result |
+| --- | --- |
+| a poller process | `ps` shows cmux and its seven `ssh -CC` mirror clients, nothing else |
+| wfctl emitting OSC itself | no escape sequence anywhere under `wfctl/` |
+| a hook in either repo's `.claude/settings.json` | wfctl's four are `user-prompt`, `response-shape`, `session-restart`, `worktree-guard`; pfms declares none that touch a terminal |
+| a script in the shell profile or the dev tree | nothing matching, and no shell script modified that day |
+
+So the line between this and finding 8 is not a difference of mechanism but of
+knowledge: there, a command was run and its effect observed; here, an effect is
+observed and no command is known. **An evaluation that reports the second as
+though it were the first is the failure this file has already made twice**, so it
+is written down as what it is — a real observation with an unidentified cause,
+which someone with access to how these sessions are started can probably resolve
+in a minute.
+
+**It bears directly on #459**, which asks whether to build a poller. If something
+is already doing this job, the question is not "build it" but "find what is doing
+it and decide whether to keep it". That is the first thing that branch should
+establish, and it is cheaper than the decision it was filed to make.
+
+**One thing this run did settle.** `cmux workspace list` was run against the new
+state and printed eight workspaces by title alone — no subtitle, no path:
+
+```
+* workspace:1  …/wfctl/wt/424-observer-dashboard-eval  [selected]
+  workspace:9  Orchestrator
+  workspace:3  wfctl__424-observer-dashboard-eval
+  …
+```
+
+That confirms the Evidence ledger's claim rather than relieving it: the verb
+reports which rows exist, which is the half finding 10 needed, and reports
+nothing about what a row *displays*, which is the half finding 9 needed. Finding
+9's counts still have no second source.
+
+**Not re-testable here.** The session set turned over completely between the runs
+— `425`, `426`, `419`, `397` and the `459-poller-decision` session are gone;
+`561`, `564`, `565`, `669` and `Orchestrator` are new, all reconnected at 09:21.
+Finding 10's question cannot be re-asked against this state without creating a
+worktree on purpose, which was not done.
+
 ## What it would cost to get #424's screen anyway
 
 Three pieces, none of them in wfctl. **Two of them now exist**, and the second
@@ -598,8 +678,8 @@ run is what moved them:
    works but which cmux models as a shell rather than a session, so no attention
    ring or status lane is keyed to it. The mirror is the one that carries a row.
 
-   **It supplies rows for the sessions that existed when it connected, and no
-   others** (finding 10). A worktree created since is absent, and reconnecting
+   **It supplies rows for the sessions that existed when it connected, and adds
+   none afterwards** (finding 10). A worktree created since is absent, and reconnecting
    over the top of the existing mirror fails. Tearing it down first is the
    obvious repair and is untried, so treat it as the next thing to check rather
    than as a known step. Whoever builds piece 3 inherits the gap either way: the
@@ -614,7 +694,10 @@ run is what moved them:
 3. **A sidecar.** A process started inside cmux, or holding the socket password,
    polling `workmux list --json` and each worktree's `wfctl status --json`, and
    pushing rows with `cmux set-status` / `cmux log`. **This is the whole of what
-   is left, and it is still the piece that does not exist.**
+   is left** — and finding 11 is six rows that look exactly like its output,
+   from a source this evaluation could not identify. So "the piece that does not
+   exist" is what this file established and no longer what it can claim: the
+   first thing to settle is whether something already does this.
 
    **It cannot run in a mirrored pane.** `cmux ssh-tmux localhost`, typed into a
    mirrored pane, returned finding 4's refusal:
@@ -698,9 +781,11 @@ strong.** Findings 8, 9 and 10 draw on all of them:
   finding 10's "still eleven rows", are readings of a rendered picture with no
   second source. Neither is filed as a bug for that reason.
 
-  **A cheap check nobody ran:** `cmux workspace list` after creating the new
-  session would have answered finding 10 from a text interface instead of a
-  screenshot. It is the one gap in this ledger that costs a single command.
+  **That check was later run, and it only half helps.** `cmux workspace list`
+  prints which rows exist — the half finding 10 needed — and prints nothing
+  about what a row displays, which is the half finding 9 needed. Finding 11
+  carries the output. So finding 9's numbers still have no second source, and
+  the reason is now a verified property of the CLI rather than an assumption.
 
   **It is weak in a way that has already cost this file a wrong number, twice
   over.** Finding 9 first said two rows wrong and three blank; it is five wrong
