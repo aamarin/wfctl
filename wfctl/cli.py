@@ -252,9 +252,15 @@ def _report_unfilled_in_flight(agent_dir: Path) -> None:
 
     The check `a-rule-is-expressed-as-a-check` asks for over that section, and it
     runs here rather than in `end` because `end` writes the scaffold one step
-    before the agent fills it and so can only ever see the placeholder. `start`
-    is the first wfctl command on the far side of a restart's `/clear`, which
-    makes it the first one that can read what was actually written.
+    before the agent fills it and so can only ever see the placeholder.
+
+    Not because nothing earlier could read it. `_restart.run_hook` already reads
+    the summary at `amend_summary_for_late_events`, after step 4 and before it
+    sends the `/clear` — the near side, where a check could hold the restart
+    rather than report on it afterwards. What stands between that reader and a
+    hold is an answer to what a refused restart does next, with the session
+    already over threshold and nobody at the prompt to fill the section in. That
+    question is #425's, and the hold belongs with it. This reports.
 
     Before the `session_started` guard below, not after: `start` returns early on
     an already-initialized branch, which is the path `/start-session` takes on
