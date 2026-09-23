@@ -1,6 +1,6 @@
 ---
 name: 'writing-a-scan-file'
-description: 'Write the scan file a review step leaves in the repository — what it covered, what it found, and that a run which found nothing looked. Use when /speckit.clarify or /speckit.analyze has finished its own workflow and its findings would otherwise land only in FEATURE_DIR, where no reviewer can reach them.'
+description: 'Write the scan file a review leaves in the repository — what it covered, what it found, and that a run which found nothing looked. Use when /speckit.clarify or /speckit.analyze has finished its own workflow and its findings would otherwise land only in FEATURE_DIR, where no reviewer can reach them. Use when a branch that ran no pipeline step produced a finding a reviewer must see — an evaluation, a spike, an experiment whose result is the deliverable.'
 ---
 
 # Writing a scan file
@@ -36,8 +36,19 @@ and `docs/architecture` is the default rather than the truth:
 wfctl arch-root      # prints the root; the file is <root>/scans/<issue>-<step>.md
 ```
 
-`<step>` is `clarify` or `analyze`. `<issue>` is the tracker key `wfctl status`
-prints, the same key `<root>/design/` and `<root>/declarations/` are named for.
+`<step>` is `clarify`, `analyze` or `evaluation`. `<issue>` is the tracker key
+`wfctl status` prints, the same key `<root>/design/` and `<root>/declarations/`
+are named for.
+
+**`evaluation` is the kind with no step behind it.** The first two are written by
+a pipeline step and take their shape from the wrapper that invoked it. The third
+is written by a branch that ran no step at all — a spike, an experiment, a tool
+evaluation — whose result *is* the deliverable and which would otherwise reach a
+reviewer as a pull request containing nothing. Everything below applies to it
+unchanged except the two things a wrapper would have supplied, and both are
+called out where they arise: the coverage rows, and how many rejected
+alternatives a finding carries. An evaluation names its own, before it starts,
+and says in its opening that it did.
 
 `wfctl status` printing `#unknown` means the branch carries no issue key, and
 there is no fallback: the file has no name, so write none and say so in one line
@@ -75,6 +86,13 @@ rows to write.
 The wrapper that sent you here names the rows. Every one of them appears, with
 the status the scan assigned it. A row you did not reach is `Deferred` with a
 reason, never absent.
+
+**An `evaluation` has no wrapper, so it names its own rows — before it runs, not
+after.** Rows written afterwards are a list of what happened, which is the
+findings list again and carries none of the information a coverage table exists
+to carry. The passes an evaluation did not reach are the ones a reader most needs
+named, and they only exist as rows if they were named while they were still
+expected.
 
 ## One section per session, appended
 

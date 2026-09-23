@@ -126,12 +126,17 @@ Not here. `wfctl arch context` prints the in-force set; the records live in
 fall into. It describes rather than constrains, and says in its own opening
 paragraph why it sits below the records rather than among them.
 
-`docs/architecture/scans/` is a third thing again — one file per review step per
-issue, written by `/speckit.clarify` and `/speckit.analyze`, carrying what that
-step's scan covered and what it found. It is there because everything else those
-two steps write lands in `FEATURE_DIR`, which resolves outside the working tree,
-so a scan that found six problems and one that never ran are the same pull
-request. The instruction lives in the command wrappers under
+`docs/architecture/scans/` is a third thing again — one file per scan per issue,
+carrying what that scan covered and what it found. Two kinds are written by a
+review step, `<issue>-clarify.md` and `<issue>-analyze.md`; the third,
+`<issue>-evaluation.md`, is written by a branch that ran no pipeline step at all
+— a spike, an experiment, a tool evaluation whose result is the whole
+deliverable. They share a shelf because they share a failure: what those steps
+write lands in `FEATURE_DIR`, which resolves outside the working tree, and what
+an evaluation learns is not written down anywhere, so a scan that found six
+problems and one that never ran are the same pull request. The kinds differ in
+who names the coverage rows — a wrapper for the first two, the evaluation itself
+for the third, before it starts. The instruction lives in the command wrappers under
 `wfctl/agents/commands/` rather than in `speckit-clarify/SKILL.md` or
 `speckit-analyze/SKILL.md`, which are spec-kit-derived: an in-place edit there is
 reverted by the next upstream pull with no conflict to notice. Ask
