@@ -62,6 +62,27 @@ wfctl maintained would be exactly such a cursor.
   between the launch and the report, which is the failure #425 describes, and the
   session that received those 54 reports had no record that any of them were
   expected. The remaining 5 have no report anywhere on disk.
+- A child can go out more than once, and the notification says so in its own
+  words: "A task-notification fires each time this agent stops with no live
+  background children of its own. The user can send it another message and resume
+  it, so the same task-id may notify more than once."
+- **A resume is not a second launch.** Measured over the 515 session transcripts
+  on this machine — a larger population than the 325 above, which is this
+  repository's alone, and stated rather than inherited: no `agentId` appears on
+  two launch results across all 626 of them. Resuming a reported child writes
+  `resumedAgentId` instead, carrying neither an `agentId` nor a description. 6
+  such records sit in 5 transcripts, and in every one the id had already reported
+  before the resume and reported again after it.
+- **Order is readable and reports never arrive early.** Across the same 515
+  transcripts, 0 reports name a child whose launch row comes later in the same
+  file, so a reader that opens and closes a child in line order cannot be left
+  holding one forever by a file written out of sequence.
+- **A notification's payload is in the same string as its id.** The `<task-id>` is
+  the notification's first element; the child's own prose follows verbatim inside
+  `<result>`. 1109 of 1127 deliveries carry exactly one id and 18 carry none — the
+  goal check-in and artifact-watch notices, neither of which is a child reporting
+  — so no delivery has yet carried a second id, and the header is where the only
+  trustworthy one is.
 - The launch's own tool-result text: "never quote or paste any part of it,
   including the agentId below, into a user-facing reply."
 - `docs/architecture/session-state-is-re-derived.md` — "no session file is
@@ -81,6 +102,12 @@ wfctl maintained would be exactly such a cursor.
   same file, which would hold every later restart on a branch with nothing able
   to release it.
 
+  A *resume* does reach across the clear, and is read rather than assumed away: 2
+  of the 5 transcripts carrying one resume a child whose launch is in the
+  transcript a previous restart cleared. It holds, under `UNNAMED_CHILD` — the
+  child is out now, and the description went with the file that recorded the
+  launch.
+
 ## Direct baseline
 
 A verb — `wfctl restart child <id>` and its counterpart — that the agent calls
@@ -90,14 +117,30 @@ opens the transcript once, as it does today.
 
 ## Decision
 
-`outstanding_children(transcript)` reads the harness's transcript. A launch is a
-`toolUseResult` carrying a string `agentId`. The report is a later record naming
-that id, in either shape the harness writes one: a `"type": "user"` record whose
-content is the notification, or — when the child finished while the parent was
-mid-turn — a top-level `attachment` whose `prompt` carries it. In both, the tag
-has to open a line, which is what separates a delivery from prose about one. What
-is outstanding is the difference, re-derived on every reply end, and wfctl records
-no child of its own.
+`outstanding_children(transcript)` reads the harness's transcript. Three record
+kinds, read **in line order**, each opening or closing one child by id:
+
+| Record | What it means |
+|---|---|
+| `toolUseResult` with a string `agentId` | a child went out, under its `description` |
+| `toolUseResult` with a string `resumedAgentId` | a child that had reported went out again |
+| a delivered `<task-notification>` naming an id | that child reported back |
+
+The report arrives in either shape the harness writes one: a `"type": "user"`
+record whose content is the notification, or — when the child finished while the
+parent was mid-turn — a top-level `attachment` whose `prompt` carries it. In both,
+the tag has to open a line, which is what separates a delivery from prose about
+one, and the id read is the **first** after that tag: everything past it is
+payload, including the child's own prose, and a child reviewing this module writes
+task ids into its findings.
+
+What is outstanding is whatever is open when the file ends, re-derived on every
+reply end, and wfctl records no child of its own.
+
+Order rather than a set difference, because a child is not finished once and for
+all. Two accumulated sets subtracted at the end cannot express a child that
+reported and went back out, and answered that it was finished — the hold failing
+in the one direction it exists to prevent.
 
 The decision event carries the resulting descriptions so the log says which
 children held the restart. That is a note about a decision already made, not the
@@ -188,3 +231,11 @@ is the trade the harness's own warning about internal metadata asks for.
 - 2026-09-22  proposed  — #425; the restart needed to know whether children were
   out, and the only two places that could answer sit on opposite sides of a
   boundary `session-state-is-re-derived` already draws.
+- 2026-09-23  amended  — a review of #457 found the launch-minus-report subtraction
+  answers "finished" for a child that reported and was resumed, which the harness
+  says in the notification is a normal thing to do. The reader now opens and closes
+  children in line order and reads `resumedAgentId` as a third kind. The same
+  review found the id extraction scanning a notification's whole payload, so a
+  child could release a sibling by quoting its id; the read is now the first id
+  after the opening tag. Both reproduced against the pre-change reader before
+  being applied.

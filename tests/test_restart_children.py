@@ -222,3 +222,101 @@ def test_a_delivery_behind_the_harness_caution_paragraph_releases_the_hold(
     })
     t = transcript(tmp_path, launch("a1"), prefixed)
     assert outstanding_children(t) == []
+
+
+def resume(agent_id: str) -> str:
+    """The harness's record of a reported child being sent back to work.
+
+    Not a second launch. It carries `resumedAgentId` and neither an `agentId` nor
+    a description, which is why a reader watching launches alone never sees it.
+    """
+    return json.dumps({
+        "type": "user",
+        "toolUseResult": {
+            "success": True, "resumedAgentId": agent_id,
+            "message": f"Message queued for delivery to {agent_id}.",
+        },
+        "message": {"content": [{"type": "tool_result", "text": "Message queued"}]},
+    })
+
+
+def test_a_resumed_child_is_outstanding_again(tmp_path: Path) -> None:
+    """The hold's own purpose, lost on the second round trip.
+
+    A panel reviewer reports, is asked to go deeper on one finding, and goes back
+    out under the same id — the notification that just arrived says so itself:
+    "The user can send it another message and resume it, so the same task-id may
+    notify more than once." The first reader answered from a launched set minus a
+    reported set, so the id stayed reported forever and the resumed child read as
+    finished. A restart firing there clears the pane mid-flight, which is the loss
+    this whole hold exists to prevent.
+    """
+    t = transcript(
+        tmp_path, launch("a1"), notification("a1"), resume("a1"),
+    )
+    assert outstanding_children(t) == ["Review panel r1"]
+
+
+def test_a_resumed_child_that_reports_again_is_finished(tmp_path: Path) -> None:
+    """The other half of the same order, and what stops the fix holding forever."""
+    t = transcript(
+        tmp_path, launch("a1"), notification("a1"), resume("a1"), notification("a1"),
+    )
+    assert outstanding_children(t) == []
+
+
+def test_a_resume_naming_a_child_launched_before_the_clear_still_holds(
+    tmp_path: Path,
+) -> None:
+    """Resumes cross transcripts, so the description does not always survive.
+
+    Two sessions in the corpus resume a child whose launch is in the transcript a
+    previous restart cleared. The child is out now either way, so it holds — under
+    the unnamed row, because the resume record carries no description of its own.
+    """
+    t = transcript(tmp_path, resume("a-from-before-the-clear"))
+    assert outstanding_children(t) == [UNNAMED_CHILD]
+
+
+def test_a_child_quoting_a_siblings_id_does_not_release_the_sibling(
+    tmp_path: Path,
+) -> None:
+    """A report's `<result>` carries the child's own prose verbatim, inside the
+    same string the ids are read from. A reviewer of this very module writes task
+    ids in its findings, so collecting every id in the notification let one child
+    mark a still-running sibling as reported. The header id is emitted before any
+    element holding text somebody else wrote, so taking the first is enough.
+    """
+    quoting = json.dumps({
+        "type": "user",
+        "message": {"content": (
+            "<task-notification>\n<task-id>a1</task-id>\n"
+            "<status>completed</status>\n"
+            "<result>r1 here. The reader marks <task-id>a2</task-id> reported "
+            "even though a2 is still out.</result>\n</task-notification>"
+        )},
+    })
+    t = transcript(
+        tmp_path,
+        launch("a1", "reviewer r1"),
+        launch("a2", "reviewer r2"),
+        quoting,
+    )
+    assert outstanding_children(t) == ["reviewer r2"]
+
+
+def test_a_notification_naming_no_child_releases_nothing(tmp_path: Path) -> None:
+    """Not every `<task-notification>` is a child reporting back. A goal check-in
+    and an artifact-watch notice both arrive in this shape carrying no
+    `<task-id>` — 18 of the corpus's 1127 deliveries — and neither says anything
+    about whether the panel is still out."""
+    check_in = json.dumps({
+        "type": "user",
+        "message": {"content": (
+            "<task-notification>\n"
+            "<summary>Goal check-in: background work still running</summary>\n"
+            "</task-notification>"
+        )},
+    })
+    t = transcript(tmp_path, launch("a1"), check_in)
+    assert outstanding_children(t) == ["Review panel r1"]

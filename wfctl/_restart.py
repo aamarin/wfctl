@@ -143,6 +143,15 @@ _AGENT_ID = "agentId"
 _NOTIFICATION = "<task-notification>"
 _TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 
+# A child that has already reported can be sent another message, and the harness
+# says so in the notification it just delivered: "The user can send it another
+# message and resume it, so the same task-id may notify more than once." The
+# resume is a *different* record from a launch — `resumedAgentId`, carrying no
+# `agentId` and no description — so a reader watching only launches sees the child
+# go out again and has nothing to say about it, while its id sits in the reported
+# set from the first time round.
+_RESUMED_ID = "resumedAgentId"
+
 # A delivered notification opens a line of its own; prose naming the tag has it
 # mid-sentence. The harness prefixes some deliveries with a caution paragraph —
 # "[SYSTEM NOTIFICATION - NOT USER INPUT]", then a blank line — so the tag is not
@@ -208,12 +217,61 @@ def _notifications(record: dict) -> list[str]:
     return texts
 
 
+def _reported_id(notification: str) -> str | None:
+    """The one child `notification` reports on, or None if it names no child.
+
+    The harness writes the `<task-id>` as the notification's first element, and
+    everything after it is payload — including a `<result>` holding the child's
+    own prose verbatim. So an agent that writes a task id into its report puts a
+    second `<task-id>` into this string, and a reader collecting every match would
+    mark whichever child that id belongs to as reported. A panel reviewing this
+    module is the case where that is likeliest: its subject *is* task ids.
+
+    Taking the first id after the opening tag is what makes the payload
+    unreadable rather than merely unlikely to matter. It is the notification's
+    own framing that makes this safe to narrow — the id is emitted before any
+    element that carries text somebody else wrote. Measured across 1127
+    deliveries in this machine's 515 session transcripts, none carries a second
+    id today, so this buys no behaviour change now and removes the one shape in
+    which a child could release a sibling's hold.
+
+    A notification naming no child releases nothing, which is already right: the
+    goal check-in and the artifact-watch lifecycle notices both arrive in this
+    shape, and neither is a child reporting back.
+    """
+    opening = _DELIVERED.search(notification)
+    if opening is None:
+        return None
+    found = _TASK_ID.search(notification, opening.end())
+    return found.group(1) if found else None
+
+
 def outstanding_children(transcript: Path) -> list[str]:
     """Children this session launched that have not reported back, oldest first.
 
     A launch is a `toolUseResult` carrying an `agentId` — one shape for both an
     async subagent and a fork. The report is a later `<task-notification>` naming
-    that id; `_notifications` owns which record shapes count as one.
+    that id; `_notifications` owns which record shapes count as one, and
+    `_reported_id` owns which id in one counts.
+
+    Read in line order, because a child can go out more than once. Resuming a
+    child that already reported sends it back to work under the same id, and the
+    harness records that as `resumedAgentId` rather than as a second launch — so
+    the three kinds of row interleave, and only their order says whether the child
+    is out right now. Answering from accumulated sets instead, as this did first,
+    made a resumed child permanently finished: its id was in the reported set from
+    the first report and nothing ever took it out. That is the hold failing in the
+    one direction it exists to prevent, and a resumed child is a normal way to use
+    a panel — ask a reviewer to go deeper on one finding.
+
+    Order is safe to depend on. A report cannot precede its own launch, and does
+    not: 0 of the reports across this machine's 515 session transcripts name a
+    child whose launch row comes later in the same file.
+
+    A resume may name a child this transcript never launched — the launch was in
+    the session a previous restart cleared. It is still a child out now, so it
+    holds, under `UNNAMED_CHILD`: the resume carries no description and the one
+    from the launch went with the transcript that recorded it.
 
     Descriptions, never ids. The launch result says in its own text that an
     `agentId` is internal metadata that must not reach a person, and this list
@@ -224,12 +282,16 @@ def outstanding_children(transcript: Path) -> list[str]:
     able to release it — and `occupancy` has already decided *nothing* on that
     same file, so the case does not reach here in the hook.
     """
-    launched: dict[str, str] = {}
-    reported: set[str] = set()
+    outstanding: dict[str, str] = {}
+    named: dict[str, str] = {}
     try:
         with transcript.open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
-                if _AGENT_ID not in line and _NOTIFICATION not in line:
+                if (
+                    _AGENT_ID not in line
+                    and _RESUMED_ID not in line
+                    and _NOTIFICATION not in line
+                ):
                     continue
                 try:
                     record = json.loads(line)
@@ -240,17 +302,23 @@ def outstanding_children(transcript: Path) -> list[str]:
                 result = record.get("toolUseResult")
                 if isinstance(result, dict):
                     agent_id = result.get(_AGENT_ID)
+                    resumed = result.get(_RESUMED_ID)
                     if isinstance(agent_id, str) and agent_id:
                         described = result.get("description")
-                        launched[agent_id] = (
+                        named[agent_id] = (
                             described if isinstance(described, str) and described
                             else UNNAMED_CHILD
                         )
+                        outstanding[agent_id] = named[agent_id]
+                    elif isinstance(resumed, str) and resumed:
+                        outstanding[resumed] = named.get(resumed, UNNAMED_CHILD)
                 for text in _notifications(record):
-                    reported.update(_TASK_ID.findall(text))
+                    reported = _reported_id(text)
+                    if reported is not None:
+                        outstanding.pop(reported, None)
     except OSError:
         return []
-    return [name for agent_id, name in launched.items() if agent_id not in reported]
+    return list(outstanding.values())
 
 
 def read_events(state_dir: Path) -> list[dict]:
