@@ -32,12 +32,28 @@ from wfctl._restart import (
 REPO = Path(__file__).resolve().parent.parent
 
 
-def _transcript(path: Path, tokens: int) -> Path:
-    path.write_text(json.dumps({"message": {"usage": {
+def _transcript(path: Path, tokens: int, *extra: dict) -> Path:
+    lines = [json.dumps({"message": {"usage": {
         "input_tokens": tokens, "cache_read_input_tokens": 0,
         "cache_creation_input_tokens": 0,
-    }}}) + "\n")
+    }}})] + [json.dumps(record) for record in extra]
+    path.write_text("\n".join(lines) + "\n")
     return path
+
+
+def _launch(agent_id: str, description: str) -> dict:
+    """A child starting, as the harness records it in the transcript (#425)."""
+    return {"type": "user", "toolUseResult": {
+        "isAsync": True, "status": "async_launched",
+        "agentId": agent_id, "description": description,
+    }}
+
+
+def _reported(agent_id: str) -> dict:
+    """That child reporting back."""
+    return {"type": "user", "message": {"content": (
+        f"<task-notification>\n<task-id>{agent_id}</task-id>\n</task-notification>"
+    )}}
 
 
 @pytest.fixture
@@ -158,6 +174,81 @@ def test_a_landed_handoff_starts_the_clear_and_start_session(
     spawned: list[dict] = []
     run_hook(_payload(repo, t), os.environ, spawned.append, lambda root: "371-x")
     assert [p["texts"] for p in spawned] == [[CLEAR_TEXT, START_TEXT]]
+
+
+# --- #425: a full pane with children out is not restarted ---------------------
+
+def test_a_fan_out_still_running_holds_the_restart_and_sends_nothing(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole of #425, end to end. Without the hold this payload sends
+    `/end-session restart`, the handoff goes out while the panel is still
+    reporting, and the clear that follows takes its findings with it — a panel
+    that found six problems and one that never ran leave the same absence.
+
+    The event carries the descriptions because the log is the only place a
+    restarted session could ever read which children were out."""
+    state = _state(tmp_path, monkeypatch)
+    t = _transcript(
+        tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5,
+        _launch("a1", "reviewer r1"),
+        _launch("a2", "reviewer r2"),
+        _reported("a2"),
+    )
+    spawned: list[dict] = []
+
+    out = run_hook(_payload(repo, t), os.environ, spawned.append, lambda root: "371-x")
+
+    assert spawned == []
+    [event] = _events(state)
+    assert event["decision"] == "hold-children"
+    assert event["children"] == ["reviewer r1"]
+    assert out is not None
+    assert json.loads(out) == {"systemMessage": (
+        "session restart held: 1 subagent still running — context not cleared; "
+        "run /end-session restart then /clear yourself if they never report"
+    )}
+
+
+def test_a_decision_with_no_children_writes_no_children_key(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The field is written only where it answers something. `decide` reads it back
+    to tell a second fan-out from the one it already held, and an empty list on
+    every other decision is a row answering that question for a decision nobody
+    asked it — which is also the shape a stale reader would mistake for a hold that
+    carried no children."""
+    state = _state(tmp_path, monkeypatch)
+    t = _transcript(tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5)
+
+    run_hook(_payload(repo, t), os.environ, lambda plan: None, lambda root: "371-x")
+
+    [event] = _events(state)
+    assert event["decision"] == "end"
+    assert "children" not in event
+
+
+def test_the_restart_runs_once_the_panel_has_reported(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same transcript one notification later. The hold is a condition on
+    evidence, not a state to be cleared — nothing releases it but the report."""
+    state = _state(tmp_path, monkeypatch, [
+        {"event": "session-restart", "session": "S", "decision": "hold-children"},
+    ])
+    t = _transcript(
+        tmp_path / "t.jsonl", DEFAULT_THRESHOLD + 5,
+        _launch("a1", "reviewer r1"),
+        _reported("a1"),
+    )
+    spawned: list[dict] = []
+
+    out = run_hook(_payload(repo, t), os.environ, spawned.append, lambda root: "371-x")
+
+    assert out is None
+    [plan] = spawned
+    assert plan["texts"] == [END_TEXT]
+    assert _events(state)[-1]["decision"] == "end"
 
 
 # --- write state before clear: a late notify action reaches the summary ------

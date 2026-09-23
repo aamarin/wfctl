@@ -22,6 +22,7 @@ from wfctl._restart import (
     END,
     END_TEXT,
     HOLD,
+    HOLD_CHILDREN,
     NOT_TAKEN,
     NOTHING,
     SKIP,
@@ -36,9 +37,18 @@ S = "session-1"
 OVER = DEFAULT_THRESHOLD + 1
 
 
-def planned(kind: str, session: str = S) -> dict:
-    return {"ts": "2026-09-15T12:00:00Z", "event": "session-restart",
-            "session": session, "decision": kind}
+def planned(kind: str, session: str = S, children: tuple[str, ...] = ()) -> dict:
+    """A recorded decision, shaped as `run_hook` writes one.
+
+    `children` is present only where there are any — an event carrying an empty
+    list is a shape production stopped writing, and a fixture that emits it tests
+    the reader against a log no version of this code produces.
+    """
+    event = {"ts": "2026-09-15T12:00:00Z", "event": "session-restart",
+             "session": session, "decision": kind}
+    if children:
+        event["children"] = list(children)
+    return event
 
 
 def sent(text: str, code: int = 0, session: str = S, ts: str = "2026-09-15T12:33:03Z") -> dict:
@@ -62,9 +72,17 @@ def pane(handle: str | None = "371-x"):
     return find
 
 
+def _no_children() -> list[str]:
+    _no_children.calls.append(None)  # type: ignore[attr-defined]
+    return []
+
+
+_no_children.calls = []  # type: ignore[attr-defined]
+
+
 def run(events: list[dict], tokens: int | None = OVER, limit: int = DEFAULT_THRESHOLD,
-        handle: str | None = "371-x") -> Decision:
-    return decide(S, tokens, limit, events, pane(handle))
+        handle: str | None = "371-x", children: tuple[str, ...] = ()) -> Decision:
+    return decide(S, tokens, limit, events, pane(handle), lambda: children)
 
 
 # --- US1: restart, hand off, clear -------------------------------------------
@@ -73,8 +91,11 @@ def test_under_the_threshold_decides_nothing_and_never_asks_workmux() -> None:
     """The reply end that happens hundreds of times a day. Asking workmux there
     would put a subprocess on every one of them."""
     find = pane()
-    assert decide(S, DEFAULT_THRESHOLD - 1, DEFAULT_THRESHOLD, [], find).kind == NOTHING
+    assert decide(
+        S, DEFAULT_THRESHOLD - 1, DEFAULT_THRESHOLD, [], find, _no_children
+    ).kind == NOTHING
     assert find.calls == []  # type: ignore[attr-defined]
+    assert _no_children.calls == []  # type: ignore[attr-defined]
 
 
 def test_an_unreadable_window_decides_nothing() -> None:
@@ -83,7 +104,7 @@ def test_an_unreadable_window_decides_nothing() -> None:
 
 def test_reaching_the_threshold_with_no_restart_under_way_sends_end() -> None:
     """At the threshold, not only past it — "reaches" is the spec's word."""
-    d = decide(S, DEFAULT_THRESHOLD, DEFAULT_THRESHOLD, [], pane("371-x"))
+    d = decide(S, DEFAULT_THRESHOLD, DEFAULT_THRESHOLD, [], pane("371-x"), lambda: [])
     assert d == Decision(END, handle="371-x")
     assert d.texts == [END_TEXT]
 
@@ -191,6 +212,103 @@ def test_turning_the_restart_off_mid_restart_decides_nothing() -> None:
     assert run([planned(END), sent(END_TEXT), stop()], limit=0).kind == NOTHING
 
 
+# --- #425: children hold the restart before it begins -------------------------
+
+def test_outstanding_children_hold_the_restart_and_never_ask_workmux() -> None:
+    """The failure #425 names. Without this the reply end that ends a fan-out
+    sends `/end-session restart`, the handoff is written while the panel is still
+    out, and the clear two turns later takes its findings with it.
+
+    workmux is not asked because nothing is going to be sent either way."""
+    find = pane()
+    d = decide(S, OVER, DEFAULT_THRESHOLD, [], find, lambda: ["reviewer r1", "reviewer r2"])
+    assert d == Decision(HOLD_CHILDREN, children=("reviewer r1", "reviewer r2"))
+    assert d.texts == []
+    assert find.calls == []  # type: ignore[attr-defined]
+
+
+def test_the_children_hold_is_reported_once_and_then_says_nothing() -> None:
+    """A panel of six produces a reply end per report. Saying it once is the same
+    rule `skip` and `hold` already follow — the pane would otherwise carry six
+    copies of a line that has not changed."""
+    events: list[dict] = []
+    assert run(events, children=("reviewer r1",)).kind == HOLD_CHILDREN
+    events.append(planned(HOLD_CHILDREN, children=("reviewer r1",)))
+    assert run(events, children=("reviewer r1",)).kind == NOTHING
+
+
+def test_the_restart_begins_once_the_last_child_has_reported() -> None:
+    """The hold's ordinary exit, and the reason it needs no timer: it is
+    re-derived on every reply end and ends when the evidence changes."""
+    events = [planned(HOLD_CHILDREN, children=("reviewer r1",))]
+    assert run(events, children=()).kind == END
+
+
+def test_a_panel_reporting_one_at_a_time_does_not_repeat_the_hold() -> None:
+    """The set shrinks on every reply end a panel of three produces. Each shrink
+    is the same hold with less left in it, and a line per shrink would bury the
+    first copy — the one carrying the escape hatch."""
+    events = [planned(HOLD_CHILDREN, children=("r1", "r2", "r3"))]
+    assert run(events, children=("r2", "r3")).kind == NOTHING
+    assert run(events, children=("r3",)).kind == NOTHING
+
+
+def test_a_second_fan_out_is_held_out_loud_rather_than_silently() -> None:
+    """The first version said the hold once per session, not once per fan-out. A
+    panel sent after an earlier one had already held left the person with a
+    session that would not restart and nothing on screen saying why — and the
+    pane message is the only place the escape hatch exists."""
+    events = [planned(HOLD_CHILDREN, children=("r1",))]
+    assert run(events, children=("r9",)).kind == HOLD_CHILDREN
+
+
+def test_a_second_fan_out_of_identically_named_children_still_speaks() -> None:
+    """Descriptions are all the event records, so two panels named alike are
+    indistinguishable by name. The multiset separates them: one more child called
+    `reviewer` than the last hold carried is growth whatever they are called."""
+    events = [planned(HOLD_CHILDREN, children=("reviewer",))]
+    assert run(events, children=("reviewer", "reviewer")).kind == HOLD_CHILDREN
+
+
+def test_a_new_child_reusing_a_reported_name_speaks_though_the_total_fell() -> None:
+    """The case a set difference paired with a rising count could not see, and the
+    one the review panel walks into every run: it names its reviewers `r1`, `r2`,
+    `r3` each time. Two of three report, a fresh panel starts, and its first child
+    is called `r1` again — the set is unchanged and the total has *fallen* from
+    three to two, so the old test read a shrinking panel and stayed silent over a
+    fan-out nobody had been told about. Counting the names answers both halves."""
+    events = [planned(HOLD_CHILDREN, children=("r1", "r2", "r3"))]
+    assert run(events, children=("r1", "r1")).kind == HOLD_CHILDREN
+
+
+def test_a_malformed_children_row_is_read_as_no_children_held() -> None:
+    """Every other reader of this log treats a shape it did not write as absent,
+    and the safe direction here is to speak: a row `Counter` cannot tally as names
+    would otherwise tally its characters and answer a different question."""
+    events = [{"event": "session-restart", "session": S,
+               "decision": HOLD_CHILDREN, "children": "r1"}]
+    assert run(events, children=("r1",)).kind == HOLD_CHILDREN
+
+
+def test_a_hand_typed_stop_does_not_clear_a_held_pane() -> None:
+    """Why the pane message names `/clear` as well. A person taking the escape
+    hatch writes a stop, but no *planned* end — so `decide` never reaches the
+    branch that sends the clear, falls through to here, and finds the hold
+    already recorded. Nothing is sent and nothing further is said, which is why
+    half the sequence in that string left them stuck."""
+    events = [planned(HOLD_CHILDREN, children=("r1",)), stop()]
+    assert run(events, children=("r1",)).kind == NOTHING
+
+
+def test_a_restart_already_under_way_is_not_held_by_a_later_child() -> None:
+    """The boundary this hold does not cross. Once `end` has been sent the
+    handoff is written, and `end` is never planned twice — so holding the clear
+    would leave no turn able to fold a late child in. The clear is the lesser
+    loss, and the case is a session that fans out during its own wrap-up turn."""
+    events = [planned(END), sent(END_TEXT), stop()]
+    assert run(events, children=("a late reviewer",)).kind == CLEAR
+
+
 # --- messages -----------------------------------------------------------------
 
 ROOT = Path("/work/371-x")
@@ -204,6 +322,10 @@ def test_each_reporting_decision_has_its_contract_text() -> None:
     )
     assert message(Decision(SKIP), ROOT) == (
         "session restart skipped: no workmux pane for /work/371-x"
+    )
+    assert message(Decision(HOLD_CHILDREN, children=("r1", "r2")), ROOT) == (
+        "session restart held: 2 subagents still running — context not cleared; "
+        "run /end-session restart then /clear yourself if they never report"
     )
     assert message(Decision(NOT_TAKEN, send=sent(CLEAR_TEXT)), ROOT) == (
         "session restart sent /clear at 12:33Z and this session is still here — "
@@ -222,6 +344,25 @@ def test_a_failed_send_never_claims_it_was_sent() -> None:
     assert text is not None
     assert "never sent /clear" in text
     assert "still here" not in text
+
+
+def test_one_outstanding_child_is_not_pluralised() -> None:
+    """A person reads this line in the pane with nothing else around it, and
+    "1 subagents" reads as a bug in the thing that is holding their session."""
+    text = message(Decision(HOLD_CHILDREN, children=("r1",)), ROOT)
+    assert text is not None
+    assert text.startswith("session restart held: 1 subagent still running")
+
+
+def test_the_children_hold_names_the_escape_hatch_and_no_agent_id() -> None:
+    """#425 asks for a decision rather than a timeout, so the line has to say
+    what the decision is. The ids are left out deliberately: the harness's own
+    launch result calls an agentId internal metadata that must not reach a
+    person, and this string is printed in their pane."""
+    text = message(Decision(HOLD_CHILDREN, children=("r1", "r2")), ROOT)
+    assert text is not None
+    assert "run /end-session restart then /clear yourself" in text
+    assert "r1" not in text
 
 
 @pytest.mark.parametrize("kind", [NOTHING, END, CLEAR])

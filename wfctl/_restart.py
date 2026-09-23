@@ -20,6 +20,12 @@ Three shapes here are level-3 records under `docs/architecture/design/371-*`:
 - the threshold is `WFCTL_RESTART_THRESHOLD`, because it follows the model a
   person runs rather than the repo.
 
+A fourth sits under `425-*`: the restart does not begin while this session still
+has children out. A pane cleared mid-fan-out loses their results with no trace —
+a panel that found six problems and one that never ran leave the same absence —
+so `decide` reads the transcript for launches nothing has reported back and holds
+before the handoff rather than before the clear.
+
 **Every state is re-derived from `events.jsonl` on every reply end**
 (`session-state-is-re-derived`). The personal script kept marker files; a marker
 is a second copy of a fact the log already holds, and the two disagree the first
@@ -38,8 +44,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +72,7 @@ NOTHING = "nothing"
 END = "end"
 CLEAR = "clear"
 HOLD = "hold"
+HOLD_CHILDREN = "hold-children"
 SKIP = "skip"
 NOT_TAKEN = "not-taken"
 
@@ -125,6 +134,193 @@ def occupancy(transcript: Path) -> int | None:
     return last
 
 
+# What the harness writes when a child is launched, and what it writes when that
+# child reports back. Both spellings are Claude Code's rather than wfctl's, and
+# neither is documented as an interface — so every reader below treats their
+# absence as "this session fanned out to nothing", which is true of almost every
+# session and is the only reading that cannot hold a restart on a guess.
+_AGENT_ID = "agentId"
+_NOTIFICATION = "<task-notification>"
+_TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
+
+# A child that has already reported can be sent another message, and the harness
+# says so in the notification it just delivered: "The user can send it another
+# message and resume it, so the same task-id may notify more than once." The
+# resume is a *different* record from a launch — `resumedAgentId`, carrying no
+# `agentId` and no description — so a reader watching only launches sees the child
+# go out again and has nothing to say about it, while its id sits in the reported
+# set from the first time round.
+_RESUMED_ID = "resumedAgentId"
+
+# A delivered notification opens a line of its own; prose naming the tag has it
+# mid-sentence. The harness prefixes some deliveries with a caution paragraph —
+# "[SYSTEM NOTIFICATION - NOT USER INPUT]", then a blank line — so the tag is not
+# always the start of the string, and a reader anchored there threw the report
+# away along with the `<task-id>` that was the whole point of reading it.
+_DELIVERED = re.compile(r"(?:\A|\n)[ \t]*" + re.escape(_NOTIFICATION))
+
+# A child with no description of its own. A fork records none, and the count is
+# what the hold turns on, so an unnamed child still has to occupy a row.
+UNNAMED_CHILD = "subagent"
+
+
+def _notifications(record: dict) -> list[str]:
+    """Every `<task-notification>` this transcript record delivered to the session.
+
+    The harness writes a child's report into more than one record shape, and which
+    one it picks turns on what the parent was doing when the child finished. A
+    session sitting at its prompt gets a `user` record whose content is the
+    notification. A session *mid-turn* has the notification absorbed into the
+    running turn instead, and the only record of it is an `attachment`. Reading
+    the first shape alone missed the second, which is the more common one — and a
+    child read as outstanding forever holds the restart forever, because the hold
+    has no automatic exit.
+
+    A queued copy is not a delivery. The same notification also passes through
+    `queue-operation` records, but a queued item can be removed unsent
+    (`resume_failed`), so counting one would release the hold for a report that
+    never reached the session — the one direction this reader must not fail in.
+
+    The `attachment` is on the delivered side of that line, which its own
+    `queued_command` type makes easy to doubt: the name says where the item came
+    from, not what became of it. What settles it is that the attachment is written
+    as the item leaves the queue *into* the turn. The usual trace is `enqueue`,
+    then `remove` with reason `absorbed_mid_turn`, then the attachment — 333 of
+    360 here — but it is not the whole of what occurs, and the claim does not rest
+    on it: an id can be enqueued more than once, `remove` can carry no reason, and
+    6 of the 360 have no queue record at all. What does not occur is the other
+    direction. No launch this reader still calls outstanding has a queue record
+    saying its report was delivered, so nothing is being held on the strength of
+    ignoring one.
+
+    The notification has to *open a line*, not merely appear somewhere: an agent
+    that writes about task notifications puts the same tags in its own prose, and
+    a looser read would let a session talk itself out of the hold. Requiring it to
+    open the whole string — which this did first — is the same rule one notch too
+    tight: the harness prefixes some deliveries with a caution paragraph and a
+    blank line, and those were discarded along with the `<task-id>` that was the
+    only reason to read them. Measured across 1512 transcripts, the two
+    populations separate cleanly on the line: 35 prefixed deliveries, every tag
+    opening a line, against 4 prose mentions, every tag mid-sentence.
+    """
+    texts = []
+    if record.get("type") == "user":
+        message = record.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str) and _DELIVERED.search(content):
+            texts.append(content)
+    attachment = record.get("attachment")
+    if isinstance(attachment, dict):
+        prompt = attachment.get("prompt")
+        if isinstance(prompt, str) and _DELIVERED.search(prompt):
+            texts.append(prompt)
+    return texts
+
+
+def _reported_id(notification: str) -> str | None:
+    """The one child `notification` reports on, or None if it names no child.
+
+    The harness writes the `<task-id>` as the notification's first element, and
+    everything after it is payload — including a `<result>` holding the child's
+    own prose verbatim. So an agent that writes a task id into its report puts a
+    second `<task-id>` into this string, and a reader collecting every match would
+    mark whichever child that id belongs to as reported. A panel reviewing this
+    module is the case where that is likeliest: its subject *is* task ids.
+
+    Taking the first id after the opening tag is what makes the payload
+    unreadable rather than merely unlikely to matter. It is the notification's
+    own framing that makes this safe to narrow — the id is emitted before any
+    element that carries text somebody else wrote. Measured across 1127
+    deliveries in this machine's 515 session transcripts, none carries a second
+    id today, so this buys no behaviour change now and removes the one shape in
+    which a child could release a sibling's hold.
+
+    A notification naming no child releases nothing, which is already right: the
+    goal check-in and the artifact-watch lifecycle notices both arrive in this
+    shape, and neither is a child reporting back.
+    """
+    opening = _DELIVERED.search(notification)
+    if opening is None:
+        return None
+    found = _TASK_ID.search(notification, opening.end())
+    return found.group(1) if found else None
+
+
+def outstanding_children(transcript: Path) -> list[str]:
+    """Children this session launched that have not reported back, oldest first.
+
+    A launch is a `toolUseResult` carrying an `agentId` — one shape for both an
+    async subagent and a fork. The report is a later `<task-notification>` naming
+    that id; `_notifications` owns which record shapes count as one, and
+    `_reported_id` owns which id in one counts.
+
+    Read in line order, because a child can go out more than once. Resuming a
+    child that already reported sends it back to work under the same id, and the
+    harness records that as `resumedAgentId` rather than as a second launch — so
+    the three kinds of row interleave, and only their order says whether the child
+    is out right now. Answering from accumulated sets instead, as this did first,
+    made a resumed child permanently finished: its id was in the reported set from
+    the first report and nothing ever took it out. That is the hold failing in the
+    one direction it exists to prevent, and a resumed child is a normal way to use
+    a panel — ask a reviewer to go deeper on one finding.
+
+    Order is safe to depend on. A report cannot precede its own launch, and does
+    not: 0 of the reports across this machine's 515 session transcripts name a
+    child whose launch row comes later in the same file.
+
+    A resume may name a child this transcript never launched — the launch was in
+    the session a previous restart cleared. It is still a child out now, so it
+    holds, under `UNNAMED_CHILD`: the resume carries no description and the one
+    from the launch went with the transcript that recorded it.
+
+    Descriptions, never ids. The launch result says in its own text that an
+    `agentId` is internal metadata that must not reach a person, and this list
+    feeds a message printed in the pane.
+
+    A transcript that cannot be read reports nothing outstanding. Holding on a
+    file wfctl could not open would hold every restart on the branch with nothing
+    able to release it — and `occupancy` has already decided *nothing* on that
+    same file, so the case does not reach here in the hook.
+    """
+    outstanding: dict[str, str] = {}
+    named: dict[str, str] = {}
+    try:
+        with transcript.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if (
+                    _AGENT_ID not in line
+                    and _RESUMED_ID not in line
+                    and _NOTIFICATION not in line
+                ):
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                result = record.get("toolUseResult")
+                if isinstance(result, dict):
+                    agent_id = result.get(_AGENT_ID)
+                    resumed = result.get(_RESUMED_ID)
+                    if isinstance(agent_id, str) and agent_id:
+                        described = result.get("description")
+                        named[agent_id] = (
+                            described if isinstance(described, str) and described
+                            else UNNAMED_CHILD
+                        )
+                        outstanding[agent_id] = named[agent_id]
+                    elif isinstance(resumed, str) and resumed:
+                        outstanding[resumed] = named.get(resumed, UNNAMED_CHILD)
+                for text in _notifications(record):
+                    reported = _reported_id(text)
+                    if reported is not None:
+                        outstanding.pop(reported, None)
+    except OSError:
+        return []
+    return list(outstanding.values())
+
+
 def read_events(state_dir: Path) -> list[dict]:
     """Every well-formed record in the branch's event log, in line order.
 
@@ -155,12 +351,17 @@ class Decision:
     `end` record, the moment `session-summary.md` was written. `run_hook` reads
     from there forward for anything the same turn recorded afterward, and folds
     it back in before the clear it is about to send (#371).
+
+    `children` is set only on `HOLD_CHILDREN`, and carries descriptions rather
+    than a count so the event log says *which* children held the restart. A
+    tuple because the dataclass is frozen and tests compare whole decisions.
     """
 
     kind: str
     handle: str | None = None
     send: dict | None = None
     end_pos: int | None = None
+    children: tuple[str, ...] = ()
 
     @property
     def texts(self) -> list[str]:
@@ -178,15 +379,20 @@ def decide(
     limit: int,
     events: Sequence[dict],
     find_handle: Callable[[], str | None],
+    find_children: Callable[[], Sequence[str]],
 ) -> Decision:
     """The restart's whole decision, as a pure function of what the hook read.
 
-    `find_handle` is a callable rather than a value because asking workmux is a
-    subprocess, and only the reply ends that would send need the answer — most
-    decide nothing and should not pay for it.
+    `find_handle` and `find_children` are callables rather than values because
+    one is a subprocess and the other a second pass over the transcript, and only
+    the reply ends that would begin a restart need either — most decide nothing
+    and should not pay for them. Neither has a default: a correctness condition
+    that a caller can omit is one that new callers will omit.
 
-    The rules, first match wins, are `data-model.md`'s table; the comments below
-    carry why each sits where it does.
+    The rules, first match wins, are `data-model.md`'s table, with one exception:
+    the children hold is #425's and that table is #371's, so `hold-children` has
+    no row there and the decision tree it draws has no branch for it. The comments
+    below carry why each rule sits where it does.
     """
     # Off, and under the threshold, first. A restart in progress is always over
     # it — neither the handoff turn nor a clear that did not take shrinks the
@@ -246,6 +452,42 @@ def decide(
             return Decision(NOTHING) if decided(SKIP, pos) else Decision(SKIP)
         return Decision(NOTHING) if decided(HOLD, pos) else Decision(HOLD)
 
+    # Nothing is under way, so this reply end would begin one. Children first,
+    # and only here: the restart is held before the handoff rather than before
+    # the clear, because the handoff is the artifact their results have to reach
+    # and it is written by the turn `END` asks for. Holding the clear instead
+    # would write the handoff while they were still out, and `END` is never
+    # planned twice (#425) — so there would be no second turn to fold them into.
+    children = tuple(find_children())
+    if children:
+        held = decided(HOLD_CHILDREN)
+        # Said once per growth, not once per session. A panel reporting one at a
+        # time shrinks this set on every reply end, and a message for each shrink
+        # would bury the one that mattered — but a *new* panel sent later is a
+        # new hold, and the first version stayed silent for it, leaving the only
+        # copy of the escape hatch unprinted.
+        #
+        # The signal is a description the hold does not already account for, and
+        # it is counted rather than set-tested: descriptions repeat. A panel names
+        # its reviewers `r1`, `r2`, `r3` every run, so a set difference is empty
+        # exactly when a new fan-out reuses an earlier name — and pairing it with
+        # a rising total missed the case where one child reports as another
+        # launches under its name, which shrinks the total while the set stays put.
+        # The multiset answers both in one question.
+        #
+        # Identity is still the description, because that is all the event records
+        # — two fan-outs named alike read as one, which is the cost of keeping
+        # `agentId` out of the log.
+        if held:
+            # A row this reader cannot make sense of counts as no children held,
+            # which speaks. `Counter` of a stray string would tally its characters
+            # and answer a different question quietly, and every reader of this
+            # log already treats a shape it did not write as absent.
+            before = held[1].get("children")
+            if not Counter(children) - Counter(before if isinstance(before, list) else ()):
+                return Decision(NOTHING)
+        return Decision(HOLD_CHILDREN, children=children)
+
     handle = find_handle()
     if handle:
         return Decision(END, handle=handle)
@@ -261,6 +503,24 @@ def message(decision: Decision, repo_root: Path) -> str | None:
     """
     if decision.kind == HOLD:
         return "session restart held: /end-session recorded no stop — context not cleared"
+    if decision.kind == HOLD_CHILDREN:
+        count = len(decision.children)
+        noun = "subagent" if count == 1 else "subagents"
+        # The escape hatch, named where the person who finds the held pane reads
+        # it. There is no automatic one on purpose: a hold that expires is the
+        # timeout #425 rejects, and the only party who can tell a slow child from
+        # a dead one is whoever comes back to the pane.
+        #
+        # Both commands, because the hook will not supply the second. A hand-typed
+        # `/end-session restart` records a stop but no *planned* end, so `decide`
+        # never reaches the branch that sends the clear — it falls back here,
+        # finds the hold already recorded and decides nothing. Naming one command
+        # left the person holding half a sequence with nothing to say so.
+        return (
+            f"session restart held: {count} {noun} still running — context not "
+            "cleared; run /end-session restart then /clear yourself if they "
+            "never report"
+        )
     if decision.kind == SKIP:
         return f"session restart skipped: no workmux pane for {repo_root}"
     if decision.kind == NOT_TAKEN and decision.send is not None:
@@ -403,7 +663,8 @@ def run_hook(
     assert isinstance(session, str) and isinstance(transcript, str) and isinstance(cwd, str)
 
     limit = threshold(environ)
-    tokens = occupancy(Path(transcript).expanduser()) if limit else None
+    transcript_file = Path(transcript).expanduser()
+    tokens = occupancy(transcript_file) if limit else None
     if limit == 0 or tokens is None or tokens < limit:
         return None
 
@@ -418,13 +679,25 @@ def run_hook(
         return None
 
     events = read_events(state_dir)
-    decision = decide(session, tokens, limit, events, lambda: handle_for(repo_root))
+    decision = decide(
+        session,
+        tokens,
+        limit,
+        events,
+        lambda: handle_for(repo_root),
+        lambda: outstanding_children(transcript_file),
+    )
     if decision.kind == NOTHING:
         return None
 
     if decision.kind == CLEAR and decision.end_pos is not None:
         amend_summary_for_late_events(state_dir, events, decision.end_pos)
 
+    # `children` only where there are any. `decide` reads this field back to tell
+    # a second fan-out from the one it already held, and an empty list on every
+    # other decision is a row that answers that question for a decision which was
+    # never asked it.
+    extra = {"children": list(decision.children)} if decision.children else {}
     append_event(
         state_dir,
         DECISION_EVENT,
@@ -433,6 +706,7 @@ def run_hook(
         occupancy=tokens,
         threshold=limit,
         handle=decision.handle,
+        **extra,
     )
     if decision.texts:
         try:
