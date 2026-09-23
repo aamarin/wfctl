@@ -54,17 +54,19 @@ deleting it leaves nothing to disagree with.
 | F · `attention` as a supervisory column | Clear (finding 6) |
 | G · The payload as a consumed contract across worktrees | Outstanding (finding 7) |
 | H · What a mirrored row reports about its own worktree | Outstanding (finding 9) |
+| I · Whether the mirror tracks the session set it presents | Outstanding (finding 10) |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
 without a change to this machine that was not an agent's to make. The second run
 had that change and closes it.
 
-Pass H is the second run's own, added when it found something the first run had
-no way to see. A pass named after the fact is the thing the "name your rows
-before you start" rule exists to prevent, so it is marked as what it is: the
-mirror was not expected to say anything about a worktree beyond its name, and it
-does.
+Passes H and I are the second run's own, added when it found things the first run
+had no way to see. A pass named after the fact is what the "name your rows before
+you start" rule exists to prevent, so both are marked as what they are: the mirror
+was not expected to say anything about a worktree beyond its name, and it does
+(H); and the mirror was assumed to track the server it mirrors, which was never
+stated as a pass because it was never in doubt (I).
 
 ## The handoff this branch carried was written against the withdrawn half
 
@@ -417,28 +419,39 @@ agent's own OSC notifications survive the control-mode hop; `allow-passthrough`
 governs that and was not varied. The mirror was also exercised over `localhost`
 only, where the SSH hop is degenerate.
 
-## Finding 9 — a mirrored row can report the wrong worktree
+## Finding 9 — half the mirrored rows report the connecting terminal's directory
 
-Two mirrored workspaces print a path that is not theirs:
+Five of the ten mirrored workspaces print a path that is not theirs, and all five
+print the same one — the working directory of the cmux terminal the mirror was
+launched from:
 
 | Sidebar row | Path shown | `session_path` reports |
 | --- | --- | --- |
-| `wfctl__425-restart-holds-on-child-work` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/425-restart-holds-on-child-work` |
 | `wfctl__426-overlay-boundary-spike` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/426-overlay-boundary-spike` |
+| `wfctl__425-restart-holds-on-child-work` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/425-restart-holds-on-child-work` |
+| `wfctl__397-handoff-records-work-in-flight` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/397-handoff-records-work-in-flight` |
+| `pfms__pfms-specs` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `~/Development/pfms-specs` |
+| `pfms__656-detail-panel` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/pfms/wt/656-detail-panel` |
 | `wfctl__419-misfiled-record-check` | `~/Development/wfctl/wt/419-misfiled-record-check` | matches |
+| `pfms__655-analyst-view` | `~/Development/pfms/wt/655-analyst-view` | matches |
+| `pfms__654-variance-summary` | `~/Development/pfms/wt/654-variance-summary` | matches |
 | `pfms__653-variance-ledger` | `~/Development/pfms/wt/653-variance-ledger` | matches |
 
-Three more rows — `wfctl__397-handoff-records-work-in-flight`, `pfms__pfms-specs`,
-`pfms__656-detail-panel` — show no path at all. Read at full sidebar width, so
-this is not truncation: `424` and `425` differ in the third character of the
-segment.
+`pfms__pfms-specs` is the row that makes the pattern legible: its real directory
+is not under any `wt/` and is in a different repository, and it still shows this
+worktree's path. Whatever the five have in common, it is not proximity to 424 —
+it is that the mirror had no path for them and filled in the one it was standing
+in.
+
+**An earlier draft of this finding said two rows, with three showing no path.**
+That was read off a narrower sidebar, where the subtitle was being truncated to
+nothing. Re-read at full width, all five carry the same wrong value. The count is
+corrected here rather than quietly: a finding that under-reports its own blast
+radius by more than half is worth leaving a mark, and the lesson is that the only
+evidence available for this finding is a rendered UI, which has a width.
 
 tmux answers correctly for every session, by both `session_path` and
-`pane_current_path`, so the wrong value is not being read from there. What the
-three wrong-or-absent wfctl rows have in common is that their sessions were
-created within thirty seconds of each other and of 424's, which is a correlation
-and not a cause — one observation, not a mechanism, and it is recorded here as
-the former.
+`pane_current_path`, so the wrong value is not being read from there.
 
 **Why it matters more than a cosmetic bug.** The record's correlation clause says
 the client correlates on the workmux handle or the worktree path, never on an id
@@ -452,6 +465,46 @@ cmux's own doc; this is the demotion earning itself.
 Not filed against cmux. One machine, one run, `localhost`, and no minimal
 reproduction attempted.
 
+## Finding 10 — the mirror is a snapshot, and a worktree created after it is invisible
+
+`workmux add 459-poller-decision` created a twelfth tmux session while the mirror
+was open. It did not appear. The sidebar still lists the eleven that existed when
+`cmux ssh-tmux localhost` ran, and `tmux list-sessions` lists twelve.
+
+Control mode emits `%sessions-changed` when the server's session set changes, so
+the notification is available to a client that subscribes to it. Whether cmux
+subscribes and drops it, or never subscribes, is not visible from outside and was
+not determined here.
+
+**Re-running the command does not fix it, and the error says why:**
+
+```
+$ cmux ssh-tmux localhost
+Connecting to localhost…
+ControlSocket /Users/andremarin/.cmux/ssh/tmux-localhost-….sock already exists,
+  disabling multiplexing
+Authenticated; opening remote tmux mirror for localhost…
+Error: ssh-tmux: authentication did not open the connection to localhost
+```
+
+The first mirror's SSH control master is still running — `ssh -O check` on that
+socket reports `Master running`. A second `ssh-tmux` to the same host finds the
+socket, declines to multiplex over it, and fails. So refreshing the view means
+tearing the existing mirror down first, not asking for another one.
+
+**This is the sharpest limitation found in either run, and it is the one a
+supervisory screen can least afford.** The worktree a person most wants to watch
+is the one they just created; a screen that shows every worktree except that one,
+and requires a teardown and reconnect to notice it, inverts its own purpose. Every
+other gap in this file is something the screen does not yet say. This is something
+it says wrongly — eleven rows presented as the set, with no indication the set is
+stale.
+
+For a poller, it is also the cheapest thing to work around and the easiest to get
+wrong: the poller reads `workmux list --json`, so it knows about session twelve
+immediately, and it will have nowhere to write that row. Detecting the mismatch
+and saying so is better than silently writing eleven of twelve.
+
 ## What it would cost to get #424's screen anyway
 
 Three pieces, none of them in wfctl. **Two of them now exist**, and the second
@@ -462,6 +515,12 @@ run is what moved them:
    an ordinary cmux terminal running `tmux attach -t wfctl__<handle>`, which also
    works but which cmux models as a shell rather than a session, so no attention
    ring or status lane is keyed to it. The mirror is the one that carries a row.
+
+   **It supplies rows for the sessions that existed when it connected, and no
+   others** (finding 10). A worktree created since is absent, and refreshing means
+   tearing the mirror down rather than reconnecting over it. Whoever builds piece
+   3 inherits this: the poller learns about a new worktree from `workmux list`
+   one tick later and has no row to write it to.
 2. **Correlation on the workmux handle.** Supplied by the mirror, which labels
    each workspace with the tmux session name and nothing else. This is what
    `a-client-attaches-to-a-runtime-it-never-owns` asks for, and it arrives for
@@ -473,10 +532,19 @@ run is what moved them:
    pushing rows with `cmux set-status` / `cmux log`. **This is the whole of what
    is left, and it is still the piece that does not exist.**
 
+   **It cannot run in a mirrored pane.** Processes on the far side of the SSH hop
+   are started by tmux, not by cmux, and receive none of the `CMUX_*` environment
+   cmux injects into its own terminals — verified by reading `env` in a tmux pane
+   and finding none of them. So the poller runs in a cmux-native terminal, or it
+   holds the socket password. That is a real constraint on where the code can
+   live, and it is not obvious from the outside: the mirrored pane looks exactly
+   like a cmux terminal and fails with finding 4's `Access denied`.
+
 So the shape of the answer has changed. It was "two of three pieces missing, and
 one of those cannot be evaluated here"; it is now "one piece missing, and it is
 the one the #424 comment declined" — a second orchestration plane wearing a
-smaller name. A one-shot stands in for it in finding 8, where the pane wrote its
+smaller name. The two pieces that now exist are not perfect: piece 1 misreports
+half its paths and does not notice new sessions. A one-shot stands in for it in finding 8, where the pane wrote its
 own row with a `printf`; what a sidecar adds is doing that on a schedule, for
 every worktree, without a person in the loop.
 
@@ -516,6 +584,14 @@ three sources, and only the first is reproducible from a shell alone:
   above as they printed it.
 - The sidebar itself, for what a row displays. There is no CLI that reports a
   mirrored workspace's subtitle or its path — `workspace list` prints neither —
-  so finding 9 rests on reading the rendered sidebar at full width. That is the
-  weakest evidence in this file and it is the whole basis of that finding, which
-  is why it is recorded as an observation rather than filed as a bug.
+  so findings 9 and 10 rest on reading the rendered sidebar. That is the weakest
+  evidence in this file and it is the whole basis of both, which is why neither
+  is filed as a bug.
+
+  **It is weak in a way that already cost this file a wrong number.** Finding 9
+  first said two rows wrong and three blank; at full sidebar width it is five
+  rows wrong and none blank. Nothing about the first reading was careless — the
+  subtitles genuinely were not rendering at that width — and that is the point:
+  a rendered UI answers differently depending on how wide it is, and there is no
+  second source to check it against. Any later reader re-reading these two
+  findings should say what width they read at.
