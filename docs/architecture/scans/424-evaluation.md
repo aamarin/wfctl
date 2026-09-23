@@ -4,8 +4,14 @@ An `evaluation` — the kind of scan file with no pipeline step behind it. This
 branch ran none; the thing needing to reach a reviewer is an experiment's result.
 `writing-a-scan-file` governs what a section carries and is followed here. The
 one thing it delegates to "the wrapper that sent you here" is the coverage rows,
-and no wrapper sent this one, so the rows below are this evaluation's own, named
-before it started.
+and no wrapper sent this one, so the rows below are this evaluation's own.
+
+**Passes A through G were named before the run; H and I were not.** They are
+marked as such in the table, because a coverage table's job is to show what a run
+set out to cover — that is what makes an unreached pass visible — and a row
+added afterwards cannot do that job. Removing them instead would hide findings 9 and 10
+from the one place a reader checks for scope, so they are kept and labelled
+rather than kept and passed off.
 
 ## Session 2026-09-22
 
@@ -35,8 +41,8 @@ then enabled Remote Login and cmux's "Remote tmux" beta setting, and the second
 run exercised it. Finding 8 is that run: the mirror presents each workmux-owned
 session it finds at connect time as a workspace, correlates on the session name,
 takes no ownership, and carries a line of wfctl's own output on the row. What it
-does *not* present is anything created afterwards, which is finding 10, and half
-the rows it does present carry the wrong directory, which is finding 9.
+does *not* present is a session created afterwards, which is finding 10; and of
+the ten rows read, five carry the wrong directory, which is finding 9.
 
 **This section holds both runs**, because a second scan finding something is
 only meaningful given what the first one found. Findings 1 through 7 are the
@@ -57,8 +63,8 @@ that rule to itself.
 | E · A sidebar as the presentation surface | Clear (it cannot fetch; finding 5) |
 | F · `attention` as a supervisory column | Clear (finding 6) |
 | G · The payload as a consumed contract across worktrees | Outstanding (finding 7) |
-| H · What a mirrored row reports about its own worktree | Outstanding (finding 9) |
-| I · Whether the mirror tracks the session set it presents | Outstanding (finding 10) |
+| H · What a mirrored row reports about its own worktree | Outstanding (finding 9) — **pass added after the run** |
+| I · Whether a session created after connect gets a row | Outstanding (finding 10) — **pass added after the run** |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
@@ -511,10 +517,12 @@ own doc; this is the demotion earning itself.
 Not filed against cmux. One machine, one run, `localhost`, and no minimal
 reproduction attempted.
 
-## Finding 10 — the mirrored set is fixed at connect time
+## Finding 10 — a session created after connect never gets a row
 
 The rows are live — finding 8's keyboard and the agent's own output prove that.
-What is frozen is *which sessions have rows*.
+What was tested is one direction of *which sessions have rows*: a session created
+after the mirror connects does not get one. Removal was never exercised, so
+nothing here says the set is fixed — only that it does not grow.
 
 `workmux add 459-poller-decision` created a twelfth tmux session while the mirror
 was open. It did not appear. The sidebar still lists the eleven that existed when
@@ -568,13 +576,16 @@ rows and the twelfth worktree is still invisible.
 For a poller it is the cheapest thing to work around and the easiest to get
 wrong: `workmux list --json` reports session twelve immediately, and there will
 be no row to write it to. Detecting the mismatch and saying so beats silently
-writing eleven of twelve.
+writing eleven of twelve — and the mismatch is worth detecting in both
+directions, since the removal case is untested and a row for a session that no
+longer exists would fail the same way round.
 
 **Limits.** One machine, one run, `localhost`. Only the additive case was
 exercised — a session created after connect. Whether a *killed* session's row
 disappears, and whether a new *window* inside an already-mirrored session shows
-up as a tab, were not tested, and the poller consequence above assumes only the
-case that was. Not filed against cmux for the same reasons as finding 9.
+up as a tab, were not tested; the heading and the conclusion above are narrowed
+to the case that was, which is why neither says the set is frozen. Not filed
+against cmux for the same reasons as finding 9.
 
 ## What it would cost to get #424's screen anyway
 
@@ -680,11 +691,16 @@ strong.** Findings 8, 9 and 10 draw on all of them:
   rather than anything about the SSH hop. What carries that claim is the
   `Access denied` transcript beside it, from a command actually run in a
   mirrored pane.
-- **The sidebar itself, for what a row displays — and this is the weak one.**
-  No cmux verb reports a mirrored workspace's subtitle or its path; `workspace
-  list` prints neither. So finding 9's counts and every path in its table are a
-  reading of a rendered picture with no second source, which is why it is not
-  filed as a bug.
+- **The sidebar itself, for what a row displays and which rows exist — and this
+  is the weak one.** No cmux verb reports a mirrored workspace's subtitle or its
+  path; `workspace list` prints neither, and it was not re-run after the twelfth
+  session was created. So finding 9's counts and every path in its table, and
+  finding 10's "still eleven rows", are readings of a rendered picture with no
+  second source. Neither is filed as a bug for that reason.
+
+  **A cheap check nobody ran:** `cmux workspace list` after creating the new
+  session would have answered finding 10 from a text interface instead of a
+  screenshot. It is the one gap in this ledger that costs a single command.
 
   **It is weak in a way that has already cost this file a wrong number, twice
   over.** Finding 9 first said two rows wrong and three blank; it is five wrong
@@ -695,8 +711,15 @@ strong.** Findings 8, 9 and 10 draw on all of them:
   interface, the honest position is that finding 9's numbers are its weakest
   claim and are labelled as such in the finding itself.
 
-  **Finding 10 is not in this bucket, and saying it was would understate it.**
-  Its core — twelve sessions on the server, eleven rows in the sidebar, a re-run
-  that fails, a control master still alive — rests on the first two sources
-  above. Only "eleven rows" comes from the picture, and `workspaces=11` in
-  cmux's own connect output corroborates it.
+  **Finding 10 is partly in this bucket, and an earlier draft of this ledger
+  denied it.** Half of it — a re-run that fails, a control master still alive,
+  twelve sessions on the server — rests on the first two sources above and is
+  reproducible. The other half is "and the sidebar still shows eleven", which is
+  a reading of the picture and is load-bearing: it is the observation that the
+  new session did not appear.
+
+  `workspaces=11` does **not** corroborate it. That line was printed when the
+  mirror connected, before the twelfth session existed, so a mirror that added
+  the row dynamically would have printed exactly the same thing. The earlier
+  draft offered it as corroboration, which was the same mistake finding 9 is
+  about: a number that is easy to check, cited for a claim it cannot reach.
