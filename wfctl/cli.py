@@ -247,6 +247,45 @@ def _identity_kwarg(caller: str | None) -> dict[str, str]:
     return {"session_id": caller} if caller is not None else {}
 
 
+def _report_unfilled_in_flight(agent_dir: Path) -> None:
+    """Say when the last handoff left `## In Flight` as the template wrote it.
+
+    The check `a-rule-is-expressed-as-a-check` asks for over that section, and it
+    runs here rather than in `end` because `end` writes the scaffold one step
+    before the agent fills it and so can only ever see the placeholder.
+
+    Not because nothing earlier could read it. `_restart.run_hook` already reads
+    the summary at `amend_summary_for_late_events`, after step 4 and before it
+    sends the `/clear` — the near side, where a check could hold the restart
+    rather than report on it afterwards. What stands between that reader and a
+    hold is an answer to what a refused restart does next, with the session
+    already over threshold and nobody at the prompt to fill the section in. That
+    question is #425's, and the hold belongs with it. This reports.
+
+    Before the `session_started` guard below, not after: `start` returns early on
+    an already-initialized branch, which is the path `/start-session` takes on
+    every handoff after the first — the common case, and the one a restart
+    produces.
+
+    Read defensively for the reason the sibling read in `end` gives: invalid
+    UTF-8 raises `UnicodeDecodeError`, a `ValueError` rather than an `OSError`.
+    A handoff nobody can read must not stop a session from opening.
+    """
+    from wfctl._session import in_flight_unfilled
+
+    summary = agent_dir / "session-summary.md"
+    try:
+        handoff = summary.read_text()
+    except (OSError, ValueError):
+        return
+    if handoff and in_flight_unfilled(handoff):
+        console.print(
+            "  [yellow]⚠[/yellow] the last handoff left its in-flight section "
+            "unfilled — whatever that session was in the middle of was not "
+            "recorded, and is gone."
+        )
+
+
 @app.command("start")
 def start_cmd(
     force: bool = typer.Option(False, "--force", help="Open a session even if one is recorded"),
@@ -275,6 +314,7 @@ def start_cmd(
     from wfctl._session import grant_auto_approve, identity, last_session_id
 
     agent_dir, repo_root, branch, _ = _resolve_context()
+    _report_unfilled_in_flight(agent_dir)
     # Resolved once, here, and passed down. The environment fallback lives on the
     # option rather than at each read, so a caller that exports the variable and
     # a caller that types the flag reach every branch below by the same path —
