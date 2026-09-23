@@ -6,8 +6,8 @@ branch ran none; the thing needing to reach a reviewer is an experiment's result
 one thing it delegates to "the wrapper that sent you here" is the coverage rows,
 and no wrapper sent this one, so the rows below are this evaluation's own.
 
-**Passes A through G were named before the run; H, I, J and K were not.** They are
-marked as such in the table, because a coverage table's job is to show what a run
+**Passes A through G were named before the run; H, I, J, K and L were not.**
+They are marked as such in the table, because a coverage table's job is to show what a run
 set out to cover — that is what makes an unreached pass visible — and a row
 added afterwards cannot do that job. Removing them instead would hide findings 9 and 10
 from the one place a reader checks for scope, so they are kept and labelled
@@ -67,6 +67,7 @@ that rule to itself.
 | I · Whether a session created after connect gets a row | Outstanding (finding 10) — **pass added after the run** |
 | J · Whether anything already writes wfctl status to a row | Clear (`~/.local/bin/wfctl-rows` does; finding 11) — **pass added after the run** |
 | K · Whether tearing the mirror down and reconnecting repairs a stale set | Clear (it does, and costs every status line; finding 12) — **pass added after the run** |
+| L · Whether a row shows the session it names | **Outstanding** (two rows did not; finding 13) — **pass added after the run** |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
@@ -765,10 +766,90 @@ survives its own mirror's teardown may not exist. Whether a local
 path-workspace — which is not mirrored, and did survive here — can host it is
 untested and is the cheap experiment. `#461` is where that belongs.
 
+**And it may cost more than this finding measured.** Two rows were later seen
+rendering another session's terminal entirely — finding 13 — first observed
+after this reconnect. Whether the reconnect caused that is unestablished. If it did, the
+repair recorded here is not merely expensive but unsafe to run unattended, and
+this finding's accounting of the cost is incomplete.
+
 **Limits.** One teardown, one reconnect, `localhost`. The reconnect was run from
 a local path-workspace; whether it works from elsewhere is untested. Nothing here
 says how the mirror behaves if the master dies unexpectedly rather than on
 request.
+
+## Finding 13 — after the reconnect, two rows render another session's terminal
+
+This is the most serious defect in the file, and it is the one a supervisory
+screen can least survive: a row carries the right name and shows the wrong
+worktree's live pane.
+
+After finding 12's teardown and reconnect, the workspace titled
+`pfms__561-chart-of-accounts-screen` displayed:
+
+- **content** — the running agent session of
+  `wfctl__424-observer-dashboard-eval`, a different worktree in a different
+  repository. Its scrollback was this evaluation's own output.
+- **one tab**, titled `pfms__561-chart-of-account…`, where tmux reports three
+  windows for that session.
+- **subtitle** `424-observer-dashboard-eval` and **path**
+  `~/Development/wfctl/wt/424-observer-dashboard-e…`.
+
+`pfms__564-chart-follows-interview` showed the same subtitle and path. Every part
+of both rows except the title belonged to another session.
+
+**tmux is not the source.** Its own view is correct in all three places a fault
+could hide — the sessions have their windows, the panes have their directories,
+and every mirror client is attached to the session its row names:
+
+```
+$ tmux list-panes -s -t pfms__561-chart-of-accounts-screen
+0.0 term    …/pfms/wt/561-chart-of-accounts-screen  zsh
+1.0 deploy  …/pfms/wt/561-chart-of-accounts-screen  zsh
+2.0 agent   …/pfms/wt/561-chart-of-accounts-screen  2.1.280
+
+$ tmux list-clients -F "#{client_tty}\tsession=#{client_session}"
+/dev/ttys027  session=pfms__561-chart-of-accounts-screen
+/dev/ttys019  session=pfms__564-chart-follows-interview
+…
+/dev/ttys037  session=wfctl__424-observer-dashboard-eval
+/dev/ttys038  session=wfctl__424-observer-dashboard-eval
+```
+
+Nine clients created within the same second as the reconnect, one per session,
+each correctly bound. The tenth (`ttys038`) predates them and is the terminal the
+reconnect was typed into. So the mis-routing is entirely inside cmux: its
+workspace is bound to the wrong surface, while the SSH client behind that
+workspace is bound to the right session.
+
+**Why this outranks finding 9.** That one is a row whose *path* is wrong under a
+correct name — misleading, and checkable by anyone who reads the name. This is a
+row whose *contents* are another worktree's, and the contents are what a person
+uses the screen for. Someone glancing at `pfms__561`, seeing an agent mid-run and
+deciding it needs no attention, has read `wfctl__424`. Someone typing into it —
+and finding 8 established every mirrored row takes input — types into
+`wfctl__424`. Nothing on the row says which session it is really showing.
+
+**It appeared only after the reconnect**, and this is a correlation rather than a
+cause. The mirror had run for hours before the teardown with no such report, and
+the defect was present immediately after. That is one observation of an ordering,
+not a demonstrated mechanism: no second teardown was performed to see whether it
+recurs, and nothing rules out its having been present earlier and unnoticed, since
+nobody had reason to compare a row's content against its title.
+
+**What it does to finding 12's remedy.** That finding recorded the cost of
+tear-down-and-reconnect as every status line plus the poller. If this defect is
+caused by the reconnect, the cost also includes rows that lie about which worktree
+they show — and the remedy stops being merely expensive and becomes one that
+must not be run unattended. Establishing which requires a second teardown, done
+deliberately, with a row-by-row check of content against title before and after. That experiment
+is named on #461 and was not run here.
+
+**Limits.** One reconnect, `localhost`, two rows observed wrong out of nine —
+and the other seven were not checked content-against-title, so the count is a
+floor rather than a measurement. As with findings 9 and 10, the evidence is a rendered
+UI: no cmux verb reports which session a workspace is displaying, so there is no
+text source to confirm this against. `cmux workspace list` gives titles only,
+which is exactly the half that is correct here.
 
 ## What it would cost to get #424's screen anyway
 
@@ -836,13 +917,15 @@ missing, and one of those cannot be evaluated here". It became "one piece
 missing, and it is the one the #424 comment declined". It is now **none
 missing** — the screen exists and carries wfctl's verdicts today.
 
-What is left is not a piece but four defects and a home. Piece 1 misreports five
+What is left is not a piece but five defects and a home. Piece 1 misreports five
 of the ten rows read (finding 9) and never notices a new session (finding 10).
 The repair for that erases every status line and kills the poller, so the two
 compound (finding 12). A stale row looks exactly like a fresh one, and a row
-whose verdict was wiped looks exactly like a worktree with nothing to say. And
-piece 3 lives in `~/.local/bin` rather than in any repository, which is what #459
-stays open for.
+whose verdict was wiped looks exactly like a worktree with nothing to say. Two
+rows were seen showing another worktree's live terminal under the right name
+(finding 13), which is the defect that makes the screen worse than no screen.
+And piece 3 lives in `~/.local/bin` rather than in any repository, which is what
+#459 stays open for.
 
 A one-shot stands in for the missing piece in finding 8, where the pane wrote
 its own row with a `printf`; what a sidecar adds is doing that on a schedule, for
