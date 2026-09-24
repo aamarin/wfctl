@@ -11,7 +11,19 @@ handoffs:
 allowed-tools: Read Glob Write Edit Bash(wfctl status*) Bash(wfctl issue view*) Bash(git branch --show-current*) Bash(mkdir*)
 ---
 
-Read `.agents/skills/speckit-specify/SKILL.md` (or `../skills/speckit-specify/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete specify workflow.
+Read `.agents/skills/speckit-specify/SKILL.md` (or `../skills/speckit-specify/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete specify workflow, and come back here: the two sections below
+are wfctl's over it, and the second is the step's only exit.
+
+## When no description was typed
+
+The skill takes the text typed after the command as the feature description,
+and its step 5.1 stops on an empty one. Entered from `EXECUTE_COMMAND` there is
+no such text — `speckit-orchestrate` emits the bare command — so an unattended
+run would stop at the first line it reads, with brainstorm's work sitting
+unused (#473). When nothing was typed, `design.md` is the description: the
+skill already treats it as "the canonical handoff contract", and brainstorm is
+the step that wrote it. Where there is no `design.md` either, the step has
+nothing to specify from and stops, as the skill says.
 
 ## When the spec is written
 

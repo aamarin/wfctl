@@ -12,10 +12,10 @@ discover a skill that lives only in `.agents/skills/` — the wrapper is the rou
 in.
 
 `_MIRRORED_SKILLS` builds a second route for Claude: a named skill is copied to
-`.claude/skills/<name>`, where it is discovered without being told. Fifteen
-skills are mirrored, and fourteen of them also ship a wrapper under the same
-name — every one but `speckit-brainstorm`, whose wrapper is `speckit.brainstorm`
-and collides with nothing.
+`.claude/skills/<name>`, where it is discovered without being told. Nineteen
+skills are mirrored, and seventeen of them also ship a wrapper under the same
+name — every one but `speckit-brainstorm` and `speckit-orchestrate`, whose
+wrappers are a dot away and collide with nothing.
 
 That is one `/name` claiming two files. Claude Code's documentation says the
 skill wins; a session on 2026-09-04 got the wrapper instead, whose
@@ -96,6 +96,17 @@ Membership decides reachability; the file decides invocability.
 - `conversation-response-shape` becomes reachable by the model on the Claude
   layer, which its own frontmatter comment has argued for since #99 and the
   colliding wrapper was intermittently denying.
+- The eight pipeline-step wrappers carry no `disable-model-invocation` (#473),
+  so a model-initiated turn may now spend each one's `allowed-tools:`, where
+  before only a typed one could. What that reaches outward is `git add` and
+  `git commit` on brainstorm, clarify and analyze, and `wfctl issue create` on
+  analyze and decompose, which is a write to the tracker. Accepted rather than
+  narrowed: every step is `_AUTOMATIC`, so the grant is what each step needs to
+  finish with nobody there, and #240 widened decompose's grant for exactly that
+  run. A narrower model-initiated grant would re-create the stall one tool call
+  later. What it costs is the host's prompt on those commands, which AGENTS.md §
+  Safety names as the one gate on an outward action. The prompt still stands
+  for any command outside the grant, and wfctl still records each `issue` write.
 - The wrappers' second line — "confirm activation in one line" — is unchanged,
   because the wrappers are unchanged. Only their destination narrowed.
 

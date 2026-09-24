@@ -2920,8 +2920,7 @@ _MIRRORED_SKILLS = frozenset({
     # body out supplies the name; this entry is what puts it on the native
     # discovery path.
     #
-    # Not the precedent for the other steps, though it read as one until #473.
-    # Their route is the dotted wrapper `EXECUTE_COMMAND` names, which carries
+    # Not the precedent for the other steps. Their route is the dotted wrapper `EXECUTE_COMMAND` names, which carries
     # no `disable-model-invocation` for that reason. Mirroring their skills
     # instead would skip the wrapper, and the wrapper is where wfctl's layer over
     # a derived skill lives — `speckit.analyze.md`'s scan file, `plan` and
@@ -2954,6 +2953,13 @@ _MIRRORED_SKILLS = frozenset({
     # advance, which is the whole of what a step's last instruction asks for. A
     # grant narrower than the wrapper's would leave the two entrances
     # disagreeing about what the same workflow may do.
+    #
+    # Its description can now fire it with no step just finished, and each run
+    # records a pass through `wfctl resume`. `wfctl-counts-the-passes` cannot
+    # tell such a run from a step that re-entered and changed nothing, so one
+    # stray invocation brings a stall a pass closer. Accepted: the description
+    # names the moment after a step completes, and a stall only ever stops the
+    # loop for a person, which is the failure it is there to report.
     "speckit-orchestrate",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather

@@ -195,6 +195,12 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     assert "disable-model-invocation" not in front
 
 
+# The one step whose skill is not its command respelled. Pinned rather than
+# derived, so a second exception is added here deliberately instead of inherited
+# from a looser rule; the two tests that resolve a step's skill both read it.
+_RENAMED_STEP_SKILLS = {"/speckit.decompose": "speckit-delivery-plan"}
+
+
 def test_the_no_boundary_exit_names_its_command() -> None:
     """Level 2 has three exits and only one of them wrote anything. "A boundary
     was proposed" hands off to `architecture-decisions` and a record lands;
@@ -388,9 +394,8 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     passing at line 102. A wrapper may cite any number of other skills; what it
     may not do is fail to name the one its command resolves to.
 
-    `decompose` is the one step whose skill is not its command respelled, and it
-    is pinned here rather than derived so that a second exception has to be
-    added deliberately instead of inherited from a looser rule.
+    `decompose` is the one step whose skill is not its command respelled; see
+    `_RENAMED_STEP_SKILLS`.
 
     Asserts the wrapper names the skill, not that the skill ships:
     `test_every_referenced_skill_ships` above already owns the second half, and
@@ -398,12 +403,11 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     """
     from wfctl._pipeline import _STEPS
 
-    renamed = {"/speckit.decompose": "speckit-delivery-plan"}
 
     inline = {}
     for step, spec in _STEPS.items():
         wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
-        expected = renamed.get(spec.command, spec.command.lstrip("/").replace(".", "-"))
+        expected = _RENAMED_STEP_SKILLS.get(spec.command, spec.command.lstrip("/").replace(".", "-"))
         if not wrapper.exists() or expected not in _REFERENCE.findall(wrapper.read_text()):
             inline[step] = expected
     assert inline == {}, f"next_command with no skill behind it: {inline}"
@@ -452,9 +456,10 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     the grant, and stall on the first unattended correction pass.
 
     Asserts the wrapper and not the skill. The wrapper is what `EXECUTE_COMMAND`
-    resolves to, which is the route `speckit-orchestrate` actually emits, and
-    since #473 the only route a step has — see
-    `test_every_step_command_is_one_the_agent_may_invoke`.
+    resolves to, which is the route `speckit-orchestrate` actually emits — see
+    `test_every_step_command_is_one_the_agent_may_invoke`. Brainstorm's mirrored
+    skill is a second entrance, and `test_brainstorm_allows_the_commands_its_records_need`
+    holds the two grants together.
     """
     from wfctl import _arch
     from wfctl._pipeline import _STEPS
@@ -496,7 +501,7 @@ def test_every_step_command_is_one_the_agent_may_invoke() -> None:
     from wfctl._pipeline import _STEPS
 
     refused = []
-    for step, spec in _STEPS.items():
+    for spec in _STEPS.values():
         wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
         if "disable-model-invocation" in _arch._frontmatter(wrapper.read_text()):
             refused.append(spec.command)
@@ -520,13 +525,12 @@ def test_every_step_hands_off_to_orchestrate() -> None:
     """
     from wfctl._pipeline import _STEPS
 
-    renamed = {"/speckit.decompose": "speckit-delivery-plan"}
     exit_line = re.compile(r"invoke `speckit-orchestrate`", re.IGNORECASE)
 
     silent = []
     for step, spec in _STEPS.items():
         name = spec.command.lstrip("/")
-        skill = renamed.get(spec.command, name.replace(".", "-"))
+        skill = _RENAMED_STEP_SKILLS.get(spec.command, name.replace(".", "-"))
         text = (_AGENTS / "commands" / f"{name}.md").read_text()
         text += (_AGENTS / "skills" / skill / "SKILL.md").read_text()
         if not exit_line.search(text):
