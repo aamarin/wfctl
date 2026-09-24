@@ -1,6 +1,7 @@
 ---
 name: 'speckit-orchestrate'
 description: 'Read pipeline state after a speckit step completes, then auto-advance or surface the next command based on the step auto flag.'
+allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
 ---
 
 ## Steps

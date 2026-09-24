@@ -452,9 +452,9 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     the grant, and stall on the first unattended correction pass.
 
     Asserts the wrapper and not the skill. The wrapper is what `EXECUTE_COMMAND`
-    resolves to, which is the route `speckit-orchestrate` actually emits; whether
-    a step is reachable by skill name at all is #396, and whether it should be is
-    #398.
+    resolves to, which is the route `speckit-orchestrate` actually emits, and
+    since #473 the only route a step has — see
+    `test_every_step_command_is_one_the_agent_may_invoke`.
     """
     from wfctl import _arch
     from wfctl._pipeline import _STEPS
@@ -468,6 +468,98 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
         if step in _EDITS_ITS_OWN_ARTIFACT and "Edit" not in allowed:
             unwritable.append(f"{step} (Edit)")
     assert unwritable == [], f"cannot write its own artifact: {unwritable}"
+
+
+def test_every_step_command_is_one_the_agent_may_invoke() -> None:
+    """Every `_STEPS` row is `_AUTOMATIC`, so `speckit-orchestrate` emits its
+    command as `EXECUTE_COMMAND` for the agent to run with nobody at the prompt.
+    All eight wrappers carried `disable-model-invocation`, so the Skill tool
+    refused every one of them, and the refusal forbids the workaround in its own
+    text. The skill of the same name was unmirrored for seven, so neither
+    spelling resolved and an unattended run stopped at the first step after
+    brainstorm (#473, #396).
+
+    The wrapper is the route to open, not the skill. For the derived steps it is
+    where wfctl's layer lives — `speckit.analyze.md`'s scan file, the design
+    records `plan` and `tasks` read — and mirroring the skill instead would reach
+    the workflow without them, with the step still reporting done (#398).
+    `mirror-supersedes-the-wrapper` rejected dropping this flag for wrappers
+    whose skill is mirrored under the same name, because two files would claim
+    one `/name`. That cannot happen here: `speckit.plan` and `speckit-plan`
+    differ by a dot.
+
+    Walks `_STEPS`, so a row added with a wrapper copied from any of the other
+    commands, which all still carry the key, fails here and not on the first
+    unattended run that reaches it.
+    """
+    from wfctl import _arch
+    from wfctl._pipeline import _STEPS
+
+    refused = []
+    for step, spec in _STEPS.items():
+        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
+        if "disable-model-invocation" in _arch._frontmatter(wrapper.read_text()):
+            refused.append(spec.command)
+    assert refused == [], f"next_command the agent is refused: {refused}"
+
+
+def test_every_step_hands_off_to_orchestrate() -> None:
+    """Invocable is half of unattended. A step that runs and then says nothing
+    about what comes next ends the run just as surely as one that is refused, and
+    it looks like success. `handoffs:` does not supply the exit: it is a button
+    offered to a person who typed the command, and an agent that entered from
+    `EXECUTE_COMMAND` sees no button.
+
+    `specify` and `decompose` had no exit, and nothing noticed while no agent
+    could enter them. Their wrappers carry the line, and `speckit-brainstorm`'s
+    SKILL.md says why a derived skill cannot.
+
+    The wrapper and the skill it resolves to are read together, because either
+    is a legitimate place for the line. A derived skill cannot take it, and a
+    skill reached by name carries it in the skill.
+    """
+    from wfctl._pipeline import _STEPS
+
+    renamed = {"/speckit.decompose": "speckit-delivery-plan"}
+    exit_line = re.compile(r"invoke `speckit-orchestrate`", re.IGNORECASE)
+
+    silent = []
+    for step, spec in _STEPS.items():
+        name = spec.command.lstrip("/")
+        skill = renamed.get(spec.command, name.replace(".", "-"))
+        text = (_AGENTS / "commands" / f"{name}.md").read_text()
+        text += (_AGENTS / "skills" / skill / "SKILL.md").read_text()
+        if not exit_line.search(text):
+            silent.append(step)
+    assert silent == [], f"step ends without handing off: {silent}"
+
+
+def test_orchestrate_is_reachable_by_the_name_every_step_exits_through() -> None:
+    """"Invoke `speckit-orchestrate`" is a skill name, and the wrapper behind
+    that loop is `speckit.orchestrate`, a dot away. Unmirrored, the lookup the
+    step's last line asks for finds nothing, and the run stops between two steps
+    with the first one done (#473).
+
+    The key checks are here for `test_the_session_gates_remedy_is_reachable_without_a_human`'s
+    reasons. `disable-model-invocation` on the SKILL.md would refuse it on the
+    path membership puts it on. The grant has to equal the wrapper's rather than
+    merely exist, because the skill is reached by the model and the wrapper by a
+    person, and two entrances to one workflow that disagree about what it may do
+    let one of them fail where the other did not.
+    """
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "speckit-orchestrate" in _MIRRORED_SKILLS
+
+    skill = _arch._frontmatter(
+        (_AGENTS / "skills" / "speckit-orchestrate" / "SKILL.md").read_text()
+    )
+    wrapper = _arch._frontmatter(
+        (_AGENTS / "commands" / "speckit.orchestrate.md").read_text()
+    )
+    assert "disable-model-invocation" not in skill
+    assert skill.get("allowed-tools") == wrapper.get("allowed-tools")
 
 
 def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:

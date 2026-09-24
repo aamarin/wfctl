@@ -1,5 +1,4 @@
 ---
-disable-model-invocation: true
 description: Execute the implementation planning workflow using the plan template to generate design artifacts.
 handoffs:
   - label: Create Tasks
