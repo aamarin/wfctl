@@ -120,25 +120,35 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
-**The question is answered by running the method, not by reaching for an
-answer.** Use `.agents/skills/architecture-design` for one iteration. It makes
-the drivers explicit — what must remain true, under which conditions — ranks
-them, and compares credible approaches against a no-new-structure baseline.
+**The question is answered by running a method, not by reaching for an
+answer — and what is contested picks the method**, never how large the change
+is (`level-2-routes-by-what-is-contested`):
 
-**When what is contested is a meaning rather than a quality** — one term doing
-two jobs, as in the example above, or an invariant nobody can say who enforces
-— use `.agents/skills/model-the-domain` first. The driver loop cannot rank a
-part nobody has agreed a name for. That skill names the parts, then hands a
-crossing that carries a quality driver back to `architecture-design` and any
-other boundary straight to `architecture-decisions`. One question goes through
-one loop. What picks the method is what is contested, never how large the
-change is (`level-2-routes-by-what-is-contested`).
+```
+what is contested?
+ ├ a meaning — one term doing two jobs,    ───► .agents/skills/model-the-domain
+ │  an invariant nobody can say who enforces        first, when both apply
+ └ a quality under stated conditions —     ───► .agents/skills/architecture-design
+    availability, latency, a compatibility promise
+```
 
-Either method ends one of three ways and only one of them produces a record: it hands a
-proposed boundary to `.agents/skills/architecture-decisions` itself, or it
-declares no boundary, or it names the evidence it is missing and stops. The
-paragraph below governs what that record has to be — it is not a second
-invocation, and the stop is not a state to route around.
+The worked example above is the first kind. "Empty" is doing two jobs, and the
+`hasAny` flag is what the split looks like once someone owns it. The driver loop
+cannot rank a part nobody has agreed a name for, so `model-the-domain` names
+the parts first. It then hands a crossing that carries a quality driver to
+`architecture-design`, and any other boundary straight to
+`architecture-decisions`. One question goes through one loop.
+
+`architecture-design` runs one iteration. It makes the drivers explicit — what
+must remain true, under which conditions — ranks them, and compares credible
+approaches against a no-new-structure baseline.
+
+Both methods end in one of three ways: a proposed boundary handed to
+`.agents/skills/architecture-decisions`, a declared absence, or a named gap in
+the evidence and a stop. `model-the-domain` has a fourth: a crossing handed on
+to `architecture-design`, which then ends in one of the three. The paragraph
+below governs what the record has to be — it is not a second invocation, and
+the stop is not a state to route around.
 
 Skip the method when an accepted record or an existing spec already settles the
 boundary, naming the one that does, or when the change moves no boundary at all.
@@ -404,8 +414,9 @@ Before `design.md` is written:
       verified ones were checked against the code, not from memory.
 - [ ] Any boundary a lower level invalidated was revised upward, not worked
       around.
-- [ ] Every level-2 boundary was reached by running
-      `.agents/skills/architecture-design`, or the accepted record or spec that
+- [ ] Every level-2 boundary was reached by running the method its contested
+      thing routes to — `.agents/skills/model-the-domain` for a meaning,
+      `.agents/skills/architecture-design` for a quality — or the accepted record or spec that
       already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.

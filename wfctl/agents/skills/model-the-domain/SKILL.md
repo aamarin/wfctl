@@ -41,8 +41,10 @@ It does not write `design.md`, define gate verdicts, or accept a record.
 - A new capability arrives whose vocabulary is not in the code yet.
 
 A screen is evidence, not a starting point. UI copy is where a broken language
-shows up for a user: an empty *filter window* and an empty *workspace*
-rendered as one state is one term doing two jobs.
+shows up for a user. `design-levels`' level-2 example — an empty *filter
+window* and an empty *workspace* rendered as one state — is one term doing two
+jobs. It belongs here first, even though it ends in an ownership decision about
+who computes "is this workspace empty?".
 
 **Not for**: bug fixes, copy edits, refactors that move no boundary, or work
 whose language and boundaries an accepted record or spec already settles. Not
@@ -78,12 +80,15 @@ expresses a settled model, which is `.agents/skills/clean-code`.
 Depth sets how much of the loop runs. It never picks between this skill and
 `architecture-design`.
 
-| Depth | Use when | Smallest output |
-| --- | --- | --- |
-| Explore | the problem or the language is unclear | scenarios, language tensions, one sketch, questions |
-| Strategic | scope, ownership or integration changes | contexts, Context Map, a record or `wfctl arch none` |
-| Tactical | rules or transaction boundaries change | invariants, Aggregate candidates, code feedback |
-| Review | a model already exists | evidence trace, challenged assumptions, corrected sketches |
+| Depth | Use when | Smallest output | `process.md` sections |
+| --- | --- | --- | --- |
+| Explore | the problem or the language is unclear | scenarios, language tensions, one sketch, questions | 1–2 |
+| Strategic | scope, ownership or integration changes | contexts, Context Map, a record or `wfctl arch none` | 1–3, 6 |
+| Tactical | rules or transaction boundaries change | invariants, Aggregate candidates, code feedback | 1–2, 4–5 |
+| Review | a model already exists | evidence trace, challenged assumptions, corrected sketches | whichever the model covers |
+
+A question that straddles two rows takes the shallower one, and deepens only
+when a question stays open.
 
 ## Run the loop
 
