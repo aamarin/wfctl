@@ -267,17 +267,20 @@ def test_the_readability_pass_names_the_review_catalog() -> None:
 def test_implement_reaches_the_after_implementation_pass_by_both_routes() -> None:
     """The pass is a method with no status row (#463), so nothing downstream
     notices when it stops running. The wrapper's pointer is what makes an
-    unattended `implement` run it, and no description match ever fires in that
-    run. The router row is what makes an attended agent that loaded `clean-code`
-    find it.
+    unattended `implement` run it, because nothing else in that run names
+    `clean-code`. The router row then carries the agent from the front page to
+    the reference.
 
-    Pinned as the file path rather than the skill name, because
-    `test_every_referenced_skill_ships` resolves only the skill. A renamed
-    reference leaves `clean-code` shipping and this pointer aimed at nothing."""
+    The pointer names the front page, not the reference. The first version
+    aimed straight at the reference, which skipped the page carrying the
+    authority and priority rules the pass works under. Asserting the
+    reference's path is absent is what stops a later edit from "saving tokens"
+    the same way."""
     reference = "clean-code/references/after-implementation.md"
     assert (_AGENTS / "skills" / reference).exists()
     wrapper = (_AGENTS / "commands" / "speckit.implement.md").read_text()
-    assert f".agents/skills/{reference}" in wrapper
+    assert ".agents/skills/clean-code/SKILL.md" in wrapper
+    assert reference not in wrapper, "the pass must enter through the front page"
     router = (_AGENTS / "skills" / "clean-code" / "SKILL.md").read_text()
     table = router.split("## Route to the guidance")[1].split("\n## ")[0]
     assert "(references/after-implementation.md)" in table

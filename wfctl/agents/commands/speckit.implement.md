@@ -34,11 +34,16 @@ was chosen. Do not add work because a record mentions it and `tasks.md` does not
 ## Refactor the finished diff, before it is verified
 
 **Once every task is checked off, and before step 9b's sentinel**, run one
-behaviour-preserving pass over the branch's diff, following
-`.agents/skills/clean-code/references/after-implementation.md` (or
-`../skills/clean-code/references/after-implementation.md` relative to this
-file). Before review, a structural move is part of the change. After review,
-it is rework on a reviewed diff.
+behaviour-preserving pass over the branch's diff. Read
+`.agents/skills/clean-code/SKILL.md` (or `../skills/clean-code/SKILL.md`
+relative to this file), then follow its routing row for a finished
+implementation's diff. Before review, a structural move is part of the change.
+After review, it is rework on a reviewed diff.
+
+The front page first, not the reference alone. It carries what the pass works
+under and the reference does not restate: accepted records outrank every
+heuristic, the priority order that settles a conflict between two goals, and
+writing in the target language's own idiom.
 
 Before the sentinel rather than after it, because the sentinel is what `wfctl`
 reads as "implement is finished". A run restarted between the two would find
