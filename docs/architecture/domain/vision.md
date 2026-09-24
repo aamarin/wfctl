@@ -39,7 +39,7 @@ formalized into a spec, then carried through Spec Kit into implementation. It
 also has to leave enough detail and understanding behind, across sessions, that
 the agent does not go off the rails. The design passes before Spec Kit
 (brainstorm, the four design levels, domain modeling) and the passes after it
-(decompose, refactor) are that method today.
+(decompose, and the refactor pass inside implement) are that method today.
 
 The method is opinionated on purpose. It scales one developer's preferred
 process: the formal architecture, design and domain modeling before coding
@@ -48,7 +48,9 @@ agent does the legwork and wfctl holds the work to what was decided.
 
 This is where the learning has not stopped. Gaps in the design process, in the
 systematic way decisions are made, and in how agents report back keep turning
-up. Each one changes what an agent is told to do and what evidence it leaves,
+up. Two landed within days of each other: a refactor pass that `clean-code`
+runs over a finished implementation before `verify` (#463), and `model-the-domain`
+as a second level-2 method (#464). Each one changes what an agent is told to do and what evidence it leaves,
 and the evidence is what connects this half to the first: a design decision
 that reaches disk is one wfctl can later hold the work to.
 
