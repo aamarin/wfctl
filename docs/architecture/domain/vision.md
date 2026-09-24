@@ -41,6 +41,11 @@ the agent does not go off the rails. The design passes before Spec Kit
 (brainstorm, the four design levels, domain modeling) and the passes after it
 (decompose, refactor) are that method today.
 
+The method is opinionated on purpose. It scales one developer's preferred
+process: the formal architecture, design and domain modeling before coding
+that real-life schedules rarely leave time for, done every time because an
+agent does the legwork and wfctl holds the work to what was decided.
+
 This is where the learning has not stopped. Gaps in the design process, in the
 systematic way decisions are made, and in how agents report back keep turning
 up. Each one changes what an agent is told to do and what evidence it leaves,

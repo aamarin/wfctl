@@ -62,8 +62,11 @@ the pipeline records it:
 3. Does it need custom work only because nothing off the shelf fits, while
    the product would not suffer from a plain build? That is a **supporting
    subdomain** — custom, but not the heavy investment (Vernon).
-4. Will the team keep learning here for years, or is it done once it ships?
-   Vernon's test: if that long-term commitment cannot be made, is the model
+4. Does this part keep changing because new rules about it keep being
+   discovered, or is it built once and left alone? Ask it with one example of
+   each from the product itself — put abstractly ("will you keep learning
+   here?") it did not land the first time it was asked. Vernon's test: if
+   that long-term commitment cannot be made, is the model
    "truly a strategic differentiator, a Core Domain?"
    (*Strategic Design with Bounded Contexts and the Ubiquitous Language*).
 5. Can the value be said in about a page, leaving out everything that does not
