@@ -3,7 +3,8 @@
 This skill is an original, language-agnostic synthesis of the principles,
 practices and heuristics in Robert C. Martin et al., *Clean Code: A Handbook of
 Agile Software Craftsmanship* (Pearson, 2008). It reproduces none of the book's
-sample programs.
+sample programs. One reference also draws on Fowler's *Refactoring*, and is
+mapped in its own table below.
 
 **The chapters are the key here and nowhere else.** Every other file in this
 skill is named for the unit of code an agent is holding — an identifier, a
@@ -33,6 +34,25 @@ purpose, who knows the chapter and not the unit.
 | Ch. 17 — Smells and Heuristics | `review-catalog.md` | Reorganised by review consequence, overlaps merged, Java-only rules omitted. |
 | App. A — Concurrency II | `concurrency.md` | Execution paths, method dependencies, throughput, deadlock and concurrent testing generalised. |
 | App. B and C | not reproduced | A raw source listing and cross-reference mechanics serve no operational, language-agnostic skill. |
+
+## A second source, for one reference
+
+`after-implementation.md` draws on a different book: Martin Fowler,
+*Refactoring: Improving the Design of Existing Code* (2nd ed., Addison-Wesley,
+2018). It is cited on the same terms as the first. The reference reproduces no
+example and no catalog mechanics, and the named refactorings it leans on are
+vocabulary rather than text.
+
+| Source section | Reference | Adaptation |
+| --- | --- | --- |
+| Ch. 2 — Defining Refactoring, The Two Hats | `after-implementation.md` | Observable behaviour and the two hats, recast as a structural pass that keeps a defect fix distinguishable from a move. |
+| Ch. 2 — When Should We Refactor? / When Should I Not Refactor? | `after-implementation.md` | Timing fixed to after implementation and before review. Litter-pickup's "now or note it" becomes do and defer. Code the change only reads is left alone, and refraining is an explicit, reportable outcome. |
+| Ch. 2 — Code Ownership, Databases | `after-implementation.md` | A name the branch introduced usually has no outside callers yet, unless a preview or a published contract has exposed it. One that already existed may have callers the repository cannot see, and a published or stored shape is a stop rather than a move. |
+| Ch. 2 — Refactoring, Architecture, and Yagni | `after-implementation.md`, `refactoring-workflow.md` | Speculative flexibility in a fresh implementation is itself a candidate, and removing it is a move. |
+| Ch. 2 — Refactoring and Performance | `after-implementation.md` | A hot path is probed against a budget or a measurement rather than a guess. |
+| Ch. 3 — Bad Smells in Code | `after-implementation.md` | A smell becomes a candidate only with evidence and a named next change; no thresholds. Most become triage questions. Shotgun surgery is read straight off the diff. Inheritance-specific smells are not carried. |
+| Ch. 4 — Building Tests | `after-implementation.md`, `refactoring-workflow.md` | A recorded baseline before the first move, then the narrowest check that could tell the moved code apart from the original. |
+| Ch. 5–12 — the catalog | `refactoring-workflow.md` | Moves named by the problem they address, in the target language's idiom. Split phase, separating a query from a modifier, encapsulating a record or collection, and removing speculative parameters join the list. The per-move mechanics and the inheritance chapter are not carried. |
 
 ## Deliberate departures
 

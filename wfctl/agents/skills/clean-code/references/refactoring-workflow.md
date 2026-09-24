@@ -47,6 +47,11 @@ Useful transformations:
 - introduce an explanatory value or a domain type;
 - isolate an external dependency;
 - make an ordering or a state transition explicit;
+- split a routine that does two things in sequence into named phases;
+- separate a query from a modifier, so that reading a value never changes one;
+- put a mutable record or collection behind the one owner allowed to change
+  it;
+- remove a parameter, hook or layer that nothing varies through yet;
 - remove proven dead code;
 - consolidate duplication once the shared concept has been identified.
 

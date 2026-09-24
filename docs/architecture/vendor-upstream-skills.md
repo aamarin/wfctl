@@ -90,7 +90,10 @@ last line and no entry to add to `NOTICES.md`. Its references synthesize public,
 unowned engineering guidance and reproduce no sample program from any source;
 `references/source-map.md` names the book the synthesis is of, which is a
 citation rather than a derivation. Absence here is the positive claim that it is
-wfctl's own.
+wfctl's own. That still holds with a second book cited. `after-implementation.md`
+came from another draft with no upstream project, licence or copyright holder, and cites Fowler's *Refactoring* the same
+way, reproducing no example from it, so it adds a row to the source map and none
+to `NOTICES.md`.
 
 `model-the-domain` is absent on the same grounds, and here the trap is closer
 still. It was adapted from a downloaded skill, and a reader who takes
@@ -303,6 +306,9 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   fact `python-pattern-selection`'s paragraph did not have to carry: its
   `references/source-map.md` names a book, and a citation is not a derivation
   (#412)
+- 2026-09-23  amended     — `clean-code`'s `after-implementation.md` cites a
+  second book, Fowler's *Refactoring*, from a second draft with no upstream; the
+  same grounds hold and no `NOTICES.md` entry is owed (#463)
 - 2026-09-23  amended     — `model-the-domain` named as wfctl's own, on
   `clean-code`'s grounds, in the change that adds it; its source map cites two
   Pearson books rather than one (#464)
