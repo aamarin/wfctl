@@ -54,6 +54,11 @@ reads it as a second way of saying the same thing. Before 9c, so that
 `wfctl verify` judges the tree the pass left rather than the one it started
 from.
 
+If step 9c fails and the fix changes production code, run the pass again over
+what the fix changed rather than the whole diff, then run `wfctl verify`
+again. The fix lands after the last tick, so without this second pass review
+receives code the pass never saw.
+
 The baseline is the last check the tasks ran on this tree, when that check is
 known and passed. Run `wfctl verify` as the baseline only where it is not
 known, because that is a second full run of the definition of done.

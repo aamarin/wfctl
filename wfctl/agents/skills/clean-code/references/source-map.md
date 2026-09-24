@@ -47,7 +47,7 @@ vocabulary rather than text.
 | --- | --- | --- |
 | Ch. 2 — Defining Refactoring, The Two Hats | `after-implementation.md` | Observable behaviour and the two hats, recast as a structural pass that keeps a defect fix distinguishable from a move. |
 | Ch. 2 — When Should We Refactor? / When Should I Not Refactor? | `after-implementation.md` | Timing fixed to after implementation and before review. Litter-pickup's "now or note it" becomes do and defer. Code the change only reads is left alone, and refraining is an explicit, reportable outcome. |
-| Ch. 2 — Code Ownership, Databases | `after-implementation.md` | A name the branch introduced has no outside callers yet. One that already existed may have callers the repository cannot see, and a published or stored shape is a stop rather than a move. |
+| Ch. 2 — Code Ownership, Databases | `after-implementation.md` | A name the branch introduced usually has no outside callers yet, unless a preview or a published contract has exposed it. One that already existed may have callers the repository cannot see, and a published or stored shape is a stop rather than a move. |
 | Ch. 2 — Refactoring, Architecture, and Yagni | `after-implementation.md`, `refactoring-workflow.md` | Speculative flexibility in a fresh implementation is itself a candidate, and removing it is a move. |
 | Ch. 2 — Refactoring and Performance | `after-implementation.md` | A hot path is probed against a budget or a measurement rather than a guess. |
 | Ch. 3 — Bad Smells in Code | `after-implementation.md` | A smell becomes a candidate only with evidence and a named next change; no thresholds. Most become triage questions. Shotgun surgery is read straight off the diff. Inheritance-specific smells are not carried. |

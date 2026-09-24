@@ -3,9 +3,12 @@
 Use this reference for one bounded pass over the code a finished implementation
 just wrote, while its structure is still cheap to change. Before review, a
 structural move is part of the change. After review, it is rework on a
-reviewed diff. A name or signature that this branch introduced has no caller
-outside the branch yet, so this is the one point where renaming it needs no
-compatibility shim.
+reviewed diff. A name or signature that this branch introduced usually has no
+caller outside the branch yet, so this is usually the one point where renaming
+it needs no compatibility shim. "Usually" is doing work there. A preview
+deploy, a published contract or a client generated from the branch reaches
+callers that git cannot see, so check for those before renaming without a
+shim.
 
 The pass decides which moves are worth making. How to make each one safely is
 [refactoring-workflow.md](refactoring-workflow.md), and this file does not
@@ -131,7 +134,7 @@ a risk that the generic checks miss. Probe for it before the move is kept:
 | State or ownership | Mutability, aliasing, serialisation, transaction and lifecycle |
 | Control flow | When errors are raised, early exits, fallback order, short-circuiting |
 | Async or concurrent code | Scheduling, cancellation, retries, locks, idempotency |
-| A public or stored shape this branch introduced | Nothing outside the branch has read or written it yet; a shape that already existed is a stop, below |
+| A public or stored shape this branch introduced | Whether a preview deploy, a published contract or stored data has already exposed it; a shape that already existed is a stop, below |
 | A hot path | The performance budget, or a representative measurement |
 
 Compilation and lint passing do not show two versions are equivalent. Never
