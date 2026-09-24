@@ -11,7 +11,10 @@ Domain modeling is collaborative discovery. Test the language and the
 boundaries against concrete behavior, implementation feedback and contradictory
 evidence. Do not start from tables, services, screens or a pattern catalog.
 
-This skill is one of two methods at level 2:
+`design-levels` runs design as four passes: 1 behavior (what changes for the
+user), 2 architecture (what moves, and who owns the truth), 3 design (how it
+is structured), 4 implementation (the code). This skill is one of two methods
+at level 2:
 
 ```
 design-levels               model-the-domain              architecture-decisions
