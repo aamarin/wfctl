@@ -68,18 +68,18 @@ beside it.
 ```mermaid
 stateDiagram-v2
     [*] --> PromptSubmitted
-    PromptSubmitted --> DigestReinjected: UserPromptSubmit hook
-    DigestReinjected --> ReplyWritten
+    PromptSubmitted --> DigestResent: UserPromptSubmit hook, every turn
+    DigestResent --> ReplyWritten
     ReplyWritten --> ReplyDelivered: shown to reader
+    ReplyDelivered --> [*]: now — nothing reads the reply after delivery
 
-    state "retired (#476)" as WasStop {
-        ReplyDelivered --> TranscriptRead: Stop hook
+    ReplyDelivered --> Retired: was
+    state "retired (#476)" as Retired {
+        [*] --> TranscriptRead: Stop hook
         TranscriptRead --> FindingComputed: _shape.findings
         FindingComputed --> NextTurnContext: additionalContext
+        NextTurnContext --> [*]: reader already saw the violation
     }
-    NextTurnContext --> [*]: reader already saw the violation
-
-    ReplyDelivered --> [*]: now — nothing reads the reply after delivery
 ```
 
 ## Considered

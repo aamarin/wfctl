@@ -455,18 +455,16 @@ records a standing "we don't want this" yet; #313 is where that goes.
 
 ## The merge install mode
 
-`install-skills --agent claude` adds five entries to `.claude/settings.json` and
-edits nothing else in it. Four are hooks; the first two are the halves of the
-same skill, one before the text is written and one after:
+`install-skills --agent claude` adds four entries to `.claude/settings.json` and
+edits nothing else in it. Three are hooks:
 
 | Event | Command | What it does |
 |---|---|---|
 | `UserPromptSubmit` | `wfctl hook user-prompt` | prints the `digest.md` of each skill the manifest records as installed, so a skill loaded at session start is re-anchored on later turns instead of decaying as the context fills |
-| `Stop` | `wfctl hook response-shape` | reads the finished reply back out of the transcript and warns when it broke a `conversation-response-shape` rule a machine can see — a markdown header, a counted lead-in, length nothing asked for |
 | `Stop` | `wfctl hook session-restart` | once the context window reaches `WFCTL_RESTART_THRESHOLD` tokens, types `/end-session restart` into the pane, then `/clear` and `/start-session` after that turn has recorded its stop — so a full session hands off before it is cleared. Holds the restart entirely while this session still has subagents out, so a fan-out's findings reach the handoff rather than the clear. Says so in the pane when it holds, when it finds no workmux pane, or when a `/clear` does not take — once per hold, and again whenever the set of outstanding subagents grows, so a second fan-out carries its own copy |
 | `PreToolUse`, matched on `Bash` | `wfctl hook worktree-guard` | refuses a shell command that would mutate or run something in a sibling worktree |
 
-The fifth is not a hook: `Bash(cd:*)` in `permissions.deny`, the guard's blunt
+The fourth is not a hook: `Bash(cd:*)` in `permissions.deny`, the guard's blunt
 companion described above.
 
 That one entry is the only thing wfctl installs anywhere that cannot say whose it

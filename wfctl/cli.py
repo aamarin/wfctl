@@ -2571,12 +2571,13 @@ _WORKTREE_GUARD = "worktree-guard"
 _SESSION_RESTART = "session-restart"
 
 HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
-# `|| true` for the reason `RESTART_HOOK_COMMAND` gives below: a non-zero exit
-# on `Stop` *blocks the stop*, so a wfctl that cannot run this — one older than
-# the settings file, or uninstalled from PATH without `uninstall-skills` — would
-# turn a usage banner into a loop at the end of every turn instead of a no-op.
-# This hook types into the pane, so a loop it caused would be one it could also
-# feed. It exits 0 on every path of its own; this covers the wfctl that cannot run.
+# `|| true`, unlike the `UserPromptSubmit` entry above: the events differ in
+# what a non-zero exit means. On `Stop` it *blocks the stop*, so a wfctl that
+# cannot run this — one older than the settings file, or uninstalled from PATH
+# without `uninstall-skills` — would turn a usage banner into a loop at the end
+# of every turn instead of a no-op. This hook also types into the pane, so a
+# loop it caused would be one it could also feed. It exits 0 on every path of
+# its own; this covers the wfctl that cannot run.
 RESTART_HOOK_COMMAND = (
     f"{_settings.MANAGED_PREFIX}{_SESSION_RESTART} 2>/dev/null || true"
 )
@@ -2654,8 +2655,9 @@ _BOB_APPROVAL_ENTRIES = (
 )
 
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
-# something different and "the managed hook is gone" names none of them — and two
-# on one event lose different things.
+# something different and "the managed hook is gone" names none of them — and
+# two wfctl features sharing one event, as `Stop` did until #476, would lose
+# different things.
 _HOOK_GONE = {
     _USER_PROMPT: "is gone — the skills it re-anchors decay again mid-session",
     _SESSION_RESTART: "is gone — a full window is compacted or cleared with no handoff written first",
@@ -6547,8 +6549,10 @@ def _report_hook_drift(
 ) -> bool:
     """Print what one managed entry got wrong, if anything. True when it drifted.
 
-    One call per shipped `(event, command)`, so a missing session restart and a
-    missing reply check on the same `Stop` are two findings with two costs.
+    One call per shipped `(event, command)`, so two wfctl features sharing one
+    event — `Stop` carried both the session restart and a reply-shape checker
+    until #476 retired the latter — would report as two findings with two costs
+    rather than one line for the event.
     """
     from rich.markup import escape
 
