@@ -1,6 +1,6 @@
 ---
 name: model-the-domain
-description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a capability's complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet, a Core Domain the product must excel at — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
+description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a core or supporting capability's complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
 ---
 
 # Model the domain
@@ -91,7 +91,8 @@ not. The second kind are qualities, and qualities go to `architecture-design`.
 | How the rules sit in code | one rule has to hold across several operations | each rule lives in one screen or one call |
 | The language | the people who know the domain use terms the code does not have | the code's names are the business's names, and nobody disputes them |
 
-A core subdomain plus one more signal on the left earns a round. One term doing
+A core or supporting subdomain plus one more signal on the left earns a
+round; the subdomain alone does not. One term doing
 two jobs earns a round on its own, in any capability: that is a broken
 language, and a simple capability can have one. The right column throughout is
 `architecture-design`, or no level-2 method at all when no boundary moves.
@@ -195,7 +196,11 @@ shows no material contradiction. `references/process.md` has each step in full.
 
 For each question the round was asked, do exactly one of these:
 
-- **No boundary moved** → `wfctl arch none --reason "<why>"`.
+- **No boundary moved** → a `none — <reason>` row in the model document.
+  `wfctl arch none` is for the change, not the question: it writes one
+  declaration that the whole branch draws no boundary, so run it only when no
+  question in the round moved one and nothing else in the change did either.
+  Beside a record it is a false claim.
 - **Evidence is missing** → name what and who could answer it, and stop.
 - **A crossing carries a quality driver** → hand it to `architecture-design`.
   Do not rank drivers here.

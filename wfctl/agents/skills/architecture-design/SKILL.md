@@ -49,8 +49,9 @@ straight to implementation, and running this method over one costs more than the
 change. Nor for work whose boundaries are already settled in an accepted record
 or an existing spec.
 
-**Nor for a capability that earns domain modeling** — complexity in its
-business rules, a Core Domain, or one term doing two jobs. That goes to
+**Nor for a capability that earns domain modeling** — a core or supporting
+subdomain whose complexity is in its business rules, or one term doing two
+jobs anywhere. Being core is not enough on its own. That goes to
 `.agents/skills/model-the-domain` first, which names the parts this method's
 drivers need and hands a crossing that carries a quality back here
 (`level-2-routes-by-what-is-contested`). Ownership where the rules are simple
