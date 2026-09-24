@@ -264,6 +264,42 @@ def test_the_readability_pass_names_the_review_catalog() -> None:
     assert "clean-code" in set(_REFERENCE.findall(passes))
 
 
+def test_implement_reaches_the_after_implementation_pass_by_both_routes() -> None:
+    """The pass is a method with no status row (#463), so nothing downstream
+    notices when it stops running. The wrapper's pointer is what makes an
+    unattended `implement` run it, because nothing else in that run names
+    `clean-code`. The router row then carries the agent from the front page to
+    the reference.
+
+    The pointer names the front page, not the reference. The first version
+    aimed straight at the reference, which skipped the page carrying the
+    authority and priority rules the pass works under. Asserting the
+    reference's path is absent is what stops a later edit from "saving tokens"
+    the same way."""
+    reference = "clean-code/references/after-implementation.md"
+    assert (_AGENTS / "skills" / reference).exists()
+    wrapper = (_AGENTS / "commands" / "speckit.implement.md").read_text()
+    assert ".agents/skills/clean-code/SKILL.md" in wrapper
+    assert reference not in wrapper, "the pass must enter through the front page"
+    router = (_AGENTS / "skills" / "clean-code" / "SKILL.md").read_text()
+    table = router.split("## Route to the guidance")[1].split("\n## ")[0]
+    assert "(references/after-implementation.md)" in table
+
+
+def test_implement_allows_the_commands_the_refactor_pass_needs() -> None:
+    """`allowed-tools` is a ceiling on the whole turn. The pass starts by finding
+    the branch's diff, staged, unstaged and untracked files included. Without
+    `git diff` and `git status` in the grant, an unattended run is refused at its
+    first step, with nobody there to approve it. `git merge-base` and `git log`
+    are how it finds the base the branch was cut from. `wfctl verify` is pinned
+    beside them because the wrapper names it as the baseline wherever the tasks'
+    last check is not known."""
+    front = (_AGENTS / "commands" / "speckit.implement.md").read_text().split("---")[1]
+    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+    for needed in ("git diff", "git status", "git merge-base", "git log", "wfctl verify"):
+        assert f"Bash({needed}*)" in allowed, needed
+
+
 def test_the_design_record_skill_asks_git_whether_the_record_landed() -> None:
     """A record nobody can open is the failure the format exists to prevent, and
     it is invisible: the file is on disk, the session reports success, and the

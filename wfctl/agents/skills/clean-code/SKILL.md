@@ -22,6 +22,7 @@ you are holding right now, not on where the guidance came from.
 | what a test proves, and which behaviour is worth a test | [references/tests.md](references/tests.md) |
 | threads, tasks, async, shared state, cancellation, shutdown | [references/concurrency.md](references/concurrency.md) |
 | changing structure while preserving behaviour | [references/refactoring-workflow.md](references/refactoring-workflow.md) |
+| a finished implementation's diff, before review | [references/after-implementation.md](references/after-implementation.md) |
 | reviewing a diff, or auditing for maintainability | [references/review-catalog.md](references/review-catalog.md), plus the reference each finding implicates |
 | which chapter of the source material a reference carries | [references/source-map.md](references/source-map.md) |
 
@@ -30,10 +31,12 @@ the only part you have to read before choosing, which is what keeps the cost of
 loading this skill proportional to the question.
 
 `design-levels` routes here twice — level 3 for the four structural references,
-level 4 for the three about local expression — and `code-review` names the
-catalog as a source for its readability pass. Reaching this skill by a
-description match rather than by one of those routes changes nothing about what
-it says.
+level 4 for the three about local expression — `code-review` names the
+catalog as a source for its readability pass, and `/speckit.implement` sends a
+finished implementation's diff through the after-implementation pass before
+`wfctl verify`.
+Reaching this skill by a description match rather than by one of those routes
+changes nothing about what it says.
 
 ## What this skill is for
 

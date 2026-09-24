@@ -159,7 +159,9 @@ it is paid in one place rather than in the router.
   needed. Reaching for one the router did not name falsifies the first
   assumption above.
 - `ls .agents/skills/clean-code/references/` after `uv run wfctl install-skills`
-  returns eleven files.
+  returns the eleven files this split produced, plus any reference added since —
+  twelve after #463's `after-implementation.md`. What falsifies the split is a
+  missing one of the eleven, not a higher count.
 - Every row of the rewritten `source-map.md` names a file that exists.
 
 ## Log
@@ -167,3 +169,6 @@ it is paid in one place rather than in the router.
 - 2026-09-17  proposed  — #412, written while the split was being chosen. The
   deciding evidence is the router's own single-entry line naming seven subjects,
   not the 157-line count the issue leads with.
+- 2026-09-24  amended   — the Verification count made re-runnable after #463
+  added a twelfth reference. The "eleven" elsewhere in this record describes
+  what the split produced and stays as written.
