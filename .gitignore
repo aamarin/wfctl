@@ -109,3 +109,5 @@ node_modules/
 .bob/settings.json
 .bob/skills/clean-code
 .bob/commands/clean-code.md
+.bob/skills/model-the-domain
+.bob/commands/model-the-domain.md
