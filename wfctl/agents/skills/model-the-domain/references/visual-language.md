@@ -55,12 +55,18 @@ inside. Another Aggregate is shown by its identity, outside the line. Attach
 each invariant to the boundary or the behavior that enforces it.
 
 ```
-┌─ Order Aggregate ───────────────────┐
-│ Order (root)                        │
-│   └─ Order line ── Money (value)    │   ··· customer id ···► Customer Aggregate
-│ enforces: total ≤ credit limit      │
-└─────────────────────────────────────┘
+┌─ Booking Aggregate ─────────────────────┐
+│ Booking (root)                          │
+│   └─ Seat hold ── Seat number (value)   │   ··· venue id ···► Venue Aggregate
+│ enforces: at most ten holds             │
+│           no hold added once confirmed  │
+└─────────────────────────────────────────┘
 ```
+
+Every invariant inside the line is decided from data inside the line. A rule
+that needs data from outside — "no seat held by two Bookings" — is not the
+Booking's to enforce in one transaction. It is a policy across Aggregates, and
+either its consistency is stated as eventual or it moves the boundary.
 
 Below the sketch, list the transaction boundary, concurrency control, the
 invariants enforced, the events emitted, and the mutations that must never

@@ -89,18 +89,21 @@ Depth sets how much of the loop runs. It never picks between this skill and
 | Depth | Use when | Smallest output | `process.md` sections |
 | --- | --- | --- | --- |
 | Explore | the problem or the language is unclear | scenarios, language tensions, one sketch, questions | 1–2 |
-| Strategic | scope, ownership or integration changes | contexts, Context Map, a record or `wfctl arch none` | 1–3, 6 |
-| Tactical | rules or transaction boundaries change | invariants, Aggregate candidates, code feedback | 1–2, 4–5 |
+| Strategic | scope, ownership or integration changes | contexts, Context Map, a record or `wfctl arch none` | 1–3, 5–6 |
+| Tactical | rules or transaction boundaries change | invariants, Aggregate candidates, code feedback | 1–2, 4–6 |
 | Review | a model already exists | evidence trace, challenged assumptions, corrected sketches | whichever the model covers |
 
-A question that straddles two rows takes the shallower one, and deepens only
-when a question stays open.
+A question that straddles two rows takes the one that runs fewer sections,
+and deepens only when a question stays open. Every row but Explore ends at §6,
+which is where the model document is written; §5 is skipped only by Explore,
+which `evidence.md` lets skip implementation feedback and nothing else does.
 
 ## Run the loop
 
 1. **Frame the decision** the round supports. Keep problem and solution apart.
 2. **Gather evidence** — conversations, policies, screens, data, code, tests,
-   incidents, records — labelled by source.
+   incidents, records, a published or neighbouring model of the same domain —
+   labelled by source.
 3. **Crunch scenarios**: happy path, failure, timing, correction. Mark hotspots.
 4. **Build the language**: meaning per context, synonyms, forbidden meanings.
 5. **Find the contexts** around cohesive language, rules, ownership and rate of
@@ -128,7 +131,12 @@ For each question the round was asked, do exactly one of these:
   Do not rank drivers here.
 - **A boundary with no quality in contention** → hand one proposed ownership
   decision to `.agents/skills/architecture-decisions`. An invariant whose owner
-  crosses a context is one of these.
+  crosses a context is one of these. The record needs what `architecture-design`
+  would otherwise have produced, and the round already has it: the **direct
+  baseline** is the language as it stood before the round — one term, one
+  owner, nothing split — and **Considered** is the context splits step 5
+  weighed and did not take. A round that weighed no second split has not found
+  a boundary yet; it is the *evidence is missing* stop.
 
 An Aggregate's internal shape inside one context is **level 3**:
 `.agents/skills/software-design-decisions` when alternatives were weighed,

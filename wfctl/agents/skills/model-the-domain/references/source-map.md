@@ -49,14 +49,5 @@ whether a chapter was covered or left out on purpose.
 | 6 Domain Events | `ddd-heuristics.md` | Past-tense facts. Event Sourcing is a persistence technique and is left out. |
 | 7 Acceleration and Management Tools | `ddd-heuristics.md` *Cautions* | Event-first discovery kept. Estimation, timeboxing and SWOT are process and are left out. |
 
-## Departures from the draft
-
-The draft this skill was adapted from carried four things wfctl already owns,
-and each was dropped rather than kept beside the owner:
-
-- eight pass/fail promotion gates — `design-levels` owns every gate, and #100
-  decides a gate's shape;
-- `not applicable - <reason>` as prose — `wfctl arch none`;
-- a visual on every round — `the-drawing-is-required-at-acceptance`;
-- paired human and agent views with a stable ID scheme — #86's
-  dual-representation principle.
+What the draft this skill was adapted from carried and wfctl already owns is
+listed once, in the record `level-2-routes-by-what-is-contested`.
