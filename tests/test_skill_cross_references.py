@@ -290,12 +290,13 @@ def test_implement_allows_the_commands_the_refactor_pass_needs() -> None:
     """`allowed-tools` is a ceiling on the whole turn. The pass starts by finding
     the branch's diff, staged, unstaged and untracked files included. Without
     `git diff` and `git status` in the grant, an unattended run is refused at its
-    first step, with nobody there to approve it. `wfctl verify` is pinned beside
-    them because the wrapper names it as the pass's baseline wherever a
-    repository declares no narrower check."""
+    first step, with nobody there to approve it. `git merge-base` and `git log`
+    are how it finds the base the branch was cut from. `wfctl verify` is pinned
+    beside them because the wrapper names it as the baseline wherever the tasks'
+    last check is not known."""
     front = (_AGENTS / "commands" / "speckit.implement.md").read_text().split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
-    for needed in ("git diff", "git status", "wfctl verify"):
+    for needed in ("git diff", "git status", "git merge-base", "git log", "wfctl verify"):
         assert f"Bash({needed}*)" in allowed, needed
 
 

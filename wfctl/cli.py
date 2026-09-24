@@ -2863,7 +2863,9 @@ _MIRRORED_SKILLS = frozenset({
     # `python-pattern-selection` below and unlike `architecture-design`'s, so
     # `speckit.implement`'s ceiling has to
     # grant what its Authority section names. It grants `Read`, `Glob` and
-    # `Bash(wfctl arch context*)`, which is all of it; nothing widens here.
+    # `Bash(wfctl arch context*)`, which is all of it; nothing widens here. The
+    # git reads the after-implementation pass needs are that wrapper's own
+    # grant, pinned by `test_implement_allows_the_commands_the_refactor_pass_needs`.
     "clean-code",
     "conversation-response-shape",
     "design-levels",

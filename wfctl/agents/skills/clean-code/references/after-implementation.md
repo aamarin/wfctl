@@ -23,9 +23,9 @@ It does not declare the work complete. Completion is read from the
 verification a repository declares, run after this pass so that its verdict
 describes the tree the pass left behind.
 
-A pass that changes nothing has not failed. Code that a fresh implementation
-left in good shape is the common case, and the inspection record below is what
-tells that result apart from a pass that never looked.
+A pass may select no moves at all. Code that a fresh implementation left in
+good shape is the common case, and the inspection record below is what tells
+that result apart from a pass that never looked.
 
 ## Find the diff
 
@@ -72,7 +72,8 @@ answer:
 Duplicated policy and misplaced ownership outrank line counts. Formatter
 output and taste are not candidates.
 
-These questions turn a common observation into a decision:
+[review-catalog.md](review-catalog.md) is where to look for a candidate. The
+questions below decide whether a candidate is worth a move before review:
 
 | Observation | Ask |
 | --- | --- |
@@ -130,7 +131,7 @@ a risk that the generic checks miss. Probe for it before the move is kept:
 | State or ownership | Mutability, aliasing, serialisation, transaction and lifecycle |
 | Control flow | When errors are raised, early exits, fallback order, short-circuiting |
 | Async or concurrent code | Scheduling, cancellation, retries, locks, idempotency |
-| A public or stored shape | Compatibility, migration, historical data |
+| A public or stored shape this branch introduced | Nothing outside the branch has read or written it yet; a shape that already existed is a stop, below |
 | A hot path | The performance budget, or a representative measurement |
 
 Compilation and lint passing do not show two versions are equivalent. Never

@@ -33,7 +33,8 @@ loading this skill proportional to the question.
 `design-levels` routes here twice — level 3 for the four structural references,
 level 4 for the three about local expression — `code-review` names the
 catalog as a source for its readability pass, and `/speckit.implement` sends a
-finished task list through the after-implementation pass before `wfctl verify`.
+finished implementation's diff through the after-implementation pass before
+`wfctl verify`.
 Reaching this skill by a description match rather than by one of those routes
 changes nothing about what it says.
 
