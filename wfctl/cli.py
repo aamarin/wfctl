@@ -6483,6 +6483,16 @@ def _check_record_placement(repo_root: Path) -> bool:
     gap needs all three of: no level-2 record anywhere, no `design/`, and a
     first design record filed wrong — and the next correctly-placed record of
     either tier closes it.
+
+    `Ubiquitous Language` stays out of the signals for the same reason, and
+    pays the same price: a tree whose first artifact is a domain model filed at
+    the root is silent. A DDD glossary is at least as common in someone else's
+    ADR tree as a diagram is. `model-the-domain` hands off to a record, so the
+    gap lasts until the round it belongs to writes one.
+
+    A domain model is the one heading row with no tier guard, because neither
+    tier walked here is its home — `domain/` is a destination, like
+    `implementation/`, and is never read back.
     """
     from rich.markup import escape
 

@@ -18,8 +18,8 @@ at level 2:
 
 ```
 design-levels               model-the-domain              architecture-decisions
-routes by what is      ───► language → contexts →    ───► writes one proposed record
-contested                   invariants
+routes by whether the  ───► language → contexts →    ───► writes one proposed record
+capability earns it         invariants
                                   │
                                   └─ a crossing that carries a quality driver
                                           ▼
@@ -219,6 +219,13 @@ Not `FEATURE_DIR`, which a reviewer never opens, and not beside the records,
 the one tier every reader of the arch root takes as decided. `domain/` is excluded from
 the design gate on purpose: the document describes, and only the record or
 `wfctl arch none` answers level 2.
+
+The core-product answers are the exception, because they are about the
+product rather than one capability: they land once, in `domain/vision.md` — the
+vision statement and a Subdomains table with one row per capability — and each
+capability's model links to it instead of restating it. That page is
+deliberately the lighter artifact; the full template is for a capability that
+earned a model. wfctl's own is the worked example.
 
 Sketches are ASCII while you answer and mermaid in the document and the record —
 `design-levels`' rule. `references/visual-language.md` says what each one shows.

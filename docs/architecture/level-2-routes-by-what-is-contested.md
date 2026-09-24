@@ -19,8 +19,8 @@ them. It ends where `architecture-design` ends: a proposed record under
 
 Both skills are description-triggered, and their descriptions overlap.
 `architecture-design` fires on "ownership rule" and "data boundary"; this one
-fires on "Bounded Contexts" and "Aggregates", and on "an invariant with no
-home". A prompt asking who owns a piece of state matches both. An agent
+fires on "Bounded Contexts" and "Aggregates", and on finding out "who owns"
+a business concept. A prompt asking who owns a piece of state matches both. An agent
 holding both descriptions, with nothing stating which one a question belongs to, runs two
 design loops over one question or picks one arbitrarily.
 `level-3-owns-structural-heuristics` was written to prevent that failure one
@@ -102,7 +102,7 @@ part, and a term doing two jobs is not one part yet.
 flowchart TB
     Q["a level-2 question"]
     subgraph dl["design-levels — owns the routing"]
-        R{"what is contested?"}
+        R{"does the capability earn domain modeling?"}
     end
     subgraph mtd["model-the-domain"]
         M["a capability that earns domain modeling<br>language, contexts, invariants"]

@@ -233,6 +233,25 @@ def test_a_domain_model_at_the_arch_root_is_sent_to_domain_not_implementation(
     assert result.exit_code == 0
 
 
+def test_a_domain_model_parked_under_design_is_sent_to_domain(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The domain-model row is the only one of the heading rows with no tier
+    guard, because neither tier this check walks is its home. That is correct
+    by construction and was pinned only at the root, so a guard added here by
+    analogy with the level-3 row — which *is* at home under `design/` — would
+    silence the one misfiling a writer reaching for "a design document" makes
+    most naturally."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _write(root, f"{DESIGN_DIR}/billing.md", "Decision frame", DOMAIN_MODEL_SECTION)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "billing.md" in result.output
+    assert f"{DOMAIN_DIR}/" in result.output
+    assert result.exit_code == 0
+
+
 def test_implementation_notes_are_never_read_as_a_tier(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
