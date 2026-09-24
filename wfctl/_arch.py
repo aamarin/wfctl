@@ -42,6 +42,13 @@ DIAGRAM_KINDS = ("data-flow", "component", "state")
 LEVEL_2_SECTION = "Owns truth"
 LEVEL_3_SECTION = "Diagram"
 
+# The heading `model-the-domain`'s template carries and neither record template
+# does. A domain model binds nothing, so at the root it is the placement check's
+# weighed-nothing row — but that row's remedy is `implementation/`, and a
+# level-2 description filed as a level-4 note is a second misfiling (#464).
+# This is what lets the row name `domain/` instead.
+DOMAIN_MODEL_SECTION = "Ubiquitous Language"
+
 
 @dataclass(frozen=True)
 class Record:

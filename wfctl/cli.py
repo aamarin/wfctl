@@ -6487,7 +6487,7 @@ def _check_record_placement(repo_root: Path) -> bool:
     from rich.markup import escape
 
     from wfctl import _arch
-    from wfctl._paths import DESIGN_DIR, IMPLEMENTATION_DIR
+    from wfctl._paths import DESIGN_DIR, DOMAIN_DIR, IMPLEMENTATION_DIR
     from wfctl._evidence import missing_sections, quoted_out
 
     def carries(text: str, section: str) -> bool:
@@ -6535,6 +6535,13 @@ def _check_record_placement(repo_root: Path) -> bool:
                         f" is projected as though it bound something. Move it to"
                         f" {DESIGN_DIR}/.",
                     ))
+            elif carries(text, _arch.DOMAIN_MODEL_SECTION):
+                findings.append((
+                    "warning", path,
+                    f"carries `{_arch.DOMAIN_MODEL_SECTION}` and no"
+                    f" `{_arch.LEVEL_2_SECTION}` — a domain model describes and"
+                    f" decides nothing, so it belongs under {DOMAIN_DIR}/.",
+                ))
             else:
                 findings.append((
                     "warning", path,
