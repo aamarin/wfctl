@@ -128,12 +128,15 @@ is (`level-2-routes-by-what-is-contested`):
 what is contested?
  ├ a meaning — one term doing two jobs,    ───► .agents/skills/model-the-domain
  │  an invariant nobody can say who enforces
- └ a quality under stated conditions —     ───► .agents/skills/architecture-design
-    availability, latency, a compatibility promise
+ └ anything else — a quality under stated  ───► .agents/skills/architecture-design
+    conditions, or who owns a fact whose
+    meaning is already agreed
 ```
 
 When one question contests both a meaning and a quality, `model-the-domain`
-runs first.
+runs first. Ownership alone is not a meaning: once everyone can say which
+concept is being owned, "which side computes it" is a boundary for
+`architecture-design`.
 
 The worked example above is the first kind. "Empty" is doing two jobs, and the
 `hasAny` flag is what the split looks like once someone owns it. The driver loop
@@ -155,8 +158,8 @@ the stop is not a state to route around.
 
 Skip the method when an accepted record or an existing spec already settles the
 boundary, naming the one that does, or when the change moves no boundary at all.
-The test is whether a boundary moves, not how large the change is, and
-`architecture-design`'s own **Not for** list is the exit a trivial change takes.
+The test is whether a boundary moves, not how large the change is, and either
+method's own **Not for** list is the exit a trivial change takes.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
@@ -174,7 +177,9 @@ wfctl arch none --reason "<what changed, or why nothing did>"
 
 It writes `declarations/<branch>.md` under `wfctl arch-root`, and that file is
 what the design gate reads: the gate counts any path under the root outside
-`design/`, so the record arm and this arm satisfy it the same way. Declared only
+`design/` and the subtrees that decide nothing — `domain/`, where
+`model-the-domain` writes its model, is one — so the record arm and this arm
+satisfy it the same way, and a model document alone does not. Declared only
 out loud, the gate stays unsatisfied, `wfctl status` holds the design step at
 `in_progress`, and the reason it prints does not look connected to the answer you
 just gave. A placeholder reason is refused, which is the point — a reviewer
@@ -419,8 +424,8 @@ Before `design.md` is written:
       around.
 - [ ] Every level-2 boundary was reached by running the method its contested
       thing routes to — `.agents/skills/model-the-domain` for a meaning,
-      `.agents/skills/architecture-design` for a quality — or the accepted record or spec that
-      already settles it was named.
+      `.agents/skills/architecture-design` for anything else — or the
+      accepted record or spec that already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
 - [ ] Every level-3 choice that weighed credible alternatives left a record under

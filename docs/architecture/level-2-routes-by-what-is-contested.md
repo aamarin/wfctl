@@ -3,7 +3,7 @@ status: proposed
 diagram: component
 ---
 
-# Level 2 routes by what is contested: a quality to `architecture-design`, a meaning to `model-the-domain`
+# Level 2 routes by what is contested: a meaning to `model-the-domain`, everything else to `architecture-design`
 
 ## Context
 
@@ -19,8 +19,8 @@ them. It ends where `architecture-design` ends: a proposed record under
 
 Both skills are description-triggered, and their descriptions overlap.
 `architecture-design` fires on "ownership rule" and "data boundary"; this one
-fires on "Bounded Contexts" and "Aggregate and invariant design". A prompt
-asking who owns a piece of state matches both. An agent holding both
+fires on "Bounded Contexts" and "Aggregates", and on "an invariant with no
+home". A prompt asking who owns a piece of state matches both. An agent holding both
 descriptions, with nothing stating which one a question belongs to, runs two
 design loops over one question or picks one arbitrarily.
 `level-3-owns-structural-heuristics` was written to prevent that failure one
@@ -48,20 +48,30 @@ Its step 2 needs drivers specific enough to disprove, and each one names an
 *affected part*. When one term is doing two jobs — an empty *filter window*
 and an empty *workspace* rendered as one state, `design-levels`' own level-2
 example — there is no agreed part to name yet. The driver loop has nothing to
-rank until the concept has been split. The skill's own **Not for** also lists
-"naming". A reference that said "first, settle what the words mean" would
-contradict the method it was filed under.
+rank until the concept has been split. A reference that said "first, settle
+what the words mean" would be a step that runs before the method's own step 1,
+filed inside the method — a second method with no entry of its own.
 
 ## Decision
 
 `design-levels` routes a level-2 question by what is contested, not by how
 large the change is:
 
-- **A quality under stated conditions** — availability, latency,
-  deployability, a compatibility promise — goes to `architecture-design`.
-- **The meaning or ownership of a business concept** — one term meaning two
-  things, an invariant with no home, a rule nobody can say who enforces — goes
-  to `model-the-domain`.
+- **The meaning of a business concept** — one term meaning two things, an
+  invariant with no home, a rule nobody can say who enforces because nobody
+  can say what it constrains — goes to `model-the-domain`.
+- **Anything else at level 2** goes to `architecture-design`: a quality under
+  stated conditions — availability, latency, deployability, a compatibility
+  promise — and the ownership of a fact whose meaning is already agreed.
+  "Does the client or the server compute *is this workspace empty?*" is that
+  second kind once *empty* has been split, and it is the question
+  `architecture-design`'s own description already claims as an "ownership
+  rule".
+
+The test is whether the parts can be named. Ownership belongs to
+`model-the-domain` only while nobody can say which concept is being owned; once
+they can, it is a boundary like any other, and the driver loop has a part to
+rank.
 
 The two methods chain rather than compete. `model-the-domain` runs first when
 both apply, because it finds the contexts and names the parts. It hands a
@@ -79,8 +89,8 @@ has a tie-break for the other. The router has to sit above both, and
 `design-levels` already owns the gate where the choice is made.
 
 `model-the-domain` owns *"what does this term mean, and in which context?"*.
-`architecture-design` cannot compute it: its drivers presuppose named parts,
-and naming is on its own **Not for** list.
+`architecture-design` cannot compute it: each of its drivers names an affected
+part, and a term doing two jobs is not one part yet.
 
 ## Boundary
 
@@ -91,17 +101,17 @@ flowchart TB
         R{"what is contested?"}
     end
     subgraph mtd["model-the-domain"]
-        M["the meaning or ownership of a business concept<br>language, contexts, invariants"]
+        M["the meaning of a business concept<br>language, contexts, invariants"]
     end
     subgraph ad["architecture-design"]
-        A["a quality under stated conditions<br>ranked drivers, credible approaches"]
+        A["a quality, or who owns an agreed fact<br>ranked drivers, credible approaches"]
     end
     subgraph adr["architecture-decisions"]
         W["one proposed record"]
     end
     Q --> R
     R -->|"a meaning"| M
-    R -->|"a quality"| A
+    R -->|"anything else"| A
     M -->|"a crossing that carries a quality driver"| A
     M -->|"a boundary with no quality in contention"| W
     A --> W
@@ -119,8 +129,7 @@ engagement by scale would reinstate the test that sentence refuses.
 
 - **The direct baseline — one method, DDD as a reference inside it.** It is
   cheaper and keeps level 2 at one loop. It loses on the input rather than on
-  cost: the driver loop cannot rank a part nobody has agreed a name for, and
-  the skill it would be filed under excludes naming.
+  cost: the driver loop cannot rank a part nobody has agreed a name for.
 - **Route by engagement depth** — the candidate skill's own table, where
   Strategic and Full go to DDD and everything else goes to the driver loop.
   This is the most natural reading of the skill as written. It loses because
@@ -178,7 +187,9 @@ not a derivation, and no sample program from either book is reproduced.
 What the candidate skill carried that wfctl already owns is given up rather
 than kept beside it. Its eight pass/fail promotion gates go: `design-levels`
 owns every gate, and #100 is where a gate's shape is decided. Its
-`not applicable - <reason>` prose goes to `wfctl arch none`. Its
+`not applicable - <reason>` prose, where it stood for a boundary, goes to
+`wfctl arch none`; a row of the model document that does not apply still says
+`none — <reason>`, because that is a description and not a gate. Its
 per-engagement visual mandate goes to `the-drawing-is-required-at-acceptance`
 and `design-levels`' rendering rules. Its paired human and agent views are #86's
 dual-representation principle, and are not minted a second time here.
@@ -195,3 +206,6 @@ gate, so an edit that drops either pointer fails.
 - 2026-09-23  proposed    — #464: a second level-2 method needs a stated
   routing condition, or an agent holding both descriptions runs two design loops
   over one question
+- 2026-09-24  amended     — #464 review: ownership of an agreed fact routes to
+  `architecture-design`, which already claimed it; a question with no contested
+  meaning and no quality had no route

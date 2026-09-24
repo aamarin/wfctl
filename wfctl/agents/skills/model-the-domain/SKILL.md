@@ -1,6 +1,6 @@
 ---
 name: model-the-domain
-description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when what is contested is the meaning or ownership of a concept: one term doing two jobs, an invariant with no home, a rule nobody can say who enforces. Not for quality-attribute drivers such as latency or availability, not for routine implementation, and not for work whose language and boundaries are already settled.'
+description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when what is contested is the meaning of a concept: one term doing two jobs, an invariant with no home, a rule nobody can say who enforces because nobody can say what it constrains. Not for quality-attribute drivers such as latency or availability, not for who owns a fact whose meaning is already agreed, not for routine implementation, and not for work whose language and boundaries are already settled.'
 ---
 
 # Model the domain
@@ -28,10 +28,11 @@ contested                   invariants
 
 `.agents/skills/design-levels` sends a question here from its level-2 gate
 when what is contested is a **meaning** — one term doing two jobs, an invariant
-with no home, a rule nobody can say who enforces. A **quality** under stated
-conditions goes to `.agents/skills/architecture-design` instead. When both
-apply, this skill runs first: the driver loop cannot rank a part nobody has
-agreed a name for. The routing is the record
+with no home, a rule nobody can say who enforces. Everything else at level 2
+goes to `.agents/skills/architecture-design` instead: a **quality** under
+stated conditions, and the ownership of a fact whose meaning is already agreed.
+When a meaning and a quality are both contested, this skill runs first: the
+driver loop cannot rank a part nobody has agreed a name for. The routing is the record
 `level-2-routes-by-what-is-contested`.
 
 It does not write `design.md`, define gate verdicts, or accept a record.
@@ -40,7 +41,9 @@ It does not write `design.md`, define gate verdicts, or accept a record.
 
 - A term means different things to different people, screens or modules.
 - A rule or invariant exists and nobody can say which side enforces it.
-- Two parts of the system hold the same fact and disagree about who owns it.
+- Two parts of the system hold what they call the same fact, and it is not
+  one fact. (Two parts that agree what the fact is and disagree about who
+  computes it is a boundary for `architecture-design`.)
 - A new capability arrives whose vocabulary is not in the code yet.
 
 A screen is evidence, not a starting point. UI copy is where a broken language
@@ -135,7 +138,7 @@ nothing when they were not.
 
 `<arch-root>/domain/<capability>.md` — ask `wfctl arch-root` for the parent.
 Not `FEATURE_DIR`, which a reviewer never opens, and not beside the records,
-where `wfctl arch context` would read it as agreed. `domain/` is excluded from
+the one tier every reader of the arch root takes as decided. `domain/` is excluded from
 the design gate on purpose: the document describes, and only the record or
 `wfctl arch none` answers level 2.
 
