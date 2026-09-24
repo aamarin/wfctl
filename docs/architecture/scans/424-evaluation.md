@@ -825,9 +825,24 @@ workspace is bound to the right session.
 correct name — misleading, and checkable by anyone who reads the name. This is a
 row whose *contents* are another worktree's, and the contents are what a person
 uses the screen for. Someone glancing at `pfms__561`, seeing an agent mid-run and
-deciding it needs no attention, has read `wfctl__424`. Someone typing into it —
-and finding 8 established every mirrored row takes input — types into
-`wfctl__424`. Nothing on the row says which session it is really showing.
+deciding it needs no attention, has read `wfctl__424`. Nothing on the row says
+which session it is really showing.
+
+**It is an input fault, not only a display one, and that was demonstrated rather
+than reasoned.** The machine's owner selected the row titled
+`pfms__564-chart-follows-interview` and typed into it, believing they were
+addressing that worktree's agent. The text arrived in `wfctl__424`'s session —
+this evaluation's own — and the exchange that produced this paragraph is the
+evidence. Finding 8 established every mirrored row accepts input; this finding
+establishes a row can accept it on behalf of a session it does not name.
+
+What makes that worth recording separately is how little it required. No
+misreading, no haste, no unfamiliarity with the tool: the row carried the correct
+title and the person clicked the correct title. A supervisory screen whose rows
+can be right about their name and wrong about their destination is not a screen
+with a bug in it — for the duration, it is a worse instrument than having no
+screen and running `tmux attach` by hand, because the hand-typed name cannot be
+mis-routed.
 
 **It appeared only after the reconnect**, and this is a correlation rather than a
 cause. The mirror had run for hours before the teardown with no such report, and
@@ -843,6 +858,26 @@ they show — and the remedy stops being merely expensive and becomes one that
 must not be run unattended. Establishing which requires a second teardown, done
 deliberately, with a row-by-row check of content against title before and after. That experiment
 is named on #461 and was not run here.
+
+**The poller is right where cmux is wrong, on the same row, at the same moment.**
+Once `wfctl-rows` was restarted, both affected rows carried a correct status line
+above their wrong subtitle and path:
+
+```
+pfms__564-chart-follows-interview
+  #564 · done                                       ← poller: correct
+  424-observer-dashboard-eval                       ← cmux: wrong
+  ~/Development/wfctl/wt/424-observer-dashboard-e…  ← cmux: wrong
+```
+
+That is `a-client-attaches-to-a-runtime-it-never-owns`'s correlation clause
+demonstrated rather than argued. The poller matches the tmux session name — the
+workmux handle — to a worktree and gets it right; cmux's own workspace binding,
+which is the client-assigned identity the record forbids as a key, gets it wrong
+on the same row at the same moment. **A consumer that correlates the way the
+record demands is immune to this defect**, which narrows the finding: the
+mis-binding is in cmux's surface routing and reaches nothing derivable from the
+handle.
 
 **Limits.** One reconnect, `localhost`, two rows observed wrong out of nine —
 and the other seven were not checked content-against-title, so the count is a
