@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 description: Execute the implementation plan by processing and executing all tasks defined in tasks.md
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl verify*) Bash(wfctl report-block*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(git diff*) Bash(git status*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl verify*) Bash(wfctl report-block*)
 ---
 
 ## User Input
@@ -30,6 +30,30 @@ record read after the code exists describes whatever got built.
 job; reading it is what keeps a task's implementation faithful to the shape that
 was chosen. Do not add work because a record mentions it and `tasks.md` does not
 — that is a finding for `/speckit.analyze`, not a licence to widen the change.
+
+## Refactor the finished diff, before it is verified
+
+**Once every task is checked off, and before step 9b's sentinel**, run one
+behaviour-preserving pass over the branch's diff, following
+`.agents/skills/clean-code/references/after-implementation.md` (or
+`../skills/clean-code/references/after-implementation.md` relative to this
+file). Before review, a structural move is part of the change. After review,
+it is rework on a reviewed diff.
+
+Before the sentinel rather than after it, because the sentinel is what `wfctl`
+reads as "implement is finished". A run restarted between the two would find
+the step done and never come back for the pass. Before 9c, so that
+`wfctl verify` judges the tree the pass left rather than the one it started
+from. Where the repository declares no narrower check, `wfctl verify` is the
+baseline too: run it once before the first move.
+
+This lives here rather than in `speckit-implement/SKILL.md` for the reason
+the host-refusal section below gives (#364). It rides inside the step rather than being a
+step of its own because nothing downstream can tell whether it ran — review
+sees a diff either way — which makes it a method, and
+`a-repo-concern-earns-a-step-hook-or-method` keeps methods out of the pipeline.
+A pass that selects nothing is a finished pass. Its report still says what it
+inspected.
 
 ## Report a host refusal, whichever task hits it
 
