@@ -49,11 +49,12 @@ straight to implementation, and running this method over one costs more than the
 change. Nor for work whose boundaries are already settled in an accepted record
 or an existing spec.
 
-**Nor for a contested meaning** — one term doing two jobs, an invariant nobody
-can say who enforces. That goes to `.agents/skills/model-the-domain` first,
-which names the parts this method's drivers need, and hands a crossing that
-carries a quality back here (`level-2-routes-by-what-is-contested`). Who owns a
-fact whose meaning is agreed stays here.
+**Nor for a capability that earns domain modeling** — complexity in its
+business rules, a Core Domain, or one term doing two jobs. That goes to
+`.agents/skills/model-the-domain` first, which names the parts this method's
+drivers need and hands a crossing that carries a quality back here
+(`level-2-routes-by-what-is-contested`). Ownership where the rules are simple
+stays here.
 
 File size, unfamiliar code, a named pattern, or an unfavorable metric is not by
 itself an architecture question. Neither is smallness: the test is whether a

@@ -3,7 +3,7 @@ status: proposed
 diagram: component
 ---
 
-# Level 2 routes by what is contested: a meaning to `model-the-domain`, everything else to `architecture-design`
+# Level 2 routes by the capability: one that earns domain modeling to `model-the-domain`, everything else to `architecture-design`
 
 ## Context
 
@@ -20,8 +20,8 @@ them. It ends where `architecture-design` ends: a proposed record under
 Both skills are description-triggered, and their descriptions overlap.
 `architecture-design` fires on "ownership rule" and "data boundary"; this one
 fires on "Bounded Contexts" and "Aggregates", and on "an invariant with no
-home". A prompt asking who owns a piece of state matches both. An agent holding both
-descriptions, with nothing stating which one a question belongs to, runs two
+home". A prompt asking who owns a piece of state matches both. An agent
+holding both descriptions, with nothing stating which one a question belongs to, runs two
 design loops over one question or picks one arbitrarily.
 `level-3-owns-structural-heuristics` was written to prevent that failure one
 level down, and it is the same failure here.
@@ -54,24 +54,26 @@ filed inside the method — a second method with no entry of its own.
 
 ## Decision
 
-`design-levels` routes a level-2 question by what is contested, not by how
-large the change is:
+`design-levels` routes a level-2 question by the capability it touches, not
+by how large the change is:
 
-- **The meaning of a business concept** — one term meaning two things, an
-  invariant with no home, a rule nobody can say who enforces because nobody
-  can say what it constrains — goes to `model-the-domain`.
+- **A capability that earns domain modeling** goes to `model-the-domain`. It
+  earns it when its complexity is in the business rules rather than the
+  technology and it is a core or supporting subdomain — the test both books
+  give, and the skill's own first section, which starts by finding the core
+  product. One term doing two jobs earns it in any capability: a broken
+  language is not a property of how complex the rules are.
 - **Anything else at level 2** goes to `architecture-design`: a quality under
   stated conditions — availability, latency, deployability, a compatibility
-  promise — and the ownership of a fact whose meaning is already agreed.
-  "Does the client or the server compute *is this workspace empty?*" is that
-  second kind once *empty* has been split, and it is the question
-  `architecture-design`'s own description already claims as an "ownership
-  rule".
+  promise — and ownership in a capability whose rules are simple.
 
-The test is whether the parts can be named. Ownership belongs to
-`model-the-domain` only while nobody can say which concept is being owned; once
-they can, it is a boundary like any other, and the driver loop has a part to
-rank.
+The capability is classified once and the answer is written down, in the
+model document's domain vision statement, so the question after it is routed
+by reading rather than by asking again. An earlier draft of this record routed
+per question by "is a meaning contested?". That test is right as a signal and
+too narrow as the whole: it sent an unmodeled Core Domain with agreed words to
+the driver loop, which is the investment Evans and Vernon both say belongs in
+the core.
 
 The two methods chain rather than compete. `model-the-domain` runs first when
 both apply, because it finds the contexts and names the parts. It hands a
@@ -88,7 +90,9 @@ own triggers, so an agent holding both sees two matches and neither description
 has a tie-break for the other. The router has to sit above both, and
 `design-levels` already owns the gate where the choice is made.
 
-`model-the-domain` owns *"what does this term mean, and in which context?"*.
+`model-the-domain` owns *"does this capability earn domain modeling?"* — the
+core-product questions are its first section — and *"what does this term mean,
+and in which context?"*.
 `architecture-design` cannot compute it: each of its drivers names an affected
 part, and a term doing two jobs is not one part yet.
 
@@ -101,16 +105,16 @@ flowchart TB
         R{"what is contested?"}
     end
     subgraph mtd["model-the-domain"]
-        M["the meaning of a business concept<br>language, contexts, invariants"]
+        M["a capability that earns domain modeling<br>language, contexts, invariants"]
     end
     subgraph ad["architecture-design"]
-        A["a quality, or who owns an agreed fact<br>ranked drivers, credible approaches"]
+        A["a quality, or ownership where rules are simple<br>ranked drivers, credible approaches"]
     end
     subgraph adr["architecture-decisions"]
         W["one proposed record"]
     end
     Q --> R
-    R -->|"a meaning"| M
+    R -->|"earns it"| M
     R -->|"anything else"| A
     M -->|"a crossing that carries a quality driver"| A
     M -->|"a boundary with no quality in contention"| W
@@ -209,3 +213,6 @@ gate, so an edit that drops either pointer fails.
 - 2026-09-24  amended     — #464 review: ownership of an agreed fact routes to
   `architecture-design`, which already claimed it; a question with no contested
   meaning and no quality had no route
+- 2026-09-24  amended     — routes by whether the capability earns domain
+  modeling (Evans ch. 4 and 15, Vernon ch. 2–3), not by whether a meaning is
+  contested, which stays one signal among several

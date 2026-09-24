@@ -10,6 +10,15 @@ Person who knows the domain: <name or role>
 Last checked against the code: <date and commit>
 Records this model draws on: <slugs, or none>
 
+## Domain vision statement
+
+<About a page: what this capability does that a customer could not get
+elsewhere, and the value it brings. Leave out what does not distinguish it —
+qualities such as speed or availability belong in architecture records, not
+here. Classify the capability as core, supporting or generic, and say which
+answer put it there. Link the product's statement instead when one already
+exists. Revise it as the model deepens.>
+
 ## Decision frame
 
 Business outcome:

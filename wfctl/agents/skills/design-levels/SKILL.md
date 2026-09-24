@@ -121,22 +121,21 @@ side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
 **The question is answered by running a method, not by reaching for an
-answer — and what is contested picks the method**, never how large the change
-is (`level-2-routes-by-what-is-contested`):
+answer — and the capability it touches picks the method**, never how large the
+change is (`level-2-routes-by-what-is-contested`):
 
 ```
-what is contested?
- ├ a meaning — one term doing two jobs,    ───► .agents/skills/model-the-domain
- │  an invariant nobody can say who enforces
- └ anything else — a quality under stated  ───► .agents/skills/architecture-design
-    conditions, or who owns a fact whose
-    meaning is already agreed
+does the capability earn domain modeling,  ───► .agents/skills/model-the-domain
+or is one term doing two jobs?
+ └ no — a quality under stated conditions, ───► .agents/skills/architecture-design
+   or ownership where the rules are simple
 ```
 
-When one question contests both a meaning and a quality, `model-the-domain`
-runs first. Ownership alone is not a meaning: once everyone can say which
-concept is being owned, "which side computes it" is a boundary for
-`architecture-design`.
+Whether a capability earns it is `model-the-domain`'s own first section: find
+the core product, then read the signals — complexity in the business rules,
+rules that interact and grow, vocabulary the code lacks. It is asked once per
+capability and written down, not once per question. When a modeled capability
+also contests a quality, `model-the-domain` runs first.
 
 The worked example above is the first kind. "Empty" is doing two jobs, and the
 `hasAny` flag is what the split looks like once someone owns it. The driver loop
@@ -423,8 +422,8 @@ Before `design.md` is written:
 - [ ] Any boundary a lower level invalidated was revised upward, not worked
       around.
 - [ ] Every level-2 boundary was reached by running the method its contested
-      thing routes to — `.agents/skills/model-the-domain` for a meaning,
-      `.agents/skills/architecture-design` for anything else — or the
+      thing routes to — `.agents/skills/model-the-domain` for a capability
+      that earns it, `.agents/skills/architecture-design` otherwise — or the
       accepted record or spec that already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.

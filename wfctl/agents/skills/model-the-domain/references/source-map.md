@@ -22,7 +22,7 @@ whether a chapter was covered or left out on purpose.
 | 1 Crunching Knowledge | `process.md` §2 | The crunching cycle, kept as ten steps. |
 | 2 Communication and the Use of Language | `SKILL.md` step 4, `visual-language.md` | Ubiquitous Language kept. Diagrams: "selective and simplified" is wfctl's own rule already, so the per-round visual mandate the draft carried was dropped. |
 | 3 Binding Model and Implementation | `ddd-heuristics.md` *Knowledge and language*, `process.md` §5 | Model-Driven Design and Hands-On Modelers stated as principles, not as pattern names. |
-| 4 Isolating the Domain | `ddd-heuristics.md` rules | One line. Drawing the layer boundary is `architecture-design`'s. |
+| 4 Isolating the Domain | `SKILL.md` *Does this capability earn it?*, `ddd-heuristics.md` rules | The Smart UI anti-pattern is the "does not earn it" column, quoted. Drawing the layer boundary is `architecture-design`'s. |
 | 5 A Model Expressed in Software | `ddd-heuristics.md` *Tactical building blocks* | Entity, Value Object, Service, Module, associations. |
 | 6 The Life Cycle of a Domain Object | `ddd-heuristics.md`, `process.md` §4 | Aggregate, Factory, Repository. |
 | 7 Using the Language: An Extended Example | not reproduced | A worked example, not a technique. |
@@ -33,7 +33,7 @@ whether a chapter was covered or left out on purpose.
 | 12 Relating Design Patterns to the Model | not carried | `python-pattern-selection` and `software-design-decisions` own pattern choice. |
 | 13 Refactoring Toward Deeper Insight | `SKILL.md` step 8, `evidence.md` *What reopens a model* | |
 | 14 Maintaining Model Integrity | `process.md` §3, `ddd-heuristics.md`, `visual-language.md` | Bounded Context, Context Map, the seven relationships Evans names; Continuous Integration as keeping one context coherent. |
-| 15 Distillation | `process.md` §6 | Core Domain, generic subdomain, domain vision statement. Segregated and Abstract Core are whole-codebase moves and are left out. |
+| 15 Distillation | `SKILL.md` *Does this capability earn it?*, `process.md` §6, `domain-model-template.md` | Core Domain, generic subdomain, domain vision statement — the first two decide whether a round runs, the third is where its answer is written. Segregated and Abstract Core are whole-codebase moves and are left out. |
 | 16 Large-Scale Structure | not carried | Whole-system organization, above one feature's round. |
 | 17 Bringing the Strategy Together | `SKILL.md` | The skill's own ordering plays this role. |
 
@@ -42,8 +42,8 @@ whether a chapter was covered or left out on purpose.
 | Chapter | Where | Adaptation |
 | --- | --- | --- |
 | 1 DDD for Me | `SKILL.md` *Select the depth* | |
-| 2 Bounded Contexts and Ubiquitous Language | `process.md` §2–3 | |
-| 3 Subdomains | `process.md` §3, `ddd-heuristics.md` | Problem space against solution space. |
+| 2 Bounded Contexts and Ubiquitous Language | `process.md` §2–3, `SKILL.md` *Does this capability earn it?* | "Focus on Business Complexity, Not Technical Complexity" and the long-term-commitment question are quoted. |
+| 3 Subdomains | `SKILL.md` *Does this capability earn it?*, `process.md` §3, `ddd-heuristics.md` | Problem space against solution space; "Types of Subdomains" sets how much a round invests. |
 | 4 Context Mapping | `ddd-heuristics.md` | Partnership and Big Ball of Mud added to Evans' seven. Transport named abstractly (synchronous, asynchronous, batch, manual) rather than as RPC, REST or messaging. |
 | 5 Aggregates | `process.md` §4 | The four rules of thumb. |
 | 6 Domain Events | `ddd-heuristics.md` | Past-tense facts. Event Sourcing is a persistence technique and is left out. |

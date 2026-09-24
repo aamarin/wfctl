@@ -1,6 +1,6 @@
 ---
 name: model-the-domain
-description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when what is contested is the meaning of a concept: one term doing two jobs, an invariant with no home, a rule nobody can say who enforces because nobody can say what it constrains. Not for quality-attribute drivers such as latency or availability, not for who owns a fact whose meaning is already agreed, not for routine implementation, and not for work whose language and boundaries are already settled.'
+description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a capability's complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet, a Core Domain the product must excel at — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
 ---
 
 # Model the domain
@@ -27,24 +27,90 @@ contested                   invariants
 ```
 
 `.agents/skills/design-levels` sends a question here from its level-2 gate
-when what is contested is a **meaning** — one term doing two jobs, an invariant
-with no home, a rule nobody can say who enforces. Everything else at level 2
-goes to `.agents/skills/architecture-design` instead: a **quality** under
-stated conditions, and the ownership of a fact whose meaning is already agreed.
-When a meaning and a quality are both contested, this skill runs first: the
-driver loop cannot rank a part nobody has agreed a name for. The routing is the record
+when the capability it touches **earns domain modeling** (below), or when a
+term is doing two jobs whatever the capability. Everything else at level 2 goes
+to `.agents/skills/architecture-design` instead: a **quality** under stated
+conditions, and ownership in a capability whose rules are simple. When a
+modeled capability also contests a quality, this skill runs first: the driver
+loop cannot rank a part nobody has agreed a name for. The routing is the record
 `level-2-routes-by-what-is-contested`.
 
 It does not write `design.md`, define gate verdicts, or accept a record.
 
+## Does this capability earn it?
+
+Ask it of the **capability**, not of the question, and start by finding the
+core product. Both books place domain modeling where the business is complex
+and distinctive and withhold it elsewhere, so the first job is saying which
+part is distinctive. Evans treats the alternative as a fork taken at the outset
+(*Isolating the Domain*, "The Smart UI Anti-Pattern"), so the answer holds for
+every later question in the capability until something on the *What reopens a
+model* list changes it.
+
+**Find the core first.** Put these to the person who knows the product, and
+write the answers down — they are the value proposition, and nothing else in
+the pipeline records it:
+
+1. What does this product do that a customer could not get elsewhere? That
+   part is the Core Domain: "distinctive and central to the purposes of the
+   intended applications" (Evans, *Distillation*, "Core Domain"); where the
+   organization "must excel" (Vernon, *Strategic Design with Subdomains*,
+   "Types of Subdomains").
+2. If this capability were bought off the shelf tomorrow, what would be lost?
+   Nothing distinctive makes it a **generic subdomain** — buy it, reuse a
+   published model, or keep it simple (Evans, "Generic Subdomains"; Vernon).
+3. Does it need custom work only because nothing off the shelf fits, while
+   the product would not suffer from a plain build? That is a **supporting
+   subdomain** — custom, but not the heavy investment (Vernon).
+4. Will the team keep learning here for years, or is it done once it ships?
+   Vernon's test: if that long-term commitment cannot be made, is the model
+   "truly a strategic differentiator, a Core Domain?"
+   (*Strategic Design with Bounded Contexts and the Ubiquitous Language*).
+5. Can the value be said in about a page, leaving out everything that does not
+   distinguish it? That page is Evans' **domain vision statement**: "Write a
+   short description (about one page) of the CORE DOMAIN and the value it will
+   bring … Ignore those aspects that do not distinguish this domain model from
+   others. … Write this statement early and revise it as you gain new insight."
+   (*Distillation*, "Domain Vision Statement").
+
+Evans' own example draws the line: a passenger model that reflects the
+relationship an airline builds with repeat customers is in the statement; a
+five-second confirmation and a cached animated logo are "important" and are
+not. The second kind are qualities, and qualities go to `architecture-design`.
+
+**Then read the signals** for the capability the question touches:
+
+| Signal | Earns it | Does not |
+| --- | --- | --- |
+| Subdomain (the questions above) | Core; supporting, at lighter depth | generic |
+| Where the complexity is | in the business rules — "the business model is more complex than the technical aspects" (Vernon) | in the technology — latency, scale, integration plumbing |
+| What the work is | rules that interact, and keep growing | "simple functionality, dominated by data entry and display, with few business rules" (Evans) |
+| How the rules sit in code | one rule has to hold across several operations | each rule lives in one screen or one call |
+| The language | the people who know the domain use terms the code does not have | the code's names are the business's names, and nobody disputes them |
+
+A core subdomain plus one more signal on the left earns a round. One term doing
+two jobs earns a round on its own, in any capability: that is a broken
+language, and a simple capability can have one. The right column throughout is
+`architecture-design`, or no level-2 method at all when no boundary moves.
+
+Depth follows the subdomain. The Tactical depth below is for the core — Evans:
+"Justify investment in any other part by how it supports the distilled CORE".
+A supporting subdomain gets Explore or Strategic.
+
+The answers land in the model document's *Domain vision statement* and
+*Decision frame*, so the next question in the capability starts from them
+rather than asking again.
+
 ## When to use
+
+Once a capability earns it, these are the questions that come here:
 
 - A term means different things to different people, screens or modules.
 - A rule or invariant exists and nobody can say which side enforces it.
 - Two parts of the system hold what they call the same fact, and it is not
-  one fact. (Two parts that agree what the fact is and disagree about who
-  computes it is a boundary for `architecture-design`.)
+  one fact.
 - A new capability arrives whose vocabulary is not in the code yet.
+- A rule is about to be written a second time, in a second operation.
 
 A screen is evidence, not a starting point. UI copy is where a broken language
 shows up for a user. `design-levels`' level-2 example — an empty *filter
@@ -54,7 +120,8 @@ who computes "is this workspace empty?".
 
 **Not for**: bug fixes, copy edits, refactors that move no boundary, or work
 whose language and boundaries an accepted record or spec already settles. Not
-for quality drivers, which go to `architecture-design`. Not for how code
+for a capability the table above leaves in the right column. Not for quality
+drivers, which go to `architecture-design`. Not for how code
 expresses a settled model, which is `.agents/skills/clean-code`.
 
 ## Authority
