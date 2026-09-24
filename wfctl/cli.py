@@ -2869,6 +2869,19 @@ _MIRRORED_SKILLS = frozenset({
     "design-levels",
     "fanning-out-code-review",
     "i-have-adhd",
+    # `architecture-design`'s case, and the second method at the same gate:
+    # `design-levels` level 2 names this skill by path beside that one, and an
+    # agent that read the pointer and reached for `Skill(model-the-domain)` is
+    # refused without membership. The mirror removes the fork; it does not make
+    # a refused route work.
+    #
+    # It does not reach an agent mid-implementation, and must not be defended on
+    # that: the skill's `description` scopes it to level 2, and defending it on
+    # implementation reach would oblige `speckit.implement`'s ceiling to grant
+    # what its Authority section names — a widening nobody asked for. Evidence
+    # found during implementation reopens level 2 through `design-levels`; it
+    # does not bring this skill into the implement step.
+    "model-the-domain",
     # Removing this entry restores #124 rather than trimming a list: the skill
     # still ships and still installs, its wrapper un-suppresses on the same run,
     # and the only remaining way to reach it is a human typing that wrapper —

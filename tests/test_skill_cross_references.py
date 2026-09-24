@@ -94,6 +94,31 @@ def test_the_record_template_ships_beside_the_adr_skill() -> None:
     assert (skill / "record-template.md").exists()
 
 
+def test_the_level_2_gate_names_the_domain_modeling_method() -> None:
+    """Level 2 has two methods, and an agent holding both descriptions picks one
+    by what the gate says, or it runs two design loops over one question (#464,
+    `level-2-routes-by-what-is-contested`). The pointer is the routing; without
+    it `model-the-domain` installs everywhere and is reached only when a
+    description happens to match, and then beside `architecture-design` rather
+    than before it.
+
+    Scoped to the level-2 section, for the reason its level-3 twin gives: a
+    whole-file match goes green on a gate that dropped the pointer as soon as the
+    name appears anywhere else in the file.
+
+    The second half reads the route from the other end, as the
+    `architecture-design` test above does, so the two files cannot give opposite
+    accounts of how the agent got there."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    section = gate.split("### 2. Architecture")[1].split("### 3. Design")[0]
+    assert "model-the-domain" in set(_REFERENCE.findall(section))
+    assert "architecture-design" in set(_REFERENCE.findall(section))
+
+    skill = (_AGENTS / "skills" / "model-the-domain" / "SKILL.md").read_text()
+    overview = skill.split("## When to use")[0]
+    assert "design-levels" in set(_REFERENCE.findall(overview))
+
+
 def test_the_level_2_gate_names_the_record_skill() -> None:
     """The gate is the only thing that turns a level-2 answer into a record.
     Eleven designs carried the instruction to write the answer into a

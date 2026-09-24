@@ -302,6 +302,13 @@ IMPLEMENTATION_DIR = "implementation"
 # same failure `scans/` and `implementation/` are excluded to prevent.
 STEP_CLAIMS_DIR = "step-claims"
 
+# The arch-root subtree holding a domain model — the language, contexts and
+# invariants `model-the-domain` found (#464). It describes what a record
+# decided and decides nothing itself, and it is written at level 2, the one
+# level whose gate asks whether the boundary was put: counted, a modeling round
+# that wrote a document and drew nothing would read as having answered.
+DOMAIN_DIR = "domain"
+
 # The arch-root subtree holding level-3 design records. Unlike the two above it
 # *is* a record tier, so it is absent from `non_record_subtrees` and every
 # caller that wants it dropped says so itself. It has a name here anyway,
@@ -320,7 +327,12 @@ def non_record_subtrees(arch: Path) -> list[Path]:
     is the failure this replaces: `scans/` was named at each of them, and the
     second such subtree had to find all four.
     """
-    return [arch / SCANS_DIR, arch / IMPLEMENTATION_DIR, arch / STEP_CLAIMS_DIR]
+    return [
+        arch / SCANS_DIR,
+        arch / IMPLEMENTATION_DIR,
+        arch / STEP_CLAIMS_DIR,
+        arch / DOMAIN_DIR,
+    ]
 
 
 def touched_on_this_branch(

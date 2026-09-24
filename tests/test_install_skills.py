@@ -296,6 +296,7 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "design-levels",
     "fanning-out-code-review",
     "i-have-adhd",
+    "model-the-domain",
     "opening-a-change",
     "python-pattern-selection",
     "receiving-code-review",

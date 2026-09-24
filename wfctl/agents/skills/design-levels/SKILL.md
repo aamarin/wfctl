@@ -125,7 +125,16 @@ answer.** Use `.agents/skills/architecture-design` for one iteration. It makes
 the drivers explicit — what must remain true, under which conditions — ranks
 them, and compares credible approaches against a no-new-structure baseline.
 
-It ends one of three ways and only one of them produces a record: it hands a
+**When what is contested is a meaning rather than a quality** — one term doing
+two jobs, as in the example above, or an invariant nobody can say who enforces
+— use `.agents/skills/model-the-domain` first. The driver loop cannot rank a
+part nobody has agreed a name for. That skill names the parts, then hands a
+crossing that carries a quality driver back to `architecture-design` and any
+other boundary straight to `architecture-decisions`. One question goes through
+one loop. What picks the method is what is contested, never how large the
+change is (`level-2-routes-by-what-is-contested`).
+
+Either method ends one of three ways and only one of them produces a record: it hands a
 proposed boundary to `.agents/skills/architecture-decisions` itself, or it
 declares no boundary, or it names the evidence it is missing and stops. The
 paragraph below governs what that record has to be — it is not a second
