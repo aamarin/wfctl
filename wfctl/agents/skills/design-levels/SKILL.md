@@ -127,10 +127,13 @@ is (`level-2-routes-by-what-is-contested`):
 ```
 what is contested?
  ├ a meaning — one term doing two jobs,    ───► .agents/skills/model-the-domain
- │  an invariant nobody can say who enforces        first, when both apply
+ │  an invariant nobody can say who enforces
  └ a quality under stated conditions —     ───► .agents/skills/architecture-design
     availability, latency, a compatibility promise
 ```
+
+When one question contests both a meaning and a quality, `model-the-domain`
+runs first.
 
 The worked example above is the first kind. "Empty" is doing two jobs, and the
 `hasAny` flag is what the split looks like once someone owns it. The driver loop
