@@ -1,51 +1,33 @@
-"""The part of `conversation-response-shape` a machine can see.
+"""The part of `conversation-response-shape` a machine can see in a PR body.
 
-Pure functions over strings. The caller finds the text — in a transcript, or in
-the file `gh pr create` is about to read — and this decides. Same constraint as
-`_guard`, for the same reason: the decision table is the part worth testing, and
-testing it must not cost a session.
+Pure functions over strings. The caller finds the text — in the file
+`gh pr create` is about to read — and this decides. Same constraint as `_guard`,
+for the same reason: the decision table is the part worth testing, and testing
+it must not cost a session.
 
 ## Why this exists at all
 
-The skill is already delivered three ways — a `UserPromptSubmit` hook every
-turn, the rule in `SKILL.md`, a seven-question pre-send check — and all three
-fire *before* the text exists. Nothing looks at what was actually written.
-`docs/architecture/the-underscore-is-the-module-contract.md` settled this shape
-for module boundaries and the argument transfers whole: a correct rule with
-nothing to check it gets crossed a fifth time the way it was crossed the first
-four.
+`SKILL.md`'s own rules for a reply — headers, counted lead-ins, unrequested
+length — fire only before the text exists: a `UserPromptSubmit` hook every turn
+and the seven-question pre-send check. A `Stop`-hook checker once read the
+finished reply too, catching what those two could not
+(`docs/architecture/the-underscore-is-the-module-contract.md` settled this shape
+for module boundaries, and the argument transferred). It was retired for costing
+more than it returned — it reopened a turn the reader had already seen, and
+delivered the reply twice (#276, #475) — so `a-rule-is-expressed-as-a-check`'s
+instance for response style is now the comment it names as the alternative, not
+a check (#476).
 
-## Two surfaces, and they do not take the same rules
+What is left checkable is the PR-body surface, which is a file on disk rather
+than a reply already delivered: `body_findings()` runs before `gh pr create`
+reads it, so a finding here still reaches the author in time to fix it.
 
-`findings()` reads a terminal reply. `body_findings()` reads a PR description.
-The skill governs both and says so, but it draws a line between them that a
-check has to respect — SKILL.md:429, on the header rule:
+## What a PR body check can and cannot see
 
-> This governs the reply only. Headers are correct, and usually required, in the
-> artifacts a reply produces: design documents, published pages, PR bodies […]
-
-So headers are a violation in a reply and correct in a PR body, while the
-drawing rules run the other way: `.github/pull_request_template.md` names this
-skill's form-selection table as the single owner of which drawing to use. Each
-function carries the rules for its own surface and neither borrows the other's.
-
-## What a reply check can and cannot see
-
-    Q4  a markdown header in the reply     exact       the rule forbids these outright
-    r6  a counted lead-in                  by pattern  the digest names it as the tell
-    Q3  length nothing asked for           a signal    length *plus* a silent prompt
-    Q1  is the answer on the first line    no
-    Q5  did the question want understanding no
-
-The unobservable questions stay in the pre-send check. This catches the subset
-that is visible in the text, which is also the subset that was observed
-breaking — headers, counted lead-ins, and length nobody requested.
-
-**It is not a word budget.** The skill's own rule 3 is that depth is opted into
-by the words asked; a check that flagged long replies as such would contradict
-the rule it enforces. Length alone is never a finding. It is a finding only
-together with a prompt that asked for nothing, and the wording says so, because
-a reader who reads it as a budget will disable it.
+SKILL.md:429 draws a line a check has to respect: headers are a violation in a
+reply and *required*, usually, in a PR body — `.github/pull_request_template.md`
+is built out of them — while the drawing rules run the same way on both
+surfaces. So this module carries only the drawing rule, not the header one.
 """
 from __future__ import annotations
 
@@ -54,227 +36,13 @@ from itertools import groupby
 
 from wfctl import _md
 
-# Fenced blocks and table rows are drawings, not voice. Both are stripped before
-# anything is scanned and before the words are counted: rule 6 exempts "a
-# drawing", a fifty-line diff is not fifty lines of prose, and the skill's own
-# form-selection table makes a markdown table the drawing it asks for most often
-# — counting its rows made a third of the length findings fire on the shape the
-# rule recommends. Fences come from `_md`; only the table rule is this module's.
-_TABLE_ROW = re.compile(r"^\s*\|")
-
-# Every level, not just `##`/`###`. The rule is "a reply is not a document — no
-# markdown headers in it" (SKILL.md:410); `##` and `###` are its examples of
-# document furniture, not the closed set, and `#### Findings` is the same drift
-# arriving one level deeper. Indented up to three spaces, which is markdown's own
-# limit — at four the line is an indented code block and not a header at all.
-_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
-
-# A sentence boundary as the reply surface has to see it, which is not how the
-# PR body's `_SENTENCE` sees one. That pattern is deliberately narrow: a missed
-# boundary there only suppresses a finding, and the evidence behind it is a
-# precision claim that holds while it stays narrow. Here a missed boundary
-# *produces* a finding — it is what #304 is — so the two cannot share a pattern
-# without one of them being tuned by the other's accident.
-#
-# What the extra width buys, every row of it a shape this repo's own replies
-# end sentences on: a digit or an acronym before the stop (`in CI.`, `in PR
-# 304.`, `on 3.11.`, and a commit sha, which ends in a digit more often than
-# not), `?` and `!` as stops, and a quote or emphasis marker on either side of
-# the stop — `called it "noisy."` and `**Both routes resolve.**`, the second
-# being the shape `_COUNTED` below accepts a `**` prefix for.
-#
-# What the width costs is a dotted initialism mid-sentence: `Three problems
-# affect the U.S. API: auth and billing` splits after `U.S.`, and neither half
-# then carries both a count and a colon. Left alone deliberately. Guarding it
-# means refusing a boundary, which on this surface can only *add* findings, and
-# the two shapes it decides between are equally absent — 16 of 58,792 assistant
-# lines carry a dotted initialism at all and none is followed by a capital. With
-# nothing to separate them by frequency, the rule's own asymmetry decides: a
-# missed hit costs attention once, a false positive costs the reader's trust in
-# every other finding.
-_REPLY_SENTENCE = re.compile(
-    r"[A-Za-z0-9)\]`\"']"      # the character the sentence ends on
-    r"[\"'*_)\]]*"             # a closing quote or emphasis marker, before the stop
-    r"[.?!]"
-    r"[\"'*_)\]]*"             # or after it
-    r"\s+"
-    r"(?=[\"'*_(\[]*[A-Z])"    # the next sentence, its own opener and all
-)
-
-# Anywhere in the reply, not only the opening: the observed shape is a coda —
-# the answer lands, then "One thing I couldn't finish:" starts a second block.
-#
-# The discriminator is a colon in the *same sentence* as the count, which is why
-# this is matched against each of `_sentences` rather than against the line. A
-# colon anywhere on the line is not one: `Three reviewers reported the same bug.
-# Here is what each said:` puts the count and the colon in different sentences,
-# and the sentence the colon closes carries no count at all — so reading the
-# line whole turned every counted fact into a violation as soon as any later
-# sentence ended in a colon (#304).
-#
-# Per sentence rather than first-sentence-only, because the coda above is the
-# observed shape and it is usually not the first thing on its line. `Done. Two
-# problems worth an issue each:` is one line carrying an answer and a lead-in,
-# and scanning only the opening sentence reports it clean.
-#
-# **Where the colon may sit depends on which sentence it is in, and the two
-# answers are measured separately.** In the sentence that opens the line the
-# colon is looked for anywhere, because those lead-ins run the list on after it
-# rather than breaking to bullets — requiring it to close drops two thirds of
-# them. A coda is the other way round: it announces and then breaks, so the
-# colon ends its sentence, and accepting one mid-sentence buys almost nothing
-# real. Over 7,964 terminal replies, scanning later sentences colon-anywhere
-# added 310 lines that line-whole matching never saw — 165 genuine codas and
-# 145 of the unreachable class below. Requiring the colon to close them keeps
-# the 165 and drops all 145, at no cost to detection of the rule's own named
-# tell (534 either way, against 567 before this change).
-#
-# **A count and a colon inside one sentence stay out of reach.** That class is
-# wider than it looks, and it is the whole of what this does not fix: "Three
-# start today with zero overlap: #324, #305, #335" is a count that *is* the
-# answer to a question whose answer is a set, which the rule exempts; "Both of
-# r1's top findings reproduce: the gate and the corpus" is a counted fact whose
-# colon introduces its own evidence. Neither announces "a list nobody asked
-# for", and both are shaped exactly like a lead-in — one sentence, count, colon,
-# list. Only the prompt separates them, and this pattern is matched against the
-# reply.
-# The two positions do not take the same vocabulary, and `both` is why. The
-# asymmetry above is about where the colon may sit; this one is about which word
-# may carry the count, and it runs the same direction for the same reason —
-# the weaker the structural evidence, the more the word has to do.
-#
-# `_COUNT` is the full set and applies wherever the colon closes its sentence,
-# opening included. `_ANNOUNCING` drops `both` and applies where the colon sits
-# mid-sentence.
-#
-# The tell is a count that *announces* — "the count announces a list nobody asked
-# for" (SKILL.md) — and announcing needs the material to be new to the reader.
-# `both` is anaphoric: it presupposes a pair already in play and can only point
-# back at one. In the opening sentence, where a colon is accepted anywhere, that
-# is the whole of the evidence, and it is not enough. `Both actions are done:
-# #643 filed, the comment posted` is a counted *fact* whose colon introduces the
-# answer's own evidence — the unreachable class named above, arriving in a word
-# that can be told apart without the prompt. A numeral in that same frame is not:
-# `Three things worth flagging:` introduces three things the reader has not met.
-#
-# **Where the colon lands is the discriminator, and it is not the same question
-# as where the sentence sits.** A colon that *closes* its sentence is a lead-in
-# announcing and then breaking to its list — the structural signature of a second
-# block, which rule 6 caps however familiar its contents. `Both remaining issues:`
-# announces a list past the answer whether or not the reader knows the pair, so
-# there the structure carries the finding and the word is not asked to. A colon
-# sitting mid-sentence carries nothing, so there the word is all there is.
-#
-# So the vocabulary is chosen by the colon, not by the position:
-#
-#   colon closes the sentence   →  _COUNT       (full set, `both` included)
-#   colon sits mid-sentence     →  _ANNOUNCING  (`both` dropped)
-#
-# Two earlier shapes of this fix each got half of it (#389, both found in
-# review). Removing `both` from the one shared pattern silenced every coda.
-# Keying the vocabulary on sentence *position* instead restored the same-line
-# coda and left the own-line one — `Done.\n\nBoth remaining issues:` — still
-# silent, because `findings` scans line by line, so a lead-in on its own line is
-# an *opening* sentence and the coda matcher never ran. That form is the more
-# common one: a lead-in that breaks to bullets usually starts its own line.
-_COUNT = (
-    r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
-    r"|both|several|a few)\b"
-)
-_ANNOUNCING = (
-    r"(?:\*\*|_)?(?:one|two|three|four|five|six|seven|eight|nine|ten"
-    r"|several|a few)\b"
-)
-_COUNTED = re.compile(rf"^\s*{_ANNOUNCING}[^\n]*:", re.IGNORECASE)
-# "Closes the sentence" has to mean the colon and whatever emphasis closes with
-# it. `Done. **Two things remain:**` is the bold lead-in this project recommends
-# over a heading, so a scan that reads `:**` as a colon with text after it is
-# blind to the form its own readers are told to write.
-#
-# This one runs against every sentence, the opening included — that is what the
-# own-line coda needs, and it costs nothing elsewhere, because a closing colon is
-# the strong signal wherever it appears.
-_COUNTED_CLOSING = re.compile(
-    rf"^\s*{_COUNT}[^\n]*:[\"'*_)\]]*\s*$", re.IGNORECASE
-)
-
-# `_REPLY_SENTENCE`'s lookahead requires the next sentence to open with a
-# capital letter, deliberately — see its own comment for why. That same
-# narrowness means a real break before inline code, a lowercase word, or a
-# numeral is invisible to it, so `_sentences` hands back the two sentences
-# fused into one. Running `_COUNTED_CLOSING` against that fused opening treats
-# a later sentence's colon as though it closed the count's own sentence:
-# "Both changes are complete. `git status`:" is a counted fact followed by an
-# unrelated coda, not a lead-in, and read as one before this guard (found in
-# review, #404).
-#
-# Loosened relative to `_REPLY_SENTENCE` on purpose — this only has to notice
-# that a break exists, not agree on what follows it — so it drops the
-# uppercase requirement and treats any sentence-ending punctuation plus
-# whitespace as proof the opening blob is not one sentence. `[.?!]+` rather
-# than one, because an ellipsis or `?!` is still a single terminal mark and a
-# guard that only recognized one character of it missed the exact fusion it
-# exists to catch (found in review, PR #404).
-_INNER_SENTENCE_END = re.compile(
-    r"[A-Za-z0-9)\]`\"'][\"'*_)\]]*[.?!]+[\"'*_)\]]*\s+"
-)
-
-# Inline code is quoted, not written, and a colon inside it is punctuation of
-# whatever is being quoted. `Two unrelated branches show `[origin/…: gone]`` is
-# a sentence, not a lead-in, and it was the only false positive the rule-6 check
-# produced across ninety transcripts.
-# A bare URL alongside it, for the same reason and one shape further out: the
-# `https:` in a line beginning "Three of these came from https://…" is not a
-# lead-in's colon either. It stops short of a trailing `.` or `,` because a
-# URL at the end of a sentence owns neither, and swallowing the period erased
-# the boundary `_REPLY_SENTENCE` needs — which put that very line, the one this
-# comment quotes, back among #304's false positives.
-_QUOTED = re.compile(r"`[^`]*`|\bhttps?://\S*[^\s.,]")
-
-# Words the prompt can use to opt into depth. Not a synonym list to be completed
-# — it is deliberately over-broad, because every word missing from it turns a
-# reply that *was* asked for into a false positive, and one of those teaches the
-# reader to switch the check off. A missed real violation costs nothing: the
-# other two findings still fire, and the reader is the backstop this always had.
-#
-# `?` is pointedly not here. The failure this issue was filed over is a yes/no
-# question answered with a table and four paragraphs, so a question mark cannot
-# be what licenses length.
-#
-# `plain`, `simpl\w+`, `examples?` and `pm` are the "explain it simply" row of
-# rule 3 — the row that licenses the longest replies the skill permits, and the
-# one this had no word from. A prompt quoting it ("in plain terms, pretend you're
-# talking to a PM… Provide a simple example as well") drew a Q3 saying nothing
-# had asked for depth, which is the false positive this gate exists to avoid
-# (#298).
-_ASKED_FOR_DEPTH = re.compile(
-    r"\b(thoughts|why|explain|compare|comparison|tradeoffs?|options|opinion"
-    r"|eli5|plain|simpl\w+|examples?|pm"
-    r"|walk me|analys\w+|analyz\w+|detail\w*|elaborat\w+|summar\w+|review"
-    r"|more questions|deep\w*|research|assess\w*|evaluat\w+)\b",
-    re.IGNORECASE,
-)
-
-# ponytail: a flat count, tuned on the twenty terminal replies of the #208
-# transcript — the session this was observed in. There, 250 separates the five
-# replies to a bare instruction ("file an issue for X" → 259 words) from every
-# reply whose prompt asked for something. It is a threshold, not a measurement:
-# raise it if the check starts firing on replies that earned their length, and
-# note that the gate in front of it does most of the work.
-_LONG_WORDS = 250
-
-# --- the PR-body surface ----------------------------------------------------
-
 # Two or more spaces between two non-spaces: a column boundary someone typed.
 _HAND_ALIGNED = re.compile(r"\S {2,}\S")
 
 # A sentence end followed by a new one. This is "one cell outgrew its header" in
 # the only form a machine can see it — the rejected drawing's overflowing cell
 # was a three-sentence paragraph, and no accepted drawing in the same PR body
-# contains a single sentence boundary. Narrow on purpose, and `_REPLY_SENTENCE`
-# is where the reply surface's wider one lives: widening this in place keeps
-# both verdicts here correct and changes which cell they quote, which is what
-# `test_the_drawing_the_reader_rejected_is_flagged` pins.
+# contains a single sentence boundary.
 _SENTENCE = re.compile(r"[a-z)\]`]\.\s+[A-Z]")
 
 # Three, because two adjacent aligned lines is a pair of annotations and any
@@ -286,119 +54,20 @@ def _blocks(text: str) -> list[tuple[int, list[str]]]:
     """Every fenced block as `(line number of its opening fence, its lines)`.
 
     Grouping is `_md.walk`'s `opened` field and nothing else — the boundaries
-    were decided by the walk, so this cannot disagree with `_prose` about where
-    a block starts.
+    were decided by the walk, so this cannot disagree about where a block
+    starts.
 
-    **An unclosed fence is a block here, and `_split_fences` dropped it.** That
-    is a deliberate change, not a side effect of the walk: the old pair
-    disagreed with itself, since `_prose` already treated the tail as inside a
-    fence while `blocks` acted as though the fence had never opened. A truncated
-    PR body is one a reader can still be told about, and telling them nothing
-    because the block has no closing line is the reading that has to argue for
-    itself.
-
-    What it costs is that `body_findings` can now fire on the tail of a body cut
-    off mid-block. That is the same finding it would have made had the author
-    typed the closing line, which is the test for whether a change like this is
-    a fix or a regression.
+    **An unclosed fence is a block here.** A truncated PR body is one a reader
+    can still be told about, and telling them nothing because the block has no
+    closing line is the reading that has to argue for itself. What it costs is
+    that `body_findings` can now fire on the tail of a body cut off mid-block —
+    the same finding it would have made had the author typed the closing line.
     """
     blocks: dict[int, list[str]] = {}
     for line in _md.walk(text):
         if line.inside and line.opened is not None:
             blocks.setdefault(line.opened, []).append(line.text)
     return sorted(blocks.items())
-
-
-def _prose(text: str) -> list[str]:
-    """`text` as lines, with fenced blocks and table rows removed.
-
-    The fence delimiters go too. `_md.walk` reports them as outside — they are
-    the boundary, and `_arch` prints one — but to a prose scan a bare ``` is
-    neither prose nor a heading, so this filters `fence` alongside `inside`.
-    """
-    return [
-        line.text
-        for line in _md.walk(text)
-        if not line.inside
-        and not line.fence
-        and not _TABLE_ROW.match(line.text)
-    ]
-
-
-def _sentences(line: str) -> list[str]:
-    """`line` cut at every boundary `_REPLY_SENTENCE` can see, in order.
-
-    Always at least one element, which is the whole line when it holds no
-    boundary. Each cut runs from one sentence's first character to the next
-    one's, so a sentence keeps its own terminal punctuation and its trailing
-    space; the counted lead-in is tested against each, which is what confines
-    the colon deciding it to the sentence carrying the count.
-    """
-    out, start = [], 0
-    for boundary in _REPLY_SENTENCE.finditer(line):
-        out.append(line[start:boundary.end()])
-        start = boundary.end()
-    out.append(line[start:])
-    return out
-
-
-def _counted_lead_in(line: str) -> bool:
-    """Whether any sentence of `line` announces a list with a count.
-
-    Two questions, and a sentence is a lead-in if either says so. A colon that
-    closes its sentence is asked of every sentence, the opening one included,
-    with the full vocabulary — see `_COUNTED_CLOSING`. A colon mid-sentence is
-    asked only of the opening one, and only of a count that can announce.
-
-    The closing-colon question is asked of `opening` only when nothing in it
-    looks like a sentence break `_sentences` failed to find — see
-    `_INNER_SENTENCE_END`. Without that guard, a count fused to an unrelated
-    coda by a missed boundary reads as the coda's own lead-in.
-    """
-    opening, *rest = _sentences(_QUOTED.sub("``", line))
-    opening_is_one_sentence = not _INNER_SENTENCE_END.search(opening)
-    return bool(
-        _COUNTED.match(opening)
-        or (opening_is_one_sentence and _COUNTED_CLOSING.match(opening))
-    ) or any(_COUNTED_CLOSING.match(sentence) for sentence in rest)
-
-
-def findings(reply: str, prompt: str) -> list[str]:
-    """What a terminal `reply` breaks, one line each, naming the check it maps to.
-
-    Empty when nothing is visible, which is the common case and the only one
-    the caller prints nothing for.
-
-    The wording is the point as much as the detection. Each line says which
-    pre-send question the reader already agreed to and what the fix is, so it
-    reads as the check they wrote rather than as a scolding from a script.
-    """
-    lines = _prose(reply)
-    out = []
-
-    headings = [line for line in lines if _HEADING.match(line)]
-    if headings:
-        out.append(
-            f"Q4 — {len(headings)} markdown header(s), starting {headings[0].strip()!r}. "
-            "Convert each to a bold lead-in on the sentence beneath it."
-        )
-
-    counted = [line for line in lines if _counted_lead_in(line)]
-    if counted:
-        first = " ".join(counted[0].split())[:60]
-        out.append(
-            f"rule 6 — counted lead-in: {first!r}. The answer plus at most one "
-            "block, then stop; a counted lead-in is the tell."
-        )
-
-    words = len(" ".join(lines).split())
-    if words >= _LONG_WORDS and not _ASKED_FOR_DEPTH.search(prompt):
-        out.append(
-            f"Q3 — {words} words of prose, and nothing in the prompt asked for "
-            "depth. Quote the words that asked, or cut it to the answer."
-        )
-
-    return out
 
 
 def body_findings(body: str) -> list[str]:

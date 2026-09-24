@@ -42,15 +42,23 @@ def test_every_referenced_skill_ships() -> None:
     assert not missing, f"referenced but not shipped: {missing}"
 
 
-def test_the_output_style_skills_are_both_loaded_at_session_start() -> None:
-    """`i-have-adhd` sets length, `conversation-response-shape` sets order and
-    depth. Both have to be on from turn 0 and nothing else turns them on there —
-    `i-have-adhd` carries upstream's `disable-model-invocation`, and the other is
-    model-invocable but only once a turn has already been shaped wrong. Dropping
-    either from step 1 disables it for every session, quietly."""
+def test_step_1_does_not_read_the_style_skills_in_full() -> None:
+    """#476: a full read of either skill's `SKILL.md` here cost about 7.3k
+    tokens, 14.6k on the refresh path, for rules the `UserPromptSubmit` digest
+    already re-sends every turn. Either skill's `SKILL.md` named in step 1 is
+    that read coming back."""
     start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
-    loaded = set(_REFERENCE.findall(start))
-    assert {"i-have-adhd", "conversation-response-shape"} <= loaded
+    step_1 = start.split("\n2. ")[0]
+    assert "i-have-adhd/SKILL.md" not in step_1
+    assert "conversation-response-shape/SKILL.md" not in step_1
+
+
+def test_the_response_shape_digest_stays_under_its_cap() -> None:
+    """`_DIGEST_MAX_CHARS` (`wfctl/cli.py`) truncates anything past 500 with an
+    ellipsis and no build failure — this is what keeps the rewritten reminder
+    (#476) from silently losing its tail instead."""
+    digest = (_AGENTS / "skills" / "conversation-response-shape" / "digest.md").read_text()
+    assert len(digest) <= 500, f"{len(digest)} characters, cap 500"
 
 
 def test_each_output_style_skill_is_typeable_on_every_layer() -> None:
