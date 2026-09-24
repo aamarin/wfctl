@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl._arch import LEVEL_2_SECTION, LEVEL_3_SECTION
-from wfctl._paths import DESIGN_DIR
+from wfctl._arch import DOMAIN_MODEL_SECTION, LEVEL_2_SECTION, LEVEL_3_SECTION
+from wfctl._paths import DESIGN_DIR, DOMAIN_DIR
 from wfctl.cli import _check_record_placement, app
 
 
@@ -213,6 +213,45 @@ def test_a_heading_parked_in_an_html_comment_does_not_satisfy_the_check(
     assert result.exit_code == 0
 
 
+def test_a_domain_model_at_the_arch_root_is_sent_to_domain_not_implementation(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A domain model carries neither record heading, so before #464 the
+    weighed-nothing row sent it to `implementation/` — a repair that files a
+    level-2 description as a level-4 note. The row is right that it binds
+    nothing and wrong about where it goes, and a check whose remedy is wrong is
+    obeyed into a second misfiling."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _adopted(root)
+    _write(root, "billing.md", "Decision frame", DOMAIN_MODEL_SECTION)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "billing.md" in result.output
+    assert f"{DOMAIN_DIR}/" in result.output
+    assert "implementation/" not in result.output
+    assert result.exit_code == 0
+
+
+def test_a_domain_model_parked_under_design_is_sent_to_domain(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The domain-model row is the only one of the heading rows with no tier
+    guard, because neither tier this check walks is its home. That is correct
+    by construction and was pinned only at the root, so a guard added here by
+    analogy with the level-3 row — which *is* at home under `design/` — would
+    silence the one misfiling a writer reaching for "a design document" makes
+    most naturally."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _write(root, f"{DESIGN_DIR}/billing.md", "Decision frame", DOMAIN_MODEL_SECTION)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "billing.md" in result.output
+    assert f"{DOMAIN_DIR}/" in result.output
+    assert result.exit_code == 0
+
+
 def test_implementation_notes_are_never_read_as_a_tier(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -222,11 +261,13 @@ def test_implementation_notes_are_never_read_as_a_tier(
     root = _arch_root(agent_dir, monkeypatch)
     _write(root, "implementation/why-a-dataclass.md", "Context")
     _write(root, "scans/419-clarify.md", "Context")
+    _write(root, f"{DOMAIN_DIR}/billing.md", DOMAIN_MODEL_SECTION)
 
     result = runner.invoke(app, ["doctor"])
 
     assert "why-a-dataclass.md" not in result.output
     assert "419-clarify.md" not in result.output
+    assert "billing.md" not in result.output
     assert result.exit_code == 0
 
 
@@ -335,6 +376,7 @@ def test_the_section_constants_are_the_ones_the_templates_require() -> None:
     templates = {
         LEVEL_2_SECTION: _SKILLS / "architecture-decisions" / "record-template.md",
         LEVEL_3_SECTION: _SKILLS / "software-design-decisions" / "design-record-template.md",
+        DOMAIN_MODEL_SECTION: _SKILLS / "model-the-domain" / "domain-model-template.md",
     }
     for section, template in templates.items():
         assert f"\n## {section}\n" in template.read_text(), (

@@ -2871,6 +2871,19 @@ _MIRRORED_SKILLS = frozenset({
     "design-levels",
     "fanning-out-code-review",
     "i-have-adhd",
+    # `architecture-design`'s case, and the second method at the same gate:
+    # `design-levels` level 2 names this skill by path beside that one, and an
+    # agent that read the pointer and reached for `Skill(model-the-domain)` is
+    # refused without membership. The mirror removes the fork; it does not make
+    # a refused route work.
+    #
+    # It does not reach an agent mid-implementation, and must not be defended on
+    # that: the skill's `description` scopes it to level 2, and defending it on
+    # implementation reach would oblige `speckit.implement`'s ceiling to grant
+    # what its Authority section names — a widening nobody asked for. Evidence
+    # found during implementation reopens level 2 through `design-levels`; it
+    # does not bring this skill into the implement step.
+    "model-the-domain",
     # Removing this entry restores #124 rather than trimming a list: the skill
     # still ships and still installs, its wrapper un-suppresses on the same run,
     # and the only remaining way to reach it is a human typing that wrapper —
@@ -6472,11 +6485,21 @@ def _check_record_placement(repo_root: Path) -> bool:
     gap needs all three of: no level-2 record anywhere, no `design/`, and a
     first design record filed wrong — and the next correctly-placed record of
     either tier closes it.
+
+    `Ubiquitous Language` stays out of the signals for the same reason, and
+    pays the same price: a tree whose first artifact is a domain model filed at
+    the root is silent. A DDD glossary is at least as common in someone else's
+    ADR tree as a diagram is. `model-the-domain` hands off to a record, so the
+    gap lasts until the round it belongs to writes one.
+
+    A domain model is the one heading row with no tier guard, because neither
+    tier walked here is its home — `domain/` is a destination, like
+    `implementation/`, and is never read back.
     """
     from rich.markup import escape
 
     from wfctl import _arch
-    from wfctl._paths import DESIGN_DIR, IMPLEMENTATION_DIR
+    from wfctl._paths import DESIGN_DIR, DOMAIN_DIR, IMPLEMENTATION_DIR
     from wfctl._evidence import missing_sections, quoted_out
 
     def carries(text: str, section: str) -> bool:
@@ -6524,6 +6547,13 @@ def _check_record_placement(repo_root: Path) -> bool:
                         f" is projected as though it bound something. Move it to"
                         f" {DESIGN_DIR}/.",
                     ))
+            elif carries(text, _arch.DOMAIN_MODEL_SECTION):
+                findings.append((
+                    "warning", path,
+                    f"carries `{_arch.DOMAIN_MODEL_SECTION}` and no"
+                    f" `{_arch.LEVEL_2_SECTION}` — a domain model describes and"
+                    f" decides nothing, so it belongs under {DOMAIN_DIR}/.",
+                ))
             else:
                 findings.append((
                     "warning", path,

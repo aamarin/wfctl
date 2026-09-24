@@ -120,21 +120,45 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
-**The question is answered by running the method, not by reaching for an
-answer.** Use `.agents/skills/architecture-design` for one iteration. It makes
-the drivers explicit — what must remain true, under which conditions — ranks
-them, and compares credible approaches against a no-new-structure baseline.
+**The question is answered by running a method, not by reaching for an
+answer — and the capability it touches picks the method**, never how large the
+change is (`level-2-routes-by-what-is-contested`):
 
-It ends one of three ways and only one of them produces a record: it hands a
-proposed boundary to `.agents/skills/architecture-decisions` itself, or it
-declares no boundary, or it names the evidence it is missing and stops. The
-paragraph below governs what that record has to be — it is not a second
-invocation, and the stop is not a state to route around.
+```
+does the capability earn domain modeling,  ───► .agents/skills/model-the-domain
+or is one term doing two jobs?
+ └ no — a quality under stated conditions, ───► .agents/skills/architecture-design
+   or ownership where the rules are simple
+```
+
+Whether a capability earns it is `model-the-domain`'s own first section: find
+the core product, then read the signals — complexity in the business rules,
+rules that interact and grow, vocabulary the code lacks. It is asked once per
+capability and written down, not once per question. When a modeled capability
+also contests a quality, `model-the-domain` runs first.
+
+The worked example above is the first kind. "Empty" is doing two jobs, and the
+`hasAny` flag is what the split looks like once someone owns it. The driver loop
+cannot rank a part nobody has agreed a name for, so `model-the-domain` names
+the parts first. It then hands a crossing that carries a quality driver to
+`architecture-design`, and any other boundary straight to
+`architecture-decisions`. One question goes through one loop.
+
+`architecture-design` runs one iteration. It makes the drivers explicit — what
+must remain true, under which conditions — ranks them, and compares credible
+approaches against a no-new-structure baseline.
+
+Both methods end in one of three ways: a proposed boundary handed to
+`.agents/skills/architecture-decisions`, a declared absence, or a named gap in
+the evidence and a stop. `model-the-domain` has a fourth: a crossing handed on
+to `architecture-design`, which then ends in one of the three. The paragraph
+below governs what the record has to be — it is not a second invocation, and
+the stop is not a state to route around.
 
 Skip the method when an accepted record or an existing spec already settles the
 boundary, naming the one that does, or when the change moves no boundary at all.
-The test is whether a boundary moves, not how large the change is, and
-`architecture-design`'s own **Not for** list is the exit a trivial change takes.
+The test is whether a boundary moves, not how large the change is, and either
+method's own **Not for** list is the exit a trivial change takes.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
@@ -152,7 +176,9 @@ wfctl arch none --reason "<what changed, or why nothing did>"
 
 It writes `declarations/<branch>.md` under `wfctl arch-root`, and that file is
 what the design gate reads: the gate counts any path under the root outside
-`design/`, so the record arm and this arm satisfy it the same way. Declared only
+`design/` and the subtrees that decide nothing — `domain/`, where
+`model-the-domain` writes its model, is one — so the record arm and this arm
+satisfy it the same way, and a model document alone does not. Declared only
 out loud, the gate stays unsatisfied, `wfctl status` holds the design step at
 `in_progress`, and the reason it prints does not look connected to the answer you
 just gave. A placeholder reason is refused, which is the point — a reviewer
@@ -395,9 +421,10 @@ Before `design.md` is written:
       verified ones were checked against the code, not from memory.
 - [ ] Any boundary a lower level invalidated was revised upward, not worked
       around.
-- [ ] Every level-2 boundary was reached by running
-      `.agents/skills/architecture-design`, or the accepted record or spec that
-      already settles it was named.
+- [ ] Every level-2 boundary was reached by running the method its contested
+      thing routes to — `.agents/skills/model-the-domain` for a capability
+      that earns it, `.agents/skills/architecture-design` otherwise — or the
+      accepted record or spec that already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
 - [ ] Every level-3 choice that weighed credible alternatives left a record under

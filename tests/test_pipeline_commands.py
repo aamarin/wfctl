@@ -275,6 +275,25 @@ def test_a_level_3_record_alone_does_not_answer_the_boundary_question(
     assert "no architecture record" in out
 
 
+def test_a_domain_model_alone_does_not_answer_the_boundary_question(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`model-the-domain` writes its document at level 2, beside the records and
+    during the very pass this gate reads. Left out of `non_record_subtrees`, a
+    modeling round that wrote a glossary and drew nothing would clear a gate
+    whose only question is whether the boundary was put — the answer is the
+    record or `wfctl arch none`, never the description (#464)."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (root / "domain").mkdir(parents=True)
+    (root / "domain" / "ledger.md").write_text("# Ledger domain model\n")
+
+    out = runner.invoke(app, ["status"]).output
+
+    assert "brainstorm   ▶" in out
+    assert "no architecture record" in out
+
+
 def test_a_claimed_pass_does_not_answer_the_boundary_question(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:

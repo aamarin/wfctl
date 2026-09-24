@@ -10,6 +10,8 @@ import re
 from importlib.resources import files
 from pathlib import Path
 
+import pytest
+
 
 # Resolved through `files("wfctl")` for the same reason as
 # `test_pipeline_commands`: conftest's autouse `bundle` fixture repoints
@@ -94,6 +96,31 @@ def test_the_record_template_ships_beside_the_adr_skill() -> None:
     assert (skill / "record-template.md").exists()
 
 
+def test_the_level_2_gate_names_the_domain_modeling_method() -> None:
+    """Level 2 has two methods, and an agent holding both descriptions picks one
+    by what the gate says, or it runs two design loops over one question (#464,
+    `level-2-routes-by-what-is-contested`). The pointer is the routing; without
+    it `model-the-domain` installs everywhere and is reached only when a
+    description happens to match, and then beside `architecture-design` rather
+    than before it.
+
+    Scoped to the level-2 section, for the reason its level-3 twin gives: a
+    whole-file match goes green on a gate that dropped the pointer as soon as the
+    name appears anywhere else in the file.
+
+    The second half reads the route from the other end, as the
+    `architecture-design` test below does, so the two files cannot give opposite
+    accounts of how the agent got there."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    section = gate.split("### 2. Architecture")[1].split("### 3. Design")[0]
+    assert "model-the-domain" in set(_REFERENCE.findall(section))
+    assert "architecture-design" in set(_REFERENCE.findall(section))
+
+    skill = (_AGENTS / "skills" / "model-the-domain" / "SKILL.md").read_text()
+    overview = skill.split("## When to use")[0]
+    assert "design-levels" in set(_REFERENCE.findall(overview))
+
+
 def test_the_level_2_gate_names_the_record_skill() -> None:
     """The gate is the only thing that turns a level-2 answer into a record.
     Eleven designs carried the instruction to write the answer into a
@@ -134,7 +161,8 @@ def test_the_level_2_gate_names_the_design_method_skill() -> None:
     assert "design-levels" in set(_REFERENCE.findall(overview))
 
 
-def test_the_design_method_skill_is_model_invocable() -> None:
+@pytest.mark.parametrize("skill", ["architecture-design", "model-the-domain"])
+def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     """The mirror is the only route on the Claude layer, and the wrapper #373
     added does not change that: `_mirror_supersedes_wrapper` suppresses
     `architecture-design.md` on exactly the layer that mirrors the skill, so
@@ -153,15 +181,16 @@ def test_the_design_method_skill_is_model_invocable() -> None:
     copy-paste from any of the wrappers carrying it.
 
     Both assertions, because each one alone stays green through the change that
-    breaks the other.
+    breaks the other. Both level-2 methods, because the gate names each by path
+    and the refusal would be the same one skill over (#464).
     """
     from wfctl import _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
-    assert "architecture-design" in _MIRRORED_SKILLS
+    assert skill in _MIRRORED_SKILLS
 
     front = _arch._frontmatter(
-        (_AGENTS / "skills" / "architecture-design" / "SKILL.md").read_text()
+        (_AGENTS / "skills" / skill / "SKILL.md").read_text()
     )
     assert "disable-model-invocation" not in front
 
@@ -185,10 +214,11 @@ def test_the_no_boundary_exit_names_its_command() -> None:
     that it "fires outside `/speckit.brainstorm` as often as inside it", and that
     is the run this test is written for.
 
-    Both files, because each names the exit in its own voice and either one alone
-    leaves an agent that read the other with nothing to run.
+    Every file, because each names the exit in its own voice and any one alone
+    leaves an agent that read another with nothing to run — `model-the-domain`
+    included, since it is the level-2 method a meaning question enters by.
     """
-    for skill in ("design-levels", "architecture-design"):
+    for skill in ("design-levels", "architecture-design", "model-the-domain"):
         text = (_AGENTS / "skills" / skill / "SKILL.md").read_text()
         assert "wfctl arch none" in text, skill
 
