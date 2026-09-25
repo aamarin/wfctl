@@ -16,16 +16,33 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from wfctl import _settings
 from wfctl.cli import (
     DENY_RULE,
     GUARD_HOOK_COMMAND,
     HOOK_COMMAND,
+    MANAGED_HOOKS,
     RESTART_HOOK_COMMAND,
-    STOP_HOOK_COMMAND,
     app,
 )
 
 runner = CliRunner()
+
+# The literal `Stop` command a wfctl before #476 installed for the reply-shape
+# checker. Hand-typed rather than imported, because this wfctl no longer defines
+# a constant for it — a settings file installed by that wfctl still carries this
+# string verbatim, and the merge has to recognize and prune it as a wfctl row it
+# no longer ships, the same way it prunes any other renamed or retired one.
+_OLD_RESPONSE_SHAPE_COMMAND = "wfctl hook response-shape 2>/dev/null || true"
+
+
+def test_managed_hooks_ships_no_response_shape_row() -> None:
+    """#476 retired the reply-shape checker. A `response-shape` row back in
+    `MANAGED_HOOKS` is the checker returning — this is the regression pin, not
+    the mechanism: `test_a_repo_with_the_old_reply_check_on_stop_gets_it_pruned_…`
+    below covers what an existing settings file does about it."""
+    subcommands = {_settings.subcommand_of(command) for _, command in MANAGED_HOOKS}
+    assert "response-shape" not in subcommands
 
 
 def _settings_path(repo_root: Path) -> Path:
@@ -104,7 +121,6 @@ def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path)
                 {"hooks": [{"type": "command", "command": HOOK_COMMAND}]}
             ],
             "Stop": [
-                {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]},
                 {"hooks": [{"type": "command", "command": RESTART_HOOK_COMMAND}]},
             ],
             "PreToolUse": [
@@ -506,7 +522,7 @@ def test_the_stop_entry_cannot_block_a_stop_when_wfctl_cannot_run_it() -> None:
 
     Pinned rather than left to the reader of the string, because the `|| true`
     looks like sloppiness until you know which event it is on."""
-    assert STOP_HOOK_COMMAND.endswith("|| true")
+    assert RESTART_HOOK_COMMAND.endswith("|| true")
 
 
 def test_uninstall_prunes_the_file_after_an_upgrade_added_a_second_event(
@@ -571,7 +587,7 @@ def test_doctor_names_what_a_missing_stop_hook_costs(agent_dir: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert "nothing looks at a reply once it is written" in result.output
+    assert "no handoff written first" in result.output
     assert "decay again mid-session" not in result.output
 
 
@@ -1120,30 +1136,40 @@ def test_uninstall_says_nothing_about_a_rule_that_was_simply_deleted(
     assert "nothing there matched" not in result.output
 
 
-# --- two wfctl features on Stop (#371) ---------------------------------------
+# --- Stop hook identity and pruning (#371, #476) -----------------------------
+#
+# #371 gave `Stop` a second wfctl feature (the reply-shape checker, beside the
+# restart) and `a-managed-hook-is-owned-by-its-subcommand` keyed identity on the
+# subcommand rather than the event so the two would not collapse into one on
+# install. #476 retired the reply checker, which makes the subcommand identity
+# the thing that prunes it: a settings file installed by an older wfctl still
+# carries its literal command, and `_shipped_subcommands` no longer names
+# `response-shape`, so this wfctl reads that row the same way it reads any other
+# wfctl row it no longer ships.
+
 
 def _stop_commands(repo_root: Path) -> list[str]:
     settings = json.loads(_settings_path(repo_root).read_text())
     return [h["command"] for g in settings["hooks"]["Stop"] for h in g["hooks"]]
 
 
-def test_a_repo_with_only_the_reply_check_on_stop_gains_the_restart_beside_it(
+def test_a_repo_with_the_old_reply_check_on_stop_gets_it_pruned_and_gains_the_restart(
     agent_dir: Path,
 ) -> None:
-    """Every consumer installed before #371 is in this state. Under the old
-    event-keyed identity the second row read as a hand-edit duplicate and one of
-    the two was deleted on the next install — so the restart would ship to nobody
-    who already had wfctl, or cost them the reply check."""
+    """Every consumer installed before #476 is in this state: a `Stop` entry for
+    the reply check this wfctl no longer ships. The subcommand identity prunes
+    the stale row the same way it prunes any other renamed or retired wfctl row,
+    and the restart still lands beside it rather than being read as a duplicate."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
     settings_path.write_text(json.dumps({"hooks": {"Stop": [
-        {"hooks": [{"type": "command", "command": STOP_HOOK_COMMAND}]}
+        {"hooks": [{"type": "command", "command": _OLD_RESPONSE_SHAPE_COMMAND}]}
     ]}}, indent=2) + "\n")
 
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
-    assert _stop_commands(repo_root) == [STOP_HOOK_COMMAND, RESTART_HOOK_COMMAND]
+    assert _stop_commands(repo_root) == [RESTART_HOOK_COMMAND]
 
     before = settings_path.read_text()
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
@@ -1171,44 +1197,32 @@ def test_install_prunes_a_wfctl_row_on_stop_this_wfctl_no_longer_ships(
 
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
-    assert _stop_commands(repo_root) == [
-        STOP_HOOK_COMMAND, RESTART_HOOK_COMMAND, "./mine.sh",
-    ]
+    assert _stop_commands(repo_root) == [RESTART_HOOK_COMMAND, "./mine.sh"]
 
 
-@pytest.mark.parametrize(
-    "removed, cost, not_cost",
-    [
-        (RESTART_HOOK_COMMAND, "no handoff written first", "nothing looks at a reply"),
-        (STOP_HOOK_COMMAND, "nothing looks at a reply", "no handoff written first"),
-    ],
-    ids=["restart-removed", "reply-check-removed"],
-)
-def test_doctor_reports_each_stop_feature_separately(
-    agent_dir: Path, removed: str, cost: str, not_cost: str
-) -> None:
-    """Two features on one event cost different things when one goes, and a
-    check keyed on the event could only say whether *a* wfctl row was there."""
+def test_doctor_reports_the_restart_missing(agent_dir: Path) -> None:
+    """The one wfctl feature left on `Stop`. A missing row costs exactly one
+    thing, and doctor names it."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
     settings_path = _settings_path(repo_root)
     settings = json.loads(settings_path.read_text())
     settings["hooks"]["Stop"] = [
-        g for g in settings["hooks"]["Stop"] if g["hooks"][0]["command"] != removed
+        g for g in settings["hooks"]["Stop"]
+        if g["hooks"][0]["command"] != RESTART_HOOK_COMMAND
     ]
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 1, result.output
-    assert cost in result.output
-    assert not_cost not in result.output
+    assert "no handoff written first" in result.output
 
 
-def test_uninstall_removes_both_stop_rows_and_keeps_the_consumers(
+def test_uninstall_removes_the_stop_row_and_keeps_the_consumers(
     agent_dir: Path,
 ) -> None:
-    """Uninstall stays event-wide on purpose: whatever wfctl put on `Stop` leaves,
-    including a row an older wfctl installed under a name this one never ships."""
+    """Uninstall stays event-wide: whatever wfctl put on `Stop` leaves, and a
+    consumer's own row on the same event is untouched."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)

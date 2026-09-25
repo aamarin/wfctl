@@ -70,11 +70,12 @@ def subcommand_of(command: str) -> str | None:
     """The `wfctl hook` subcommand `command` runs, or None when it is not wfctl's.
 
     A managed row's identity (`a-managed-hook-is-owned-by-its-subcommand`). The
-    event cannot be it once two wfctl features share one — `Stop` carries both the
-    reply check and the session restart — and the whole command cannot either,
-    because the redirect and `|| true` after the name change between versions
-    without the feature changing. The first word after the prefix is already
-    written in every row wfctl installs, so no marker is added to find it.
+    event cannot be it once two wfctl features share one — `Stop` carried both a
+    reply-shape checker and the session restart from #371 until the checker was
+    retired (#476), and any event could again — and the whole command cannot
+    either, because the redirect and `|| true` after the name change between
+    versions without the feature changing. The first word after the prefix is
+    already written in every row wfctl installs, so no marker is added to find it.
     """
     if not command.startswith(MANAGED_PREFIX):
         return None
@@ -115,8 +116,9 @@ def _managed_pairs(
     and the flattened form has already thrown it away.
 
     Narrowed to one subcommand when given, which is every writer's view: a merge
-    of the reply check must not see the session restart beside it as a duplicate
-    of itself.
+    of one wfctl feature on an event must not see a sibling feature sharing the
+    event as a duplicate of itself — `Stop` needed this from #371 until #476
+    retired the sibling, and any event could carry two again.
     """
     return [
         (group, hook)

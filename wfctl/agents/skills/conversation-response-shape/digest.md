@@ -1,10 +1,5 @@
-SKILL.md governs; these break first.
-1. Answer on the first line. Justification is a follow-up.
-2. Plain words before mechanics.
-3. Depth is opted into by the words asked, never the topic. Can't quote them?
-   Stay short.
-4. Say what the subject is before deciding about it.
-5. Nothing that needs no decision gets a paragraph.
-6. The answer plus at most one block of prose (a drawing doesn't count), then
-   stop. A counted lead-in is the tell.
-No `##`/`###` in a reply; bold lead-in instead.
+Every reply: answer first, in plain words. Concise and high level;
+go deeper only when asked. No filler, no preamble, no recap.
+Say what a thing is before deciding about it. At most one short
+block of support, then stop. Tables for comparisons. No ##/###
+headers; bold lead-ins instead. End with the one next action, if any.

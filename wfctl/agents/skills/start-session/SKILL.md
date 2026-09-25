@@ -13,22 +13,17 @@ memory of it — load them before doing anything else.
 
 ## Workflow
 
-1. **Set the output style:** read `.agents/skills/i-have-adhd/SKILL.md` and
-   `.agents/skills/conversation-response-shape/SKILL.md` (or
-   `../i-have-adhd/SKILL.md` and `../conversation-response-shape/SKILL.md`
-   relative to this file) and apply both to every response for the rest of the
-   session, starting with the report in step 8. `i-have-adhd` sets the length
-   and the next action; `conversation-response-shape` sets what comes first and
-   how deep it goes. Skip either silently if it isn't installed. The user turns
-   both off with "stop adhd mode" or "normal mode".
-
-   If step 2 then refreshes the skills, read both files again afterwards. This
-   step runs first so the report in step 8 is already shaped, but that puts it
-   ahead of the refresh — so on precisely the run where a skill was missing or
-   stale, this step read the old copy or skipped it. A second read costs nothing
-   and is the only thing that closes that window. Skills installed mid-session
-   may not enter the agent's own index until it restarts; say so in step 8 if a
-   refresh added one, rather than assuming it is loadable by name.
+1. **The output style is already on — nothing to read here.** `conversation-response-shape`'s
+   `digest.md` is re-sent on every prompt by the `UserPromptSubmit` hook
+   (`wfctl hook user-prompt`), so it is already governing this response, the
+   report in step 8 included, before this step runs. A full read of either
+   style skill's `SKILL.md` used to happen here — about 7.3k tokens, 14.6k on
+   the refresh path — for rules the digest now carries every turn regardless
+   (#476). Both skills stay installed: `conversation-response-shape` is
+   invocable by name (`/conversation-response-shape`) for the full rule set,
+   and `i-have-adhd`'s length and next-action rules are folded into the same
+   digest text rather than read separately. The user turns the style off with
+   "stop adhd mode" or "normal mode".
 
 2. **Initialize and check freshness:**
    ```bash
