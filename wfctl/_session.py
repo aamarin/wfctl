@@ -490,7 +490,7 @@ def names_no_first_action(summary: str) -> bool:
     going red.
 
     The question is narrow on purpose: whether the section was *ever filled in*,
-    not whether what fills it names a usable first action. The second is step 9's
+    not whether what fills it names a usable first action. The second is step 8's
     judgment — its gate is quoting a literal sentence — and `end` has no way to
     reach it. Answering the narrow one is what lets `end` speak at the last
     moment the operator is still there to fix it (FR-013).

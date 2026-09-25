@@ -1,5 +1,5 @@
 ---
-status: retired
+status: rejected
 diagram: state
 ---
 
@@ -104,7 +104,8 @@ stateDiagram-v2
 - 2026-09-24  proposed    — #476: the checker fired twice in the session that
   decided this and had cost more than it returned twice already (#276, #475);
   response style now runs on the `UserPromptSubmit` digest alone.
-- 2026-09-25  retired     — #485: wfctl no longer ships a response-style skill,
+- 2026-09-25  rejected    — #485: wfctl no longer ships a response-style skill,
   digest, or check. Both style skills left the bundle for a personal skill
   outside any repository, so there is no shipped rule left for this record to
-  sort onto either side.
+  sort onto either side. Rejected rather than retired, since `retired` means a
+  record that was accepted and then ended, and this one was never accepted.

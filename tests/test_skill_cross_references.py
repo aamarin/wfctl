@@ -1,10 +1,10 @@
 """Every skill a shipped file tells the agent to read is a skill that ships.
 
-Skills reference each other by path — a command wrapper points at the skill it
-activates, and `start-session` loads the two output-style skills by name. Those
-reads fail silently on purpose: `start-session` says to skip an uninstalled
-skill rather than stop the session. So a renamed or dropped skill costs the
-session a rule and reports nothing, which is #23's shape one directory over.
+Skills reference each other by path. A command wrapper points at the skill it
+activates, and `design-levels` names the skill each level hands its work to. A
+read of a path that is not there stops nothing, so a renamed or dropped skill
+costs the session a rule and reports nothing, which is #23's shape one directory
+over.
 """
 import re
 from importlib.resources import files
@@ -580,9 +580,8 @@ def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
     survives, the suite stays green, and the route the issue was filed about is
     gone again.
 
-    `fanning-out-code-review` and the two output-style skills carry this same
-    pin for the same reason; this is that pattern applied to the one speckit
-    step that needs it.
+    `fanning-out-code-review` carries this same pin for the same reason; this
+    is that pattern applied to the one speckit step that needs it.
     """
     from wfctl.cli import _MIRRORED_SKILLS
 

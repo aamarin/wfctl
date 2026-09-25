@@ -224,9 +224,9 @@ pull would drop it*. The check is the better answer: a pull that drops the line
 fails the test rather than passing silently.
 
 Prefer layering to editing. To change how a derived skill behaves, add a skill
-that layers over it rather than editing it. `fanning-out-code-review` is the
-worked example; it layers a panel of reviewers over `requesting-code-review` and
-`receiving-code-review` without touching either file underneath.
+that layers over it rather than editing it — `conversation-response-shape` is
+the worked example, layering ordering rules on top of `i-have-adhd`'s brevity
+rules without touching the file underneath.
 
 Most of the files above were edited in place before this record existed, and
 they stay that way (#213, #216). Attribution is owed on a rewritten derivative
@@ -312,6 +312,8 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   `clean-code`'s grounds, in the change that adds it; its source map cites two
   Pearson books rather than one (#464)
 - 2026-09-25  amended     — `i-have-adhd` removed from the table, and
-  `ayghri/i-have-adhd` from `NOTICES.md`, since wfctl no longer ships it; the
-  layering example moves to `fanning-out-code-review`, since the one it replaced
-  left the bundle with it (#485)
+  `ayghri/i-have-adhd` from `NOTICES.md`, since wfctl no longer ships it. Both
+  skills in the layering example under Decision left the bundle with it; the
+  rule stands, and `fanning-out-code-review` layering over
+  `requesting-code-review` and `receiving-code-review` is a current instance of
+  it (#485)

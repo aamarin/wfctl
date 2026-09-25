@@ -149,7 +149,7 @@ def test_a_worktree_handoff_is_not_warned_about(
     """The false positive a review panel caught, on #352's own scenario.
 
     `worktree-handoff` tells handoff authors not to add a `Next Session TODO` —
-    "Do not add a TODO section to get one" — because the sentence step 9 quotes
+    "Do not add a TODO section to get one" — because the sentence step 8 quotes
     goes in that document's own shape. So every fresh worktree has a complete
     handoff with no such section, and reading "absent" as "unfilled" warned on
     exactly the file most likely to be right.
@@ -214,7 +214,7 @@ def test_a_filled_section_is_not_warned_about(
     """The negative case, and the boundary of what `end` is allowed to judge.
 
     Filled is not a claim that the sentence names a usable first action — that
-    is step 9's gate and `end` cannot reach it. It is the absence of the one
+    is step 8's gate and `end` cannot reach it. It is the absence of the one
     thing `end` can see, and a warning on filled prose would be the unobservable
     verdict #70 removed, wearing a new word."""
     handoff = _TEMPLATE_HEAD + "## Next Session TODO\n\n- [ ] rebase onto main\n"

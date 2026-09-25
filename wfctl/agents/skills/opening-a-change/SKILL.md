@@ -175,10 +175,10 @@ block on it.
 - **Pick the drawing's form from the table, then read the template for its
   notation.** "Choosing a drawing" below is the single home for which form the
   material calls for. Whether that form ships as ASCII or as mermaid is the
-  template's question, and its answer is conditional rather than a default: mermaid where
-  the reader is at a desk and a layout engine should do the work, ASCII where
-  the drawing has to survive a phone or a terminal, and ASCII where placement
-  carries grouping, alignment, or counts positioned to be compared.
+  template's question, and its answer is conditional rather than a default:
+  mermaid where the reader is at a desk and a layout engine should do the work,
+  ASCII where the drawing has to survive a phone or a terminal, and ASCII where
+  placement carries grouping, alignment, or counts positioned to be compared.
 
   **Position that carries meaning is a reason to stay in ASCII, not something
   to re-draw.** A layout engine assigns position itself, so the distinction is
