@@ -6,7 +6,7 @@ branch ran none; the thing needing to reach a reviewer is an experiment's result
 one thing it delegates to "the wrapper that sent you here" is the coverage rows,
 and no wrapper sent this one, so the rows below are this evaluation's own.
 
-**Passes A through G were named before the run; H, I, J, K and L were not.**
+**Passes A through G were named before the run; H through M were not.**
 They are marked as such in the table, because a coverage table's job is to show what a run
 set out to cover — that is what makes an unreached pass visible — and a row
 added afterwards cannot do that job. Removing them instead would hide findings 9 and 10
@@ -68,6 +68,7 @@ that rule to itself.
 | J · Whether anything already writes wfctl status to a row | Clear (`~/.local/bin/wfctl-rows` does; finding 11) — **pass added after the run** |
 | K · Whether tearing the mirror down and reconnecting repairs a stale set | Clear (it does, and costs every status line; finding 12) — **pass added after the run** |
 | L · Whether a row shows the session it names | **Outstanding** (two rows did not; finding 13) — **pass added after the run** |
+| M · What adopting the screen costs in day-to-day navigation | Outstanding (finding 14) — **pass added after the run** |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
@@ -879,12 +880,81 @@ record demands is immune to this defect**, which narrows the finding: the
 mis-binding is in cmux's surface routing and reaches nothing derivable from the
 handle.
 
+**The poller is right on the same rows cmux is wrong on, and that is the
+record's argument made visible.** Once `wfctl-rows` was restarted, both defective
+rows carried three lines at once:
+
+```
+pfms__564-chart-follows-interview
+  #564 · done                                       ← poller, correct
+  424-observer-dashboard-eval                       ← cmux, wrong
+  ~/Development/wfctl/wt/424-observer-dashboard-e…  ← cmux, wrong
+```
+
+Two writers, the same row, the same moment, disagreeing. The one that is correct
+correlates the way `a-client-attaches-to-a-runtime-it-never-owns` requires —
+session name to worktree path, through tmux — and the wrong one is cmux's own
+workspace binding, which is the key the record says must never be used.
+
+That narrows this finding rather than widening it. The mis-binding lives in
+cmux's display and surface routing; nothing derived from the workmux handle is
+affected. **A consumer that correlates the way the record demands is immune to
+it**, which is a stronger reason to keep that clause than the record's own
+argument for it — the clause was reasoned from first principles, and this is the
+failure it was reasoned about, observed.
+
 **Limits.** One reconnect, `localhost`, two rows observed wrong out of nine —
 and the other seven were not checked content-against-title, so the count is a
 floor rather than a measurement. As with findings 9 and 10, the evidence is a rendered
 UI: no cmux verb reports which session a workspace is displaying, so there is no
 text source to confirm this against. `cmux workspace list` gives titles only,
 which is exactly the half that is correct here.
+
+## Finding 14 — the supervisory view costs the motion tmux already had
+
+Every finding above asks whether cmux *can* do the job. This one asks what
+adopting it takes away, which no pass named and which is the question a person
+answers by using the thing for a day.
+
+**The screen works and it is a GUI.** Rows are a persistent list, one per
+worktree, each with a verdict beneath its name, readable without entering
+anything. That is real and it is what #424 asked for. What it replaces is a
+multiplexer whose navigation is modal: in tmux the session list is a mode you
+enter, sweep and leave, and tools built around that grain — `claude-squad` is
+the one named in comparison — treat never leaving the keyboard as the point.
+
+```
+  tmux / claude-squad              cmux
+  ───────────────────              ────
+  motion inside one mode           jump to a destination
+  state read from a status line    state read from a row
+  the multiplexer is the UI        the UI wraps the multiplexer
+```
+
+**It is not mouse-only, and the nearest equivalents are worth naming rather than
+assuming away.** `goToWorkspace` is `cmd+p`, a fuzzy jump. `nextSurface` and
+`prevSurface` are `cmd+shift+]` / `[`. The closest thing to a sweep is
+`markOldestUnreadAndJumpNext` at `cmd+ctrl+u`, which is the one binding that
+treats the sidebar as a queue rather than a menu, and it is the one to try before
+concluding the model does not fit.
+
+**The difference that remains after those.** A palette opens and closes around a
+single destination; a mode is a place you stay while you read several. For a
+person whose supervisory habit is *sweep everything, then act*, the first costs a
+round trip per worktree. For one whose habit is *something pinged me, go there*,
+it costs nothing and the rows are strictly better than what tmux shows.
+
+So the fit depends on which habit the reader has, and this evaluation cannot
+settle that from outside. Recorded because it is the first consideration in this
+file that is not a defect: nothing here is broken, and it may still be the reason
+someone declines the screen. **A finding that names a cost rather than a fault is
+the kind an evaluation most easily omits**, since every pass it ran was shaped to
+look for faults.
+
+**Not a recommendation either way.** The alternative was not evaluated:
+`claude-squad` is named here because it was raised in comparison, and it has not
+been installed or run. A reader taking this section as a reason to prefer it
+would be taking one sentence of hearsay over the eleven findings above.
 
 ## What it would cost to get #424's screen anyway
 
