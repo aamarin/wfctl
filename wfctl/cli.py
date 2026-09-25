@@ -2859,10 +2859,8 @@ _MIRRORED_SKILLS = frozenset({
     # git reads the after-implementation pass needs are that wrapper's own
     # grant, pinned by `test_implement_allows_the_commands_the_refactor_pass_needs`.
     "clean-code",
-    "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
-    "i-have-adhd",
     # `architecture-design`'s case, and the second method at the same gate:
     # `design-levels` level 2 names this skill by path beside that one, and an
     # agent that read the pointer and reached for `Skill(model-the-domain)` is
@@ -3088,9 +3086,9 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
     "read the sibling skill", and it is still the only typed route for a layer
     that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
     `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
-    body". Deleting the wrapper from the bundle instead would hand bob the
-    vendored `i-have-adhd` skill with that key intact and no stripped copy left
-    to reach it: a Claude-shaped argument taking out a layer it never described.
+    body". Deleting the wrapper from the bundle instead would hand bob any
+    vendored skill carrying that key with no stripped copy left to reach it: a
+    Claude-shaped argument taking out a layer it never described.
 
     Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
     what makes a wrapper redundant is that this agent got the mirror, not its
@@ -5560,11 +5558,11 @@ def check_body_cmd(
     already failed — every handoff listed four commands and this was in none of
     them.
 
-    Of `conversation-response-shape`, only the drawing rules, because the skill
-    scopes the two surfaces apart (SKILL.md:429): headers are a violation in a
-    reply and *required* in a PR body, while the template names this skill's
-    form-selection table as the single owner of which drawing to use.
-    `wfctl/_shape.py` carries the split.
+    Only the drawing rules, from `opening-a-change`'s "Choosing a drawing"
+    section: headers are a violation in a reply and *required* in a PR body, so
+    a check that only ever sees PR bodies has no header rule to carry. The
+    template names that section's form-selection table as the single owner of
+    which drawing to use. `wfctl/_shape.py` carries the drawing rule.
 
     **A rule this cannot settle does not belong here.** The review panel's
     disposition table was checked here until #347, and what ended it is that the

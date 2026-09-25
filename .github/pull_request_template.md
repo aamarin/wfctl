@@ -56,8 +56,8 @@ Pick whatever the change actually is:
 - **A data shape** → the record before and after, trimmed to the fields that moved.
 
 Which drawing the material calls for is decided by the form-selection table in
-the `conversation-response-shape` skill; that table is the single owner, so pick
-from it rather than restating it here.
+`opening-a-change`'s "Choosing a drawing" section; that table is the single
+owner, so pick from it rather than restating it here.
 -->
 
 **What:** [The capability added or changed, as a user would describe it]

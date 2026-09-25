@@ -3,7 +3,7 @@ runs it.
 
 The detector judges a PR body's drawings, so what these assert is the
 *boundary* it draws, not merely that it fires: a false positive on the drawing
-form the skill recommends most often is worse than a missed one.
+form the form-selection table recommends most often is worse than a missed one.
 """
 from __future__ import annotations
 
@@ -55,11 +55,11 @@ implement    *  46/46 done               implement    *  5/64 done
 
 def test_the_drawing_the_reader_rejected_is_flagged() -> None:
     """PR #208's second drawing, verbatim. The reader called it "noisy and
-    confusing"; SKILL.md:322 names the fault exactly — tabular content aligned by
-    hand, with a cell that outgrew its header."""
+    confusing"; opening-a-change/SKILL.md:234 names the fault exactly — tabular
+    content aligned by hand, with a cell that outgrew its header."""
     found = _shape.body_findings(REJECTED)
     assert len(found) == 1
-    assert "SKILL.md:322" in found[0]
+    assert "opening-a-change/SKILL.md:234" in found[0]
     assert "name us and did not. Skipped." in found[0]
 
 

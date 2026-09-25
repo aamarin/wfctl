@@ -292,10 +292,8 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "architecture-design",
     "brainstorm",
     "clean-code",
-    "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
-    "i-have-adhd",
     "model-the-domain",
     "opening-a-change",
     "python-pattern-selection",
@@ -315,7 +313,7 @@ def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
     Suppression is per layer and works only because the file still exists —
     `.bob/commands/` installs it with `_copy_command_for_bob` stripping the key
     Bob Shell reads as "never execute the body" (#182 tracks that claim's
-    provenance), and `.bob/skills/` gets the vendored `i-have-adhd` with that key
+    provenance), and `.bob/skills/` gets any vendored skill with that key
     intact. Delete the wrapper from the bundle and bob has no route left.
 
     That is not hypothetical: it is what the first version of #170's fix did, and
@@ -439,9 +437,9 @@ def test_the_mirror_suppresses_the_wrapper_it_collides_with(
 
     The `.agents/` assertion is the half that keeps this honest. Deleting the
     wrapper from the bundle passes the first assertion too, and takes bob's only
-    working route to `i-have-adhd` with it — `.bob/commands/` gets the copy
-    `_copy_command_for_bob` strips, and `.bob/skills/` gets the vendored key
-    intact.
+    working route to a vendored skill carrying the key with it — `.bob/commands/`
+    gets the copy `_copy_command_for_bob` strips, and `.bob/skills/` gets the
+    vendored key intact.
     """
     import os
     native = bundle / "agents" / "skills" / "native-skill"
@@ -483,11 +481,11 @@ def test_bob_keeps_the_wrapper_for_a_mirrored_skill(
     """Only the layer that got the mirror drops the wrapper.
 
     bob gets no `.claude/skills` mirror, so for bob the wrapper is not redundant
-    — it is the route. And for `i-have-adhd` it is the only working one: the
-    skills copy is a `copytree` that never reaches `_copy_command_for_bob`, so
-    `.bob/skills/i-have-adhd/SKILL.md` keeps upstream's
-    `disable-model-invocation`, which cli.py records as making Bob Shell skip
-    model invocation entirely — the body never executes.
+    — it is the route. And for a vendored skill carrying upstream's
+    `disable-model-invocation` it is the only working one: the skills copy is a
+    `copytree` that never reaches `_copy_command_for_bob`, so the skill keeps
+    that key, which cli.py records as making Bob Shell skip model invocation
+    entirely — the body never executes.
 
     This is the test that fails if someone "simplifies" the suppression by
     deleting the seven wrappers from the bundle instead. Three reviewers found

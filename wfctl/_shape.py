@@ -1,4 +1,4 @@
-"""The part of `conversation-response-shape` a machine can see in a PR body.
+"""The part of a PR body's drawing rules a machine can see.
 
 Pure functions over strings. The caller finds the text — in the file
 `gh pr create` is about to read — and this decides. Same constraint as `_guard`,
@@ -7,10 +7,8 @@ it must not cost a session.
 
 ## Why this exists at all
 
-`SKILL.md`'s own rules for a reply — headers, counted lead-ins, unrequested
-length — fire only before the text exists: a `UserPromptSubmit` hook every turn
-and the seven-question pre-send check. A `Stop`-hook checker once read the
-finished reply too, catching what those two could not
+A `Stop`-hook checker once read a finished reply and caught what a per-turn
+reminder and a pre-send check could not
 (`docs/architecture/the-underscore-is-the-module-contract.md` settled this shape
 for module boundaries, and the argument transferred). It was retired for costing
 more than it returned — it reopened a turn the reader had already seen, and
@@ -24,10 +22,11 @@ reads it, so a finding here still reaches the author in time to fix it.
 
 ## What a PR body check can and cannot see
 
-SKILL.md:429 draws a line a check has to respect: headers are a violation in a
-reply and *required*, usually, in a PR body — `.github/pull_request_template.md`
-is built out of them — while the drawing rules run the same way on both
-surfaces. So this module carries only the drawing rule, not the header one.
+A PR body is a document — `.github/pull_request_template.md` is built out of
+headers — so nothing here checks for them; whether a reply may use one is a
+rule for whatever governs replies, not this module. The drawing rule is the one
+piece that runs the same on both surfaces, so it's the one piece this module
+carries.
 """
 from __future__ import annotations
 
@@ -73,9 +72,9 @@ def _blocks(text: str) -> list[tuple[int, list[str]]]:
 def body_findings(body: str) -> list[str]:
     """What a PR description's drawings break. One rule, and only one.
 
-    SKILL.md:322 — *"Tabular content goes in a table. Columns aligned by hand
-    inside a code block read as jumbled the moment one cell outgrows its header.
-    Reserve ASCII for flows and timelines."* Both halves are required to fire,
+    `opening-a-change/SKILL.md`:234 — *"Tabular content goes in a table. Columns
+    aligned by hand inside a code block read as jumbled the moment one cell
+    outgrows its header. Reserve ASCII for flows and timelines."* Both halves are required to fire,
     because the rule states both: hand-aligned columns are the *form* the skill
     blesses most often (its form-selection table's most frequent row is two
     columns), and what makes them fail is a cell that outgrew its header.
@@ -101,8 +100,9 @@ def body_findings(body: str) -> list[str]:
             continue
         quoted = " ".join(sentences[0].split())[:60]
         out.append(
-            f"SKILL.md:322 — the fenced block at line {opened} aligns columns by "
-            f"hand and holds a cell that outgrew its header: {quoted!r}. Tabular "
+            f"opening-a-change/SKILL.md:234 — the fenced block at line {opened} "
+            f"aligns columns by hand and holds a cell that outgrew its header: "
+            f"{quoted!r}. Tabular "
             "content goes in a table; reserve ASCII for flows and timelines."
         )
     return out
