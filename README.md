@@ -193,15 +193,17 @@ flowchart LR
     end
     S5 --> D["decompose"] --> I
     subgraph SK2["Spec Kit runs"]
-        I["implement<br/>+ refactor pass"]
+        I["implement"]
     end
+    I --> R["refactor pass"]
     style SK1 fill:none,stroke-dasharray: 5 5
     style SK2 fill:none,stroke-dasharray: 5 5
 ```
 
-The steps outside the dashed boxes are wfctl's design method, and so is the
-refactor pass inside implement. Spec Kit runs the steps inside the boxes. wfctl
-reads the evidence from all eight, whoever ran them.
+Spec Kit runs the steps inside the dashed boxes. The steps outside them are
+wfctl's design method, including the refactor pass, which runs over the
+finished code before implement is marked done. wfctl reads the evidence from all
+eight steps, whoever ran them.
 
 Full pipeline model, every command, environment variables, the issue-tracker
 and architecture-record machinery, and how `install-skills`/`install-config`
