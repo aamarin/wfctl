@@ -185,17 +185,17 @@ own workflow engine is still an open question, and nothing has been decided
 yet.
 
 ```mermaid
-flowchart LR
-    B["brainstorm"] --> S1
+flowchart TD
+    B["brainstorm"] --> SK1
     subgraph SK1["Spec Kit runs"]
         direction LR
         S1["specify"] --> S2["clarify"] --> S3["plan"] --> S4["tasks"] --> S5["analyze"]
     end
-    S5 --> D["decompose"] --> I
+    SK1 --> D["decompose"] --> SK2
     subgraph SK2["Spec Kit runs"]
         I["implement"]
     end
-    I --> R["refactor pass"]
+    SK2 --> R["refactor pass"]
     style SK1 fill:none,stroke-dasharray: 5 5
     style SK2 fill:none,stroke-dasharray: 5 5
 ```
