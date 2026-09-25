@@ -310,7 +310,7 @@ def test_a_mixed_history_keeps_the_newer_stop_last(
 ) -> None:
     """`spec.md`'s first edge case, from both directions.
 
-    This is not FR-007 — that rule is `tail -1` inside `start-session`'s step 4,
+    This is not FR-007 — that rule is `tail -1` inside `start-session`'s step 3,
     and no function here implements it. What this pins is the property the rule
     stands on: stops land in the order they happened and nothing rewrites an
     earlier one, so the last line is the last stop. Were that false, `tail -1`

@@ -13,19 +13,7 @@ memory of it — load them before doing anything else.
 
 ## Workflow
 
-1. **The output style is already on — nothing to read here.** `conversation-response-shape`'s
-   `digest.md` is re-sent on every prompt by the `UserPromptSubmit` hook
-   (`wfctl hook user-prompt`), so it is already governing this response, the
-   report in step 8 included, before this step runs. A full read of either
-   style skill's `SKILL.md` used to happen here — about 7.3k tokens, 14.6k on
-   the refresh path — for rules the digest now carries every turn regardless
-   (#476). Both skills stay installed: `conversation-response-shape` is
-   invocable by name (`/conversation-response-shape`) for the full rule set,
-   and `i-have-adhd`'s length and next-action rules are folded into the same
-   digest text rather than read separately. The user turns the style off with
-   "stop adhd mode" or "normal mode".
-
-2. **Initialize and check freshness:**
+1. **Initialize and check freshness:**
    ```bash
    wfctl start ${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}
    wfctl doctor    # is the wfctl tool / installed skills up to date?
@@ -47,7 +35,7 @@ memory of it — load them before doing anything else.
    **With it unset the flag is not passed and nothing is refused.** The gates
    report `unknown` and behave exactly as they did before this existed, so an
    unwired repo is no worse off — it simply does not get the second answer.
-   Surface that in step 8's session-identity bullet: the profile is the
+   Surface that in step 7's session-identity bullet: the profile is the
    user's to edit, not this step's to write.
 
    **If it reports any layer's skills behind or drifted, bring them level now.**
@@ -88,7 +76,7 @@ memory of it — load them before doing anything else.
    ```
 
    So the skills drift the step above was called to repair is still there, and
-   the ✓ this step is watching for will not arrive. Report the refusal in step 8
+   the ✓ this step is watching for will not arrive. Report the refusal in step 7
    verbatim, and say that the layers named in the finding are still stale.
 
    **Do not run `--force` to clear it.** That flag re-asserts the rule *and*
@@ -143,7 +131,7 @@ memory of it — load them before doing anything else.
    is the user's to edit, like the tool upgrade two paragraphs down — surface it,
    do not write it. That also makes this the one line the "run doctor again and
    check it is green" rule above does not reach. It will still be there. Carry
-   it to step 8 rather than treating the step as unfinished.
+   it to step 7 rather than treating the step as unfinished.
 
    `--yes` is what keeps this non-interactive, and it is not free: it skips the
    prompt that would otherwise list pre-existing files being overwritten — files
@@ -162,7 +150,7 @@ memory of it — load them before doing anything else.
    install --upgrade …` changes what is installed on the machine, not what this
    repo holds. Surface it as a one-line heads-up. Not a blocker.
 
-3. **Load the architectural contract:**
+2. **Load the architectural contract:**
    ```bash
    wfctl arch context   # the decisions this repo is built under
    ```
@@ -176,7 +164,7 @@ memory of it — load them before doing anything else.
    Carry the set into the report as slugs, one line each — the full text is a
    `wfctl arch context` away and does not need repeating.
 
-4. **Read the position, then the handoff:**
+3. **Read the position, then the handoff:**
    ```bash
    wfctl status --json   # issue, branch, per-step state, the next command
    ```
@@ -187,7 +175,7 @@ memory of it — load them before doing anything else.
    one symbol on "ran" and another on "passed by" and cannot be told apart once
    printed.
 
-   **Step 9 needs `issue` out of that payload.** A key — `352`, `PROJ-123` —
+   **Step 8 needs `issue` out of that payload.** A key — `352`, `PROJ-123` —
    says this branch exists for one tracked thing, and its name says which. The
    literal `unknown` says it does not: a trunk branch, `main` or `develop`,
    carrying no answer to "what are we working on today?" anywhere on it.
@@ -207,12 +195,12 @@ memory of it — load them before doing anything else.
 
      **`## In Flight` is what the last session was in the middle of** — the
      request it never answered, the search whose results are now gone with the
-     transcript. It is not the first action and does not decide a row; step 9
+     transcript. It is not the first action and does not decide a row; step 8
      reads **Next Session TODO** for that, as it always has. What this section
      changes is that a question the user asked before an unattended restart
      reaches them again from the handoff instead of from their memory (#397).
      "Nothing; between tasks" is its ordinary value and needs no report.
-   - `events.jsonl` — one line per wfctl event on this branch. Step 9 needs one
+   - `events.jsonl` — one line per wfctl event on this branch. Step 8 needs one
      more fact out of it: the **most recent** stop, and which of the two kinds it
      was. Only `wfctl end` writes a stop.
 
@@ -251,14 +239,14 @@ memory of it — load them before doing anything else.
      level down: an agent improvising a grep gets this wrong in the direction
      that starts work on a branch a person deliberately left.
 
-5. **Surface work done on this branch** so you can see where things stand:
+4. **Surface work done on this branch** so you can see where things stand:
    ```bash
    BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
    git log --format="%h %s" ${BASE:+${BASE}..HEAD} ${BASE:--20}
    git status --short
    ```
 
-6. Check open work via the configured backends:
+5. Check open work via the configured backends:
    ```bash
    wfctl issue list     # open issues (scoped to you if the tracker sets {me})
    wfctl change list     # open PRs / patchsets (your changes under review)
@@ -267,8 +255,8 @@ memory of it — load them before doing anything else.
    one). If a backend isn't configured — or doesn't implement the verb — it prints
    a notice and no-ops, so skip whatever comes back empty.
 
-7. **Check alignment** — does the branch's work match what's tracked? Correlate
-   the commits (step 5) with the open issues/changes (step 6). It's a heads-up
+6. **Check alignment** — does the branch's work match what's tracked? Correlate
+   the commits (step 4) with the open issues/changes (step 5). It's a heads-up
    read, not an audit or a gate:
    - **Aligned** — a commit references an issue/change (`#N`, `Closes #N`, or a
      tracker key like `PROJ-123`). Nothing to flag.
@@ -281,8 +269,8 @@ memory of it — load them before doing anything else.
    Only surface the non-aligned items. If everything lines up, say so in one line
    and move on.
 
-8. Report status to the user:
-   - **Freshness**: skills you refreshed in step 2 and what changed, plus
+7. Report status to the user:
+   - **Freshness**: skills you refreshed in step 1 and what changed, plus
      everything `wfctl doctor` printed that was not a ✓ — findings, `⚠`
      warnings and dim `ℹ` lines alike. Omit only when doctor printed nothing but
      ✓ and nothing was refreshed. What it *exited* is not the test and has not
@@ -293,7 +281,7 @@ memory of it — load them before doing anything else.
      "left alone" line, so repeating it here does not read as licence to delete.
      A silent refresh is how a mirror goes stale again without anyone noticing it
      had been wrong
-   - **Session identity**: `session_holder` from `wfctl status --json` (step 4)
+   - **Session identity**: `session_holder` from `wfctl status --json` (step 3)
      when it is not `"unknown"` — `"self"` needs no comment, `"other"` or
      `"none"` says why the gates below will refuse. When it is `"unknown"`,
      name `WFCTL_SESSION_ID` unset as the reason, the one time this step
@@ -309,7 +297,7 @@ memory of it — load them before doing anything else.
      as one. Every summary written before this section existed lacks it, and
      `worktree-handoff` documents use their own shape and never carried it, so
      absent is the ordinary case rather than a signal. **The placeholder is not
-     the ordinary case, and it is not yours to judge:** `wfctl start` in step 2
+     the ordinary case, and it is not yours to judge:** `wfctl start` in step 1
      prints a `⚠` when the last handoff left the section as the template wrote
      it, which says the session before was in the middle of something nobody
      recorded. Carry that line into the freshness bullet like any other. Saying
@@ -317,8 +305,8 @@ memory of it — load them before doing anything else.
      and silence is what stops anyone knowing it was asked
    - Commits on this branch + any uncommitted changes
    - Open issues and open changes (PRs / patchsets)
-   - **Alignment**: aligned, or the likely-done / untracked items from step 7
-   - **Next**: which row of step 9 this session takes, and its evidence — the
+   - **Alignment**: aligned, or the likely-done / untracked items from step 6
+   - **Next**: which row of step 8 this session takes, and its evidence — the
      first action quoted from `session-summary.md`, or that you are asking and
      why (a trunk branch whose last stop was a deliberate wrap-up, or there is no
      line to quote). Naming the row is the point: rows two and three both ask,
@@ -328,15 +316,15 @@ memory of it — load them before doing anything else.
      took row one for the first reason is reporting something about the branch
      rather than something a session did.
 
-9. **Answer the question, or ask it — step 4 already decided which.**
+8. **Answer the question, or ask it — step 3 already decided which.**
 
    The question is "what are we working on today?", and the only thing that can
-   answer it before the user speaks is what step 4 read out of the state dir. So
-   this step is a branch on what step 4 found, not a fresh judgment:
+   answer it before the user speaks is what step 3 read out of the state dir. So
+   this step is a branch on what step 3 found, not a fresh judgment:
 
-   | Step 4 found | This step |
+   | Step 3 found | This step |
    |---|---|
-   | an issue branch, or a stop marked continued — with a summary naming a first action | **Do not ask.** Quote the line that names it, say in one line what you are doing, and leave this skill — the work happens in the session that follows, not inside step 9. |
+   | an issue branch, or a stop marked continued — with a summary naming a first action | **Do not ask.** Quote the line that names it, say in one line what you are doing, and leave this skill — the work happens in the session that follows, not inside step 8. |
    | a trunk branch with no stop at all, or whose last stop was not continued — with a summary naming a first action | Ask: "What are we working on today?", offering the summary's top **Next Session TODO** item as the default. |
    | no summary, one whose next action is still `(fill in)`, or one naming no next action | Ask: "What are we working on today?" |
 
@@ -364,7 +352,7 @@ memory of it — load them before doing anything else.
    sentence out of `session-summary.md` saying what to do first, you are in the
    last row. An inference about what the branch is probably for is not an answer,
    and acting on one is how the last row's protection is lost. Quoting is also
-   what makes the branch visible from outside — step 8 reports which row this
+   what makes the branch visible from outside — step 7 reports which row this
    session took, so a wrong turn is a mismatch someone can point at rather than a
    matter of tone.
 
@@ -374,7 +362,7 @@ memory of it — load them before doing anything else.
    "find the conversation where I pasted it". Read as a first action it is one:
    it is just an unrelated one, aimed at a session that has since ended. A
    handoff whose only imperative sentence sits there names no first action, which
-   is the last row. Nothing about In Flight is lost by that — step 8 has already
+   is the last row. Nothing about In Flight is lost by that — step 7 has already
    reported it verbatim, and the user answers it themselves.
 
    **Do not try to tell a handoff from a previous session's summary by reading
@@ -393,7 +381,7 @@ memory of it — load them before doing anything else.
    a file in the state dir changes that.
 
    **Two limits, stated rather than discovered.** A handoff delivered only
-   as the pane's first turn, with no copy in the state dir, leaves step 4 nothing
+   as the pane's first turn, with no copy in the state dir, leaves step 3 nothing
    to read and lands in the last row — the file is the gate, and
    `worktree-handoff` requires both destinations for this reason. And a trunk
    branch whose last stop was a deliberate wrap-up is in row two, even unattended

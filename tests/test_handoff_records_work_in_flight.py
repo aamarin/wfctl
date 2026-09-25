@@ -113,10 +113,10 @@ def test_the_restart_path_rules_out_the_empty_answer() -> None:
     assert "not the word that was typed" in prose
 
 
-def test_step_9_takes_its_quote_from_the_next_action_section_alone() -> None:
+def test_step_8_takes_its_quote_from_the_next_action_section_alone() -> None:
     """The routing In Flight could break, held by the sentence that scopes it.
 
-    A request quoted in In Flight keeps the imperative it was asked in, so step 9
+    A request quoted in In Flight keeps the imperative it was asked in, so step 8
     scanning the whole file for a quotable first action can find one there and
     start on work aimed at a session that has already ended. Filling the section
     correctly is what produces that sentence, which is why tense advice in
@@ -126,31 +126,31 @@ def test_step_9_takes_its_quote_from_the_next_action_section_alone() -> None:
     nowhere else in the file", which survives swapping the two sections and so
     passed on the exact inversion the sentence exists to prevent.
     """
-    step_9 = _step(START_SESSION, 9)
-    assert f"The quote comes from `{_session.NEXT_SESSION_TODO}`" in step_9
-    assert _session.IN_FLIGHT in step_9
+    step_8 = _step(START_SESSION, 8)
+    assert f"The quote comes from `{_session.NEXT_SESSION_TODO}`" in step_8
+    assert _session.IN_FLIGHT in step_8
 
 
 def test_start_session_reports_what_was_in_flight() -> None:
     """A section written and never read is the same loss one level along: the user
     re-asks their question because the session that could see it said nothing."""
-    step_8 = _step(START_SESSION, 8)
-    assert f"the summary's `{_session.IN_FLIGHT}`, verbatim" in step_8
+    step_7 = _step(START_SESSION, 7)
+    assert f"the summary's `{_session.IN_FLIGHT}`, verbatim" in step_7
 
 
-def test_step_8_routes_the_placeholder_to_the_check_not_to_silence() -> None:
+def test_step_7_routes_the_placeholder_to_the_check_not_to_silence() -> None:
     """Two failures one step apart, and the fix for the first opened the second.
 
     Reported as content, the scaffold's `- (fill in)` reaches the user as an
     outstanding request nobody made. Suppressed, the session that dropped a real
     request leaves nobody who knows it was asked — which is #397's own loss, one
-    turn later. Neither is step 8's to judge: `wfctl start` observes the artifact
-    and step 8 carries what it printed.
+    turn later. Neither is step 7's to judge: `wfctl start` observes the artifact
+    and step 7 carries what it printed.
     """
-    step_8 = _step(START_SESSION, 8)
-    assert "still `(fill in)`" in step_8
-    assert "none of the three is a request" in step_8
-    assert "`wfctl start` in step 2 prints a `⚠`" in step_8
+    step_7 = _step(START_SESSION, 7)
+    assert "still `(fill in)`" in step_7
+    assert "none of the three is a request" in step_7
+    assert "`wfctl start` in step 1 prints a `⚠`" in step_7
 
 
 def test_an_unfilled_in_flight_is_observed_rather_than_stated() -> None:
