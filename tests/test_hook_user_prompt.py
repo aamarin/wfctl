@@ -71,6 +71,27 @@ def test_it_is_silent_with_zero_digest_bearing_skills(repo: Path) -> None:
     assert result.output == ""
 
 
+def test_a_skill_wfctl_stopped_shipping_is_not_announced(repo: Path) -> None:
+    """A bare `install-skills` keeps a skill the bundle dropped on disk and on
+    record, marked `orphaned`, so `--prune` can still find it. Read as installed,
+    its digest went on printing under "govern this response" every turn: when
+    #485 took `conversation-response-shape` out of the bundle, every repo that
+    upgraded without pruning kept injecting the removed rules."""
+    _skill(repo, "still-shipped", "kept")
+    _skill(repo, "dropped", "removed rules")
+    manifest_path = repo / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for item in manifest["base"]["items"]:
+        if item["path"].endswith("/dropped"):
+            item["orphaned"] = True
+    manifest_path.write_text(json.dumps(manifest))
+
+    result = runner.invoke(app, ["hook", "user-prompt"])
+    assert result.exit_code == 0
+    assert "still-shipped: kept" in result.output
+    assert "dropped" not in result.output
+
+
 # --- Failure modes. Each of these crashed the hook before #85's review. ---
 
 
