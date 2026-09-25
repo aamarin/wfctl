@@ -88,7 +88,7 @@ it built.
   ```
 
 - Implement is gated on a definition of done that wfctl runs itself with `wfctl verify`, so "done" is a recorded verdict and not a claim.
-- A step that does not apply is recorded with a reason, using `wfctl step none` or `wfctl arch none`, instead of being skipped silently.
+- What does not apply is recorded with a reason instead of being skipped silently. `wfctl arch none` records that a change draws no architecture boundary, and `wfctl step none` records that a pass a repository added in `wfctl.json` does not apply to this change.
 - Architecture decisions are read as obligations on the work. `wfctl arch context` prints the ones in force.
 
 wfctl also installs its slash commands alongside the skills. It records the
