@@ -1,5 +1,4 @@
 ---
-disable-model-invocation: true
 description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the repository recording what it covered.
 allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(wfctl report-block*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
 ---
