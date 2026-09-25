@@ -53,13 +53,32 @@ implement    *  46/46 done               implement    *  5/64 done
 """
 
 
+_SKILL = (
+    Path(__file__).resolve().parent.parent
+    / "wfctl/agents/skills/opening-a-change/SKILL.md"
+)
+
+
+def test_the_cited_section_still_holds_the_rule_the_finding_names() -> None:
+    """The finding and the template send the reader to "Choosing a drawing" by
+    name. A line number went stale here once already while this file stayed
+    green, since nothing read the line it pointed at; a heading is only safer if
+    something checks that the heading is still there and still says the rule."""
+    skill = _SKILL.read_text()
+    assert "\n## Choosing a drawing\n" in skill
+    section = skill.split("\n## Choosing a drawing\n")[1].split("\n## ")[0]
+    assert "**Tabular content goes in a table.**" in section
+    assert "flows, trees and timelines" in " ".join(section.split())
+    assert "\"Choosing a drawing\"" in _TEMPLATE.read_text()
+
+
 def test_the_drawing_the_reader_rejected_is_flagged() -> None:
     """PR #208's second drawing, verbatim. The reader called it "noisy and
-    confusing"; opening-a-change/SKILL.md:234 names the fault exactly — tabular
+    confusing"; `opening-a-change`'s "Choosing a drawing" names the fault exactly — tabular
     content aligned by hand, with a cell that outgrew its header."""
     found = _shape.body_findings(REJECTED)
     assert len(found) == 1
-    assert "opening-a-change/SKILL.md:234" in found[0]
+    assert 'opening-a-change, "Choosing a drawing"' in found[0]
     assert "name us and did not. Skipped." in found[0]
 
 

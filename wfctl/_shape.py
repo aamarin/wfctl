@@ -72,10 +72,11 @@ def _blocks(text: str) -> list[tuple[int, list[str]]]:
 def body_findings(body: str) -> list[str]:
     """What a PR description's drawings break. One rule, and only one.
 
-    `opening-a-change/SKILL.md`:234 — *"Tabular content goes in a table. Columns
-    aligned by hand inside a code block read as jumbled the moment one cell
-    outgrows its header. Reserve ASCII for flows and timelines."* Both halves are required to fire,
-    because the rule states both: hand-aligned columns are the *form* the skill
+    `opening-a-change`, "Choosing a drawing": *"Tabular content goes in a
+    table. Columns aligned by hand inside a code block read as jumbled the
+    moment one cell outgrows its header [...] Reserve ASCII for flows, trees
+    and timelines."* Both halves are required to fire, because the rule states
+    both: hand-aligned columns are the *form* the skill
     blesses most often (its form-selection table's most frequent row is two
     columns), and what makes them fail is a cell that outgrew its header.
 
@@ -100,9 +101,9 @@ def body_findings(body: str) -> list[str]:
             continue
         quoted = " ".join(sentences[0].split())[:60]
         out.append(
-            f"opening-a-change/SKILL.md:234 — the fenced block at line {opened} "
+            f'opening-a-change, "Choosing a drawing" — the fenced block at line {opened} '
             f"aligns columns by hand and holds a cell that outgrew its header: "
             f"{quoted!r}. Tabular "
-            "content goes in a table; reserve ASCII for flows and timelines."
+            "content goes in a table; reserve ASCII for flows, trees and timelines."
         )
     return out
