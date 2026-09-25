@@ -57,7 +57,6 @@ Derived today:
 | --- | --- |
 | `brainstorming` | `obra/superpowers` |
 | `finishing-a-development-branch` | `obra/superpowers` |
-| `i-have-adhd` | `ayghri/i-have-adhd` |
 | `idea-refine` | `addyosmani/agent-skills` |
 | `receiving-code-review` | `obra/superpowers` |
 | `requesting-code-review` | `obra/superpowers` |
@@ -312,3 +311,9 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
 - 2026-09-23  amended     — `model-the-domain` named as wfctl's own, on
   `clean-code`'s grounds, in the change that adds it; its source map cites two
   Pearson books rather than one (#464)
+- 2026-09-25  amended     — `i-have-adhd` removed from the table, and
+  `ayghri/i-have-adhd` from `NOTICES.md`, since wfctl no longer ships it. Both
+  skills in the layering example under Decision left the bundle with it; the
+  rule stands, and `fanning-out-code-review` layering over
+  `requesting-code-review` and `receiving-code-review` is a current instance of
+  it (#485)

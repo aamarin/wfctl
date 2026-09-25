@@ -28,12 +28,6 @@ def test_every_shipped_skill_declares_only_spec_keys() -> None:
     """A non-spec key in any shipped skill fails here rather than in someone
     else's validator run.
 
-    `i-have-adhd` is exempt: it is vendored, it carries upstream's
-    `disable-model-invocation`, and `vendor-upstream-skills` says to layer over
-    it rather than edit it.
-    Exempt by name rather than by a pattern, so a second non-conforming skill
-    cannot arrive under cover of the same exemption.
-
     Reuses `_arch._frontmatter` for the scan, which already gets the two rules
     that matter right: keys are column-zero only — seven `speckit-*` skills carry
     `metadata:` with nested children — and the scan stops at the closing `---`
@@ -44,7 +38,7 @@ def test_every_shipped_skill_declares_only_spec_keys() -> None:
     """
     offenders = {}
     for skill_dir in sorted(SKILLS_ROOT.iterdir()):
-        if not skill_dir.is_dir() or skill_dir.name == "i-have-adhd":
+        if not skill_dir.is_dir():
             continue
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.exists():

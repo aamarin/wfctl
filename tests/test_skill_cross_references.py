@@ -1,10 +1,10 @@
 """Every skill a shipped file tells the agent to read is a skill that ships.
 
-Skills reference each other by path — a command wrapper points at the skill it
-activates, and `start-session` loads the two output-style skills by name. Those
-reads fail silently on purpose: `start-session` says to skip an uninstalled
-skill rather than stop the session. So a renamed or dropped skill costs the
-session a rule and reports nothing, which is #23's shape one directory over.
+Skills reference each other by path. A command wrapper points at the skill it
+activates, and `design-levels` names the skill each level hands its work to. A
+read of a path that is not there stops nothing, so a renamed or dropped skill
+costs the session a rule and reports nothing, which is #23's shape one directory
+over.
 """
 import re
 from importlib.resources import files
@@ -42,45 +42,28 @@ def test_every_referenced_skill_ships() -> None:
     assert not missing, f"referenced but not shipped: {missing}"
 
 
-def test_step_1_does_not_read_the_style_skills_in_full() -> None:
-    """#476: a full read of either skill's `SKILL.md` here cost about 7.3k
-    tokens, 14.6k on the refresh path, for rules the `UserPromptSubmit` digest
-    already re-sends every turn. Either skill's `SKILL.md` named in step 1 is
-    that read coming back."""
-    start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
-    step_1 = start.split("\n2. ")[0]
-    assert "i-have-adhd/SKILL.md" not in step_1
-    assert "conversation-response-shape/SKILL.md" not in step_1
-
-
-def test_the_response_shape_digest_stays_under_its_cap() -> None:
-    """`_DIGEST_MAX_CHARS` (`wfctl/cli.py`) truncates anything past 500 with an
-    ellipsis and no build failure — this is what keeps the rewritten reminder
-    (#476) from silently losing its tail instead."""
-    digest = (_AGENTS / "skills" / "conversation-response-shape" / "digest.md").read_text()
-    assert len(digest) <= 500, f"{len(digest)} characters, cap 500"
-
-
-def test_each_output_style_skill_is_typeable_on_every_layer() -> None:
-    """Turning one back on mid-session — after a session that started without
-    `/start-session`, or said "stop adhd mode" — is a human typing its name, so
-    every layer needs a route to it.
-
-    Two routes, because no single one covers every layer, which is the thing
-    #170's first fix got wrong. The wrapper is the route wherever no mirror
-    exists, and for bob it is the only working route to `i-have-adhd`:
-    `.bob/skills/` gets upstream's `disable-model-invocation` verbatim and
-    `.bob/commands/` gets it stripped. The mirror is the route on the layer that
-    has one, where the wrapper is suppressed as a collision.
-
-    Both halves asserted, because either alone stays green through the change
-    that removes the other.
+def test_the_form_selection_table_has_exactly_one_home() -> None:
+    """The pull request template and `check-body` both point at this table in
+    `opening-a-change` rather than restating it. A copy goes stale the first time
+    the table changes and then contradicts its owner silently, which
+    `knowledge-placement` calls the condition with no owner.
     """
-    from wfctl.cli import _MIRRORED_SKILLS
+    homes = [md for md in _AGENTS.rglob("*.md") if "| The material is |" in md.read_text()]
+    assert [m.relative_to(_AGENTS).as_posix() for m in homes] == [
+        "skills/opening-a-change/SKILL.md"
+    ]
 
-    for name in ("i-have-adhd", "conversation-response-shape"):
-        assert (_AGENTS / "commands" / f"{name}.md").exists(), name
-        assert name in _MIRRORED_SKILLS, name
+
+def test_opening_a_change_routes_an_old_template_to_the_moved_table() -> None:
+    """`install-config` seeds the PR template once and never rewrites it, so a
+    repository seeded before #485 still has a comment naming
+    `conversation-response-shape` as the table's owner, a skill that no longer
+    ships. The skill that fills the template is the only place that pointer can
+    be answered, and dropping the sentence leaves the agent sent to nothing."""
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+    step_4 = skill.split("## Step 4")[1].split("\n## ")[0]
+    assert "`conversation-response-shape`" in step_4
+    assert '"Choosing a drawing"' in step_4
 
 
 def test_start_session_loads_the_in_force_set() -> None:
@@ -184,9 +167,9 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     the line — "Membership decides reachability; the file decides invocability"
     — and `disable-model-invocation` on this SKILL.md would refuse the skill on
     the discovery path membership just put it on, leaving no route at all.
-    `i-have-adhd` is mirrored and refused for exactly that reason, so this is a
-    live failure mode rather than a hypothetical, and the key is a plausible
-    copy-paste from any of the wrappers carrying it.
+    `i-have-adhd` was mirrored and refused for exactly that reason until it left
+    the bundle, so this is an observed failure mode rather than a hypothetical,
+    and the key is a plausible copy-paste from any of the wrappers carrying it.
 
     Both assertions, because each one alone stays green through the change that
     breaks the other. Both level-2 methods, because the gate names each by path
@@ -609,9 +592,8 @@ def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
     survives, the suite stays green, and the route the issue was filed about is
     gone again.
 
-    `fanning-out-code-review` and the two output-style skills carry this same
-    pin for the same reason; this is that pattern applied to the one speckit
-    step that needs it.
+    `fanning-out-code-review` carries this same pin for the same reason; this
+    is that pattern applied to the one speckit step that needs it.
     """
     from wfctl.cli import _MIRRORED_SKILLS
 
@@ -801,9 +783,10 @@ def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:
 
     `disable-model-invocation` is the second way to lose the route silently: the
     mirror puts the skill on the discovery path and that key would refuse it
-    there as well, leaving none. `i-have-adhd` is mirrored and unreachable for
-    exactly that reason — vendored, carrying upstream's key — so this is a live
-    failure mode rather than a hypothetical one.
+    there as well, leaving none. `i-have-adhd` was mirrored and unreachable for
+    exactly that reason until it left the bundle, since it was vendored and
+    carried upstream's key, so this is an observed failure mode rather than a
+    hypothetical one.
 
     `allowed-tools` is the third. Suppression drops the wrapper whole, so the
     pre-approval that used to ride on it has to live here or nowhere, and

@@ -1,6 +1,6 @@
 """`start-session` routes on words `doctor` prints, so the words are a contract.
 
-Step 2 tells the two dim `ℹ` notices apart by quoting a fragment of each —
+Step 1 tells the two dim `ℹ` notices apart by quoting a fragment of each —
 delete nothing on one, install the agent layer on the other. Nothing else
 distinguishes them: they share a marker and both leave the exit code alone.
 Reword either notice in `cli.py` and the routing stops discriminating without
@@ -24,14 +24,14 @@ _SKILL = _WFCTL / "agents" / "skills" / "start-session" / "SKILL.md"
 # lets one substring check stand in for running the command.
 _SEAM = re.compile(r'"\s*\n\s*f?"')
 
-# The fragment step 2 quotes of each notice, verbatim from the skill.
+# The fragment step 1 quotes of each notice, verbatim from the skill.
 _QUOTED = (
     "not on record under a directory wfctl installs into",
     "no agent layer — .agents/ only",
 )
 
 
-def test_step_2_quotes_the_words_doctor_actually_prints() -> None:
+def test_step_1_quotes_the_words_doctor_actually_prints() -> None:
     source = _SEAM.sub("", (_WFCTL / "cli.py").read_text())
     absent = [fragment for fragment in _QUOTED if fragment not in source]
     assert not absent, f"quoted in start-session, not printed by doctor: {absent}"

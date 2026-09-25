@@ -160,6 +160,11 @@ block on it.
   ones Additional Context would have taken — the section is not a reason to
   reproduce a table of what you already committed, and the template is the
   project's file to change, not yours.
+- **A comment naming `conversation-response-shape` as the owner of the
+  form-selection table is an older template too.** That skill no longer ships
+  with wfctl, and the seed-once rule above means the pointer was never updated.
+  The table is in "Choosing a drawing" below, so read it there, and leave the
+  template's wording for the project to change.
 - **Answer the comment blocks; then delete them.** They are instructions to the
   author, not part of the description. Placeholders in brackets are replaced,
   not left.
@@ -173,12 +178,12 @@ block on it.
   line as it printed, the record as it is shaped, the error as it read. A
   sentence describing a string is longer than the string and less certain.
 - **Pick the drawing's form from the table, then read the template for its
-  notation.** `conversation-response-shape` owns which form the material calls
-  for. Whether that form ships as ASCII or as mermaid is the template's
-  question, and its answer is conditional rather than a default: mermaid where
-  the reader is at a desk and a layout engine should do the work, ASCII where
-  the drawing has to survive a phone or a terminal, and ASCII where placement
-  carries grouping, alignment, or counts positioned to be compared.
+  notation.** "Choosing a drawing" below is the single home for which form the
+  material calls for. Whether that form ships as ASCII or as mermaid is the
+  template's question, and its answer is conditional rather than a default:
+  mermaid where the reader is at a desk and a layout engine should do the work,
+  ASCII where the drawing has to survive a phone or a terminal, and ASCII where
+  placement carries grouping, alignment, or counts positioned to be compared.
 
   **Position that carries meaning is a reason to stay in ASCII, not something
   to re-draw.** A layout engine assigns position itself, so the distinction is
@@ -200,6 +205,46 @@ block on it.
   links the change to its issue in the tracker's own panel. Where the template
   has a section for it, that section's rules govern the details and this bullet
   stops here.
+
+## Choosing a drawing
+
+**Draw when the reader has to hold something to follow the sentence** — a set, a
+location, a count, a branch. Not when the prose gets long: a short paragraph can
+fail this just as badly, and length was never the signal.
+
+The drawing carries the argument. The line beneath it is a caption — it names
+what to look at and says nothing the drawing already says.
+
+**A proposed change is a set.** Naming a fix means naming what the code does
+today and what it does once changed, across every input that reaches it — the
+*rows against columns* row below, and the one most often missed. The diff is
+not that drawing: a branch the reviewer has to run in their head to recover the
+states is the holding a drawing exists to prevent.
+
+**Pick the form from what the material is**, before reaching for any of them:
+
+| The material is | Draw |
+|---|---|
+| a set split in two | two columns, counts in the headers |
+| one source, several destinations | a fan-out, annotations hanging right |
+| a chain whose destinations fan out again | a nested tree, each level indented under the node it hangs from |
+| a value and what it causes | the value, then `└─►` the consequence |
+| a sequence with exits | a flow, exits hanging off the step that takes them |
+| rows against columns | a table |
+
+Two columns is the most frequent row. *Before / after* is one filling of it —
+*can observe / cannot observe*, *checked / assumed*, *mirrored / not mirrored*
+are others — and the split is chosen from the material, not defaulted to.
+
+**Tabular content goes in a table.** Columns aligned by hand inside a code block
+read as jumbled the moment one cell outgrows its header — this is the rule
+`check-body` (Step 5) enforces mechanically; the rest of this section is
+judgment a check can't see. Reserve ASCII for flows, trees and timelines, where
+arrows and nesting carry what a table cannot.
+
+**Enumerate real states, not every trigger.** A property that varies across
+every row is a column, not a row. Two states that leave identical output are
+one state reached two ways — collapse them.
 
 ## Step 5: Open it
 
@@ -230,11 +275,11 @@ directory.
 A scratch directory your harness already gives you is better than either, being
 unique per session without deriving anything. Use it where you have one.
 
-`check-body` reads the drawings against `conversation-response-shape`, which the
-template above names as the owner of which drawing to use. It knows one thing and
-says so: a fenced block with columns aligned by hand *and* a cell that outgrew its
-header is tabular content, and tabular content goes in a table. That combination
-is the one the reader rejected on #208 — the fix was replacing the fence with a
+`check-body` reads the drawings against "Choosing a drawing" above, this skill's
+own home for which drawing to use. It knows one thing and says so: a fenced
+block with columns aligned by hand *and* a cell that outgrew its header is
+tabular content, and tabular content goes in a table. That combination is the
+one the reader rejected on #208 — the fix was replacing the fence with a
 markdown table, and the accepted drawings in the same body are hand-aligned too,
 which is why alignment alone is not the finding.
 
