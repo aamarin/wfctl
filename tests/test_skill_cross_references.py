@@ -54,6 +54,18 @@ def test_the_form_selection_table_has_exactly_one_home() -> None:
     ]
 
 
+def test_opening_a_change_routes_an_old_template_to_the_moved_table() -> None:
+    """`install-config` seeds the PR template once and never rewrites it, so a
+    repository seeded before #485 still has a comment naming
+    `conversation-response-shape` as the table's owner, a skill that no longer
+    ships. The skill that fills the template is the only place that pointer can
+    be answered, and dropping the sentence leaves the agent sent to nothing."""
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+    step_4 = skill.split("## Step 4")[1].split("\n## ")[0]
+    assert "`conversation-response-shape`" in step_4
+    assert '"Choosing a drawing"' in step_4
+
+
 def test_start_session_loads_the_in_force_set() -> None:
     """FR-009's whole delivery path is this one line in one skill.
 

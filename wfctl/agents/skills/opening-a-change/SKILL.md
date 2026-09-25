@@ -160,6 +160,11 @@ block on it.
   ones Additional Context would have taken — the section is not a reason to
   reproduce a table of what you already committed, and the template is the
   project's file to change, not yours.
+- **A comment naming `conversation-response-shape` as the owner of the
+  form-selection table is an older template too.** That skill no longer ships
+  with wfctl, and the seed-once rule above means the pointer was never updated.
+  The table is in "Choosing a drawing" below, so read it there, and leave the
+  template's wording for the project to change.
 - **Answer the comment blocks; then delete them.** They are instructions to the
   author, not part of the description. Placeholders in brackets are replaced,
   not left.
