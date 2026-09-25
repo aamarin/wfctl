@@ -4,14 +4,8 @@ An `evaluation` — the kind of scan file with no pipeline step behind it. This
 branch ran none; the thing needing to reach a reviewer is an experiment's result.
 `writing-a-scan-file` governs what a section carries and is followed here. The
 one thing it delegates to "the wrapper that sent you here" is the coverage rows,
-and no wrapper sent this one, so the rows below are this evaluation's own.
-
-**Passes A through G were named before the run; H through M were not.**
-They are marked as such in the table, because a coverage table's job is to show what a run
-set out to cover — that is what makes an unreached pass visible — and a row
-added afterwards cannot do that job. Removing them instead would hide findings 9 and 10
-from the one place a reader checks for scope, so they are kept and labelled
-rather than kept and passed off.
+and no wrapper sent this one, so the rows below are this evaluation's own, named
+before it started.
 
 ## Session 2026-09-22
 
@@ -20,9 +14,8 @@ rather than kept and passed off.
   withdrawn in the issue's own comment of 2026-09-20 and was not run.
   `agent-dashboard` was never installed. What was run is the narrowed
   experiment that comment leaves standing.
-- Ran against: 5 live `mode: session` worktrees and 12 tmux sessions in the first
-  run; 11 sessions when the second run's mirror connected, and 12 again before it
-  ended — a sixth worktree was created mid-run, which is finding 10's subject.
+- Ran against: 5 live `mode: session` worktrees; 12 tmux sessions on the
+  default server, 11 at the time of the second run.
 - Versions: cmux 0.64.25 (106), tmux 3.6a, workmux 0.1.211, wfctl 0.20.0.
 - Detail: no `FEATURE_DIR` artifact — this branch ran no pipeline step, so
   there is no fuller document for this file to point at. Everything the
@@ -38,19 +31,16 @@ surveyed cmux's *local* tmux integration, which cannot do it — settled in
 findings 1 and 2 — and left the verdict at `inconclusive` because cmux's second
 integration, `ssh-tmux`, was not reachable on this machine. The machine's owner
 then enabled Remote Login and cmux's "Remote tmux" beta setting, and the second
-run exercised it. Finding 8 is that run: the mirror presents each workmux-owned
-session it finds at connect time as a workspace, correlates on the session name,
-takes no ownership, and carries a line of wfctl's own output on the row. What it
-does *not* present is a session created afterwards, which is finding 10; and of
-the ten rows read, five carry the wrong directory, which is finding 9.
+run exercised it. Finding 8 is that run: the mirror presents every workmux-owned
+session as a workspace, correlates on the session name, takes no ownership, and
+carries a line of wfctl's own output on the row.
 
 **This section holds both runs**, because a second scan finding something is
 only meaningful given what the first one found. Findings 1 through 7 are the
-first run and stand as written; findings 8, 9 and 10 are the second. Where the
+first run and stand as written; findings 8 and 9 are the second. Where the
 second contradicts the first, the first is left in place and the later finding
 says so — a struck claim is the one thing a reader most needs to see, and
-deleting it leaves nothing to disagree with. Finding 9 has since had to apply
-that rule to itself.
+deleting it leaves nothing to disagree with.
 
 ### Coverage
 
@@ -63,35 +53,18 @@ that rule to itself.
 | E · A sidebar as the presentation surface | Clear (it cannot fetch; finding 5) |
 | F · `attention` as a supervisory column | Clear (finding 6) |
 | G · The payload as a consumed contract across worktrees | Outstanding (finding 7) |
-| H · What a mirrored row reports about its own worktree | Outstanding (finding 9) — **pass added after the run** |
-| I · Whether a session created after connect gets a row | Outstanding (finding 10) — **pass added after the run** |
-| J · Whether anything already writes wfctl status to a row | Clear (`~/.local/bin/wfctl-rows` does; finding 11) — **pass added after the run** |
-| K · Whether tearing the mirror down and reconnecting repairs a stale set | Clear (it does, and costs every status line; finding 12) — **pass added after the run** |
-| L · Whether a row shows the session it names | **Outstanding** (two rows did not; finding 13) — **pass added after the run** |
-| M · What adopting the screen costs in day-to-day navigation | Outstanding (finding 14) — **pass added after the run** |
+| H · What a mirrored row reports about its own worktree | Outstanding (finding 9) |
 
 Pass C held the verdict at `inconclusive` through the first run, as `Deferred`:
 nothing had been learned by running it, only that it could not be run here
 without a change to this machine that was not an agent's to make. The second run
 had that change and closes it.
 
-Passes H and I are the second run's own, added when it found things the first run
-had no way to see. A pass named after the fact is what the "name your rows before
-you start" rule exists to prevent, so both are marked as what they are: the mirror
-was not expected to say anything about a worktree beyond its name, and it does
-(H); and the mirror was assumed to track the server it mirrors, which was never
-stated as a pass because it was never in doubt (I). This file's opening says its
-rows were named before it started. That was true of A through G and is not true
-of H and I, which is the cost of an evaluation that kept running after its own
-coverage map was written.
-
-**The verdict stays `satisfied` with three of nine rows Outstanding, and the two
-are not in tension.** `satisfied` answers #424's question, which is about *one*
-workspace attaching to *one* session and presenting `wfctl status` without taking
-ownership — finding 8 answers that end to end. H and I are about the *set* of
-rows and what each says beyond its name, which that question never asked. A
-reader wanting "is the screen good enough to rely on" is asking something this
-verdict does not answer, and findings 9 and 10 are where that answer lives.
+Pass H is the second run's own, added when it found something the first run had
+no way to see. A pass named after the fact is the thing the "name your rows
+before you start" rule exists to prevent, so it is marked as what it is: the
+mirror was not expected to say anything about a worktree beyond its name, and it
+does.
 
 ## The handoff this branch carried was written against the withdrawn half
 
@@ -444,495 +417,40 @@ agent's own OSC notifications survive the control-mode hop; `allow-passthrough`
 governs that and was not varied. The mirror was also exercised over `localhost`
 only, where the SSH hop is degenerate.
 
-## Finding 9 — five of the ten rows read print a directory that is not theirs
+## Finding 9 — a mirrored row can report the wrong worktree
 
-Of the eleven mirrored workspaces finding 8 records, **ten were read and five of
-those ten print a path that is not theirs.** All five print the same one. The
-eleventh, `0-0`, was below the fold of the capture this was read from and is not
-counted in either number.
+Two mirrored workspaces print a path that is not theirs:
 
 | Sidebar row | Path shown | `session_path` reports |
 | --- | --- | --- |
-| `wfctl__426-overlay-boundary-spike` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/426-overlay-boundary-spike` |
 | `wfctl__425-restart-holds-on-child-work` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/425-restart-holds-on-child-work` |
-| `wfctl__397-handoff-records-work-in-flight` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/397-handoff-records-work-in-flight` |
-| `pfms__pfms-specs` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `~/Development/pfms-specs` |
-| `pfms__656-detail-panel` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/pfms/wt/656-detail-panel` |
-| `wfctl__424-observer-dashboard-eval` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | matches — **and cannot distinguish** |
+| `wfctl__426-overlay-boundary-spike` | `~/Development/wfctl/wt/424-observer-dashboard-e…` | `…/wt/426-overlay-boundary-spike` |
 | `wfctl__419-misfiled-record-check` | `~/Development/wfctl/wt/419-misfiled-record-check` | matches |
-| `pfms__655-analyst-view` | `~/Development/pfms/wt/655-analyst-view` | matches |
-| `pfms__654-variance-summary` | `~/Development/pfms/wt/654-variance-summary` | matches |
 | `pfms__653-variance-ledger` | `~/Development/pfms/wt/653-variance-ledger` | matches |
-| `0-0` | not read | — |
 
-**424's own row is in the table and counted as correct, and it is the row that
-can least bear that.** Its real directory and the value the five wrong rows show
-are the same string, so it reads as correct under either explanation and
-distinguishes nothing. It is listed rather than dropped because a table that
-silently omits the one ambiguous row is how the previous draft's count went wrong.
-
-`pfms__pfms-specs` is the row that carries the most information: its real
-directory is not under any `wt/` and is in a different repository, and it still
-shows this worktree's path. Whatever the five share, it is not proximity to 424.
-
-**The hypothesis, stated as one.** The value the five print is the same string as
-the working directory of the cmux terminal `cmux ssh-tmux localhost` was run
-from — its prompt read `424-observer-dashboard-eval` in the transcript finding 8
-quotes. That is an equality between two observed strings. It is *not* an
-observation that the mirror fell back to that directory, and no run that would
-separate the two was made: launching the mirror from a different directory and
-seeing whether the five rows follow would settle it in one attempt and was not
-done. Finding 10 in this same session declines to infer cmux's internals from
-outside, and the same restraint applies here.
-
-**The alternative this replaced, struck rather than deleted.** ~~The five wrong
-rows' sessions were created within thirty seconds of each other and of 424's.~~
-Falsified by `pfms__pfms-specs`, which is the oldest session on the server and in
-a different repository, and by `pfms__656-detail-panel`, created an hour apart
-from the wfctl three. It is kept here because it was the only alternative this
-finding ever carried, and a reader who cannot see what was ruled out cannot tell
-a considered answer from a first guess.
-
-**What the earlier draft got wrong, including about its own method.** It said two
-rows wrong and three showing no path. It also said, in as many words, *"Read at
-full sidebar width, so this is not truncation"* — and that was the false part.
-The sidebar was narrower than the claim, three subtitles were truncated to
-nothing, and the assertion of a control is what made the wrong count look
-checked.
-
-So the remedy is not "say what width you read at": the first draft effectively
-did, and was wrong about it. What would have caught this is a second source, and
-there is none — no cmux verb reports a mirrored workspace's subtitle or path.
-Until there is, this finding's numbers are a reading of a picture, and any later
-reader should treat the count as the weakest claim in it.
+Three more rows — `wfctl__397-handoff-records-work-in-flight`, `pfms__pfms-specs`,
+`pfms__656-detail-panel` — show no path at all. Read at full sidebar width, so
+this is not truncation: `424` and `425` differ in the third character of the
+segment.
 
 tmux answers correctly for every session, by both `session_path` and
-`pane_current_path`, so the wrong value is not being read from there.
+`pane_current_path`, so the wrong value is not being read from there. What the
+three wrong-or-absent wfctl rows have in common is that their sessions were
+created within thirty seconds of each other and of 424's, which is a correlation
+and not a cause — one observation, not a mechanism, and it is recorded here as
+the former.
 
 **Why it matters more than a cosmetic bug.** The record's correlation clause says
 the client correlates on the workmux handle or the worktree path, never on an id
 it assigned. This mirror correlates on the handle, which is the clause satisfied
 — and it *also* displays a path, which a reader will use to tell two rows apart.
 A supervisory screen exists to answer "which worktree needs me?", and a row
-carrying the right name over the wrong directory answers it wrongly in a way the
-reader has no way to check. `cwd` as a display hint is already demoted by cmux's
-own doc; this is the demotion earning itself.
+carrying the right name over the wrong directory answers it wrongly in the one
+way the reader cannot detect. `cwd` as a display hint is already demoted by
+cmux's own doc; this is the demotion earning itself.
 
 Not filed against cmux. One machine, one run, `localhost`, and no minimal
 reproduction attempted.
-
-## Finding 10 — a session created after connect never gets a row
-
-The rows are live — finding 8's keyboard and the agent's own output prove that.
-What was tested is one direction of *which sessions have rows*: a session created
-after the mirror connects does not get one. Removal was never exercised, so
-nothing here says the set is fixed — only that it does not grow.
-
-`workmux add 459-poller-decision` created a twelfth tmux session while the mirror
-was open. It did not appear. The sidebar still lists the eleven that existed when
-`cmux ssh-tmux localhost` ran, and `tmux list-sessions` lists twelve.
-
-Control mode emits `%sessions-changed` when the server's session set changes
-(`tmux(1)`, CONTROL MODE), so the notification is available to a client that
-subscribes to it. Whether cmux subscribes and drops it, or never subscribes, is
-not visible from outside and was not determined here.
-
-**Re-running the command does not fix it:**
-
-```
-$ cmux ssh-tmux localhost
-Connecting to localhost…
-ControlSocket /Users/andremarin/.cmux/ssh/tmux-localhost-….sock already exists,
-  disabling multiplexing
-Authenticated; opening remote tmux mirror for localhost…
-Error: ssh-tmux: authentication did not open the connection to localhost
-```
-
-**The cause is adjacent, not shown.** The first mirror's SSH control master is
-still running — `ssh -O check` on that socket reports `Master running` — and
-the warning names it. But `disabling multiplexing` is a fall-back, not a failure:
-ssh proceeds, and the transcript's own next line is `Authenticated;`. What failed
-is the phase after authentication, which is cmux's mirror-open. The control master
-is the obvious suspect and it is not the observed cause.
-
-**The remedy was untried when this finding was written, and has since been run.**
-`ssh -O exit` on that socket followed by a fresh `cmux ssh-tmux localhost` does
-repair the set — finding 12 records the run, and what it costs.
-
-**What this does to the record.** The recovery clause covers one direction —
-*workmux reports an environment and tmux has no session, so surface and stop*.
-This is the mirror image: tmux has a session and the client has no row for it,
-which the record has no clause for. Finding 8 established the client destroys
-nothing; this establishes it can also fail to *notice*, and a client that shows a
-stale set while creating and destroying nothing violates no clause the record
-currently writes. Worth a clause, and that is the record's to add rather than
-this scan's.
-
-**How it compares to finding 9.** Both are wrong information rather than missing
-information, and finding 9 is the more dangerous of the two: a row carrying the
-right name over the wrong directory is a claim the reader cannot check, while an
-absent row at least leaves a person who knows they just made a worktree asking
-where it is. What makes this one worth its own finding is that no amount of
-correct row content fixes it — the poller can write perfect verdicts onto eleven
-rows and the twelfth worktree is still invisible.
-
-For a poller it is the cheapest thing to work around and the easiest to get
-wrong: `workmux list --json` reports session twelve immediately, and there will
-be no row to write it to. Detecting the mismatch and saying so beats silently
-writing eleven of twelve — and the mismatch is worth detecting in both
-directions, since the removal case is untested and a row for a session that no
-longer exists would fail the same way round.
-
-**Limits.** One machine, one run, `localhost`. Only the additive case was
-exercised — a session created after connect. Whether a *killed* session's row
-disappears, and whether a new *window* inside an already-mirrored session shows
-up as a tab, were not tested; the heading and the conclusion above are narrowed
-to the case that was, which is why neither says the set is frozen. Not filed
-against cmux for the same reasons as finding 9.
-
-## Finding 11 — the poller exists, and lives outside every repository
-
-Later the same day the sidebar showed a status line under every mirrored row —
-six of them, across two repositories, in sessions this evaluation never touched:
-
-```
-wfctl__424-observer-dashboard-eval
-  #424 · brainstorm · next /speckit.brainstorm
-pfms__pfms-specs
-  #unknown · brainstorm · next /speckit.brainstorm
-pfms__669-eyebrow-utility
-  #669 · brainstorm · next /speckit.brainstorm
-pfms__565-chart-writable
-  #565 · done
-pfms__564-chart-follows-interview
-  #564 · done
-pfms__561-chart-of-accounts-screen
-  #561 · brainstorm · next /speckit.brainstorm
-```
-
-**`~/.local/bin/wfctl-rows` writes them.** A 5.5 KB Python script whose docstring
-opens *"Decided on aamarin/wfctl#459: a join, not an orchestration plane."* It
-reads `workmux list`, runs `wfctl status` in each worktree, matches the tmux
-session name to a cmux workspace through `session_path`, and writes one status
-key per row with `cmux set-status wfctl <line>`. It takes `--interval` (default
-15s), `--once`, and `--dry-run`. It caches nothing: the worktree list, the
-verdict and the workspace mapping are all re-derived every tick, which is
-`session-state-is-re-derived` applied to a display surface.
-
-So the piece the cost section below calls missing is built, and #459's question
-is answered — the join is a join, not a plane.
-
-**It is not running, and the lines are frozen at 09:26.** The rows are
-`set-status` values, which cmux persists per workspace, so a screen that has not been updated
-in hours looks identical to one updated a second ago. That is worth more than it
-sounds: the supervisory screen's whole promise is that a glance tells you the
-current state, and nothing on it distinguishes current from stale.
-
-**It inherits finding 10 rather than fixing it.** The write is guarded by
-`elif name in refs` — a row is updated only if a workspace already carries that
-session name. A worktree created after the mirror connected has no workspace, so
-the poller reads it from `workmux list`, finds nowhere to put it, and skips it
-without a word. Knowing a worktree exists and having no row for it is exactly
-#461.
-
-**Two slots, not one.** An OSC 9 notification and a `set-status` value render as
-separate lines on the same row, which this evaluation established by accident:
-a probe string written to the notification slot appeared *above* the status line
-rather than replacing it. Finding 8's `printf` demonstration therefore used a
-different channel from the one the poller uses, and both work.
-
-### What this evaluation got wrong, and how
-
-**An earlier version of this finding said the source could not be identified.**
-It listed four candidates ruled out — no poller process, no escape sequence in
-`wfctl/`, no hook in either repo, nothing in the shell profile — and concluded
-that someone with access to how the sessions start could probably resolve it.
-
-Every one of those checks was correct and the conclusion was still wrong,
-because the search never looked in the one place the answer was guaranteed to
-be. `#459` was filed to decide whether to build this, a worktree was created for
-it, and its handoff was written by the same session that then could not find
-what it produced. The worktree had since been removed, its transcript showed
-design sketches rather than a finished script, and that was allowed to stand for
-*nothing survived it* — when what survives a worktree is whatever it wrote
-outside the worktree, which for a developer tool is `~/.local/bin`.
-
-The general form is worth keeping: **a negative result about provenance is only
-as good as the places it looked, and "I checked four plausible places" is not
-"it is not findable."** The earlier text named its checks, which is what makes
-this correctable rather than merely wrong.
-
-### Where it lives is now the open question
-
-`wfctl-rows` is an untracked file in one developer's `~/.local/bin`. It is in no
-repository, has no tests, and its only record of the decision behind it is its
-own docstring. #459 remains open for that reason: the question it asked has been
-answered in practice and nowhere durably, so the branch that closes it has to
-decide where the script belongs — and `wfctl/` is probably not the answer, since
-a display surface for one macOS terminal app should not ship to every repo that
-installs wfctl.
-
-### What a later reader can re-run
-
-```
-cat ~/.local/bin/wfctl-rows        # the script and its docstring
-wfctl-rows --dry-run --once        # prints the rows it would write
-ps aux | grep wfctl-rows           # whether anything is keeping them current
-```
-
-The first two work from any shell. Writing rows does not: the socket refuses a
-process cmux did not start, so an actual tick needs a cmux-native terminal —
-`cmux new-workspace --name wfctl-rows --command wfctl-rows` is the form the
-script's own docstring recommends.
-
-## Finding 12 — the repair for finding 10 wipes every status line
-
-Finding 10 recorded that a session created after the mirror connects never gets a
-row, and named tear-down-and-reconnect as the obvious repair while marking it
-untried. It has now been tried. **It works, and it costs everything the poller
-had written.**
-
-Nine tmux sessions existed; six had rows. `pfms__667-flexing-accounts-zero` and
-`pfms__671-ledger-expand-all` had been created about four hours after the mirror
-connected and were absent from the sidebar, though `workmux list`, `git worktree
-list` and the directories on disk all had them, and `671` already carried a
-commit.
-
-```
-$ ssh -O check -S ~/.cmux/ssh/tmux-localhost-….sock localhost
-Master running (pid=24921)
-
-$ ssh -O exit  -S ~/.cmux/ssh/tmux-localhost-….sock localhost
-Exit request sent.
-
-$ ssh -O check -S ~/.cmux/ssh/tmux-localhost-….sock localhost
-Control socket connect(…): No such file or directory
-```
-
-Then, from a cmux-native terminal:
-
-```
-$ cmux ssh-tmux localhost
-Authenticated; opening remote tmux mirror for localhost…
-OK host=localhost workspaces=9 window=C78A7B17-…
-```
-
-Nine rows. Both missing worktrees present. **The repair is real and #461 can
-stop calling it a proposal.**
-
-**Ownership survived the teardown, which is a stronger result than the original
-run produced.** Every one of the nine tmux sessions was still alive immediately
-after the master exited, all detached, none killed:
-
-```
-$ tmux list-sessions -F "#{session_name} attached=#{session_attached}"
-Orchestrator attached=0
-pfms__561-chart-of-accounts-screen attached=0
-…
-wfctl__424-observer-dashboard-eval attached=0
-```
-
-Finding 8 established the mirror issues no `kill-session` while running. This
-establishes it does not take the sessions with it when it dies, which is the case
-a client that owned anything would fail.
-
-**Every status line was lost.** `set-status` values are stored per workspace, and
-reconnecting builds new workspaces — so all six lines finding 11 describes went
-with the old ones. The rows came back blank.
-
-**And the poller died with them.** It had been started as
-`cmux workspace create --name wfctl-rows --command wfctl-rows`, so its process
-was a child of a workspace the teardown removed. `ps` reported zero afterwards.
-
-```
-  before teardown          after reconnect
-  ───────────────          ───────────────
-  6 rows                   9 rows          ← the repair
-  6 status lines           0 status lines  ← the cost
-  poller running           poller dead     ← and it cannot refill them
-```
-
-**The two defects compound rather than sit side by side.** Finding 10 costs you
-the newest worktree; its repair costs you every other worktree's verdict, and
-removes the one thing that could put them back. A person who reconnects to see
-the worktree they just made ends up with a screen that lists everything and
-knows nothing about any of it — and nothing on that screen says so, because a
-blank status line and a worktree with no verdict render identically.
-
-**What would fix the compounding, stated as options rather than a
-recommendation.** Running the poller somewhere the teardown does not reach is the
-obvious one, and the script's own docstring rules out the easy version: it must
-run in a terminal cmux created, or hold `CMUX_SOCKET_PASSWORD`. A workspace that
-survives its own mirror's teardown may not exist. Whether a local
-path-workspace — which is not mirrored, and did survive here — can host it is
-untested and is the cheap experiment. `#461` is where that belongs.
-
-**And it may cost more than this finding measured.** Two rows were later seen
-rendering another session's terminal entirely — finding 13 — first observed
-after this reconnect. Whether the reconnect caused that is unestablished. If it did, the
-repair recorded here is not merely expensive but unsafe to run unattended, and
-this finding's accounting of the cost is incomplete.
-
-**Limits.** One teardown, one reconnect, `localhost`. The reconnect was run from
-a local path-workspace; whether it works from elsewhere is untested. Nothing here
-says how the mirror behaves if the master dies unexpectedly rather than on
-request.
-
-## Finding 13 — after the reconnect, two rows render another session's terminal
-
-This is the most serious defect in the file, and it is the one a supervisory
-screen can least survive: a row carries the right name and shows the wrong
-worktree's live pane.
-
-After finding 12's teardown and reconnect, the workspace titled
-`pfms__561-chart-of-accounts-screen` displayed:
-
-- **content** — the running agent session of
-  `wfctl__424-observer-dashboard-eval`, a different worktree in a different
-  repository. Its scrollback was this evaluation's own output.
-- **one tab**, titled `pfms__561-chart-of-account…`, where tmux reports three
-  windows for that session.
-- **subtitle** `424-observer-dashboard-eval` and **path**
-  `~/Development/wfctl/wt/424-observer-dashboard-e…`.
-
-`pfms__564-chart-follows-interview` showed the same subtitle and path. Every part
-of both rows except the title belonged to another session.
-
-**tmux is not the source.** Its own view is correct in all three places a fault
-could hide — the sessions have their windows, the panes have their directories,
-and every mirror client is attached to the session its row names:
-
-```
-$ tmux list-panes -s -t pfms__561-chart-of-accounts-screen
-0.0 term    …/pfms/wt/561-chart-of-accounts-screen  zsh
-1.0 deploy  …/pfms/wt/561-chart-of-accounts-screen  zsh
-2.0 agent   …/pfms/wt/561-chart-of-accounts-screen  2.1.280
-
-$ tmux list-clients -F "#{client_tty}\tsession=#{client_session}"
-/dev/ttys027  session=pfms__561-chart-of-accounts-screen
-/dev/ttys019  session=pfms__564-chart-follows-interview
-…
-/dev/ttys037  session=wfctl__424-observer-dashboard-eval
-/dev/ttys038  session=wfctl__424-observer-dashboard-eval
-```
-
-Nine clients created within the same second as the reconnect, one per session,
-each correctly bound. The tenth (`ttys038`) predates them and is the terminal the
-reconnect was typed into. So the mis-routing is entirely inside cmux: its
-workspace is bound to the wrong surface, while the SSH client behind that
-workspace is bound to the right session.
-
-**Why this outranks finding 9.** That one is a row whose *path* is wrong under a
-correct name — misleading, and checkable by anyone who reads the name. This is a
-row whose *contents* are another worktree's, and the contents are what a person
-uses the screen for. Someone glancing at `pfms__561`, seeing an agent mid-run and
-deciding it needs no attention, has read `wfctl__424`. Nothing on the row says
-which session it is really showing.
-
-**It is an input fault, not only a display one, and that was demonstrated rather
-than reasoned.** The machine's owner selected the row titled
-`pfms__564-chart-follows-interview` and typed into it, believing they were
-addressing that worktree's agent. The text arrived in `wfctl__424`'s session —
-this evaluation's own — and the exchange that produced this paragraph is the
-evidence. Finding 8 established every mirrored row accepts input; this finding
-establishes a row can accept it on behalf of a session it does not name.
-
-What makes that worth recording separately is how little it required. No
-misreading, no haste, no unfamiliarity with the tool: the row carried the correct
-title and the person clicked the correct title. A supervisory screen whose rows
-can be right about their name and wrong about their destination is not a screen
-with a bug in it — for the duration, it is a worse instrument than having no
-screen and running `tmux attach` by hand, because the hand-typed name cannot be
-mis-routed.
-
-**It appeared only after the reconnect**, and this is a correlation rather than a
-cause. The mirror had run for hours before the teardown with no such report, and
-the defect was present immediately after. That is one observation of an ordering,
-not a demonstrated mechanism: no second teardown was performed to see whether it
-recurs, and nothing rules out its having been present earlier and unnoticed, since
-nobody had reason to compare a row's content against its title.
-
-**What it does to finding 12's remedy.** That finding recorded the cost of
-tear-down-and-reconnect as every status line plus the poller. If this defect is
-caused by the reconnect, the cost also includes rows that lie about which worktree
-they show — and the remedy stops being merely expensive and becomes one that
-must not be run unattended. Establishing which requires a second teardown, done
-deliberately, with a row-by-row check of content against title before and after.
-That experiment is named on #461 and was not run here.
-
-**The poller is right where cmux is wrong, on the same row, at the same moment.**
-Once `wfctl-rows` was restarted, both affected rows carried a correct status line
-above their wrong subtitle and path:
-
-```
-pfms__564-chart-follows-interview
-  #564 · done                                       ← poller: correct
-  424-observer-dashboard-eval                       ← cmux: wrong
-  ~/Development/wfctl/wt/424-observer-dashboard-e…  ← cmux: wrong
-```
-
-That is `a-client-attaches-to-a-runtime-it-never-owns`'s correlation clause
-demonstrated rather than argued. The poller matches the tmux session name — the
-workmux handle — to a worktree and gets it right; cmux's own workspace binding,
-which is the client-assigned identity the record forbids as a key, gets it wrong
-on the same row at the same moment. **A consumer that correlates the way the
-record demands is immune to this defect**, which narrows the finding: the
-mis-binding is in cmux's surface routing and reaches nothing derivable from the
-handle. The clause was reasoned from first principles; this is the failure it was
-reasoned about, observed.
-
-**Limits.** One reconnect, `localhost`, two rows observed wrong out of nine —
-and the other seven were not checked content-against-title, so the count is a
-floor rather than a measurement. As with findings 9 and 10, the evidence is a
-rendered UI: no cmux verb reports which session a workspace is displaying, so there is no
-text source to confirm this against. `cmux workspace list` gives titles only,
-which is exactly the half that is correct here.
-
-## Finding 14 — the supervisory view costs the motion tmux already had
-
-Every finding above asks whether cmux *can* do the job. This one asks what
-adopting it takes away, which no pass named and which is the question a person
-answers by using the thing for a day.
-
-**The screen works and it is a GUI.** Rows are a persistent list, one per
-worktree, each with a verdict beneath its name, readable without entering
-anything. That is real and it is what #424 asked for. What it replaces is a
-multiplexer whose navigation is modal: in tmux the session list is a mode you
-enter, sweep and leave, and tools built around that grain — `claude-squad` is
-the one named in comparison — treat never leaving the keyboard as the point.
-
-```
-  tmux / claude-squad              cmux
-  ───────────────────              ────
-  motion inside one mode           jump to a destination
-  state read from a status line    state read from a row
-  the multiplexer is the UI        the UI wraps the multiplexer
-```
-
-**It is not mouse-only, and the nearest equivalents are worth naming rather than
-assuming away.** `goToWorkspace` is `cmd+p`, a fuzzy jump. `nextSurface` and
-`prevSurface` are `cmd+shift+]` / `[`. The closest thing to a sweep is
-`markOldestUnreadAndJumpNext` at `cmd+ctrl+u`, which is the one binding that
-treats the sidebar as a queue rather than a menu, and it is the one to try before
-concluding the model does not fit.
-
-**The difference that remains after those.** A palette opens and closes around a
-single destination; a mode is a place you stay while you read several. For a
-person whose supervisory habit is *sweep everything, then act*, the first costs a
-round trip per worktree. For one whose habit is *something pinged me, go there*,
-it costs nothing and the rows are strictly better than what tmux shows.
-
-So the fit depends on which habit the reader has, and this evaluation cannot
-settle that from outside. Recorded because it is the first consideration in this
-file that is not a defect: nothing here is broken, and it may still be the reason
-someone declines the screen. **A finding that names a cost rather than a fault is
-the kind an evaluation most easily omits**, since every pass it ran was shaped to
-look for faults.
-
-**Not a recommendation either way.** The alternative was not evaluated:
-`claude-squad` is named here because it was raised in comparison, and it has not
-been installed or run. A reader taking this section as a reason to prefer it
-would be taking one sentence of hearsay over the eleven findings above.
 
 ## What it would cost to get #424's screen anyway
 
@@ -944,74 +462,22 @@ run is what moved them:
    an ordinary cmux terminal running `tmux attach -t wfctl__<handle>`, which also
    works but which cmux models as a shell rather than a session, so no attention
    ring or status lane is keyed to it. The mirror is the one that carries a row.
-
-   **It supplies rows for the sessions that existed when it connected, and adds
-   none afterwards** (finding 10). A worktree created since is absent, and
-   reconnecting over the top of the existing mirror fails; tearing the control
-   master down first and then reconnecting does work, and costs every status line
-   on the screen plus the poller itself (finding 12). Whoever runs piece 3
-   inherits both: the poller learns about a new worktree from `workmux list` one
-   tick later and has no row to write it to, and the repair for that removes the
-   poller.
 2. **Correlation on the workmux handle.** Supplied by the mirror, which labels
    each workspace with the tmux session name and nothing else. This is what
    `a-client-attaches-to-a-runtime-it-never-owns` asks for, and it arrives for
    free rather than being configured. `cwd` is the tempting second key and cmux's
    own doc demotes it — "Title and cwd remain display and diagnostic hints only" —
    which finding 9 turns from a caution into an observed defect.
-3. **A sidecar.** **This one is built.** `~/.local/bin/wfctl-rows` polls
-   `workmux list` and each worktree's `wfctl status`, and pushes one line per row
-   with `cmux set-status` — finding 11. It was written on #459 and decided there
-   to be a join rather than an orchestration plane: it caches nothing and owns no
-   fact, so it re-derives everything on every tick.
+3. **A sidecar.** A process started inside cmux, or holding the socket password,
+   polling `workmux list --json` and each worktree's `wfctl status --json`, and
+   pushing rows with `cmux set-status` / `cmux log`. **This is the whole of what
+   is left, and it is still the piece that does not exist.**
 
-   Two things it does not settle. It is not running, and a stale row is
-   indistinguishable from a current one, because `set-status` values persist. And
-   it skips a session that has no workspace, so it inherits finding 10 whole —
-   it can learn a worktree exists and have nowhere to write it.
-
-   It also lives in no repository, which is the question #459 is still open for.
-
-   **It cannot run in a mirrored pane.** `cmux ssh-tmux localhost`, typed into a
-   mirrored pane, returned finding 4's refusal:
-
-   ```
-   Error: ERROR: Access denied - only processes started inside cmux can connect
-   ```
-
-   Reading `env` in a tmux pane confirms no `CMUX_*` is set there, though that
-   alone proves little — the pane predates the mirror, so it shows what an
-   ordinary shell has rather than anything about the hop. The two together are
-   what support the claim: the processes a mirrored pane hosts were started by
-   tmux on the host, not by cmux, so they get none of the environment cmux injects
-   into its own terminals.
-
-   So the poller runs in a cmux-native terminal, or it holds the socket password —
-   and the second raises a question this evaluation does not answer, namely where
-   that secret would live for a process nobody starts by hand. A real constraint
-   on where the code can live, and an invisible one: a mirrored pane looks exactly
-   like a cmux terminal until a command fails.
-
-   **Verified over `localhost` only**, like everything else in the second run. A
-   genuinely remote host may differ, and no claim here reaches one.
-
-So the shape of the answer has changed twice. It was "two of three pieces
-missing, and one of those cannot be evaluated here". It became "one piece
-missing, and it is the one the #424 comment declined". It is now **none
-missing** — the screen exists and carries wfctl's verdicts today.
-
-What is left is not a piece but five defects and a home. Piece 1 misreports five
-of the ten rows read (finding 9) and never notices a new session (finding 10).
-The repair for that erases every status line and kills the poller, so the two
-compound (finding 12). A stale row looks exactly like a fresh one, and a row
-whose verdict was wiped looks exactly like a worktree with nothing to say. Two
-rows were seen showing another worktree's live terminal under the right name
-(finding 13), which is the defect that makes the screen worse than no screen.
-And piece 3 lives in `~/.local/bin` rather than in any repository, which is what
-#459 stays open for.
-
-A one-shot stands in for the missing piece in finding 8, where the pane wrote
-its own row with a `printf`; what a sidecar adds is doing that on a schedule, for
+So the shape of the answer has changed. It was "two of three pieces missing, and
+one of those cannot be evaluated here"; it is now "one piece missing, and it is
+the one the #424 comment declined" — a second orchestration plane wearing a
+smaller name. A one-shot stands in for it in finding 8, where the pane wrote its
+own row with a `printf`; what a sidecar adds is doing that on a schedule, for
 every worktree, without a person in the loop.
 
 Recorded as the cost, not as a proposal. The decision is whose it was before:
@@ -1020,10 +486,8 @@ the piece is small, and being small was never the objection to it.
 ## Evidence
 
 Every cmux and tmux transcript quoted above is reproducible by running the
-quoted command. All of them are reads except two: the `local-tmux start`/`close`
-pair, which is shown with its cleanup, and the `workmux add` that created finding
-10's twelfth session — a write that was made for its own reasons and that this
-finding observed rather than staged.
+quoted command; all of them are reads except the `local-tmux start`/`close`
+pair, which is shown with its cleanup.
 
 **Finding 6's table is the exception, and deliberately so.** The probe that
 produced it read `workmux list --json` and then each worktree's `wfctl status
@@ -1040,53 +504,92 @@ independently: 424's own row by running the command here, and 419's absent
 `version` and `attention` from git, since `STATUS_PAYLOAD_VERSION` entered in
 #441 and `419`'s branch point predates it.
 
-**The second run's evidence divides four ways, and the four are not equally
-strong.** Findings 8, 9 and 10 draw on all of them:
+**The second run's evidence divides the same way.** Findings 8 and 9 rest on
+three sources, and only the first is reproducible from a shell alone:
 
-- `tmux list-sessions`, `tmux list-panes -a` and `ssh -O check`, for the session
-  count, the creation timestamps, the attach counts, every `session_path`, and
-  whether the mirror's SSH control master is alive. All reads, all re-runnable
-  from any shell.
+- `tmux list-sessions` / `tmux list-panes -a`, before and after the mirror, for
+  the session count, the creation timestamps, the attach counts and every
+  `session_path`. All reads, all re-runnable.
 - `cmux ssh-tmux localhost` and `cmux workspace list --id-format both`, which
   must be run from a terminal *inside* cmux — the socket refuses an outside
   process, which is finding 4 met from the other side. Their output is quoted
-  above as they printed it, the failing re-run included.
-- `env` read in a tmux pane, for the absence of `CMUX_*`. Weak on its own: the
-  pane predates the mirror, so it shows that an ordinary shell has no `CMUX_*`
-  rather than anything about the SSH hop. What carries that claim is the
-  `Access denied` transcript beside it, from a command actually run in a
-  mirrored pane.
-- **The sidebar itself, for what a row displays and which rows exist — and this
-  is the weak one.** No cmux verb reports a mirrored workspace's subtitle or its
-  path; `workspace list` prints neither, and it was not re-run after the twelfth
-  session was created. So finding 9's counts and every path in its table, and
-  finding 10's "still eleven rows", are readings of a rendered picture with no
-  second source. Neither is filed as a bug for that reason.
+  above as they printed it.
+- The sidebar itself, for what a row displays. There is no CLI that reports a
+  mirrored workspace's subtitle or its path — `workspace list` prints neither —
+  so finding 9 rests on reading the rendered sidebar at full width. That is the
+  weakest evidence in this file and it is the whole basis of that finding, which
+  is why it is recorded as an observation rather than filed as a bug.
 
-  **That check was later run, and it only half helps.** `cmux workspace list`
-  prints which rows exist — the half finding 10 needed — and prints nothing
-  about what a row displays, which is the half finding 9 needed. Finding 11
-  carries the output. So finding 9's numbers still have no second source, and
-  the reason is now a verified property of the CLI rather than an assumption.
+## Session 2026-09-25
 
-  **It is weak in a way that has already cost this file a wrong number, twice
-  over.** Finding 9 first said two rows wrong and three blank; it is five wrong
-  and none blank. The first draft also asserted it had been *"read at full
-  sidebar width"* — so the count was wrong and the stated control was wrong with
-  it. That is why the remedy is not "say what width you read at": the draft that
-  failed said exactly that. Until cmux reports these values through some
-  interface, the honest position is that finding 9's numbers are its weakest
-  claim and are labelled as such in the finding itself.
+- Verdict: **unsatisfied**
+- Scope: the 2026-09-22 session's two outstanding rows were revisited, and the
+  mirror was exercised across a teardown and a reconnect. No new pass was named,
+  and every row not listed below stands as that session recorded it.
+- Ran against: 9 - 12 tmux sessions on the default server, 11 mirrored
+  workspaces at connect.
+- Versions: cmux 0.64.25 (106), tmux 3.6a, workmux 0.1.211, wfctl 0.20.0.
+- Detail: the full second reading was drafted in the earlier commits of the
+  pull request that carries this section, and was reduced to this section rather
+  than merged, for the reason given under "Superseded direction" below. What that
+  draft established is summarised here, and those commits are the only fuller
+  copy.
 
-  **Finding 10 is partly in this bucket, and an earlier draft of this ledger
-  denied it.** Half of it — a re-run that fails, a control master still alive,
-  twelve sessions on the server — rests on the first two sources above and is
-  reproducible. The other half is "and the sidebar still shows eleven", which is
-  a reading of the picture and is load-bearing: it is the observation that the
-  new session did not appear.
+### Coverage rows that changed
 
-  `workspaces=11` does **not** corroborate it. That line was printed when the
-  mirror connected, before the twelfth session existed, so a mirror that added
-  the row dynamically would have printed exactly the same thing. The earlier
-  draft offered it as corroboration, which was the same mistake finding 9 is
-  about: a number that is easy to check, cited for a claim it cannot reach.
+| Pass | Status |
+| --- | --- |
+| C · `ssh-tmux` / `mosh-tmux` — the control-mode path | Outstanding (the mirror never discovers a session created after connect, and a reconnect misassigns rows) |
+| H · What a mirrored row reports about its own worktree | Outstanding (five of the ten rows read print a path that is not theirs) |
+
+### Two claims above are wrong, and are corrected here
+
+1. Finding 9 reports two rows showing a path that is not theirs and three
+   showing no path, and both it and the Evidence section state that the sidebar
+   was read at full width, so the absent paths are not truncation. Both halves
+   are wrong. The sidebar was
+   narrower than the claim, three subtitles were truncated to nothing, and a
+   second reading of ten of the eleven rows found five printing a path that is
+   not theirs. All five print this worktree's path. That count is a reading of a
+   screenshot, and no cmux verb reports a mirrored workspace's subtitle or path,
+   so it has no second source and a later reader should treat it as the weakest
+   claim in the file.
+2. Finding 9 offers, as the one thing the wrong rows have in common, that their
+   sessions were created within thirty seconds of each other and of 424's. That
+   is falsified. `pfms__pfms-specs` is the oldest session on the server and sits
+   in a different repository, and `pfms__656-detail-panel` was created an hour
+   apart from the three wfctl sessions. Both print the wrong path. Proximity in
+   time is not what the five share.
+
+### Three further defects, found and not written up in full
+
+1. A session created after the mirror connects never gets a row. The sidebar
+   keeps the eleven that existed at connect while `tmux list-sessions` reports
+   twelve, and re-running `cmux ssh-tmux localhost` does not repair it.
+2. Tearing down the SSH control socket and reconnecting does add the missing
+   rows, and it clears the status line from every row that carried one.
+3. After that reconnect, two rows titled for `pfms` sessions rendered a wfctl
+   worktree's live pane, subtitle, and path. Only the title belonged to the
+   session it named.
+
+### Superseded direction
+
+Subsequent investigation found the cmux surface had additional path-correlation
+and discovery defects beyond those recorded here. Those findings were not
+pursued to implementation because the supervisory direction subsequently moved
+away from using cmux as the wfctl status surface, toward a terminal-native
+dashboard over workmux, tmux, and `wfctl status --json`. The original evaluation
+is retained because it is what settled that question, and the corrections above
+are appended rather than the file being rewritten.
+
+Four conclusions survive the change of direction, and they bind the dashboard:
+
+1. A presentation-layer identifier is not authority. The workmux handle is the
+   correlation identity.
+2. Runtime state and workflow state are different things, and a row that
+   conflates them answers "which worktree needs me?" wrongly.
+3. The presentation must be reconstructable from the runtime, since a client
+   that caches its row set does not notice a worktree created after it
+   connected.
+4. Runtime and worktree identity are derived from workmux and tmux, never from a
+   client's own bindings.
