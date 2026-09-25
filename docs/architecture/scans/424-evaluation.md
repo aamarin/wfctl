@@ -857,8 +857,8 @@ tear-down-and-reconnect as every status line plus the poller. If this defect is
 caused by the reconnect, the cost also includes rows that lie about which worktree
 they show — and the remedy stops being merely expensive and becomes one that
 must not be run unattended. Establishing which requires a second teardown, done
-deliberately, with a row-by-row check of content against title before and after. That experiment
-is named on #461 and was not run here.
+deliberately, with a row-by-row check of content against title before and after.
+That experiment is named on #461 and was not run here.
 
 **The poller is right where cmux is wrong, on the same row, at the same moment.**
 Once `wfctl-rows` was restarted, both affected rows carried a correct status line
@@ -878,35 +878,13 @@ which is the client-assigned identity the record forbids as a key, gets it wrong
 on the same row at the same moment. **A consumer that correlates the way the
 record demands is immune to this defect**, which narrows the finding: the
 mis-binding is in cmux's surface routing and reaches nothing derivable from the
-handle.
-
-**The poller is right on the same rows cmux is wrong on, and that is the
-record's argument made visible.** Once `wfctl-rows` was restarted, both defective
-rows carried three lines at once:
-
-```
-pfms__564-chart-follows-interview
-  #564 · done                                       ← poller, correct
-  424-observer-dashboard-eval                       ← cmux, wrong
-  ~/Development/wfctl/wt/424-observer-dashboard-e…  ← cmux, wrong
-```
-
-Two writers, the same row, the same moment, disagreeing. The one that is correct
-correlates the way `a-client-attaches-to-a-runtime-it-never-owns` requires —
-session name to worktree path, through tmux — and the wrong one is cmux's own
-workspace binding, which is the key the record says must never be used.
-
-That narrows this finding rather than widening it. The mis-binding lives in
-cmux's display and surface routing; nothing derived from the workmux handle is
-affected. **A consumer that correlates the way the record demands is immune to
-it**, which is a stronger reason to keep that clause than the record's own
-argument for it — the clause was reasoned from first principles, and this is the
-failure it was reasoned about, observed.
+handle. The clause was reasoned from first principles; this is the failure it was
+reasoned about, observed.
 
 **Limits.** One reconnect, `localhost`, two rows observed wrong out of nine —
 and the other seven were not checked content-against-title, so the count is a
-floor rather than a measurement. As with findings 9 and 10, the evidence is a rendered
-UI: no cmux verb reports which session a workspace is displaying, so there is no
+floor rather than a measurement. As with findings 9 and 10, the evidence is a
+rendered UI: no cmux verb reports which session a workspace is displaying, so there is no
 text source to confirm this against. `cmux workspace list` gives titles only,
 which is exactly the half that is correct here.
 
