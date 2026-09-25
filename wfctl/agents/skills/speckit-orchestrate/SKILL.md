@@ -1,6 +1,7 @@
 ---
 name: 'speckit-orchestrate'
 description: 'Read pipeline state after a speckit step completes, then auto-advance or surface the next command based on the step auto flag.'
+allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
 ---
 
 ## Steps
@@ -43,8 +44,8 @@ description: 'Read pipeline state after a speckit step completes, then auto-adva
    **What this catches is every session, and still not every run.** The gate
    now sees a conversation that skipped `/start-session` on a branch that has
    already had one, which `session_started` could not (#200). What it does not
-   fix is *when* it fires: the six skills that invoke this one as their **last**
-   step meet the gate after their work is done rather than before it, so a
+   fix is *when* it fires: every pipeline step invokes this one as its **last**
+   instruction, so a step meets the gate after its work is done rather than before it, so a
    refusal there names a session that should never have started and cannot undo
    what it already wrote (#201).
 

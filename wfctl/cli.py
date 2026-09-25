@@ -2918,9 +2918,14 @@ _MIRRORED_SKILLS = frozenset({
     # tree, so an agent handed `/speckit.brainstorm` out of `wfctl status --json`
     # resolved it against nothing and stopped for a human (#361). Splitting the
     # body out supplies the name; this entry is what puts it on the native
-    # discovery path, which the other ten still lack. So the test for whether a
-    # later step belongs here is "does a lookup by name find it", not "is its
-    # wrapper readable".
+    # discovery path.
+    #
+    # Not the precedent for the other steps. Their route is the dotted wrapper `EXECUTE_COMMAND` names, which carries
+    # no `disable-model-invocation` for that reason. Mirroring their skills
+    # instead would skip the wrapper, and the wrapper is where wfctl's layer over
+    # a derived skill lives — `speckit.analyze.md`'s scan file, `plan` and
+    # `tasks` reading the design records — so the step would report done without
+    # them (#398).
     #
     # The wrapper survives it: `speckit.brainstorm` and `speckit-brainstorm`
     # differ by a dot, so `_mirror_supersedes_wrapper` never fires and the typed
@@ -2934,6 +2939,28 @@ _MIRRORED_SKILLS = frozenset({
     # the same dead end from the other side — and narrowing it here would leave
     # the two entrances disagreeing about what the identical workflow may do.
     "speckit-brainstorm",
+    # The step skills' shared exit. Every one of them, or its wrapper, ends
+    # "invoke `speckit-orchestrate`", and that is a skill name: its wrapper is
+    # `speckit.orchestrate`, a dot away, so without this entry the lookup finds
+    # nothing and an unattended run stops at the boundary between two steps with
+    # the first one's work done (#473). It is wfctl's own skill, not derived, so
+    # unlike the steps above nothing of wfctl's is carried only on its wrapper,
+    # and skipping that wrapper loses nothing.
+    #
+    # The wrapper's `allowed-tools:` is copied onto the SKILL.md, so a
+    # model-initiated turn may now spend it too. It is `wfctl status`, `wfctl
+    # resume` and `gh pr list`: two reads and the one write that records the
+    # advance, which is the whole of what a step's last instruction asks for. A
+    # grant narrower than the wrapper's would leave the two entrances
+    # disagreeing about what the same workflow may do.
+    #
+    # Its description can now fire it with no step just finished, and each run
+    # records a pass through `wfctl resume`. `wfctl-counts-the-passes` cannot
+    # tell such a run from a step that re-entered and changed nothing, so one
+    # stray invocation brings a stall a pass closer. Accepted: the description
+    # names the moment after a step completes, and a stall only ever stops the
+    # loop for a person, which is the failure it is there to report.
+    "speckit-orchestrate",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather
     # than the filesystem: an agent reaching for `Skill(start-session)` is
