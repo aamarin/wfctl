@@ -242,3 +242,104 @@ def test_a_failing_record_with_no_design_doc_still_reads_brainstorm_started(
     assert step["state"] == "in_progress"
     assert step["reason"] == f"a-decision: {_first_blocker(root, 'a-decision')}"
 
+
+# --- User Story 3: branches the gate does not judge are unaffected -----------
+#
+# Regression guards, so they pass before this change and after it. Each pins a
+# state the drawing check could have broken by judging a record it should not.
+
+
+def test_an_arch_none_declaration_alone_still_answers_the_design_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A change that draws no boundary has no drawing to judge, and a gate that
+    looked for one there would hold every copy edit in the repository."""
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
+
+    step = _brainstorm()
+
+    architecture = next(s for s in step["sub_steps"] if s["name"] == "architecture")
+    assert architecture["state"] == "done"
+    assert step["state"] == "done"
+
+
+def test_a_branch_with_no_record_keeps_the_existing_reason_and_fix(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unanswered boundary question still gets its own reason and its two-way
+    fix, built from the reason by `_design_remedy` as before. A roll-up that
+    copied the pass's empty remedy would have dropped it."""
+    from wfctl._evidence import DESIGN_BLOCK_REASON
+    from wfctl._pipeline import DESIGN_BLOCK_HELP, arch_location
+
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+
+    step = _brainstorm()
+
+    assert step["reason"] == DESIGN_BLOCK_REASON
+    assert step["remedy"] == DESIGN_BLOCK_HELP.format(
+        location=arch_location(root, storyctl_dir.repo_root)
+    )
+
+
+def test_an_accepted_record_is_not_judged_for_its_drawing(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A person ruled on an accepted record, some of them before a drawing was
+    required at all. Judging it again would hold a branch that only edited one
+    on a rule its acceptance already answered."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _record(root, "a-decision", "accepted", boundary=_FLOWCHART)
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_a_failing_record_marked_rejected_by_hand_releases_the_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rejecting a record is a ruling on it, and a rejected record is never
+    accepted, so its drawing no longer matters to anyone."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _record(root, "a-decision", diagram="component")
+    assert _brainstorm()["state"] == "in_progress"
+
+    _record(root, "a-decision", "rejected", diagram="component")
+
+    assert _brainstorm()["state"] == "done"
+
+
+@pytest.mark.parametrize("corner", ["design", "scans"])
+def test_a_failing_looking_file_outside_the_records_is_not_judged(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, corner: str
+) -> None:
+    """`design/` holds level-3 records and `scans/` holds what a review covered.
+    Neither is a level-2 record `accept` would ever be run on, so neither has a
+    drawing the gate can ask about."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
+    _record(root / corner, "a-decision", diagram="component")
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_a_failing_record_under_an_arch_root_outside_the_repository_is_not_judged(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Git cannot say what this branch changed under a root it does not track, so
+    there is no list of this branch's records to judge. The boundary question
+    already proceeds on that silence, and the drawing check has to agree with it
+    rather than hold the step on every record kept outside the repository."""
+    root = tmp_path_factory.mktemp("outside") / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _record(root, "a-decision", diagram="component")
+
+    assert _brainstorm()["state"] == "done"
