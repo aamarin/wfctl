@@ -183,3 +183,37 @@ ownership: the same person answers both, and a lower level is allowed to reopen
 a higher one. Whoever cites this section has to show that a level-3 finding
 went back up to level 2 when it should have, rather than cite the chapter as
 though it endorsed the split.
+
+---
+
+## Keeping an architecture true while it changes
+
+Added 2026-09-25, while reading the sources the design levels were written
+against. Ford, Parsons, Kua, and Sadalage, *Building Evolutionary
+Architectures* (O'Reilly, 2nd ed., 2022), cited by chapter and section since
+the edition carries no stable page numbers across formats.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Ch. 1, "Evolutionary Architecture" | *"An evolutionary software architecture supports guided, incremental change across multiple dimensions."* And a second test for what counts as architectural: *"Architectural decisions are ones in which each choice offers significant trade-offs."* | A decision that meets Nygard's five categories and offers no real trade-off, so that the two definitions disagree about whether it is level 2. None is known; the two are read here as one test stated twice |
+| Ch. 2, "What Is a Fitness Function?" | *"An architectural fitness function is any mechanism that provides an objective integrity assessment of some architectural characteristic(s)."* Fitness functions *"are to architecture characteristics as unit tests are to the domain."* | An accepted record whose violation is visible in an artifact and that still ships as prose. `a-rule-is-expressed-as-a-check` is this claim stated for wfctl, so a record that fails its test and is accepted anyway is the refutation |
+| Ch. 3, consumer-driven contracts | The consumers of a provider *"put together a suite of tests that encapsulate what they need from the provider and hand off those tests to the provider, who promises to keep the tests passing at all times."* The provider can then change anything those tests do not cover | A consumer of `wfctl status --json` outside this repository that cannot hand wfctl a test. The shape check on `wfctl/contracts/status-payload.json` is provider-written today, and it misses a change of meaning that keeps every key and type |
+| Ch. 5, "Contracts" | A contract is *"the format used by parts of an architecture to convey information or dependencies,"* and strict contracts *"create brittleness in integration architecture."* Adding information to a loose contract *"doesn't break what's there."* | A consumer that breaks on an added key. #424's evaluation found the opposite failure, a consumer that breaks on a missing one (`version` absent before 1.0), which a loose contract does not prevent |
+| Ch. 7, "Last Responsible Moment" and "Build Anticorruption Layers" | Delay a decision *"as long as you can, but no longer,"* and ask *"Do I have to make this decision now?"*, *"Is there a way to safely defer this decision without slowing any work?"*, and *"What can I put in place now that will suffice but I can easily change later if needed?"* | A deferred decision that forced rework in the milestone that deferred it. The supervisory epic defers the keyboard question to its second milestone on exactly this argument, so a first milestone that has to read a keypress would be the refutation |
+
+### What the set argues, taken together
+
+The first book says what makes a decision level 2. This one says how a level-2
+decision stays true after it is made: a fitness function guards it, and a
+contract that other parts read is guarded from the consumer's side as well as
+the provider's. wfctl already has the first half as an accepted record and
+has only the provider's half of the second.
+
+### The strongest argument against
+
+The book is written for teams with a deployment pipeline, many services, and
+consumers they can talk to. wfctl is one package, one maintainer, and consumers
+it mostly cannot reach. Consumer-driven contracts assume the consumer can hand
+over a test, and a workmux plugin or an editor extension will not. Whoever
+cites the contracts rows has to say which consumer supplies the test, rather
+than cite the practice as though every consumer could.

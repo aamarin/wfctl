@@ -241,6 +241,13 @@ Performance, scale, latency, availability, and cost claims require measurement
 or remain explicitly marked assumptions. A metric is diagnostic evidence; it
 does not choose the architecture.
 
+When the decision protects an architectural characteristic, name the fitness
+function that guards it, meaning the check that fails when a later change
+breaks it, or say why none can exist and the rule stays prose
+(`a-rule-is-expressed-as-a-check`). A contract that another tool reads names
+who writes the test for it, the provider or the consumer. The term is Ford,
+Parsons, Kua, and Sadalage's, *Building Evolutionary Architectures*, ch. 2.
+
 If a finding invalidates an earlier level, return to that level and revise. Do
 not work around the contradiction inside this iteration.
 
