@@ -149,6 +149,14 @@ pressure you can state, not by the name being familiar.
   policies with explicit failure and observability costs, not as decorators to
   add by habit.
 
+The first two constraints follow from Python itself. Functions are first-class
+values, so a Strategy can be a callable and a Command can be a function, and
+named parameters remove the telescopic constructor problem a Builder solves in
+other languages (Ayeva and Kasampalis, *Mastering Python Design Patterns*, pp.
+27, 119, and 152). The Singleton and microservices constraints depart from the
+same book, which offers global state and several clients as reasons to reach
+for them.
+
 ## Red flags
 
 Each of these is a sign the mechanism was chosen before the pressure was named.

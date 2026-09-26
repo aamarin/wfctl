@@ -254,3 +254,59 @@ touches, and `design-levels` separates them by reversal cost. Three books give
 three criteria for the same line. Whoever cites this section has to say which
 criterion decided a given level, rather than cite the figure as though the line
 were settled.
+
+---
+
+## What the Python pattern catalog says, and where level 4 departs from it
+
+Added 2026-09-25, while reading the sources the design levels were written
+against. Kamon Ayeva and Sakis Kasampalis, *Mastering Python Design Patterns*
+(Packt, 2nd ed., 2018), cited by printed page.
+
+The book is a catalog. Each chapter names a pattern, its use cases, and a Python
+implementation, and it says when a pattern applies far more often than when a
+cheaper shape is enough. So it supports `python-pattern-selection` in four rows
+and argues against it in two, and the two are kept as they are.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Ch. 13, "Strategy pattern", p. 152 | *"In languages where functions are not first-class citizens, each Strategy should be implemented in a different class ... In Python, we can treat functions as normal variables and this simplifies the implementation of Strategy."* The standard library's own example is `sorted()`'s `key` parameter (p. 151) | A Strategy in wfctl written as a class hierarchy whose subclasses each hold one method and no state. That is the shape the constraint "a function or callable before a Strategy or Template Method class hierarchy" exists to prevent |
+| Ch. 10, "The Command Pattern", p. 119 | *"a command does not necessarily need to be a class."* The chapter's delete utility is a plain function placed in the same command list as the classes | A command in wfctl that is a class only so that it can sit in a list beside other commands. The book shows a function sits there as well |
+| Ch. 2, "The Builder Pattern", p. 27 | The telescopic constructor problem *"does not exist in Python"*, because named parameters and argument list unpacking solve it. Builder is for an object that *"must be created in multiple steps, and different representations of the same construction are required"* | A Builder in wfctl that assembles its object in one step and has one representation. The constraint "direct construction and named arguments before Factory or Builder machinery" is the book's own line |
+| Ch. 1, "The factory method", pp. 9 and 19 | Consider a factory *"if you realize that you cannot track the objects created by your application because the code that creates them is in many different places."* Between the two factories, *"we usually start with the factory method which is simpler"* and reach the abstract factory only once many factory methods exist | A factory in wfctl introduced while construction still happens in one place. The use case the book gives is a pressure that can be observed, which is the form the skill asks every pattern to carry |
+| Ch. 3, "Singleton", pp. 38 and 45 | Singleton is useful *"when you need to create only one object or you need some sort of object capable of maintaining a global state for your program,"* and the chapter notes that *"some even consider it an anti-pattern."* | **wfctl departs here.** The skill rejects hidden Singleton access and asks for an explicit construction and lifetime owner. The book's use case, global state reached from anywhere, is the red flag "a process-wide dependency is reached through hidden global state". The departure would be wrong if a process-wide dependency in wfctl could not be given an owner that constructs it and passes it down |
+| Ch. 15, "The Microservices pattern", p. 191 | Microservices fit *"every time"* an application has at least one of these characteristics; different clients, a third-party API, messaging with other applications, database access, or *"logical components corresponding to different functional areas."* | **wfctl departs here too.** The skill's constraint "do not conclude microservices from code size, several clients, several functional areas, or database access alone" rejects three of those five triggers by name. The departure would be wrong if one of them, alone, were enough to justify a second deployable in a project wfctl serves |
+
+Two more rows are close enough to the skill that they are recorded without a
+column of their own. Flyweight (ch. 8, p. 79) repeats the Gang of Four's
+requirements, which begin with *"a large number of objects"* that are *"too
+expensive to store/render"*, and that is a measured pressure in the sense the
+skill asks for before caching or Flyweight. Retry (ch. 15, p. 198) is *"not
+recommended for handling failures such as internal exceptions caused by errors
+in the application logic itself,"* and frequent busy faults are *"a sign that the
+service being accessed has a scaling issue."* The book then applies retry and
+circuit breaker as decorators (pp. 202 and 206), which is the habit the skill
+names; it states the failure policy correctly and still reaches for the
+decorator first.
+
+### What the set argues, taken together
+
+The book shows that Python moves several Gang of Four patterns down into the
+language. A first-class function is a Strategy, a named argument replaces a
+Builder, and a function can be a Command. That is the reading
+`level-4-owns-pattern-selection` relies on, since the pattern is still chosen at
+level 3 and only its Python mechanism changes. Where the book gives a use case
+as an observable pressure, the skill agrees with it; where it gives one as a
+property most applications have (global state, several clients, a database), the
+skill does not.
+
+### The strongest argument against
+
+A catalog is the wrong kind of source for a skill whose whole stance is that the
+cheaper shape comes first. The book says when to use each pattern and almost
+never when not to, so four supporting rows are four places where it happens to
+agree, and not an argument for the default. Its microservices chapter treats a
+list of common properties as sufficient, which is the reasoning the skill was
+written to stop. Whoever cites this section cites it for the Python mechanism
+rows, and cites the two departures as the position the skill argues against,
+rather than as support.
