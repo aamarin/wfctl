@@ -93,10 +93,15 @@ Declare which kind of diagram the decision needs in the frontmatter's
 | `sequence` | an event, a poll, or a retry placed between a cause and its effect | In what order do things happen, who waits, and what is left if a step fails halfway? |
 
 A `sequence` drawing carries a row for the step that fails, since that row is
-what the kind exists to show. `state` and `sequence` are told apart by what
-moves. A `state` drawing follows one thing through its states; a `sequence`
-drawing follows a request across several actors, and the question it answers is
-what each actor holds when the request stops partway.
+what the kind exists to show. Draw it as an `alt`, `opt`, `break` or `critical`
+block, or as a lost message (`-x`); `wfctl doctor` warns about a proposed
+`sequence` record whose drawing has none of them, and refuses nothing, because
+what counts as the failing step is the author's call.
+
+`state` and `sequence` are told apart by what moves. A `state` drawing follows
+one thing through its states; a `sequence` drawing follows a request across
+several actors, and the question it answers is what each actor holds when the
+request stops partway.
 
 The author picks the kind. wfctl checks only that the record carries a drawing
 and that the declared kind is one of the four above — it never decides which

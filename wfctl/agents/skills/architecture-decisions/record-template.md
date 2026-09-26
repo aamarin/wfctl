@@ -42,7 +42,8 @@ edge for what the owning side never accepts from the other, because that edge
 is the decision. Use a solid edge (`-->`) for a synchronous call and a dotted
 edge (`-.->`) for anything read later, such as a file on disk or a payload a
 renderer polls. A mermaid `stateDiagram-v2` for `state`, and a mermaid
-`sequenceDiagram` for `sequence`, with a row for the step that fails. When the
+`sequenceDiagram` for `sequence`, with a row for the step that fails (an `alt`,
+`opt`, `break` or `critical` block, or a lost message `-x`). When the
 drawing uses an edge style or a shape the record does not explain in prose, add
 a one-line key below the fence. Label with the words this record already uses
 in prose — a label introducing a concept found
