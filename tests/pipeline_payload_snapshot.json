@@ -695,6 +695,64 @@
       "state": "in_progress"
     }
   ],
+  "design-failing-drawing": [
+    {
+      "annotation": "a-decision: no drawing: add a fenced block under '## Boundary'",
+      "name": "brainstorm",
+      "reason": "a-decision: no drawing: add a fenced block under '## Boundary'",
+      "remedy": "  wfctl arch accept a-decision --dry-run",
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
   "design-no-record": [
     {
       "annotation": "no architecture record for this change",

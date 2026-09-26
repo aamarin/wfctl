@@ -231,6 +231,11 @@ class _PipelineSubStep:
     `skipped` apart (`an-absent-artifact-is-claimed-not-inferred`) — a
     non-null reason a person wrote, or `None` when the state was inherited
     from a parent the pipeline walked past and no claim was ever owed.
+
+    `remedy` is the pass's own fix for its reason, when its reader built one.
+    The roll-up carries it to the step, and the payload's `sub_steps` never
+    serializes it: the step's `remedy` already says it once, and a second copy
+    would change a shape `status-payload.json` publishes.
     """
 
     name: str
@@ -240,6 +245,7 @@ class _PipelineSubStep:
     on_finish: Continuation
     claimed: str | None = None
     is_current: bool = False
+    remedy: str | None = None
 
 
 @dataclass
@@ -334,22 +340,27 @@ def _infer_steps(
             name, passes_by_step.get(name, ()), ev, reading.state, claims
         )
         # The roll-up (research.md R7): a step whose own reading is `done` with
-        # an outstanding pass has not finished. The parent's `annotation` and
-        # `reason` take the outstanding pass's own — `brainstorm`'s architecture
-        # pass carries `DESIGN_BLOCK_REASON` exactly where the old single-reader
-        # arm did, so `_design_remedy` below keys on it exactly as before and
-        # a consumer reading the *step's* fields (`speckit-orchestrate`, or
-        # `_infer_steps`' own callers) sees no change for that case. A pass with
-        # nothing to say (`design-doc`) leaves both `None`, which is new: the
-        # old reader could not reach "record done, document missing" without
-        # reading `design.md` first, the read order `design.md` itself flagged
-        # as backwards.
+        # an outstanding pass has not finished. The parent's `annotation`,
+        # `reason` and `remedy` take the outstanding pass's own. A pass with
+        # nothing to say (`design-doc`) leaves all three `None`, which the old
+        # single reader could not reach: it read `design.md` before the record,
+        # the read order `design.md` itself flagged as backwards.
+        #
+        # The remedy falls back to `_design_remedy` when the pass built none.
+        # `brainstorm`'s architecture pass carries `DESIGN_BLOCK_REASON` for an
+        # unanswered boundary question, and that fix is still built from the
+        # reason, as it was before a pass could say how it is cleared. A drawing
+        # `accept` would refuse is the pass's other reason, and its fix names a
+        # record only the pass knows, so the pass builds it and this copies it.
         outstanding = next((s for s in step_state.sub_steps if s.state == "in_progress"), None)
         if outstanding is not None:
             step_state.state = "in_progress"
             step_state.annotation = outstanding.annotation
             step_state.reason = outstanding.annotation
-        step_state.remedy = _design_remedy(step_state, repo_root)
+        if outstanding is not None and outstanding.remedy:
+            step_state.remedy = outstanding.remedy
+        else:
+            step_state.remedy = _design_remedy(step_state, repo_root)
         steps.append(step_state)
 
         # Cascade on the step's *own* reading, unchanged from before this
@@ -415,7 +426,10 @@ def _pass_states(
         if reading.state != "done":
             cascade = True
         result.append(
-            _PipelineSubStep(sub.name, reading.state, reading.renders(), sub.command, sub.on_finish)
+            _PipelineSubStep(
+                sub.name, reading.state, reading.renders(), sub.command, sub.on_finish,
+                remedy=reading.remedy,
+            )
         )
     return result
 

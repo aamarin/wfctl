@@ -170,6 +170,16 @@ PLAN_SECTIONS = "".join(
     f"## {name}\n\nPlaceholder.\n\n" for name in _REQUIRED_PLAN_SECTIONS
 )
 
+# A proposed level-2 record `wfctl arch accept` would take, for a test whose
+# subject is that a record answers the boundary question. The design gate judges
+# a proposed record's drawing since #498, so a record with none holds brainstorm,
+# and a test about something else would fail on the drawing instead.
+ACCEPTABLE_RECORD = (
+    "---\nstatus: proposed\ndiagram: component\n---\n\n# x\n\n"
+    "## Boundary\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n"
+    "## Log\n\n- 2026-09-26  proposed  — x\n"
+)
+
 
 def structured(body: str) -> str:
     """`body` plus the sections `specify` requires, for a test about something else.

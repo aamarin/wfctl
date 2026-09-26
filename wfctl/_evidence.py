@@ -74,11 +74,20 @@ class Assessment(NamedTuple):
     routing read wants the reason alone. Carried here rather than composed in the
     walk so the walk never has to know which step is the exception — that branch
     was the last `if name ==` left in it.
+
+    `remedy` is how to clear `reason`, set by a reader only when it alone holds
+    what the fix has to name. The architecture pass is the case: it knows which
+    record failed at the moment it decides, and a fix built later from the
+    reason's text would couple the fix to wording `_arch` owns and rewords
+    freely (`docs/architecture/design/498-the-fix-line-travels-with-the-reason.md`).
+    A reader that sets it also sets `reason`, since a fix with nothing to clear
+    is not one.
     """
 
     state: State
     reason: str | None = None
     display: str | None = None
+    remedy: str | None = None
 
     def renders(self) -> str | None:
         """What a view shows for this step."""
@@ -1079,17 +1088,68 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
     """Whether the boundary question was put and answered — a record, or a
-    `wfctl arch none` declaration.
+    `wfctl arch none` declaration — and whether the drawing a proposed record
+    carries is one `wfctl arch accept` would take.
 
     One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
     directly rather than `design_block`, which answers the same question with
     two extra guards that belong to the whole step (`design.md` exists;
-    `spec.md` does not) — `design.md` is the other pass's business, and a
-    branch past `spec.md` never reaches this reader at all, because `brainstorm`
-    reports `skipped` before any pass runs (research.md R7).
+    `spec.md` does not) — `design.md` is the other pass's business.
+
+    A branch past `spec.md` does reach this reader, whenever `design.md` exists
+    too: `brainstorm` reads `done` on `design.md` before it looks for `spec.md`,
+    and then both passes run. `_architecture_answered` returns early there by its
+    own escape, and the drawing check has to repeat it, or it would hold every
+    branch past specify on a record the pipeline had already moved beyond.
+
+    The drawing is judged here and not inside `_architecture_answered`, because
+    `brainstorm` asks that function whether the step has started at all. A
+    refusable drawing there would read as a step never begun, and send the
+    reader to start a step already half done.
     """
     reason = _architecture_answered(ev.spec_dir, ev.repo_root)
-    return Assessment("done" if reason is None else "in_progress", reason)
+    if reason is not None:
+        return Assessment("in_progress", reason)
+    if _file_exists(ev.spec_dir / "spec.md"):
+        return Assessment("done")
+    return _refusable_drawings(ev.repo_root)
+
+
+def _refusable_drawings(repo_root: Path) -> Assessment:
+    """Hold the pass on any proposed record this branch touched whose drawing
+    `accept` would refuse, naming the first and handing back a fix for each.
+
+    `_arch.accept_blockers` is the only definition of those rules, and asking it
+    here is what moves the first check from acceptance to the moment the record
+    is written. It ignores status on purpose, so the filter to `proposed` is
+    this gate's: an accepted record was ruled on by a person, and a status
+    outside the closed set is refused by `accept` for its status, which would
+    make the drawing the wrong thing to name.
+
+    Slug order, so the record the reason names is the same one on every read;
+    git lists paths in its own order. The reason holds one record because the
+    step table has room for one line, and the fix holds every failing record,
+    since fixing only the named one would meet the next on the following read.
+    The fix is built from the slug held here and never from the reason's text,
+    which is the level-3 record this pass was written against.
+    """
+    from wfctl import _arch
+
+    records = _branch_records(repo_root, arch_root(repo_root))
+    failing = [
+        (slug, blockers)
+        for slug in sorted(records)
+        if records[slug].status == "proposed"
+        and (blockers := _arch.accept_blockers(records[slug]))
+    ]
+    if not failing:
+        return Assessment("done")
+    slug, blockers = failing[0]
+    return Assessment(
+        "in_progress",
+        f"{slug}: {blockers[0]}",
+        remedy="\n".join(f"  wfctl arch accept {s} --dry-run" for s, _ in failing),
+    )
 
 
 def brainstorm_design_doc(ev: Evidence) -> Assessment:
