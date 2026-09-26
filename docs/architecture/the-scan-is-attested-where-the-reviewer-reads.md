@@ -56,6 +56,15 @@ The repository holds the attestation; the spec store keeps the detail.
 verdict as one of `satisfied` / `unsatisfied` / `inconclusive`, the coverage the
 scan achieved, what it found, and a path to the full artifact in `FEATURE_DIR`.
 
+`plan-review`, the pass under `plan`, writes one too, at
+`<arch-root>/scans/<issue>-plan-review.md`. It qualifies for the same reason the
+two steps do: its whole job is to find problems, and without a committed file a
+review that found three blockers and one that never ran are the same pull
+request. Two differences looked like reasons to leave it in `FEATURE_DIR`, and
+neither separates it. It reviews a document written before any code exists, and
+so does `clarify`. It re-runs whenever the plan is revised, and a scan file
+already takes one `## Session` section per run.
+
 The `FEATURE_DIR` artifacts are unchanged, and so are the predicates that read
 them. Nothing about which steps are automatic changes.
 
@@ -195,3 +204,5 @@ gate, and gates are #100's.
   `Direct baseline` cited as precedent, on the argument the baseline had already
   made against itself. The baseline is reworded; the Decision it lost a
   precedent for is the one it never rested on.
+- 2026-09-26  amended     — #501 added `plan-review`, a third pass whose job is
+  to find problems, and the Decision names it beside the two steps.
