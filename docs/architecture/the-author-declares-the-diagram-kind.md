@@ -130,11 +130,12 @@ follows one thing through its states; a `sequence` drawing follows a request
 across several actors, and it exists to show what each actor holds when a step
 fails partway. Percival and Gregory draw every flow that crosses a wait this way
 (*Architecture Patterns with Python*, Figures 9-4, 11-6, and 12-2), and in each
-case the reason they give is a step that can fail on its own. `wfctl doctor`
-warns about a proposed `sequence` record whose drawing has no failure block and
-no lost message. It is a warning and not a refusal, for the reason the kind
-itself is the author's: which step counts as the failing one is a judgment
-about the decision, and only its absence is visible in the file.
+case the reason they give is a step that can fail on its own. `wfctl arch
+accept` therefore refuses a `sequence` record whose drawing has no failure block
+and no lost message, and `wfctl doctor` warns about one while it is proposed.
+The check reads the declared kind and the drawing's syntax, never the English:
+which step counts as the failing one stays the author's judgment, and what the
+refusal asks is only that one is drawn, which is visible in the file.
 
 ## Log
 

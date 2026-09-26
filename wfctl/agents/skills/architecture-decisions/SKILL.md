@@ -94,9 +94,10 @@ Declare which kind of diagram the decision needs in the frontmatter's
 
 A `sequence` drawing carries a row for the step that fails, since that row is
 what the kind exists to show. Draw it as an `alt`, `opt`, `break` or `critical`
-block, or as a lost message (`-x`); `wfctl doctor` warns about a proposed
-`sequence` record whose drawing has none of them, and refuses nothing, because
-what counts as the failing step is the author's call.
+block, or as a lost message (`-x`). `wfctl arch accept` refuses a `sequence`
+record whose drawing has none of them, and `wfctl doctor` warns about one while
+it is still proposed. Which step counts as the failing one is still the
+author's call; the refusal asks only that one is drawn.
 
 `state` and `sequence` are told apart by what moves. A `state` drawing follows
 one thing through its states; a `sequence` drawing follows a request across

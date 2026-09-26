@@ -276,11 +276,10 @@ def validate(records: list[Record]) -> list[Finding]:
                 ))
 
     for record in records:
-        # The failure-row rule (#495): a warning, `proposed` only, for VR-007's
-        # reasons. What a failure path means for a given flow is the author's
-        # judgment, and a refusal built on a syntax match would be one they
-        # cannot argue with; what the drawing lacks, a reader can see in the
-        # file.
+        # The failure-row rule (#495), as a warning, `proposed` only, for
+        # VR-007's reasons. `accept_blockers` refuses the same drawing at
+        # acceptance; this is the notice that arrives while the record is still
+        # being written, so the refusal is not the first anyone hears of it.
         if record.status != "proposed" or record.diagram != "sequence":
             continue
         drawing = _drawing(record)
@@ -395,6 +394,16 @@ def accept_blockers(record: Record) -> list[str]:
     elif record.diagram not in DIAGRAM_KINDS:
         blockers.append(
             f"'{record.diagram}' is not a diagram kind — use {_kind_list(', ', ' or ')}"
+        )
+    elif record.diagram == "sequence" and _drawing(record) and not _draws_a_failure(
+        _drawing(record)
+    ):
+        # Conditioned on a drawing, unlike the kind blockers above: with nothing
+        # drawn, "no drawing" already says the whole of it, and a second line
+        # about a failure row in a drawing that does not exist fixes nothing.
+        blockers.append(
+            "a sequence drawing with no step that fails: add an alt, opt, break "
+            "or critical block, or a lost message (-x)"
         )
     return blockers
 
@@ -884,8 +893,9 @@ def acceptable(record: Record) -> bool:
     """Whether `accept` could act on this record without raising.
 
     `proposed` is necessary but not sufficient — `accept_blockers` names the
-    rest: a `## Log` section to append the transition to, a drawing, and a
-    declared kind that `accept` would otherwise refuse. A listing built from
+    rest: a `## Log` section to append the transition to, a drawing, a
+    declared kind, and for a `sequence` a step that fails, each of which
+    `accept` would otherwise refuse. A listing built from
     status alone names a record whose own suggested command then fails, which
     is not a sentence anyone reading a list of "promotable" records was told to
     expect.
