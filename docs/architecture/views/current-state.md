@@ -85,6 +85,16 @@ The bands were recovered from the graph, not imposed on it: 13 of 14 modules
 already obey them. That is the useful finding — a layering exists and nobody had
 written it down, so nothing could hold it.
 
+The bands are Evans' responsibility layers, and the rule that a band may use any
+band below it is the relaxed layered system he pairs them with (*Domain-Driven
+Design*, ch. 16, "Responsibility Layers"). Evans also argues against how these
+bands were found. Layers recovered from the dependency graph are what he calls
+ad hoc layering, which shows what imports what and says nothing about what each
+layer is for. The third column of the table is what answers him; each band is
+admitted by a test of responsibility (what the module answers a question
+about), not by a test of imports. A band whose test ever becomes "it imports
+only from below" has fallen back into the form he warns against.
+
 ## What separates each band, and what breaks if it moves
 
 **surface / domain.** `cli` holds every `typer` decorator and every

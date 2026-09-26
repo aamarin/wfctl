@@ -6,6 +6,15 @@ mermaid. That is `design-levels`' rule, and a record's drawing is also governed
 by `the-drawing-is-required-at-acceptance` and
 `the-author-declares-the-diagram-kind`.
 
+A sketch in this skill is one of two things, and the reader has to be able to
+tell which. A model sketch shows the structure the code follows or will follow;
+its boxes are terms from the Ubiquitous Language, and a record can draw the
+same thing. An explanatory sketch teaches the domain; it can show what the code
+never models, such as a timeline of what a person does in a day, and it uses a
+notation that does not look like the code's structure so that nobody mistakes
+it for one (Evans, *Domain-Driven Design*, ch. 2, "Explanatory Models"). Label
+an explanatory sketch as one in its caption.
+
 ## Every sketch answers a named question
 
 Say the question before the sketch and the conclusion or open tension after it.

@@ -432,3 +432,39 @@ makes the record longer. The alternative is to pick the one question the
 decision turns on and draw only that, and it is the better choice for a record
 where the second question has a trivial answer, such as a poll that has no
 failure row worth drawing.
+
+---
+
+## What wfctl carries from Evans without citing him
+
+Added 2026-09-26, while checking Eric Evans, *Domain-Driven Design: Tackling
+Complexity in the Heart of Software* (Addison-Wesley, 2003), against the skills
+and views that draw on it. `model-the-domain`'s source map already cites the
+book chapter by chapter. These rows cover the three places it did not reach:
+the module bands in `views/current-state.md`, the part of chapter 10 that
+`clean-code` does not carry, and the difference between a drawing that teaches
+and the model the code follows.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Evans, ch. 16, "Responsibility Layers", pp. 286 - 288 | *"Look at the conceptual dependencies in your model and the varying rates and sources of change of different parts of your domain. If you identify natural strata in the domain, cast them as broad abstract responsibilities."* The layering he pairs it with is Buschmann's relaxed layered system, in which a layer may *"access any lower layer, not just the one immediately below."* | A band in `views/current-state.md` whose admission test is about imports rather than about what the band is responsible for. Evans calls layers that sort themselves out of a dependency drawing *"ad hoc layering"*, which *"doesn't give much insight into the model or guide modeling decisions"* (Figure 16.2, "What are these packages about?") |
+| Same, ch. 16, "Evolving Order", pp. 283 - 284 | *"Let this conceptual large-scale structure evolve with the application, possibly changing to a completely different type of structure along the way."* | A band that is treated as a constraint rather than a description. `current-state.md` says in its opening paragraph that it describes and does not constrain, which is this claim held in practice |
+| Same, ch. 10, "Assertions", p. 163 | *"State post-conditions of operations and invariants of classes and AGGREGATES. If ASSERTIONS cannot be coded directly in your programming language, write automated unit tests for them."* | A command whose side effects a caller can learn only by reading its body. `clean-code` asks for side effects to be explicit; it never asks for the outcome to be stated as a condition that holds afterwards |
+| Same, ch. 10, "Conceptual Contours", p. 166 | *"Is this an expedient based on a particular set of relationships in the current model and code, or does it echo some contour of the underlying domain?"* | A split or a merge of a function or module justified by size alone. `clean-code` sizes a unit by one reason to change; Evans sizes it by the concept, and the two can disagree |
+| Same, ch. 2, "Explanatory Models", pp. 24 - 25 | A drawing made to teach the domain is a different thing from the model the code follows, and *"it is actually helpful to avoid UML in these models, to avoid any false impression of correspondence with the software design."* | A domain sketch in `model-the-domain` that uses the same notation as the record's boundary drawing while showing something the code does not have |
+| Same, ch. 2, "Documents Should Work for a Living and Stay Current", pp. 23 - 24 | *"If the terms explained in a design document don't start showing up in conversations and code, the document is not fulfilling its purpose."* | A domain model whose Ubiquitous Language table names terms that no spec, plan, or module uses. That is the case today, since no step after brainstorm reads the model; it is tracked on #470 |
+
+### What the set argues, taken together
+
+wfctl already follows more of Evans than it cites. Its module bands are his
+responsibility layers under a relaxed layering rule, and its view of them
+describes rather than constrains, as his evolving order asks. What it does not
+yet do is hold its written language to the code, and the last row is where
+that gap is named.
+
+### The strongest argument against
+
+The bands cite Evans for a layering that may have been found without him. The
+view's history does not say, and a citation there claims only that the idea is
+his, not that wfctl took it from him. That is the honest reading of a
+references file, and it is the same claim this file makes for every other row.
