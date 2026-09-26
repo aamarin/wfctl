@@ -35,6 +35,13 @@ approval. Don't skip, don't collapse.
 | **3. Design** | How is it structured? | Schemas, contracts, named alternatives + why | Moderate |
 | **4. Implementation** | What's the code? | Real code to scan, not narrate | Cheap, mechanical |
 
+Levels 2 - 4 are the three levels of software development in Klaus Iglberger's
+*C++ Software Design* (Guideline 1): Software Architecture, Software Design, and
+Implementation Details. Level 1 is added in front of them because the behavior
+a user sees is what generates the level-3 requirements. The reversal-cost
+column is Iglberger's criterion for architecture, quoting Ralph Johnson: the
+decisions *"that you wish you could get right early in a project."*
+
 Levels 2 and 3 are where the decisions with lasting consequence live, and they
 are the ones most often skipped — level 1 feels like enough and level 4 feels
 like progress.

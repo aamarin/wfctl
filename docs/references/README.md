@@ -217,3 +217,40 @@ it mostly cannot reach. Consumer-driven contracts assume the consumer can hand
 over a test, and a workmux plugin or an editor extension will not. Whoever
 cites the contracts rows has to say which consumer supplies the test, rather
 than cite the practice as though every consumer could.
+
+---
+
+## Where the three lower levels come from
+
+Added 2026-09-25, while reading the sources the design levels were written
+against. Klaus Iglberger, *C++ Software Design* (O'Reilly, 2022), cited by
+guideline and section since the edition carries no printed page numbers. The
+book is about C++, and every claim taken here is one it states as
+language-independent.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Guideline 1, "The Three Levels of Software Development" (Figure 1-1) | Software development has three levels: Software Architecture, Software Design, and Implementation Details. Architecture is *"the aspects of your software that are among the hardest things to change in the future"*, and the book quotes Ralph Johnson on it. Design *"primarily deals with the interaction of software entities"* and their *"physical and logical dependencies"*. Implementation details handle *"how a solution is implemented"*, including implementation patterns such as a factory function; Figure 1-1 places idioms at either of the two lower levels. The boundary between architecture and design *"appears to be fluid and is not clearly separated."* | A level in `design-levels` that does not map to one of the three. Levels 2, 3, and 4 are these three in order, and level 1 (behavior) is wfctl's addition in front of them. A fourth level added below implementation, or a split of design into two, would break the mapping |
+| Guideline 1, same section | Design patterns such as Visitor, Strategy, and Decorator belong to *"the level of design patterns ... that define a dependency structure among software entities"*, which is the Software Design level, not Implementation Details | `level-4-owns-pattern-selection` (accepted) puts Python pattern selection at level 4, and `python-pattern-selection` weighs *"a callable before a Strategy hierarchy"* there. By Iglberger's line, choosing Strategy is a level-3 decision. The record survives because what it governs at level 4 is the Python mechanism that expresses a pattern already chosen, not the choice of pattern. A skill at level 4 that decides *whether* to use Strategy, rather than how to write it, would refute it |
+| Guideline 9, "Pay Attention to the Ownership of Abstractions" | *"Since abstractions represent requirements on the implementations, they should be part of the high level to steer all dependencies toward the high level."* Moving an abstraction to the other side *"is a reassignment of ownership."* | A published contract in wfctl whose shape is set by a consumer instead of by wfctl. `wfctl status --json` is the abstraction, and a consumer rendering it is an implementation that depends on it, so a field added to suit one renderer would reverse the direction |
+| Guideline 10, "Consider Creating an Architectural Document" | The document *"should contain the overall structure, the connections between key players, and the major technological decisions"* and should rarely change. The book calls it *"a bank deposit safe"*, invaluable when needed and not opened every day | A record under `docs/architecture/` edited as often as the code it constrains. `architecture-decisions` freezes an accepted body for this reason, and `views/current-state.md` is the only file there meant to track the code |
+
+### What the set argues, taken together
+
+This is the book the lower three levels were named after, and it is where the
+reversal-cost column comes from: architecture is what is hardest to change,
+design is how entities depend on each other, and implementation details are how
+a solution is written. It agrees with the first book that the line between
+architecture and design is fluid, and it adds the one rule the other books do
+not state, which is that the high level owns the abstraction the low level
+implements. That is level 2's question of who owns truth, read as a dependency
+direction.
+
+### The strongest argument against
+
+Iglberger admits the three levels are separated by size, and that *"there is
+no definition of 'big.'"* The first book separates them by what a decision
+touches, and `design-levels` separates them by reversal cost. Three books give
+three criteria for the same line. Whoever cites this section has to say which
+criterion decided a given level, rather than cite the figure as though the line
+were settled.
