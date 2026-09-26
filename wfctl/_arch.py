@@ -27,7 +27,7 @@ STATUSES = frozenset({"proposed", IN_FORCE, "superseded", "rejected", "retired"}
 # A tuple, where `STATUSES` is a frozenset: the accept refusal prints these
 # names, and the order they print in is the order the guidance lists them in
 # (FR-012, data-model.md "Diagram kind"). Nothing prints `STATUSES`.
-DIAGRAM_KINDS = ("data-flow", "component", "state")
+DIAGRAM_KINDS = ("data-flow", "component", "state", "sequence")
 
 # The heading each tier's template requires and the other's does not, which is
 # what makes a record's level readable from the file rather than only from the
@@ -182,7 +182,8 @@ def load_records(root: Path) -> list[Record]:
 
 def validate(records: list[Record]) -> list[Finding]:
     """Link integrity across the record set (VR-002, VR-003, VR-004), plus the
-    diagram-kind and label-agreement rules this feature added (VR-006, VR-007).
+    diagram-kind and label-agreement rules this feature added (VR-006, VR-007),
+    and the failure-row warning a `sequence` record gets (#495).
 
     Only the rules checkable from the set alone. The status *transitions* in
     data-model.md are a review convention — records are hand-edited markdown and
@@ -274,7 +275,33 @@ def validate(records: list[Record]) -> list[Finding]:
                     f"drawing label '{label}' appears nowhere else in the record",
                 ))
 
+    for record in records:
+        # The failure-row rule (#495), as a warning, `proposed` only, for
+        # VR-007's reasons. `accept_blockers` refuses the same drawing at
+        # acceptance; this is the notice that arrives while the record is still
+        # being written, so the refusal is not the first anyone hears of it.
+        if record.status != "proposed" or record.diagram != "sequence":
+            continue
+        drawing = _drawing(record)
+        if drawing and not _draws_a_failure(drawing):
+            findings.append(Finding(
+                "warning", record.slug,
+                "declares a sequence diagram with no step that fails — add an "
+                "alt, opt, break or critical block, or a lost message (-x)",
+            ))
+
     return findings
+
+
+def _draws_a_failure(drawing: str) -> bool:
+    """True when a sequence drawing shows a path other than the happy one."""
+    for line in drawing.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("%%"):
+            continue
+        if _FAILURE_BLOCK.match(stripped) or _LOST_MESSAGE.search(stripped):
+            return True
+    return False
 
 
 def _drawing(record: Record) -> str:
@@ -326,7 +353,7 @@ def _kind_list(sep: str, last_sep: str) -> str:
 
     One place for the two shapes the blockers and the CLI refusal need —
     `" | "` for a value to paste into frontmatter, `", "` plus `"or"` for a
-    sentence — so the three names are typed once here and nowhere else.
+    sentence — so the kind names are typed once here and nowhere else.
     """
     if len(DIAGRAM_KINDS) <= 1:
         return sep.join(DIAGRAM_KINDS)
@@ -368,6 +395,16 @@ def accept_blockers(record: Record) -> list[str]:
         blockers.append(
             f"'{record.diagram}' is not a diagram kind — use {_kind_list(', ', ' or ')}"
         )
+    elif record.diagram == "sequence" and _drawing(record) and not _draws_a_failure(
+        _drawing(record)
+    ):
+        # Conditioned on a drawing, unlike the kind blockers above: with nothing
+        # drawn, "no drawing" already says the whole of it, and a second line
+        # about a failure row in a drawing that does not exist fixes nothing.
+        blockers.append(
+            "a sequence drawing with no step that fails: add an alt, opt, break "
+            "or critical block, or a lost message (-x)"
+        )
     return blockers
 
 
@@ -396,6 +433,24 @@ _EDGE_LABEL = re.compile(r"([-.=]{2,}[>xo]?)\|([^|]*)\|")
 # Circles are read first; `[^)]*` cannot cross the inner `)` of a double paren.
 _CIRCLE_LABEL = re.compile(r"\w+\(\(([^)]*)\)\)")
 _ROUNDED_LABEL = re.compile(r"\w+\(([^)]*)\)")
+
+# A transition or message arrow whose label follows a `:` — a state diagram's
+# `-->`, and every arrow a `sequenceDiagram` draws a message with: `->`, `->>`,
+# `-x` and `-)`, solid or dotted. Reading only `-->` left a sequence's solid
+# messages unread, so the drawing could name a step the prose never mentions
+# and the check said nothing.
+_MESSAGE_ARROW = re.compile(r"-{1,2}(?:>>|>|x|\))")
+
+# A sequence participant given a display name — `participant R as renderer`.
+# The alias is what the rendered drawing shows; the id before `as` is not.
+_PARTICIPANT_ALIAS = re.compile(r"^(?:participant|actor)\s+\S+\s+as\s+(.+)$")
+
+# A `sequenceDiagram` block that draws a path other than the happy one, or a
+# message that is lost (`-x`, `--x`). A `sequence` record exists to show what is
+# left when a step fails partway, so a drawing with none of these has drawn the
+# half of the flow the kind was not added for.
+_FAILURE_BLOCK = re.compile(r"^(?:alt|opt|break|critical)\b")
+_LOST_MESSAGE = re.compile(r"\w\s*-{1,2}x")
 
 # Alphanumeric tokens. `\w` also matches `_`, which a slug or an identifier
 # quoted in a drawing could carry, and treating `arch_root` as one token is
@@ -432,7 +487,8 @@ def _content_words(text: str) -> set[str]:
 
 def _labels(drawing: str) -> list[str]:
     """Every node label in `drawing`: piped, bracketed, braced, quoted, a bare
-    `subgraph` title, or the text after `:` on a transition line.
+    `subgraph` title, a participant's `as` alias, or the text after `:` on a
+    transition or message line.
 
     `<br/>` and `<br>` become whitespace before any of the shapes are read, so
     a wrapped label reads as the one phrase its author wrote rather than as
@@ -477,6 +533,10 @@ def _labels(drawing: str) -> list[str]:
             if title and "[" not in title and '"' not in title:
                 found.append(title)
                 continue
+        alias = _PARTICIPANT_ALIAS.match(stripped)
+        if alias:
+            found.append(_unquote(alias.group(1).strip()))
+            continue
 
         def _take_edge(m: re.Match[str]) -> str:
             content = _unquote(m.group(2).strip())
@@ -487,8 +547,9 @@ def _labels(drawing: str) -> list[str]:
         remainder = _EDGE_LABEL.sub(_take_edge, line)
         remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, remainder))
         remainder = _ROUNDED_LABEL.sub(_take, _CIRCLE_LABEL.sub(_take, remainder))
-        if "-->" in remainder:
-            arrow = remainder.index("-->")
+        arrow_match = _MESSAGE_ARROW.search(remainder)
+        if arrow_match:
+            arrow = arrow_match.start()
             colon = remainder.find(":", arrow)
             if colon != -1 and remainder[colon : colon + 3] != ":::":
                 after = _unquote(remainder[colon + 1 :].strip())
@@ -832,8 +893,9 @@ def acceptable(record: Record) -> bool:
     """Whether `accept` could act on this record without raising.
 
     `proposed` is necessary but not sufficient — `accept_blockers` names the
-    rest: a `## Log` section to append the transition to, a drawing, and a
-    declared kind that `accept` would otherwise refuse. A listing built from
+    rest: a `## Log` section to append the transition to, a drawing, a
+    declared kind, and for a `sequence` a step that fails, each of which
+    `accept` would otherwise refuse. A listing built from
     status alone names a record whose own suggested command then fails, which
     is not a sentence anyone reading a list of "promotable" records was told to
     expect.

@@ -35,6 +35,13 @@ approval. Don't skip, don't collapse.
 | **3. Design** | How is it structured? | Schemas, contracts, named alternatives + why | Moderate |
 | **4. Implementation** | What's the code? | Real code to scan, not narrate | Cheap, mechanical |
 
+Levels 2 - 4 are the three levels of software development in Klaus Iglberger's
+*C++ Software Design* (Guideline 1): Software Architecture, Software Design, and
+Implementation Details. Level 1 is added in front of them because the behavior
+a user sees is what generates the level-3 requirements. The reversal-cost
+column is Iglberger's criterion for architecture, quoting Ralph Johnson: the
+decisions *"that you wish you could get right early in a project."*
+
 Levels 2 and 3 are where the decisions with lasting consequence live, and they
 are the ones most often skipped — level 1 feels like enough and level 4 feels
 like progress.
@@ -104,6 +111,15 @@ those cards, and the response has to carry a window aggregate computed before
 the filters apply. That is a level-3 requirement generated at level 1.
 
 ### 2. Architecture — who owns this truth, and can they actually compute it?
+
+A decision belongs at this level when it is **architecturally significant**,
+which means it affects the structure, nonfunctional characteristics,
+dependencies, interfaces, or construction techniques of the system (Michael
+Nygard, as quoted in Richards and Ford, *Fundamentals of Software
+Architecture*, ch. 19, p. 284). A decision that touches none of the five stays
+inside one component, and it is level 3. The five agree with the reversal cost
+in the table above, since they are the usual reasons a decision is expensive to
+reverse.
 
 The tell is usually a **state**, not a data flow. You find the ownership
 question by walking an empty screen, not by staring at the data model.
@@ -254,8 +270,31 @@ what shape is the thing?
  ├ two versions of one output ───► side-by-side code block
  ├ one input, several outcomes ──► ASCII fan-out
  ├ a line with sides ────────────► boundary sketch
+ ├ what changes when X changes ──► dependency graph, before and after
+ ├ an answer that flips on size ─► two cost lines, crossing marked
+ ├ who waits on whom, in order ──► sequence, one column per actor
  ├ N conditions × M outcomes ────► table
  └ one thing ────────────────────► render the string
+```
+
+A decision that names a future change it has to absorb draws the dependency
+graph twice, once before and once after, and counts the arrows that the change
+would have to touch in each. A decision whose answer depends on how large one
+thing grows draws the cost of each option over that thing and marks where they
+cross. A decision that puts a wait between a cause and its effect draws the
+sequence, with a row for the step that fails. In the sequence, a solid arrow is
+a call the sender waits on and a dotted arrow is a value read later, the same
+edge rule the `architecture-decisions` record template uses. All three drawings
+are Percival and Gregory's, from *Architecture Patterns with Python* (Figures
+3-1 and 3-2, 2-6, and 9-4):
+
+```
+agent             wfctl               renderer
+  │  run step ──────►│                     │
+  │                  │ writes artifact     │
+  │                  │◄ ─ ─ status --json ─│  every N seconds
+  │                  │─ ─ payload ─ ─ ─ ─ ►│
+  ✗ step fails       │ artifact half-written; the next poll reads it
 ```
 
 ASCII while the gate is being answered: a skill and a terminal reply both render
@@ -303,6 +342,13 @@ feature exists for. A table would file both under a column header.
 Two parallel lists sharing vertical space is not a sketch. Rows that read as
 pairs but are not aligned on purpose are worse than prose, because the reader
 infers a relationship the diagram never claimed.
+
+A sketch of one part opens by showing where that part sits in the whole, one
+line or one box, before it draws the part's inside. A glyph whose meaning the
+reader could doubt gets a key under the drawing, one line per glyph. Richards
+and Ford call the first rule representational consistency, and give the second
+because a misread diagram is worse than none (*Fundamentals of Software
+Architecture*, pp. 315 and 321).
 
 **Level 3 — two columns, `checked` and `assumed`.** The asymmetry is the
 finding; a reader sees it before reading a word.
