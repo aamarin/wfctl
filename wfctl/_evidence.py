@@ -800,12 +800,14 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 # The two conditions that hold over all eight are facts about the *walk*, not about
 # any reader, and they are stated in `_pipeline.py` where the walk is.
 #
-#   brainstorm  1, and a gesture at 6 rather than 6 itself: a design doc exists and
+#   brainstorm  1 + 2, and a gesture at 6 rather than 6 itself: a design doc exists and
 #               git says some path under `<arch>/` outside `design/` changed on this
 #               branch — an edit to a descriptive view, or a deletion, counts as
 #               readily as a new record — or git could not say, which proceeds
-#               (`ambient`). Never checked to be about this change, and not read at
-#               all once `spec.md` exists.
+#               (`ambient`). 2 is every proposed record the branch touched carrying
+#               what `accept` requires of it: a drawing, a declared kind, a `## Log`.
+#               Never checked to be about this change, and not read at all once
+#               `spec.md` exists.
 #   specify     1 + 2 + 3. `spec.md` carries every section in
 #               `_REQUIRED_SPEC_SECTIONS`, is not still its own template, and has
 #               no marker left. Nothing under a heading is read, so 2 is the
@@ -979,8 +981,8 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     answer. Nothing failed: git is being asked about a path it does not track, and
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
-    Which records count is `_branch_records`', shared with the design gate so
-    the two cannot disagree about what this branch decided.
+    `_branch_records` decides which records count, and the design gate asks it
+    too, so the two cannot disagree about what this branch decided.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
     accepted". A branch that supersedes a record leaves it `superseded`, which a
@@ -1112,10 +1114,10 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
         return Assessment("in_progress", reason)
     if _file_exists(ev.spec_dir / "spec.md"):
         return Assessment("done")
-    return _refusable_drawings(ev.repo_root)
+    return _judge_drawings(ev.repo_root)
 
 
-def _refusable_drawings(repo_root: Path) -> Assessment:
+def _judge_drawings(repo_root: Path) -> Assessment:
     """Hold the pass on any proposed record this branch touched whose drawing
     `accept` would refuse, naming the first and handing back a fix for each.
 
