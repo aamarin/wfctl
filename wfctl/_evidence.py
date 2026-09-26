@@ -23,10 +23,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _md, _tracker
 from wfctl._paths import arch_root
+
+if TYPE_CHECKING:
+    from wfctl._arch import Record
 
 # What reading one evidence source concluded. Three values rather than a bool
 # because "the evidence says proceed" and "there was no evidence" are the two a
@@ -920,6 +923,33 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
+def _branch_records(repo_root: Path, arch: Path) -> dict[str, Record]:
+    """The level-2 records this branch added or modified, by slug.
+
+    One list for the two readers that ask it, `fact_architecture_accepted` and
+    the design gate's drawing check. Built twice, the two would drift on which
+    records count, and a record the gate judged and the fact never listed (or
+    the reverse) is a branch held for a reason nothing else on screen names.
+
+    `scans/` is excluded by name, which is `AGENTS.md`'s standing instruction to
+    every reader of the arch root — a git pathspec naming a directory is
+    recursive and cannot be made otherwise. The intersection with `load_records`
+    is what drops `design/`, `views/` and `declarations/`, because that glob is
+    one level deep. It is not enough on its own for `scans/`: it matches on bare
+    stems, so a scan file sharing a stem with a top-level record would read as
+    that record being touched.
+
+    A listing, so "git could not be asked" and an arch root outside the tree
+    both come back empty. A caller that has to tell those apart asks
+    `touched_on_this_branch` first, as the fact does.
+    """
+    from wfctl import _arch
+    from wfctl._paths import non_record_subtrees, records_on_this_branch
+
+    slugs = set(records_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch)))
+    return {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
+
+
 def fact_architecture_accepted(repo_root: Path) -> Fact:
     """Has a human ruled on what this branch decided? Owner: the record's `status`.
 
@@ -940,25 +970,14 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     answer. Nothing failed: git is being asked about a path it does not track, and
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
-    `scans/` is excluded by name, which is `AGENTS.md`'s standing instruction to
-    every reader of the arch root — a git pathspec naming a directory is
-    recursive and cannot be made otherwise. The intersection with `load_records`
-    below is what drops `design/`, `views/` and `declarations/`, because that
-    glob is one level deep. It is not enough on its own for `scans/`: it matches
-    on bare stems, so a scan file sharing a stem with a top-level record would
-    read as that record being touched.
+    Which records count is `_branch_records`', shared with the design gate so
+    the two cannot disagree about what this branch decided.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
     accepted". A branch that supersedes a record leaves it `superseded`, which a
     person decided; holding that branch would mean holding it forever.
     """
-    from wfctl import _arch
-    from wfctl._paths import (
-        is_in_tree,
-        non_record_subtrees,
-        records_on_this_branch,
-        touched_on_this_branch,
-    )
+    from wfctl._paths import is_in_tree, non_record_subtrees, touched_on_this_branch
 
     name = "architecture accepted"
     arch = arch_root(repo_root)
@@ -971,8 +990,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     if not touched:
         return Fact(name, "n/a", "no level-2 record on this branch")
 
-    slugs = set(records_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch)))
-    records = {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
+    records = _branch_records(repo_root, arch)
     if not records:
         # Touched something under the arch root, and none of it a record the
         # projection reads — a level-3 record, a view, a declaration. The
