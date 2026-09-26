@@ -11,7 +11,7 @@ proposed level-2 record on the branch. When a record fails, `wfctl status` shows
 two things:
 
 1. The reason, such as `my-record: a sequence drawing with no step that fails: …`.
-2. The fix, which is `wfctl arch accept my-record --check`.
+2. The fix, which is `wfctl arch accept my-record --dry-run`.
 
 The fix has to name the record, and only the check knows which record failed.
 Today the fix for the design step is built after the walk by `_design_remedy`,
@@ -45,7 +45,7 @@ with nothing carried between reads.
 
 `_design_remedy` gains a second branch. When the reason matches
 `^([a-z0-9-]+): `, it reads the slug out of the reason and returns
-`wfctl arch accept <slug> --check`. No type changes, and the check returns only a
+`wfctl arch accept <slug> --dry-run`. No type changes, and the check returns only a
 reason, as every pass does today.
 
 ## Decision
@@ -113,7 +113,7 @@ import cycle.
 ## Verification
 
 - A branch with a failing proposed record reports `steps[].remedy` as
-  `wfctl arch accept <slug> --check` in `status --json`.
+  `wfctl arch accept <slug> --dry-run` in `status --json`.
 - A branch with no record still reports the existing two-way fix, byte for byte,
   against the payload snapshot.
 - Rewording a blocker in `_arch.accept_blockers` changes no remedy.
