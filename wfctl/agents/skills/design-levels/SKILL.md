@@ -105,6 +105,15 @@ the filters apply. That is a level-3 requirement generated at level 1.
 
 ### 2. Architecture — who owns this truth, and can they actually compute it?
 
+A decision belongs at this level when it is **architecturally significant**,
+which means it affects the structure, nonfunctional characteristics,
+dependencies, interfaces, or construction techniques of the system (Michael
+Nygard, as quoted in Richards and Ford, *Fundamentals of Software
+Architecture*, ch. 19, p. 284). A decision that touches none of the five stays
+inside one component, and it is level 3. The five agree with the reversal cost
+in the table above, since they are the usual reasons a decision is expensive to
+reverse.
+
 The tell is usually a **state**, not a data flow. You find the ownership
 question by walking an empty screen, not by staring at the data model.
 

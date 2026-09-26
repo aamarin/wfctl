@@ -153,3 +153,33 @@ actually thinking of, silently — the Kubernetes precedent transfers the
 convenience without the context cue that keeps it safe. Whoever settles Question
 1 has to weigh that against always requiring `<step>.<name>`, not treat the
 Kubernetes row as though it settled the ergonomics question by itself.
+
+---
+
+## What makes a decision level 2
+
+Added 2026-09-25, while deciding #488, whose question is who draws a screen
+over every worktree. Raised by the observation that `design-levels` names its
+four levels without citing where the line between level 2 and level 3 comes
+from.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Richards and Ford, *Fundamentals of Software Architecture* (O'Reilly, 2020), ch. 19, "Architecturally Significant", pp. 284 - 285 | Michael Nygard's test: *"architecturally significant decisions are those decisions that affect the structure, nonfunctional characteristics, dependencies, interfaces, or construction techniques."* Interfaces *"usually involve defining contracts, including the versioning and deprecation strategy of those contracts."* | A decision that meets one of the five and is cheap to reverse here. A private helper's signature is an interface in the loose sense and costs a rename, so the test has to be read as a published interface, which is what the Published Interface row under *Abstraction and module boundaries* supplies |
+| Richards and Ford, ch. 2, "Architecture Versus Design", pp. 24 - 25 | *"So where does architecture end and design begin? It doesn't. They are both part of the circle of life within a software project and must always be kept in synchronization with each other in order to succeed."* The book rejects a handoff from architect to developer, and it says the one-way arrow between them *"shows exactly why architecture rarely works."* | A level-3 finding that `design-levels` refuses to send back up to level 2. The skill's "The descent is not one-directional" section is the synchronization the book asks for, so a design pass that works around a boundary instead of revising it would be the refutation |
+
+### What the set argues, taken together
+
+The book gives a test rather than a layer. A decision is level 2 because of what
+it touches, and not because of who makes it or when. `design-levels` already
+separates the levels by reversal cost, and Nygard's five categories are the
+usual reasons a decision is expensive to reverse; hence the two agree.
+
+### The strongest argument against
+
+The book says there is no line, and `design-levels` runs the two as separate
+passes with separate gates. The defense is that the gates are about order, not
+ownership: the same person answers both, and a lower level is allowed to reopen
+a higher one. Whoever cites this section has to show that a level-3 finding
+went back up to level 2 when it should have, rather than cite the chapter as
+though it endorsed the split.
