@@ -130,8 +130,9 @@ This is the third place wfctl compares a recorded identity against a live one.
 The install manifest records a `content_hash` that `doctor` recomputes
 (`drift-is-measured-against-the-recorded-source`), and `wfctl verify` binds its
 verdict to a commit and a dirty flag. Each of the three chose its own record
-format. A general answer to evidence freshness should be able to absorb this one
-without changing what the report records.
+format. A general answer to evidence freshness, which #502 owns for the rest of
+the pipeline, should be able to absorb this one without changing what the report
+records.
 
 The report format stops being the skill's alone. A change to how the `Reviewed
 inputs` table spells its `plan.md` row is a change to a contract, and the test
