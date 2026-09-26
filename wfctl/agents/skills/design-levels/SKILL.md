@@ -270,8 +270,31 @@ what shape is the thing?
  ├ two versions of one output ───► side-by-side code block
  ├ one input, several outcomes ──► ASCII fan-out
  ├ a line with sides ────────────► boundary sketch
+ ├ what changes when X changes ──► dependency graph, before and after
+ ├ an answer that flips on size ─► two cost lines, crossing marked
+ ├ who waits on whom, in order ──► sequence, one column per actor
  ├ N conditions × M outcomes ────► table
  └ one thing ────────────────────► render the string
+```
+
+A decision that names a future change it has to absorb draws the dependency
+graph twice, once before and once after, and counts the arrows that the change
+would have to touch in each. A decision whose answer depends on how large one
+thing grows draws the cost of each option over that thing and marks where they
+cross. A decision that puts a wait between a cause and its effect draws the
+sequence, with a row for the step that fails. In the sequence, a solid arrow is
+a call the sender waits on and a dotted arrow is a value read later, the same
+edge rule the `architecture-decisions` record template uses. All three drawings
+are Percival and Gregory's, from *Architecture Patterns with Python* (Figures
+3-1 and 3-2, 2-6, and 9-4):
+
+```
+agent             wfctl               renderer
+  │  run step ──────►│                     │
+  │                  │ writes artifact     │
+  │                  │◄ ─ ─ status --json ─│  every N seconds
+  │                  │─ ─ payload ─ ─ ─ ─ ►│
+  ✗ step fails       │ artifact half-written; the next poll reads it
 ```
 
 ASCII while the gate is being answered: a skill and a terminal reply both render

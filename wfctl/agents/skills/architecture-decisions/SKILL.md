@@ -85,11 +85,14 @@ needs ASCII is not working around a rule.
 Declare which kind of diagram the decision needs in the frontmatter's
 `diagram:` key, and draw it in `## Boundary`:
 
-| Kind | Suits a decision about |
-|---|---|
-| `data-flow` | a value moving between two sides — who computes it, who may assert it |
-| `component` | a line between components — what is inside, what is outside |
-| `state` | a sequence one thing passes through — a lifecycle, a transition, a gate |
+| Kind | Suits a decision about | Answers |
+|---|---|---|
+| `data-flow` | a value moving between two sides — who computes it, who may assert it | Who owns this value, and which way does it travel? |
+| `component` | a line between components — what is inside, what is outside | What has to change when this part changes? |
+| `state` | a sequence one thing passes through — a lifecycle, a transition, a gate | What states can this be in, and what moves it between them? |
+
+A decision that puts an event, a poll, or a retry between a cause and its effect
+draws its sequence under `data-flow`, with a row for the step that fails.
 
 The author picks the kind. wfctl checks only that the record carries a drawing
 and that the declared kind is one of the three above — it never decides which

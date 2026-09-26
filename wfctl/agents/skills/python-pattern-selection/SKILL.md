@@ -87,6 +87,13 @@ departed from a constraint
                   what the expensive one costs
 ```
 
+The pressure that justified the expensive shape is usually a size; the number of
+backends, callers, or rules. When it is, the note says what that size is today
+and at what size the cheaper shape stops holding. Where the two are close, draw
+the cost of each shape over that size and mark where they cross; it is the one
+drawing an implementation note ever needs, and it is the argument the next
+reader will want when the size changes.
+
 `wfctl arch-root` prints the parent; a repo can declare it elsewhere, so ask
 rather than writing `docs/architecture` in. The file is prose, not a form — it
 carries the three things above and stops.
@@ -156,6 +163,15 @@ other languages (Ayeva and Kasampalis, *Mastering Python Design Patterns*, pp.
 27, 119, and 152). The Singleton and microservices constraints depart from the
 same book, which offers global state and several clients as reasons to reach
 for them.
+
+Most of these constraints are the costs Percival and Gregory list in
+*Architecture Patterns with Python*, at the end of the chapter that builds each
+pattern; the Repository and domain model in chapter 2, Unit of Work in chapter
+6, Aggregates in chapter 7, the message bus in chapters 8 - 10, event
+integration in chapter 11, CQRS in chapter 12, and dependency injection in
+chapter 13. The book adopts every one of those patterns, and it does so only
+after the simpler code in front of it has failed. That order is the one this
+skill asks for.
 
 ## Red flags
 

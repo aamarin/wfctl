@@ -74,6 +74,13 @@ Draw the dependency the code has, not the one the design intends. Where they
 differ, the difference is the finding (Iglberger, *C++ Software Design*,
 Figures 10-2 and 10-3).
 
+The two graphs answer one question; when this changes, what else has to change.
+Say which change the decision is built to absorb, and count the arrows it would
+have to touch in each graph. Mark what the decision adds, in bold in mermaid or
+with a `(new)` label in ASCII, so that a divider appearing for the first time is
+visible without comparing the graphs line by line. Draw one arrow per kind of
+dependency, since that count is how coupling is compared.
+
           baseline                  decision
 
 stable                              ┌───────────┐

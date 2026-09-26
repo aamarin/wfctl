@@ -170,6 +170,13 @@ For each approach, state:
 - checked evidence, assumptions, and the cheapest way to resolve uncertainty;
 - what makes the choice hard or easy to reverse.
 
+When the approaches trade places as one variable grows, name that variable and
+draw the cost of each approach over it, with the point where they cross. The
+crossing is the finding; a comparison that states which option wins without
+saying at what size has answered for one point on the curve. Percival and
+Gregory draw their domain model's trade-off this way (*Architecture Patterns
+with Python*, Figure 2-6).
+
 Use patterns, tactics, frameworks, or platform features only when they explain a
 real structural choice. A pattern name is vocabulary, not an argument. Do not
 consult or create a catalog merely to fill this step.
@@ -218,6 +225,13 @@ For each credible approach, show:
 - why the other side cannot compute or own it;
 - what crosses the boundary, in which direction, and under whose contract;
 - failure, release, data, and deployment coupling when they affect a driver.
+
+When a driver names a future change the boundary has to absorb, draw each
+approach's dependency graph and count the arrows that change would have to
+touch. When something crosses the boundary later than it was caused (an event,
+a poll, a retry), draw the sequence as well, including the row where a step
+fails halfway. The boundary sketch shows who owns what; neither of these two
+questions is answered by it.
 
 Follow `design-levels` rendering rules: a compact ASCII boundary sketch, not
 Mermaid and not a table chosen by default. Label current and proposed views.

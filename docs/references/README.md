@@ -313,6 +313,56 @@ rather than as support.
 
 ---
 
+## Where the level-4 constraints come from
+
+Added 2026-09-25, while reading the sources the design levels were written
+against. Harry Percival and Bob Gregory, *Architecture Patterns with Python*
+(O'Reilly, 2020), cited by chapter and section, since the edition read carries
+no page numbers.
+
+This book is the main source of `python-pattern-selection`. Each chapter builds
+one pattern and closes with a table of its trade-offs, and nearly every
+constraint in the skill is the cons column of one of those tables, stated as a
+default. The book says so itself in chapter 2's wrap-up: *"we're not saying
+every single application needs to be built this way; only sometimes does the
+complexity of the app and domain make it worth investing the time and effort in
+adding these extra layers of indirection."*
+
+The refutation column is written for a repository that installs the skill, since
+wfctl itself has no ORM, no database, and no message bus.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Ch. 2, "Wrap-Up", Table 2-1 | *"If your app is just a simple CRUD (create-read-update-delete) wrapper around a database, then you don't need a domain model or a repository."* Any extra layer of indirection *"always increases maintenance costs"* | A CRUD service whose repository and domain model paid for themselves with no invariant to hold. The constraint "a rich domain model only for meaningful behavior and invariants, not for CRUD ceremony" is this tip |
+| Ch. 6, "Wrap-Up", Table 6-1 | Against a Unit of Work: *"Your ORM probably already has some perfectly good abstractions around atomicity ... You can go a long way just passing a session around."* | A Unit of Work added over a session with nothing the session could not hold; no second repository, no event collection, and no explicit commit boundary the session lacked. The constraint "an ORM session transaction as a viable baseline" is this con |
+| Ch. 7, "Aggregates and Consistency Boundaries", recap | *"Aggregates are in charge of a consistency boundary. An aggregate's job is to be able to manage our business rules about invariants as they apply to a group of related objects."* | An aggregate whose boundary follows a foreign key and encloses no invariant. The constraint "define an aggregate from a consistency invariant, not from an object graph or a database relationship" is this recap |
+| Ch. 3, "Why Not Just Patch It Out?", and ch. 2, "Building a Fake Repository for Tests Is Now Trivial!" | Patching a dependency out *"does nothing to improve the design."* *"Using mock.patch won't let your code work with a --dry-run flag."* And *"if it's hard to fake, the abstraction is probably too complicated."* | An abstraction whose only non-test use is imagined. The book's own reason for an abstraction is a second real caller, such as a dry run or a second storage backend, which is why the skill flags *"interfaces added only to enable mocks"* rather than every interface a fake implements |
+| Ch. 8, "Wrap-Up", Table 8-1 | A unit of work that raises events *"is neat but also magic. It's not obvious when we call commit that we're also going to go and send email to people."* | A message bus that made a call graph clearer than the direct calls it replaced. The constraint "an explicit call before an event, observer chain, or message bus" and the red flag "a message bus hides a call graph" are this con |
+| Ch. 10, "Wrap-Up", Table 10-2 | Commands and events are split because it *"helps us understand which things have to succeed and which things we can tidy up later,"* and the cost is that *"the semantic differences between commands and events can be subtle."* | A messaging design in which one message type is both a request and a fact, with no failure the split would have isolated |
+| Ch. 11, "Distributed Ball of Mud, and Thinking in Nouns", and Table 11-1 | Splitting a system into one service per noun or per database table *"works fine for systems that are very simple, but it can quickly degrade into a distributed ball of mud."* Moving to events means *"message reliability and choices around at-least-once versus at-most-once delivery need thinking through."* | A service split chosen from nouns or functional areas that did not degrade, or an external publish that was safely atomic with a database commit with no delivery design. The constraints on microservices and on in-process versus durable delivery are these two claims |
+| Ch. 12, "Wrap-Up", Table 12-2 | *"using the ORM, adding some read methods to your repositories, and using domain model classes for your read operations is just fine."* A separate read store is a *"complex technique."* | A read store built before the ordinary queries were shown to be slow or awkward. The constraint "ordinary query code before CQRS and a separate read store" is this row |
+| Ch. 13, "Implicit Versus Explicit Dependencies" and "A Bootstrap Script" | Handlers *"declare an explicit dependency"* on what they use, and one bootstrap script declares the defaults, injects them, and hands back the application | A process-wide dependency reached through a module global that no bootstrap constructs. The constraint "give a process-wide dependency an explicit construction and lifetime owner" names the bootstrap script as that owner |
+
+### What the set argues, taken together
+
+Book 4 says when to reach for a pattern; this book says what each one costs,
+and names the cheaper shape it replaced. The skill takes the cheaper shape as
+the default and asks the implementer to state the pressure that justifies the
+expensive one. That is also the book's order of events, since every pattern in
+it is introduced by a failure of the simpler code the chapter starts from.
+
+### The strongest argument against
+
+The authors adopt every pattern in the book, and they wrote it to show that the
+patterns pay off as a domain grows (Figure 2-6 draws that crossing point). The
+skill reads their cons column as a default and their pros column as the burden
+of proof, which is a direction they did not choose. Whoever cites this section
+has to say that the book supports the cheaper shape only below the point where
+domain complexity makes the pattern worth it, and that the skill's job is to make
+the implementer say which side of that point the code is on.
+
+---
+
 ## How the drawings are drawn
 
 Added 2026-09-25, while reading the sources the design levels were written
@@ -331,6 +381,32 @@ the `architecture-decisions` record template for the level-2 boundary, the
 | Same, ch. 20, p. 300 | Asked what an up arrow means, *"almost 50% of people"* read it as getting worse and almost 50% as getting better. A key does not fix it either, since *"once the user scrolls beyond the key, confusion happens once again."* The book marks direction with a plus or minus sign beside the value instead | A wfctl view that encodes direction in an arrow alone. It applies to trend glyphs rather than to dependency arrows, whose meaning the templates already fix |
 | Iglberger, *C++ Software Design*, Guidelines 5, 9, 16, and 17, Figures 1-6, 2-4, 4-3, and 4-4 | Designs are compared by their dependency graphs, split by an architectural boundary into a high level and a low level, and *"all arrows now run from the low level to the high level"* is what makes the architecture proper. Two solutions are compared by their graphs: the `std::variant` graph *"has a second architectural boundary"* and *"no cyclic dependency,"* and that difference is the finding | A `software-design-decisions` record whose two graphs differ and whose prose does not say how. The template already draws the divider and the stability axis this way, and Iglberger is where that convention comes from |
 | Iglberger, Guideline 38, Figures 10-2 and 10-3 | The Singleton chapter draws the dependency graph twice; the *"desired"* graph, which *"is only an illusion,"* and the actual one, in which *"all dependency arrows point toward the lower level."* | A record whose graph draws the dependency the design intends while the code has the other one. The drawing states what the code does, and a gap between the two is a finding to write down rather than a picture to tidy |
+| Percival and Gregory, *Architecture Patterns with Python*, ch. 3, "A Brief Interlude: On Coupling and Abstractions", Figures 3-1 and 3-2 | *"the number of arrows indicates lots of kinds of dependencies between the two. If we need to change system B, there's a good chance that the change will ripple through to system A."* With an abstraction in between, *"we can change the arrows on the right without changing the ones on the left."* | A pair of graphs whose arrow counts are equal while the prose claims less coupling. It is the same count Iglberger compares by, drawn one arrow per kind of dependency |
+| Same, ch. 2, "Wrap-Up", Figure 2-6 | The trade-off between a decoupled domain model and a simple ORM pattern is drawn as a graph; the cost of each over domain complexity, with *"for simple cases, a decoupled domain model is harder work"* on the left and the payoff on the right | A trade-off whose answer flips with one variable, written as a pros and cons table. The table cannot show where the answer changes, and the crossing point is the finding |
+| Same, ch. 11, Table 11-1, and Figures 9-4, 11-6, and 12-2 | Table 11-1 lists the cost of event-driven integration as *"The overall flows of information are harder to see,"* and the book draws each event flow as a sequence diagram | An event-driven decision drawn only as components. The components show who can talk to whom; only a sequence shows the order and the waiting that the cost is about |
+| Same, ch. 4, "Our First Use Case: Flask API and Service Layer" | *"In our diagrams, we are using the convention that new components are highlighted with bold text/lines."* Every component diagram in the book marks what that chapter adds | A decision graph in which the reader cannot tell which component or edge the decision adds. The template treats a divider that appears for the first time as the sign of a level-2 decision, and a reader sees that only if new elements are marked |
+| Same, Part I introduction, Figure I-1, and ch. 1, Figure 1-2 | Part I opens with a picture of the whole application it builds, and chapter 1 places the allocation service among the systems around it in a context diagram. Only then do the chapters draw its components, one box at a time | A record that draws a component's inside with no line saying what surrounds it. It is Richards and Ford's representational consistency, practiced rather than stated |
+
+### Three questions, and the drawing that answers each
+
+Each book draws to answer a question. A decision that asks one of these gets
+the drawing beside it, and a decision that asks none of them does not need one
+of these three.
+
+| The decision asks | Draw | It asks this when | Source |
+|---|---|---|---|
+| When X changes, what else has to change, and can a new X be added without editing existing code? | A dependency graph, before and after, one arrow per kind of dependency | The decision exists to absorb a named future change; a new type, operation, backend, or renderer | Percival and Gregory, ch. 3, Figures 3-1 and 3-2; Iglberger, Guidelines 9, 16, and 17 |
+| At what size does the expensive option start paying? | Two cost lines over the one variable, with the point where they cross marked | The answer flips as one thing grows, such as domain complexity, the number of callers, or the number of backends | Percival and Gregory, ch. 2, Figure 2-6 |
+| In what order do things happen, who waits, and what is left if a step fails halfway? | A sequence, one column per actor, time running down the page | The decision puts an event, a message bus, a poll, or a retry between a cause and its effect | Percival and Gregory, Figures 9-4, 11-6, and 12-2, and Table 11-1 |
+
+The second column is what makes the first one checkable. A graph with an equal
+arrow count on both sides has not shown less coupling, a curve with no crossing
+has not shown where the answer flips, and a sequence with no failure row has not
+shown what is left behind.
+
+#488 asks the first and the third. "Add a renderer without changing wfctl" is
+the dependency question, and it is what separates option C from option B. "A
+renderer polls `status --json`" is the sequence question.
 
 ### What the set argues, taken together
 
@@ -338,7 +414,9 @@ The first book gives the rules for a drawing someone else reads; context before
 detail, a key for anything ambiguous, and one line style per kind of
 communication. The third book gives the rule for a drawing that compares two
 designs; the boundaries and cycles counted in each graph are the comparison.
-wfctl already follows most of both, and cites neither.
+wfctl already follows most of both, and cites neither. The fifth book adds what
+wfctl did not yet say: the drawing is chosen by the question the decision asks,
+and it marks what the decision adds.
 
 ### The strongest argument against
 
@@ -347,3 +425,10 @@ lines, and that each architect builds a personal style. So these rows are one
 style among several, and a repo that installs wfctl may already have its own.
 The rows belong in wfctl's own records and sketches, and the skills state them
 as defaults a repo can depart from, not as checks.
+
+A decision can ask two of the three questions at once, and #488 does. The table
+does not choose between them; it says a record that asks both draws both, which
+makes the record longer. The alternative is to pick the one question the
+decision turns on and draw only that, and it is the better choice for a record
+where the second question has a trivial answer, such as a poll that has no
+failure row worth drawing.
