@@ -27,7 +27,7 @@ STATUSES = frozenset({"proposed", IN_FORCE, "superseded", "rejected", "retired"}
 # A tuple, where `STATUSES` is a frozenset: the accept refusal prints these
 # names, and the order they print in is the order the guidance lists them in
 # (FR-012, data-model.md "Diagram kind"). Nothing prints `STATUSES`.
-DIAGRAM_KINDS = ("data-flow", "component", "state")
+DIAGRAM_KINDS = ("data-flow", "component", "state", "sequence")
 
 # The heading each tier's template requires and the other's does not, which is
 # what makes a record's level readable from the file rather than only from the

@@ -1,6 +1,6 @@
 ---
 status: proposed
-diagram: <data-flow | component | state>
+diagram: <data-flow | component | state | sequence>
 ---
 
 # <the decision, as a statement — "wfctl runs the verification, not the agent">
@@ -34,13 +34,15 @@ unfalsifiable.">
 <Required to accept — `wfctl arch accept` refuses a record with nothing drawn
 here. Declare which kind above in `diagram:` and draw that kind: `data-flow`
 for a value moving between two sides, `component` for a line between them,
-`state` for a sequence one thing passes through. A mermaid flowchart for
+`state` for the states one thing passes through, `sequence` for a request
+crossing several actors past a wait. A mermaid flowchart for
 `data-flow` or `component` — one subgraph per side, phases down the page, an
 edge only where something actually crosses, and the refusals too: an `--x`
 edge for what the owning side never accepts from the other, because that edge
 is the decision. Use a solid edge (`-->`) for a synchronous call and a dotted
 edge (`-.->`) for anything read later, such as a file on disk or a payload a
-renderer polls. A mermaid `stateDiagram-v2` for `state`. When the drawing uses
+renderer polls. A mermaid `stateDiagram-v2` for `state`, and a mermaid `sequenceDiagram` for
+`sequence`, with a row for the step that fails. When the drawing uses
 an edge style or a shape the record does not explain in prose, add a one-line
 key below the fence. Label with the words
 this record already uses in prose — a label introducing a concept found

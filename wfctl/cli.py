@@ -1753,7 +1753,8 @@ def step_none_cmd(
 _DIAGRAM_KIND_BLURBS: dict[str, str] = {
     "data-flow": "a value moving between two sides",
     "component": "a line between components",
-    "state": "a sequence one thing passes through",
+    "state": "the states one thing passes through",
+    "sequence": "a request crossing several actors past a wait",
 }
 
 

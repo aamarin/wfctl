@@ -89,13 +89,17 @@ Declare which kind of diagram the decision needs in the frontmatter's
 |---|---|---|
 | `data-flow` | a value moving between two sides — who computes it, who may assert it | Who owns this value, and which way does it travel? |
 | `component` | a line between components — what is inside, what is outside | What has to change when this part changes? |
-| `state` | a sequence one thing passes through — a lifecycle, a transition, a gate | What states can this be in, and what moves it between them? |
+| `state` | the states one thing passes through — a lifecycle, a transition, a gate | What states can this be in, and what moves it between them? |
+| `sequence` | an event, a poll, or a retry placed between a cause and its effect | In what order do things happen, who waits, and what is left if a step fails halfway? |
 
-A decision that puts an event, a poll, or a retry between a cause and its effect
-draws its sequence under `data-flow`, with a row for the step that fails.
+A `sequence` drawing carries a row for the step that fails, since that row is
+what the kind exists to show. `state` and `sequence` are told apart by what
+moves. A `state` drawing follows one thing through its states; a `sequence`
+drawing follows a request across several actors, and the question it answers is
+what each actor holds when the request stops partway.
 
 The author picks the kind. wfctl checks only that the record carries a drawing
-and that the declared kind is one of the three above — it never decides which
+and that the declared kind is one of the four above — it never decides which
 kind the decision needed, because that would mean classifying English, and a
 heuristic wrong on one record in ten produces a refusal nobody can argue with
 (`the-author-declares-the-diagram-kind`).
@@ -203,7 +207,7 @@ where anything can be added.
       not have is never one.
 - [ ] `Boundary` carries the sketch — including the edges the owning side
       refuses if something crosses the boundary. A fenced block there and a
-      `diagram:` naming one of `data-flow`, `component` or `state` are what
+      `diagram:` naming one of `data-flow`, `component`, `state` or `sequence` are what
       acceptance requires; mermaid is the default it is drawn in, not a third
       requirement.
 - [ ] `Log` has a dated line for the status the record currently carries.
