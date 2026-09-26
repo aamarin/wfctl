@@ -38,7 +38,11 @@ for a value moving between two sides, `component` for a line between them,
 `data-flow` or `component` — one subgraph per side, phases down the page, an
 edge only where something actually crosses, and the refusals too: an `--x`
 edge for what the owning side never accepts from the other, because that edge
-is the decision. A mermaid `stateDiagram-v2` for `state`. Label with the words
+is the decision. Use a solid edge (`-->`) for a synchronous call and a dotted
+edge (`-.->`) for anything read later, such as a file on disk or a payload a
+renderer polls. A mermaid `stateDiagram-v2` for `state`. When the drawing uses
+an edge style or a shape the record does not explain in prose, add a one-line
+key below the fence. Label with the words
 this record already uses in prose — a label introducing a concept found
 nowhere else in the record is what `wfctl doctor` surfaces as drift.>
 

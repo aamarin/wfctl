@@ -310,3 +310,40 @@ list of common properties as sufficient, which is the reasoning the skill was
 written to stop. Whoever cites this section cites it for the Python mechanism
 rows, and cites the two departures as the position the skill argues against,
 rather than as support.
+
+---
+
+## How the drawings are drawn
+
+Added 2026-09-25, while reading the sources the design levels were written
+against. The drawing guidance lives in four places, since wfctl has no single
+diagram skill: `design-levels` for a sketch drawn while a gate is answered,
+the `architecture-decisions` record template for the level-2 boundary, the
+`software-design-decisions` record template for the level-3 graphs, and
+`model-the-domain`'s visual language for domain sketches.
+
+| Source | Claim taken | What would refute it here |
+|---|---|---|
+| Richards and Ford, *Fundamentals of Software Architecture*, ch. 21, p. 315 | *"Representational consistency is the practice of always showing the relationship between parts of an architecture, either in diagrams or presentations, before changing views."* | A record whose drawing shows one component's inside and never says where that component sits in wfctl. `views/current-state.md` is the whole picture a record can point back to |
+| Same, pp. 316 - 317, "Irrational Artifact Attachment" | Attachment to an artifact is proportional to *"how long it took to produce,"* so low-fidelity artifacts come first and a polished tool comes after *"the team has iterated on the design sufficiently."* | A gate answered in mermaid before the ASCII sketch was agreed. `design-levels` already draws in ASCII while a gate is open and redraws in mermaid when the decision lands in a record, and this is the argument for that order |
+| Same, p. 319, "Lines" | Arrows show direction, arrowheads are used consistently, and *"solid lines tend to indicate synchronous communication and dotted lines indicate asynchronous communication,"* one of the few standards architecture diagrams share | A wfctl record that draws a value read later from disk with the same edge as a direct call. A renderer polling `wfctl status --json` is asynchronous in this sense, and the edge should say so |
+| Same, pp. 320 - 321, "Labels" and "Keys" | Label every item *"if there is any chance of ambiguity,"* and when shapes are ambiguous include a key, since a diagram that leads to misinterpretation *"is worse than no diagram."* | A drawing that uses a glyph whose meaning is stated nowhere in the file. wfctl's sketches use `──✗`, `--x`, and `═══` with meanings the skills define, but a record read on its own carries none of those definitions |
+| Same, ch. 20, p. 300 | Asked what an up arrow means, *"almost 50% of people"* read it as getting worse and almost 50% as getting better. A key does not fix it either, since *"once the user scrolls beyond the key, confusion happens once again."* The book marks direction with a plus or minus sign beside the value instead | A wfctl view that encodes direction in an arrow alone. It applies to trend glyphs rather than to dependency arrows, whose meaning the templates already fix |
+| Iglberger, *C++ Software Design*, Guidelines 5, 9, 16, and 17, Figures 1-6, 2-4, 4-3, and 4-4 | Designs are compared by their dependency graphs, split by an architectural boundary into a high level and a low level, and *"all arrows now run from the low level to the high level"* is what makes the architecture proper. Two solutions are compared by their graphs: the `std::variant` graph *"has a second architectural boundary"* and *"no cyclic dependency,"* and that difference is the finding | A `software-design-decisions` record whose two graphs differ and whose prose does not say how. The template already draws the divider and the stability axis this way, and Iglberger is where that convention comes from |
+| Iglberger, Guideline 38, Figures 10-2 and 10-3 | The Singleton chapter draws the dependency graph twice; the *"desired"* graph, which *"is only an illusion,"* and the actual one, in which *"all dependency arrows point toward the lower level."* | A record whose graph draws the dependency the design intends while the code has the other one. The drawing states what the code does, and a gap between the two is a finding to write down rather than a picture to tidy |
+
+### What the set argues, taken together
+
+The first book gives the rules for a drawing someone else reads; context before
+detail, a key for anything ambiguous, and one line style per kind of
+communication. The third book gives the rule for a drawing that compares two
+designs; the boundaries and cycles counted in each graph are the comparison.
+wfctl already follows most of both, and cites neither.
+
+### The strongest argument against
+
+Richards and Ford say themselves that no standard exists beyond solid and dotted
+lines, and that each architect builds a personal style. So these rows are one
+style among several, and a repo that installs wfctl may already have its own.
+The rows belong in wfctl's own records and sketches, and the skills state them
+as defaults a repo can depart from, not as checks.

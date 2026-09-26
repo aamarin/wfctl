@@ -320,6 +320,13 @@ Two parallel lists sharing vertical space is not a sketch. Rows that read as
 pairs but are not aligned on purpose are worse than prose, because the reader
 infers a relationship the diagram never claimed.
 
+A sketch of one part opens by showing where that part sits in the whole, one
+line or one box, before it draws the part's inside. A glyph whose meaning the
+reader could doubt gets a key under the drawing, one line per glyph. Richards
+and Ford call the first rule representational consistency, and give the second
+because a misread diagram is worse than none (*Fundamentals of Software
+Architecture*, pp. 315 and 321).
+
 **Level 3 — two columns, `checked` and `assumed`.** The asymmetry is the
 finding; a reader sees it before reading a word.
 

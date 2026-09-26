@@ -70,6 +70,10 @@ record draws only dividers already in force. One appearing here for the first
 time means the decision was Level 2 — stop, route it up, and write a Level-2
 record instead.
 
+Draw the dependency the code has, not the one the design intends. Where they
+differ, the difference is the finding (Iglberger, *C++ Software Design*,
+Figures 10-2 and 10-3).
+
           baseline                  decision
 
 stable                              ┌───────────┐
@@ -82,8 +86,10 @@ volatile  ┌────────┐   ┌──────┐     ┌─�
           │ Report │──►│ CSV  │     │Report│ │ CSV  │
           └────────┘   └──────┘     └──────┘ └──────┘
 
-Then one paragraph naming what the two graphs differ by. That difference is the
-argument, and the sections above cite this drawing rather than restating it —
+Then one paragraph naming what the two graphs differ by, counted, such as one
+boundary more or one cycle fewer. That count is how Iglberger compares two
+solutions (Figures 4-3 and 4-4), and a pair of graphs whose difference is left
+to the reader has not stated the finding. That difference is the argument, and the sections above cite this drawing rather than restating it —
 which is what keeps a record a page and not a novel.>
 
 ## Considered
