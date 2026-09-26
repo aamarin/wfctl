@@ -1894,7 +1894,7 @@ def arch_accept_cmd(
             console.print(f"    {escape(blocker)}", soft_wrap=True)
         if any(b.startswith("no declared kind") for b in blockers):
             # Only here, not for an invalid-but-present kind: that refusal
-            # already names the three values in its own sentence, and a second
+            # already names every kind in its own sentence, and a second
             # listing of them right below would repeat rather than inform. An
             # author who has never seen the vocabulary before is the one this
             # table is for.

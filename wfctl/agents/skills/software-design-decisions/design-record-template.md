@@ -96,8 +96,9 @@ volatile  ┌────────┐   ┌──────┐     ┌─�
 Then one paragraph naming what the two graphs differ by, counted, such as one
 boundary more or one cycle fewer. That count is how Iglberger compares two
 solutions (Figures 4-3 and 4-4), and a pair of graphs whose difference is left
-to the reader has not stated the finding. That difference is the argument, and the sections above cite this drawing rather than restating it —
-which is what keeps a record a page and not a novel.>
+to the reader has not stated the finding. That difference is the argument,
+and the sections above cite this drawing rather than restating it — which is
+what keeps a record a page and not a novel.>
 
 ## Considered
 

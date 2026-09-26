@@ -326,7 +326,7 @@ def _kind_list(sep: str, last_sep: str) -> str:
 
     One place for the two shapes the blockers and the CLI refusal need —
     `" | "` for a value to paste into frontmatter, `", "` plus `"or"` for a
-    sentence — so the three names are typed once here and nowhere else.
+    sentence — so the kind names are typed once here and nowhere else.
     """
     if len(DIAGRAM_KINDS) <= 1:
         return sep.join(DIAGRAM_KINDS)

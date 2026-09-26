@@ -41,9 +41,9 @@ is an artifact the work already produces.
 ## Decision
 
 The record's frontmatter carries a `diagram` key naming one of `data-flow`,
-`component`, `state` or `sequence`. The author writes it. wfctl reads it, and checks only
-that the record carries a drawing — it never decides which kind the decision
-needed.
+`component`, `state` or `sequence`. The author writes it. wfctl reads it, and
+checks only that the record carries a drawing — it never decides which kind the
+decision needed.
 
 The key sits in frontmatter beside `status` and `supersedes` rather than in the
 body, because it is read by a parser and not by a reader: `_frontmatter` already
