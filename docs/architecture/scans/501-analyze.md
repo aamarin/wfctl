@@ -31,9 +31,9 @@ instructions.
 ### Findings
 
 - **G · Design-record contradiction, HIGH.** T026 puts the report and plan-copy
-  paths in `SKILL.md`, and `501-plan-review-wrapper-split` gives the report path
+  paths in `SKILL.md`, and `501-plan-review-boundaries` gives the report path
   to the wrapper.
-  Record: `docs/architecture/design/501-plan-review-wrapper-split.md`
+  Record: `docs/architecture/design/501-plan-review-boundaries.md`
   Decision: "It holds the marker to surface, wfctl's step names (`plan`,
   `tasks`, and `analyze`), the report path, and the instruction to follow
   `writing-a-scan-file`."

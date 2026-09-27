@@ -85,12 +85,12 @@ recorded, other than `plan.md` and the reviewed plan copy, with the files now,
 and reviews instead when any has changed. A BLOCKER fixed in `spec.md`, a design
 record, or a planning artifact leaves `plan.md` as it was, and the pass reading
 alone would send the fix to a revision. The copy is left out because the review
-that recorded it overwrites it afterwards. A revise run does not
-read the skill. The
-method never edits what it reviews, never iterates until findings clear, and
-never hands control on, and none of the three happens inside it. The revise run
-does not load the method, and a review run hands back to the orchestrator from
-the wrapper, after the method has written its report and stopped.
+that recorded it overwrites it afterwards. A revise run does not read the
+skill. The method never edits what it reviews, never iterates until findings
+clear, and never hands control on, and none of the three happens inside it. The
+revise run does not load the method, and a review run hands back to the
+orchestrator from the wrapper, after the method has written its report and
+stopped.
 
 ## Diagram
 
@@ -180,3 +180,6 @@ checks that the wrapper names the skill by path, the way
   that the check included the plan copy, whose row never matches after a
   re-review, and that this record named fewer inputs than the check reads. The
   check now skips the copy, and the Decision names every recorded input.
+- 2026-09-27  renamed   — from `501-plan-review-wrapper-split`, which named the
+  refactor rather than the subject. The new slug pairs with
+  `501-plan-review-severity`.
