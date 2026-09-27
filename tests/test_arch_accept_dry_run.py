@@ -131,13 +131,14 @@ def test_a_dry_run_with_no_slug_or_an_unknown_one_refuses_as_accept_does(
     assert dry.output == real.output
 
 
-@pytest.mark.parametrize("agreed", ["<where>", "on #498\nand elsewhere"])
+@pytest.mark.parametrize("agreed", ["<where>", "on #498\nand elsewhere", "   "])
 def test_a_dry_run_refuses_a_citation_accept_would_refuse(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch, agreed: str
 ) -> None:
     """A citation is optional under `--dry-run` and still checked when given. A
     rehearsal that took `<where>` would pass the author straight into a refusal on
-    the real run, which is the disagreement the dry run exists to rule out."""
+    the real run, which is the disagreement the dry run exists to rule out. A
+    blank citation is one the rehearsal once took, reading it as no citation."""
     root = _arch_root(agent_dir, monkeypatch)
     _record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
 

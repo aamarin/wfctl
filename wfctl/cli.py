@@ -1863,7 +1863,9 @@ def arch_accept_cmd(
         console.print(_not_promotable(record))
         raise typer.Exit(1)
 
-    if not agreed.strip() and not dry_run:
+    # A dry run skips this only when no citation was given at all. A blank one
+    # was given and says nothing, and the real run refuses it.
+    if not agreed.strip() and not (dry_run and agreed == ""):
         console.print(
             "[red]✗[/red] --agreed is required: say where the human agreed to this."
         )
