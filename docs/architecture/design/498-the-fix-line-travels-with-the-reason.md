@@ -24,13 +24,14 @@ with nothing carried between reads.
 
 ## Verified
 
-- `_pipeline.py:558` returns no fix unless `step.reason` equals
+- `_pipeline._design_remedy` returned no fix unless `step.reason` equals
   `DESIGN_BLOCK_REASON`, a string comparison against a constant.
-- `_pipeline.py:347` copies the outstanding pass's `annotation` into the step's
-  `reason`; nothing else about the pass reaches the step.
-- `_evidence.py:61` `Assessment` carries `state`, `reason`, and `display`, and no
+- The roll-up in `_pipeline._infer_steps` copied the outstanding pass's
+  `annotation` into the step's `reason`; nothing else about the pass reached
+  the step.
+- `_evidence.Assessment` carried `state`, `reason`, and `display`, and no
   fix.
-- `cli.py:831` reads the reason already computed rather than recomputing it, and
+- `cli.next_cmd` reads the reason already computed rather than recomputing it, and
   its comment names the failure a second read causes: two reads of one question
   that can disagree.
 - `status-payload.json` types `steps[].remedy` as `string | null` and says nothing
@@ -98,7 +99,7 @@ none, since the slug never passes through text.
   change, and it couples the fix to the wording of a message that `_arch` owns
   and edits freely, as #495 did.
 - Run the check a second time in `_pipeline` to build the fix. It needs no new
-  field, and it is two reads of one question in one inference, which `cli.py:831`
+  field, and it is two reads of one question in one inference, which `cli.next_cmd`
   and `next_step_content` were each changed to stop.
 
 ## Consequences

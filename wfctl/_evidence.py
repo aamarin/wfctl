@@ -76,12 +76,15 @@ class Assessment(NamedTuple):
     walk so the walk never has to know which step is the exception — that branch
     was the last `if name ==` left in it.
 
-    `remedy` is how to clear `reason`, set by a reader only when it alone holds
-    what the fix has to name. The architecture pass is the case: it knows which
-    record failed at the moment it decides, and a fix built later from the
-    reason's text would couple the fix to wording `_arch` owns and rewords
-    freely (`docs/architecture/design/498-the-fix-line-travels-with-the-reason.md`).
-    A reader that sets it also sets `reason`, since a fix with nothing to clear
+    `remedy` is the fix line printed under `reason`, the next thing to run about
+    it. It need not clear the reason by itself: the architecture pass's lists
+    everything wrong with a record, and the edit that follows is what clears it.
+    A reader sets it only when it alone holds what the fix has to name. The
+    architecture pass is the case: it knows which record failed at the moment
+    it decides, and a fix built later from the reason's text would couple the
+    fix to wording `_arch` owns and rewords freely
+    (`docs/architecture/design/498-the-fix-line-travels-with-the-reason.md`).
+    A reader that sets it also sets `reason`, since a fix with nothing to answer
     is not one.
     """
 
@@ -806,7 +809,8 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #               branch — an edit to a descriptive view, or a deletion, counts as
 #               readily as a new record — or git could not say, which proceeds
 #               (`ambient`). 2 is every proposed record the branch touched carrying
-#               what `accept` requires of it: a drawing, a declared kind, a `## Log`.
+#               what `accept` requires of it, which `_arch.accept_blockers` lists
+#               and this comment deliberately does not.
 #               Never checked to be about this change, and not read at all once
 #               `spec.md` exists.
 #   specify     1 + 2 + 3. `spec.md` carries every section in
