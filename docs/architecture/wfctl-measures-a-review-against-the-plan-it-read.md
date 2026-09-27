@@ -162,6 +162,13 @@ a store of its own, and it records an acceptance a person or agent chose to
 make, never a review. Whether an agent may make it alone is the waiver-authority
 question #100 owns; the recorded reason is what keeps it visible meanwhile.
 
+wfctl also reads the report's open BLOCKER count. A review of the current plan
+with a BLOCKER open reads `in_progress`, so the pipeline does not reach `tasks`
+over a finding the review graded as blocking. That count is the review's claim
+about the plan, not about its own currency, so reading it does not reopen the
+self-report this record refuses: the reviewer grades the plan, and wfctl
+decides whether the grade is still about the plan that exists.
+
 The review also keeps a copy of the `plan.md` it read, so the next review and a
 sign-off can see what changed; the identity says only that something did. The
 copy never decides staleness. A copy edited by hand would otherwise make a stale
@@ -178,3 +185,5 @@ absence holds the pass rather than passing it.
   revised plan reported itself done against every revised plan.
 - 2026-09-26  amended     #501. A stale review routes back past `tasks`, and a
   sign-off with a reason stands in for a review of a harmless edit.
+- 2026-09-27  amended     #501. An open BLOCKER in a review of the current plan
+  holds the pipeline before `tasks`.
