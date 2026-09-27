@@ -110,7 +110,7 @@ flowchart LR
   end
   read --> record
   record -- "plan-review.md" --> recorded
-  accept -- "attestation" --> signed
+  accept -- "events.jsonl" --> signed
   recorded --> cmp
   signed --> cmp
   now --> cmp
@@ -162,6 +162,11 @@ a store of its own, and it records an acceptance a person or agent chose to
 make, never a review. Whether an agent may make it alone is the waiver-authority
 question #100 owns; the recorded reason is what keeps it visible meanwhile.
 
+wfctl reads a sign-off back from its own event log, never from the attestation.
+The agent writes the scan file on every review, so a sign-off line it typed there
+would read the same as one wfctl wrote, and would escape the count that bounds
+the agent. The section in the attestation is the pull request reviewer's copy.
+
 wfctl also reads the report's open BLOCKER count. A review of the current plan
 with a BLOCKER open reads `in_progress`, so the pipeline does not reach `tasks`
 over a finding the review graded as blocking. That count is the review's claim
@@ -187,3 +192,6 @@ absence holds the pass rather than passing it.
   sign-off with a reason stands in for a review of a harmless edit.
 - 2026-09-27  amended     #501. An open BLOCKER in a review of the current plan
   holds the pipeline before `tasks`.
+- 2026-09-27  amended     #501. The plan review found a sign-off could be typed
+  into the scan file by the agent it bounds. wfctl now reads it from its own
+  event log.

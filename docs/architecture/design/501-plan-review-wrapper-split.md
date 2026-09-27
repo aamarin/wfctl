@@ -51,6 +51,8 @@ this record's.
 - That the runner-bound part stays small: the marker, the step names, and the
   scan-file instruction. Falsified if the method turns out to need pipeline
   state to run, in which case the split puts half the method in the wrapper.
+  The revise mode reads pipeline state and is not the method, which is why it
+  sits in the wrapper without testing this assumption.
 - That a command outside the `/speckit.` namespace does not cost users more
   than the honesty of the name is worth. Every other pipeline command a user
   types starts with `/speckit.`, including `/speckit.brainstorm` and
@@ -75,6 +77,13 @@ pipeline. It holds the marker to surface, wfctl's step names (`plan`, `tasks`,
 and `analyze`), the report path, and the instruction to follow
 `writing-a-scan-file`. It follows `speckit.clarify.md`'s shape, which is the
 existing layer where a skill meets the pipeline.
+
+The wrapper also holds the revise mode. It reads the pass from `wfctl status`,
+and when a review of the current plan has BLOCKERs open it edits `plan.md`
+against them instead of reviewing. A revise run does not read the skill. The
+method never edits what it reviews, never iterates until findings clear, and
+never hands control on, and none of the three happens in a run where the method
+is loaded.
 
 ## Diagram
 
@@ -153,3 +162,7 @@ checks that the wrapper names the skill by path, the way
   than on waiting for #395, and the reversal bet is the cost of a command
   outside the `/speckit.` namespace. Still proposed, so revised rather than
   superseded.
+- 2026-09-27  revised   — the plan review of #501 found the plan had extended
+  this record with a revise mode without amending it, and that the wrapper
+  loaded the skill before editing the plan the skill forbids it to edit. The
+  Decision now names the revise mode, and a revise run does not load the skill.
