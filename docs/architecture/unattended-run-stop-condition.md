@@ -24,7 +24,7 @@ own reason:
 
 Plan defense (#500) needs a fourth. Under `auto_approve` a challenge found
 `REVISION_REQUIRED` sends the agent back to `plan`, and the defense runs again
-(`an-unattended-defense-defers-what-evidence-cannot-settle`). Each round rewrites
+(`unattended-answers-using-evidence`). Each round rewrites
 `plan.md`, so the evidence differs every time and `stalled` never fires. The loop
 has no end.
 
