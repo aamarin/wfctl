@@ -119,6 +119,72 @@ def test_a_record_with_a_drawing_and_a_kind_accepts(
     assert "a-decision is accepted" in result.output
 
 
+def test_a_sequence_record_drawn_as_a_sequence_diagram_accepts(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`sequence` was added after the other three (#495), and the kind is the
+    one whose natural drawing is not a flowchart. The gate checks that a
+    drawing exists, never its mermaid type, so a `sequenceDiagram` has to pass
+    it exactly as a flowchart does; a check that later learned to expect
+    `flowchart` would refuse the one kind drawn differently."""
+    root = _arch_root(agent_dir, monkeypatch)
+    boundary = (
+        "## Boundary\n\n```mermaid\nsequenceDiagram\n"
+        "  renderer-->>wfctl: status --json\n"
+        "  alt the artifact is whole\n"
+        "  wfctl-->>renderer: payload\n"
+        "  else the step failed partway\n"
+        "  wfctl-->>renderer: a half-written artifact\n"
+        "  end\n```\n\n"
+    )
+    _record(root, "a-decision", diagram="sequence", boundary=boundary)
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #495"])
+
+    assert result.exit_code == 0
+    assert "a-decision is accepted" in result.output
+
+
+def test_a_sequence_with_no_step_that_fails_is_refused_and_the_file_is_unchanged(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failing step is what the `sequence` kind exists to show, and a
+    happy-path-only drawing is visible as such in the file, so acceptance
+    refuses it the way it refuses a record with nothing drawn (#495)."""
+    root = _arch_root(agent_dir, monkeypatch)
+    boundary = (
+        "## Boundary\n\n```mermaid\nsequenceDiagram\n"
+        "  renderer-->>wfctl: status --json\n"
+        "  wfctl-->>renderer: payload\n```\n\n"
+    )
+    path = _record(root, "a-decision", diagram="sequence", boundary=boundary)
+    before = path.read_text()
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #495"])
+
+    assert result.exit_code == 1
+    assert "no step that fails" in result.output
+    assert path.read_text() == before
+
+
+def test_the_failure_row_is_not_asked_of_another_kind_at_acceptance(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same happy-path drawing declared `data-flow` accepts. The refusal
+    reads the declared kind, never the mermaid type, so it cannot reach a
+    record whose author said the drawing is about something else."""
+    root = _arch_root(agent_dir, monkeypatch)
+    boundary = (
+        "## Boundary\n\n```mermaid\nsequenceDiagram\n"
+        "  renderer-->>wfctl: status --json\n```\n\n"
+    )
+    _record(root, "a-decision", diagram="data-flow", boundary=boundary)
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #495"])
+
+    assert result.exit_code == 0
+
+
 # --- scenario 3: an accepted record with no drawing is never re-read -----
 
 
@@ -161,7 +227,7 @@ def test_the_promotable_listing_excludes_a_record_with_no_drawing(
 # --- the two kind refusals (T011) ----------------------------------------
 
 
-def test_a_drawing_with_no_declared_kind_is_refused_and_names_the_three_values(
+def test_a_drawing_with_no_declared_kind_is_refused_and_names_every_kind(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _arch_root(agent_dir, monkeypatch)
@@ -196,7 +262,7 @@ def test_a_drawing_with_no_declared_kind_names_every_kinds_blurb(
         assert _DIAGRAM_KIND_BLURBS[kind] in result.output
 
 
-def test_a_kind_outside_the_set_is_refused_and_names_the_three_values(
+def test_a_kind_outside_the_set_is_refused_and_names_every_kind(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _arch_root(agent_dir, monkeypatch)

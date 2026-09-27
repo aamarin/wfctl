@@ -28,13 +28,13 @@ whether a chapter was covered or left out on purpose.
 | 7 Using the Language: An Extended Example | not reproduced | A worked example, not a technique. |
 | 8 Breakthrough | `process.md` §2 | Press on an awkward spot rather than smoothing it. |
 | 9 Making Implicit Concepts Explicit | `process.md` §2, `ddd-heuristics.md` | Specification as a building block; implicit constraints and processes named. |
-| 10 Supple Design | `.agents/skills/clean-code` | Out of scope here — how code expresses a settled model is levels 3 and 4. |
+| 10 Supple Design | partly `.agents/skills/clean-code`; the rest not carried | `clean-code` carries intention-revealing names and the separation of a query from a command, from Martin and Fowler rather than from Evans. Assertions (stated postconditions and Aggregate invariants), Conceptual Contours, Standalone Classes, Closure of Operations, and Declarative Design are not carried. |
 | 11 Applying Analysis Patterns | not carried | A known model is one of the evidence sources in `SKILL.md` step 2; no catalog. |
 | 12 Relating Design Patterns to the Model | not carried | `python-pattern-selection` and `software-design-decisions` own pattern choice. |
 | 13 Refactoring Toward Deeper Insight | `SKILL.md` step 8, `evidence.md` *What reopens a model* | |
 | 14 Maintaining Model Integrity | `process.md` §3, `ddd-heuristics.md`, `visual-language.md` | Bounded Context, Context Map, the seven relationships Evans names; Continuous Integration as keeping one context coherent. |
 | 15 Distillation | `SKILL.md` *Does this capability earn it?*, `process.md` §6, `domain-model-template.md` | Core Domain, generic subdomain, domain vision statement — the first two decide whether a round runs, the third is where its answer is written. Segregated and Abstract Core are whole-codebase moves and are left out. |
-| 16 Large-Scale Structure | not carried | Whole-system organization, above one feature's round. |
+| 16 Large-Scale Structure | not carried in this skill; `docs/architecture/views/current-state.md` in wfctl's own repo | Whole-system organization, above one feature's round. wfctl's own module bands are Responsibility Layers and cite them there. |
 | 17 Bringing the Strategy Together | `SKILL.md` | The skill's own ordering plays this role. |
 
 ## Vernon
