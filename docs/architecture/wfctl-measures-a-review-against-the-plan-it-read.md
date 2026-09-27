@@ -162,6 +162,12 @@ a store of its own, and it records an acceptance a person or agent chose to
 make, never a review. Whether an agent may make it alone is the waiver-authority
 question #100 owns; the recorded reason is what keeps it visible meanwhile.
 
+The review also keeps a copy of the `plan.md` it read, so the next review and a
+sign-off can see what changed; the identity says only that something did. The
+copy never decides staleness. A copy edited by hand would otherwise make a stale
+review read current, and the recorded identity is what the reviewing process
+wrote at the moment it read.
+
 A report missing its identity is treated as promised evidence gone silent
 (`promised-evidence-blocks-on-silence`). The skill undertook to write it, so its
 absence holds the pass rather than passing it.
