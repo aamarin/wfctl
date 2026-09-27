@@ -80,7 +80,11 @@ existing layer where a skill meets the pipeline.
 
 The wrapper also holds the revise mode. It reads the pass from `wfctl status`,
 and when a review of the current plan has BLOCKERs open it edits `plan.md`
-against them instead of reviewing. A revise run does not read the skill. The
+against them instead of reviewing. It first compares the other inputs the report
+recorded with the files now, and reviews instead when `spec.md` or a design
+record has changed, since a BLOCKER fixed there leaves `plan.md` as it was and
+the pass reading alone would send the fix to a revision. A revise run does not
+read the skill. The
 method never edits what it reviews, never iterates until findings clear, and
 never hands control on, and none of the three happens inside it. The revise run
 does not load the method, and a review run hands back to the orchestrator from
@@ -167,3 +171,7 @@ checks that the wrapper names the skill by path, the way
   this record with a revise mode without amending it, and that the wrapper
   loaded the skill before editing the plan the skill forbids it to edit. The
   Decision now names the revise mode, and a revise run does not load the skill.
+- 2026-09-27  revised   — the re-review found that a person who fixed a BLOCKER
+  in `spec.md` and ran `/plan-review` got a revision of `plan.md` rather than a
+  review of the fix. The revise mode now checks the report's other input
+  identities first and reviews when one has changed.

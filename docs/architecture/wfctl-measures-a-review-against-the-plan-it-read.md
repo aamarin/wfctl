@@ -159,10 +159,11 @@ The sign-off is the one identity wfctl writes itself, which is the shape the
 first option under Considered set aside for scope. It is narrower than that
 option: it uses the event log wfctl already keeps, rather than a store of its
 own, with a copy in the attestation the review already commits, and it records
-an acceptance a person or agent chose to make, never a review. Whether an agent may make it alone is the waiver-authority
-question #100 owns; the recorded reason is what keeps it visible meanwhile.
+an acceptance a person or agent chose to make, never a review. Whether an agent
+may make it alone is the waiver-authority question #100 owns; the recorded reason is what keeps it visible meanwhile.
 
-wfctl reads a sign-off back from its own event log, never from the attestation.
+wfctl reads a sign-off back from its own event log, `events.jsonl`, never from
+the attestation.
 The agent writes the scan file on every review, so a sign-off line it typed there
 would read the same as one wfctl wrote, and would escape the count that bounds
 the agent. The section in the attestation is the pull request reviewer's copy.
