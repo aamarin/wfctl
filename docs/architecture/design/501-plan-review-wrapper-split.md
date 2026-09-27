@@ -82,8 +82,9 @@ The wrapper also holds the revise mode. It reads the pass from `wfctl status`,
 and when a review of the current plan has BLOCKERs open it edits `plan.md`
 against them instead of reviewing. A revise run does not read the skill. The
 method never edits what it reviews, never iterates until findings clear, and
-never hands control on, and none of the three happens in a run where the method
-is loaded.
+never hands control on, and none of the three happens inside it. The revise run
+does not load the method, and a review run hands back to the orchestrator from
+the wrapper, after the method has written its report and stopped.
 
 ## Diagram
 

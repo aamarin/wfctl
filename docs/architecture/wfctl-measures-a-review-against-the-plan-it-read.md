@@ -157,9 +157,9 @@ beside the reader is what says so.
 
 The sign-off is the one identity wfctl writes itself, which is the shape the
 first option under Considered set aside for scope. It is narrower than that
-option: it writes into the attestation the review already commits, rather than
-a store of its own, and it records an acceptance a person or agent chose to
-make, never a review. Whether an agent may make it alone is the waiver-authority
+option: it uses the event log wfctl already keeps, rather than a store of its
+own, with a copy in the attestation the review already commits, and it records
+an acceptance a person or agent chose to make, never a review. Whether an agent may make it alone is the waiver-authority
 question #100 owns; the recorded reason is what keeps it visible meanwhile.
 
 wfctl reads a sign-off back from its own event log, never from the attestation.
