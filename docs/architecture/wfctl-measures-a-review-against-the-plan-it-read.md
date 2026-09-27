@@ -56,6 +56,17 @@ mismatch reads `in_progress` with the reason `stale; plan.md changed since the
 review`. A report that records no `plan.md` identity reads `in_progress` too,
 with a reason saying so.
 
+A stale pass moves the current step back to `plan` however far the pipeline has
+gone, `implement` included. Whether `tasks.md` exists plays no part in it; that
+would read a file's presence as the review's moment having passed, and a plan
+edited and then expanded by a hand-run `/speckit.tasks` is the case it misses.
+
+The pass also reads done when a sign-off records the `plan.md` identity as it
+is now. A sign-off is written by a wfctl command that requires a reason, and it
+covers the one identity it recorded, so the next edit makes the pass stale
+again. It exists because wfctl cannot tell a typo from a changed design, and
+without it every late edit costs a full review.
+
 The line wfctl reads is a wfctl constant beside the reader, and a test in
 wfctl's own suite holds it against the report format the skill ships.
 
@@ -86,16 +97,22 @@ flowchart LR
     record["records plan.md identity<br/>in plan-review.md"]
     claim["'this review is current'"]
   end
+  subgraph signoff["sign-off command"]
+    accept["records plan.md identity<br/>and a reason"]
+  end
   subgraph wfctl["wfctl reader, on every status"]
     recorded["reads the recorded identity"]
+    signed["reads signed-off identities"]
     now["hashes plan.md now"]
-    cmp{"same?"}
+    cmp{"matches either?"}
     done["plan-review ●"]
     stale["plan-review ▶ stale"]
   end
   read --> record
   record -- "plan-review.md" --> recorded
+  accept -- "attestation" --> signed
   recorded --> cmp
+  signed --> cmp
   now --> cmp
   cmp -- yes --> done
   cmp -- no, or none recorded --> stale
@@ -138,6 +155,13 @@ The report format stops being the skill's alone. A change to how the `Reviewed
 inputs` table spells its `plan.md` row is a change to a contract, and the test
 beside the reader is what says so.
 
+The sign-off is the one identity wfctl writes itself, which is the shape the
+first option under Considered set aside for scope. It is narrower than that
+option: it writes into the attestation the review already commits, rather than
+a store of its own, and it records an acceptance a person or agent chose to
+make, never a review. Whether an agent may make it alone is the waiver-authority
+question #100 owns; the recorded reason is what keeps it visible meanwhile.
+
 A report missing its identity is treated as promised evidence gone silent
 (`promised-evidence-blocks-on-silence`). The skill undertook to write it, so its
 absence holds the pass rather than passing it.
@@ -146,3 +170,5 @@ absence holds the pass rather than passing it.
 
 - 2026-09-26  proposed    — #501. A review pass whose expected response is a
   revised plan reported itself done against every revised plan.
+- 2026-09-26  amended     #501. A stale review routes back past `tasks`, and a
+  sign-off with a reason stands in for a review of a harmless edit.
