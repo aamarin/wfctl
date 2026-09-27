@@ -13,24 +13,12 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl import _arch
+from tests.conftest import write_record
 from wfctl.cli import app
 
 runner = CliRunner()
 
 _BOUNDARY = "## Boundary\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n"
-
-
-def _record(
-    root: Path, slug: str, status: str = "proposed", *, diagram: str = "", boundary: str = ""
-) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    path = root / f"{slug}.md"
-    front = f"---\nstatus: {status}\n"
-    if diagram:
-        front += f"diagram: {diagram}\n"
-    front += "---\n\n"
-    path.write_text(f"{front}# {slug}\n\n{boundary}## Log\n\n- 2026-03-14  proposed    — x\n")
-    return path
 
 
 def _arch_root(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -50,7 +38,7 @@ def test_a_dry_run_lists_every_blocker_in_order_and_exits_1(
     them one run at a time would meet the second only after the first. The output
     is `accept`'s own, line for line."""
     root = _arch_root(agent_dir, monkeypatch)
-    record = _record(root, "a-decision")
+    record = write_record(root, "a-decision")
     blockers = _arch.accept_blockers(next(iter(_arch.load_records(root))))
     assert len(blockers) == 2, "guards the premise: two blockers to order"
 
@@ -69,7 +57,7 @@ def test_a_dry_run_of_a_passing_record_exits_0_without_a_citation(
     """The rehearsal runs before anyone has agreed to anything, so asking for a
     citation would refuse the one run the design gate sends an author to make."""
     root = _arch_root(agent_dir, monkeypatch)
-    _record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
+    write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
 
     result = runner.invoke(app, ["arch", "accept", "a-decision", "--dry-run"])
 
@@ -85,8 +73,8 @@ def test_a_dry_run_writes_nothing_whether_it_passes_or_fails(
     person. The whole arch root is compared, not one file, so a stray write
     anywhere under it shows up."""
     root = _arch_root(agent_dir, monkeypatch)
-    _record(root, "a-failing")
-    _record(root, "a-passing", diagram="component", boundary=_BOUNDARY)
+    write_record(root, "a-failing")
+    write_record(root, "a-passing", diagram="component", boundary=_BOUNDARY)
     before = _tree(root)
 
     failing = runner.invoke(app, ["arch", "accept", "a-failing", "--dry-run"])
@@ -106,7 +94,7 @@ def test_a_dry_run_of_a_record_that_is_not_proposed_refuses_as_accept_does(
     differs by status. A dry run that said "would be accepted" of an accepted
     record would send the author to run a command that then refuses."""
     root = _arch_root(agent_dir, monkeypatch)
-    _record(root, "a-decision", status, diagram="component", boundary=_BOUNDARY)
+    write_record(root, "a-decision", status, diagram="component", boundary=_BOUNDARY)
 
     dry = runner.invoke(app, ["arch", "accept", "a-decision", "--dry-run"])
     real = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #498"])
@@ -122,7 +110,7 @@ def test_a_dry_run_with_no_slug_or_an_unknown_one_refuses_as_accept_does(
     """The three refusals that come before any record is found: no slug, a near
     miss with suggestions, and a slug close to nothing with the listing."""
     root = _arch_root(agent_dir, monkeypatch)
-    _record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
+    write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
 
     dry = runner.invoke(app, ["arch", "accept", slug, "--dry-run"])
     real = runner.invoke(app, ["arch", "accept", slug, "--agreed", "on #498"])
@@ -140,7 +128,7 @@ def test_a_dry_run_refuses_a_citation_accept_would_refuse(
     the real run, which is the disagreement the dry run exists to rule out. A
     blank citation is one the rehearsal once took, reading it as no citation."""
     root = _arch_root(agent_dir, monkeypatch)
-    _record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
+    write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
 
     dry = runner.invoke(app, ["arch", "accept", "a-decision", "--dry-run", "--agreed", agreed])
     real = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", agreed])

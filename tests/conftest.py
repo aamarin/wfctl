@@ -181,6 +181,32 @@ ACCEPTABLE_RECORD = (
 )
 
 
+def write_record(
+    root: Path,
+    slug: str,
+    status: str = "proposed",
+    *,
+    diagram: str = "",
+    boundary: str = "",
+    log: bool = True,
+) -> Path:
+    """A level-2 record at `root/<slug>.md`, for a test whose subject is its drawing.
+
+    Each argument is one of the things `accept` asks of a record, so a test
+    varies exactly the one it is about. `log` defaults on because the missing
+    `## Log` is the one blocker that is not about the drawing.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{slug}.md"
+    front = f"---\nstatus: {status}\n"
+    if diagram:
+        front += f"diagram: {diagram}\n"
+    front += "---\n\n"
+    tail = "## Log\n\n- 2026-09-26  proposed  — x\n" if log else ""
+    path.write_text(f"{front}# {slug}\n\n{boundary}{tail}")
+    return path
+
+
 def structured(body: str) -> str:
     """`body` plus the sections `specify` requires, for a test about something else.
 

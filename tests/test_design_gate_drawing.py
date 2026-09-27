@@ -21,6 +21,7 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl import _arch
+from tests.conftest import write_record
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -40,20 +41,6 @@ def _arch_root(storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPa
     root = storyctl_dir.repo_root / "docs" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     return root
-
-
-def _record(
-    root: Path, slug: str, status: str = "proposed", *, diagram: str = "", boundary: str = ""
-) -> Path:
-    """A level-2 record with a `## Log`, so the only blockers are the drawing's."""
-    root.mkdir(parents=True, exist_ok=True)
-    path = root / f"{slug}.md"
-    front = f"---\nstatus: {status}\n"
-    if diagram:
-        front += f"diagram: {diagram}\n"
-    front += "---\n\n"
-    path.write_text(f"{front}# {slug}\n\n{boundary}## Log\n\n- 2026-09-26  proposed  — x\n")
-    return path
 
 
 def _first_blocker(root: Path, slug: str) -> str:
@@ -76,14 +63,22 @@ def _dry_run(slug: str) -> str:
     return f"  wfctl arch accept {slug} --dry-run"
 
 
-# The three drawings `accept` refuses, and the same record once fixed. Kwargs to
-# `_record`, so each row is the whole difference between failing and passing.
+# Every record `accept` refuses, and the same record once fixed. Kwargs to
+# `write_record`, so each row is the whole difference between failing and passing.
 _FAILING = {
     "no drawing": ({"diagram": "component"}, {"diagram": "component", "boundary": _FLOWCHART}),
     "no declared kind": ({"boundary": _FLOWCHART}, {"diagram": "component", "boundary": _FLOWCHART}),
+    "an unknown kind": (
+        {"diagram": "blueprint", "boundary": _FLOWCHART},
+        {"diagram": "component", "boundary": _FLOWCHART},
+    ),
     "no step that fails": (
         {"diagram": "sequence", "boundary": _HAPPY_SEQUENCE},
         {"diagram": "sequence", "boundary": _FAILING_SEQUENCE},
+    ),
+    "no log": (
+        {"diagram": "component", "boundary": _FLOWCHART, "log": False},
+        {"diagram": "component", "boundary": _FLOWCHART},
     ),
 }
 
@@ -95,13 +90,13 @@ _FAILING = {
 def test_a_proposed_record_acceptance_would_refuse_holds_the_design_step(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:
-    """Each drawing `accept` refuses holds brainstorm, naming the record and the
-    blocker. Before this, all three read `brainstorm ●` and the refusal arrived
+    """Each record `accept` refuses holds brainstorm, naming the record and the
+    blocker. Before this, every one read `brainstorm ●` and the refusal arrived
     only when someone tried to accept, after implement had built against it."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     broken, _ = _FAILING[case]
-    _record(root, "a-decision", **broken)
+    write_record(root, "a-decision", **broken)
 
     step = _brainstorm()
 
@@ -122,10 +117,10 @@ def test_fixing_the_drawing_releases_the_step_on_the_next_read(
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     broken, fixed = _FAILING[case]
-    _record(root, "a-decision", **broken)
+    write_record(root, "a-decision", **broken)
     assert _brainstorm()["state"] == "in_progress"
 
-    _record(root, "a-decision", **fixed)
+    write_record(root, "a-decision", **fixed)
 
     step = _brainstorm()
     assert step["state"] == "done"
@@ -143,8 +138,8 @@ def test_two_failing_records_name_the_first_and_hand_back_a_line_for_each(
     slug order disagree."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "b-second", diagram="component")
-    _record(root, "a-first", diagram="component")
+    write_record(root, "b-second", diagram="component")
+    write_record(root, "a-first", diagram="component")
 
     step = _brainstorm()
 
@@ -160,7 +155,7 @@ def test_a_slug_carrying_shell_syntax_is_quoted_in_the_fix_line(
     when pasted, which a reviewer confirmed in a scratch repo."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a;id", diagram="component")
+    write_record(root, "a;id", diagram="component")
 
     assert _brainstorm()["remedy"] == "  wfctl arch accept 'a;id' --dry-run"
 
@@ -174,7 +169,7 @@ def test_rewording_a_blocker_changes_the_reason_and_not_the_fix(
     failing where the wording changed."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
     before = _brainstorm()
 
     monkeypatch.setattr(_arch, "accept_blockers", lambda record: ["worded: some other way"])
@@ -194,7 +189,7 @@ def test_a_failing_drawing_routes_back_to_brainstorm_and_never_automatically(
     session reads after a restart."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
 
     payload = _payload()
     assert payload["next_command"] == "/speckit.brainstorm"
@@ -216,7 +211,7 @@ def test_a_failing_record_beside_an_arch_none_declaration_still_holds_the_step(
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
 
     step = _brainstorm()
 
@@ -234,7 +229,7 @@ def test_a_failing_record_does_not_hold_a_branch_already_past_specify(
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact("specify")
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
 
     step = _brainstorm()
 
@@ -249,7 +244,7 @@ def test_a_failing_record_with_no_design_doc_still_reads_brainstorm_started(
     the drawing inside `_architecture_answered` would read that branch as never
     having started, and send the reader to begin a step already half done."""
     root = _arch_root(storyctl_dir, monkeypatch)
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
 
     step = _brainstorm()
 
@@ -307,7 +302,7 @@ def test_an_accepted_record_is_not_judged_for_its_drawing(
     on a rule its acceptance already answered."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a-decision", "accepted", boundary=_FLOWCHART)
+    write_record(root, "a-decision", "accepted", boundary=_FLOWCHART)
 
     assert _brainstorm()["state"] == "done"
 
@@ -319,10 +314,10 @@ def test_a_failing_record_marked_rejected_by_hand_releases_the_step(
     accepted, so its drawing no longer matters to anyone."""
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
     assert _brainstorm()["state"] == "in_progress"
 
-    _record(root, "a-decision", "rejected", diagram="component")
+    write_record(root, "a-decision", "rejected", diagram="component")
 
     assert _brainstorm()["state"] == "done"
 
@@ -337,7 +332,7 @@ def test_a_failing_looking_file_outside_the_records_is_not_judged(
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
-    _record(root / corner, "a-decision", diagram="component")
+    write_record(root / corner, "a-decision", diagram="component")
 
     assert _brainstorm()["state"] == "done"
 
@@ -361,15 +356,15 @@ def test_a_failing_record_already_on_trunk_is_not_judged(
     brainstorm. Every other test here writes its records untracked, which never
     reaches the `trunk...HEAD` half of the listing."""
     root = _arch_root(storyctl_dir, monkeypatch)
-    _record(root, "an-older-decision", diagram="component")
+    write_record(root, "an-older-decision", diagram="component")
     _commit_on_trunk_then_branch(storyctl_dir.repo_root)
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
 
     assert _brainstorm()["state"] == "done"
 
 
-def test_a_level_3_record_sharing_a_slug_does_not_judge_the_level_2_record(
+def test_a_level_3_record_sharing_a_slug_does_not_judge_the_level_2write_record(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The branch listing matches on bare stems, so a `design/` file named like a
@@ -377,11 +372,11 @@ def test_a_level_3_record_sharing_a_slug_does_not_judge_the_level_2_record(
     held the branch on a drawing it never changed. A reviewer confirmed it in a
     scratch repo: committing only `design/foo.md` held brainstorm on `foo.md`."""
     root = _arch_root(storyctl_dir, monkeypatch)
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
     _commit_on_trunk_then_branch(storyctl_dir.repo_root)
     storyctl_dir.make_spec_artifact("brainstorm")
     assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
-    _record(root / "design", "a-decision", diagram="component", boundary=_FLOWCHART)
+    write_record(root / "design", "a-decision", diagram="component", boundary=_FLOWCHART)
 
     step = _brainstorm()
     assert step["state"] == "done", step["reason"]
@@ -399,6 +394,6 @@ def test_a_failing_record_under_an_arch_root_outside_the_repository_is_not_judge
     root = tmp_path_factory.mktemp("outside") / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     storyctl_dir.make_spec_artifact("brainstorm")
-    _record(root, "a-decision", diagram="component")
+    write_record(root, "a-decision", diagram="component")
 
     assert _brainstorm()["state"] == "done"
