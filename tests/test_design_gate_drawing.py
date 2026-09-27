@@ -13,6 +13,7 @@ rewording that changed nothing this file is about.
 from __future__ import annotations
 
 import json
+import subprocess
 import types
 from pathlib import Path
 
@@ -339,6 +340,51 @@ def test_a_failing_looking_file_outside_the_records_is_not_judged(
     _record(root / corner, "a-decision", diagram="component")
 
     assert _brainstorm()["state"] == "done"
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _commit_on_trunk_then_branch(repo: Path) -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "on trunk")
+    _git(repo, "checkout", "-b", "418-storyctl")
+
+
+def test_a_failing_record_already_on_trunk_is_not_judged(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate judges what this branch decided, not the repository. This repo
+    carries proposed records whose drawings predate the rules `accept` enforces,
+    so a gate that read the whole arch root would hold every branch at
+    brainstorm. Every other test here writes its records untracked, which never
+    reaches the `trunk...HEAD` half of the listing."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _record(root, "an-older-decision", diagram="component")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_a_level_3_record_sharing_a_slug_does_not_judge_the_level_2_record(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The branch listing matches on bare stems, so a `design/` file named like a
+    top-level record on trunk read as that record being touched, and the gate
+    held the branch on a drawing it never changed. A reviewer confirmed it in a
+    scratch repo: committing only `design/foo.md` held brainstorm on `foo.md`."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _record(root, "a-decision", diagram="component")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
+    _record(root / "design", "a-decision", diagram="component", boundary=_FLOWCHART)
+
+    step = _brainstorm()
+    assert step["state"] == "done", step["reason"]
 
 
 def test_a_failing_record_under_an_arch_root_outside_the_repository_is_not_judged(

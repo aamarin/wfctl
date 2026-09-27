@@ -943,13 +943,14 @@ def _branch_records(repo_root: Path, arch: Path) -> dict[str, Record]:
     records count, and a record the gate judged and the fact never listed (or
     the reverse) is a branch held for a reason nothing else on screen names.
 
-    `scans/` is excluded by name, which is `AGENTS.md`'s standing instruction to
-    every reader of the arch root — a git pathspec naming a directory is
-    recursive and cannot be made otherwise. The intersection with `load_records`
-    is what drops `design/`, `views/` and `declarations/`, because that glob is
-    one level deep. It is not enough on its own for `scans/`: it matches on bare
-    stems, so a scan file sharing a stem with a top-level record would read as
-    that record being touched.
+    Every subdirectory is excluded, not only `non_record_subtrees`. A record is
+    a direct child of the arch root, since `load_records` globs one level, and
+    the listing matches on bare stems. So a file under `design/` or `scans/`
+    sharing a stem with a top-level record would read as that record being
+    touched, and the gate would hold the branch on a drawing it never changed.
+    `non_record_subtrees` alone cannot say this: `design/` is left out of it on
+    purpose, because a level-3 record is a decision `records_on_this_branch`
+    has to list for its other caller.
 
     A listing, so "git could not be asked" and an arch root outside the tree
     both come back empty. A caller that has to tell those apart asks
@@ -958,7 +959,10 @@ def _branch_records(repo_root: Path, arch: Path) -> dict[str, Record]:
     from wfctl import _arch
     from wfctl._paths import non_record_subtrees, records_on_this_branch
 
-    slugs = set(records_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch)))
+    subdirs = [p for p in arch.iterdir() if p.is_dir()] if arch.is_dir() else []
+    slugs = set(
+        records_on_this_branch(repo_root, arch, exclude=[*non_record_subtrees(arch), *subdirs])
+    )
     return {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
 
 
