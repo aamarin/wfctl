@@ -14,9 +14,12 @@ and the wrapper name it proposes. Those lines change whenever the runner does,
 and the method does not.
 
 The name is open for a separate reason. Eleven shipped skills carry the
-`speckit-` prefix, and #395 is deciding which parts of the pipeline wfctl owns
-and which remain spec-kit's. A new skill named `speckit-plan-review` adds a
-twelfth name to the shelf that decision has to sort.
+`speckit-` prefix, and three of them are wfctl's own passes. The README draws
+the line those names blur: Spec Kit keeps its steps, and wfctl's design method
+sits around them, with brainstorm, the four design levels, and domain modeling
+before Spec Kit, decompose before implement, and a refactor pass inside
+implement. plan-review is one more pass of that kind, between `plan` and
+`tasks`.
 
 `vendor-upstream-skills` governs derived skills and permits the prefix on a
 wfctl-authored one. It is cited, not restated. The placement of the report and
@@ -25,6 +28,9 @@ this record's.
 
 ## Verified
 
+- `README.md` on `main`, under "Why wfctl", says "Brainstorm, the four design
+  levels and domain modeling run before Spec Kit" and draws decompose and the
+  refactor pass as wfctl's own.
 - `docs/architecture/vendor-upstream-skills.md:114` says "The prefix is a
   naming convention, not a provenance claim".
 - `wfctl/agents/skills/` holds eleven `speckit-` directories. Three of them,
@@ -45,11 +51,12 @@ this record's.
 - That the runner-bound part stays small: the marker, the step names, and the
   scan-file instruction. Falsified if the method turns out to need pipeline
   state to run, in which case the split puts half the method in the wrapper.
-- That #395 moves wfctl's own passes away from spec-kit's names. Falsified if
-  it decides wfctl keeps spec-kit's vocabulary for every step, and then
-  `speckit-plan-review` is the correct name and this record was premature
-  rather than wrong. A rename at that point is a new record superseding this
-  one.
+- That a command outside the `/speckit.` namespace does not cost users more
+  than the honesty of the name is worth. Every other pipeline command a user
+  types starts with `/speckit.`, including `/speckit.brainstorm` and
+  `/speckit.decompose`, which are wfctl's. Falsified if users look for
+  `/speckit.plan-review` and miss `/plan-review`, and then the prefix is the
+  right name and a rename is a new record superseding this one.
 
 ## Direct baseline
 
@@ -98,14 +105,15 @@ volatile  ┌──────────────────────�
 The graphs differ by where the method sits. In the baseline the method shares
 a file with the runner's vocabulary, so it sits below the divider and changes
 whenever the runner does. In the decision the method sits above it, and a
-change of runner, or #395 renaming a step, touches the wrapper alone.
+change of runner, or a renamed step, touches the wrapper alone.
 
 ## Considered
 
-- **`speckit-plan-review`, with the split.** It is permitted, and it is equally
-  good today. It loses on timing: it adds a wfctl-owned skill to the shelf #395
-  is sorting, and leaves that decision one more name to move. The reversal
-  condition under *Assumed* is what makes choosing against it cheap.
+- **`speckit-plan-review`, with the split.** It is permitted, and it matches
+  how `/speckit.brainstorm` and `/speckit.decompose` are invoked. It loses
+  because the prefix reads as provenance whatever the record says it means,
+  and the README places wfctl's passes outside the Spec Kit box. The bet under
+  *Assumed* is what makes choosing against it cheap to reverse.
 - **`sdd-plan-review`.** It trades spec-kit's vocabulary for spec-driven
   development's, which moves the naming problem one step without solving it.
   The skill is named after wfctl's own step instead.
@@ -117,7 +125,10 @@ change of runner, or #395 renaming a step, touches the wrapper alone.
 ## Consequences
 
 The method reads on its own, and a runner other than spec-kit wraps it by
-writing a wrapper. #395 can rename steps without editing the skill.
+writing a wrapper. A renamed step does not touch the skill.
+
+It is the one pipeline command outside the `/speckit.` namespace, so
+`wfctl status` prints `next: /plan-review` between two `/speckit.` commands.
 
 Two files carry the behaviour, so a reader has to open both to see the whole
 pass. `speckit.clarify.md` already asks the same of its reader.
@@ -137,3 +148,8 @@ checks that the wrapper names the skill by path, the way
 
 - 2026-09-26  proposed  — #501 level 3. The candidate's method names no runner,
   and its name was the one open question #395 bears on.
+- 2026-09-26  revised   — #395 closed, answered by the README's line between
+  Spec Kit's steps and wfctl's passes. The name now rests on that line rather
+  than on waiting for #395, and the reversal bet is the cost of a command
+  outside the `/speckit.` namespace. Still proposed, so revised rather than
+  superseded.
