@@ -4,13 +4,14 @@
 
 - Verdict: satisfied
 - Scanned: spec.md, plan.md, tasks.md; all three present and read
-- Findings: 8 · Critical: 0 · Acted on: 7 · Accepted: 1
+- Findings: 8 · Critical: 0 · Acted on: 8 · Accepted: 0
 - Detail: /Users/andremarin/Development/wfctl-specs/501-plan-review/checklists/analysis-report.md
 
 The run was unattended and settled step 8 by the wrapper's policy. The one
-finding it could not apply is held for Andre rather than filed, since his
+finding it could not apply was held for Andre rather than filed, since his
 standing instructions ask that an outward-facing action be confirmed in the
-moment. The repository has no constitution, so pass D read the gates `plan.md`
+moment. He settled it in the next session by conforming the tasks to the
+record, so nothing was filed. The repository has no constitution, so pass D read the gates `plan.md`
 substitutes for one: `AGENTS.md`, the twelve accepted records, and his standing
 instructions.
 
@@ -24,7 +25,7 @@ instructions.
 | D · Constitution alignment | Resolved (1 MEDIUM, fixed) |
 | E · Coverage gaps | Resolved (2 MEDIUM, fixed) |
 | F · Inconsistency | Resolved (1 HIGH and 1 MEDIUM, fixed) |
-| G · Design-record contradiction | Outstanding (1 HIGH, 2 records read) |
+| G · Design-record contradiction | Resolved (1 HIGH, fixed on Andre's call, 2 records read) |
 | Requirement-to-task coverage | 100% |
 
 ### Findings
@@ -38,11 +39,12 @@ instructions.
   `writing-a-scan-file`."
   Task: "Write the report to `FEATURE_DIR/plan-review.md` and the copy to
   `FEATURE_DIR/plan-review.plan.md`."
-  → Accepted: the record is proposed, and rewriting T026 to conform would
-  ratify it, which is a person's call. The contract for the command already
-  sides with the record, so the likely fix is one line in T026 and one in the
-  plan's structure listing.
-    Not filed: held for Andre, who confirms outward-facing actions in the moment.
+  → Fixed: T026 now writes to the paths the invoking command names, T030 names
+  both in the wrapper's section 5, and the `plan.md` listing moves them to the
+  wrapper. The run held this rather than fixing it, because the record is
+  proposed and conforming to it ratifies it, which is a person's call; Andre
+  made that call. Decided against amending the record to let a method name its
+  own output file, since the command contract already sided with the record.
 - **F · Inconsistency, HIGH.** Research R4 makes a step row's `auto` depend on
   the approval grant, and the #325 test
   `test_the_reported_flag_is_the_table_and_nothing_else` states that it must
@@ -81,18 +83,7 @@ instructions.
 
 ### Filing
 
-- **The report path sits in the skill, against the wrapper-split record.** It
-  covers G1. Not filed: held for Andre's confirmation.
-  Title: T026 puts the plan-review report path in the skill, which the
-  wrapper-split record gives to the wrapper
-  Body: `docs/architecture/design/501-plan-review-wrapper-split.md` (proposed)
-  says the `/plan-review` wrapper holds the report path. T026 in
-  `tasks.md`, and the Source Code listing in `plan.md`, put
-  `FEATURE_DIR/plan-review.md` and `FEATURE_DIR/plan-review.plan.md` in
-  `SKILL.md` instead. The command contract already puts them in the wrapper
-  (section 5). There are two ways to settle it: have the skill refer to "the
-  report path the invoking command names" and move both paths into T030, or
-  amend the record to allow a method to name its own output file.
+Nothing was filed. G1 was drafted for filing and then fixed in place instead.
 
 ### Deferred
 
