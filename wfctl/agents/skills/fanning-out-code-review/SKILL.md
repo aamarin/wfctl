@@ -5,7 +5,6 @@ description: 'Review a change with a panel of independent reviewers instead of o
 # worth running — a change about to be opened or merged — is a moment nobody
 # types a command. `install-skills` names this skill among those it mirrors into
 # `.claude/skills/`, so the model can reach it without one.
-# `conversation-response-shape` is the precedent.
 ---
 
 # Fanning out a code review

@@ -2568,23 +2568,16 @@ PRETOOL_EVENT = "PreToolUse"
 # on are the same fact, and 1200 lines apart they drift.
 _USER_PROMPT = "user-prompt"
 _WORKTREE_GUARD = "worktree-guard"
-_RESPONSE_SHAPE = "response-shape"
 _SESSION_RESTART = "session-restart"
 
 HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
-# `|| true`, unlike the `UserPromptSubmit` entry, because the events differ in
-# what a non-zero exit means. On `Stop` it *blocks the stop*: the agent is told
-# to keep going and stops again, so a wfctl that cannot run this — one older than
-# the settings file, or uninstalled from PATH without `uninstall-skills` — turns
-# a usage banner into a loop at the end of every turn.
-#
-# Nothing is lost by swallowing it. This hook warns and never blocks, so it has
-# no non-zero exit of its own to report; every one it could produce is a version
-# mismatch or a bug, and neither is worth a per-turn error on work that was fine.
-STOP_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_RESPONSE_SHAPE} 2>/dev/null || true"
-# `|| true` for the reason `STOP_HOOK_COMMAND` gives, and it matters more here:
-# this hook types into the pane, so a loop it caused would be one it could also
-# feed. It exits 0 on every path of its own; this covers the wfctl that cannot run.
+# `|| true`, unlike the `UserPromptSubmit` entry above: the events differ in
+# what a non-zero exit means. On `Stop` it *blocks the stop*, so a wfctl that
+# cannot run this — one older than the settings file, or uninstalled from PATH
+# without `uninstall-skills` — would turn a usage banner into a loop at the end
+# of every turn instead of a no-op. This hook also types into the pane, so a
+# loop it caused would be one it could also feed. It exits 0 on every path of
+# its own; this covers the wfctl that cannot run.
 RESTART_HOOK_COMMAND = (
     f"{_settings.MANAGED_PREFIX}{_SESSION_RESTART} 2>/dev/null || true"
 )
@@ -2595,18 +2588,17 @@ GUARD_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_WORKTREE_GUARD}"
 
 # `(event, command)` for every hook this wfctl installs. One table rather than
 # constants because three separate places have to agree on it: the merge, the
-# uninstall record it writes, and `doctor`'s freshness check. The first two are
-# opposite halves of the same skill — `UserPromptSubmit` re-anchors the rules
-# before a reply is written, `Stop` looks at what was actually written (#212).
-# `PreToolUse` belongs to neither: it is the cross-worktree guard, and the only
-# one of the three that blocks rather than reports.
+# uninstall record it writes, and `doctor`'s freshness check. `PreToolUse` is
+# the cross-worktree guard, and the only one of the three that blocks rather
+# than reports.
 #
 # Pairs rather than an event-keyed map because an event can carry more than one
 # wfctl feature, and a row is identified by its event and subcommand together
-# (`a-managed-hook-is-owned-by-its-subcommand`).
+# (`a-managed-hook-is-owned-by-its-subcommand`) — `Stop` held a second one, the
+# reply-shape checker, until it was retired for costing more than it returned
+# (#476; `a-rule-is-expressed-as-a-check`'s response-style instance reverted).
 MANAGED_HOOKS: tuple[tuple[str, str], ...] = (
     (SETTINGS_EVENT, HOOK_COMMAND),
-    (STOP_EVENT, STOP_HOOK_COMMAND),
     (STOP_EVENT, RESTART_HOOK_COMMAND),
     (PRETOOL_EVENT, GUARD_HOOK_COMMAND),
 )
@@ -2663,11 +2655,11 @@ _BOB_APPROVAL_ENTRIES = (
 )
 
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
-# something different and "the managed hook is gone" names none of them — and two
-# on one event lose different things.
+# something different and "the managed hook is gone" names none of them — and
+# two wfctl features sharing one event, as `Stop` did until #476, would lose
+# different things.
 _HOOK_GONE = {
     _USER_PROMPT: "is gone — the skills it re-anchors decay again mid-session",
-    _RESPONSE_SHAPE: "is gone — nothing looks at a reply once it is written",
     _SESSION_RESTART: "is gone — a full window is compacted or cleared with no handoff written first",
     _WORKTREE_GUARD: "is gone — nothing stops a Bash call reaching into a sibling worktree",
 }
@@ -2867,10 +2859,8 @@ _MIRRORED_SKILLS = frozenset({
     # git reads the after-implementation pass needs are that wrapper's own
     # grant, pinned by `test_implement_allows_the_commands_the_refactor_pass_needs`.
     "clean-code",
-    "conversation-response-shape",
     "design-levels",
     "fanning-out-code-review",
-    "i-have-adhd",
     # `architecture-design`'s case, and the second method at the same gate:
     # `design-levels` level 2 names this skill by path beside that one, and an
     # agent that read the pointer and reached for `Skill(model-the-domain)` is
@@ -2918,9 +2908,14 @@ _MIRRORED_SKILLS = frozenset({
     # tree, so an agent handed `/speckit.brainstorm` out of `wfctl status --json`
     # resolved it against nothing and stopped for a human (#361). Splitting the
     # body out supplies the name; this entry is what puts it on the native
-    # discovery path, which the other ten still lack. So the test for whether a
-    # later step belongs here is "does a lookup by name find it", not "is its
-    # wrapper readable".
+    # discovery path.
+    #
+    # Not the precedent for the other steps. Their route is the dotted wrapper `EXECUTE_COMMAND` names, which carries
+    # no `disable-model-invocation` for that reason. Mirroring their skills
+    # instead would skip the wrapper, and the wrapper is where wfctl's layer over
+    # a derived skill lives — `speckit.analyze.md`'s scan file, `plan` and
+    # `tasks` reading the design records — so the step would report done without
+    # them (#398).
     #
     # The wrapper survives it: `speckit.brainstorm` and `speckit-brainstorm`
     # differ by a dot, so `_mirror_supersedes_wrapper` never fires and the typed
@@ -2934,6 +2929,28 @@ _MIRRORED_SKILLS = frozenset({
     # the same dead end from the other side — and narrowing it here would leave
     # the two entrances disagreeing about what the identical workflow may do.
     "speckit-brainstorm",
+    # The step skills' shared exit. Every one of them, or its wrapper, ends
+    # "invoke `speckit-orchestrate`", and that is a skill name: its wrapper is
+    # `speckit.orchestrate`, a dot away, so without this entry the lookup finds
+    # nothing and an unattended run stops at the boundary between two steps with
+    # the first one's work done (#473). It is wfctl's own skill, not derived, so
+    # unlike the steps above nothing of wfctl's is carried only on its wrapper,
+    # and skipping that wrapper loses nothing.
+    #
+    # The wrapper's `allowed-tools:` is copied onto the SKILL.md, so a
+    # model-initiated turn may now spend it too. It is `wfctl status`, `wfctl
+    # resume` and `gh pr list`: two reads and the one write that records the
+    # advance, which is the whole of what a step's last instruction asks for. A
+    # grant narrower than the wrapper's would leave the two entrances
+    # disagreeing about what the same workflow may do.
+    #
+    # Its description can now fire it with no step just finished, and each run
+    # records a pass through `wfctl resume`. `wfctl-counts-the-passes` cannot
+    # tell such a run from a step that re-entered and changed nothing, so one
+    # stray invocation brings a stall a pass closer. Accepted: the description
+    # names the moment after a step completes, and a stall only ever stops the
+    # loop for a person, which is the failure it is there to report.
+    "speckit-orchestrate",
     # The one gate `speckit-orchestrate` opens with names `/start-session` as
     # its remedy, and the flag on that wrapper governs the Skill tool rather
     # than the filesystem: an agent reaching for `Skill(start-session)` is
@@ -3069,9 +3086,9 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
     "read the sibling skill", and it is still the only typed route for a layer
     that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
     `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
-    body". Deleting the wrapper from the bundle instead would hand bob the
-    vendored `i-have-adhd` skill with that key intact and no stripped copy left
-    to reach it: a Claude-shaped argument taking out a layer it never described.
+    body". Deleting the wrapper from the bundle instead would leave bob, which
+    gets no mirror, with no typed route to the skill at all: a Claude-shaped
+    argument taking out a layer it never described.
 
     Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
     what makes a wrapper redundant is that this agent got the mirror, not its
@@ -4914,12 +4931,19 @@ def _installed_skill_names(manifest: dict) -> list[str]:
     repository put text of its choosing into the reader's context on every turn,
     under a header saying that text governs the response. Reading the manifest
     means a clone re-anchors what its owner installed and nothing else.
+
+    An entry marked `orphaned` is one wfctl stopped shipping and a run without
+    `--prune` left on disk. It stays on record so `--prune` can still reach it,
+    and that is the only reason it is there; the skill is no longer installed,
+    and printing its digest would tell the agent a removed skill governs the
+    response on every turn until someone prunes.
     """
     prefix = ".agents/skills/"
     names = {
         item["path"][len(prefix):]
         for item in _recorded_items(manifest)
         if isinstance(item, dict)
+        and not item.get("orphaned")
         and isinstance(item.get("path"), str)
         and item["path"].startswith(prefix)
         and _SKILL_NAME.fullmatch(item["path"][len(prefix):])
@@ -5507,7 +5531,8 @@ def check_body_cmd(
 ) -> None:
     """Check a PR description before `gh pr create` reads it.
 
-    The cheaper half of the same problem the `Stop` hook covers: a PR body is a
+    The cheaper half of a problem a `Stop` hook once covered, before the reply
+    half was retired for costing more than it returned (#476): a PR body is a
     file on disk before `gh pr create` reads it, so checking it is a script over
     a file rather than a hook over a response. `opening-a-change` Step 5 already
     writes the body to a file and passes the file; this reads that file.
@@ -5540,11 +5565,11 @@ def check_body_cmd(
     already failed — every handoff listed four commands and this was in none of
     them.
 
-    Of `conversation-response-shape`, only the drawing rules, because the skill
-    scopes the two surfaces apart (SKILL.md:429): headers are a violation in a
-    reply and *required* in a PR body, while the template names this skill's
-    form-selection table as the single owner of which drawing to use.
-    `wfctl/_shape.py` carries the split.
+    Only the drawing rule, from `opening-a-change`'s "Choosing a drawing"
+    section. A PR body is built out of headers, so there is no header rule for
+    a check that only ever sees PR bodies to carry. The template names that
+    section's form-selection table as the single owner of which drawing to use,
+    and `wfctl/_shape.py` carries the rule.
 
     **A rule this cannot settle does not belong here.** The review panel's
     disposition table was checked here until #347, and what ended it is that the
@@ -5605,198 +5630,6 @@ def hook_user_prompt_cmd() -> None:
     (`research.md`'s command-name decision).
     """
     _hook_user_prompt()
-
-
-# What the `Stop` hook sends back. The finding leads and the instruction follows,
-# and that order is the whole design.
-#
-# An instruction on its own is the fourth reminder in a stack of three that
-# already lost, which is #212. What makes this one different is that it arrives
-# knowing what was broken — so it is a correction rather than a re-statement, and
-# it is the half that changes every turn rather than scrolling past unread.
-#
-# The instruction is there because re-reading the skill in full demonstrably
-# works and demonstrably decays: in the session this was built in, invoking it
-# took the reply from a finding on four turns out of four to none on the two that
-# followed, and the drift returned two turns after that. A pointer alone would
-# have to be believed; a pointer under a finding has just been shown to be right.
-#
-# It is a pointer and not an argument. Justifying the re-read addresses a reader
-# deciding whether to comply, and this one has already agreed to the rule — so it
-# is words that repeat verbatim on every firing, in the terminal and in the next
-# turn's context both, because the harness builds those from the same string.
-# Both routes stay: they are not interchangeable, and the agent without the slash
-# command is the one that needs the path.
-_SHAPE_REPORT = """Your last reply broke conversation-response-shape:
-
-{findings}
-
-Re-read it in full before the next reply: `/conversation-response-shape`, or
-`.agents/skills/conversation-response-shape/SKILL.md`."""
-
-
-def _last_exchange(transcript: Path) -> tuple[str, str]:
-    """`(prompt, terminal reply)` — the last user turn and what it drew.
-
-    Reconstructed from the agent's JSONL transcript, which is the only place the
-    finished reply exists: `Stop` hands over a path, not the text.
-
-    A turn is a user message that is not a tool result, then everything up to the
-    next one. The reply is reset on every message carrying a `tool_use`, so what
-    survives is the text written *after* the last tool call — the terminal reply,
-    which is the one the reader actually receives. Narration between two tool
-    calls is not it and would otherwise dominate the word count.
-
-    ponytail: reads the whole file. A session's transcript is a few megabytes and
-    this runs once per turn; seek to the tail if that stops being true.
-    """
-    prompt = ""
-    reply: list[str] = []
-    with transcript.open(encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            try:
-                record = json.loads(line)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-            # Every field defensively, for `hook_worktree_guard_cmd`'s reason: a
-            # transcript written by a newer agent than this wfctl knows about must
-            # degrade to "no finding", never to a traceback at the end of a turn
-            # that was otherwise fine.
-            if not isinstance(record, dict):
-                continue
-            message = record.get("message")
-            if not isinstance(message, dict):
-                continue
-            blocks = message.get("content")
-            kinds = (
-                {b.get("type") for b in blocks if isinstance(b, dict)}
-                if isinstance(blocks, list)
-                else set()
-            )
-            # A `tool_result` is not the only `user` record the reader did not
-            # type. `isMeta` marks an injected skill body, a slash-command
-            # expansion or an `[Image: …]` stub; `promptSource: "system"` marks a
-            # subagent completion or a usage-limit notice. Roughly a quarter of
-            # turn boundaries are one of those, and taking one as the prompt
-            # judges the reply against text nobody wrote — in both directions,
-            # since an injected `SKILL.md` asks for everything and an image stub
-            # asks for nothing. Skipped rather than reset: they arrive after a
-            # tool call, which has already cleared the reply, and leaving `prompt`
-            # alone is what keeps the reader's own words in scope.
-            if record.get("isMeta") or record.get("promptSource") == "system":
-                continue
-            if record.get("type") == "user" and "tool_result" not in kinds:
-                prompt, reply = _message_text(message), []
-            elif record.get("type") == "assistant":
-                text = _message_text(message)
-                if text.strip():
-                    reply.append(text)
-                if "tool_use" in kinds:
-                    reply = []
-    return prompt, "\n".join(reply).strip()
-
-
-def _message_text(message: dict) -> str:
-    """The human-readable text of one transcript message.
-
-    Two shapes, because a user prompt is stored as a bare string and an
-    assistant reply as a list of blocks. Blocks that are not text — tool calls,
-    thinking, images — contribute nothing, which is what makes the word count a
-    count of what the reader read.
-    """
-    blocks = message.get("content")
-    if isinstance(blocks, str):
-        return blocks
-    if not isinstance(blocks, list):
-        return ""
-    return "\n".join(
-        b["text"]
-        for b in blocks
-        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
-    )
-
-
-@hook_app.command(_RESPONSE_SHAPE)
-def hook_response_shape_cmd() -> None:
-    """Stop. Report what the finished reply broke in `conversation-response-shape`.
-
-    The half of that skill nothing had: every other layer — this repo's
-    `UserPromptSubmit` hook, the rule in `SKILL.md`, the pre-send check — fires
-    before the reply exists, so drift was visible only to the reader noticing.
-    See `wfctl/_shape.py` for what is and is not checkable, and #212 for the
-    session where all three layers fired and all three lost.
-
-    **Warns, never blocks.** Exit 0, never exit 2 — blocking a stop tells the
-    agent to keep going and stop again. Over the twenty terminal replies this was
-    tuned on, half carry a finding; a gate at that rate stops being read, and one
-    of the ten is an options list the reader's own instructions ask for. The
-    check cannot tell that one from the rest, so it says what it saw.
-
-    **One channel, and it is the model's.** The finding rides
-    `hookSpecificOutput.additionalContext`, which reaches the agent that wrote
-    the reply, in time to shape the next one. The reader sees it go past under
-    `Stop says:` and cannot act on it — the reply it is about is already on
-    screen.
-
-    `systemMessage` used to be emitted beside it, against the day the harness
-    wired it up for `Stop`. That day came, and it prints under `Stop hook
-    feedback:` — so the reader got the same seven lines twice per firing (#298).
-    The measurement that justified emitting it, seven `Stop` runs in one session
-    where it reached nobody, was true of the harness of the time. The harness is
-    what changed.
-
-    `WFCTL_SHAPE_ECHO=1` writes the report to stderr, for exercising the check by
-    hand — the double print went four months unnoticed because reading a
-    transcript was the only other way to see this fire. It is off by default, and
-    invisible through the wired hook either way: `install-skills` writes the
-    `Stop` entry with `2>/dev/null`, so stderr is for a payload piped in by hand.
-
-    Silent when it finds nothing, which is most turns and the only behaviour
-    that keeps the loud ones worth reading.
-    """
-    from wfctl import _shape
-
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return
-    if not isinstance(payload, dict):
-        return
-
-    # `last_assistant_message` is the finished reply, handed over so a hook does
-    # not have to parse the transcript for it. Preferred when present and fallen
-    # back on when it is not, because the prompt still has to come from the
-    # transcript — the depth gate needs the words that were asked, and no field
-    # carries those.
-    reply = payload.get("last_assistant_message")
-    path = payload.get("transcript_path")
-    if not isinstance(path, str) or not path:
-        return
-    try:
-        prompt, walked = _last_exchange(Path(path).expanduser())
-    except OSError:
-        # Same posture as `_hook_user_prompt`: this runs at the end of every turn,
-        # and a transcript that has moved or cannot be read is not a thing to
-        # report on work that was otherwise fine.
-        return
-    if not isinstance(reply, str) or not reply.strip():
-        reply = walked
-    if not reply:
-        return
-
-    found = _shape.findings(reply, prompt)
-    if found:
-        message = _SHAPE_REPORT.format(
-            findings="\n".join(f"  - {line}" for line in found)
-        )
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": STOP_EVENT,
-                "additionalContext": message,
-            },
-        }))
-        if os.environ.get("WFCTL_SHAPE_ECHO") == "1":
-            print(message, file=sys.stderr)
 
 
 @hook_app.command(_WORKTREE_GUARD)
@@ -6748,8 +6581,10 @@ def _report_hook_drift(
 ) -> bool:
     """Print what one managed entry got wrong, if anything. True when it drifted.
 
-    One call per shipped `(event, command)`, so a missing session restart and a
-    missing reply check on the same `Stop` are two findings with two costs.
+    One call per shipped `(event, command)`, so two wfctl features sharing one
+    event — `Stop` carried both the session restart and a reply-shape checker
+    until #476 retired the latter — would report as two findings with two costs
+    rather than one line for the event.
     """
     from rich.markup import escape
 

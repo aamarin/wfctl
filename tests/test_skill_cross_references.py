@@ -1,10 +1,10 @@
 """Every skill a shipped file tells the agent to read is a skill that ships.
 
-Skills reference each other by path — a command wrapper points at the skill it
-activates, and `start-session` loads the two output-style skills by name. Those
-reads fail silently on purpose: `start-session` says to skip an uninstalled
-skill rather than stop the session. So a renamed or dropped skill costs the
-session a rule and reports nothing, which is #23's shape one directory over.
+Skills reference each other by path. A command wrapper points at the skill it
+activates, and `design-levels` names the skill each level hands its work to. A
+read of a path that is not there stops nothing, so a renamed or dropped skill
+costs the session a rule and reports nothing, which is #23's shape one directory
+over.
 """
 import re
 from importlib.resources import files
@@ -42,37 +42,28 @@ def test_every_referenced_skill_ships() -> None:
     assert not missing, f"referenced but not shipped: {missing}"
 
 
-def test_the_output_style_skills_are_both_loaded_at_session_start() -> None:
-    """`i-have-adhd` sets length, `conversation-response-shape` sets order and
-    depth. Both have to be on from turn 0 and nothing else turns them on there —
-    `i-have-adhd` carries upstream's `disable-model-invocation`, and the other is
-    model-invocable but only once a turn has already been shaped wrong. Dropping
-    either from step 1 disables it for every session, quietly."""
-    start = (_AGENTS / "skills" / "start-session" / "SKILL.md").read_text()
-    loaded = set(_REFERENCE.findall(start))
-    assert {"i-have-adhd", "conversation-response-shape"} <= loaded
-
-
-def test_each_output_style_skill_is_typeable_on_every_layer() -> None:
-    """Turning one back on mid-session — after a session that started without
-    `/start-session`, or said "stop adhd mode" — is a human typing its name, so
-    every layer needs a route to it.
-
-    Two routes, because no single one covers every layer, which is the thing
-    #170's first fix got wrong. The wrapper is the route wherever no mirror
-    exists, and for bob it is the only working route to `i-have-adhd`:
-    `.bob/skills/` gets upstream's `disable-model-invocation` verbatim and
-    `.bob/commands/` gets it stripped. The mirror is the route on the layer that
-    has one, where the wrapper is suppressed as a collision.
-
-    Both halves asserted, because either alone stays green through the change
-    that removes the other.
+def test_the_form_selection_table_has_exactly_one_home() -> None:
+    """The pull request template and `check-body` both point at this table in
+    `opening-a-change` rather than restating it. A copy goes stale the first time
+    the table changes and then contradicts its owner silently, which
+    `knowledge-placement` calls the condition with no owner.
     """
-    from wfctl.cli import _MIRRORED_SKILLS
+    homes = [md for md in _AGENTS.rglob("*.md") if "| The material is |" in md.read_text()]
+    assert [m.relative_to(_AGENTS).as_posix() for m in homes] == [
+        "skills/opening-a-change/SKILL.md"
+    ]
 
-    for name in ("i-have-adhd", "conversation-response-shape"):
-        assert (_AGENTS / "commands" / f"{name}.md").exists(), name
-        assert name in _MIRRORED_SKILLS, name
+
+def test_opening_a_change_routes_an_old_template_to_the_moved_table() -> None:
+    """`install-config` seeds the PR template once and never rewrites it, so a
+    repository seeded before #485 still has a comment naming
+    `conversation-response-shape` as the table's owner, a skill that no longer
+    ships. The skill that fills the template is the only place that pointer can
+    be answered, and dropping the sentence leaves the agent sent to nothing."""
+    skill = (_AGENTS / "skills" / "opening-a-change" / "SKILL.md").read_text()
+    step_4 = skill.split("## Step 4")[1].split("\n## ")[0]
+    assert "`conversation-response-shape`" in step_4
+    assert '"Choosing a drawing"' in step_4
 
 
 def test_start_session_loads_the_in_force_set() -> None:
@@ -176,9 +167,9 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     the line — "Membership decides reachability; the file decides invocability"
     — and `disable-model-invocation` on this SKILL.md would refuse the skill on
     the discovery path membership just put it on, leaving no route at all.
-    `i-have-adhd` is mirrored and refused for exactly that reason, so this is a
-    live failure mode rather than a hypothetical, and the key is a plausible
-    copy-paste from any of the wrappers carrying it.
+    `i-have-adhd` was mirrored and refused for exactly that reason until it left
+    the bundle, so this is an observed failure mode rather than a hypothetical,
+    and the key is a plausible copy-paste from any of the wrappers carrying it.
 
     Both assertions, because each one alone stays green through the change that
     breaks the other. Both level-2 methods, because the gate names each by path
@@ -193,6 +184,12 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
         (_AGENTS / "skills" / skill / "SKILL.md").read_text()
     )
     assert "disable-model-invocation" not in front
+
+
+# The one step whose skill is not its command respelled. Pinned rather than
+# derived, so a second exception is added here deliberately instead of inherited
+# from a looser rule; the two tests that resolve a step's skill both read it.
+_RENAMED_STEP_SKILLS = {"/speckit.decompose": "speckit-delivery-plan"}
 
 
 def test_the_no_boundary_exit_names_its_command() -> None:
@@ -388,9 +385,8 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     passing at line 102. A wrapper may cite any number of other skills; what it
     may not do is fail to name the one its command resolves to.
 
-    `decompose` is the one step whose skill is not its command respelled, and it
-    is pinned here rather than derived so that a second exception has to be
-    added deliberately instead of inherited from a looser rule.
+    `decompose` is the one step whose skill is not its command respelled; see
+    `_RENAMED_STEP_SKILLS`.
 
     Asserts the wrapper names the skill, not that the skill ships:
     `test_every_referenced_skill_ships` above already owns the second half, and
@@ -398,12 +394,11 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
     """
     from wfctl._pipeline import _STEPS
 
-    renamed = {"/speckit.decompose": "speckit-delivery-plan"}
 
     inline = {}
     for step, spec in _STEPS.items():
         wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
-        expected = renamed.get(spec.command, spec.command.lstrip("/").replace(".", "-"))
+        expected = _RENAMED_STEP_SKILLS.get(spec.command, spec.command.lstrip("/").replace(".", "-"))
         if not wrapper.exists() or expected not in _REFERENCE.findall(wrapper.read_text()):
             inline[step] = expected
     assert inline == {}, f"next_command with no skill behind it: {inline}"
@@ -452,9 +447,10 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     the grant, and stall on the first unattended correction pass.
 
     Asserts the wrapper and not the skill. The wrapper is what `EXECUTE_COMMAND`
-    resolves to, which is the route `speckit-orchestrate` actually emits; whether
-    a step is reachable by skill name at all is #396, and whether it should be is
-    #398.
+    resolves to, which is the route `speckit-orchestrate` actually emits — see
+    `test_every_step_command_is_one_the_agent_may_invoke`. Brainstorm's mirrored
+    skill is a second entrance, and `test_brainstorm_allows_the_commands_its_records_need`
+    holds the two grants together.
     """
     from wfctl import _arch
     from wfctl._pipeline import _STEPS
@@ -468,6 +464,97 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
         if step in _EDITS_ITS_OWN_ARTIFACT and "Edit" not in allowed:
             unwritable.append(f"{step} (Edit)")
     assert unwritable == [], f"cannot write its own artifact: {unwritable}"
+
+
+def test_every_step_command_is_one_the_agent_may_invoke() -> None:
+    """Every `_STEPS` row is `_AUTOMATIC`, so `speckit-orchestrate` emits its
+    command as `EXECUTE_COMMAND` for the agent to run with nobody at the prompt.
+    All eight wrappers carried `disable-model-invocation`, so the Skill tool
+    refused every one of them, and the refusal forbids the workaround in its own
+    text. The skill of the same name was unmirrored for seven, so neither
+    spelling resolved and an unattended run stopped at the first step after
+    brainstorm (#473, #396).
+
+    The wrapper is the route to open, not the skill. For the derived steps it is
+    where wfctl's layer lives — `speckit.analyze.md`'s scan file, the design
+    records `plan` and `tasks` read — and mirroring the skill instead would reach
+    the workflow without them, with the step still reporting done (#398).
+    `mirror-supersedes-the-wrapper` rejected dropping this flag for wrappers
+    whose skill is mirrored under the same name, because two files would claim
+    one `/name`. That cannot happen here: `speckit.plan` and `speckit-plan`
+    differ by a dot.
+
+    Walks `_STEPS`, so a row added with a wrapper copied from any of the other
+    commands, which all still carry the key, fails here and not on the first
+    unattended run that reaches it.
+    """
+    from wfctl import _arch
+    from wfctl._pipeline import _STEPS
+
+    refused = []
+    for spec in _STEPS.values():
+        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
+        if "disable-model-invocation" in _arch._frontmatter(wrapper.read_text()):
+            refused.append(spec.command)
+    assert refused == [], f"next_command the agent is refused: {refused}"
+
+
+def test_every_step_hands_off_to_orchestrate() -> None:
+    """Invocable is half of unattended. A step that runs and then says nothing
+    about what comes next ends the run just as surely as one that is refused, and
+    it looks like success. `handoffs:` does not supply the exit: it is a button
+    offered to a person who typed the command, and an agent that entered from
+    `EXECUTE_COMMAND` sees no button.
+
+    `specify` and `decompose` had no exit, and nothing noticed while no agent
+    could enter them. Their wrappers carry the line, and `speckit-brainstorm`'s
+    SKILL.md says why a derived skill cannot.
+
+    The wrapper and the skill it resolves to are read together, because either
+    is a legitimate place for the line. A derived skill cannot take it, and a
+    skill reached by name carries it in the skill.
+    """
+    from wfctl._pipeline import _STEPS
+
+    exit_line = re.compile(r"invoke `speckit-orchestrate`", re.IGNORECASE)
+
+    silent = []
+    for step, spec in _STEPS.items():
+        name = spec.command.lstrip("/")
+        skill = _RENAMED_STEP_SKILLS.get(spec.command, name.replace(".", "-"))
+        text = (_AGENTS / "commands" / f"{name}.md").read_text()
+        text += (_AGENTS / "skills" / skill / "SKILL.md").read_text()
+        if not exit_line.search(text):
+            silent.append(step)
+    assert silent == [], f"step ends without handing off: {silent}"
+
+
+def test_orchestrate_is_reachable_by_the_name_every_step_exits_through() -> None:
+    """"Invoke `speckit-orchestrate`" is a skill name, and the wrapper behind
+    that loop is `speckit.orchestrate`, a dot away. Unmirrored, the lookup the
+    step's last line asks for finds nothing, and the run stops between two steps
+    with the first one done (#473).
+
+    The key checks are here for `test_the_session_gates_remedy_is_reachable_without_a_human`'s
+    reasons. `disable-model-invocation` on the SKILL.md would refuse it on the
+    path membership puts it on. The grant has to equal the wrapper's rather than
+    merely exist, because the skill is reached by the model and the wrapper by a
+    person, and two entrances to one workflow that disagree about what it may do
+    let one of them fail where the other did not.
+    """
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "speckit-orchestrate" in _MIRRORED_SKILLS
+
+    skill = _arch._frontmatter(
+        (_AGENTS / "skills" / "speckit-orchestrate" / "SKILL.md").read_text()
+    )
+    wrapper = _arch._frontmatter(
+        (_AGENTS / "commands" / "speckit.orchestrate.md").read_text()
+    )
+    assert "disable-model-invocation" not in skill
+    assert skill.get("allowed-tools") == wrapper.get("allowed-tools")
 
 
 def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:
@@ -505,9 +592,8 @@ def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
     survives, the suite stays green, and the route the issue was filed about is
     gone again.
 
-    `fanning-out-code-review` and the two output-style skills carry this same
-    pin for the same reason; this is that pattern applied to the one speckit
-    step that needs it.
+    `fanning-out-code-review` carries this same pin for the same reason; this
+    is that pattern applied to the one speckit step that needs it.
     """
     from wfctl.cli import _MIRRORED_SKILLS
 
@@ -697,9 +783,10 @@ def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:
 
     `disable-model-invocation` is the second way to lose the route silently: the
     mirror puts the skill on the discovery path and that key would refuse it
-    there as well, leaving none. `i-have-adhd` is mirrored and unreachable for
-    exactly that reason — vendored, carrying upstream's key — so this is a live
-    failure mode rather than a hypothetical one.
+    there as well, leaving none. `i-have-adhd` was mirrored and unreachable for
+    exactly that reason until it left the bundle, since it was vendored and
+    carried upstream's key, so this is an observed failure mode rather than a
+    hypothetical one.
 
     `allowed-tools` is the third. Suppression drops the wrapper whole, so the
     pre-approval that used to ride on it has to live here or nowhere, and

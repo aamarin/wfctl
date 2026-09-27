@@ -174,7 +174,7 @@ same close as the hook; nothing here can tell the two apart, and it does not try
 
    Write it in the past tense, as a record of what was happening. **Anything
    that still needs doing also gets a `Next Session TODO` item** — that is the
-   section `/start-session` step 9 quotes to name a first action, and a line
+   section `/start-session` step 8 quotes to name a first action, and a line
    here that reads as an instruction competes with it for that role. In Flight
    carries the context a one-line TODO cannot hold; the TODO carries the
    instruction.

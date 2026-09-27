@@ -13,7 +13,7 @@ restart hook this started from corrected both in the text it sent:
 
 - it closes with a bare `wfctl end`, which records a wrapped-up stop — and a
   restarted session is the opposite, one the next session carries on without
-  being asked (`start-session` step 9 reads exactly that field);
+  being asked (`start-session` step 8 reads exactly that field);
 - it stops to ask before committing and before touching the tracker, with nobody
   at the prompt, and the `/clear` that follows would discard the question.
 

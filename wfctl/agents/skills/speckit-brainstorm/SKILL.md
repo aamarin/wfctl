@@ -150,6 +150,7 @@ This line is the step's only exit for an agent that arrived by name. The
 wrapper's `handoffs:` offers Start Specify to a human who typed the command, but
 `handoffs:` is not an Agent Skills key and cannot be moved here, so a skill that
 omits this line leaves a run that has written `design.md` with nothing saying
-the step is over. `speckit-specify`, `speckit-constitution` and
-`speckit-delivery-plan` omit it and are not a precedent: none is in
-`_MIRRORED_SKILLS`, so nothing resolves them by name in the first place.
+the step is over. `speckit-specify` and `speckit-delivery-plan` omit it and
+are not a precedent: their wrappers carry the line instead, because the other
+steps are entered through the wrapper rather than by skill name (#473).
+`speckit-constitution` is no step at all.

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "wfctl"
 version = "0.21.0"
-description = "Workflow state CLI for agent session and pipeline tracking"
+description = "Design method and evidence governance for AI coding agents"
 authors = [{ name = "Andre Marin", email = "andre@alexamarin.com" }]
 license = { text = "MIT" }
 requires-python = ">=3.11"

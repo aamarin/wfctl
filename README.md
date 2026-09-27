@@ -1,22 +1,102 @@
 # wfctl
 
-Workflow state CLI for AI agent session and pipeline tracking.
+**wfctl makes agents think through the work, then independently governs what the durable evidence proves about that work.**
+
+*The agent can produce evidence; it does not get to certify what that evidence proves.*
+
+wfctl is a command-line interface (CLI) for developers who build software with
+AI coding agents, such as Claude Code, Codex, Copilot, or Bob. It installs the
+skills that carry the design method into your project, works alongside
+[Spec Kit](https://github.com/github/spec-kit), and reads the state of each
+feature from the files the work leaves in your repository.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-wfctl manages session and pipeline state for AI coding agents (Claude Code, Codex, Copilot). It tracks where you are in a feature development pipeline — brainstorm → specify → clarify → plan → tasks → analyze → decompose → implement — and tells the agent what to do next.
+```text
+wfctl design method
+       │ shapes
+       ▼
+agent / workflow runner
+       │ produces
+       ▼
+durable repository artifacts
+       │ interpreted by
+       ▼
+     wfctl
+       │
+       ├── what is satisfied?
+       ├── what remains?
+       ├── what is not applicable?
+       ├── what decisions constrain the work?
+       └── what needs attention?
+```
+
+This is `wfctl status` on an open branch in this repository:
+
+```
+#473  473-steps-unreachable-by-model
+will never merge, force-push, close an issue, or delete a branch
+or worktree — those are yours, and no setting changes it
+your agent decides which commands may run — wfctl can't see
+its rules and says nothing about them
+────────────────────────────────────
+brainstorm   ▶  ← current
+  architecture  ●
+  design-doc    ▶  /speckit.brainstorm
+specify      ○
+clarify      ○
+plan         ○
+tasks        ○
+analyze      ○
+decompose    ○
+implement    ○
+────────────────────────────────────
+artifacts written     ○  missing spec.md, plan.md, tasks.md
+definition of done    ●  passed at 40eb0a2
+architecture accepted ○  mirror-supersedes-the-wrapper (proposed)
+next: /speckit.brainstorm
+```
+
+In that output, ● means done, ▶ means in progress, and ○ means pending.
+Nothing on that screen came from the agent. wfctl reads each row off the
+branch when you ask, from the spec files, the verdict that `wfctl verify`
+recorded, and the architecture records in force.
 
 ## Why wfctl
 
-wfctl enforces spec-driven development — keeps agents on the specify → plan → implement track instead of jumping straight to code:
+wfctl does two things:
 
-- **Persistent by design** — session state on disk; step recoverable even if lost
-- **Truth from artifacts** — step read from real spec files, not from an agent's report; `implement` also gates on a definition of done wfctl runs itself (`wfctl verify`), so "done" is a recorded verdict rather than a claim
-- **Enforced order** — always points to the next required step, blocking code before spec and plan
-- **Design before spec** — `design-levels` runs design as four gated passes, so who owns what is decided out loud, not buried in code
-- **Ships with skills** — installs spec-kit skills + slash commands into the project
-- **Accountable outward actions** — issue writes record themselves, a push is recorded with `wfctl report-action`, and a host refusal with `wfctl report-block` holds the step until the action is taken; your agent's own permission layer decides what may run ([details](docs/reference.md#outward-actions-report-action-report-block))
+1. It gives the agent a design method, so the agent thinks the work through
+   before it writes code.
+2. It reads what the work left behind and decides, independently of the agent,
+   what that evidence proves.
+
+**The design method** makes the agent think before it codes, and clean up what
+it built.
+
+- Brainstorm, the four design levels and domain modeling run before Spec Kit, so the agent decides who owns what before a spec or any code exists.
+- Decompose is the last step before implement. It splits the tasks into pull requests and tracker issues before any code is written.
+- A refactor pass runs inside implement, after the code works and before `wfctl verify` runs.
+
+**Evidence governance** means the agent does not decide when the work is done.
+
+- wfctl tracks where each feature sits in the pipeline, and it reads each step's state from the artifacts on disk, not from what the agent reports.
+
+  ```text
+  brainstorm → specify → clarify → plan → tasks → analyze → decompose → implement
+  ```
+
+- Implement is gated on a definition of done that wfctl runs itself with `wfctl verify`, so "done" is a recorded verdict and not a claim.
+- What does not apply is recorded with a reason instead of being skipped silently. `wfctl arch none` records that a change draws no architecture boundary, and `wfctl step none` records that a pass a repository added in `wfctl.json` does not apply to this change.
+- Architecture decisions are read as obligations on the work. `wfctl arch context` prints the ones in force.
+
+wfctl also installs its slash commands alongside the skills. It records the
+outward actions an agent takes, such as issue writes and pushes, but it does
+not gate them. Your agent's own permission layer decides what may run, and
+when it refuses an action,
+`wfctl report-block` holds the step until the action is taken
+([details](docs/reference.md#outward-actions-report-action-report-block)).
 
 ## Requirements
 
@@ -80,9 +160,10 @@ flowchart LR
     A[["① Install<br/>(once per repo)"]] --> B[["② Drive the pipeline<br/>(every feature)"]] --> C[["③ Open the change<br/>(every PR)"]]
 ```
 
-You install the skills once per repo (①); everything after that runs from
-inside your agent. ② is the mechanism wfctl actually adds: the agent doesn't
-get to say where it is — the files on disk do.
+You install the skills once per repository (①), and everything after that runs
+from inside your agent. Both halves of wfctl live in ②. The skills carry the
+design method into each step, and wfctl judges each step by what it left on
+disk.
 
 ```mermaid
 flowchart LR
@@ -98,11 +179,36 @@ flowchart LR
     W -.->|"next: /speckit.____"| Agent
 ```
 
-The agent writes artifacts; wfctl reads them back off disk to decide what's
-done and what's next. It never takes the agent's word for it. The boxes shown
-are spec-driven development specifically — that pipeline is hardcoded into
-wfctl today, not configurable. The part that generalizes is the mechanism:
-read artifacts, don't trust claims.
+wfctl names the next step, and the agent runs it. The orchestrate skill can
+carry the agent through all eight steps on its own. It stops for a person when
+a step is blocked or stalls, and after any pass a repository added in
+`wfctl.json`, which waits for review unless the repository says otherwise.
+
+The eight steps are fixed, and a repository can add its own passes under any
+of them in its `wfctl.json`. Whether that step order should move to Spec Kit's
+own workflow engine is still an open question, and nothing has been decided
+yet.
+
+```mermaid
+flowchart TD
+    B["brainstorm"] --> SK1
+    subgraph SK1["Spec Kit runs"]
+        direction LR
+        S1["specify"] --> S2["clarify"] --> S3["plan"] --> S4["tasks"] --> S5["analyze"]
+    end
+    SK1 --> D["decompose"] --> SK2
+    subgraph SK2["Spec Kit runs"]
+        I["implement"]
+    end
+    SK2 --> R["refactor pass"]
+    style SK1 fill:none,stroke-dasharray: 5 5
+    style SK2 fill:none,stroke-dasharray: 5 5
+```
+
+Spec Kit runs the steps inside the dashed boxes. The steps outside them are
+wfctl's design method, including the refactor pass, which runs over the
+finished code before implement is marked done. wfctl reads the evidence from all
+eight steps, whoever ran them.
 
 Full pipeline model, every command, environment variables, the issue-tracker
 and architecture-record machinery, and how `install-skills`/`install-config`

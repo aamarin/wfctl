@@ -136,7 +136,7 @@ Both destinations, and neither is optional:
   with the worktree; the state dir outlives `wm rm`.
 
 `session-summary.md` is the filename because
-`.agents/skills/start-session` step 4 already reads it and reads it *fully* —
+`.agents/skills/start-session` step 3 already reads it and reads it *fully* —
 landing there costs the reader no change. What goes in it is the shape above,
 not `.agents/skills/end-session`'s template: that template is what a session
 writes about a session it just finished, and this is a handoff about a session
@@ -144,20 +144,20 @@ that has not started. The filename is the interface; the prose is yours.
 
 Say in the handoff's first line that it *is* a handoff, written before the branch
 existed rather than by a session that ran on it. Not for the routing —
-`start-session` step 9 settles that from `events.jsonl`, and never from what the
-file claims to be — but for the report: step 8 prints this file under "last
+`start-session` step 8 settles that from `events.jsonl`, and never from what the
+file claims to be — but for the report: step 7 prints this file under "last
 session's focus", and a handoff filed under that heading invents a session that
 never happened.
 
 Order matters: `wm add` first. Resolving the state dir creates it, and a branch
 whose `pre_create` hook rejected the name should not leave one behind.
 
-`start-session` step 9 reads this file to decide whether to ask the reader what
+`start-session` step 8 reads this file to decide whether to ask the reader what
 to work on, and it proceeds only on a **sentence it can quote** naming the first
 action. Section 2 is where that sentence lives. "Plainly enough to be the
 default" was the old wording and it did not work — three of three panes stated
 the action back verbatim and asked anyway (#244); a line that reads as
-description rather than instruction is a line step 9 will not quote. Write it as
+description rather than instruction is a line step 8 will not quote. Write it as
 the imperative it is: `Start with <the command>`, not "the work here concerns
 `<x>`". Do not add a TODO section to get one; it would be a second copy of the
 route, and `.agents/skills/end-session` owns that heading.
