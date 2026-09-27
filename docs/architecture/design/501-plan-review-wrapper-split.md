@@ -31,7 +31,7 @@ this record's.
 - `README.md` on `main`, under "Why wfctl", says "Brainstorm, the four design
   levels and domain modeling run before Spec Kit" and draws decompose and the
   refactor pass as wfctl's own.
-- `docs/architecture/vendor-upstream-skills.md:114` says "The prefix is a
+- `docs/architecture/vendor-upstream-skills.md:113` says "The prefix is a
   naming convention, not a provenance claim".
 - `wfctl/agents/skills/` holds eleven `speckit-` directories. Three of them,
   `speckit-brainstorm`, `speckit-delivery-plan`, and `speckit-orchestrate`, are
