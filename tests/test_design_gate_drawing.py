@@ -364,6 +364,67 @@ def test_a_failing_record_already_on_trunk_is_not_judged(
     assert _brainstorm()["state"] == "done"
 
 
+@pytest.mark.parametrize("committed", [False, True], ids=["uncommitted", "committed"])
+def test_an_edit_to_a_failing_record_from_trunk_is_not_judged(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, committed: bool
+) -> None:
+    """The gate judges records the branch added, not ones it edited. This repo
+    holds proposed records that `accept` refuses, since their drawings predate
+    its rules, and judging edits held any branch that fixed a typo in one of them
+    until the drawing was redone. Both halves of the listing are pinned, since
+    the working tree reports an edit as ` M` and the trunk diff as `M`."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    path = write_record(root, "an-older-decision", diagram="component")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    path.write_text(path.read_text() + "A typo, fixed.\n")
+    if committed:
+        _git(storyctl_dir.repo_root, "commit", "-am", "fix a typo")
+
+    step = _brainstorm()
+
+    assert step["state"] == "done", step["reason"]
+
+
+def test_an_edited_record_is_still_listed_by_the_accepted_fact(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate and the fact share one listing and ask it different questions.
+    The gate narrows to added records, and the fact must not narrow with it: an
+    edit to a proposed record is a decision this branch made, and a person has
+    not ruled on it yet."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    path = write_record(root, "an-older-decision", diagram="component")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    path.write_text(path.read_text() + "A typo, fixed.\n")
+
+    fact = next(f for f in _payload()["facts"] if f["name"] == "architecture accepted")
+
+    assert fact["value"] == "unmet"
+    assert "an-older-decision (proposed)" in fact["detail"]
+
+
+def test_a_failing_record_added_in_a_commit_on_the_branch_holds_the_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every other held-step test writes its record untracked, which only the
+    working-tree half of the listing sees. Once committed, the record reaches
+    the gate through the trunk diff, whose added-only filter is what this
+    exercises."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_record(root, "an-older-decision", diagram="component", boundary=_FLOWCHART)
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    write_record(root, "a-decision", diagram="component")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == f"a-decision: {_first_blocker(root, 'a-decision')}"
+
+
 def test_a_level_3_record_sharing_a_slug_does_not_judge_the_level_2write_record(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

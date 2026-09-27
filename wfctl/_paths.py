@@ -386,9 +386,13 @@ def touched_on_this_branch(
 
 
 def records_on_this_branch(
-    repo_root: Path, arch: Path, exclude: Sequence[Path] | None = None
+    repo_root: Path, arch: Path, exclude: Sequence[Path] | None = None, added: bool = False
 ) -> list[str]:
     """The record slugs this branch adds or modifies, uncommitted work included.
+
+    `added` narrows the listing to the records this branch created. A reader
+    judging a record by rules newer than the record needs that line: an edit to
+    a record written before the rules existed would otherwise be held to them.
 
     A sibling of `touched_on_this_branch` rather than a widening of it, because
     the two answer different questions and only one of them gates. That one
@@ -412,14 +416,14 @@ def records_on_this_branch(
     if not is_in_tree(arch, repo_root):
         return []
 
-    def names(*args: str) -> list[str]:
+    def names(*args: str, codes: tuple[str, ...] = ("",)) -> list[str]:
         r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
         if r.returncode != 0:
             return []
         # `status --porcelain` prefixes each line with a two-column code; `diff
         # --name-only` does not. Splitting on whitespace from the right leaves
         # the path in both, and a record path never contains one.
-        return [line.split()[-1] for line in r.stdout.splitlines() if line.strip()]
+        return [line.split()[-1] for line in r.stdout.splitlines() if line.strip() and line.startswith(codes)]
 
     spec = [str(arch)]
     for dropped in exclude or ():
@@ -433,10 +437,17 @@ def records_on_this_branch(
     # repo that has none reports `docs/architecture/` and no filename — which a
     # caller asking "did anything change" can still read as yes, and a caller
     # asking "which records" reads as none.
-    found = names("status", "--porcelain", "-uall", "--", *spec)
+    #
+    # A new file is `??` until staged and `A` in the index column after, so an
+    # added record reads as either. A rename is `R` and is left out on purpose:
+    # the record it carries was written before this branch.
+    found = names(
+        "status", "--porcelain", "-uall", "--", *spec, codes=("??", "A") if added else ("",)
+    )
     trunk = _trunk_branch(repo_root)
     if trunk is not None:
-        found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
+        diff_filter = ["--diff-filter=A"] if added else []
+        found += names("diff", "--name-only", *diff_filter, f"{trunk}...HEAD", "--", *spec)
 
     slugs = {Path(p).stem for p in found if p.endswith(".md")}
     return sorted(slugs)

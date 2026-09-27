@@ -939,13 +939,21 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
-def _branch_records(repo_root: Path, arch: Path) -> dict[str, Record]:
-    """The level-2 records this branch added or modified, by slug.
+def _branch_records(repo_root: Path, arch: Path, added: bool = False) -> dict[str, Record]:
+    """The level-2 records this branch added or modified, by slug, or with
+    `added` only the ones it added.
 
-    One list for the two readers that ask it, `fact_architecture_accepted` and
-    the design gate's drawing check. Built twice, the two would drift on which
-    records count, and a record the gate judged and the fact never listed (or
-    the reverse) is a branch held for a reason nothing else on screen names.
+    One listing for the two readers that ask it, `fact_architecture_accepted`
+    and the design gate's drawing check. Built twice, the two would drift on
+    which records count, and a record the gate judged and the fact never listed
+    is a branch held for a reason nothing else on screen names.
+
+    The gate asks for `added` and the fact does not, so the gate judges a subset
+    of what the fact lists, and that direction is safe. The gate enforces
+    drawing rules that are newer than most records in a repo, and a branch
+    fixing a typo in an old proposed record would otherwise be held until that
+    record's drawing was redone. The fact asks whether a person ruled on what
+    the branch decided, and an edit to a record is a decision all the same.
 
     Every subdirectory is excluded, not only `non_record_subtrees`. A record is
     a direct child of the arch root, since `load_records` globs one level, and
@@ -965,7 +973,9 @@ def _branch_records(repo_root: Path, arch: Path) -> dict[str, Record]:
 
     subdirs = [p for p in arch.iterdir() if p.is_dir()] if arch.is_dir() else []
     slugs = set(
-        records_on_this_branch(repo_root, arch, exclude=[*non_record_subtrees(arch), *subdirs])
+        records_on_this_branch(
+            repo_root, arch, exclude=[*non_record_subtrees(arch), *subdirs], added=added
+        )
     )
     return {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
 
@@ -991,7 +1001,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
     `_branch_records` decides which records count, and the design gate asks it
-    too, so the two cannot disagree about what this branch decided.
+    too, so every record the gate holds the branch on is one this fact lists.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
     accepted". A branch that supersedes a record leaves it `superseded`, which a
@@ -1127,8 +1137,12 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
 
 
 def _judge_drawings(repo_root: Path) -> Assessment:
-    """Hold the pass on any proposed record this branch touched whose drawing
+    """Hold the pass on any proposed record this branch added whose drawing
     `accept` would refuse, naming the first and handing back a fix for each.
+
+    Added, and not modified: the pass exists to catch a drawing when its record
+    is written. A record from before these rules is still refused by `accept`
+    when a person rules on it, which is where it was caught before this pass.
 
     `_arch.accept_blockers` is the only definition of those rules, and asking it
     here is what moves the first check from acceptance to the moment the record
@@ -1150,7 +1164,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     """
     from wfctl import _arch
 
-    records = _branch_records(repo_root, arch_root(repo_root))
+    records = _branch_records(repo_root, arch_root(repo_root), added=True)
     failing = [
         (slug, blockers)
         for slug in sorted(records)
