@@ -643,6 +643,12 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     and so cannot ride the loop above: a step that cannot write `design.md` has
     no output, and the failure arrives as a tool refusal rather than as a
     missing rule.
+
+    `wfctl arch accept <slug> --dry-run` is the fix line the design step prints
+    for a drawing `accept` would refuse, and the skill sends a re-entered
+    brainstorm to it. It is granted in its dry-run form only, and the bare form
+    is asserted absent: `accept` is the ruling a person makes, and a grant wide
+    enough to rehearse it is wide enough to perform it.
     """
     surfaces = {
         "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
@@ -664,6 +670,8 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
         ):
             assert f"Bash({needed}*)" in allowed, f"{where}: {needed}"
         assert "Write" in allowed, f"{where}: Write"
+        assert "Bash(wfctl arch accept * --dry-run)" in allowed, f"{where}: dry run"
+        assert "Bash(wfctl arch accept*)" not in allowed, f"{where}: accept itself"
     assert grants["wrapper"] == grants["skill"], (
         "the two copies of the grant have drifted; whichever entrance lost one "
         "now refuses a step the other can run"
