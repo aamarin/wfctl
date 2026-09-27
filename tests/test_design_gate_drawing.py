@@ -151,6 +151,19 @@ def test_two_failing_records_name_the_first_and_hand_back_a_line_for_each(
     assert step["remedy"] == f"{_dry_run('a-first')}\n{_dry_run('b-second')}"
 
 
+def test_a_slug_carrying_shell_syntax_is_quoted_in_the_fix_line(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fix is a line the reader pastes, and a slug is a filename nothing
+    constrains. Unquoted, a record named `a;id` handed back a fix that ran `id`
+    when pasted, which a reviewer confirmed in a scratch repo."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _record(root, "a;id", diagram="component")
+
+    assert _brainstorm()["remedy"] == "  wfctl arch accept 'a;id' --dry-run"
+
+
 def test_rewording_a_blocker_changes_the_reason_and_not_the_fix(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

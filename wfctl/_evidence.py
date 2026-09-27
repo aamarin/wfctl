@@ -20,6 +20,7 @@ and holds these functions as values, so the arrow only points one way.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
@@ -1134,6 +1135,10 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     since fixing only the named one would meet the next on the following read.
     The fix is built from the slug held here and never from the reason's text,
     which is the level-3 record this pass was written against.
+
+    The slug is quoted because the fix is a line the reader pastes, and a slug
+    is a filename nothing constrains: `a;b.md` is a record, and unquoted its fix
+    runs `b`. `_block_remedy` quotes its free-text action for the same reason.
     """
     from wfctl import _arch
 
@@ -1150,7 +1155,9 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     return Assessment(
         "in_progress",
         f"{slug}: {blockers[0]}",
-        remedy="\n".join(f"  wfctl arch accept {s} --dry-run" for s, _ in failing),
+        remedy="\n".join(
+            f"  wfctl arch accept {shlex.quote(s)} --dry-run" for s, _ in failing
+        ),
     )
 
 
