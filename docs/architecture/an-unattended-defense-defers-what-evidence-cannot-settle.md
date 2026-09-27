@@ -138,8 +138,8 @@ A pull request produced unattended arrives with the questions its reviewer has
 to be able to answer, rather than with a claim that they were answered.
 
 The revise loop in point 2 has no natural end. Each round rewrites `plan.md`, so
-the evidence changes and stall detection never fires. The bound is
-`wfctl-counts-the-defense-rounds`.
+the evidence changes and stall detection never fires. The bound is a stop
+condition, in `unattended-run-stop-condition`.
 
 The rule is prose delivered in the skill, not a check. Whether an unattended
 answer was drawn from evidence or from assertion is a judgment about its
