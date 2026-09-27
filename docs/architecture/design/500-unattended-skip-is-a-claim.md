@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: rejected
 ---
 
 # An unattended plan defense records its skip as a step claim, not as a marker
@@ -141,3 +141,6 @@ text carries that difference rather than a new verb.
 
 - 2026-09-27  proposed  — #500 level 3: how the unattended skip that
   `plan-defense-is-private` requires is recorded
+- 2026-09-27  rejected  — the claim committed a file per unattended run and
+  outlived the mode it described; `attended-pass-skips-unattended` has wfctl
+  read the skip from the approval mode instead

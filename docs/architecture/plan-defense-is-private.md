@@ -52,8 +52,8 @@ wfctl. The only file the
 pass leaves in the feature directory is a marker naming the plan it was run
 against and when, with no answers in it.
 
-Under `auto_approve` the pass runs no interview and writes no marker. It records
-that it was skipped because no person was present, so an unattended run never
+Under `auto_approve` the pass runs no interview and writes no marker, and wfctl
+reads it as skipped because no person is expected, so an unattended run never
 carries answers that nobody gave.
 
 A person may lift a gap into the plan. It is then worded as a gap in the plan,
@@ -87,7 +87,9 @@ flowchart LR
     subgraph feature["feature directory"]
         M["marker: which plan, when"]
         PL["plan"]
-        K["skip, with its reason"]
+    end
+    subgraph wfctl["wfctl"]
+        K["skipped, no person expected"]
     end
     subgraph agent["agent, unattended"]
         A["no interview"]
@@ -95,7 +97,7 @@ flowchart LR
     P --> S
     P -- "run recorded" --> M
     P -- "a gap, lifted by choice, worded as a gap in the plan" --> PL
-    A -- "skipped, no person present" --> K
+    A --> K
     A -. "marker" .-x M
     S -. "answers" .-x M
     A -. "answers as the person" .-x S
@@ -136,9 +138,10 @@ directory, and the marker in the feature directory. What the marker carries to
 name the plan (a content hash of `plan.md` is the candidate) is a level-3
 decision.
 
-How the unattended skip is recorded is also level 3. `wfctl step none` says a
-pass does not apply to a change, and here it does not apply to one run; a later
-attended session on the same branch may still run it.
+How the unattended skip reaches the pipeline is decided in
+`attended-pass-skips-unattended`: the declaration says the pass needs a person,
+and wfctl reads it as skipped while `auto_approve` is on, with nothing written.
+A later attended session on the same branch finds the pass outstanding again.
 
 The state directory survives sessions and is not backed up. How long a person's
 answers should last, and whether they can be kept somewhere durable and private,
@@ -150,3 +153,5 @@ is open.
   and the one switch means nobody is there
 - 2026-09-27  rewritten   — #500 level 1 reopened: the pass is a private,
   attended check; the unattended evidence mode moved to #501's territory
+- 2026-09-27  revised     — the unattended skip is read from the approval mode,
+  not written by the skill (`attended-pass-skips-unattended`)
