@@ -941,7 +941,7 @@ def build_report(
     # same three files, and two reads of them can disagree while an implementing
     # agent is writing — the window `build_report` was made to close for the
     # blocked reason, met again by a field added beside it.
-    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root, agent_dir)
     raw = _infer_steps(spec_dir, repo_root, ev)
     # After `_infer_steps` returns, never inside its loop — see
     # `_apply_block_hold`'s own docstring for why splicing it into the loop

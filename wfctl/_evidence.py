@@ -217,6 +217,13 @@ class Evidence:
     # `build_report`'s own seam comment names that as the thing this collapse
     # exists to prevent.
     verification: str | None
+    # The state dir, where `plan_review` finds the `sign-off` events that are
+    # the only source of a sign-off (research R8). None for a caller that has
+    # no state dir to hand, and then no sign-off is seen, so a signed-off plan
+    # reads stale there. That errs toward one more review, never toward one
+    # skipped. Defaulted and last so an `Evidence` built by hand in a test keeps
+    # compiling.
+    agent_dir: Path | None = None
 
 
 def _file_exists(path: Path) -> bool:
@@ -1012,7 +1019,9 @@ def facts(
     )
 
 
-def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
+def build_evidence(
+    spec_dir: Path, repo_root: Path, agent_dir: Path | None = None
+) -> Evidence:
     """Read once, for all eight readers.
 
     Public because the walk calls it, and because it is the only way to make an
@@ -1056,6 +1065,7 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         tasks_done=done,
         tasks_total=total,
         verification=verification_block(repo_root),
+        agent_dir=agent_dir,
     )
 
 
@@ -1245,6 +1255,15 @@ def plan_review(ev: Evidence) -> Assessment:
         # `ev.tasks_text` rather than a second look at the file, so this row and
         # the `tasks` reader cannot disagree about whether `tasks.md` exists.
         return Assessment("skipped" if ev.tasks_text else "in_progress")
+    # Row 3, ahead of every row that reads the report. A sign-off accepts the
+    # plan as it is now whatever the report says about an earlier one, so a
+    # stale or unreadable report under a signed-off plan still reads done.
+    if ev.agent_dir is not None:
+        from wfctl._paths import resolve_branch
+
+        accepted = _plan_review.sign_offs(ev.agent_dir, resolve_branch(ev.repo_root))
+        if accepted and _plan_review.identity(ev.spec_dir / "plan.md") in accepted:
+            return Assessment("done")
     recorded = _plan_review.read_report(report)
     if recorded.plan_identity is None:
         return Assessment("in_progress", None, "the review records no plan.md identity")
