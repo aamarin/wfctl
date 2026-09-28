@@ -386,13 +386,27 @@ def touched_on_this_branch(
 
 
 def records_on_this_branch(
-    repo_root: Path, arch: Path, exclude: Sequence[Path] | None = None, added: bool = False
+    repo_root: Path,
+    arch: Path,
+    exclude: Sequence[Path] | None = None,
+    *,
+    added_only: bool = False,
 ) -> list[str]:
     """The record slugs this branch adds or modifies, uncommitted work included.
 
-    `added` narrows the listing to the records this branch created. A reader
-    judging a record by rules newer than the record needs that line: an edit to
-    a record written before the rules existed would otherwise be held to them.
+    `added_only` narrows the listing to records the branch base does not have.
+    A reader judging a record by rules newer than the record needs that line:
+    an edit to a record written before the rules existed would otherwise be
+    held to them.
+
+    "The base does not have it" is asked of the base's tree, never of git's
+    change codes. Those codes turn on whether git paired two paths as a rename
+    or a copy, which is a similarity guess that moves with staging and with each
+    machine's `diff.renames` and `status.renames`. Read that way, the same record
+    was judged before a commit and released after it, and a new record that git
+    paired with a deleted one was never judged at all. A rename is new by this
+    test, since the base has no file at its path, so renaming an older record
+    holds the branch on its drawing; that is the direction that fails closed.
 
     A sibling of `touched_on_this_branch` rather than a widening of it, because
     the two answer different questions and only one of them gates. That one
@@ -416,14 +430,14 @@ def records_on_this_branch(
     if not is_in_tree(arch, repo_root):
         return []
 
-    def names(*args: str, codes: tuple[str, ...] = ("",)) -> list[str]:
+    def names(*args: str) -> list[str]:
         r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
         if r.returncode != 0:
             return []
         # `status --porcelain` prefixes each line with a two-column code; `diff
         # --name-only` does not. Splitting on whitespace from the right leaves
         # the path in both, and a record path never contains one.
-        return [line.split()[-1] for line in r.stdout.splitlines() if line.strip() and line.startswith(codes)]
+        return [line.split()[-1] for line in r.stdout.splitlines() if line.strip()]
 
     spec = [str(arch)]
     for dropped in exclude or ():
@@ -437,17 +451,22 @@ def records_on_this_branch(
     # repo that has none reports `docs/architecture/` and no filename — which a
     # caller asking "did anything change" can still read as yes, and a caller
     # asking "which records" reads as none.
-    #
-    # A new file is `??` until staged and `A` in the index column after, so an
-    # added record reads as either. A rename is `R` and is left out on purpose:
-    # the record it carries was written before this branch.
-    found = names(
-        "status", "--porcelain", "-uall", "--", *spec, codes=("??", "A") if added else ("",)
-    )
+    found = names("status", "--porcelain", "-uall", "--", *spec)
     trunk = _trunk_branch(repo_root)
     if trunk is not None:
-        diff_filter = ["--diff-filter=A"] if added else []
-        found += names("diff", "--name-only", *diff_filter, f"{trunk}...HEAD", "--", *spec)
+        found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
+
+    if added_only:
+        # The merge base is what `trunk...HEAD` diffs against. With no trunk,
+        # HEAD is the only base there is: a record committed before this read is
+        # indistinguishable from one on trunk, which is #508's gap and not this
+        # filter's to close. A base git cannot read lists nothing, so every
+        # touched record counts as added, which again fails closed.
+        base = names("merge-base", trunk, "HEAD") if trunk is not None else ["HEAD"]
+        rel = str(arch.resolve().relative_to(repo_root.resolve()))
+        tree = ["ls-tree", "-r", "--name-only", "--full-name"]
+        on_base = set(names(*tree, base[0], "--", rel)) if base else set()
+        found = [p for p in found if p not in on_base]
 
     slugs = {Path(p).stem for p in found if p.endswith(".md")}
     return sorted(slugs)

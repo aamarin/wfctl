@@ -939,17 +939,19 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
-def _branch_records(repo_root: Path, arch: Path, added: bool = False) -> dict[str, Record]:
+def _branch_records(
+    repo_root: Path, arch: Path, *, added_only: bool = False
+) -> dict[str, Record]:
     """The level-2 records this branch added or modified, by slug, or with
-    `added` only the ones it added.
+    `added_only` only the ones the branch base does not have.
 
     One listing for the two readers that ask it, `fact_architecture_accepted`
     and the design gate's drawing check. Built twice, the two would drift on
     which records count, and a record the gate judged and the fact never listed
     is a branch held for a reason nothing else on screen names.
 
-    The gate asks for `added` and the fact does not, so the gate judges a subset
-    of what the fact lists, and that direction is safe. The gate enforces
+    The gate asks for `added_only` and the fact does not, so the gate judges a
+    subset of what the fact lists, and that direction is safe. The gate enforces
     drawing rules that are newer than most records in a repo, and a branch
     fixing a typo in an old proposed record would otherwise be held until that
     record's drawing was redone. The fact asks whether a person ruled on what
@@ -974,7 +976,10 @@ def _branch_records(repo_root: Path, arch: Path, added: bool = False) -> dict[st
     subdirs = [p for p in arch.iterdir() if p.is_dir()] if arch.is_dir() else []
     slugs = set(
         records_on_this_branch(
-            repo_root, arch, exclude=[*non_record_subtrees(arch), *subdirs], added=added
+            repo_root,
+            arch,
+            exclude=[*non_record_subtrees(arch), *subdirs],
+            added_only=added_only,
         )
     )
     return {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
@@ -1164,7 +1169,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     """
     from wfctl import _arch
 
-    records = _branch_records(repo_root, arch_root(repo_root), added=True)
+    records = _branch_records(repo_root, arch_root(repo_root), added_only=True)
     failing = [
         (slug, blockers)
         for slug in sorted(records)

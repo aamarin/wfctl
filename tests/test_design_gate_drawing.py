@@ -375,6 +375,7 @@ def test_an_edit_to_a_failing_record_from_trunk_is_not_judged(
     the working tree reports an edit as ` M` and the trunk diff as `M`."""
     root = _arch_root(storyctl_dir, monkeypatch)
     path = write_record(root, "an-older-decision", diagram="component")
+    assert _first_blocker(root, "an-older-decision"), "the record must be one accept refuses"
     _commit_on_trunk_then_branch(storyctl_dir.repo_root)
     storyctl_dir.make_spec_artifact("brainstorm")
     path.write_text(path.read_text() + "A typo, fixed.\n")
@@ -404,25 +405,80 @@ def test_an_edited_record_is_still_listed_by_the_accepted_fact(
     assert "an-older-decision (proposed)" in fact["detail"]
 
 
-def test_a_failing_record_added_in_a_commit_on_the_branch_holds_the_step(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+# Each way git can hold a new file, as the git calls that put it there.
+_NEW_RECORD_STATES = {
+    "untracked": [],
+    "intent to add": [["add", "-N", "."]],
+    "staged": [["add", "-A"]],
+    "committed": [["add", "-A"], ["commit", "-m", "a decision"]],
+}
+
+
+@pytest.mark.parametrize("state", sorted(_NEW_RECORD_STATES))
+def test_a_failing_record_the_branch_added_holds_the_step_in_every_git_state(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, state: str
 ) -> None:
-    """Every other held-step test writes its record untracked, which only the
-    working-tree half of the listing sees. Once committed, the record reaches
-    the gate through the trunk diff, whose added-only filter is what this
-    exercises."""
+    """A record is new when the branch base does not have it, however git
+    happens to hold it. An earlier version read git's change codes instead, and
+    a record added with `git add -N` reads ` A`, which that version dropped; so
+    did a staged `A` once a reviewer removed it, and no test noticed."""
     root = _arch_root(storyctl_dir, monkeypatch)
     write_record(root, "an-older-decision", diagram="component", boundary=_FLOWCHART)
     _commit_on_trunk_then_branch(storyctl_dir.repo_root)
     storyctl_dir.make_spec_artifact("brainstorm")
     write_record(root, "a-decision", diagram="component")
-    _git(storyctl_dir.repo_root, "add", "-A")
-    _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+    for args in _NEW_RECORD_STATES[state]:
+        _git(storyctl_dir.repo_root, *args)
 
     step = _brainstorm()
 
     assert step["state"] == "in_progress"
     assert step["reason"] == f"a-decision: {_first_blocker(root, 'a-decision')}"
+
+
+@pytest.mark.parametrize("committed", [False, True], ids=["uncommitted", "committed"])
+def test_a_renamed_record_is_judged_whether_or_not_the_rename_is_committed(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, committed: bool
+) -> None:
+    """A rename is a record at a path the base does not have, so it is judged.
+    Reading git's rename code instead made the verdict flip on commit, since a
+    plain `mv` is `??` until staged and `R` after, and it moved with each
+    machine's `diff.renames`. Judging it fails closed on an older record's new
+    name, and never lets a new record through as a rename."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_record(root, "an-older-decision", diagram="component")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _git(storyctl_dir.repo_root, "mv", str(root / "an-older-decision.md"), str(root / "renamed.md"))
+    if committed:
+        _git(storyctl_dir.repo_root, "commit", "-m", "rename")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"].startswith("renamed: ")
+
+
+def test_a_new_record_git_pairs_with_a_deleted_one_is_still_judged(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git calls a delete and an add a rename when the two files are similar
+    enough, and a record written from the same template as the one it replaces
+    usually is. A reviewer saw a genuinely new record reported as `R099` and let
+    through; asking the base's tree cannot be fooled by the pairing."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_record(root, "an-older-decision", diagram="component")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (root / "an-older-decision.md").unlink()
+    write_record(root, "a-decision", diagram="component")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "-c", "diff.renames=true", "commit", "-m", "replace")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"].startswith("a-decision: ")
 
 
 def test_a_level_3_record_sharing_a_slug_does_not_judge_the_level_2write_record(
