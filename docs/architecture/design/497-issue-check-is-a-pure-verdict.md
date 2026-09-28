@@ -66,12 +66,17 @@ outcome.
 ## Decision
 
 A new module, `_issue_check`, holds two functions. `gather(repo_root, branch)`
-does all the IO and returns a frozen record of facts: linked or not, installed
-here, installed in the main checkout, the tracker configured or not, the key,
-and the tracker's answer with its detail. `decide(facts)` is pure and returns a
-verdict: proceed, warn with a line, or refuse with a line and a remedy.
-`start_cmd` calls both, prints the verdict, and exits 1 on a refusal before
-anything else in the command runs.
+does all the IO and returns a frozen record of facts: linked or not, on trunk or
+not, installed here, installed in the main checkout, a bare layout or not, the
+tracker configured or not, HEAD detached or not, the key, the tracker's answer
+with its detail, and the agent and install source the remedy names.
+`decide(facts)` is pure and returns a verdict: proceed, warn with a line, or
+refuse with a line and a remedy. `start_cmd` calls both, prints the verdict, and
+exits 1 on a refusal before anything else in the command runs.
+
+`decide` settles the rows the checkout alone can answer in `_local_verdict`, and
+`gather` asks it whether they settle the verdict before it calls the tracker, so
+an exempt checkout makes no network call and the order still lives in one place.
 
 ## Diagram
 
@@ -137,3 +142,5 @@ are for.
 ## Log
 
 - 2026-09-27  proposed  — the check's ten outcomes needed a home that `start` and #493 can share
+- 2026-09-27  proposed  — Decision's fact list brought up to clarify's: trunk, a bare
+  layout, and a detached HEAD, and `_local_verdict` as how `gather` skips the tracker

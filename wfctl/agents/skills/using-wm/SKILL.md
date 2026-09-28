@@ -65,11 +65,15 @@ read it before creating worktrees:
 - `worktree_dir` / `worktree_naming` — where worktrees land and how they're named
 - `window_prefix`, `mode` (`window` vs `session`), `panes`/`windows` layout
 - `base_branch` — default base for new worktrees
-- `pre_create` / `post_create` hooks — setup that may **require** a specific
-  branch-name format (e.g. a leading issue number) and may allocate ports or
-  rewrite `.env`. Available env vars include `$WM_HANDLE` and
-  `$WM_WORKTREE_PATH`. If `pre_create` aborts, your branch name violates a
-  project rule — check the hook.
+- `post_create` / `pre_remove` hooks — setup that may allocate ports or rewrite
+  `.env`. Available env vars include `$WM_HANDLE` and `$WM_WORKTREE_PATH`. A
+  failing `post_create` aborts `wm add` but leaves the worktree on disk.
+
+workmux has no hook that runs before a worktree is created, so a branch-name
+rule is not enforced at creation. In a repo that uses wfctl, `wfctl start`
+enforces it: a session in a worktree whose branch names no open issue is
+refused, with the command that fixes it. Name the branch for the issue before
+`wm add` rather than after.
 
 `wm config reference` prints the full documented option set.
 

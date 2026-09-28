@@ -400,3 +400,20 @@ def test_a_tracker_with_no_answer_warns_and_the_session_starts(
     assert result.exit_code == 0, result.output
     assert "⚠ could not ask the tracker whether #497 is open (connection refused)" in result.output
     assert '"event": "start"' in (state / "events.jsonl").read_text()
+
+
+def test_nothing_wfctl_ships_mentions_pre_create() -> None:
+    """workmux has no `pre_create` hook, and ignores the key without a warning.
+
+    The gate it named never ran, and nine places said it did, which is how a
+    worktree with no issue went unrefused. `wfctl start` is what enforces the
+    rule now, and a line in the bundle naming the old hook is either a dead
+    config block or a claim that is false.
+    """
+    agents = Path(_tracker.__file__).parent / "agents"
+    naming = sorted(
+        str(p.relative_to(agents))
+        for p in agents.rglob("*")
+        if p.is_file() and "pre_create" in p.read_text(errors="ignore")
+    )
+    assert naming == []

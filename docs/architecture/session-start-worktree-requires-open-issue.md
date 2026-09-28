@@ -38,10 +38,25 @@ wfctl can say whether the issue is open.
 
 ## Decision
 
-`wfctl start` owns the rule. In a linked worktree of a repository with a tracker
-configured, it refuses to open a session when the branch names no issue, when
-the issue is not open, or when the worktree has no wfctl install. It refuses on
-every run, not only the first, and it writes nothing when it refuses.
+`wfctl start` owns the rule. In a linked worktree, it refuses to open a session
+when the worktree has no wfctl install, when HEAD is detached, when the branch
+names no issue, or when the tracker reports the issue closed or missing. It
+refuses on every run, not only the first, and it writes nothing when it refuses.
+
+The questions are settled in one order, and the first that decides ends the
+check:
+
+1. The main checkout, and a linked worktree on the repository's trunk branch,
+   proceed.
+2. A worktree with no install refuses. This comes before the tracker question,
+   since such a worktree has no tracker config of its own and would otherwise
+   pass as a repository that never chose one.
+3. A repository with no tracker configured proceeds.
+4. A detached HEAD refuses. This comes before the key, since wfctl substitutes
+   the short hash for a missing branch name, and an all-digit hash parses as an
+   issue key.
+5. A branch that names no issue refuses.
+6. Only then is the tracker asked, and it refuses on closed or missing.
 
 ## Owns truth
 
@@ -60,10 +75,14 @@ workmux cannot compute it, for three reasons.
    shape comes from that tracker's `key_pattern` rather than from a regex
    written into a hook.
 
-The main checkout is outside the rule. A session on `main` in the main checkout
-is legitimate, and `/start-session` has rows for it. A repository with no
-tracker configured is outside it too, since such a repository creates no issues
-for a branch to name.
+Trunk is outside the rule. A session on `main` in the main checkout is
+legitimate, and `/start-session` has rows for it. A bare-repository layout has
+no main checkout, so its `main` is a linked worktree like any other, and the
+exemption covers a linked worktree on trunk for that reason. Trunk is read from
+`origin/HEAD`, then a bare repository's own `HEAD`, then the first of `main`,
+`master`, and `dev` that exists. A repository with no tracker configured is
+outside the rule too, since such a repository creates no issues for a branch to
+name.
 
 ## Boundary
 
@@ -78,7 +97,10 @@ flowchart LR
     subgraph start["wfctl start"]
         direction TB
         LINKED{"linked worktree?"}
+        TRUNK{"on trunk?"}
         INSTALLED{"wfctl install here?"}
+        TRACKER{"tracker configured?"}
+        DETACHED{"HEAD detached?"}
         KEY{"branch names an issue?"}
         OPEN{"issue open?"}
         SESSION["session opens"]
@@ -91,9 +113,15 @@ flowchart LR
     GIT --> LINKED
     MAIN --> LINKED
     LINKED -- "no: main checkout" --> SESSION
-    LINKED -- yes --> INSTALLED
+    LINKED -- yes --> TRUNK
+    TRUNK -- yes --> SESSION
+    TRUNK -- no --> INSTALLED
     INSTALLED -- no --> REFUSE
-    INSTALLED -- yes --> KEY
+    INSTALLED -- yes --> TRACKER
+    TRACKER -- no --> SESSION
+    TRACKER -- yes --> DETACHED
+    DETACHED -- yes --> REFUSE
+    DETACHED -- no --> KEY
     KEY -- no --> REFUSE
     KEY -- yes --> OPEN
     OPEN <--> STATE
@@ -142,11 +170,21 @@ one the developer takes.
 `--force` does not bypass the refusal. It keeps its one meaning, which is to
 reset a recorded session.
 
-A worktree with no wfctl install is refused only when the main checkout has
-one. That is how the check tells a worktree `post_create` never ran in from a
-repository that never installed wfctl at all, and a repository that installed
-only into worktrees gets no such finding.
+A worktree with no wfctl install is refused when the main checkout has one.
+That is how the check tells a worktree `post_create` never ran in from a
+repository that never installed wfctl at all. A bare layout has no main
+checkout to compare against, so there a worktree with no install is refused
+outright; a bare-layout repository that never installed wfctl is refused in
+every worktree but trunk, and told to install.
+
+Trunk detection is discovered, never declared, and a bare `HEAD` is as stale as
+the clone. A repository whose trunk is named something other than `main`,
+`master`, or `dev`, with nothing recording it, has its trunk worktree refused in
+a bare layout as naming no issue. A declared trunk is #509.
 
 ## Log
 
 - 2026-09-26  proposed    — the `pre_create` gate never ran; #497 moves the rule to session start
+- 2026-09-27  proposed    — clarify's four answers: the check order, a detached
+  HEAD, a bare layout's missing install, and trunk as the exemption the main
+  checkout stood for

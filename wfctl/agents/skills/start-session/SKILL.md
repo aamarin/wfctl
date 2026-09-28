@@ -20,6 +20,16 @@ memory of it — load them before doing anything else.
    ```
    `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available.
 
+   **If `wfctl start` exits 1, stop there.** Report what it printed verbatim,
+   the refusal line and the command under it, and run nothing after it: not
+   `doctor`, and none of the steps below. In a linked worktree `start` refuses a
+   branch that names no issue, an issue that is closed or missing, a detached
+   HEAD, and a worktree with no wfctl install, and it writes nothing when it
+   does. So there is no session for the later steps to report on, and a report
+   assembled anyway reads as a session that started. The remedy it prints is the
+   user's to run; renaming a branch or reopening an issue is not this skill's
+   call.
+
    **That expansion is the whole of how wfctl learns which conversation this
    is.** `wfctl start` records the value verbatim and compares it and nothing
    else, so a later conversation on the same branch is refused by `resume`,

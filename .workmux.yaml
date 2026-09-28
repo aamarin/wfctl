@@ -49,14 +49,12 @@ windows:
 # Hooks
 #-------------------------------------------------------------------------------
 
-# Branch names carry the tracker's issue key — wfctl derives both the spec dir
-# and the state dir from it, so a handle without one leaves both unresolvable.
-pre_create:
-  - |
-    if ! echo "$WM_HANDLE" | grep -qE '^[0-9]+'; then
-      echo "Error: '$WM_HANDLE' must start with an issue number (e.g. 005-my-feature)."
-      exit 1
-    fi
+# Branch names carry the tracker's issue key, since wfctl derives both the spec
+# dir and the state dir from it. Nothing in this file enforces that. workmux has
+# no hook that runs before creation and ignores an unknown key without a
+# warning, so the `pre_create` gate this file used to carry never ran (#497).
+# `wfctl start` enforces it instead, in every linked worktree however it was
+# made, and refuses a session on a branch that names no open issue.
 
 post_create:
   # wf-skills files are gitignored, so a fresh worktree has none of them.
@@ -82,11 +80,11 @@ post_create:
 
   # Nothing else sets the board's `In Progress` column, so a board that carries
   # priority and epic correctly still cannot say what is being worked on. This
-  # is the moment work actually starts, and `pre_create` above has already
-  # refused a handle without an issue key — so the mapping is guaranteed rather
-  # than inferred. No issue number on this line: `wfctl issue start` reads it off
-  # the branch using the tracker's own key shape, which a hook re-deriving it
-  # here would have to hardcode. Runs after install-skills because the verb it
+  # is the moment work actually starts. A handle with no issue key is not
+  # refused here, and `wfctl issue start` reports it and moves nothing; the
+  # session that follows is what refuses it. No issue number on this line:
+  # `wfctl issue start` reads it off the branch using the tracker's own key
+  # shape, which a hook re-deriving it here would have to hardcode. Runs after install-skills because the verb it
   # calls is defined by `.agents/trackers/github.json`, which that step is what
   # puts in the worktree.
   #

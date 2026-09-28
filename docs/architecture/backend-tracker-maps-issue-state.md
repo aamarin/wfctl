@@ -101,8 +101,8 @@ The GitHub backend needs a small script rather than one argv. A single call
 can report `open`, `closed`, and a pull request as `missing`, but a number that
 was never created exits 1 exactly as a failed connection does. Only the error
 text separates them (`HTTP 404` against `connection refused`), and reading it
-takes a shell. The script prints `missing` on a 404 and exits non-zero on any
-other failure, so an error nobody anticipated lands on the warning rather than
+takes a shell. The script prints `missing` on a 404, or a 410 for a deleted
+issue, and exits non-zero on any other failure, so an error nobody anticipated lands on the warning rather than
 the refusal. The script sits
 beside `github-board.sh`, which exists for the same reason.
 
@@ -114,3 +114,4 @@ never refreshed. It gains it on `wfctl install-skills --tracker github`.
 ## Log
 
 - 2026-09-26  proposed    — `wfctl start` needs an open-or-closed answer from any tracker (#497)
+- 2026-09-27  proposed    — Consequences names the 410 the script also reads as missing

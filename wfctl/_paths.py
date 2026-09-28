@@ -596,8 +596,10 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     finished pipeline is the quiet one (#120, #263).
 
     A branch with no parseable issue key resolves only by its own name, since no
-    map can name a key it does not have. wfctl's own worktrees always carry one
-    (`pre_create` enforces it) but the repos wfctl installs into need not.
+    map can name a key it does not have. `wfctl start` refuses a session in a
+    linked worktree whose branch carries none, in a repo with a tracker, but the
+    branch still exists and still resolves; the main checkout and a repo with no
+    tracker are never asked for one.
 
     Searches one root only, the one `spec_root` resolves. No second look under
     `repo_root/specs` when a root is configured: falling back would let one
