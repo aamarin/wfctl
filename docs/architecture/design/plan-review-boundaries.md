@@ -2,95 +2,112 @@
 status: proposed
 ---
 
-# The plan-review method is a skill named for wfctl's step, and everything that names a runner lives in its command wrapper
+# The plan-review skill says how to review a plan, and its command holds everything tied to wfctl
+
+**What does this record decide?**
+Plan review lives in two files. The skill says how to review a plan and knows nothing about wfctl. The `/plan-review` command holds everything wfctl-specific, including the run that fixes the plan when a review finds blockers.
 
 ## Context
 
-The candidate skill reviews `spec.md` and `plan.md` before `tasks` expands them
-into work. Its method (the lenses, the priority tests, the evidence rules and
-the report shape) names no runner. A handful of lines do: the marker it
-surfaces, the commands it places itself between, the directory it writes into,
-and the wrapper name it proposes. Those lines change whenever the runner does,
-and the method does not.
+The README decides where Spec Kit ends and wfctl begins. Spec Kit keeps its
+steps, and wfctl's own checks sit around them. Brainstorm, the four design
+levels, and domain modeling run before Spec Kit. Decompose runs before
+implement, and a refactor pass runs inside it. Plan review is one more of
+wfctl's checks, and it runs between `plan` and `tasks`.
 
-The name is open for a separate reason. Eleven shipped skills carry the
-`speckit-` prefix, and three of them are wfctl's own passes. The README draws
-the line those names blur: Spec Kit keeps its steps, and wfctl's design method
-sits around them, with brainstorm, the four design levels, and domain modeling
-before Spec Kit, decompose before implement, and a refactor pass inside
-implement. plan-review is one more pass of that kind, between `plan` and
-`tasks`.
+The plan-review skill arrived as a candidate written for Spec Kit. Most of it is
+a review method that works anywhere. It covers the lenses the reviewer reads
+through, how a finding is graded, what counts as evidence, and what the report
+looks like. A handful of lines are tied to Spec Kit instead. They name the
+`[NEEDS CLARIFICATION` notes to surface, the commands the review sits between,
+the folder it writes into, and the command name it proposes. This means those
+lines change whenever the pipeline does, and the method doesn't.
 
-`vendor-upstream-skills` governs derived skills and permits the prefix on a
-wfctl-authored one. It is cited, not restated. The placement of the report and
-its scan file is `the-scan-is-attested-where-the-reviewer-reads`, and is not
-this record's.
+The name is a separate question. Eleven skills wfctl ships start with
+`speckit-`, and three of them are wfctl's own checks rather than Spec Kit's
+steps. This means the prefix blurs the line the README draws.
+
+Two other records cover the rest, and this one doesn't restate them. The
+`vendor-upstream-skills` record covers skills derived from Spec Kit, and it
+allows the `speckit-` prefix on a skill wfctl wrote. The
+`the-scan-is-attested-where-the-reviewer-reads` record decides where the review
+and its scan file go.
 
 ## Verified
 
 - `README.md` on `main`, under "Why wfctl", says "Brainstorm, the four design
-  levels and domain modeling run before Spec Kit" and draws decompose and the
+  levels and domain modeling run before Spec Kit", and draws decompose and the
   refactor pass as wfctl's own.
 - `docs/architecture/vendor-upstream-skills.md:113` says "The prefix is a
   naming convention, not a provenance claim".
-- `wfctl/agents/skills/` holds eleven `speckit-` directories. Three of them,
+- `wfctl/agents/skills/` holds eleven `speckit-` folders. Three of them,
   `speckit-brainstorm`, `speckit-delivery-plan`, and `speckit-orchestrate`, are
-  wfctl-authored.
+  written by wfctl.
 - `wfctl/agents/skills/speckit-clarify/SKILL.md` ends with "Derived from
-  github/spec-kit (MIT, © GitHub, Inc.)". Its wrapper,
-  `wfctl/agents/commands/speckit.clarify.md`, carries no such line and holds
-  the runner-bound rules: the `[NEEDS CLARIFICATION` marker rule and the
-  `## Write the scan file` section.
-- The candidate names spec-kit in its body at `SKILL.md:3`, `:26`, `:89`,
+  github/spec-kit (MIT, © GitHub, Inc.)". Its command,
+  `wfctl/agents/commands/speckit.clarify.md`, carries no such line. The command
+  holds the Spec Kit-specific rules, which are the rule for
+  `[NEEDS CLARIFICATION` notes and the `## Write the scan file` section.
+- The candidate skill names Spec Kit in its body at `SKILL.md:3`, `:26`, `:89`,
   `:177`, and `:208` (`/speckit.plan`, `/speckit.tasks`, `/speckit.analyze`,
   and `[NEEDS CLARIFICATION]`), and proposes `/speckit.review-plan` at
   `references/wfctl-integration.md:33`.
 
 ## Assumed
 
-- That the runner-bound part stays small: the marker, the step names, and the
-  scan-file instruction. Falsified if the method turns out to need pipeline
-  state to run, in which case the split puts half the method in the wrapper.
-  The revise mode reads pipeline state and is not the method, which is why it
-  sits in the wrapper without testing this assumption.
-- That a command outside the `/speckit.` namespace does not cost users more
-  than the honesty of the name is worth. Every other pipeline command a user
-  types starts with `/speckit.`, including `/speckit.brainstorm` and
-  `/speckit.decompose`, which are wfctl's. Falsified if users look for
-  `/speckit.plan-review` and miss `/plan-review`, and then the prefix is the
-  right name and a rename is a new record superseding this one.
+- The wfctl-specific part stays small. It is the `[NEEDS CLARIFICATION` notes,
+  the step names, and the scan-file instruction. This is wrong if the method
+  turns out to need pipeline state to run, because then half the method ends up
+  in the command. The run that fixes the plan does read pipeline state, but it
+  isn't part of the method, so it sits in the command without testing this
+  assumption.
+- A command without the `/speckit.` prefix doesn't cost users more than an
+  honest name is worth. Every other pipeline command a user types starts with
+  `/speckit.`, including `/speckit.brainstorm` and `/speckit.decompose`, which
+  are wfctl's. This is wrong if users look for `/speckit.plan-review` and miss
+  `/plan-review`. Then the prefix is the right name, and the rename is a new
+  record that supersedes this one.
 
 ## Direct baseline
 
-Ship the candidate as one skill named `speckit-plan-review`, with its spec-kit
-references left in the body, and a thin wrapper that only points at it. This is
-the candidate as written, renamed to match the shelf it sits on, and it needs
-no second file to carry behaviour.
+Ship the candidate as one skill named `speckit-plan-review`, with its Spec Kit
+references left in, and a thin command that only points at it. That is the
+candidate as written, renamed to match the skills beside it. The skill carries
+all of the behaviour, and the command carries none.
 
 ## Decision
 
-The skill is `wfctl/agents/skills/plan-review/` and holds the method. Its body
-names no runner, no command, and no marker syntax.
+The skill holds the review method, and the `/plan-review` command holds
+everything tied to wfctl.
 
-A new wrapper, `wfctl/agents/commands/plan-review.md`, binds the skill to the
-pipeline. It holds the marker to surface, wfctl's step names (`plan`, `tasks`,
-and `analyze`), the report path, and the instruction to follow
-`writing-a-scan-file`. It follows `speckit.clarify.md`'s shape, which is the
-existing layer where a skill meets the pipeline.
+The skill names no pipeline, no command, and no Spec Kit syntax. This means it
+reads correctly under any pipeline that points at it.
 
-The wrapper also holds the revise mode. It reads the pass from `wfctl status`,
-and when a review of the current plan has BLOCKERs open it edits `plan.md`
-against them instead of reviewing. It first compares every input the report
-recorded, other than `plan.md` and the reviewed plan copy, with the files now,
-and reviews instead when any has changed. A BLOCKER fixed in `spec.md`, a design
-record, or a planning artifact leaves `plan.md` as it was, and the pass reading
-alone would send the fix to a revision. The copy is left out because the review
-that recorded it overwrites it afterwards. A revise run does not read the
-skill. The method never edits what it reviews, never iterates until findings
-clear, and never hands control on, and none of the three happens inside it. The
-revise run does not load the method, and a review run hands back to the
-orchestrator from the wrapper, after the method has written its report and
-stopped.
+The command connects the skill to wfctl's pipeline. It names the
+`[NEEDS CLARIFICATION` notes to surface, wfctl's step names (`plan`, `tasks`,
+and `analyze`), where the report goes, and the instruction to follow
+`writing-a-scan-file`. It has the same shape as `/speckit.clarify`, which is
+where a skill already meets the pipeline today.
+
+The command also holds the run that fixes the plan. When the last review of the
+current plan left BLOCKERs open, the agent running `/plan-review` edits
+`plan.md` to fix them instead of reviewing again. First, the command checks
+whether anything else the review read has changed since, such as `spec.md`, a
+design record, or a planning document. If something has, the agent reviews
+instead. This means a plan owner who fixed a BLOCKER in `spec.md` gets that fix
+reviewed, and does not get an agent edit to `plan.md`. The check leaves out two
+files. `plan.md` is one, and the saved copy of the plan the review read is the
+other, since every review overwrites that copy afterwards. The report never
+lists itself, since a file can't record its own fingerprint.
+
+A run that fixes the plan never loads the skill. This means the skill's three
+promises stay true. The skill never edits what it reviews, never loops until the
+findings clear, and never hands control on. The editing happens in the command's
+fixing run, and after a review the command, not the skill, hands back to the
+orchestrator.
+
+In the code, the skill is `wfctl/agents/skills/plan-review/` and the command is
+`wfctl/agents/commands/plan-review.md`.
 
 ## Diagram
 
@@ -104,61 +121,64 @@ stable                                        ┌──────────�
                                               └──────────────────────┘
                                                          ▲
                                                          │ reads
-═══ skill / command wrapper, as speckit.clarify ═════════╪══════════════
+═══ skill / command, as speckit.clarify ═════════════════╪══════════════
                                                          │
-volatile  ┌───────────────────────┐           ┌──────────┴───────────┐
-          │ speckit-plan-review   │           │ /plan-review wrapper │
-          │ method + marker +     │           │ marker, step names,  │
-          │ /speckit.* names      │           │ report path, scan    │
-          └───────────────────────┘           │ file instruction     │
+changes   ┌───────────────────────┐           ┌──────────┴───────────┐
+often     │ speckit-plan-review   │           │ /plan-review command │
+          │ method, clarify notes,│           │ clarify notes, steps,│
+          │ /speckit.* names      │           │ report + copy paths, │
+          └───────────────────────┘           │ scan file instruction│
                      ▲                        └──────────────────────┘
                      │ reads
           ┌──────────┴────────────┐
-          │ wrapper, a pointer    │
+          │ command, a pointer    │
           └───────────────────────┘
 ```
 
-The graphs differ by where the method sits. In the baseline the method shares
-a file with the runner's vocabulary, so it sits below the divider and changes
-whenever the runner does. In the decision the method sits above it, and a
-change of runner, or a renamed step, touches the wrapper alone.
+The two pictures differ in where the method sits. In the baseline, the method
+shares a file with Spec Kit's vocabulary. This means it sits below the line and
+changes whenever the pipeline does. In the decision, the method sits above the
+line, and a new pipeline or a renamed step only touches the command.
 
 ## Considered
 
-- **`speckit-plan-review`, with the split.** It is permitted, and it matches
-  how `/speckit.brainstorm` and `/speckit.decompose` are invoked. It loses
-  because the prefix reads as provenance whatever the record says it means,
-  and the README places wfctl's passes outside the Spec Kit box. The bet under
-  *Assumed* is what makes choosing against it cheap to reverse.
-- **`sdd-plan-review`.** It trades spec-kit's vocabulary for spec-driven
-  development's, which moves the naming problem one step without solving it.
-  The skill is named after wfctl's own step instead.
-- **The baseline, runner text kept in the skill.** It is one file, and the
-  runner text is short. It loses because the skill then reads correctly only
-  under spec-kit, and a method that names no runner is the part of the
-  candidate worth keeping.
+- **`speckit-plan-review`, with the split.** It is allowed, and it matches how
+  `/speckit.brainstorm` and `/speckit.decompose` are typed. It loses because the
+  prefix reads as "this came from Spec Kit", whatever a record says it means,
+  and the README puts wfctl's checks outside Spec Kit. The bet under *Assumed*
+  is what makes this choice cheap to reverse.
+- **`sdd-plan-review`.** It swaps Spec Kit's vocabulary for spec-driven
+  development's, which moves the naming problem without solving it. The skill
+  is named after wfctl's own step instead.
+- **The baseline, with Spec Kit's text kept in the skill.** It is one file, and
+  that text is short. It loses because the skill then only reads correctly
+  under Spec Kit, and a method that works anywhere is the part of the candidate
+  worth keeping.
 
 ## Consequences
 
-The method reads on its own, and a runner other than spec-kit wraps it by
-writing a wrapper. A renamed step does not touch the skill.
+The skill works on its own. A pipeline other than Spec Kit can use it by
+writing its own command, and a renamed step doesn't touch the skill.
 
-It is the one pipeline command outside the `/speckit.` namespace, so
-`wfctl status` prints `next: /plan-review` between two `/speckit.` commands.
+`/plan-review` is the one pipeline command without the `/speckit.` prefix. This
+means `wfctl status` prints `next: /plan-review` between two `/speckit.`
+commands.
 
-Two files carry the behaviour, so a reader has to open both to see the whole
-pass. `speckit.clarify.md` already asks the same of its reader.
+Two files carry the behaviour, so a reader opens both to see the whole check.
+`/speckit.clarify` already asks the same of its reader.
 
-The failure mode is drift back into the skill: a later edit adds a
+The way this goes wrong is drift back into the skill. A later edit adds a
 `/speckit.tasks` line to the method because it was the nearest file. Nothing
-catches that unless a test does.
+flags that edit at review time. Only a test in wfctl's suite catches it.
 
 ## Verification
 
-A test in wfctl's suite reads `plan-review/SKILL.md` and its references and
-fails on `/speckit.`, `[NEEDS CLARIFICATION`, or `checklists/`. A second test
-checks that the wrapper names the skill by path, the way
-`speckit.clarify.md` does.
+Two tests in wfctl's suite hold the split:
+
+1. One reads `plan-review/SKILL.md` and its references, and fails on
+   `/speckit.`, `[NEEDS CLARIFICATION`, or `checklists/`.
+2. The other checks that the command names the skill by path, the way
+   `speckit.clarify.md` does.
 
 ## Log
 
@@ -185,3 +205,4 @@ checks that the wrapper names the skill by path, the way
   `plan-review-severity`.
 - 2026-09-27  renamed   — from `501-plan-review-boundaries`. Record names carry no
   issue-number prefix.
+- 2026-09-28  rewritten   — plain language first, and an opening question

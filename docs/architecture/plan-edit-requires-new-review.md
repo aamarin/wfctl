@@ -3,90 +3,106 @@ status: proposed
 diagram: data-flow
 ---
 
-# wfctl measures a plan review against the plan it read, not the plan that exists now
+# A plan review counts only as evidence for the plan it read
+
+**What does this record decide?**
+A plan review only counts for the exact plan it read. When the plan owner or an autonomous agent edits the plan afterwards, wfctl sends it back for review, unless someone signs the edit off with a reason.
 
 ## Context
 
-`plan-review` is a pass under `plan` that critiques `spec.md` and `plan.md`
-before `tasks` expands them into work. Its output is a report in the feature
-directory, and the report never says approved or rejected. What it produces is
-findings, and the expected response to a finding is a revised `plan.md`.
+The `a-step-carries-sub-steps-one-level-deep` record lets a check sit under a
+step, and a check a repository adds reads done once its evidence exists. Plan
+review is one of those checks. It sits under `plan`, reads `spec.md` and
+`plan.md`, and reports what doesn't hold together before `tasks` turns the plan
+into work.
 
-That makes the revised plan the ordinary path through this pass, not an edge
-case. The reader a declared pass gets from `wfctl.json` is
-`build_file_exists_reader`, which answers "does this path exist" and nothing
-else. Under that reader the sequence below reports the pass done at its last
-step, and the report it points at describes a plan that no longer exists:
+Plan review never says approved or rejected. It lists findings, and the plan
+owner or the autonomous agent answers a finding by editing `plan.md`. This means
+an edited plan is the normal way through this check, not an edge case.
+
+That is where the existing rule breaks. The review's report still exists after
+the plan is edited, so the check reads done. The report now describes a plan
+that no longer exists:
 
 ```
 plan.md v1  ─►  plan-review.md reviews v1   ─►  plan-review ●   true
 plan.md v2  ─►  plan-review.md still exists ─►  plan-review ●   false
 ```
 
-So the pass is wrong exactly when it is used as intended. A reader who sees
-`plan-review ●` and runs `/speckit.tasks` decomposes a plan nobody reviewed.
+This means the check is wrong exactly when it is used as intended. Someone who
+sees `plan-review ●` and runs `/speckit.tasks` breaks down a plan nobody
+reviewed.
 
-The candidate skill already records a content identity for every artifact it
-read, computed with `git hash-object`, in a `Reviewed inputs` table at the top
-of the report. It does so to let a human spot a stale report. Nothing reads that
-table mechanically today.
+The reviewer already writes down a fingerprint of every file it read, in a
+`Reviewed inputs` table at the top of the report. It does that so a reader can
+spot a stale report by eye. Nothing reads that table automatically today.
 
-`plan-review` ships with wfctl, so it is a built-in sub-step rather than a
-declared one, and a built-in `SubStep` takes any callable as its reader
-(`_pipeline.py`, `SubStep.reads`). The limit on what `wfctl.json` can express
-does not bind it.
+Plan review ships with wfctl, so it is a built-in check. A built-in check can
+compare anything it likes, and the limit on what `wfctl.json` can express does
+not apply to it.
+
+In the code, a repository's check gets `build_file_exists_reader`, and a
+built-in `SubStep` takes any callable as its reader (`_pipeline.py`,
+`SubStep.reads`). The fingerprint is `git hash-object`.
 
 ## Direct baseline
 
-Give the built-in pass the same reader a declared pass gets:
-`build_file_exists_reader("plan-review.md")`. The skill keeps recording content
-identities in the report, and a human who opens it can compare them by hand.
-Freshness for every file-evidence pass is then fixed once, in a separate change
-that decides what a declaration can bind to.
+Plan review gets the same rule a repository's check gets. It reads done once
+`plan-review.md` exists. The report keeps its fingerprints, and a reader who
+opens it can compare them by hand. Keeping every check's evidence current is
+then fixed once, in a separate change that decides what a check can be tied to.
 
-It costs nothing now and adds no format contract. It fails the case above on
-every revised plan, which is the case the pass exists for, and it leaves the
-comparison to a reader who has to know to make it.
+It costs nothing now and adds no format anyone has to keep. It fails on every
+edited plan, which is the case the check exists for. And nobody compares the
+fingerprints unless they already know to.
+
+In the code, that rule is `build_file_exists_reader("plan-review.md")`.
 
 ## Decision
 
-The `plan-review` pass reads the `plan.md` identity its report recorded, hashes
-`plan.md` as it is now, and reports the pass done only when the two agree. A
-mismatch reads `in_progress` with the reason `stale; plan.md changed since the
-review`. A report that records no `plan.md` identity reads `in_progress` too,
-with a reason saying so.
+wfctl decides whether a review is current, every time it reports. It reads the
+fingerprint of `plan.md` that the reviewer recorded, takes the fingerprint of
+`plan.md` as it is now, and reports the check done only when the two match.
+When they differ, the check reads in progress with the reason "stale; plan.md
+changed since the review". A report that records no fingerprint for `plan.md`
+reads in progress too, and says so.
 
-A stale pass moves the current step back to `plan` however far the pipeline has
-gone, `implement` included. Whether `tasks.md` exists plays no part in it; that
-would read a file's presence as the review's moment having passed, and a plan
-edited and then expanded by a hand-run `/speckit.tasks` is the case it misses.
+A stale review sends the workflow back to `plan`, however far it has gone,
+`implement` included. Whether `tasks.md` exists makes no difference. If it did,
+a plan edited and then broken down by a hand-run `/speckit.tasks` would slip
+through.
 
-The pass also reads done when a sign-off records the `plan.md` identity as it
-is now. A sign-off is written by a wfctl command that requires a reason, and it
-covers the one identity it recorded, so the next edit makes the pass stale
-again. It exists because wfctl cannot tell a typo from a changed design, and
-without it every late edit costs a full review.
+The check also reads done when someone has signed off the plan as it is now.
+The plan owner or the autonomous agent signs off with a wfctl command that
+requires a reason. The sign-off covers only the one version of the plan it
+recorded, so the next edit makes the check stale again. It exists because wfctl
+can't tell a typo from a changed design, and without it every late edit would
+cost a full review. A sign-off line typed into the scan file by hand does not
+count.
 
-The line wfctl reads is a wfctl constant beside the reader, and a test in
-wfctl's own suite holds it against the report format the skill ships.
+wfctl reads two lines out of the report, the plan's fingerprint and the number
+of open BLOCKER findings. Both are fixed in wfctl beside the reader, and a test
+in wfctl's own suite checks them against the report format the skill ships.
+
+In the code, the stale and missing cases read `in_progress`.
 
 ## Owns truth
 
 wfctl owns "is this review about the plan that exists now?".
 
-The skill cannot answer it. It runs once, at review time, and the question
-arises afterwards, whenever `plan.md` is edited; the skill is not running then,
-and nothing calls it back. Anything it wrote about currency is a claim about the
-moment it wrote it.
+The reviewer can't answer that. It runs once, at review time, and the question
+comes up later, whenever someone edits `plan.md`. The reviewer isn't running
+then, and nothing calls it back. Anything it wrote about being current only
+describes the moment it wrote it.
 
-The agent cannot answer it either. A report that says "current" is a
-self-report, and `wfctl-runs-the-verification` refuses those for the same
-reason: nothing distinguishes a true one from a false one.
+The autonomous agent can't answer it either. A report that says "current" is
+the agent vouching for itself, and `wfctl-runs-the-verification` refuses that
+for the same reason. Nothing tells a true self-report from a false one.
 
-The report owns "which `plan.md` did this review read?". Only the reviewing
-process knows what it read, and only at the moment it read it. wfctl cannot
-reconstruct that later; once `plan.md` has changed, nothing on disk says what it
-held when the review read it.
+The report owns "which `plan.md` did this review read?". Only the reviewer knows
+what it read, and only at the moment it read it. wfctl can't work that out
+later. Once `plan.md` has changed, nothing on disk says what it held when the
+review read it.
 
 ## Boundary
 
@@ -94,16 +110,16 @@ held when the review read it.
 flowchart LR
   subgraph skill["plan-review skill (agent)"]
     read["reads plan.md"]
-    record["records plan.md identity<br/>in plan-review.md"]
-    claim["'this review is current'"]
+    record["writes plan.md's fingerprint<br/>into plan-review.md"]
+    vouch["'this review is current'"]
   end
   subgraph signoff["sign-off command"]
-    accept["records plan.md identity<br/>and a reason"]
+    accept["records plan.md's fingerprint<br/>and a reason"]
   end
-  subgraph wfctl["wfctl reader, on every status"]
-    recorded["reads the recorded identity"]
-    signed["reads signed-off identities"]
-    now["hashes plan.md now"]
+  subgraph wfctl["wfctl, every time it reports"]
+    recorded["reads the recorded fingerprint"]
+    signed["reads signed-off fingerprints"]
+    now["fingerprints plan.md now"]
     cmp{"matches either?"}
     done["plan-review ●"]
     stale["plan-review ▶ stale"]
@@ -116,74 +132,81 @@ flowchart LR
   now --> cmp
   cmp -- yes --> done
   cmp -- no, or none recorded --> stale
-  claim --x wfctl
+  vouch --x wfctl
 ```
+
+The crossed-out arrow is the decision. Whatever the reviewer says about being
+current never reaches wfctl. wfctl compares the fingerprints itself, and reads a
+sign-off only from `events.jsonl`, the event log it writes.
 
 ## Considered
 
-- **wfctl records the identity itself,** through a verb the wrapper calls after
-  the review writes its report. The format would then belong to wfctl outright,
-  and nothing agent-written would be parsed. It loses on scope rather than on
-  merit: it adds a verb and a store, which is the general answer to evidence
-  freshness that every file-evidence pass needs, and that answer should be
-  designed once for all of them rather than first for this one.
-- **Compare modification times,** reporting the pass done when `plan-review.md`
-  is newer than `plan.md`. It needs no format contract. It loses because a
-  checkout does not preserve modification times: the feature directory reaches
-  durable storage on `specs-trunk`, and a restore from there stamps both files
-  with the same moment, so a stale report reads as fresh.
-- **Bind `spec.md` as well.** `clarify` can rewrite `spec.md` after a review. It
-  was left out to keep the contract to one line; a revised spec that changes
-  what the plan must cover almost always forces a revised plan, which this
-  reader already catches.
-- **A `binds:` key on declared evidence in `wfctl.json`.** This fixes every
-  declared pass, and it changes what a repository's configuration can express,
-  which `a-step-carries-sub-steps-one-level-deep` bounded on purpose. It is
-  the general fix, and it is not this decision.
+- **wfctl records the fingerprint itself,** through a command the reviewer
+  calls after writing its report. The format would then be wfctl's outright, and
+  nothing the agent wrote would be parsed. It loses on scope, not on merit. It
+  adds a command and a store, which is the general answer to keeping every
+  check's evidence current. That answer should be designed once for every check,
+  not first for this one.
+- **Compare file timestamps,** reporting the check done when `plan-review.md` is
+  newer than `plan.md`. It needs no format anyone has to keep. It loses because
+  a checkout doesn't keep timestamps. The feature folder is archived on
+  `specs-trunk`, and restoring it from there stamps both files with the same
+  moment. This means a stale report reads as fresh.
+- **Tie the review to `spec.md` as well.** `clarify` can rewrite `spec.md` after
+  a review. It was left out to keep what wfctl reads from the report small. A spec change that
+  changes what the plan must cover almost always forces a plan edit, which this
+  check already catches.
+- **A `binds:` setting on a repository's checks in `wfctl.json`.** That fixes
+  every check a repository adds. It also changes what a repository's
+  configuration can express, which `a-step-carries-sub-steps-one-level-deep`
+  limited on purpose. It is the general fix, and it is not this decision.
 
 ## Consequences
 
-This is the third place wfctl compares a recorded identity against a live one.
-The install manifest records a `content_hash` that `doctor` recomputes
-(`drift-is-measured-against-the-recorded-source`), and `wfctl verify` binds its
-verdict to a commit and a dirty flag. Each of the three chose its own record
-format. A general answer to evidence freshness, which #502 owns for the rest of
-the pipeline, should be able to absorb this one without changing what the report
-records.
+This is the third place wfctl compares a recorded fingerprint against a live
+one. `doctor` recomputes the fingerprints the install manifest recorded
+(`drift-is-measured-against-the-recorded-source`), and `wfctl verify` ties its
+verdict to a commit and whether the tree was clean. Each of the three picked its
+own format. The general answer to keeping evidence current, which #502 owns for
+the rest of the workflow, should be able to absorb this one without changing
+what the report records.
 
-The report format stops being the skill's alone. A change to how the `Reviewed
-inputs` table spells its `plan.md` row is a change to a contract, and the test
-beside the reader is what says so.
+The report format stops being the skill's alone. Changing how the
+`Reviewed inputs` table writes its `plan.md` row is a change to a contract, and
+the test beside the reader is what says so.
 
-The sign-off is the one identity wfctl writes itself, which is the shape the
-first option under Considered set aside for scope. It is narrower than that
-option: it uses the event log wfctl already keeps, rather than a store of its
-own, with a copy in the attestation the review already commits, and it records
-an acceptance a person or agent chose to make, never a review. Whether an agent
-may make it alone is the waiver-authority question #100 owns; the recorded reason is what keeps it visible meanwhile.
+The sign-off is the one fingerprint wfctl writes itself. That is the shape the
+first option under Considered set aside for scope, and it is narrower than that
+option. It uses the event log wfctl already keeps, `events.jsonl`, rather than
+a store of its own. wfctl writes a copy into the scan file, and whoever signed
+off commits it. It records an acceptance the plan owner or the autonomous agent
+chose to make, never a review. Whether an autonomous agent may sign off without
+human review is the waiver-authority question #100 owns. The recorded reason
+keeps it visible in the meantime.
 
-wfctl reads a sign-off back from its own event log, `events.jsonl`, never from
-the attestation.
-The agent writes the scan file on every review, so a sign-off line it typed there
-would read the same as one wfctl wrote, and would escape the count that bounds
-the agent. The section in the attestation is the pull request reviewer's copy.
+wfctl reads a sign-off back from `events.jsonl`, never from the scan file. The
+autonomous agent writes the scan file on every review, so a sign-off line it
+typed there would look the same as one wfctl wrote. It would also slip past the
+count that limits the agent. The section in the scan file is the pull request
+reviewer's copy, and nothing reads it back.
 
-wfctl also reads the report's open BLOCKER count. A review of the current plan
-with a BLOCKER open reads `in_progress`, so the pipeline does not reach `tasks`
-over a finding the review graded as blocking. That count is the review's claim
-about the plan, not about its own currency, so reading it does not reopen the
-self-report this record refuses: the reviewer grades the plan, and wfctl
-decides whether the grade is still about the plan that exists.
+wfctl also reads how many BLOCKER findings the review left open. A review of the
+current plan with a BLOCKER open reads in progress, so the workflow doesn't
+reach `tasks` over a finding the reviewer called blocking. That count is the
+reviewer's grade of the plan, not a statement about whether the review is
+current. This means reading it doesn't bring back the self-report this record
+refuses. The reviewer grades the plan, and wfctl decides whether the grade is
+still about the plan that exists.
 
-The review also keeps a copy of the `plan.md` it read, so the next review and a
-sign-off can see what changed; the identity says only that something did. The
-copy never decides staleness. A copy edited by hand would otherwise make a stale
-review read current, and the recorded identity is what the reviewing process
-wrote at the moment it read.
+The reviewer also keeps a copy of the `plan.md` it read, so the next review and
+a sign-off can show what changed. The fingerprint only says that something did.
+The copy never decides whether the review is stale. A copy edited by hand would
+otherwise make a stale review read current, and the recorded fingerprint is what
+the reviewer wrote at the moment it read.
 
-A report missing its identity is treated as promised evidence gone silent
-(`promised-evidence-blocks-on-silence`). The skill undertook to write it, so its
-absence holds the pass rather than passing it.
+A report missing its fingerprint is treated as promised evidence gone silent
+(`promised-evidence-blocks-on-silence`). The skill promised to write it, so its
+absence holds the check rather than passing it.
 
 ## Log
 
@@ -198,3 +221,4 @@ absence holds the pass rather than passing it.
   event log.
 - 2026-09-27  renamed     — from `wfctl-measures-a-review-against-the-plan-it-read`.
   Record names carry no `wfctl-` or issue-number prefix.
+- 2026-09-28  rewritten   — plain language first, and an opening question
