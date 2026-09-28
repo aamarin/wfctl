@@ -202,7 +202,9 @@ def session_open_for(
 
 
 def auto_approve(agent_dir: Path) -> bool:
-    """Whether this feature's design gates may be answered without a human.
+    """Whether this feature's design gates and review stops may be answered
+    without a human. A review stop is a `review_required` pass or step, which
+    since #501 includes the plan review and the stop before `tasks`.
 
     The one value here that is not re-derived, and the module docstring's
     carve-out is why: no artifact implies it, so there is nothing to recompute it

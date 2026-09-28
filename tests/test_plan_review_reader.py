@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _pipeline
-from wfctl._evidence import DESIGN_BLOCK_REASON, Assessment, Evidence
+from wfctl import _evidence, _pipeline
+from wfctl._evidence import DESIGN_BLOCK_REASON, Assessment, Evidence, build_evidence
 from wfctl._pipeline import Step, SubStep, _infer_steps
 from wfctl._plan_review import identity, read_report
 from tests.conftest import init_git
@@ -249,3 +249,104 @@ def test_a_pass_that_only_displays_text_leaves_its_step_without_a_reason(
     assert brainstorm.annotation == "stale; plan.md changed since the review"
     assert brainstorm.reason is None
     assert brainstorm.sub_steps[0].reason is None
+
+
+# --- the pass state, rows 2, 6, 7 and 8 (T008) ------------------------------
+
+
+def _reviewed_feature(spec_tree, summary: str | None) -> Path:
+    """A feature whose plan is complete, with a report of that exact plan.
+
+    `summary=None` writes no report at all. Otherwise the report's `plan.md` row
+    carries the plan's real identity, so every test here is about the count and
+    never about staleness, which rows 4 and 5 own.
+    """
+    feature = spec_tree("spec.md", "plan.md")
+    if summary is not None:
+        _report(
+            feature,
+            inputs=f"| plan.md | {identity(feature / 'plan.md')} | technical strategy |\n",
+            summary=summary,
+        )
+    return feature
+
+
+def _plan_step(feature: Path, repo_root: Path) -> _pipeline._PipelineStep:
+    return next(s for s in _infer_steps(feature, repo_root) if s.name == "plan")
+
+
+def _plan_review_pass(step: _pipeline._PipelineStep) -> _pipeline._PipelineSubStep:
+    return next(s for s in step.sub_steps if s.name == "plan-review")
+
+
+def test_a_complete_plan_with_no_report_holds_plan_with_nothing_to_say(
+    spec_tree, repo_root: Path
+) -> None:
+    """Row 2 (R2): the review has not run, so the pass is current. It reads
+    `in_progress` rather than `pending`, because the roll-up holds a step only
+    on an `in_progress` pass, and a `pending` one would let `tasks` become
+    current before the plan was ever reviewed. No text, because nothing has
+    gone wrong yet, and no reason, because a reason would route to
+    `/speckit.plan`."""
+    feature = _reviewed_feature(spec_tree, None)
+
+    reading = _evidence.plan_review(build_evidence(feature, repo_root))
+    assert reading == Assessment("in_progress")
+
+    plan = _plan_step(feature, repo_root)
+    assert plan.state == "in_progress"
+    assert plan.annotation is None
+    assert plan.reason is None
+    assert _plan_review_pass(plan).state == "in_progress"
+
+
+def test_a_report_with_no_blocker_count_holds_plan_and_says_the_line_is_missing(
+    spec_tree, repo_root: Path
+) -> None:
+    """Row 6: the skill promised the count and wrote none. Reading silence as
+    zero would pass a review whose findings nobody counted, and the text names
+    the missing line so a person knows the report is what to fix."""
+    feature = _reviewed_feature(spec_tree, "MAJOR: 1\nMINOR: 0\n")
+
+    reading = _evidence.plan_review(build_evidence(feature, repo_root))
+    assert reading == Assessment("in_progress", None, "the review records no BLOCKER count")
+
+    plan = _plan_step(feature, repo_root)
+    assert plan.state == "in_progress"
+    assert plan.annotation == "the review records no BLOCKER count"
+    assert plan.reason is None
+
+
+def test_an_open_blocker_holds_plan_and_counts_what_is_open(
+    spec_tree, repo_root: Path
+) -> None:
+    """Row 7 (FR-026): a review of the current plan with a BLOCKER open holds
+    the pipeline before `tasks`. The text is display only, so the pass routes
+    to `/plan-review`; carried as the step's reason, it would route to
+    `/speckit.plan`, which copies the template over `plan.md` (R3)."""
+    feature = _reviewed_feature(spec_tree, "BLOCKER: 2\nMAJOR: 0\nMINOR: 0\n")
+
+    reading = _evidence.plan_review(build_evidence(feature, repo_root))
+    assert reading == Assessment("in_progress", None, "2 BLOCKER findings open")
+
+    plan = _plan_step(feature, repo_root)
+    assert plan.state == "in_progress"
+    assert plan.annotation == "2 BLOCKER findings open"
+    assert plan.reason is None
+
+
+def test_a_clean_review_of_the_current_plan_reads_done(
+    spec_tree, repo_root: Path
+) -> None:
+    """Row 8: the one reading that lets `tasks` become current. A reader that
+    fell through to `in_progress` here would hold every reviewed plan forever."""
+    feature = _reviewed_feature(spec_tree, "BLOCKER: 0\nMAJOR: 3\nMINOR: 1\n")
+
+    reading = _evidence.plan_review(build_evidence(feature, repo_root))
+    assert reading == Assessment("done")
+
+    plan = _plan_step(feature, repo_root)
+    assert plan.state == "done"
+    assert plan.annotation is None
+    assert plan.reason is None
+    assert _plan_review_pass(plan).state == "done"

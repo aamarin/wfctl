@@ -181,8 +181,9 @@ flowchart LR
 
 wfctl names the next step, and the agent runs it. The orchestrate skill can
 carry the agent through all eight steps on its own. It stops for a person when
-a step is blocked or stalls, and after any pass a repository added in
-`wfctl.json`, which waits for review unless the repository says otherwise.
+a step is blocked or stalls, before each run of `/plan-review`, before `tasks`,
+and after any pass a repository added in `wfctl.json`, which waits for review
+unless the repository says otherwise.
 
 The eight steps are fixed, and a repository can add its own passes under any
 of them in its `wfctl.json`. Whether that step order should move to Spec Kit's

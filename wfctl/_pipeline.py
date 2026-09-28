@@ -85,10 +85,12 @@ class Step(NamedTuple):
     #100 ruled out, and it would cost `grep`: written this way, searching for a
     reader finds its definition and its row here.
 
-    `sub_steps` defaults to empty so every existing row keeps parsing. Only
-    `brainstorm` carries any today — the artifacts it already produces are what
-    earn a pass its own row (`a-step-carries-sub-steps-one-level-deep`); the
-    other seven steps have exactly one artifact each and nothing to split.
+    `sub_steps` defaults to empty so every existing row keeps parsing. Two
+    steps carry any today. `brainstorm` splits the two artifacts it already
+    produces, which is what earns a pass its own row
+    (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
+    review, whose report is a second artifact read against the first (#501).
+    The other six steps have exactly one artifact each and nothing to split.
     """
 
     command: str
@@ -111,8 +113,20 @@ _STEPS: dict[str, Step] = {
     ),
     "specify":    Step("/speckit.specify",    _AUTOMATIC,       _evidence.specify),
     "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _evidence.clarify),
-    "plan":       Step("/speckit.plan",       _AUTOMATIC,       _evidence.plan),
-    "tasks":      Step("/speckit.tasks",      _AUTOMATIC,       _evidence.tasks),
+    "plan": Step(
+        "/speckit.plan", _AUTOMATIC, _evidence.plan,
+        # Review required, so that the revision after a review with an open
+        # BLOCKER runs only when a person or a grant says so (FR-003, FR-026).
+        sub_steps=(
+            SubStep("plan-review", "/plan-review", _REVIEW_REQUIRED, _evidence.plan_review),
+        ),
+    ),
+    # Review required since #501. FR-003 stops an attended run after a clean
+    # plan review, before the plan becomes tasks, and that stop has to be in the
+    # payload for `speckit-orchestrate` to read. A skill that remembered it
+    # would be one a later session reading `auto: true` walks straight past
+    # (research R4). A grant answers it, as it answers a `review_required` pass.
+    "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks),
     "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
     "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
     "implement":  Step("/speckit.implement",  _AUTOMATIC,       _evidence.implement),
@@ -263,7 +277,7 @@ class _PipelineStep:
     # without the fix.
     remedy: str | None = None
     # Always present, always complete — every pass this step has, including a
-    # settled-away one (FR-020). Empty for the seven steps with nothing to
+    # settled-away one (FR-020). Empty for the six steps with nothing to
     # split, and for a report built with no spec dir at all.
     sub_steps: list[_PipelineSubStep] = field(default_factory=list)
 
@@ -721,6 +735,14 @@ def next_step_content(
     (`_AUTO_APPROVE_NOTICE`): autonomy is one switch, not one per kind of gate
     (FR-021b).
 
+    A step row follows the same rule since #501. `tasks` requires review, so
+    that an attended run stops after a clean plan review, and a grant answers
+    that stop as it answers a pass (research R4). This reverses #325, which
+    kept a step row's flag independent of any grant. No step name appears
+    here, so the rule reaches every `review_required` row, and `tasks` is the
+    only one today. A grant never reaches a blocked step or a manual pass, since
+    both return `auto=False` before either rule is read.
+
     An undefined step yields ("", False) rather than raising: `_current_step_name`
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
@@ -767,7 +789,7 @@ def next_step_content(
             return f"{step}.{outstanding.name}", False
         return outstanding.command, (outstanding.on_finish == _AUTOMATIC or auto_approve)
     row = _STEPS.get(step)
-    return (row.command, row.on_finish == _AUTOMATIC) if row else ("", False)
+    return (row.command, row.on_finish == _AUTOMATIC or auto_approve) if row else ("", False)
 
 
 class Attention(NamedTuple):
@@ -809,7 +831,9 @@ class PipelineReport:
     auto: bool | None
     session_started: bool
     # The one field here nothing infers — a human's answer to "may the design
-    # gates be answered without me", read back rather than recomputed. Defaulted
+    # gates and the review stops be answered without me", read back rather than
+    # recomputed. The review stops are every `review_required` pass and, since
+    # #501, the `review_required` step before `tasks`. Defaulted
     # because it is the only field whose absence has a correct value: a report
     # built without it is a report about a feature nobody granted anything to.
     #

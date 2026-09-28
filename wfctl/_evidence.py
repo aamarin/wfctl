@@ -25,7 +25,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Literal, NamedTuple
 
-from wfctl import _md, _tracker
+from wfctl import _md, _plan_review, _tracker
 from wfctl._paths import arch_root
 
 # What reading one evidence source concluded. Three values rather than a bool
@@ -1205,6 +1205,46 @@ def plan(ev: Evidence) -> Assessment:
         return Assessment("in_progress", UNWRITTEN_TEMPLATE)
     reason = _missing_reason(missing_sections(ev.plan_text, _REQUIRED_PLAN_SECTIONS))
     return Assessment("in_progress" if reason else "done", reason)
+
+
+def plan_review(ev: Evidence) -> Assessment:
+    """Whether a review of this plan has left no BLOCKER open. `plan`'s one
+    built-in pass (#501).
+
+    It proves that a report exists in the feature directory and that the two
+    lines wfctl reads from it say the review counted its BLOCKER findings and
+    found none open. It does not prove the review was any good, and it cannot:
+    the count is the reviewer's grade of the plan, and wfctl reads it as given.
+
+    The rows are checked in data-model.md's order (§ Pass state), and every one
+    that holds the pass puts its text in `display` and leaves `reason` empty.
+    The roll-up copies a pass's reason onto its step, a step with a reason
+    routes to the step's own command, and that command here is `/speckit.plan`,
+    which copies the template over `plan.md` (research R3). With no reason, the
+    pass itself routes, and the next command is `/plan-review`.
+
+    Two readings are deliberately not `pending`. With no report and no
+    `tasks.md` the pass reads `in_progress`, because the roll-up holds a step
+    only on an `in_progress` pass, and a `pending` one would let `tasks` become
+    current before the first review (research R2). With no report and a
+    `tasks.md`, it reads `skipped`, so a feature planned before this pass
+    existed is not sent back to review a plan its tasks are already built on.
+
+    "N BLOCKER findings open" keeps its plural at 1. The `/plan-review` wrapper
+    chooses between revising and reviewing on this reading, and a text whose
+    shape moved with the number would be one more thing for it to match.
+    """
+    report = ev.spec_dir / _plan_review.REPORT_NAME
+    if not report.is_file():
+        # `ev.tasks_text` rather than a second look at the file, so this row and
+        # the `tasks` reader cannot disagree about whether `tasks.md` exists.
+        return Assessment("skipped" if ev.tasks_text else "in_progress")
+    recorded = _plan_review.read_report(report)
+    if recorded.open_blockers is None:
+        return Assessment("in_progress", None, "the review records no BLOCKER count")
+    if recorded.open_blockers > 0:
+        return Assessment("in_progress", None, f"{recorded.open_blockers} BLOCKER findings open")
+    return Assessment("done")
 
 
 def tasks(ev: Evidence) -> Assessment:

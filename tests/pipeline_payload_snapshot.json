@@ -2114,7 +2114,7 @@
       "name": "plan",
       "reason": null,
       "remedy": null,
-      "state": "done"
+      "state": "in_progress"
     },
     {
       "annotation": null,
@@ -2172,7 +2172,7 @@
       "name": "plan",
       "reason": null,
       "remedy": null,
-      "state": "done"
+      "state": "in_progress"
     },
     {
       "annotation": null,

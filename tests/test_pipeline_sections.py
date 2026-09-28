@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import PLAN_SECTIONS, SPEC_SECTIONS
+from tests.conftest import PLAN_SECTIONS, SPEC_SECTIONS, write_plan_review
 from wfctl._paths import spec_root
 from wfctl._pipeline import (
     _STEPS,
@@ -219,6 +219,7 @@ def test_a_plan_carrying_every_section_still_reads_done(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
     spec = spec_tree(content={"spec.md": FULL_SPEC, "plan.md": FULL_PLAN})
+    write_plan_review(spec)
     assert _step(spec, tmp_path, "plan").state == "done"
 
 
@@ -379,6 +380,7 @@ def test_inference_reads_the_spec_directory_and_nothing_else(
     produced, reached without them.
     """
     spec = spec_tree(content={"spec.md": FULL_SPEC, "plan.md": FULL_PLAN})
+    write_plan_review(spec)
     assert not list(tmp_path.rglob(".specify")), "fixture must not carry a template tree"
     states = {s.name: s.state for s in _infer_steps(spec, tmp_path)}
     assert states["specify"] == "done"
@@ -402,6 +404,11 @@ def test_the_table_pins_every_steps_unattended_flag() -> None:
     options it rejected — so a pass that found nothing and a pass that never ran
     are no longer the same pull request.
 
+    #501 moved `tasks` back to `review_required`, and for a reason of a new
+    kind: the step's evidence is unchanged, and the stop is the one FR-003 puts
+    after a clean plan review, so that a person reads the plan before it becomes
+    tasks. A grant answers it (research R4). Nothing else moved with it.
+
     One dict rather than a case per step, and one test rather than two. The
     failure this guards is a flip that moved one thing and not another, which a
     reader catches by seeing all eight rows at once and an assertion split across
@@ -412,26 +419,30 @@ def test_the_table_pins_every_steps_unattended_flag() -> None:
         "specify": "automatic",
         "clarify": "automatic",
         "plan": "automatic",
-        "tasks": "automatic",
+        "tasks": "review_required",
         "analyze": "automatic",
         "decompose": "automatic",
         "implement": "automatic",
     }
 
 
-def test_no_step_still_waits_for_a_human_once_it_has_finished() -> None:
+def test_only_tasks_waits_for_a_human_once_it_has_finished() -> None:
     """SC-001, which the dict above proves the table changed but not this.
 
-    The criterion is a count reaching zero, not a count falling by two.
+    The criterion was a count reaching zero, not a count falling by two, and
+    this test was named for that until #501. It now names the one step that
+    waits, `tasks`, which stops after a clean plan review so a person reads the
+    plan before it becomes tasks (research R4).
 
     Not because the dict above would miss a ninth `review_required` step — it is
     an equality, so a ninth key of any value fails it. The reason is what a dict
     invites when a step is added: it is updated to match, mechanically, and goes
-    on passing. `waiting == []` cannot be edited into passing without someone
-    writing down that a step waits, which is the claim #325 is about.
+    on passing. This list cannot be edited into passing without someone writing
+    down that a step waits, which is the claim #325 is about and the one #501
+    made for `tasks`.
     """
     waiting = [name for name, step in _STEPS.items() if step.on_finish != "automatic"]
-    assert waiting == [], f"steps still stopping a finished pipeline: {waiting}"
+    assert waiting == ["tasks"], f"steps stopping a finished pipeline: {waiting}"
 
 
 def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None:

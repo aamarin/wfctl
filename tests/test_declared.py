@@ -76,7 +76,13 @@ def test_the_same_name_under_two_different_steps_is_accepted(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
     """FR-002a: uniqueness is per step. A repository adding a pass under one
-    step is never refused on account of a pass under a step it did not name."""
+    step is never refused on account of a pass under a step it did not name.
+
+    `plan` lists `plan-review` first since #501. It is wfctl's built-in pass,
+    not a declaration, so it arrives with no `wfctl.json` at all and sits ahead
+    of what the repository declared. What this test holds is that the two
+    declared `x` passes are both accepted, beside whatever the step already
+    carries."""
     declaring_repo.write_config({
         "specify": [{"name": "x", "manual": True, "evidence": "a.md"}],
         "plan": [{"name": "x", "manual": True, "evidence": "b.md"}],
@@ -84,7 +90,7 @@ def test_the_same_name_under_two_different_steps_is_accepted(
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
     assert [s.name for s in passes["specify"]] == ["x"]
-    assert [s.name for s in passes["plan"]] == ["x"]
+    assert [s.name for s in passes["plan"]] == ["plan-review", "x"]
 
 
 def test_a_pass_with_both_command_and_manual_is_a_finding(

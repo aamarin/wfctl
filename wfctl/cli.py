@@ -171,9 +171,13 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
 # What an auto-approving run means, in the words `status` and `resume` both
 # print. One string because a mode described two ways is a mode a reader has to
 # reconcile, and the thing being described is where an approval happens.
+#
+# The review stops are named beside the design gates because the grant answers
+# both. Since #501 that includes the stop before `tasks`, and a notice naming
+# the gates alone told a reader the run would still wait there.
 _AUTO_APPROVE_NOTICE = (
     "[yellow]auto-approve[/yellow] — design gates answered into the record, "
-    "approval moves to the PR"
+    "review stops run through, approval moves to the PR"
 )
 
 
@@ -296,8 +300,9 @@ def start_cmd(
     auto_approve: bool | None = typer.Option(
         None, "--auto-approve/--no-auto-approve",
         help="Answer this feature's design gates into the record and descend, "
-             "instead of stopping for approval in the session. "
-             "--no-auto-approve hands the gates back to a human.",
+             "and run through its review stops, instead of stopping for "
+             "approval in the session. --no-auto-approve hands both back to "
+             "a human.",
     ),
     session_id: str | None = typer.Option(
         None, "--session-id", envvar="WFCTL_SESSION_ID",
@@ -338,7 +343,7 @@ def start_cmd(
         grant_auto_approve(agent_dir, auto_approve)
         console.print(
             f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
-            else "[green]✓[/green] auto-approve off — design gates stop for a human"
+            else "[green]✓[/green] auto-approve off — design gates and review stops wait for a human"
         )
 
     if report.session_started and not force:
@@ -939,7 +944,7 @@ def resume_cmd() -> None:
 
     # Its own line, never a second item inside `(auto: …)`. The two answer
     # different questions — `auto` is whether this step advances unprompted,
-    # `auto-approve` is whether the design gates need a human — and #127 says
+    # `auto-approve` is whether the design gates and review stops need a human — and #127 says
     # they will be read as one axis unless the difference is what the output
     # shows.
     if report.auto_approve:

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, SPEC_SECTIONS, structured
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, SPEC_SECTIONS, structured, write_plan_review
 from wfctl import _verify
 from wfctl.cli import app
 from wfctl._pipeline import (
@@ -47,7 +47,7 @@ _EXPECTED_STEPS = [
     ("specify",    "/speckit.specify",    True),
     ("clarify",    "/speckit.clarify",    True),
     ("plan",       "/speckit.plan",       True),
-    ("tasks",      "/speckit.tasks",      True),
+    ("tasks",      "/speckit.tasks",      False),
     ("analyze",    "/speckit.analyze",    True),
     ("decompose",  "/speckit.decompose",  True),
     ("implement",  "/speckit.implement",  True),
@@ -111,6 +111,25 @@ def _report(missing: dict[str, str], shipped: set[str]) -> str:
 def test_step_table_resolves_in_order() -> None:
     """Every step yields its command and auto flag, in pipeline order."""
     assert [(n, *next_step_content(n)) for n in _STEP_NAMES] == _EXPECTED_STEPS
+
+
+def test_plan_carries_the_plan_review_pass_and_tasks_waits_for_review() -> None:
+    """FR-001 and FR-003, as the table states them (research R4).
+
+    The pass is built in, so no repository declares it, and it requires review
+    so that a revision after an open BLOCKER does not run with nobody there.
+    `tasks` requires review so that the stop after a clean review is in the
+    payload rather than in a skill's memory. Either value flipped back to
+    `automatic` lets an attended run walk from a finished review into `tasks`,
+    and no run shows it until a person finds tasks built over a plan they meant
+    to read first.
+    """
+    passes = {sub.name: sub for sub in _STEPS["plan"].sub_steps}
+
+    assert list(passes) == ["plan-review"]
+    assert passes["plan-review"].command == "/plan-review"
+    assert passes["plan-review"].on_finish == "review_required"
+    assert _STEPS["tasks"].on_finish == "review_required"
 
 
 def test_an_undefined_step_yields_an_empty_command() -> None:
@@ -1106,6 +1125,7 @@ def test_state_4_a_spec_that_predates_the_gate_shows_clarify_skipped(
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact("specify", content=structured("# Spec\n\nNo markers.\n"))
     storyctl_dir.make_spec_artifact("plan")
+    write_plan_review(storyctl_dir.spec_dir)
 
     lines = _status_lines(storyctl_dir)
 
@@ -1528,16 +1548,26 @@ def test_analyze_runs_itself_when_no_report_has_been_written() -> None:
 
 
 def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
-    """FR-006 and FR-007, which are prohibitions and so cover nothing on their own.
+    """#325's FR-006 and FR-007, as #501 amended them. Both are prohibitions and
+    so cover nothing on their own.
 
-    Both say what may not be built: no second site computing the flag, and no
-    dependence on branch state, on a grant, or on any of the four facts the
-    payload carries. Nothing fails when a prohibition is only believed, so they
-    are stated here as one property over the whole table instead.
+    They say what may not be built: no second site computing the flag, and no
+    dependence on branch state or on any of the four facts the payload carries.
+    They also said no dependence on a grant, and #501 reversed that half: a
+    grant now answers a `review_required` row, as it already answered a
+    `review_required` pass (research R4). So the flag is the table's value, or
+    `True` under a grant, and never anything else. Nothing fails when a
+    prohibition is only believed, so it is stated here as one property over the
+    whole table instead.
 
-    A per-step arm for any step breaks the second loop. `implement` is the one arm
-    that exists and it lives under `blocked`, which that loop covers rather than
-    exempts.
+    The second loop is what makes the reversal visible. The first calls with the
+    default `auto_approve=False`, so it went on passing when the grant began to
+    reach step rows, and a later change that let a grant reach a blocked step
+    would pass it too.
+
+    A per-step arm for any step breaks a `blocked` assertion in either loop.
+    `implement` is the one arm that exists and it lives under `blocked`, which
+    those assertions cover rather than exempt.
 
     The synthetic row is what makes the first loop mean anything, and it is here
     because of what #325 removed. Deriving the expectation from the same table the
@@ -1555,14 +1585,27 @@ def test_the_reported_flag_is_the_table_and_nothing_else() -> None:
         _, auto_blocked = next_step_content(name, "some reason")
         assert auto_blocked is False, name
 
+    for name in _STEPS:
+        _, auto = next_step_content(name, None, auto_approve=True)
+        assert auto is True, name
+
+        _, auto_blocked = next_step_content(name, "some reason", auto_approve=True)
+        assert auto_blocked is False, name
+
 
 def test_a_review_required_step_would_still_be_reported_as_one(monkeypatch) -> None:
     """The mutant #325 stopped killing: `next_step_content` ignoring the table.
 
-    No step is `review_required` any more, so every real row expects `True` and a
-    function that returns `True` unconditionally is indistinguishable from one
-    that reads the row. This puts a `review_required` row back for the length of
-    one test — the only remaining way to ask whether the value is read.
+    After #325 no step was `review_required`, so every real row expected `True`
+    and a function that returned `True` unconditionally was indistinguishable
+    from one that read the row. This put a `review_required` row back for the
+    length of one test, which was then the only way to ask whether the value is
+    read.
+
+    Since #501 `tasks` is a real `review_required` row, and
+    `test_step_table_resolves_in_order` kills that mutant as well. This test
+    stays because it does not depend on which real row happens to wait: if
+    `tasks` became automatic again, the question would still be asked here.
 
     `monkeypatch.setitem` rather than a fixture: the row is the subject of this
     one assertion, and a table mutated for a whole module is a table the next
@@ -1591,6 +1634,7 @@ def test_a_skipped_clarify_never_reaches_a_reader(tmp_path: Path) -> None:
     # already passed through where `clarify` now sits.
     (spec / "spec.md").write_text("# Spec\n\n" + SPEC_SECTIONS)
     (spec / "plan.md").write_text(CLEAN_PLAN)
+    write_plan_review(spec)
 
     steps = {s.name: s.state for s in _infer_steps(spec, tmp_path)}
     assert steps["clarify"] == "skipped"
