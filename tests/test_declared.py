@@ -49,6 +49,42 @@ def test_duplicate_name_under_one_step_is_a_finding(declaring_repo: types.Simple
     assert any("specify.x is declared twice" in p for p in problems)
 
 
+def test_a_declared_pass_named_after_wfctls_own_is_told_it_collides(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """FR-009. The built-in names seed the same `seen` set a duplicate is
+    caught by, so this used to read "declared twice under one step". That
+    points the author at their own `wfctl.json` for a second copy that is not
+    there. The finding has to say whose the other pass is.
+
+    The declared pass is still dropped, and wfctl's own stays where it was."""
+    declaring_repo.write_config({"plan": [
+        {"name": "plan-review", "manual": True, "evidence": "mine.md"},
+    ]})
+    passes, problems = _declared.load(declaring_repo.root)
+    assert problems == ["plan.plan-review is wfctl's own pass; rename the declared one"]
+    assert [s.name for s in passes["plan"]] == ["plan-review"]
+    assert passes["plan"][0] is _STEPS["plan"].sub_steps[0]
+
+
+def test_a_pass_declared_twice_is_still_called_a_duplicate_beside_a_collision(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """The collision message must not swallow the genuine duplicate, which
+    shares the check it was split out of. Both in one step, so each finding
+    has to name its own pass."""
+    declaring_repo.write_config({"plan": [
+        {"name": "plan-review", "manual": True, "evidence": "mine.md"},
+        {"name": "x", "manual": True, "evidence": "a.md"},
+        {"name": "x", "manual": True, "evidence": "b.md"},
+    ]})
+    _, problems = _declared.load(declaring_repo.root)
+    assert problems == [
+        "plan.plan-review is wfctl's own pass; rename the declared one",
+        "plan.x is declared twice under one step",
+    ]
+
+
 def test_a_name_containing_a_slash_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
     """`step_none_cmd` builds a claim path from this name unvalidated — an
     unrejected `/` walks that write outside `step-claims/<branch>/` (and a
