@@ -196,3 +196,5 @@ absence holds the pass rather than passing it.
 - 2026-09-27  amended     #501. The plan review found a sign-off could be typed
   into the scan file by the agent it bounds. wfctl now reads it from its own
   event log.
+- 2026-09-27  renamed     — from `wfctl-measures-a-review-against-the-plan-it-read`.
+  Record names carry no `wfctl-` or issue-number prefix.

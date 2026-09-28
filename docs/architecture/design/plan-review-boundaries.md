@@ -182,4 +182,6 @@ checks that the wrapper names the skill by path, the way
   check now skips the copy, and the Decision names every recorded input.
 - 2026-09-27  renamed   — from `501-plan-review-wrapper-split`, which named the
   refactor rather than the subject. The new slug pairs with
-  `501-plan-review-severity`.
+  `plan-review-severity`.
+- 2026-09-27  renamed   — from `501-plan-review-boundaries`. Record names carry no
+  issue-number prefix.

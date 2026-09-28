@@ -153,3 +153,5 @@ support?
 - 2026-09-26  proposed  — #501 level 3. The candidate's QUESTION grade overlapped
   its own BLOCKER test and could not reach the verdict. Andre chose to fold it
   into the category after comparing it with keeping four grades.
+- 2026-09-27  renamed   — from `501-plan-review-severity`. Record names carry no
+  issue-number prefix.
