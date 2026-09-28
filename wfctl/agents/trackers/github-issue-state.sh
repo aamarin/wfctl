@@ -37,10 +37,21 @@ if out=$(gh api "repos/{owner}/{repo}/issues/$id" \
   exit 0
 fi
 
-# 410 is an issue that existed and was deleted.
+# 410 is an issue that existed and was deleted. Neither status alone proves the
+# issue is missing, though: GitHub also answers 404 for a repository the token
+# cannot see (the wrong `gh auth` account, a fine-grained token never granted
+# this repo), and 410 for a repository with issues turned off. Printing
+# `missing` in either of those cases would refuse every worktree on this
+# repository, open issues included — the one mistake this script must not
+# make. So a 404/410 on the issue is confirmed against the repository itself
+# before it is trusted: readable, with issues on.
 if grep -qE 'HTTP (404|410)' "$err"; then
-  echo "missing"
-  exit 0
+  if repo=$(gh api "repos/{owner}/{repo}" --jq '.has_issues' 2>/dev/null) && [[ "$repo" == "true" ]]; then
+    echo "missing"
+    exit 0
+  fi
+  echo "repository is not readable, or has issues turned off" >&2
+  exit 1
 fi
 
 cat "$err" >&2
