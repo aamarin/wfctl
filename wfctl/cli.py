@@ -1864,7 +1864,13 @@ def step_sign_off_cmd(
     It does not commit. It prints the commit line, and whoever ran it commits
     the section, a person or the agent that signed off. Each sign-off counts
     toward the review cap exactly as a review does, so an agent under
-    auto-approve cannot sign off its way past the cap.
+    auto-approve cannot sign off its way past the cap by repeating one — the
+    cap still fires on the third. It clears an open BLOCKER on the plan it
+    covers in one call, whatever the count; the reader checks a sign-off
+    before it checks the BLOCKER count (`_evidence.plan_review`, row 3), and
+    FR-026's edge case names sign-off as one of the ways an open BLOCKER is
+    resolved. Whether that should need a person's judgment rather than an
+    agent's is the waiver-authority question #100 owns.
     """
     import difflib
     from contextlib import suppress

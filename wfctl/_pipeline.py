@@ -403,19 +403,26 @@ def _pass_states(
 
     A claim wins first and unconditionally (spec edge case 7): a person's
     judgment that a pass does not apply is not overturned by an artifact that
-    appears later, or by the step not having been reached yet.
+    appears later, or by the step not having been reached yet. A pass's own
+    reading of `skipped` is read the same way once it arrives: neither one
+    blocks a sibling that comes after it, so the cascade below tracks
+    `in_progress` only, not every non-`done` reading.
 
     Otherwise the parent's own reading gates whether passes are evaluated at
     all. `done` runs them in written order with a per-pass cascade exactly like
-    the step-level one below it: the first pass that is not `done` is
-    `in_progress`, and everything after it is `pending` without its reader
-    being called. `skipped` means none of them are, and neither is a pass —
-    inherited `skipped` is what "passed by with the parent" means. Every other
-    reading — `pending`, and `in_progress` for a reason that is the step's own
-    and not a pass's — means the step has not finished *its own* half yet, so
-    no pass under it has been reached either; both report `pending`, which is
-    the only one of the four names data-model.md's table gives a not-yet-`done`
-    parent's passes.
+    the step-level one below it: the first pass that reads `in_progress` is
+    where the cascade starts, and everything after it is `pending` without its
+    reader being called. A pass that reads `skipped` on its own account — such
+    as a plan review a feature planned before this pass existed never wrote —
+    does not start it, for the same reason a claim does not: neither is a pass
+    still outstanding, and a sibling's own evidence is a fact about that
+    sibling, not about the one before it (#501). Inherited `skipped` is the
+    other way `skipped` arrives, when the whole step passed by unevaluated, and
+    reads the same. Every other reading — `pending`, and `in_progress` for a
+    reason that is the step's own and not a pass's — means the step has not
+    finished *its own* half yet, so no pass under it has been reached either;
+    both report `pending`, which is the only one of the four names
+    data-model.md's table gives a not-yet-`done` parent's passes.
 
     The `in_progress` case is the one an earlier pass at this function got
     wrong: mirroring the parent's own `in_progress` onto every pass made a
@@ -441,7 +448,7 @@ def _pass_states(
             continue
         assert ev is not None  # own_state == "done" is only reachable once Evidence exists
         reading = sub.reads(ev)
-        if reading.state != "done":
+        if reading.state == "in_progress":
             cascade = True
         result.append(
             _PipelineSubStep(

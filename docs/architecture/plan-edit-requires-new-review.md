@@ -190,13 +190,15 @@ typed there would look the same as one wfctl wrote. It would also slip past the
 count that limits the agent. The section in the scan file is the pull request
 reviewer's copy, and nothing reads it back.
 
-wfctl also reads how many BLOCKER findings the review left open. A review of the
-current plan with a BLOCKER open reads in progress, so the workflow doesn't
-reach `tasks` over a finding the reviewer called blocking. That count is the
-reviewer's grade of the plan, not a statement about whether the review is
-current. This means reading it doesn't bring back the self-report this record
-refuses. The reviewer grades the plan, and wfctl decides whether the grade is
-still about the plan that exists.
+wfctl also reads how many BLOCKER findings the review left open, checked only
+once a sign-off has not already answered for the plan. A review of the current
+plan with a BLOCKER open reads in progress, so the workflow doesn't reach
+`tasks` over a finding the reviewer called blocking, unless a sign-off accepts
+that plan first, which FR-026's own edge case names as one of the ways an open
+BLOCKER is resolved. That count is the reviewer's grade of the plan, not a
+statement about whether the review is current. This means reading it doesn't
+bring back the self-report this record refuses. The reviewer grades the plan,
+and wfctl decides whether the grade is still about the plan that exists.
 
 The reviewer also keeps a copy of the `plan.md` it read, so the next review and
 a sign-off can show what changed. The fingerprint only says that something did.
@@ -222,3 +224,6 @@ absence holds the check rather than passing it.
 - 2026-09-27  renamed     — from `wfctl-measures-a-review-against-the-plan-it-read`.
   Record names carry no `wfctl-` or issue-number prefix.
 - 2026-09-28  rewritten   — plain language first, and an opening question
+- 2026-09-28  amended     #501. The review panel found this record silent on
+  a sign-off's power to clear an open BLOCKER. Named the exception explicitly,
+  against FR-026's own edge case.
