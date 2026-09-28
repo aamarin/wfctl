@@ -12,16 +12,19 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import os
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from wfctl import _paths, _tracker
+from wfctl import _manifest, _paths, _tracker
 
 
 class Outcome(enum.Enum):
     MAIN_CHECKOUT = "main_checkout"
     TRUNK = "trunk"
+    NO_INSTALL = "no_install"
     NO_TRACKER = "no_tracker"
     DETACHED = "detached"
     NO_KEY = "no_key"
@@ -43,6 +46,12 @@ class Facts:
 
     linked: bool
     on_trunk: bool
+    installed_here: bool
+    # None where there is no main checkout to look in, which is a bare layout.
+    installed_in_main: bool | None
+    bare: bool
+    agent: str | None
+    base_source: str | None
     tracker_configured: bool
     detached: bool
     branch: str
@@ -63,6 +72,21 @@ def _refuse(outcome: Outcome, *lines: str) -> Verdict:
     return Verdict(outcome, "refuse", lines)
 
 
+def _install_command(facts: Facts) -> str:
+    """What `post_create` would have run here.
+
+    `--agent` only from `WFCTL_AGENT` (`no-hardcoded-agent`). `--from` only when
+    the main checkout recorded a source, since the bare form reinstalls the
+    release over a checkout someone installed from a working tree.
+    """
+    command = "wfctl install-skills"
+    if facts.agent:
+        command += f' --agent "{facts.agent}"'
+    if facts.base_source:
+        command += f" --from {shlex.quote(facts.base_source)}"
+    return command
+
+
 def _local_verdict(facts: Facts) -> Verdict | None:
     """The rows the checkout alone can settle, or None when the tracker must be asked.
 
@@ -75,6 +99,19 @@ def _local_verdict(facts: Facts) -> Verdict | None:
     # has no main checkout: its `main` is a linked worktree like any other.
     if facts.on_trunk:
         return Verdict(Outcome.TRUNK, "proceed")
+    # Before the tracker row: a worktree with no install has no tracker config of
+    # its own, and would otherwise pass as a repository that never chose one. A
+    # main checkout with an install is how a worktree `post_create` never ran in
+    # is told from a repository that never installed wfctl; a bare layout has no
+    # main checkout to ask, so there the absence is enough.
+    if not facts.installed_here and (facts.installed_in_main or facts.bare):
+        return _refuse(
+            Outcome.NO_INSTALL,
+            "✗ this worktree has no wfctl install — it was not made by `workmux add`, so it",
+            "  has no skills and no tracker config to check its issue against.",
+            f"    {_install_command(facts)}",
+            "  then run `wfctl start` again.",
+        )
     if not facts.tracker_configured:
         return Verdict(Outcome.NO_TRACKER, "proceed")
     # Before the key: wfctl substitutes the short hash for a missing branch name,
@@ -160,13 +197,37 @@ def _on_trunk(repo_root: Path, branch: str) -> bool:
     return branch == trunk.removeprefix("origin/")
 
 
+def _installed(root: Path) -> bool:
+    return (root / _manifest.MANIFEST_PATH).exists()
+
+
+def _base_source(root: Path) -> str | None:
+    """The source the main checkout's base layer was installed from, if recorded.
+
+    Read for the remedy's `--from` and nothing else, so a manifest that will not
+    parse costs the flag rather than a traceback out of `start`.
+    """
+    try:
+        base = _manifest.load_manifest(root).get("base")
+    except ValueError:
+        return None
+    source = base.get("source") if isinstance(base, dict) else None
+    return source if isinstance(source, str) else None
+
+
 def gather(repo_root: Path, branch: str) -> Facts:
     """Everything `decide` reads, asked of git, the manifests and the tracker."""
     pattern = _tracker.configured_key_pattern(repo_root)
     key = _paths.extract_issue_key(branch, pattern) if pattern is not None else "unknown"
+    main = _paths.main_checkout(repo_root)
     facts = Facts(
         linked=_is_linked(repo_root),
         on_trunk=_on_trunk(repo_root, branch),
+        installed_here=_installed(repo_root),
+        installed_in_main=_installed(main) if main is not None else None,
+        bare=_paths.is_bare_layout(repo_root),
+        agent=os.environ.get("WFCTL_AGENT") or None,
+        base_source=_base_source(main) if main is not None else None,
         tracker_configured=pattern is not None,
         detached=_paths.is_detached(repo_root),
         branch=branch,

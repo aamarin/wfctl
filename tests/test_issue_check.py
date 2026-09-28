@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import git_repo
@@ -19,7 +20,8 @@ runner = CliRunner()
 def _facts(**overrides: object) -> Facts:
     """A linked worktree on an open issue's branch, overridden per test."""
     base = Facts(
-        linked=True, on_trunk=False, tracker_configured=True, detached=False,
+        linked=True, on_trunk=False, installed_here=True, installed_in_main=True,
+        bare=False, agent=None, base_source=None, tracker_configured=True, detached=False,
         branch="497-start-refuses", key="497", state="open",
     )
     return dataclasses.replace(base, **overrides)
@@ -73,6 +75,66 @@ def test_a_tracker_with_no_answer_warns_and_proceeds() -> None:
     assert verdict.lines == (
         "⚠ could not ask the tracker whether #497 is open (connection refused) — starting anyway",
     )
+
+
+_NO_INSTALL = (
+    "✗ this worktree has no wfctl install — it was not made by `workmux add`, so it",
+    "  has no skills and no tracker config to check its issue against.",
+)
+
+
+def test_a_worktree_with_no_install_refuses_when_the_main_checkout_has_one() -> None:
+    """The bare `git worktree add` route: no hook ran, so there is nothing to check with."""
+    verdict = decide(_facts(installed_here=False, installed_in_main=True))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_INSTALL, "refuse")
+    assert verdict.lines == (
+        *_NO_INSTALL, "    wfctl install-skills", "  then run `wfctl start` again.",
+    )
+
+
+def test_a_bare_layout_worktree_with_no_install_refuses() -> None:
+    """A bare layout has no main checkout to compare against, so absence is enough."""
+    verdict = decide(_facts(installed_here=False, installed_in_main=None, bare=True))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_INSTALL, "refuse")
+
+
+def test_a_repository_that_never_installed_wfctl_is_not_refused_for_it() -> None:
+    verdict = decide(_facts(
+        installed_here=False, installed_in_main=False, tracker_configured=False,
+    ))
+    assert verdict.outcome is Outcome.NO_TRACKER
+
+
+@pytest.mark.parametrize(("agent", "source", "command"), [
+    (None, None, "    wfctl install-skills"),
+    ("claude", None, '    wfctl install-skills --agent "claude"'),
+    (None, "/src/wfctl", "    wfctl install-skills --from /src/wfctl"),
+    ("claude", "/my src", "    wfctl install-skills --agent \"claude\" --from '/my src'"),
+])
+def test_the_install_remedy_names_an_agent_and_source_only_from_the_environment(
+    agent: str | None, source: str | None, command: str
+) -> None:
+    """`no-hardcoded-agent`: the remedy never names an agent of its own.
+
+    `--from` is carried when the main checkout recorded one, since the bare form
+    would reinstall the release over the checkout being tested.
+    """
+    verdict = decide(_facts(installed_here=False, agent=agent, base_source=source))
+    assert verdict.lines[2] == command
+
+
+@pytest.mark.parametrize(("overrides", "outcome"), [
+    ({"on_trunk": True, "installed_here": False}, Outcome.TRUNK),
+    ({"installed_here": False, "tracker_configured": False}, Outcome.NO_INSTALL),
+    ({"detached": True, "key": None}, Outcome.DETACHED),
+])
+def test_the_earlier_row_wins_when_two_rows_hold(overrides: dict, outcome: Outcome) -> None:
+    """The order is the decision, and each case here is one clarify settled.
+
+    A worktree with no install has no tracker config of its own, so reading the
+    tracker first would pass it as a repository with no tracker at all.
+    """
+    assert decide(_facts(**overrides)).outcome is outcome
 
 
 def test_a_repository_with_no_tracker_proceeds() -> None:
@@ -188,6 +250,31 @@ def test_gather_strips_the_remote_from_origin_head(tmp_path: Path) -> None:
     main_wt = _add_worktree(clone, "main-wt", "main")
     assert gather(main_wt, "main").on_trunk is True
     assert gather(wt, "497-x").on_trunk is False
+
+
+def test_gather_reads_the_install_here_and_in_the_main_checkout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    facts = gather(wt, "7-x")
+    assert (facts.installed_here, facts.installed_in_main, facts.bare) == (False, False, False)
+
+    _install(main, tracker="github", base={"items": [], "source": "/src/wfctl"})
+    monkeypatch.setenv("WFCTL_AGENT", "claude")
+    facts = gather(wt, "7-x")
+    assert (facts.installed_here, facts.installed_in_main) == (False, True)
+    assert (facts.agent, facts.base_source) == ("claude", "/src/wfctl")
+
+
+def test_gather_reads_a_bare_layout_as_having_no_main_checkout(tmp_path: Path) -> None:
+    src = git_repo(tmp_path / "src")
+    bare = tmp_path / "repo.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
+    wt = _add_worktree(bare, "wt", "-b", "7-x")
+    facts = gather(wt, "7-x")
+    assert (facts.bare, facts.installed_in_main, facts.installed_here) == (True, None, False)
 
 
 def test_gather_asks_git_whether_head_is_detached(tmp_path: Path, monkeypatch) -> None:
