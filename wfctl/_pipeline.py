@@ -277,8 +277,10 @@ class _PipelineStep:
     # without the fix.
     remedy: str | None = None
     # Always present, always complete — every pass this step has, including a
-    # settled-away one (FR-020). Empty for the six steps with nothing to
-    # split, and for a report built with no spec dir at all.
+    # settled-away one (FR-020). Empty only for a step with no pass, built-in
+    # or declared. A report built with no spec dir still lists every pass,
+    # each `pending`, since a pass is declared per repository and not per
+    # feature directory.
     sub_steps: list[_PipelineSubStep] = field(default_factory=list)
 
 

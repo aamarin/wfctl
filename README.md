@@ -47,6 +47,7 @@ brainstorm   ▶  ← current
 specify      ○
 clarify      ○
 plan         ○
+  plan-review   ○
 tasks        ○
 analyze      ○
 decompose    ○
@@ -88,7 +89,7 @@ it built.
   ```
 
 - Implement is gated on a definition of done that wfctl runs itself with `wfctl verify`, so "done" is a recorded verdict and not a claim.
-- What does not apply is recorded with a reason instead of being skipped silently. `wfctl arch none` records that a change draws no architecture boundary, and `wfctl step none` records that a pass a repository added in `wfctl.json` does not apply to this change.
+- What does not apply is recorded with a reason instead of being skipped silently. `wfctl arch none` records that a change draws no architecture boundary, and `wfctl step none` records that a pass, either wfctl's own or one a repository added in `wfctl.json`, does not apply to this change.
 - Architecture decisions are read as obligations on the work. `wfctl arch context` prints the ones in force.
 
 wfctl also installs its slash commands alongside the skills. It records the
@@ -145,6 +146,7 @@ and where specs should live — and records both, so it never asks again.
 /speckit.brainstorm  "add manual transaction entry"   # design, gated in four levels
 /speckit.specify                                      # turn the design into a spec
 /speckit.plan                                         # design the implementation
+/plan-review                                          # review the plan against the spec
 /speckit.tasks                                        # break into ordered tasks
 /speckit.implement                                    # build it
 /end-session                                          # summary + memory candidates
