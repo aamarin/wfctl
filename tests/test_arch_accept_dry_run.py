@@ -143,11 +143,11 @@ def test_a_dry_run_refuses_a_citation_accept_would_refuse(
 def test_a_flag_swallowed_as_the_citation_is_refused_and_nothing_is_accepted(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch, citation: str
 ) -> None:
-    """Brainstorm may run `wfctl arch accept * --dry-run` without a prompt, and
-    `accept <slug> --agreed --dry-run` matches that grant. Click reads it as
-    `--agreed "--dry-run"` with no dry run at all, and before this refusal it
-    marked a passing record accepted. Accepting is a person's call, so a
-    rehearsal-shaped command must never be the act."""
+    """Brainstorm was once granted `wfctl arch accept * --dry-run` without a
+    prompt, and `accept <slug> --agreed --dry-run` matched that grant. Click
+    reads it as `--agreed "--dry-run"` with no dry run at all, and before this
+    refusal it marked a passing record accepted. Accepting is a person's call,
+    so a rehearsal-shaped command must never be the act."""
     root = _arch_root(agent_dir, monkeypatch)
     record = write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
     before = _tree(root)
@@ -158,3 +158,18 @@ def test_a_flag_swallowed_as_the_citation_is_refused_and_nothing_is_accepted(
     assert "a flag, not a citation" in result.output
     assert _tree(root) == before
     assert record.read_text().startswith("---\nstatus: proposed\n")
+
+
+def test_a_citation_pasted_from_a_bullet_is_a_citation_and_not_a_flag(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flag refusal once tested for a leading dash, which also refused a
+    citation copied from a markdown list and told its author it was a flag.
+    Only a lone dash-led token is one."""
+    root = _arch_root(agent_dir, monkeypatch)
+    record = write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "- agreed on #511"])
+
+    assert result.exit_code == 0, result.output
+    assert record.read_text().startswith("---\nstatus: accepted\n")

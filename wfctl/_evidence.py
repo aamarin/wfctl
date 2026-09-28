@@ -1166,10 +1166,14 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     The slug is quoted because the fix is a line the reader pastes, and a slug
     is a filename nothing constrains: `a;b.md` is a record, and unquoted its fix
     runs `b`. `_block_remedy` quotes its free-text action for the same reason.
-    Quoting does nothing for a slug that starts with a dash, which Click reads
-    as an option, so that one line ends option parsing with `--` first. It then
-    no longer ends in `--dry-run`, and brainstorm's grant does not cover it; a
-    person is asked before it runs, which is the safe way for that to fail.
+
+    `--dry-run` comes first and `--` ends option parsing before the slug. Quoting
+    does nothing for a slug that starts with a dash, which Click would read as an
+    option, and `--` is what keeps it a slug. Brainstorm's grant is written as
+    `wfctl arch accept --dry-run *` to match: a grant that starts with the flag
+    cannot be met by a command that performs the acceptance, and one that ended
+    with it was met by `--agreed x -- --dry-run`, which accepts a record of that
+    name.
     """
     from wfctl import _arch
 
@@ -1187,10 +1191,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
         "in_progress",
         f"{slug}: {blockers[0]}",
         remedy="\n".join(
-            f"  wfctl arch accept --dry-run -- {shlex.quote(s)}"
-            if s.startswith("-")
-            else f"  wfctl arch accept {shlex.quote(s)} --dry-run"
-            for s, _ in failing
+            f"  wfctl arch accept --dry-run -- {shlex.quote(s)}" for s, _ in failing
         ),
     )
 

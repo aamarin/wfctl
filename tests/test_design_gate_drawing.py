@@ -61,7 +61,7 @@ def _brainstorm(payload: dict | None = None) -> dict:
 
 
 def _dry_run(slug: str) -> str:
-    return f"  wfctl arch accept {slug} --dry-run"
+    return f"  wfctl arch accept --dry-run -- {slug}"
 
 
 # Every record `accept` refuses, and the same record once fixed. Kwargs to
@@ -158,7 +158,7 @@ def test_a_slug_carrying_shell_syntax_is_quoted_in_the_fix_line(
     storyctl_dir.make_spec_artifact("brainstorm")
     write_record(root, "a;id", diagram="component")
 
-    assert _brainstorm()["remedy"] == "  wfctl arch accept 'a;id' --dry-run"
+    assert _brainstorm()["remedy"] == "  wfctl arch accept --dry-run -- 'a;id'"
 
 
 def test_a_slug_starting_with_a_dash_gets_a_fix_line_that_runs(

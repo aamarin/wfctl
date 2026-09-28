@@ -1886,12 +1886,14 @@ def arch_accept_cmd(
             soft_wrap=True,
         )
         raise typer.Exit(1)
-    # A citation never starts with a dash, and `--dry-run` swallowed as the value
-    # does. Brainstorm is granted `wfctl arch accept * --dry-run` without a prompt,
-    # and `accept <slug> --agreed --dry-run` matches that grant while Click reads
-    # it as a real acceptance citing "--dry-run". Accepting is a person's call, so
-    # the one spelling that turns the rehearsal into the act is refused here.
-    if agreed.strip().startswith("-"):
+    # A flag given as the citation is a mistake every time. Click reads
+    # `accept <slug> --agreed --dry-run` as a real acceptance citing "--dry-run",
+    # so the rehearsal someone meant becomes the ruling a person owns.
+    # Brainstorm's grant starts with `--dry-run` rather than ending with it for
+    # the same reason, and this refusal covers everyone the grant does not, a
+    # person typing the command included. Only a lone dash-led token is refused:
+    # a citation pasted from a bullet, such as "- agreed on #511", is a sentence.
+    if re.fullmatch(r"-\S*", agreed.strip()):
         console.print(
             f'[red]✗[/red] --agreed was given "{escape(agreed.strip())}", which is '
             "a flag, not a citation — say where the decision was agreed.",

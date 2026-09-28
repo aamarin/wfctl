@@ -700,7 +700,7 @@
       "annotation": "a-decision: no drawing: add a fenced block under '## Boundary'",
       "name": "brainstorm",
       "reason": "a-decision: no drawing: add a fenced block under '## Boundary'",
-      "remedy": "  wfctl arch accept a-decision --dry-run",
+      "remedy": "  wfctl arch accept --dry-run -- a-decision",
       "state": "in_progress"
     },
     {
