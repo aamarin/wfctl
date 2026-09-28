@@ -13,6 +13,7 @@ rewording that changed nothing this file is about.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import types
 from pathlib import Path
@@ -158,6 +159,25 @@ def test_a_slug_carrying_shell_syntax_is_quoted_in_the_fix_line(
     write_record(root, "a;id", diagram="component")
 
     assert _brainstorm()["remedy"] == "  wfctl arch accept 'a;id' --dry-run"
+
+
+def test_a_slug_starting_with_a_dash_gets_a_fix_line_that_runs(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Quoting leaves `-decision` as it is, and Click reads it as an option, so the
+    fix line exited with "No such option" instead of listing the blockers. The
+    line is run here rather than compared to a string, because running is the
+    promise a fix line makes."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    write_record(root, "-decision", diagram="component")
+
+    fix = shlex.split(_brainstorm()["remedy"])
+    result = runner.invoke(app, fix[1:])
+
+    assert fix[:3] == ["wfctl", "arch", "accept"]
+    assert result.exit_code == 1
+    assert _first_blocker(root, "-decision") in result.output
 
 
 def test_rewording_a_blocker_changes_the_reason_and_not_the_fix(
