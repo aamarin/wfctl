@@ -289,7 +289,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _guard _verify _tracker _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract
 resolution  _paths _manifest
 mechanism   _io _md
 ```

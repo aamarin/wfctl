@@ -247,6 +247,34 @@ def _identity_kwarg(caller: str | None) -> dict[str, str]:
     return {"session_id": caller} if caller is not None else {}
 
 
+def _refuse_unless_the_issue_allows_a_session() -> None:
+    """Print the issue check's verdict, and exit 1 when it refuses.
+
+    First in `start`, ahead of `_resolve_context()`, which is not read-only: it
+    creates the branch's state directory and deletes fossil files in it, so a
+    refusal after it would leave a directory behind on a branch that never had a
+    session. `get_repo_root` and `resolve_branch` are the two reads the check
+    needs, and neither writes. Ahead of the `--auto-approve` grant and the
+    "Already initialized" return for the same reason: a refusal holds on every
+    run, and writes nothing on any of them.
+    """
+    from wfctl import _issue_check
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1)
+    verdict = _issue_check.decide(
+        _issue_check.gather(repo_root, resolve_branch(repo_root))
+    )
+    style = {"refuse": "red", "warn": "yellow"}.get(verdict.action)
+    for i, line in enumerate(verdict.lines):
+        console.print(line, style=style if i == 0 else None, markup=False)
+    if verdict.action == "refuse":
+        raise typer.Exit(1)
+
+
 def _report_unfilled_in_flight(agent_dir: Path) -> None:
     """Say when the last handoff left `## In Flight` as the template wrote it.
 
@@ -313,6 +341,7 @@ def start_cmd(
     from wfctl._pipeline import build_report
     from wfctl._session import grant_auto_approve, identity, last_session_id
 
+    _refuse_unless_the_issue_allows_a_session()
     agent_dir, repo_root, branch, _ = _resolve_context()
     _report_unfilled_in_flight(agent_dir)
     # Resolved once, here, and passed down. The environment fallback lives on the
