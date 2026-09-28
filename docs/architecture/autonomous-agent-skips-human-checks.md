@@ -20,9 +20,11 @@ no evidence while the agent runs alone, so the agent would have to write that
 note itself. That causes two problems:
 
 1. Every autonomous run leaves a note in the change, about a check nobody did.
-2. The note outlives the run. When the plan owner comes back, the note still
-   hides the check, and the skill has to find and delete it before the check can
-   count.
+2. The note outlives the run, and it wins over the evidence. When the plan owner
+   comes back and finishes the walkthrough, the check still reads as skipped. It
+   counts only after the note is deleted, and wfctl has no command that deletes
+   one. This means either the skill carries that cleanup, or the plan owner
+   finds the file and deletes it by hand.
 
 Both problems come from writing down something wfctl already knows. When you run
 `wfctl start --auto-approve`, wfctl saves that setting, and it checks the setting
@@ -30,9 +32,11 @@ every time it shows status. So wfctl can already tell whether an autonomous agen
 is running (`approval-mode-is-stored-intent`).
 
 In the code, a check a repository adds counts as done only when its evidence
-file exists (`_declared.py:202`), and as skipped only when a note exists
-(`_pipeline.py:400-403`). Auto-approve lets the agent run such a check without
-stopping (`_pipeline.py:752`).
+file exists (`_declared.py:202`), and a note is read before that evidence
+(`_pipeline.py:431`). `wfctl step none` writes the note to
+`<arch-root>/step-claims/<branch>/<step>.<name>.md` (`cli.py:1716`), and
+`wfctl step` has no other command, so nothing in wfctl removes one. Auto-approve
+lets the agent run such a check without stopping (`_pipeline.py:802`).
 
 ## Direct baseline
 
