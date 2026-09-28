@@ -1088,3 +1088,76 @@ def test_read_state_reads_output_outside_the_contract_as_no_answer(
     state, detail = _tracker.read_state(agent_dir.parent, "497")
     assert state is None
     assert detail is not None and "state" in detail
+
+
+# --- github-issue-state.sh ---
+
+
+def _run_state_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, stdout: str = "",
+    stderr: str = "", rc: int = 0,
+) -> subprocess.CompletedProcess:
+    """Run the shipped script against a `gh` that answers once, as told.
+
+    The stub does not run the jq program; that is gh's, and the mapping it does
+    (a `pull_request` key reads as missing) is pinned by research against the
+    live API. What is under test is the script's own half: passing an answer
+    through, and telling a missing issue from a failed request by stderr alone.
+    """
+    calls = tmp_path / "calls"
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$@" > "{calls}"\n'
+        f"printf %s {shlex.quote(stdout)}\n"
+        f"printf %s {shlex.quote(stderr)} >&2\n"
+        f"exit {rc}\n"
+    )
+    fake_gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    script = Path(_tracker.__file__).parent / "agents" / "trackers" / "github-issue-state.sh"
+    return subprocess.run(["bash", str(script), "497"], capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("word", ["open", "closed", "missing"])
+def test_state_script_passes_the_answer_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, word: str
+) -> None:
+    result = _run_state_script(tmp_path, monkeypatch, stdout=f"{word}\n")
+    assert (result.returncode, result.stdout) == (0, f"{word}\n")
+    assert "repos/{owner}/{repo}/issues/497" in (tmp_path / "calls").read_text()
+
+
+@pytest.mark.parametrize("status", ["404", "410"])
+def test_state_script_reads_not_found_as_missing_and_drops_the_error_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    """`gh api` prints the JSON error body on stdout as well as the status on stderr.
+
+    Measured against #99999: stdout carried `{"message":"Not Found",…}` and
+    stderr `gh: Not Found (HTTP 404)`. Passing stdout through would hand
+    `read_state` a JSON object instead of a word. 410 is a deleted issue.
+    """
+    body = '{"message":"Not Found","status":"%s"}' % status
+    result = _run_state_script(
+        tmp_path, monkeypatch, stdout=body, stderr=f"gh: Not Found (HTTP {status})\n", rc=1,
+    )
+    assert (result.returncode, result.stdout) == (0, "missing\n")
+
+
+def test_state_script_reports_a_failed_request_as_no_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dead connection exits 1 from `gh` exactly as a missing issue does.
+
+    Only the error text separates them, which is why this verb is a script. A
+    false `missing` would refuse a session on an issue that is open; a non-zero
+    exit only warns.
+    """
+    result = _run_state_script(
+        tmp_path, monkeypatch,
+        stderr="Post \"https://api.github.com/graphql\": dial tcp: connection refused\n", rc=1,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "connection refused" in result.stderr

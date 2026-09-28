@@ -2703,7 +2703,7 @@ _BACKUP_DIR = ".wf-skills-backup"
 # config's `start`/`stop` and `create` verbs invoke them by path, so the set
 # travels together or those verbs are declared and broken.
 _GITHUB_TRACKER_FILES = (
-    "github.json", "github-board.sh", "github-issue-create.sh",
+    "github.json", "github-board.sh", "github-issue-create.sh", "github-issue-state.sh",
 )
 
 
