@@ -40,6 +40,7 @@ from wfctl._evidence import (
     _REQUIRED_PLAN_SECTIONS,
     _REQUIRED_SPEC_SECTIONS,
     _still_the_template,
+    build_evidence,
     missing_sections,
     quoted_out,
 )
@@ -478,7 +479,12 @@ def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None
         states = {s.name: s.state for s in _infer_steps(spec_dir, tmp_path)}
         assert states["specify"] == "done", f"{spec_dir.name}: specify {states['specify']}"
         if (spec_dir / "plan.md").is_file():
-            assert states["plan"] == "done", f"{spec_dir.name}: plan {states['plan']}"
+            # The plan's own reading rather than the step's. Since #501 the step
+            # also carries the plan review, and a corpus plan edited after its
+            # review reads stale there, which is the pass doing its job and not
+            # the section check rejecting real work.
+            own = _STEPS["plan"].reads(build_evidence(spec_dir, tmp_path)).state
+            assert own == "done", f"{spec_dir.name}: plan {own}"
         checked += 1
     assert checked >= 20, f"only {checked} spec dirs checked — the corpus looks truncated"
 

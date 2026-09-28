@@ -9,17 +9,22 @@ than against a hash written into the test.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import types
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from wfctl import _evidence, _pipeline
 from wfctl._evidence import DESIGN_BLOCK_REASON, Assessment, Evidence, build_evidence
-from wfctl._pipeline import Step, SubStep, _infer_steps
+from wfctl._pipeline import Step, SubStep, _infer_steps, build_report
 from wfctl._plan_review import identity, read_report
-from tests.conftest import init_git
+from wfctl.cli import app
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, init_git, write_plan_review
+
+runner = CliRunner()
 
 
 def _git_hash(path: Path, *flags: str) -> str:
@@ -350,3 +355,227 @@ def test_a_clean_review_of_the_current_plan_reads_done(
     assert plan.annotation is None
     assert plan.reason is None
     assert _plan_review_pass(plan).state == "done"
+
+
+# --- the pass state, rows 4 and 5 (T018) ------------------------------------
+
+_STALE = "stale; plan.md changed since the review"
+
+
+def _edit_plan(feature: Path, extra: str = "\nOne more sentence.\n") -> None:
+    plan_md = feature / "plan.md"
+    plan_md.write_bytes(plan_md.read_bytes() + extra.encode())
+
+
+def test_a_report_with_no_plan_row_holds_plan_and_says_the_identity_is_missing(
+    spec_tree, repo_root: Path
+) -> None:
+    """Row 4: a review that never named the plan it read cannot be compared
+    with the plan now. Reading it as current would clear any plan at all, and
+    reading it as stale would send a person to edit a plan nobody touched, so
+    the text names the report as what is wrong."""
+    feature = spec_tree("spec.md", "plan.md")
+    _report(feature, inputs=f"| spec.md | {_PLAN_ID} | requirements |\n", summary="BLOCKER: 0\n")
+
+    reading = _evidence.plan_review(build_evidence(feature, repo_root))
+    assert reading == Assessment("in_progress", None, "the review records no plan.md identity")
+
+    plan = _plan_step(feature, repo_root)
+    assert plan.state == "in_progress"
+    assert plan.annotation == "the review records no plan.md identity"
+    assert plan.reason is None
+
+
+def test_an_edited_plan_reads_stale_after_a_clean_review(
+    spec_tree, repo_root: Path
+) -> None:
+    """Row 5 (FR-004): the review read a plan that is no longer on disk. Only
+    the identity can tell, since the report's count still says clean, and a
+    reader that trusted the count would let `tasks` run on unreviewed text."""
+    feature = _reviewed_feature(spec_tree, "BLOCKER: 0\n")
+    _edit_plan(feature)
+
+    reading = _evidence.plan_review(build_evidence(feature, repo_root))
+    assert reading == Assessment("in_progress", None, _STALE)
+
+    plan = _plan_step(feature, repo_root)
+    assert plan.state == "in_progress"
+    assert plan.annotation == _STALE
+    assert plan.reason is None
+
+
+@pytest.mark.parametrize(
+    "summary", ["BLOCKER: 2\n", "MAJOR: 1\n"], ids=["open blocker", "no count"],
+)
+def test_the_stale_reading_wins_over_whatever_the_report_counted(
+    spec_tree, repo_root: Path, summary: str
+) -> None:
+    """Rows 4 and 5 come before rows 6 and 7. A count is about the plan the
+    review read, so once that plan is gone the count describes nothing on
+    disk, and "2 BLOCKER findings open" would send the wrapper to revise
+    findings that may no longer exist rather than review the new text."""
+    feature = _reviewed_feature(spec_tree, summary)
+    _edit_plan(feature)
+
+    assert _evidence.plan_review(build_evidence(feature, repo_root)) == Assessment(
+        "in_progress", None, _STALE,
+    )
+
+
+def test_an_edit_inside_a_fenced_block_still_reads_stale(
+    spec_tree, repo_root: Path
+) -> None:
+    """The identity is taken from the raw bytes. `ev.plan_text` has fenced
+    blocks, comments and inline spans blanked for the section check, so a
+    reader that hashed it would miss an edit to a code sample the plan
+    carries, which is often the part a reviewer read most closely."""
+    feature = spec_tree(
+        "spec.md", content={"plan.md": CLEAN_PLAN + "\n```\nold = 1\n```\n"},
+    )
+    write_plan_review(feature)
+    plan_md = feature / "plan.md"
+    plan_md.write_text(plan_md.read_text().replace("old = 1", "old = 2"))
+
+    assert _evidence.plan_review(build_evidence(feature, repo_root)) == Assessment(
+        "in_progress", None, _STALE,
+    )
+
+
+def test_a_plan_restored_byte_for_byte_reads_done_again(
+    spec_tree, repo_root: Path
+) -> None:
+    """FR-005 and SC-002: an edit and its revert leave the review valid. A
+    reader that remembered having seen the plan stale, or that compared
+    anything beyond the bytes, would make a person review a plan the review
+    already read."""
+    feature = _reviewed_feature(spec_tree, "BLOCKER: 0\n")
+    plan_md = feature / "plan.md"
+    reviewed = plan_md.read_bytes()
+
+    _edit_plan(feature)
+    assert _evidence.plan_review(build_evidence(feature, repo_root)).state == "in_progress"
+
+    plan_md.write_bytes(reviewed)
+    assert _evidence.plan_review(build_evidence(feature, repo_root)) == Assessment("done")
+
+
+def test_an_edit_to_spec_alone_leaves_the_review_done(
+    spec_tree, repo_root: Path
+) -> None:
+    """Staleness is about `plan.md` only. The wrapper notices a changed
+    `spec.md` through the report's other input rows (FR-026), and a reader
+    that hashed every input would hold the pipeline on any spec edit and
+    leave a person no way to clear it short of a full review."""
+    feature = _reviewed_feature(spec_tree, "BLOCKER: 0\n")
+    spec_md = feature / "spec.md"
+    spec_md.write_text(spec_md.read_text() + "\nA new requirement.\n")
+
+    assert _evidence.plan_review(build_evidence(feature, repo_root)) == Assessment("done")
+
+
+# --- the route back from a finished feature (T019) --------------------------
+
+
+def test_a_stale_review_sends_a_finished_feature_back_to_the_review(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-004 however far the pipeline has gone: every step after `plan` is
+    done, and an edit to the reviewed plan still makes `plan` current. The
+    payload is contracts/cli.md § `wfctl status`, field for field.
+
+    The step's reason stays null. A reason would route to the step's own
+    command, `/speckit.plan`, whose `setup-plan.sh` copies the template over
+    `plan.md` and destroys the edit that made the review stale (R3)."""
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
+    write_plan_review(storyctl_dir.spec_dir)
+    storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [x] t2\n")
+    storyctl_dir.make_spec_artifact("analyze")
+    storyctl_dir.make_spec_artifact("decompose")
+    _edit_plan(storyctl_dir.spec_dir)
+
+    report = build_report(
+        storyctl_dir.spec_dir, storyctl_dir.repo_root, storyctl_dir.agent_dir,
+    )
+
+    assert (report.current, report.next_command, report.auto) == ("plan", "/plan-review", False)
+    steps = {s["name"]: s for s in report.steps}
+    assert all(steps[name]["state"] == "done" for name in ("tasks", "analyze", "implement"))
+    plan = steps["plan"]
+    assert (plan["state"], plan["annotation"], plan["reason"]) == ("in_progress", _STALE, None)
+    assert plan["sub_steps"] == [
+        {
+            "name": "plan-review", "state": "in_progress", "annotation": _STALE,
+            "command": "/plan-review", "manual": False, "claimed": None,
+            "is_current": True,
+        },
+    ]
+
+
+# --- a feature planned before the pass existed (T023) -----------------------
+
+
+def _planned_before_the_pass(
+    storyctl_dir: types.SimpleNamespace, tasks_md: str, *later: str,
+) -> None:
+    """A feature whose plan was written, and turned into tasks, before
+    `plan-review` existed, so it has no report and never will."""
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
+    storyctl_dir.make_spec_artifact("tasks", content=tasks_md)
+    for step in later:
+        storyctl_dir.make_spec_artifact(step)
+
+
+@pytest.mark.parametrize(
+    ("tasks_md", "later", "current"),
+    [
+        ("# Tasks\n\nno checkbox yet\n", (), "tasks"),
+        ("- [ ] t1\n", (), "analyze"),
+        ("- [x] t1\n- [ ] t2\n", ("analyze", "decompose"), "implement"),
+    ],
+    ids=["at tasks", "at analyze", "at implement"],
+)
+def test_a_feature_past_tasks_with_no_report_keeps_its_current_step(
+    storyctl_dir: types.SimpleNamespace, tasks_md: str, later: tuple[str, ...], current: str,
+) -> None:
+    """SC-003: upgrading wfctl sends no finished work back. The pass reads
+    `skipped`, and `current` is wherever the other artifacts put it, the same
+    as before the pass was registered. `claimed` stays null because no person
+    declared the pass inapplicable; the `tasks.md` on disk is the evidence
+    that planning finished without it. Read `in_progress` instead, and every
+    feature in flight on the day of the upgrade would stop at `/plan-review`
+    to review a plan its tasks are already built on."""
+    _planned_before_the_pass(storyctl_dir, tasks_md, *later)
+
+    report = build_report(
+        storyctl_dir.spec_dir, storyctl_dir.repo_root, storyctl_dir.agent_dir,
+    )
+
+    plan = next(s for s in report.steps if s["name"] == "plan")
+    assert plan["state"] == "done"
+    [review] = plan["sub_steps"]
+    assert (review["name"], review["state"], review["claimed"]) == ("plan-review", "skipped", None)
+    assert report.current == current
+
+
+def test_a_feature_at_implement_with_no_report_is_never_sent_to_the_review(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The same guarantee through the commands an unattended loop runs. Under
+    auto-approve nothing stops the loop but the payload, so a single
+    `/plan-review` from `resume` would run a review over a plan whose
+    implementation is half done, and `status` has to agree with what `resume`
+    wrote."""
+    _planned_before_the_pass(storyctl_dir, "- [x] t1\n- [ ] t2\n", "analyze", "decompose")
+    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+
+    for _ in range(3):
+        result = runner.invoke(app, ["resume"])
+        assert result.exit_code == 0, result.output
+        written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+        assert "/plan-review" not in written
+
+        payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+        assert payload["current"] == "implement"
+        assert payload["next_command"] != "/plan-review"

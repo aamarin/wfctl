@@ -1212,9 +1212,15 @@ def plan_review(ev: Evidence) -> Assessment:
     built-in pass (#501).
 
     It proves that a report exists in the feature directory and that the two
-    lines wfctl reads from it say the review counted its BLOCKER findings and
-    found none open. It does not prove the review was any good, and it cannot:
-    the count is the reviewer's grade of the plan, and wfctl reads it as given.
+    lines wfctl reads from it say the review read the `plan.md` on disk now,
+    byte for byte, and counted its BLOCKER findings and found none open. It
+    does not prove the review was any good, and it cannot: the count is the
+    reviewer's grade of the plan, and wfctl reads it as given.
+
+    Staleness is checked before the count, because a count describes the plan
+    the review read. Once that plan has changed, "2 BLOCKER findings open"
+    would send the wrapper to revise findings the edit may already have
+    answered, where the new text needs a review.
 
     The rows are checked in data-model.md's order (§ Pass state), and every one
     that holds the pass puts its text in `display` and leaves `reason` empty.
@@ -1240,6 +1246,13 @@ def plan_review(ev: Evidence) -> Assessment:
         # the `tasks` reader cannot disagree about whether `tasks.md` exists.
         return Assessment("skipped" if ev.tasks_text else "in_progress")
     recorded = _plan_review.read_report(report)
+    if recorded.plan_identity is None:
+        return Assessment("in_progress", None, "the review records no plan.md identity")
+    # The raw bytes, never `ev.plan_text`, which has fenced blocks and comments
+    # blanked and would miss an edit to either. The reviewer hashes the file
+    # with `git hash-object --no-filters`, which sees every byte.
+    if _plan_review.identity(ev.spec_dir / "plan.md") != recorded.plan_identity:
+        return Assessment("in_progress", None, "stale; plan.md changed since the review")
     if recorded.open_blockers is None:
         return Assessment("in_progress", None, "the review records no BLOCKER count")
     if recorded.open_blockers > 0:
