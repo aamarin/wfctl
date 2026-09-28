@@ -69,8 +69,20 @@ def _named_commands() -> dict[str, str]:
     Not just the step table. `/end-session` is named only in `cli`'s completion
     messages, so a check that walked `_STEPS` alone would pass while the last
     instruction a session receives pointed at nothing.
+
+    Not just the rows either. A built-in pass's command is `next_command`
+    whenever the pass is outstanding, and `/plan-review` is the first pass
+    command that is not its step's own. A walk over the rows alone passed while
+    `wfctl status` sent every finished plan to a command that shipped nothing.
+    A pass a person performs has no command, and is skipped.
     """
     named = {step: row.command for step, row in _STEPS.items()}
+    named.update({
+        f"{step}.{sub.name}": sub.command
+        for step, row in _STEPS.items()
+        for sub in row.sub_steps
+        if sub.command is not None
+    })
     named.update({f"story complete → {cmd}": cmd for cmd in _LOOSE_COMMANDS})
     return named
 
