@@ -1763,8 +1763,8 @@ def arch_accept_cmd(
     slug: str = typer.Argument(
         "", help="The record to accept. Omit to list what could be accepted."
     ),
-    agreed: str = typer.Option(
-        "", "--agreed", help="Where the human agreed to this decision."
+    agreed: str | None = typer.Option(
+        None, "--agreed", help="Where the human agreed to this decision."
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run",
@@ -1864,8 +1864,12 @@ def arch_accept_cmd(
         raise typer.Exit(1)
 
     # A dry run skips this only when no citation was given at all. A blank one
-    # was given and says nothing, and the real run refuses it.
-    if not agreed.strip() and not (dry_run and agreed == ""):
+    # was given and says nothing, and the real run refuses it. `None` is what
+    # tells the two apart: Click hands `--agreed ""` over as an empty string, so
+    # an empty-string default read the explicit blank as an omission.
+    given = agreed is not None
+    agreed = agreed or ""
+    if not agreed.strip() and (given or not dry_run):
         console.print(
             "[red]✗[/red] --agreed is required: say where the human agreed to this."
         )
