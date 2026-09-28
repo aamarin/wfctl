@@ -266,6 +266,10 @@ test, wheel and lint. Do not bump it as part of an unrelated change.
 `doctor` and `uv tool install` both resolve releases by tag, so an untagged bump
 would report a stale build as current — which is why the tag job exists (#55).
 
+Run `uv lock` in the same commit as the bump. The lock records this package's own
+version, and the lint job fails on a lock that no longer matches `pyproject.toml`,
+so a bump without it goes red before it can merge.
+
 ## Safety
 
 **wfctl does not gate outward actions; your agent's permission layer does.**
