@@ -914,8 +914,9 @@ def _apply_review_cap(
     report: "PipelineReport",
     pending: str | None,
 ) -> tuple["PipelineReport", str | None]:
-    """Turn auto-approve off when the plan was reviewed or signed off 3 times
-    under the grant and the pass is still outstanding (FR-022, research R9).
+    """Turn auto-approve off when the plan was reviewed or signed off
+    `REVIEW_CAP` times under the grant and the pass is still outstanding
+    (FR-022, research R9).
 
     Returns the report to act on, and the reason when the cap fired. When it
     fires the report is built again, so the `auto` a caller writes into
@@ -1872,7 +1873,7 @@ def step_sign_off_cmd(
 
     from wfctl import _plan_review
     from wfctl._io import append_event
-    from wfctl._pipeline import arch_location, build_report
+    from wfctl._pipeline import build_report
     from wfctl._paths import SCANS_DIR
 
     agent_dir, repo_root, branch, issue = _resolve_context()
@@ -1966,7 +1967,7 @@ def step_sign_off_cmd(
 
     append_event(agent_dir, "sign-off", branch=branch, plan=now, reason=reason)
 
-    location = escape(arch_location(scan, repo_root))
+    location = _arch_location(scan, repo_root)
     console.print(f'[green]✓[/green] Signed off plan.md {now[:7]} — "{escape(reason)}"', soft_wrap=True)
     console.print(f"  Written to {location}", soft_wrap=True)
     console.print(

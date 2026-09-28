@@ -24,8 +24,8 @@ disagree on a plan nobody edited.
 A module of its own rather than a part of `_evidence`, because the reader, the
 sign-off command, and the review cap all use this one format, and spreading it
 across `_evidence`, `_session`, and `cli` would put one contract in three files.
-It depends on nothing in wfctl beyond `_io`, so every one of those callers can
-import it without a cycle.
+It imports nothing from wfctl, so every one of those callers can import it
+without a cycle.
 """
 from __future__ import annotations
 
