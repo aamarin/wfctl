@@ -1929,10 +1929,21 @@ def step_sign_off_cmd(
     # A copy is usable only when it is the plan the review recorded (FR-025). A
     # diff against any other copy shows a change nobody made since the review.
     recorded = _plan_review.read_report(report_path).plan_identity
+    if recorded is None:
+        # `_evidence.plan_review` reads this same report the same way and
+        # refuses it ("the review records no plan.md identity") rather than
+        # calling it done — a report written while plan.md was missing
+        # (`## A review that could not run`, report-format.md) never named a
+        # plan to accept. A sign-off has nothing to bind to either, so it is
+        # refused the same way instead of recording `now` as if it had been.
+        console.print(
+            "[red]✗[/red] the review recorded no plan.md identity to sign off; "
+            "run /plan-review",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
     copy = spec_dir / _plan_review.COPY_NAME
-    compared = (
-        recorded is not None and copy.is_file() and _plan_review.identity(copy) == recorded
-    )
+    compared = copy.is_file() and _plan_review.identity(copy) == recorded
 
     # Printed before anything is written, since FR-023 has the person see the
     # change before the sign-off records it.

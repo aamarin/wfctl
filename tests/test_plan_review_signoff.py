@@ -18,7 +18,7 @@ from typer.testing import CliRunner
 
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
 from wfctl._pipeline import build_report
-from wfctl._plan_review import COPY_NAME, identity
+from wfctl._plan_review import COPY_NAME, REPORT_NAME, identity
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -170,6 +170,36 @@ def test_a_missing_copy_still_signs_off_and_says_so(
     ) in result.output
     assert "- Reviewed copy: missing\n" in _scan(root).read_text()
     assert _pass_state(storyctl_dir) == "done"
+
+
+def test_a_report_with_no_plan_identity_refuses_the_sign_off(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`## A review that could not run` (report-format.md) writes `absent` for
+    a missing plan.md's identity row, which never named a plan to accept. A
+    sign-off has nothing to bind to either, so it is refused the same way
+    `_evidence.plan_review` refuses to read that report as done, rather than
+    recording the plan on disk now as if the report had named it."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    plan = storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
+    report = storyctl_dir.spec_dir / REPORT_NAME
+    report.write_text(
+        "# Plan review\n\n"
+        "## Summary\n\nThe review did not run: plan.md was missing.\n\n"
+        "## Reviewed inputs\n\n"
+        "| Input | Identity | Role |\n"
+        "| --- | --- | --- |\n"
+        "| plan.md | absent | technical strategy |\n\n"
+        "## Findings\n\nnone\n"
+    )
+
+    result = _sign_off()
+
+    assert result.exit_code == 1, result.output
+    assert "the review recorded no plan.md identity" in result.output
+    _nothing_written(storyctl_dir, root)
+    assert identity(plan)  # sanity: plan.md exists and is readable
 
 
 def test_a_copy_that_is_not_the_reviewed_plan_counts_as_missing(
