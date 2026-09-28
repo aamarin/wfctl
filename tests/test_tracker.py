@@ -1020,3 +1020,71 @@ def test_read_fields_names_the_key_whose_value_was_not_flattened(
     payload, detail = _tracker.read_fields(agent_dir.parent, "changes", "301")
     assert payload is None
     assert detail is not None and "labels" in detail
+
+
+# --- state (read_state) ---
+
+_STATE_CONFIG = {
+    "verbs": {
+        "list": ["gh", "issue", "list"],
+        "state": ["bash", ".agents/trackers/github-issue-state.sh", "{id}"],
+    },
+}
+
+
+def test_state_is_a_verb_that_takes_only_an_id(agent_dir: Path) -> None:
+    """`wfctl start` asks it with an issue key and nothing else to substitute."""
+    assert _tracker.validate_config(_STATE_CONFIG) == []
+    errs = _tracker.validate_config(
+        {"verbs": {"state": ["gh", "issue", "view", "{id}", "--body", "{body}"]}}
+    )
+    assert any("state" in e and "body" in e for e in errs)
+
+
+@pytest.mark.parametrize("word", ["open", "closed", "missing"])
+def test_read_state_returns_each_word_of_the_contract(
+    agent_dir: Path, monkeypatch, word: str
+) -> None:
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, stdout=f"{word}\n")
+    assert _tracker.read_state(agent_dir.parent, "497") == (word, None)
+
+
+def test_read_state_separates_a_declined_verb_from_no_answer(
+    agent_dir: Path, monkeypatch
+) -> None:
+    """A backend without `state` gets the key check only; a failed call warns.
+
+    Collapsing the two would either warn on every run in a repository whose
+    tracker cannot answer, or read a dead connection as a tracker that opted out.
+    """
+    _configure_tracker(agent_dir.parent, "jira", {"verbs": {"list": ["j", "ls"]}})
+    assert _tracker.read_state(agent_dir.parent, "7") == (None, None)
+
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, code=1)
+    assert _tracker.read_state(agent_dir.parent, "7") == (None, "boom")
+
+
+def test_read_state_reports_a_timeout_as_no_answer(agent_dir: Path, monkeypatch) -> None:
+    """A tracker that never answers must not hold `wfctl start` open."""
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, raises=subprocess.TimeoutExpired(["gh"], 15))
+    state, detail = _tracker.read_state(agent_dir.parent, "497")
+    assert state is None and detail is not None
+
+
+@pytest.mark.parametrize("stdout", ["OPEN", "", "open\nclosed", '{"state":"open"}'])
+def test_read_state_reads_output_outside_the_contract_as_no_answer(
+    agent_dir: Path, monkeypatch, stdout: str
+) -> None:
+    """A backend bug warns rather than refusing a session on an open issue.
+
+    `OPEN` is what `gh issue view --json state` prints, and is the likeliest
+    thing a hand-written config returns by mistake.
+    """
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, stdout=stdout)
+    state, detail = _tracker.read_state(agent_dir.parent, "497")
+    assert state is None
+    assert detail is not None and "state" in detail
