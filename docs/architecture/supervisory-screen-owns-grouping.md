@@ -23,11 +23,14 @@ to bottom:
 | Idle | the last session stopped on purpose, or nothing has started |
 | Done | the pull request merged, or the issue closed |
 
-Each group needs facts from three places. wfctl knows where the pipeline stands
-and how the last session stopped. workmux knows whether the agent is working,
-waiting, or done, and when it last said so. The change backend (GitHub here)
-knows about the pull request and its checks. None of the three can place a
-worktree on its own.
+Each group needs facts from three places, and none of them can place a worktree
+on its own:
+
+1. wfctl knows where the pipeline stands and how the last session stopped.
+2. workmux knows whether the agent is working, waiting, or done, and when it
+   last said so.
+3. The change backend (GitHub here) knows about the pull request and its
+   checks.
 
 A silent agent shows why. The agent's hooks tell workmux when a prompt is sent,
 when a tool call finishes, when a permission prompt opens, and when a turn ends.
