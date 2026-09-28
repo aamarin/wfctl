@@ -102,8 +102,11 @@ answer and how old that answer is, and it never claims to know what the agent is
 doing.
 
 **The change backend owns _"is there a pull request, and are its checks
-passing?"_.** wfctl already reads it through that backend for `wfctl change`,
-and the screen reads it the same way.
+passing?"_.** Neither wfctl nor workmux can compute it, since each holds only a
+copy of what the backend last reported. workmux keeps its copy in an internal
+state file, which the screen never reads. wfctl reads whether a pull request is
+open through the backend today, for `wfctl change`, and does not yet read its
+checks. The screen reads both through that backend.
 
 ## Boundary
 
