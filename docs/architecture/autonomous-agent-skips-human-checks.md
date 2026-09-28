@@ -23,8 +23,7 @@ note itself. That causes two problems:
 2. The note outlives the run, and it wins over the evidence. When the plan owner
    comes back and finishes the walkthrough, the check still reads as skipped. It
    counts only after the note is deleted, and wfctl has no command that deletes
-   one. This means either the skill carries that cleanup, or the plan owner
-   finds the file and deletes it by hand.
+   one, so the plan owner finds the file and deletes it by hand.
 
 Both problems come from writing down something wfctl already knows. When you run
 `wfctl start --auto-approve`, wfctl saves that setting, and it checks the setting
@@ -70,6 +69,10 @@ wfctl asks these in order, and the first yes decides:
 2. Already done? Evidence counts, even if auto-approve is on now.
 3. Needs human intervention, and auto-approve is on? Then it's skipped.
 4. Otherwise, the check reads the way it always has.
+
+An autonomous run writes no note, so it leaves none for anyone to delete. A note
+now exists only when a person writes one with `wfctl step none`, and it stays
+until that person deletes it by hand.
 
 `wfctl status --json` carries `needs_person` on each check, beside `manual`. This
 means a tool reading it can tell this skip from a purposeful one (`claimed` is
