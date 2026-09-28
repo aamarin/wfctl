@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: component
 ---
 
@@ -233,3 +233,4 @@ loop or a new dependency is the second version's question.
 ## Log
 
 - 2026-09-26  proposed    — the supervisory screen needs one owner for its grouping, and workmux has no column, token, grouping, or hook that could carry a rule computed outside it
+- 2026-09-28  accepted    — Andre in session, 2026-09-28: 'the purpose of this work tree is on grouping and we have a separate one for the dashboard' (render is #487 sub-issue 5)
