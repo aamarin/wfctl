@@ -168,8 +168,9 @@ deliberately leaving, and concerns you could not resolve.
 Nothing from the review panel goes here or anywhere else in this description.
 That means no finding, whether applied, accepted, or rejected, no disposition
 table, and no line saying the panel ran. The table goes to the person who asked
-for the change, in the conversation. A rejected finding a reviewer needs to
-weigh is written as an open question about the code, not as a finding.
+for the change, in the conversation. A finding a reviewer still needs to know
+about is written about the code, not as a finding: a rejected one as an open
+question, and a deferred one as a follow-up you are leaving.
 
 Then the other half, which is not about this change at all: what did working on
 it turn up? A defect noticed in passing, a claim in the issue that proved wrong,

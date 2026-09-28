@@ -63,14 +63,15 @@ was a decision made with that person, and it is theirs to carry further.
 
 On MarinVentures/pfms#680 a description that carried the panel gained a row
 with every review round until it held 15, 12 of them findings already applied,
-and the maintainer asked that the body not mention the panel at all. So the description is for the change, and the panel is not part of
-the change.
+and the maintainer asked that the body not mention the panel at all. So the
+description is for the change, and the panel is not part of the change.
 
-A rejected finding that a reviewer of the change really needs to weigh becomes
-an open question about the code, in the section the template keeps for open
-questions. Word it as a question about the change ("Should `resolve` fall back
-to the main checkout when the manifest is missing?"), not as a finding, and do
-not name the panel or a reviewer.
+A finding you did not apply can still be something a reviewer of the change
+needs to know, and then it is written about the code rather than as a finding.
+A rejected one becomes an open question ("Should `resolve` fall back to the main
+checkout when the manifest is missing?"). A deferred one becomes a follow-up you
+are deliberately leaving, with whether it was filed. Both go where the template
+keeps open questions and follow-ups, and neither names the panel or a reviewer.
 
 **Nothing checks this.** The panel does write artifacts — one report per reviewer
 under `$FEATURE_DIR/reviews/` — so the tempting repair is a check that they
