@@ -6,7 +6,7 @@ status: rejected
 
 ## Context
 
-`plan-defense-is-private` decides that plan defense runs only with a person
+`plan-walkthrough-is-private` decides that plan defense runs only with a person
 present, and that an unattended run skips it and says so. It leaves open how the
 skip is recorded. The answer has to satisfy three readers at once:
 
@@ -104,7 +104,7 @@ skip onto the one path wfctl already renders as a skip.
   `done`, so `wfctl status` reports a check that nobody ran as passed.
 - **Declare the pass `manual` with no command.** wfctl already stops an
   unattended run on a manual pass and reports `attention: manual`. It loses on
-  fit, since `plan-defense-is-private` says an unattended run skips the check,
+  fit, since `plan-walkthrough-is-private` says an unattended run skips the check,
   and this would stop every unattended run at the pass instead.
 - **Write nothing and let the run move on.** Nothing moves it. The pass stays
   outstanding, orchestrate invokes `/plan-defense` again on each pass, and the
@@ -140,7 +140,7 @@ text carries that difference rather than a new verb.
 ## Log
 
 - 2026-09-27  proposed  — #500 level 3: how the unattended skip that
-  `plan-defense-is-private` requires is recorded
+  `plan-walkthrough-is-private` requires is recorded
 - 2026-09-27  rejected  — the claim committed a file per unattended run and
-  outlived the mode it described; `attended-pass-skips-unattended` has wfctl
+  outlived the mode it described; `autonomous-agent-skips-human-checks` has wfctl
   read the skip from the approval mode instead
