@@ -270,7 +270,10 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
     )
     style = {"refuse": "red", "warn": "yellow"}.get(verdict.action)
     for i, line in enumerate(verdict.lines):
-        console.print(line, style=style if i == 0 else None, markup=False)
+        # soft_wrap: these lines are printed verbatim, remedy commands included,
+        # and rich otherwise folds them at 80 columns whenever output isn't a
+        # terminal — which is the case for /start-session and the restart hook.
+        console.print(line, style=style if i == 0 else None, markup=False, soft_wrap=True)
     if verdict.action == "refuse":
         raise typer.Exit(1)
 

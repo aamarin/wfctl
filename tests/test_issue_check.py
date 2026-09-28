@@ -217,6 +217,17 @@ def test_gather_reads_a_directory_git_cannot_answer_for_as_not_linked(tmp_path: 
     assert gather(tmp_path, "main").linked is False
 
 
+def test_gather_reads_a_linked_worktree_as_linked_when_its_path_has_a_space(
+    tmp_path: Path,
+) -> None:
+    """`_is_linked` split git's two-line answer on any whitespace, so a path
+    containing a space produced more than two pieces and read as unlinked —
+    silently exempting the worktree from every refusal below it."""
+    main = git_repo(tmp_path / "my repo")
+    wt = _add_worktree(main, "linked wt", "-b", "7-x")
+    assert gather(wt, "7-x").linked is True
+
+
 def test_gather_reads_the_tracker_from_this_checkouts_own_manifest(tmp_path: Path) -> None:
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "-b", "7-x")
@@ -400,6 +411,38 @@ def test_a_tracker_with_no_answer_warns_and_the_session_starts(
     assert result.exit_code == 0, result.output
     assert "⚠ could not ask the tracker whether #497 is open (connection refused)" in result.output
     assert '"event": "start"' in (state / "events.jsonl").read_text()
+
+
+def test_a_refusal_prints_a_long_remedy_command_on_one_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`console.print` folds an unpiped-looking line at 80 columns without
+    `soft_wrap`, which broke a pasted `--from` command in two. The command-level
+    test in place before this one used the short branch `spike-foo`, so nothing
+    caught it; this one needs a `--from` path long enough to cross 80 columns.
+
+    `WFCTL_AGENT` cleared, so the command's shape doesn't depend on the caller's
+    own shell profile — only `--from` is under test here.
+    """
+    main = git_repo(tmp_path / "main")
+    long_source = str(tmp_path / ("src-" + "x" * 60))
+    _install(main, tracker="github", base={"source": long_source})
+    wt = main.parent / "wt-no-install"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-q", str(wt), "-b", "497-x"],
+        check=True, capture_output=True,
+    )
+    state = tmp_path / "state"
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    monkeypatch.chdir(wt)
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 1, result.output
+    assert f"    wfctl install-skills --from {long_source}" in result.output
 
 
 def test_nothing_wfctl_ships_mentions_pre_create() -> None:

@@ -185,7 +185,10 @@ def _is_linked(repo_root: Path) -> bool:
     and a git error is no evidence about the issue.
     """
     r = _git(repo_root, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
-    lines = r.stdout.split()
+    # splitlines(), not split(): git prints one path per line, and a path
+    # containing a space split on any whitespace, which read every such
+    # worktree as the main checkout and turned the whole check off.
+    lines = r.stdout.splitlines()
     if r.returncode != 0 or len(lines) != 2:
         return False
     git_dir, common_dir = (Path(p).resolve() for p in lines)
