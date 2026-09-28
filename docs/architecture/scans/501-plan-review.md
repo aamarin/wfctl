@@ -162,3 +162,9 @@ run's outcome.
   PR-019. Each is a MINOR whose fix lands in code or a test the implement step
   writes, so fixing it in the plan now would only describe that code twice.
 - PR-022 and PR-023 were fixed after this run and have not been reviewed.
+
+## Sign-off 2026-09-28T13:59Z
+
+- Signed off: plan.md 08a006bc9f46edcb0eacba14ccedbcd710039c31
+- Reason: record renames only (plan-review-boundaries, plan-edit-requires-new-review); no technical decision changed since the last clean review
+- Reviewed copy: compared
