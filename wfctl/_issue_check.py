@@ -17,6 +17,7 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from wfctl import _manifest, _paths, _tracker
 
@@ -61,10 +62,13 @@ class Facts:
     state_detail: str | None = None
 
 
+Action = Literal["proceed", "warn", "refuse"]
+
+
 @dataclass(frozen=True)
 class Verdict:
     outcome: Outcome
-    action: str  # "proceed" | "warn" | "refuse"
+    action: Action
     lines: tuple[str, ...] = ()
 
 
@@ -233,8 +237,9 @@ def gather(repo_root: Path, branch: str) -> Facts:
         branch=branch,
         key=None if key == "unknown" else key,
     )
-    if _local_verdict(facts) is not None or facts.key is None:
+    if _local_verdict(facts) is not None:
         return facts
+    assert facts.key is not None, "_local_verdict refuses a branch with no key"
     state, detail = _tracker.read_state(repo_root, facts.key)
     return dataclasses.replace(
         facts, state=state, state_declined=state is None and detail is None,
