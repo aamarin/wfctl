@@ -231,6 +231,12 @@ class _PipelineSubStep:
     `skipped` apart (`an-absent-artifact-is-claimed-not-inferred`) — a
     non-null reason a person wrote, or `None` when the state was inherited
     from a parent the pipeline walked past and no claim was ever owed.
+
+    `reason` is the unrendered half of `annotation`, the same split
+    `_PipelineStep` carries. The roll-up copies it onto the step, and a step
+    with a reason reads as held and routes to its own command. A pass that
+    only has something to show, such as a stale plan review, puts it in
+    `annotation` alone, so the pass itself stays what routes (#501, research R3).
     """
 
     name: str
@@ -240,6 +246,7 @@ class _PipelineSubStep:
     on_finish: Continuation
     claimed: str | None = None
     is_current: bool = False
+    reason: str | None = None
 
 
 @dataclass
@@ -344,11 +351,17 @@ def _infer_steps(
         # old reader could not reach "record done, document missing" without
         # reading `design.md` first, the read order `design.md` itself flagged
         # as backwards.
+        #
+        # The reason is the pass's own reason and not its annotation. A step
+        # with a reason is held and routes to the step's command, so a pass
+        # whose text is display only, such as a stale plan review, would
+        # otherwise send the reader to `/speckit.plan`, which overwrites
+        # `plan.md` (#501, research R3).
         outstanding = next((s for s in step_state.sub_steps if s.state == "in_progress"), None)
         if outstanding is not None:
             step_state.state = "in_progress"
             step_state.annotation = outstanding.annotation
-            step_state.reason = outstanding.annotation
+            step_state.reason = outstanding.reason
         step_state.remedy = _design_remedy(step_state, repo_root)
         steps.append(step_state)
 
@@ -415,7 +428,10 @@ def _pass_states(
         if reading.state != "done":
             cascade = True
         result.append(
-            _PipelineSubStep(sub.name, reading.state, reading.renders(), sub.command, sub.on_finish)
+            _PipelineSubStep(
+                sub.name, reading.state, reading.renders(), sub.command, sub.on_finish,
+                reason=reading.reason,
+            )
         )
     return result
 
