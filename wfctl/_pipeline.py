@@ -63,12 +63,18 @@ class SubStep(NamedTuple):
     `wfctl.json` is sugar built by `build_file_exists_reader` — strictly less
     than a built-in reader can express, and a stated limit rather than an
     oversight.
+
+    `needs_person` is the repository's statement that nobody but a person can
+    answer this pass (`autonomous-agent-skips-human-checks`). It defaults off
+    so every built-in pass, and every declaration that says nothing, reads
+    exactly as it did before the field existed.
     """
 
     name: str
     command: str | None
     on_finish: Continuation
     reads: EvidenceReader
+    needs_person: bool = False
 
 
 class Step(NamedTuple):
@@ -231,6 +237,10 @@ class _PipelineSubStep:
     `skipped` apart (`an-absent-artifact-is-claimed-not-inferred`) — a
     non-null reason a person wrote, or `None` when the state was inherited
     from a parent the pipeline walked past and no claim was ever owed.
+
+    `needs_person` is the third tell, carried from the declaration: a
+    `skipped` pass with no claim and this set was passed by because nobody
+    was expected, not because its parent was.
     """
 
     name: str
@@ -240,6 +250,7 @@ class _PipelineSubStep:
     on_finish: Continuation
     claimed: str | None = None
     is_current: bool = False
+    needs_person: bool = False
 
 
 @dataclass
@@ -399,25 +410,35 @@ def _pass_states(
     for sub in subs:
         reason = claims.get(f"{step_name}.{sub.name}")
         if reason is not None:
-            result.append(_PipelineSubStep(sub.name, "skipped", None, sub.command, sub.on_finish, claimed=reason))
+            result.append(_read_pass(sub, "skipped", claimed=reason))
             continue
         if own_state == "skipped":
-            result.append(_PipelineSubStep(sub.name, "skipped", None, sub.command, sub.on_finish))
+            result.append(_read_pass(sub, "skipped"))
             continue
         if own_state != "done":
-            result.append(_PipelineSubStep(sub.name, "pending", None, sub.command, sub.on_finish))
+            result.append(_read_pass(sub, "pending"))
             continue
         if cascade:
-            result.append(_PipelineSubStep(sub.name, "pending", None, sub.command, sub.on_finish))
+            result.append(_read_pass(sub, "pending"))
             continue
         assert ev is not None  # own_state == "done" is only reachable once Evidence exists
         reading = sub.reads(ev)
         if reading.state != "done":
             cascade = True
-        result.append(
-            _PipelineSubStep(sub.name, reading.state, reading.renders(), sub.command, sub.on_finish)
-        )
+        result.append(_read_pass(sub, reading.state, reading.renders()))
     return result
+
+
+def _read_pass(
+    sub: SubStep, state: State, annotation: str | None = None, claimed: str | None = None,
+) -> "_PipelineSubStep":
+    """A pass's reading with its declared shape carried across. One place, so a
+    field added to `SubStep` reaches every branch of `_pass_states` rather than
+    whichever ones the author remembered."""
+    return _PipelineSubStep(
+        sub.name, state, annotation, sub.command, sub.on_finish,
+        claimed=claimed, needs_person=sub.needs_person,
+    )
 
 
 def _step_claims(repo_root: Path, branch: str) -> dict[str, str]:

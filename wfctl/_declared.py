@@ -199,7 +199,8 @@ def _load_step(
 
         seen.add(name)
         sub = SubStep(name=name, command=command, on_finish=on_finish,
-                      reads=build_file_exists_reader(evidence))
+                      reads=build_file_exists_reader(evidence),
+                      needs_person=entry.get("needs_person") is True)
         parsed.append((sub, before, after))
 
     ordered, order_problems = _ordered(step, parsed)

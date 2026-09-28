@@ -253,6 +253,39 @@ def test_a_declared_pass_defaults_to_review_required(
     assert passes["specify"][0].on_finish == "review_required"
 
 
+def test_a_pass_declared_as_needing_a_person_carries_the_flag(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """The flag is the repository's statement that the pass needs human
+    intervention (`autonomous-agent-skips-human-checks`); inference reads it
+    off the pass, so it has to survive parsing rather than stay in the JSON."""
+    declaring_repo.write_config({"plan": [
+        {"name": "x", "command": "/y", "evidence": "a.md", "needs_person": True},
+    ]})
+    passes, problems = _declared.load(declaring_repo.root, is_installed=lambda c: True)
+    assert problems == []
+    assert passes["plan"][0].needs_person is True
+
+
+def test_a_pass_that_does_not_say_it_needs_a_person_does_not(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """Absent means no. A default of true would skip every declared pass on an
+    autonomous run, which is the silent pass-by `needs_person` exists to make
+    opt-in."""
+    declaring_repo.write_config({"plan": [{"name": "x", "manual": True, "evidence": "a.md"}]})
+    passes, _ = _declared.load(declaring_repo.root)
+    assert passes["plan"][0].needs_person is False
+
+
+def test_no_built_in_pass_needs_a_person() -> None:
+    """wfctl's own passes run unattended by design; one flagged here would be
+    skipped on every autonomous run in every repository."""
+    assert all(
+        not sub.needs_person for step in _STEPS.values() for sub in step.sub_steps
+    )
+
+
 def test_an_overridden_automatic_pass_is_indistinguishable_from_a_tool_pass(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
