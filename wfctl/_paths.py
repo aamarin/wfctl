@@ -116,13 +116,25 @@ def _bare_head(repo_root: Path) -> str | None:
     )
     if common.returncode != 0:
         return None
+    git_dir = common.stdout.strip()
     head = subprocess.run(
-        ["git", f"--git-dir={common.stdout.strip()}", "symbolic-ref", "--short", "HEAD"],
+        ["git", f"--git-dir={git_dir}", "symbolic-ref", "--short", "HEAD"],
         capture_output=True, text=True,
     )
-    if head.returncode != 0:
+    branch = head.stdout.strip() if head.returncode == 0 else ""
+    if not branch:
         return None
-    return head.stdout.strip() or None
+    # `HEAD` names whatever branch existed when the bare repository was made
+    # (`git init --bare` defaults to `master`) and is never moved when the
+    # default branch changes afterwards, so the name it holds can be one
+    # nothing points at any more. Returning it unchecked regressed trunk
+    # detection below the name guess it replaced: a `main` worktree, with no
+    # `master` left, was refused as naming no issue.
+    exists = subprocess.run(
+        ["git", f"--git-dir={git_dir}", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        capture_output=True,
+    )
+    return branch if exists.returncode == 0 else None
 
 
 def trunk_branch(repo_root: Path) -> str | None:

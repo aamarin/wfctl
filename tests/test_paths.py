@@ -1022,6 +1022,32 @@ def test_trunk_in_a_bare_layout_is_the_bare_repositorys_head(tmp_path: Path) -> 
     assert trunk_branch(wt) == "dev"
 
 
+def test_trunk_falls_back_to_the_name_guess_when_the_bare_heads_branch_is_gone(
+    tmp_path: Path,
+) -> None:
+    """`git init --bare` defaults `HEAD` to `master`, and nothing moves it when
+    the default branch changes afterwards. A bare repo made that way and pushed
+    only `main` still answers `master` from `symbolic-ref --short HEAD`, though
+    no `refs/heads/master` exists — reading that unchecked regressed trunk
+    detection below the plain name guess it replaced, refusing the `main`
+    worktree as naming no issue."""
+    from tests.conftest import git_repo
+    from wfctl._paths import trunk_branch
+
+    src = git_repo(tmp_path / "src")
+    _run_git("-C", str(src), "branch", "-M", "main")
+    bare = tmp_path / "repo.git"
+    # `--initial-branch=master` regardless of what `init.defaultBranch` reads on
+    # the machine running this test, since that is the one thing the bug needs:
+    # `HEAD` naming a branch nothing was ever pushed to.
+    _run_git("init", "-q", "--bare", "--initial-branch=master", str(bare))
+    _run_git("-C", str(src), "push", "-q", str(bare), "main")
+    wt = tmp_path / "main"
+    _run_git("-C", str(bare), "worktree", "add", "-q", str(wt), "main")
+
+    assert trunk_branch(wt) == "main"
+
+
 def test_trunk_in_a_normal_layout_ignores_the_main_checkouts_branch(tmp_path: Path) -> None:
     """The shared `HEAD` is the main checkout's current branch outside a bare layout.
 
