@@ -49,7 +49,7 @@ Three things make where the check lives a real choice.
 
 ## Assumed
 
-- The ten outcomes are the whole set. A new tracker answer or a new exemption
+- The eleven outcomes are the whole set. A new tracker answer or a new exemption
   would falsify it; either is one more row in `decide`, not a new structure.
 - #493's create command calls the same verdict. If it lands with a different
   question, such as "does this title already have an issue", the module keeps
@@ -99,7 +99,7 @@ volatile  ┌───────────┐  calls  ┌──────�
 ```
 
 The graphs differ in where the decision sits relative to the process edge. In
-the baseline the ten outcomes live below it, inside the command, so each one is
+the baseline the eleven outcomes live below it, inside the command, so each one is
 tested through git and a subprocess. In the decision they live above it in
 `decide`, which a test calls with a literal record of facts, and `gather` is
 the one function that needs a fixture. The divider is the process edge the
@@ -119,8 +119,8 @@ call no subprocess.
   `_tracker` does gain `read_state`, beside `read_fields`, which is the part of
   this that belongs there.
 - **The baseline.** Equally correct, and shorter by one module. It loses on the
-  first pressure in Context: ten outcomes on two paths is twenty command-level
-  tests with fixtures, where `decide` tests them as ten calls and the paths are
+  first pressure in Context: eleven outcomes on two paths is twenty-two command-level
+  tests with fixtures, where `decide` tests them as eleven calls and the paths are
   covered by two.
 
 ## Consequences
@@ -141,6 +141,6 @@ are for.
 
 ## Log
 
-- 2026-09-27  proposed  — the check's ten outcomes needed a home that `start` and #493 can share
+- 2026-09-27  proposed  — the check's eleven outcomes needed a home that `start` and #493 can share
 - 2026-09-27  proposed  — Decision's fact list brought up to clarify's: trunk, a bare
   layout, and a detached HEAD, and `_local_verdict` as how `gather` skips the tracker

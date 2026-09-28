@@ -152,13 +152,19 @@ def _remove_session_fossils(agent_dir: Path) -> None:
         (agent_dir / name).unlink(missing_ok=True)
 
 
-def _resolve_context() -> tuple[Path, Path, str, str]:
-    """Return (agent_dir, repo_root, branch, issue); exits on error."""
+def _get_repo_root_or_exit() -> Path:
+    """`get_repo_root()`, printed and re-raised as a typer exit rather than a
+    bare `SystemExit` — the one thing both of its callers need from it."""
     try:
-        repo_root = get_repo_root()
+        return get_repo_root()
     except SystemExit as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
+
+
+def _resolve_context() -> tuple[Path, Path, str, str]:
+    """Return (agent_dir, repo_root, branch, issue); exits on error."""
+    repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
     # Default key shape is \d+ (GitHub); a tracker with non-numeric keys
     # (Jira/Linear/Shortcut) overrides it via key_pattern in its config.
@@ -260,11 +266,7 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
     """
     from wfctl import _issue_check
 
-    try:
-        repo_root = get_repo_root()
-    except SystemExit as e:
-        console.print(f"[red]✗ {e}[/red]")
-        raise typer.Exit(1)
+    repo_root = _get_repo_root_or_exit()
     verdict = _issue_check.decide(
         _issue_check.gather(repo_root, resolve_branch(repo_root))
     )
@@ -2285,6 +2287,7 @@ def issue_cmd(
       label   <id> --action add|remove --label NAME add/remove a label
       start   [id]                                  work on it has begun
       stop    [id]                                  work on it has stopped
+      state   <id>                                  open, closed, or missing
 
     \b
     Examples:

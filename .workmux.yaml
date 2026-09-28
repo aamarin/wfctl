@@ -84,9 +84,10 @@ post_create:
   # refused here, and `wfctl issue start` reports it and moves nothing; the
   # session that follows is what refuses it. No issue number on this line:
   # `wfctl issue start` reads it off the branch using the tracker's own key
-  # shape, which a hook re-deriving it here would have to hardcode. Runs after install-skills because the verb it
-  # calls is defined by `.agents/trackers/github.json`, which that step is what
-  # puts in the worktree.
+  # shape, which a hook re-deriving it here would have to hardcode. Runs after
+  # install-skills because the verb it calls is defined by
+  # `.agents/trackers/github.json`, which that step is what puts in the
+  # worktree.
   #
   # `|| true` is the load-bearing part. Every worktree in this repo is created
   # through here, including for work that answers to no issue and on a machine
