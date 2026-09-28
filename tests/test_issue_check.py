@@ -37,8 +37,15 @@ def _add_worktree(main: Path, name: str, *args: str) -> Path:
 
 
 def _install(root: Path, **manifest: object) -> None:
-    """A wfctl install as `gather` sees one: the manifest at the checkout root."""
+    """A wfctl install as `gather` sees one: the manifest, and the base layer's
+    always-installed destination, at the checkout root.
+
+    A real `install-skills` writes both; `_installed` now checks both, since
+    the manifest alone is a repo's own tracked file a bare `git worktree add`
+    can copy in without the gitignored base layer coming with it.
+    """
     (root / ".wf-skills-manifest.json").write_text(json.dumps(manifest))
+    (root / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
 
 
 # --- decide ---
@@ -277,6 +284,36 @@ def test_gather_reads_the_install_here_and_in_the_main_checkout(
     facts = gather(wt, "7-x")
     assert (facts.installed_here, facts.installed_in_main) == (False, True)
     assert (facts.agent, facts.base_source) == ("claude", "/src/wfctl")
+
+
+def test_gather_reads_a_worktree_with_a_committed_manifest_but_no_skills_as_not_installed(
+    tmp_path: Path,
+) -> None:
+    """A repo can commit `.wf-skills-manifest.json` despite it being gitignored by
+    convention (AGENTS.md). A raw `git worktree add` then checks out that
+    tracked file into every new worktree, though the gitignored `.agents/skills`
+    it names never comes with it — the manifest alone is not proof anything was
+    installed *here*. Read unchecked, that let `wfctl start` proceed with no
+    skills and no tracker config to check its issue against, exactly what
+    Story 3 exists to refuse.
+    """
+    main = git_repo(tmp_path / "main")
+    _install(main, tracker="github")  # real install: manifest *and* .agents/skills
+    subprocess.run(
+        ["git", "-C", str(main), "add", ".wf-skills-manifest.json"], check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(main), "commit", "-q", "-m", "commit the manifest anyway"],
+        check=True,
+    )
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+
+    assert (wt / ".wf-skills-manifest.json").exists()  # checked out with the branch
+    assert not (wt / ".agents" / "skills").exists()  # gitignored, never copied
+
+    facts = gather(wt, "7-x")
+    assert (facts.installed_here, facts.installed_in_main) == (False, True)
+    assert decide(facts).outcome is Outcome.NO_INSTALL
 
 
 def test_gather_reads_a_bare_layout_as_having_no_main_checkout(tmp_path: Path) -> None:

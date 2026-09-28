@@ -205,7 +205,20 @@ def _on_trunk(repo_root: Path, branch: str) -> bool:
 
 
 def _installed(root: Path) -> bool:
-    return (root / _manifest.MANIFEST_PATH).exists()
+    """Is a layer actually on disk here, not only recorded?
+
+    The manifest alone is not proof: `.wf-skills-manifest.json` is gitignored
+    by convention, but a repo can commit one anyway (AGENTS.md), and a raw
+    `git worktree add` then copies that tracked file into a worktree whose
+    gitignored `.agents/` was never installed. Reading the manifest alone
+    would read that worktree as installed and skip the NO_INSTALL refusal
+    Story 3 exists to give it. `_manifest.BASE_SKILL_ROOT` is the always-
+    installed base layer's destination, gitignored the same way `.agents/`
+    itself is, so its presence is evidence installation actually ran.
+    """
+    return (root / _manifest.MANIFEST_PATH).exists() and (
+        root / _manifest.BASE_SKILL_ROOT
+    ).is_dir()
 
 
 def _base_source(root: Path) -> str | None:

@@ -22,6 +22,7 @@ from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
+from wfctl._manifest import BASE_SKILL_ROOT as _BASE_SKILL_ROOT
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
     arch_root,
@@ -2510,7 +2511,10 @@ def change_cmd(
 
 # The canonical, agent-agnostic layer. Always installed, whatever --agent says:
 # wf-skills authors one copy of each skill and command wrapper, and this is where
-# that copy lives. Agent layers below are derived views of it.
+# that copy lives. Agent layers below are derived views of it. Its destination,
+# `_BASE_SKILL_ROOT`, is imported from `_manifest` rather than defined here, since
+# `_issue_check._installed` needs the same path to tell a recorded install from
+# one actually on disk.
 #
 # Every pair here and below is (source, destination). Sources are relative to
 # `_bundle.BUNDLE_ROOT` and carry no leading dot — inside the installed package
@@ -2518,7 +2522,6 @@ def change_cmd(
 # belongs to the destination alone, which is a real `.agents/` in the user's
 # repo. The two halves are no longer the same string even where they name the
 # same subtree, so neither is derivable from the other.
-_BASE_SKILL_ROOT = ".agents/skills"
 _BASE_TARGETS = [
     ("agents/skills", _BASE_SKILL_ROOT),
     ("agents/commands", ".agents/commands"),

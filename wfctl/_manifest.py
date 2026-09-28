@@ -18,6 +18,14 @@ from pathlib import Path
 
 MANIFEST_PATH = ".wf-skills-manifest.json"
 
+# The canonical, agent-agnostic layer's destination — always installed,
+# whatever --agent says, and gitignored by `layer-model` like every dotted
+# directory install-skills writes. Lives here rather than in `cli` for the
+# same reason `MANIFEST_PATH` does: a lower-level module needs it too, and
+# `cli` already reads `.agents/skills` as evidence a layer is actually on
+# disk, not just recorded (`_issue_check._installed`).
+BASE_SKILL_ROOT = ".agents/skills"
+
 
 def load_manifest(repo_root: Path) -> dict:
     """The manifest at `repo_root`, or `{}` when there is none.
