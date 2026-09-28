@@ -6,6 +6,7 @@ variable, and the mechanics behind `install-skills`, the issue tracker
 abstraction, and architecture records.
 
 - [The pipeline](#the-pipeline)
+- [Declaring your own passes (`steps`)](#declaring-your-own-passes-steps)
 - [What lands in your repo](#what-lands-in-your-repo)
 - [Commands](#commands)
 - [Example session](#example-session)
@@ -63,6 +64,62 @@ feature to the PR: the gates are still answered and the records still written �
 more of them, not fewer — and a reviewer reads them at review time instead.
 `wfctl status` says which mode a feature is in and names the records the run
 wrote.
+
+## Declaring your own passes (`steps`)
+
+A repository can add its own checks to the pipeline, such as a UI design review
+after `brainstorm` or the plan walkthrough after `plan`. wfctl calls each one a
+pass. It shows the pass in `wfctl status` under the step it belongs to, sends the
+agent to its command when it is next, and moves on once the pass's evidence
+exists.
+
+Passes are declared in `wfctl.json`, keyed by the step they belong to. This is
+the declaration for the plan walkthrough:
+
+```json
+{
+  "steps": {
+    "plan": [
+      { "name": "plan-walkthrough",
+        "command": "/plan-walkthrough",
+        "evidence": "plan-walkthrough.md",
+        "needs_person": true }
+    ]
+  }
+}
+```
+
+| Field | Required | What it says |
+|---|---|---|
+| `name` | yes | the pass's name, unique under its step |
+| `command` | one of `command` or `manual` | the slash command the agent runs for this pass; it has to be installed |
+| `manual` | one of `command` or `manual` | `true` when a person does this pass by hand, which stops an autonomous run until they do |
+| `evidence` | yes | a file in the feature directory; the pass is done once it exists |
+| `before`, `after` | no | the name of another pass under the same step, to order this one against it |
+| `needs_person` | no | `true` when only a person can do this pass, as below |
+
+Without `before` or `after`, wfctl's own passes for a step run first and yours
+follow in the order you wrote them.
+
+**A pass that needs a person.** Some passes only mean something with a person
+answering, and the plan walkthrough is the first. An autonomous agent answering
+its own questions would produce invalid evidence. Mark such a pass with
+`"needs_person": true`. While auto-approve is on and the evidence is missing,
+wfctl shows the pass as skipped, with the reason "needs a person; auto-approve is
+on", and the run moves on. wfctl saves no file to mark the skip. It works the
+skip out again every time it shows status, so once you turn auto-approve off with
+`wfctl start --no-auto-approve`, the pass shows as up next again and there is
+nothing to clean up. Evidence that already exists still counts in either mode.
+
+**Checking a declaration.** Run `wfctl check config` after editing `wfctl.json`.
+Every rule above is a finding there rather than a silent drop, including an
+uninstalled command, a pass with both `command` and `manual`, `needs_person` set
+to anything but `true` or `false`, and `needs_person` on a manual pass, which
+already stops an autonomous run. `wfctl doctor` does not check `wfctl.json`.
+
+A pass that does not apply to one change is `wfctl step none <step>.<name>
+--reason "…"`. That writes a note into the change under review, and the note wins
+over everything else until a person deletes it.
 
 ## What lands in your repo
 
