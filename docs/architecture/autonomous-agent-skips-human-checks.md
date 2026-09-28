@@ -48,7 +48,7 @@ later, the skill has to find that note and delete it before asking the first
 question. Nobody deletes it by hand, but the skill carries cleanup it would
 otherwise never need.
 
-Nothing new is added to wfctl. `500-unattended-skip-is-a-claim` recorded this
+Nothing new is added to wfctl. `autonomous-skip-is-a-claim` recorded this
 approach.
 
 ## Decision
