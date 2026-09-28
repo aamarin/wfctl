@@ -129,6 +129,21 @@ def test_check_config_exits_nonzero_on_a_finding(storyctl_dir: types.SimpleNames
     assert "declares no command and is not marked manual" in result.output
 
 
+def test_check_config_reports_both_needs_person_mistakes(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The two `needs_person` findings reach the person who runs the check, not
+    only the parser's return value."""
+    _declare(storyctl_dir, {"plan": [
+        {"name": "a", "manual": True, "evidence": "a.md", "needs_person": "yes"},
+        {"name": "b", "manual": True, "evidence": "b.md", "needs_person": True},
+    ]})
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 1
+    assert "plan.a has a 'needs_person' that is not a boolean" in result.output
+    assert "plan.b declares 'manual' and 'needs_person'" in result.output
+
+
 # --- T014: the console rendering is untouched by `attention` (FR-002, SC-003) ---
 
 def test_console_rendering_never_mentions_attention_in_any_state(

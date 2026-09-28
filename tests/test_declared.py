@@ -278,6 +278,37 @@ def test_a_pass_that_does_not_say_it_needs_a_person_does_not(
     assert passes["plan"][0].needs_person is False
 
 
+def test_needs_person_that_is_not_a_boolean_is_a_finding(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """`"yes"` is truthy in every language a maintainer might be thinking in.
+    Read loosely it would skip the pass; read strictly it would not. Either
+    silent answer is wrong, so it is a finding and the pass is dropped."""
+    declaring_repo.write_config({"plan": [
+        {"name": "walk", "command": "/y", "evidence": "a.md", "needs_person": "yes"},
+    ]})
+    passes, problems = _declared.load(declaring_repo.root, is_installed=lambda c: True)
+    assert "plan.walk has a 'needs_person' that is not a boolean" in problems
+    assert [s.name for s in passes.get("plan", [])] == []
+
+
+def test_needs_person_on_a_manual_pass_is_a_finding(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """A manual pass already stops an autonomous run, so it cannot also be
+    skipped by one. Accepting both would leave which one wins to the order of
+    the checks rather than to the repository."""
+    declaring_repo.write_config({"plan": [
+        {"name": "walk", "manual": True, "evidence": "a.md", "needs_person": True},
+    ]})
+    passes, problems = _declared.load(declaring_repo.root)
+    assert (
+        "plan.walk declares 'manual' and 'needs_person' — "
+        "a manual pass already stops an autonomous run"
+    ) in problems
+    assert [s.name for s in passes.get("plan", [])] == []
+
+
 def test_no_built_in_pass_needs_a_person() -> None:
     """wfctl's own passes run unattended by design; one flagged here would be
     skipped on every autonomous run in every repository."""

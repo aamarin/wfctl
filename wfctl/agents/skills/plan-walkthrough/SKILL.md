@@ -38,7 +38,7 @@ write nothing, and stop:
 ```
 Plan walkthrough needs a person at the prompt, and auto-approve is on.
 Run `wfctl start --no-auto-approve`, then `/plan-walkthrough` again.
-An unattended run skips this pass only when its declaration in
+An autonomous run skips this pass only when its declaration in
 wfctl.json carries "needs_person": true.
 ```
 

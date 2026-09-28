@@ -161,6 +161,22 @@ def _load_step(
             )
             continue
 
+        needs_person = entry.get("needs_person", False)
+        if not isinstance(needs_person, bool):
+            # Strict rather than truthy: `"yes"` or `1` read loosely would skip
+            # the pass on every autonomous run, and read strictly would not, and
+            # a maintainer cannot tell which from `wfctl status`.
+            problems.append(f"{qualified} has a 'needs_person' that is not a boolean")
+            continue
+        if needs_person and manual:
+            # A manual pass already stops an autonomous run; skipped by one as
+            # well would leave the outcome to the order of the checks.
+            problems.append(
+                f"{qualified} declares 'manual' and 'needs_person' — "
+                "a manual pass already stops an autonomous run"
+            )
+            continue
+
         command = entry.get("command") if has_command else None
         if command is not None and not isinstance(command, str):
             # Unchecked, this reaches `is_installed`'s `str.lstrip` call below
@@ -200,7 +216,7 @@ def _load_step(
         seen.add(name)
         sub = SubStep(name=name, command=command, on_finish=on_finish,
                       reads=build_file_exists_reader(evidence),
-                      needs_person=entry.get("needs_person") is True)
+                      needs_person=needs_person)
         parsed.append((sub, before, after))
 
     ordered, order_problems = _ordered(step, parsed)
