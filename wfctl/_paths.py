@@ -82,6 +82,22 @@ def resolve_branch(repo_root: Path) -> str:
         return "detached"
 
 
+def is_detached(repo_root: Path) -> bool:
+    """HEAD names no branch, and nobody named one through `WFCTL_BRANCH`.
+
+    The question `resolve_branch` answers around rather than reports: it hands
+    back the short hash in place of a branch name, and an all-digit hash then
+    parses as an issue key. A caller that needs to know the branch is real asks
+    here instead of reading that name.
+    """
+    if os.environ.get(_BRANCH_OVERRIDE):
+        return False
+    r = subprocess.run(
+        ["git", "symbolic-ref", "-q", "HEAD"], cwd=repo_root, capture_output=True,
+    )
+    return r.returncode != 0
+
+
 def _trunk_branch(repo_root: Path) -> str | None:
     """The repo's trunk — origin/HEAD when the remote publishes it, else the
     first local main/master/dev that exists. None when nothing looks like one."""
