@@ -19,7 +19,7 @@ runner = CliRunner()
 def _facts(**overrides: object) -> Facts:
     """A linked worktree on an open issue's branch, overridden per test."""
     base = Facts(
-        linked=True, tracker_configured=True, detached=False,
+        linked=True, on_trunk=False, tracker_configured=True, detached=False,
         branch="497-start-refuses", key="497", state="open",
     )
     return dataclasses.replace(base, **overrides)
@@ -47,6 +47,31 @@ def test_the_main_checkout_proceeds_on_any_branch() -> None:
     verdict = decide(_facts(linked=False))
     assert (verdict.outcome, verdict.action, verdict.lines) == (
         Outcome.MAIN_CHECKOUT, "proceed", ()
+    )
+
+
+def test_a_worktree_on_trunk_proceeds_like_the_main_checkout() -> None:
+    """A bare layout has no main checkout, so its `main` is a linked worktree.
+
+    Without this row, orchestration from trunk would be refused there as naming
+    no issue, which is the one thing the main-checkout exemption exists to keep.
+    """
+    verdict = decide(_facts(on_trunk=True, branch="dev", key=None))
+    assert (verdict.outcome, verdict.action, verdict.lines) == (Outcome.TRUNK, "proceed", ())
+
+
+def test_a_backend_without_state_gets_the_key_check_only() -> None:
+    """A tracker config installed before the verb existed reads as declining it."""
+    verdict = decide(_facts(state=None, state_declined=True))
+    assert (verdict.outcome, verdict.action, verdict.lines) == (Outcome.KEY_ONLY, "proceed", ())
+
+
+def test_a_tracker_with_no_answer_warns_and_proceeds() -> None:
+    """A session that cannot start without a network is the worse failure."""
+    verdict = decide(_facts(state=None, state_detail="connection refused\nretrying"))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_ANSWER, "warn")
+    assert verdict.lines == (
+        "⚠ could not ask the tracker whether #497 is open (connection refused) — starting anyway",
     )
 
 
@@ -137,6 +162,32 @@ def test_gather_reads_the_tracker_from_this_checkouts_own_manifest(tmp_path: Pat
     assert gather(wt, "7-x").tracker_configured is False
     _install(wt, tracker="github")
     assert gather(wt, "7-x").tracker_configured is True
+
+
+def test_gather_reads_trunk_in_a_bare_layout(tmp_path: Path) -> None:
+    """The bare repository's `HEAD` names trunk; `origin/HEAD` does not exist there."""
+    src = git_repo(tmp_path / "src")
+    subprocess.run(["git", "-C", str(src), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(src), "switch", "-q", "-c", "dev"], check=True)
+    bare = tmp_path / "repo.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
+    dev = _add_worktree(bare, "dev", "dev")
+    feature = _add_worktree(bare, "feature", "-b", "497-x", "dev")
+    assert gather(dev, "dev").on_trunk is True
+    assert gather(feature, "497-x").on_trunk is False
+
+
+def test_gather_strips_the_remote_from_origin_head(tmp_path: Path) -> None:
+    """`origin/HEAD` reads as `origin/main`, and a branch is never named that."""
+    src = git_repo(tmp_path / "src")
+    subprocess.run(["git", "-C", str(src), "branch", "-M", "main"], check=True)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    wt = _add_worktree(clone, "wt", "-b", "497-x")
+    subprocess.run(["git", "-C", str(clone), "switch", "-q", "-c", "elsewhere"], check=True)
+    main_wt = _add_worktree(clone, "main-wt", "main")
+    assert gather(main_wt, "main").on_trunk is True
+    assert gather(wt, "497-x").on_trunk is False
 
 
 def test_gather_asks_git_whether_head_is_detached(tmp_path: Path, monkeypatch) -> None:
@@ -240,3 +291,25 @@ def test_a_refused_start_leaves_an_existing_state_directory_byte_identical(
 
     assert result.exit_code == 1, result.output
     assert {p.name: p.read_bytes() for p in state.iterdir()} == before
+
+
+def test_a_tracker_with_no_answer_warns_and_the_session_starts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The warning is printed and the session is recorded, not one or the other."""
+    main = git_repo(tmp_path / "main")
+    _install(main, tracker="github")
+    wt = _add_worktree(main, "wt", "-b", "497-x")
+    _install(wt, tracker="github")
+    state = tmp_path / "state"
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.chdir(wt)
+    monkeypatch.setattr(_tracker, "read_state", lambda root, key: (None, "connection refused"))
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 0, result.output
+    assert "⚠ could not ask the tracker whether #497 is open (connection refused)" in result.output
+    assert '"event": "start"' in (state / "events.jsonl").read_text()

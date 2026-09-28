@@ -990,3 +990,52 @@ def test_non_record_subtrees_names_step_claims(tmp_path: Path) -> None:
     from here rather than having to find every call site that needs it."""
     arch = tmp_path / "docs" / "architecture"
     assert arch / STEP_CLAIMS_DIR in non_record_subtrees(arch)
+
+
+# --- trunk_branch ---
+
+
+def _run_git(*args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", *args], check=True, capture_output=True)
+
+
+def test_trunk_in_a_bare_layout_is_the_bare_repositorys_head(tmp_path: Path) -> None:
+    """A bare clone records no `origin/HEAD`, so the name guess alone picks `main`.
+
+    Measured on a source whose default was `dev` and which also had `main`:
+    `trunk_branch` returned `main` there, and a bare layout's `dev` worktree was
+    refused as naming no issue. The bare repository's own `HEAD` says `dev`.
+    """
+    from tests.conftest import git_repo
+    from wfctl._paths import trunk_branch
+
+    src = git_repo(tmp_path / "src")
+    _run_git("-C", str(src), "branch", "-M", "main")
+    _run_git("-C", str(src), "switch", "-q", "-c", "dev")
+    bare = tmp_path / "repo.git"
+    _run_git("clone", "-q", "--bare", str(src), str(bare))
+    wt = tmp_path / "dev"
+    _run_git("-C", str(bare), "worktree", "add", "-q", str(wt), "dev")
+
+    assert trunk_branch(wt) == "dev"
+
+
+def test_trunk_in_a_normal_layout_ignores_the_main_checkouts_branch(tmp_path: Path) -> None:
+    """The shared `HEAD` is the main checkout's current branch outside a bare layout.
+
+    Read unguarded, a main checkout sitting on a feature branch would make that
+    branch trunk for every worktree, and `touched_on_this_branch` would diff
+    against it.
+    """
+    from tests.conftest import git_repo
+    from wfctl._paths import trunk_branch
+
+    main = git_repo(tmp_path / "main")
+    _run_git("-C", str(main), "branch", "-M", "main")
+    _run_git("-C", str(main), "switch", "-q", "-c", "9-feature")
+    wt = tmp_path / "wt"
+    _run_git("-C", str(main), "worktree", "add", "-q", str(wt), "-b", "10-x", "main")
+
+    assert trunk_branch(wt) == "main"

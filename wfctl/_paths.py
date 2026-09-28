@@ -98,15 +98,56 @@ def is_detached(repo_root: Path) -> bool:
     return r.returncode != 0
 
 
-def _trunk_branch(repo_root: Path) -> str | None:
-    """The repo's trunk — origin/HEAD when the remote publishes it, else the
-    first local main/master/dev that exists. None when nothing looks like one."""
+def is_bare_layout(repo_root: Path) -> bool:
+    """Is this checkout a worktree of a bare repository, where none is the main one?"""
+    r = subprocess.run(
+        ["git", "config", "--bool", "core.bare"], cwd=repo_root, capture_output=True, text=True,
+    )
+    return r.stdout.strip() == "true"
+
+
+def _bare_head(repo_root: Path) -> str | None:
+    """The branch a bare repository's own HEAD names, or None outside a bare layout."""
+    if not is_bare_layout(repo_root):
+        return None
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if common.returncode != 0:
+        return None
+    head = subprocess.run(
+        ["git", f"--git-dir={common.stdout.strip()}", "symbolic-ref", "--short", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if head.returncode != 0:
+        return None
+    return head.stdout.strip() or None
+
+
+def trunk_branch(repo_root: Path) -> str | None:
+    """The repo's trunk — origin/HEAD when the remote publishes it, then a bare
+    repository's own HEAD, else the first local main/master/dev that exists. None
+    when nothing looks like one.
+
+    The bare HEAD is there because a bare clone records no origin/HEAD, so a
+    bare layout otherwise always falls through to the name guess, and a repo
+    whose trunk is `dev` but which also carries `main` is read as trunk `main`.
+    It is read only when `core.bare` says the layout is bare: in a normal layout
+    the shared HEAD is whatever the main checkout has checked out, which can be a
+    feature branch. `core.bare` rather than `rev-parse --is-bare-repository`,
+    which answers false from inside a bare layout's worktree. As stale as the
+    clone either way; a declared trunk is #509.
+    """
     head = subprocess.run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         cwd=repo_root, capture_output=True, text=True,
     )
     if head.returncode == 0 and head.stdout.strip():
         return head.stdout.strip()
+    bare = _bare_head(repo_root)
+    if bare is not None:
+        return bare
     for name in ("main", "master", "dev"):
         if subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", name],
@@ -394,7 +435,7 @@ def touched_on_this_branch(
     if dirty:
         return True
 
-    trunk = _trunk_branch(repo_root)
+    trunk = trunk_branch(repo_root)
     if trunk is None:
         return None
     committed = names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
@@ -450,7 +491,7 @@ def records_on_this_branch(
     # caller asking "did anything change" can still read as yes, and a caller
     # asking "which records" reads as none.
     found = names("status", "--porcelain", "-uall", "--", *spec)
-    trunk = _trunk_branch(repo_root)
+    trunk = trunk_branch(repo_root)
     if trunk is not None:
         found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
 

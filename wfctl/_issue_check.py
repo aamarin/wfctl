@@ -21,15 +21,15 @@ from wfctl import _paths, _tracker
 
 class Outcome(enum.Enum):
     MAIN_CHECKOUT = "main_checkout"
+    TRUNK = "trunk"
     NO_TRACKER = "no_tracker"
     DETACHED = "detached"
     NO_KEY = "no_key"
     CLOSED = "closed"
     MISSING = "missing"
     OPEN = "open"
-    # Reached when nothing earlier decided. Rows added later take its place in
-    # the cases they cover.
-    UNDECIDED = "undecided"
+    KEY_ONLY = "key_only"
+    NO_ANSWER = "no_answer"
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class Facts:
     """
 
     linked: bool
+    on_trunk: bool
     tracker_configured: bool
     detached: bool
     branch: str
@@ -70,6 +71,10 @@ def _local_verdict(facts: Facts) -> Verdict | None:
     """
     if not facts.linked:
         return Verdict(Outcome.MAIN_CHECKOUT, "proceed")
+    # What the main-checkout row protects is working on trunk, and a bare layout
+    # has no main checkout: its `main` is a linked worktree like any other.
+    if facts.on_trunk:
+        return Verdict(Outcome.TRUNK, "proceed")
     if not facts.tracker_configured:
         return Verdict(Outcome.NO_TRACKER, "proceed")
     # Before the key: wfctl substitutes the short hash for a missing branch name,
@@ -97,6 +102,17 @@ def decide(facts: Facts) -> Verdict:
     local = _local_verdict(facts)
     if local is not None:
         return local
+    if facts.state_declined:
+        return Verdict(Outcome.KEY_ONLY, "proceed")
+    # No network, an expired token, a rate limit, a timeout. A session that
+    # cannot start offline is the worse failure, and the `post_create` hooks
+    # already take that stance with `|| true`.
+    if facts.state is None:
+        reason = (facts.state_detail or "no reason given").splitlines()[0]
+        return Verdict(Outcome.NO_ANSWER, "warn", (
+            f"⚠ could not ask the tracker whether #{facts.key} is open ({reason})"
+            " — starting anyway",
+        ))
     if facts.state == "closed":
         return _refuse(
             Outcome.CLOSED,
@@ -110,9 +126,7 @@ def decide(facts: Facts) -> Verdict:
             f"✗ #{facts.key} is not an issue in this tracker.",
             "  Open one, then rename the branch to start with its key.",
         )
-    if facts.state == "open":
-        return Verdict(Outcome.OPEN, "proceed")
-    return Verdict(Outcome.UNDECIDED, "proceed")
+    return Verdict(Outcome.OPEN, "proceed")
 
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -137,12 +151,22 @@ def _is_linked(repo_root: Path) -> bool:
     return git_dir != common_dir
 
 
+def _on_trunk(repo_root: Path, branch: str) -> bool:
+    """`trunk_branch` answers `origin/main` when the remote publishes its HEAD,
+    and a local branch is never named that."""
+    trunk = _paths.trunk_branch(repo_root)
+    if trunk is None:
+        return False
+    return branch == trunk.removeprefix("origin/")
+
+
 def gather(repo_root: Path, branch: str) -> Facts:
     """Everything `decide` reads, asked of git, the manifests and the tracker."""
     pattern = _tracker.configured_key_pattern(repo_root)
     key = _paths.extract_issue_key(branch, pattern) if pattern is not None else "unknown"
     facts = Facts(
         linked=_is_linked(repo_root),
+        on_trunk=_on_trunk(repo_root, branch),
         tracker_configured=pattern is not None,
         detached=_paths.is_detached(repo_root),
         branch=branch,
