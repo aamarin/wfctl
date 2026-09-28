@@ -50,14 +50,27 @@ diff seemed trivial is a decision made silently, per run, by the only party with
 an interest in the answer — which is the shape of the defect this step exists to
 remove, not an exception to it.
 
-**The panel's output is not content for the description.** A finding you applied
-is a commit on this branch, which the diff already shows; restating it in prose a
-reviewer has to trust adds a second account of the same fact, and the weaker one.
+**None of the panel's output goes in the description.** That covers every
+finding, whether you applied it, accepted it, or rejected it, and it covers the
+disposition table, the roster, and any line saying the panel ran. It holds for
+the first body and for every push after it.
 
-What the diff does not show is a finding you **did not apply** — accepted but
-deferred, or rejected outright. A reviewer raised it, you decided, and nothing in
-the change records that the question was asked. Say those under Additional
-Context, with the disposition and the reason, in a line each.
+The disposition table from the panel skill's Step 6 goes to the person you are
+working for, in the conversation. They are the one who can overrule a
+disposition, and the conversation is where they can. A finding you applied is a
+commit on this branch, which the diff already shows. A finding you did not apply
+was a decision made with that person, and it is theirs to carry further.
+
+On MarinVentures/pfms#680 a description that carried the panel gained a row
+with every review round until it held 15, 12 of them findings already applied,
+and the maintainer asked that the body not mention the panel at all. So the description is for the change, and the panel is not part of
+the change.
+
+A rejected finding that a reviewer of the change really needs to weigh becomes
+an open question about the code, in the section the template keeps for open
+questions. Word it as a question about the change ("Should `resolve` fall back
+to the main checkout when the manifest is missing?"), not as a finding, and do
+not name the panel or a reviewer.
 
 **Nothing checks this.** The panel does write artifacts — one report per reviewer
 under `$FEATURE_DIR/reviews/` — so the tempting repair is a check that they
@@ -142,8 +155,8 @@ Summary (context, then the drawing, then what / why / impact) · What changed ·
 How it was tested · Issue links · Additional context.
 ```
 
-Then fill those five. Additional context is where Step 1's undecided findings
-go, so a repository with no template still has somewhere to put them.
+Then fill those five. Nothing from Step 1 goes in any of them; the panel's
+findings went to the person in the conversation, with or without a template.
 
 `wfctl install-config github` seeds a real template — say so once, and do not
 block on it.
@@ -152,14 +165,16 @@ block on it.
 
 - **Every section the template has, in its order.** A section you have nothing
   for gets "None" or "N/A" — never silent deletion, which reads as an answer.
-- **A `## Review Panel` section is an older template, and it is where Step 1's
-  undecided findings go instead.** `install-config` writes a template once and
-  never touches it again, so a repository seeded before this skill changed still
-  carries that section, and its comment block still asks for the disposition
-  table and refuses "N/A". Fill it with the findings you did not apply, the same
-  ones Additional Context would have taken — the section is not a reason to
-  reproduce a table of what you already committed, and the template is the
-  project's file to change, not yours.
+- **A `## Review Panel` section is an older template, and it gets "N/A".**
+  `install-config` writes a template once and never touches it again, so a
+  repository seeded before this skill changed still carries that section, and
+  its comment block still asks for the disposition table and refuses "N/A".
+  Step 1 overrules that comment. Deleting the section would read as an answer,
+  and filling it would put the panel in the description; "N/A" does neither.
+  The template is the project's file to change, not yours. The same goes for a
+  checklist item or a comment block elsewhere in an older template that asks for
+  findings under Additional Context: leave the item unticked and write nothing
+  from the panel.
 - **A comment naming `conversation-response-shape` as the owner of the
   form-selection table is an older template too.** That skill no longer ships
   with wfctl, and the seed-once rule above means the pointer was never updated.
@@ -450,12 +465,15 @@ attributes.
 
 ## Red flags
 
-- "The description has no panel section, so Step 1 is optional." The step is not
-  reached through the body and never was; what the body stopped carrying is the
-  table, not the requirement to run the panel over every change.
-- Writing up the findings you applied. They are commits on the branch, and the
-  reviewer reads the diff. The half worth a line is the one the diff cannot
-  show: what a reviewer raised and you decided against.
+- "The description no longer mentions the panel, so Step 1 is optional." The
+  step is not reached through the body and never was; what the body stopped
+  carrying is the panel's output, not the requirement to run the panel over
+  every change.
+- Any mention of the review panel in the description, on the first body or on a
+  push after it. That includes a status line such as `Review panel: r1 ✓ r2 ✓
+  r3 ✓`, a roster, a findings table, and a single finding of any disposition.
+  The table goes to the person in the conversation, and a question a reviewer
+  needs is asked about the code.
 - Running the panel after the PR is open, because the diff is easier to point at
   there. The findings then arrive against a change reviewers have already been
   asked to read, and every fix lands as a commit pushed after they started.
