@@ -135,3 +135,24 @@ def test_a_dry_run_refuses_a_citation_accept_would_refuse(
 
     assert dry.exit_code == 1
     assert dry.output == real.output
+
+
+@pytest.mark.parametrize("citation", ["--dry-run", "-n"])
+def test_a_flag_swallowed_as_the_citation_is_refused_and_nothing_is_accepted(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, citation: str
+) -> None:
+    """Brainstorm may run `wfctl arch accept * --dry-run` without a prompt, and
+    `accept <slug> --agreed --dry-run` matches that grant. Click reads it as
+    `--agreed "--dry-run"` with no dry run at all, and before this refusal it
+    marked a passing record accepted. Accepting is a person's call, so a
+    rehearsal-shaped command must never be the act."""
+    root = _arch_root(agent_dir, monkeypatch)
+    record = write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
+    before = _tree(root)
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", citation])
+
+    assert result.exit_code == 1
+    assert "a flag, not a citation" in result.output
+    assert _tree(root) == before
+    assert record.read_text().startswith("---\nstatus: proposed\n")
