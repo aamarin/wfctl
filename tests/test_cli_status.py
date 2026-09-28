@@ -95,6 +95,7 @@ def test_all_does_not_change_the_json_payload(storyctl_dir: types.SimpleNamespac
     assert ui_design == {
         "name": "ui-design", "state": "skipped", "annotation": None,
         "command": None, "manual": True, "claimed": "backend-only", "is_current": False,
+        "needs_person": False,
     }
 
 

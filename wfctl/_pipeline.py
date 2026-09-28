@@ -210,7 +210,7 @@ MANUAL_PASS_WHY = "a person performs this pass"
 # that file, which `test_packaging.py` catches before release, cannot break a
 # caller that only ever asked the running command. The shipped file records
 # the same value; `test_status_contract.py` is what proves the two agree.
-STATUS_PAYLOAD_VERSION = "1.0"
+STATUS_PAYLOAD_VERSION = "1.1"
 
 # What `next` and `resume` name for a blocked design step: the step itself.
 #
@@ -273,7 +273,11 @@ class _PipelineStep:
 
 
 def _infer_steps(
-    spec_dir: Path | None, repo_root: Path, ev: _evidence.Evidence | None = None
+    spec_dir: Path | None,
+    repo_root: Path,
+    ev: _evidence.Evidence | None = None,
+    *,
+    auto_approve: bool = False,
 ) -> list[_PipelineStep]:
     """Internal: return steps carrying `done` / `in_progress` / `pending` / `skipped`.
 
@@ -292,6 +296,12 @@ def _infer_steps(
     `repo_root` is what the implement arm reads the definition of done and the
     live git state from. It was carried unused for a while after the design doc
     moved into the spec dir; #69 gave it a job again.
+
+    `auto_approve` is the stored approval mode, handed in rather than read here
+    because `build_report` already reads it once for routing, and two reads of
+    one file in one report can disagree while it is being written. It decides
+    one thing below: whether a pass that needs a person is skipped. The default
+    keeps every caller that never asked about the mode reading as attended.
     """
     # Lazy: `_declared` imports this module at its own top level to reach
     # `_STEPS`, so importing it back at *our* top level would cycle. A
@@ -342,7 +352,8 @@ def _infer_steps(
             name, reading.state, reading.renders(), reading.reason
         )
         step_state.sub_steps = _pass_states(
-            name, passes_by_step.get(name, ()), ev, reading.state, claims
+            name, passes_by_step.get(name, ()), ev, reading.state, claims,
+            auto_approve=auto_approve,
         )
         # The roll-up (research.md R7): a step whose own reading is `done` with
         # an outstanding pass has not finished. The parent's `annotation` and
@@ -379,6 +390,8 @@ def _pass_states(
     ev: _evidence.Evidence | None,
     own_state: State,
     claims: dict[str, str],
+    *,
+    auto_approve: bool = False,
 ) -> list["_PipelineSubStep"]:
     """One reading per pass under `step_name` (research.md R7,
     `an-absent-artifact-is-claimed-not-inferred`).
@@ -404,6 +417,13 @@ def _pass_states(
     step whose own artifact was merely unfinished — `specify` with sections
     still missing, say — report every declared pass under it as outstanding
     at once, which is not one of the four states a pass can honestly hold.
+
+    A pass that needs a person, read while `auto_approve` is on, is `skipped`
+    once its reader has said it is not `done`
+    (`autonomous-agent-skips-human-checks`). After the reader and not before
+    it, so a walkthrough someone already finished still counts; and without
+    setting `cascade`, because the run is moving past this pass the way it
+    moves past a claimed one, not stopping at it.
     """
     result: list[_PipelineSubStep] = []
     cascade = False
@@ -423,10 +443,19 @@ def _pass_states(
             continue
         assert ev is not None  # own_state == "done" is only reachable once Evidence exists
         reading = sub.reads(ev)
+        if reading.state != "done" and sub.needs_person and auto_approve:
+            result.append(_read_pass(sub, "skipped", NEEDS_PERSON_REASON))
+            continue
         if reading.state != "done":
             cascade = True
         result.append(_read_pass(sub, reading.state, reading.renders()))
     return result
+
+
+# The skip's whole explanation, carried as the pass's annotation. It names both
+# halves of the condition, because a reader who sees only "needs a person"
+# cannot tell that turning auto-approve off is what brings the pass back.
+NEEDS_PERSON_REASON = "needs a person; auto-approve is on"
 
 
 def _read_pass(
@@ -923,7 +952,11 @@ def build_report(
     # agent is writing — the window `build_report` was made to close for the
     # blocked reason, met again by a field added beside it.
     ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
-    raw = _infer_steps(spec_dir, repo_root, ev)
+    # Read before inference, not after it: a pass that needs a person reads
+    # differently under each mode, and routing below must see the same mode
+    # the passes were read under.
+    granted = read_auto_approve(agent_dir)
+    raw = _infer_steps(spec_dir, repo_root, ev, auto_approve=granted)
     # After `_infer_steps` returns, never inside its loop — see
     # `_apply_block_hold`'s own docstring for why splicing it into the loop
     # would cascade a hold past every step legitimately `done` after it.
@@ -940,7 +973,6 @@ def build_report(
     # loads a record and shells out to git, and `status` runs on every session
     # start. Recomputing it here is the one call this seam was meant to collapse.
     blocked = next((s.reason for s in raw if s.name == name), None)
-    granted = read_auto_approve(agent_dir)
     outstanding = _outstanding_pass(next((s for s in raw if s.name == name), None))
     if outstanding is not None:
         outstanding.is_current = True
@@ -994,6 +1026,7 @@ def build_report(
                         "command": sub.command,
                         "manual": sub.command is None,
                         "claimed": sub.claimed,
+                        "needs_person": sub.needs_person,
                         "is_current": sub.is_current,
                     }
                     for sub in s.sub_steps
