@@ -56,8 +56,9 @@ approach.
 A repository marks a check in `wfctl.json` as needing human intervention, with
 `"needs_person": true`. While auto-approve is on and the check has no evidence,
 wfctl shows it as skipped, with the reason "needs a person; auto-approve is on".
-wfctl writes nothing to do this. Once you turn auto-approve off, the same check
-shows as up next again.
+wfctl doesn't save a file to mark the skip. It works the skip out again every
+time it shows status. This means that once you turn auto-approve off, the same
+check shows as up next again, with nothing to clean up.
 
 wfctl asks these in order, and the first yes decides:
 
