@@ -156,8 +156,10 @@ Summary (context, then the drawing, then what / why / impact) · What changed ·
 How it was tested · Issue links · Additional context.
 ```
 
-Then fill those five. Nothing from Step 1 goes in any of them; the panel's
-findings went to the person in the conversation, with or without a template.
+Then fill those five. The panel's findings went to the person in the
+conversation, with or without a template. The one thing from Step 1 that can
+land here is a finding already rewritten about the code, as an open question or
+a follow-up, and that goes under Additional context like any other.
 
 `wfctl install-config github` seeds a real template — say so once, and do not
 block on it.

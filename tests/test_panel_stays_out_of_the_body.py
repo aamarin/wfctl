@@ -26,9 +26,14 @@ def test_the_shipped_template_leaves_no_mention_of_the_panel_in_a_body() -> None
     """A comment block is deleted before the body is submitted, so it may say
     what it likes. Everything outside one reaches the reader, and the checklist
     item this replaced ("A review panel ran over this diff ...") was the status
-    line the maintainer asked to be rid of, shipped as a box to tick."""
+    line the maintainer asked to be rid of, shipped as a box to tick.
+
+    "review panel" rather than "panel", so a template that later documents an
+    admin panel does not fail here for a reason unrelated to the review. Every
+    wording that has reached a body so far, the checklist item and the legacy
+    `## Review Panel` heading, carries the full phrase."""
     body = _COMMENT.sub("", _TEMPLATE.read_text()).lower()
-    assert "panel" not in body
+    assert "review panel" not in body
 
 
 def test_the_digest_sends_the_panel_output_nowhere_near_the_description() -> None:
