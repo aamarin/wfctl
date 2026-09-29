@@ -202,7 +202,9 @@ def session_open_for(
 
 
 def auto_approve(agent_dir: Path) -> bool:
-    """Whether this feature's design gates may be answered without a human.
+    """Whether this feature's design gates and review stops may be answered
+    without a human. A review stop is a `review_required` pass or step, which
+    since #501 includes the plan review and the stop before `tasks`.
 
     The one value here that is not re-derived, and the module docstring's
     carve-out is why: no artifact implies it, so there is nothing to recompute it
@@ -246,6 +248,43 @@ def grant_auto_approve(agent_dir: Path, granted: bool) -> None:
     """
     write_atomic(agent_dir / MODE_NAME, json.dumps({"auto_approve": granted}, indent=2))
     append_event(agent_dir, "mode", auto_approve=granted)
+
+
+def revoke_auto_approve(agent_dir: Path, reason: str) -> None:
+    """Turn auto-approve off because the review cap fired, and say why.
+
+    wfctl is the mode's second writer, and it only ever writes `false`
+    (`approval-mode-is-stored-intent`). Raising the bar needs no person;
+    lowering it does, so a grant stays `grant_auto_approve`'s alone.
+
+    The file gains `revoked`, which `grant_auto_approve` never writes, so a new
+    grant clears it and a person's `--no-auto-approve` never carries it.
+    `status` and `resume` print the reason while it stands. The event carries
+    `by` and the reason because the log is the only record of who turned the
+    mode off once the file is overwritten again.
+    """
+    write_atomic(
+        agent_dir / MODE_NAME,
+        json.dumps({"auto_approve": False, "revoked": reason}, indent=2),
+    )
+    append_event(agent_dir, "mode", auto_approve=False, by="wfctl", reason=reason)
+
+
+def revoked(agent_dir: Path) -> str | None:
+    """Why wfctl turned auto-approve off, or None when it did not.
+
+    Read with `auto_approve`'s guards, since both read one file and a damaged
+    file must not raise here either. A `revoked` value that is not a string
+    reads as none, so the line printed from it is always a sentence.
+    """
+    try:
+        data = json.loads((agent_dir / MODE_NAME).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("auto_approve") is True:
+        return None
+    reason = data.get("revoked")
+    return reason if isinstance(reason, str) and reason.strip() else None
 
 
 def record_outward_action(agent_dir: Path, branch: str, action: str) -> None:

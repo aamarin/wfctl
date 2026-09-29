@@ -398,3 +398,35 @@ def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
     )
     assert (blocked.current, blocked.next_command) == ("implement", "wfctl verify")
     assert blocked.auto is False
+
+
+def test_a_skipped_plan_review_does_not_hide_a_declared_pass_after_it(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A feature planned before this pass existed has `tasks.md` and no
+    report, so `plan-review` reads `skipped` (US4). A repository's own `plan`
+    pass listed after it in `wfctl.json` must still get its own reader run —
+    `skipped` is a pass's own terminal reading, the same as a `step none`
+    claim, and neither may cascade to a sibling the way an `in_progress`
+    reading does (#501).
+
+    Reproduced directly against `_pass_states` before this test existed: with
+    the cascade keyed on `!= "done"` instead of `== "in_progress"`, a declared
+    pass whose own evidence already existed still read `pending`, because
+    `plan-review`'s `skipped` ran ahead of it in written order and suppressed
+    every reader after it.
+    """
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
+        {"steps": {"plan": [{"name": "extra-check", "manual": True, "evidence": "extra.md"}]}}
+    ))
+    storyctl_dir.spec_dir.mkdir(parents=True, exist_ok=True)
+    (storyctl_dir.spec_dir / "spec.md").write_text(CLEAN_SPEC)
+    (storyctl_dir.spec_dir / "plan.md").write_text(CLEAN_PLAN)
+    (storyctl_dir.spec_dir / "tasks.md").write_text("- [ ] T001 do it\n")
+    (storyctl_dir.spec_dir / "extra.md").write_text("the declared pass's own evidence")
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    plan = next(s for s in payload["steps"] if s["name"] == "plan")
+    sub_steps = {s["name"]: s["state"] for s in plan["sub_steps"]}
+    assert sub_steps["plan-review"] == "skipped"
+    assert sub_steps["extra-check"] == "done"

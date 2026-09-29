@@ -26,7 +26,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from wfctl import _md, _tracker
+from wfctl import _md, _plan_review, _tracker
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
@@ -233,6 +233,13 @@ class Evidence:
     # `build_report`'s own seam comment names that as the thing this collapse
     # exists to prevent.
     verification: str | None
+    # The state dir, where `plan_review` finds the `sign-off` events that are
+    # the only source of a sign-off (research R8). None for a caller that has
+    # no state dir to hand, and then no sign-off is seen, so a signed-off plan
+    # reads stale there. That errs toward one more review, never toward one
+    # skipped. Defaulted and last so an `Evidence` built by hand in a test keeps
+    # compiling.
+    agent_dir: Path | None = None
 
 
 def _file_exists(path: Path) -> bool:
@@ -1065,7 +1072,9 @@ def facts(
     )
 
 
-def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
+def build_evidence(
+    spec_dir: Path, repo_root: Path, agent_dir: Path | None = None
+) -> Evidence:
     """Read once, for all eight readers.
 
     Public because the walk calls it, and because it is the only way to make an
@@ -1109,6 +1118,7 @@ def build_evidence(spec_dir: Path, repo_root: Path) -> Evidence:
         tasks_done=done,
         tasks_total=total,
         verification=verification_block(repo_root),
+        agent_dir=agent_dir,
     )
 
 
@@ -1327,6 +1337,68 @@ def plan(ev: Evidence) -> Assessment:
         return Assessment("in_progress", UNWRITTEN_TEMPLATE)
     reason = _missing_reason(missing_sections(ev.plan_text, _REQUIRED_PLAN_SECTIONS))
     return Assessment("in_progress" if reason else "done", reason)
+
+
+def plan_review(ev: Evidence) -> Assessment:
+    """Whether a review of this plan has left no BLOCKER open. `plan`'s one
+    built-in pass (#501).
+
+    It proves that a report exists in the feature directory and that the two
+    lines wfctl reads from it say the review read the `plan.md` on disk now,
+    byte for byte, and counted its BLOCKER findings and found none open. It
+    does not prove the review was any good, and it cannot: the count is the
+    reviewer's grade of the plan, and wfctl reads it as given.
+
+    Staleness is checked before the count, because a count describes the plan
+    the review read. Once that plan has changed, "2 BLOCKER findings open"
+    would send the wrapper to revise findings the edit may already have
+    answered, where the new text needs a review.
+
+    The rows are checked in data-model.md's order (§ Pass state), and every one
+    that holds the pass puts its text in `display` and leaves `reason` empty.
+    The roll-up copies a pass's reason onto its step, a step with a reason
+    routes to the step's own command, and that command here is `/speckit.plan`,
+    which copies the template over `plan.md` (research R3). With no reason, the
+    pass itself routes, and the next command is `/plan-review`.
+
+    Two readings are deliberately not `pending`. With no report and no
+    `tasks.md` the pass reads `in_progress`, because the roll-up holds a step
+    only on an `in_progress` pass, and a `pending` one would let `tasks` become
+    current before the first review (research R2). With no report and a
+    `tasks.md`, it reads `skipped`, so a feature planned before this pass
+    existed is not sent back to review a plan its tasks are already built on.
+
+    "N BLOCKER findings open" keeps its plural at 1. The `/plan-review` wrapper
+    chooses between revising and reviewing on this reading, and a text whose
+    shape moved with the number would be one more thing for it to match.
+    """
+    report = ev.spec_dir / _plan_review.REPORT_NAME
+    if not report.is_file():
+        # `ev.tasks_text` rather than a second look at the file, so this row and
+        # the `tasks` reader cannot disagree about whether `tasks.md` exists.
+        return Assessment("skipped" if ev.tasks_text else "in_progress")
+    # Row 3, ahead of every row that reads the report. A sign-off accepts the
+    # plan as it is now whatever the report says about an earlier one, so a
+    # stale or unreadable report under a signed-off plan still reads done.
+    if ev.agent_dir is not None:
+        from wfctl._paths import resolve_branch
+
+        accepted = _plan_review.sign_offs(ev.agent_dir, resolve_branch(ev.repo_root))
+        if accepted and _plan_review.identity(ev.spec_dir / "plan.md") in accepted:
+            return Assessment("done")
+    recorded = _plan_review.read_report(report)
+    if recorded.plan_identity is None:
+        return Assessment("in_progress", None, "the review records no plan.md identity")
+    # The raw bytes, never `ev.plan_text`, which has fenced blocks and comments
+    # blanked and would miss an edit to either. The reviewer hashes the file
+    # with `git hash-object --no-filters`, which sees every byte.
+    if _plan_review.identity(ev.spec_dir / "plan.md") != recorded.plan_identity:
+        return Assessment("in_progress", None, "stale; plan.md changed since the review")
+    if recorded.open_blockers is None:
+        return Assessment("in_progress", None, "the review records no BLOCKER count")
+    if recorded.open_blockers > 0:
+        return Assessment("in_progress", None, f"{recorded.open_blockers} BLOCKER findings open")
+    return Assessment("done")
 
 
 def tasks(ev: Evidence) -> Assessment:

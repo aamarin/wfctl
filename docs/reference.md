@@ -42,7 +42,7 @@ status` shows which are done):
 | brainstorm | `/speckit.brainstorm` | `specs/<branch>/design.md` |
 | specify | `/speckit.specify` | `specs/<branch>/spec.md` |
 | clarify | `/speckit.clarify` | a `## Clarifications` section in `spec.md` — written on every run, including one that finds nothing to ask, since that section is what marks the step done |
-| plan | `/speckit.plan` | `plan.md` |
+| plan | `/speckit.plan`, then `/plan-review` | `plan.md`, and a review of it in `plan-review.md` that has to match the current `plan.md` before `tasks` runs |
 | tasks | `/speckit.tasks` | `tasks.md` |
 | analyze | `/speckit.analyze` | cross-artifact consistency check |
 | decompose | `/speckit.decompose` | PR / issue breakdown |

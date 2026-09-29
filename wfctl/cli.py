@@ -7,7 +7,7 @@ import re
 import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
 import typer
 from rich.console import Console
@@ -178,9 +178,13 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
 # What an auto-approving run means, in the words `status` and `resume` both
 # print. One string because a mode described two ways is a mode a reader has to
 # reconcile, and the thing being described is where an approval happens.
+#
+# The review stops are named beside the design gates because the grant answers
+# both. Since #501 that includes the stop before `tasks`, and a notice naming
+# the gates alone told a reader the run would still wait there.
 _AUTO_APPROVE_NOTICE = (
     "[yellow]auto-approve[/yellow] — design gates answered into the record, "
-    "approval moves to the PR"
+    "review stops run through, approval moves to the PR"
 )
 
 
@@ -330,8 +334,9 @@ def start_cmd(
     auto_approve: bool | None = typer.Option(
         None, "--auto-approve/--no-auto-approve",
         help="Answer this feature's design gates into the record and descend, "
-             "instead of stopping for approval in the session. "
-             "--no-auto-approve hands the gates back to a human.",
+             "and run through its review stops, instead of stopping for "
+             "approval in the session. --no-auto-approve hands both back to "
+             "a human.",
     ),
     session_id: str | None = typer.Option(
         None, "--session-id", envvar="WFCTL_SESSION_ID",
@@ -373,7 +378,7 @@ def start_cmd(
         grant_auto_approve(agent_dir, auto_approve)
         console.print(
             f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
-            else "[green]✓[/green] auto-approve off — design gates stop for a human"
+            else "[green]✓[/green] auto-approve off — design gates and review stops wait for a human"
         )
 
     if report.session_started and not force:
@@ -566,6 +571,7 @@ def status_cmd(
         build_report,
     )
     from wfctl._paths import resolve_spec_dir
+    from wfctl._session import revoked as read_revoked
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -699,6 +705,11 @@ def status_cmd(
             repo_root, arch, exclude=non_record_subtrees(arch)
         ):
             console.print(f"[dim]  record:[/dim] {slug}")
+    elif (revoked := read_revoked(agent_dir)) is not None:
+        # In place of the notice above, since the mode it describes is off. A
+        # person who granted it has to learn that the run stopped on its own
+        # and why, or the attended status reads as if nobody ever granted it.
+        console.print(_revocation_line(revoked), soft_wrap=True)
     console.print("[dim]" + "─" * 36 + "[/dim]")
     if spec_dir is None:
         console.print("[dim](no spec dir found)[/dim]")
@@ -847,8 +858,10 @@ def next_cmd() -> None:
     # Built once and threaded into `_infer_steps` rather than left for it to
     # build internally: `next_step_content` below needs `ev.tasks_open` too,
     # and a second `build_evidence` call here would be the same duplicate read
-    # this function's own comment two lines down warns against.
-    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    # this function's own comment two lines down warns against. `agent_dir`
+    # because this is the file an agent acts on, and without it a signed-off
+    # plan reads stale here while `status` reads it done.
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root, agent_dir)
     steps = _infer_steps(spec_dir, repo_root, ev)
     # Same hold `build_report` applies for `status`/`resume` (FR-010, FR-011):
     # without it, a step a host block is holding reads here as whatever its own
@@ -916,6 +929,62 @@ def next_cmd() -> None:
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
 
 
+def _revocation_line(reason: str) -> str:
+    """What `status` and `resume` print in place of the auto-approve notice
+    once the review cap has turned the mode off (contracts/cli.md).
+
+    The reason is wfctl's own sentence, stored in the mode file when the cap
+    fired, so the line names the count as it stood at that moment.
+    """
+    from rich.markup import escape
+
+    return f"[yellow]auto-approve off[/yellow] — {escape(reason)}"
+
+
+def _apply_review_cap(
+    agent_dir: Path,
+    repo_root: Path,
+    branch: str,
+    spec_dir: Path | None,
+    report: "PipelineReport",
+    pending: str | None,
+) -> tuple["PipelineReport", str | None]:
+    """Turn auto-approve off when the plan was reviewed or signed off
+    `REVIEW_CAP` times under the grant and the pass is still outstanding
+    (FR-022, research R9).
+
+    Returns the report to act on, and the reason when the cap fired. When it
+    fires the report is built again, so the `auto` a caller writes into
+    `next-step.md` is the revoked mode's and the agent reading that file stops
+    on this lap rather than the next.
+
+    `pending` is the report hash the calling `resume` is about to record, and
+    None for a caller whose own event is already in the log.
+
+    A pass that reads `done` does not revoke, since a clean review leaves
+    nothing for a person to decide. Neither does a pass a person claimed with
+    `step none`, which reads `skipped` and has nothing outstanding either.
+    """
+    from wfctl import _plan_review, _session
+    from wfctl._pipeline import build_report
+
+    if not report.auto_approve:
+        return report, None
+    count = _plan_review.review_count(agent_dir, branch, pending)
+    if count < _plan_review.REVIEW_CAP:
+        return report, None
+    plan = next((s for s in report.steps if s["name"] == "plan"), None)
+    state = next(
+        (p["state"] for p in (plan or {}).get("sub_steps", []) if p["name"] == "plan-review"),
+        None,
+    )
+    if state in ("done", "skipped"):
+        return report, None
+    reason = f"wfctl turned it off after {count} plan reviews or sign-offs since it was granted"
+    _session.revoke_auto_approve(agent_dir, reason)
+    return build_report(spec_dir, repo_root, agent_dir, _caller_identity()), reason
+
+
 @app.command("resume")
 def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
@@ -942,6 +1011,20 @@ def resume_cmd() -> None:
     if report.session_holder == "other":
         console.print(_HELD_ELSEWHERE)
         raise typer.Exit(1)
+
+    # The report's hash, recorded on this lap's event so the review cap can
+    # count the laps on which it changed. Taken here, before the cap, which has
+    # to count this lap's own review before the event is written.
+    from wfctl._plan_review import REPORT_NAME
+    from wfctl._plan_review import identity as blob_identity
+    from wfctl._session import revoked
+
+    review_path = None if spec_dir is None else spec_dir / REPORT_NAME
+    review = (
+        blob_identity(review_path)
+        if review_path is not None and review_path.is_file() else None
+    )
+    report, _ = _apply_review_cap(agent_dir, repo_root, branch, spec_dir, report, review)
 
     step_name = report.current or "complete"
 
@@ -974,11 +1057,13 @@ def resume_cmd() -> None:
 
     # Its own line, never a second item inside `(auto: …)`. The two answer
     # different questions — `auto` is whether this step advances unprompted,
-    # `auto-approve` is whether the design gates need a human — and #127 says
+    # `auto-approve` is whether the design gates and review stops need a human — and #127 says
     # they will be read as one axis unless the difference is what the output
     # shows.
     if report.auto_approve:
         console.print(_AUTO_APPROVE_NOTICE)
+    elif (reason := revoked(agent_dir)) is not None:
+        console.print(_revocation_line(reason), soft_wrap=True)
 
     # `bool` because the log has carried a Boolean here since `next` wrote the
     # first one, and `auto` is None at story complete. Two shapes for one
@@ -992,6 +1077,7 @@ def resume_cmd() -> None:
         agent_dir, "resume", branch=branch, step=step_name,
         command=command or "complete", auto=bool(auto),
         **({"digest": mark} if mark else {}),
+        **({"review": review} if review else {}),
     )
 
 
@@ -1669,8 +1755,29 @@ def arch_none_cmd(
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
 
 
-step_app = typer.Typer(no_args_is_help=True, help="Declare a pipeline pass inapplicable.")
+step_app = typer.Typer(
+    no_args_is_help=True,
+    help="Declare a pipeline pass inapplicable, or sign off the plan without a review.",
+)
 app.add_typer(step_app, name="step")
+
+
+def _refuse_unseen(action: str, noun: str, path: Path, repo_root: Path) -> NoReturn:
+    """Refuse a claim whose file the change under review would not carry.
+
+    Shared by `step none` and `step sign-off`, which write into the arch root
+    for the same reader and fail the same two ways: a root outside the working
+    tree, and a root git ignores. Either way no reviewer sees the file, so the
+    caller has already removed what it wrote, and this says that nothing was.
+    """
+    console.print(
+        f"[yellow]⚠[/yellow] Did not {action}: "
+        f"{_arch_location(path, repo_root)} would not be\n  part of the change under "
+        "review — the root is outside the working tree,\n  or git is ignoring it. No "
+        f"reviewer would see the {noun}, so nothing\n  was written.",
+        soft_wrap=True,
+    )
+    raise typer.Exit(1)
 
 
 @step_app.command("none")
@@ -1766,18 +1873,168 @@ def step_none_cmd(
             # Only when this run created it and nothing else landed there; a
             # non-empty directory raises and is left alone.
             path.parent.rmdir()
-        console.print(
-            f"[yellow]⚠[/yellow] Did not record {escape(qualified_name)}: "
-            f"{_arch_location(path, repo_root)} would not be\n  part of the change under "
-            "review — the root is outside the working tree,\n  or git is ignoring it. No "
-            "reviewer would see the claim, so nothing\n  was written.",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
+        _refuse_unseen(f"record {escape(qualified_name)}", "claim", path, repo_root)
 
     console.print(
         f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
     )
+
+
+@step_app.command("sign-off")
+def step_sign_off_cmd(
+    qualified: str = typer.Argument(
+        ..., help="The pass to sign off. Only plan.plan-review binds a plan identity."
+    ),
+    reason: str = typer.Option(..., "--reason", help="Why this edit needs no review."),
+) -> None:
+    """Accept the plan as it is now without a review (FR-023).
+
+    For an edit too small to be worth a review, such as a typo. The command
+    shows the change since the review, appends a `## Sign-off` section to the
+    scan file for the pull request reviewer, and appends a `sign-off` event,
+    which is what reads the pass done (research R8). The sign-off covers the
+    plan identity it recorded and nothing after it, so the next edit reads
+    stale again.
+
+    It does not commit. It prints the commit line, and whoever ran it commits
+    the section, a person or the agent that signed off. Each sign-off counts
+    toward the review cap exactly as a review does, so an agent under
+    auto-approve cannot sign off its way past the cap by repeating one — the
+    cap still fires on the third. It clears an open BLOCKER on the plan it
+    covers in one call, whatever the count; the reader checks a sign-off
+    before it checks the BLOCKER count (`_evidence.plan_review`, row 3), and
+    FR-026's edge case names sign-off as one of the ways an open BLOCKER is
+    resolved. Whether that should need a person's judgment rather than an
+    agent's is the waiver-authority question #100 owns.
+    """
+    import difflib
+    from contextlib import suppress
+
+    from rich.markup import escape
+
+    from wfctl import _plan_review
+    from wfctl._io import append_event
+    from wfctl._pipeline import build_report
+    from wfctl._paths import SCANS_DIR
+
+    agent_dir, repo_root, branch, issue = _resolve_context()
+
+    # The guards `step none` uses, for its reason: the sign-off exists to be a
+    # sentence a reviewer can disagree with.
+    if not reason.strip():
+        console.print("[red]✗[/red] --reason cannot be empty: say why this edit needs no review.")
+        raise typer.Exit(1)
+    if re.fullmatch(r"<[^>]*>", reason.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
+            "say why this edit needs no review."
+        )
+        raise typer.Exit(1)
+    # One line in the scan section, whatever was typed, so a reason carrying a
+    # newline cannot start a line the section's shape does not have.
+    reason = " ".join(reason.split())
+
+    if qualified != "plan.plan-review":
+        console.print(
+            f"[red]✗[/red] {escape(qualified)} binds no identity; "
+            "only plan.plan-review can be signed off",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    report_path = None if spec_dir is None else spec_dir / _plan_review.REPORT_NAME
+    if spec_dir is None or report_path is None or not report_path.is_file():
+        console.print(
+            "[red]✗[/red] nothing was reviewed to sign off. For a pass that does not "
+            'apply: wfctl step none plan.plan-review --reason "…"',
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    plan = spec_dir / "plan.md"
+    if not plan.is_file():
+        console.print("[red]✗[/red] there is no plan.md to sign off")
+        raise typer.Exit(1)
+    if issue == "unknown":
+        console.print("[red]✗[/red] this branch carries no issue key, so the scan file has no name")
+        raise typer.Exit(1)
+
+    scan = arch_root(repo_root) / SCANS_DIR / f"{issue}-plan-review.md"
+    now = _plan_review.identity(plan)
+    # A copy is usable only when it is the plan the review recorded (FR-025). A
+    # diff against any other copy shows a change nobody made since the review.
+    recorded = _plan_review.read_report(report_path).plan_identity
+    if recorded is None:
+        # `_evidence.plan_review` reads this same report the same way and
+        # refuses it ("the review records no plan.md identity") rather than
+        # calling it done — a report written while plan.md was missing
+        # (`## A review that could not run`, report-format.md) never named a
+        # plan to accept. A sign-off has nothing to bind to either, so it is
+        # refused the same way instead of recording `now` as if it had been.
+        console.print(
+            "[red]✗[/red] the review recorded no plan.md identity to sign off; "
+            "run /plan-review",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    copy = spec_dir / _plan_review.COPY_NAME
+    compared = copy.is_file() and _plan_review.identity(copy) == recorded
+
+    # Printed before anything is written, since FR-023 has the person see the
+    # change before the sign-off records it.
+    if compared:
+        console.print("plan.md since the review:")
+        for line in difflib.unified_diff(
+            copy.read_text(errors="replace").splitlines(),
+            plan.read_text(errors="replace").splitlines(),
+            fromfile=_plan_review.COPY_NAME, tofile="plan.md", lineterm="",
+        ):
+            console.print(line, markup=False, highlight=False, soft_wrap=True)
+    else:
+        console.print(
+            "plan.md since the review: no reviewed copy to compare against "
+            "(missing, or not the plan the review recorded)",
+            soft_wrap=True,
+        )
+    console.print()
+
+    # Written, then checked, then undone on a refusal, which is `step none`'s
+    # shape. Git can only say whether the change carries a file once the file
+    # is there, and a sign-off the reviewer cannot see is one the reader must
+    # not honour either, so the event waits until the check passes. The undo
+    # restores an earlier review section byte for byte rather than deleting
+    # the file it sits in.
+    before = scan.read_bytes() if scan.exists() else None
+    created = [d for d in (scan.parent, *scan.parent.parents) if not d.exists()]
+    _plan_review.append_sign_off(scan, now, reason, compared)
+    if touched_on_this_branch(repo_root, scan) is not True:
+        if before is None:
+            scan.unlink(missing_ok=True)
+            for directory in created:
+                with suppress(OSError):
+                    directory.rmdir()
+        else:
+            scan.write_bytes(before)
+        _refuse_unseen("sign off plan.md", "sign-off", scan, repo_root)
+
+    append_event(agent_dir, "sign-off", branch=branch, plan=now, reason=reason)
+
+    location = _arch_location(scan, repo_root)
+    console.print(f'[green]✓[/green] Signed off plan.md {now[:7]} — "{escape(reason)}"', soft_wrap=True)
+    console.print(f"  Written to {location}", soft_wrap=True)
+    console.print(
+        f'  Commit it: git commit -m "docs(scans): sign off plan.md for #{escape(issue)}" '
+        f"-- {location}",
+        soft_wrap=True,
+    )
+
+    # The sign-off reads the pass done, so in practice the cap fires on the
+    # next `resume` after an edit rather than here. It is still asked, since a
+    # count is only as good as its every writer applying it.
+    report = build_report(spec_dir, repo_root, agent_dir, _caller_identity())
+    _, fired = _apply_review_cap(agent_dir, repo_root, branch, spec_dir, report, None)
+    if fired is not None:
+        console.print(_revocation_line(fired), soft_wrap=True)
 
 
 # Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a
