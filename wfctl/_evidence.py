@@ -1165,10 +1165,11 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     if not _file_exists(ev.spec_dir / "spec.md"):
         return verdict
     # Past specify the step stays done whatever the drawings say, and what the
-    # check found travels as a warning instead (`design/532-payload-warnings-list.md`).
-    # The no-trunk line moves from `display` to `reason` here: before specify a
-    # reason holds the step, so it could not go there, and `collect_warnings`
-    # lists only what carries one.
+    # check found travels as a warning (`design/532-payload-warnings-list.md`).
+    # `collect_warnings` lists only a reason, so the no-trunk line, which is a
+    # display string while a reason would hold the step, is carried as one here.
+    # A branch with no `design.md` never reaches this reader (`brainstorm` reads
+    # skipped), which is a separate change.
     return Assessment("done", verdict.reason or verdict.display, remedy=verdict.remedy)
 
 
@@ -1207,10 +1208,11 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     name.
 
     With no trunk, the listing holds only what `git status` reports, so a
-    record the branch committed is never judged. The pass says so in `display`
-    and not `reason`, since a caller reads a truthy reason as a held step, and
-    only when the arch root is in the tree: a root outside it was never listed
-    by git in the first place, trunk or not.
+    record the branch committed is never judged. Before specify the pass says so
+    in `display` and not `reason`, since a caller reads a truthy reason as a held
+    step; `brainstorm_architecture` carries it as the reason once the step is
+    done. It says so only when the arch root is in the tree: a root outside it
+    was never listed by git in the first place, trunk or not.
     """
     from wfctl import _arch
     from wfctl._paths import is_in_tree, trunk_branch
