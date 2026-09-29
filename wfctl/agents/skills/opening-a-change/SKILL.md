@@ -230,6 +230,17 @@ block on it.
 location, a count, a branch. Not when the prose gets long: a short paragraph can
 fail this just as badly, and length was never the signal.
 
+**A change made only of prose takes no drawing.** A reworded paragraph has no
+set, location, count, or branch for the reader to hold, and the diff already is
+the before and after. The only thing left to draw is a paraphrase of the new
+text, which costs the reader more than the diff does and repeats what What, Why,
+and Impact already say. So Before / After reads `N/A`, or one high-level line
+when the change reorganises a document and the new order is something a reader
+holds. The section stays either way, since a present `N/A` reads as a decision
+and a missing section reads as a skip. The test is what the material is and not
+how much of it there is; a one-line code change that flips a branch still earns
+a drawing.
+
 The drawing carries the argument. The line beneath it is a caption — it names
 what to look at and says nothing the drawing already says.
 
