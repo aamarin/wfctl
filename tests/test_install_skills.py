@@ -2832,6 +2832,25 @@ def test_doctor_run_from_a_working_copy_repairs_with_the_working_copy(
     assert "update: wfctl install-skills" not in out
 
 
+def test_every_install_command_a_working_copy_prints_runs_the_working_copy(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rule is every printed command that installs a bundle, not only the
+    repair lines. The opt-in hint after an install and doctor's first-run line
+    are what a reader runs next, and a bare `wfctl` in either is the release."""
+    import os
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _running_from(monkeypatch, f'{{"url":"{repo_root.as_uri()}","dir_info":{{"editable":true}}}}')
+
+    empty = runner.invoke(app, ["doctor"]).output
+    assert "run `uv run wfctl install-skills` first" in empty
+
+    installed = runner.invoke(app, ["install-skills", "--yes"]).output
+    assert "uv run wfctl install-skills --agent claude" in installed
+    assert "  wfctl install-skills" not in installed
+
+
 # ---------------------------------------------------------------------------
 # Bob agent: Claude-only frontmatter stripping
 # ---------------------------------------------------------------------------

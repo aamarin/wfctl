@@ -2693,7 +2693,7 @@ def _render_change_check(
                 f"ℹ No `fields` verb for changes — skipping check of "
                 f"{escape(change_id)}.\n"
                 "  A tracker config that predates this verb is refreshed with "
-                "`wfctl install-skills --tracker <name>`."
+                f"`{escape(_runner(repo_root))} install-skills --tracker <name>`."
             )
             return 0
         console.print(f"[red]✗[/red] could not read {escape(change_id)}: {escape(detail)}")
@@ -4504,13 +4504,14 @@ def install_skills_cmd(
             # an absent key. `--tracker none` clears it and re-opens the
             # question.
             manifest["tracker"] = None
+            program = escape(_runner(repo_root))
             console.print(
                 "[dim]Skipped — `wfctl issue` / `wfctl change` no-op until a tracker "
                 "is set, and this won't be asked again. Set one later with:\n"
-                "  GitHub   wfctl install-skills --tracker github\n"
+                f"  GitHub   {program} install-skills --tracker github\n"
                 "  Custom   /scaffold-tracker writes .agents/trackers/<name>.json\n"
                 "           wfctl tracker-check <name>\n"
-                "           wfctl install-skills --tracker <name>\n"
+                f"           {program} install-skills --tracker <name>\n"
                 "Once set, later installs leave that choice — and your edits to its "
                 "config — alone.[/dim]"
             )
@@ -5081,8 +5082,12 @@ def install_skills_cmd(
             "\n[dim]Installed to .agents/ — skills and commands in their canonical, "
             "agent-agnostic form.\nIf your agent needs its own native paths:[/dim]"
         )
+        program = escape(_runner(repo_root))
         for a in opt_in:
-            console.print(f"[dim]  {a.ljust(width)}  wfctl install-skills --agent {a}[/dim]")
+            console.print(
+                f"[dim]  {a.ljust(width)}  {program} install-skills --agent {a}[/dim]",
+                soft_wrap=True,
+            )
         # `--agent` fixes the worktree the reader is standing in. `post_create`
         # reads the variable, and nothing else carries the choice across a
         # `workmux add` — so the flag alone teaches the hand-carried
@@ -7156,7 +7161,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
         # the reader pastes, and a wrapped one pastes as two broken commands.
         console.print(
             f"    Remove the recorded one(s) with "
-            f"`wfctl install-skills{_agent_flag(layer)}{frm} --prune`.",
+            f"`{escape(_runner(repo_root))} install-skills{_agent_flag(layer)}{frm} --prune`.",
             soft_wrap=True,
         )
     if proven:
@@ -7248,7 +7253,12 @@ def doctor_cmd() -> None:
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
     if not layers:
-        console.print("Nothing installed — run `wfctl install-skills` first.")
+        from rich.markup import escape
+
+        console.print(
+            f"Nothing installed — run `{escape(_runner(repo_root))} install-skills` first.",
+            soft_wrap=True,
+        )
         raise typer.Exit(exit_code)
 
     # After the gate on purpose: with nothing recorded, every file in the owned
