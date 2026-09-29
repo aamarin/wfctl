@@ -150,6 +150,15 @@ _RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
 # how a view renders that conclusion.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
+# The architecture pass's display string when it finished without seeing what the
+# branch committed (#508). Without a trunk there is no base to diff against, so
+# only uncommitted records reach the drawing check. The pass still finishes,
+# because `accept` refuses the drawing when a person rules on the record, and
+# holding the branch on a check that cannot run asks the user for a trunk they
+# may have no reason to create. Short enough that the pass's row fits 80 columns,
+# since a wrapped line breaks under the step table and reads as a new row.
+DRAWINGS_UNCHECKED = "no trunk found, so committed records were not checked"
+
 # The tasks step's display string when its file holds no task (#308). Names the file
 # rather than the step, because `status` prints it on the `tasks` row and "no
 # tasks" there reads as a judgement about the work rather than about the artifact.
@@ -1184,10 +1193,18 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     cannot be met by a command that performs the acceptance, and one that ended
     with it was met by `--agreed x -- --dry-run`, which accepts a record of that
     name.
+
+    With no trunk, the listing holds only what `git status` reports, so a
+    record the branch committed is never judged. The pass says so in `display`
+    and not `reason`, since a caller reads a truthy reason as a held step, and
+    only when the arch root is in the tree: a root outside it was never listed
+    by git in the first place, trunk or not.
     """
     from wfctl import _arch
+    from wfctl._paths import is_in_tree, trunk_branch
 
-    records = _branch_records(repo_root, arch_root(repo_root), added_only=True)
+    arch = arch_root(repo_root)
+    records = _branch_records(repo_root, arch, added_only=True)
     failing = [
         (slug, blockers)
         for slug in sorted(records)
@@ -1195,6 +1212,8 @@ def _judge_drawings(repo_root: Path) -> Assessment:
         and (blockers := _arch.accept_blockers(records[slug]))
     ]
     if not failing:
+        if trunk_branch(repo_root) is None and is_in_tree(arch, repo_root):
+            return Assessment("done", display=DRAWINGS_UNCHECKED)
         return Assessment("done")
     slug, blockers = failing[0]
     return Assessment(
