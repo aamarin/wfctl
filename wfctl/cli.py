@@ -4331,6 +4331,16 @@ def install_skills_cmd(
     # carries `MANAGED_PREFIX` and is wfctl's to correct in place; a deny rule is a
     # bare string the repo may have authored, so a receipt of wfctl's and a file
     # that no longer matches it is a change only a person can explain.
+    # The line both refusals below offer. It carries the source this run was
+    # given, because `--from` is one-shot: a reader who follows the line without
+    # it gets the running bundle installed over the one they named, and a run
+    # that succeeds. Quoted and not escaped here; the whole line is escaped
+    # where it is printed.
+    import shlex
+
+    frm = f" --from {shlex.quote(str(bundle_root))}" if source is not None else ""
+    forced = f"{_runner(repo_root)} install-skills --agent {agent}{frm} --force"
+
     drift = None if force else _permission_drift(repo_root, agent, manifest)
     if drift is not None:
         drifted_path, rule, related, was_wfctls = drift
@@ -4346,7 +4356,6 @@ def install_skills_cmd(
         )
         for existing in related:
             console.print(f"    it now denies: [cyan]{escape(existing)}[/cyan]")
-        forced = f"{_runner(repo_root)} install-skills --agent {agent} --force"
         console.print(
             "  Nothing was installed. Removing that rule is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
@@ -4374,7 +4383,6 @@ def install_skills_cmd(
             f"[cyan]{escape(entry)}[/cyan], {whose}.",
             soft_wrap=True,
         )
-        forced = f"{_runner(repo_root)} install-skills --agent {agent} --force"
         console.print(
             "  Nothing was installed. Removing that entry is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"

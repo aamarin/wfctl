@@ -745,6 +745,35 @@ def test_install_refuses_over_a_rule_the_repo_removed(agent_dir: Path) -> None:
     assert "permissions" not in json.loads(settings_path.read_text())
 
 
+def test_the_refusal_keeps_the_source_the_run_was_given(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`--from` is one-shot, so a forced line without it does not fail. It
+    succeeds, installs the running bundle over the one the reader named, and
+    records the rule as wfctl's on the way.
+
+    The source sits under a directory holding a space, because an unquoted one
+    prints as two arguments and the second is rejected.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    source = tmp_path_factory.mktemp("named source")
+    (source / "agents" / "skills" / "test-skill").mkdir(parents=True)
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# s\n")
+    (source / "agents" / "commands").mkdir(parents=True)
+    (source / "agents" / "commands" / "test-cmd.md").write_text("# c\n")
+    args = ["install-skills", "--agent", "claude", "--from", str(source), "--yes"]
+    runner.invoke(app, args)
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    assert f"--agent claude --from '{source}' --force" in result.output
+
+
 def test_the_refusal_copies_nothing(agent_dir: Path) -> None:
     """The placement is the risk, not the logic. `_merge_permissions` runs past
     the skill copies, so a check written beside it would refuse over a tree it
