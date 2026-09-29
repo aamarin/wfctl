@@ -1171,3 +1171,40 @@ def test_an_unreadable_wfctl_json_leaves_trunk_to_discovery(tmp_path: Path) -> N
 
     assert trunk_branch(repo) == "main"
     assert declared_trunk_problems(repo) == []
+
+
+def test_the_branch_diff_runs_against_a_declared_trunk(tmp_path: Path) -> None:
+    """Both diff callers read trunk through `trunk_branch`, and neither is
+    touched by the declaration, so this pins that the wiring reaches them. A
+    record committed on `dev` before this branch was cut is trunk's, not this
+    branch's; diffed against the guessed `main`, it read as work the branch did."""
+    from tests.conftest import git_repo
+    from wfctl._paths import records_on_this_branch, touched_on_this_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _run_git("-C", str(repo), "switch", "-q", "-c", "dev")
+    arch = repo / "docs" / "architecture"
+    arch.mkdir(parents=True)
+    (arch / "on-dev.md").write_text("x\n")
+    _run_git("-C", str(repo), "add", "docs")
+    _run_git("-C", str(repo), "commit", "-q", "-m", "record on dev")
+    _run_git("-C", str(repo), "switch", "-q", "-c", "9-x")
+    (repo / ".git" / "info" / "exclude").write_text("wfctl.json\n")
+
+    assert touched_on_this_branch(repo, arch) is True
+    assert records_on_this_branch(repo, arch) == ["on-dev"]
+
+    _declare_trunk(repo, "dev")
+    assert touched_on_this_branch(repo, arch) is False
+    assert records_on_this_branch(repo, arch) == []
+
+
+def test_the_three_copies_of_the_config_filename_agree() -> None:
+    """`_paths` spells the filename out because importing it from `_verify`
+    would pull rich into the session-restart hook's fast path. Three copies of
+    one name drift apart silently, and a trunk read from a different file than
+    `check config` validates would be the silence this key exists to end."""
+    from wfctl import _declared, _paths, _verify
+
+    assert _paths._CONFIG_PATH == _verify.CONFIG_PATH == _declared.CONFIG_PATH

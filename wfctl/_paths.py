@@ -155,7 +155,8 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     declaration wfctl drops without saying so is indistinguishable to its author
     from one wfctl never read.
 
-    A file that will not parse is "none declared" rather than a problem here.
+    A file that will not parse, or whose top level is not an object, is "none
+    declared" rather than a problem here.
     `doctor` and `check config` both report it already, and this reader runs
     inside `start` and `status`, where a third copy of the same finding is not
     what anyone asked for.

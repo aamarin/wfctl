@@ -146,6 +146,12 @@ has that branch, and as the local `dev` otherwise, so declaring the branch
 discovery already found changes nothing it compares against. A declared trunk
 is read before anything wfctl would discover.
 
+wfctl reads the declaration from the `wfctl.json` in the checkout you are
+working in, the same as `verify` and `steps`. So a branch cut before the
+declaration landed on trunk still uses discovery until it picks the declaration
+up, and a change to `trunk` shows in the branch's diff like any other policy
+change.
+
 Run `wfctl check config` after adding it. A value that names no local branch
 and no branch on origin is a finding there, and wfctl does not fall back to
 guessing while it stands; it treats the repository as having no trunk until the

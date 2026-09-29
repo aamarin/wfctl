@@ -8,6 +8,7 @@ is for the eight built-in rows.
 from __future__ import annotations
 
 import json
+import subprocess
 import types
 
 from typer.testing import CliRunner
@@ -154,8 +155,6 @@ def test_check_config_reports_a_declared_trunk_that_names_no_branch(
 def test_check_config_says_what_a_declared_trunk_is_read_as(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    import subprocess
-
     branch = subprocess.run(
         ["git", "-C", str(storyctl_dir.repo_root), "branch", "--show-current"],
         check=True, capture_output=True, text=True,
