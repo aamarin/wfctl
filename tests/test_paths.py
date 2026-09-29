@@ -1141,7 +1141,7 @@ def test_a_declared_trunk_only_on_this_machine_is_read_as_the_local_branch(
     assert trunk_branch(repo) == "dev"
 
 
-@pytest.mark.parametrize("value", ["release", "", 5, ["dev"]])
+@pytest.mark.parametrize("value", ["release", "", 5, ["dev"], None])
 def test_a_declared_trunk_that_names_no_branch_is_never_replaced_by_a_guess(
     tmp_path: Path, value: object
 ) -> None:
@@ -1153,6 +1153,26 @@ def test_a_declared_trunk_that_names_no_branch_is_never_replaced_by_a_guess(
 
     repo = git_repo(tmp_path / "repo")
     _run_git("-C", str(repo), "branch", "-M", "main")
+    _declare_trunk(repo, value)
+
+    assert trunk_branch(repo) is None
+    assert len(declared_trunk_problems(repo)) == 1
+
+
+@pytest.mark.parametrize("value", ["main~1", "main^", "HEAD", "main@{0}"])
+def test_a_declared_trunk_that_is_a_revision_expression_is_not_a_branch(
+    tmp_path: Path, value: str
+) -> None:
+    """`rev-parse --verify` parses expressions, so with a parent commit present
+    `"main~1"` resolved to it and `check config` reported success while the
+    branch diff ran against the wrong commit. The name has to be a ref that
+    exists by exactly that spelling."""
+    from tests.conftest import git_repo
+    from wfctl._paths import declared_trunk_problems, trunk_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _run_git("-C", str(repo), "commit", "-q", "--allow-empty", "-m", "second")
     _declare_trunk(repo, value)
 
     assert trunk_branch(repo) is None
