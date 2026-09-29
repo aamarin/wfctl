@@ -170,9 +170,11 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
         return None, []
     if not isinstance(data, dict):
         return None, []
-    declared = data.get(TRUNK_KEY)
-    if declared is None:
+    # Presence, not value: `"trunk": null` is a declaration that names nothing,
+    # and `.get` would read it as the key being absent and let discovery answer.
+    if TRUNK_KEY not in data:
         return None, []
+    declared = data[TRUNK_KEY]
     if not isinstance(declared, str) or not declared.strip():
         return None, [f"'{TRUNK_KEY}' must be a branch name, such as \"main\""]
     return declared, []
@@ -189,13 +191,25 @@ def _resolve_declared(repo_root: Path, name: str) -> str | None:
     change which commits `touched_on_this_branch` compares, and records already
     on trunk would read as this branch's. A bare clone keeps no remote-tracking
     refs by default, so there the local branch is the answer.
+
+    `show-ref --verify` rather than `rev-parse --verify`: the latter parses a
+    revision expression, so `"main~1"` would resolve to an ancestor commit and
+    pass for a branch name. `show-ref` accepts only a ref that exists by that
+    exact name.
+
+    `HEAD` is refused by name. A clone carries `refs/remotes/origin/HEAD`, a
+    symbolic ref to the remote's default branch, so `show-ref` finds it and
+    `"trunk": "HEAD"` would pass as a branch while naming whatever discovery
+    guessed, which is the answer a declaration exists to overrule.
     """
+    if name == "HEAD":
+        return None
     for ref, answer in (
         (f"refs/remotes/origin/{name}", f"origin/{name}"),
         (f"refs/heads/{name}", name),
     ):
         if subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", ref],
+            ["git", "show-ref", "--verify", "--quiet", ref],
             cwd=repo_root, capture_output=True,
         ).returncode == 0:
             return answer

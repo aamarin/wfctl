@@ -1141,7 +1141,7 @@ def test_a_declared_trunk_only_on_this_machine_is_read_as_the_local_branch(
     assert trunk_branch(repo) == "dev"
 
 
-@pytest.mark.parametrize("value", ["release", "", 5, ["dev"]])
+@pytest.mark.parametrize("value", ["release", "", 5, ["dev"], None])
 def test_a_declared_trunk_that_names_no_branch_is_never_replaced_by_a_guess(
     tmp_path: Path, value: object
 ) -> None:
@@ -1157,6 +1157,46 @@ def test_a_declared_trunk_that_names_no_branch_is_never_replaced_by_a_guess(
 
     assert trunk_branch(repo) is None
     assert len(declared_trunk_problems(repo)) == 1
+
+
+@pytest.mark.parametrize("value", ["main~1", "main^", "HEAD", "main@{0}"])
+def test_a_declared_trunk_that_is_a_revision_expression_is_not_a_branch(
+    tmp_path: Path, value: str
+) -> None:
+    """`rev-parse --verify` parses expressions, so with a parent commit present
+    `"main~1"` resolved to it and `check config` reported success while the
+    branch diff ran against the wrong commit. The name has to be a ref that
+    exists by exactly that spelling."""
+    from tests.conftest import git_repo
+    from wfctl._paths import declared_trunk_problems, trunk_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _run_git("-C", str(repo), "commit", "-q", "--allow-empty", "-m", "second")
+    _declare_trunk(repo, value)
+
+    assert trunk_branch(repo) is None
+    assert len(declared_trunk_problems(repo)) == 1
+
+
+def test_a_declared_trunk_of_head_is_refused_in_a_clone_with_an_origin(
+    tmp_path: Path,
+) -> None:
+    """A clone carries `refs/remotes/origin/HEAD`, so `show-ref` finds `HEAD`
+    there and the declaration passed as a branch while naming whatever discovery
+    guessed. The revision-expression test above cannot see this: its fixture has
+    no remote, so `HEAD` fails there for a different reason."""
+    from tests.conftest import git_repo
+    from wfctl._paths import declared_trunk_problems, trunk_branch
+
+    src = git_repo(tmp_path / "src")
+    _run_git("-C", str(src), "branch", "-M", "main")
+    clone = tmp_path / "clone"
+    _run_git("clone", "-q", str(src), str(clone))
+    _declare_trunk(clone, "HEAD")
+
+    assert trunk_branch(clone) is None
+    assert len(declared_trunk_problems(clone)) == 1
 
 
 def test_an_unreadable_wfctl_json_leaves_trunk_to_discovery(tmp_path: Path) -> None:
