@@ -519,3 +519,77 @@ three sources, and only the first is reproducible from a shell alone:
   so finding 9 rests on reading the rendered sidebar at full width. That is the
   weakest evidence in this file and it is the whole basis of that finding, which
   is why it is recorded as an observation rather than filed as a bug.
+
+## Session 2026-09-25
+
+- Verdict: **unsatisfied**
+- Scope: the 2026-09-22 session's two outstanding rows were revisited, and the
+  mirror was exercised across a teardown and a reconnect. No new pass was named,
+  and every row not listed below stands as that session recorded it.
+- Ran against: 9 - 12 tmux sessions on the default server, 11 mirrored
+  workspaces at connect.
+- Versions: cmux 0.64.25 (106), tmux 3.6a, workmux 0.1.211, wfctl 0.20.0.
+- Detail: the full second reading was drafted in the earlier commits of the
+  pull request that carries this section, and was reduced to this section rather
+  than merged, for the reason given under "Superseded direction" below. What that
+  draft established is summarised here, and those commits are the only fuller
+  copy.
+
+### Coverage rows that changed
+
+| Pass | Status |
+| --- | --- |
+| C · `ssh-tmux` / `mosh-tmux` — the control-mode path | Outstanding (the mirror never discovers a session created after connect, and a reconnect misassigns rows) |
+| H · What a mirrored row reports about its own worktree | Outstanding (five of the ten rows read print a path that is not theirs) |
+
+### Two claims above are wrong, and are corrected here
+
+1. Finding 9 reports two rows showing a path that is not theirs and three
+   showing no path, and both it and the Evidence section state that the sidebar
+   was read at full width, so the absent paths are not truncation. Both halves
+   are wrong. The sidebar was
+   narrower than the claim, three subtitles were truncated to nothing, and a
+   second reading of ten of the eleven rows found five printing a path that is
+   not theirs. All five print this worktree's path. That count is a reading of a
+   screenshot, and no cmux verb reports a mirrored workspace's subtitle or path,
+   so it has no second source and a later reader should treat it as the weakest
+   claim in the file.
+2. Finding 9 offers, as the one thing the wrong rows have in common, that their
+   sessions were created within thirty seconds of each other and of 424's. That
+   is falsified. `pfms__pfms-specs` is the oldest session on the server and sits
+   in a different repository, and `pfms__656-detail-panel` was created an hour
+   apart from the three wfctl sessions. Both print the wrong path. Proximity in
+   time is not what the five share.
+
+### Three further defects, found and not written up in full
+
+1. A session created after the mirror connects never gets a row. The sidebar
+   keeps the eleven that existed at connect while `tmux list-sessions` reports
+   twelve, and re-running `cmux ssh-tmux localhost` does not repair it.
+2. Tearing down the SSH control socket and reconnecting does add the missing
+   rows, and it clears the status line from every row that carried one.
+3. After that reconnect, two rows titled for `pfms` sessions rendered a wfctl
+   worktree's live pane, subtitle, and path. Only the title belonged to the
+   session it named.
+
+### Superseded direction
+
+Subsequent investigation found the cmux surface had additional path-correlation
+and discovery defects beyond those recorded here. Those findings were not
+pursued to implementation because the supervisory direction subsequently moved
+away from using cmux as the wfctl status surface, toward a terminal-native
+dashboard over workmux, tmux, and `wfctl status --json`. The original evaluation
+is retained because it is what settled that question, and the corrections above
+are appended rather than the file being rewritten.
+
+Four conclusions survive the change of direction, and they bind the dashboard:
+
+1. A presentation-layer identifier is not authority. The workmux handle is the
+   correlation identity.
+2. Runtime state and workflow state are different things, and a row that
+   conflates them answers "which worktree needs me?" wrongly.
+3. The presentation must be reconstructable from the runtime, since a client
+   that caches its row set does not notice a worktree created after it
+   connected.
+4. Runtime and worktree identity are derived from workmux and tmux, never from a
+   client's own bindings.

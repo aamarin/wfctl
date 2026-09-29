@@ -33,15 +33,18 @@ agent: claude
 #-------------------------------------------------------------------------------
 # Hooks
 #-------------------------------------------------------------------------------
-# Require branch/handle to start with an issue number (e.g. 359-my-feature),
-# matching wfctl's issue-number branch model. Aborts creation otherwise.
-pre_create:
-  - |
-    ISSUE=$(echo "$WM_HANDLE" | grep -oE '^[0-9]+')
-    if [[ -z "$ISSUE" ]]; then
-      echo "Error: '$WM_HANDLE' must start with an issue number (e.g. 359-my-feature)."
-      exit 1
-    fi
+# Every worktree works against an open issue, and nothing in this file enforces
+# it. workmux has no hook that runs before a worktree is created, and a worktree
+# made with `git worktree add` runs no hook at all. `wfctl start` enforces it
+# instead: in a linked worktree it refuses to open a session when the branch
+# names no issue under the tracker's `key_pattern`, when the issue is closed or
+# missing, or when the worktree has no wfctl install. So a handle such as
+# `359-my-feature` is what makes the worktree usable, and a refused one says
+# which command fixes it.
+#
+# Not in `post_create` either. A failing `post_create` aborts `workmux add` but
+# leaves the worktree and its branch on disk with no session, which is the state
+# the check exists to prevent.
 
 # wf-skills files are gitignored, so a fresh worktree has none of them: no
 # skills, no commands, no `.specify/` runtime. Reinstalling here is what makes a
@@ -61,13 +64,8 @@ post_create:
   # the item to its in-progress column; one without simply does not declare the
   # verb, and the call no-ops with a notice. No issue number here: the key comes
   # off the branch under the tracker's own `key_pattern`, so nothing in this
-  # line has to know what a key looks like.
-  #
-  # That is not the same as this file working for a non-numeric tracker. The
-  # `pre_create` gate above still refuses a handle that does not start with
-  # digits, so a repo whose keys are `PROJ-123` cannot create the branch whose
-  # name this verb would read. Relax that gate to the tracker's own pattern
-  # before pointing a Jira- or Linear-shaped repo at this template.
+  # line has to know what a key looks like, and a repo whose keys are `PROJ-123`
+  # works here as one whose keys are numbers does.
   #
   # Second, not first: the verb is defined by `.agents/trackers/<name>.json`, and
   # the install above is what puts that in a fresh worktree.

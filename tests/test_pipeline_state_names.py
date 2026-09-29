@@ -21,7 +21,7 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC
 from wfctl import cli
 from wfctl.cli import app
 from wfctl._pipeline import PipelineReport, _infer_steps, build_report
@@ -280,7 +280,7 @@ def test_a_written_record_with_no_design_doc_leaves_exactly_one_pass_outstanding
     root = storyctl_dir.repo_root / "docs" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     root.mkdir(parents=True)
-    (root / "a-decision.md").write_text("---\nstatus: proposed\n---\n\n# A decision\n")
+    (root / "a-decision.md").write_text(ACCEPTABLE_RECORD)
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
     brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")

@@ -122,6 +122,15 @@ jobs:
         with:
           enable-cache: true
 
+      # The lock records this package's own version, so a release bump that
+      # leaves it behind makes every `uv run` a developer makes rewrite it into a
+      # modified file nobody edited. Nothing else here notices, since a bare
+      # `uv sync` updates a stale lock before anything reads it; this step runs
+      # first for that reason. Five releases needed a hand-made sync afterwards,
+      # 0.7.0, 0.13.0, 0.18.0, 0.20.0, and 0.21.0, before this step existed (#514).
+      - name: Assert uv.lock is current
+        run: uv lock --check
+
       # Bare, for the reason the test job states: `--extra dev` would install
       # ruff and mypy even if the group stopped resolving.
       - name: Install

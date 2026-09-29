@@ -21,14 +21,16 @@ def _write(root: Path, slug: str, body: str) -> Path:
     return path
 
 
-def test_the_three_kinds_are_the_ones_the_template_names() -> None:
+def test_the_four_kinds_are_the_ones_the_template_names() -> None:
     """FR-012's vocabulary is `wfctl`'s own, held against the template
     elsewhere (T020) — this pins the constant itself so that test has
-    something fixed to compare against."""
-    assert _arch.DIAGRAM_KINDS == ("data-flow", "component", "state")
+    something fixed to compare against. `sequence` is last because the accept
+    refusal prints the kinds in this order, and the three older ones keep the
+    order the guidance has always listed them in (#495)."""
+    assert _arch.DIAGRAM_KINDS == ("data-flow", "component", "state", "sequence")
 
 
-@pytest.mark.parametrize("kind", ["data-flow", "component", "state"])
+@pytest.mark.parametrize("kind", ["data-flow", "component", "state", "sequence"])
 def test_a_declared_kind_is_read_back(tmp_path: Path, kind: str) -> None:
     """FR-001: the author's own value comes back unchanged."""
     path = _write(
@@ -89,7 +91,7 @@ def test_an_absent_diagram_is_not_a_vr006_finding(tmp_path: Path) -> None:
     assert findings == []
 
 
-@pytest.mark.parametrize("kind", ["data-flow", "component", "state"])
+@pytest.mark.parametrize("kind", ["data-flow", "component", "state", "sequence"])
 def test_a_recognised_diagram_is_not_a_vr006_finding(tmp_path: Path, kind: str) -> None:
     path = _write(
         tmp_path, "a-decision", f"---\nstatus: proposed\ndiagram: {kind}\n---\n\n# X\n"

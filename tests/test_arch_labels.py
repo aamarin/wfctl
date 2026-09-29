@@ -232,6 +232,100 @@ def test_a_bracket_inside_a_quoted_node_label_does_not_end_it() -> None:
     assert _arch._labels('A["Use [cache]"] --> B') == ["Use [cache]"]
 
 
+def test_every_sequence_message_arrow_is_read() -> None:
+    """A `sequenceDiagram` draws its messages with `->>`, `->`, `-x` and `-)`,
+    solid or dotted, and the label follows the `:`. Only `-->` was read, so a
+    `sequence` record (#495) had its solid messages skipped and could name a
+    step its prose never mentions with no warning."""
+    for arrow in ["->>", "-->>", "->", "-x", "--x", "-)", "--)"]:
+        assert _arch._labels(f"agent{arrow}wfctl: run step") == ["run step"], arrow
+
+
+def test_a_participant_alias_is_read_and_its_id_is_not() -> None:
+    """`participant R as renderer` renders as "renderer"; the `R` before `as`
+    is an id nobody reading the drawing sees, so comparing it would warn about
+    a word that is not in the picture."""
+    assert _arch._labels("participant R as renderer") == ["renderer"]
+    assert _arch._labels('actor A as "the agent"') == ["the agent"]
+
+
+# --- the failure row a sequence drawing carries (#495) ----------------------
+
+
+def _sequence(status: str, drawing: str) -> str:
+    return (
+        f"---\nstatus: {status}\ndiagram: sequence\n---\n\n# A decision\n\n"
+        "## Decision\n\nThe renderer polls and wfctl answers.\n\n"
+        f"## Boundary\n\n```mermaid\nsequenceDiagram\n{drawing}\n```\n\n"
+        "## Log\n\n- 2026-03-14  proposed    — x\n"
+    )
+
+
+def test_a_sequence_with_no_step_that_fails_is_warned(tmp_path: Path) -> None:
+    """The kind exists to show what is left when a step fails partway, so a
+    happy-path-only drawing has drawn the half it was not added for."""
+    path = _write(
+        tmp_path, "a-decision",
+        _sequence("proposed", "  renderer->>wfctl: polls\n  wfctl-->>renderer: answers"),
+    )
+
+    findings = _arch.validate([_arch.parse_record(path)])
+
+    assert any(
+        f.level == "warning" and "no step that fails" in f.message for f in findings
+    )
+
+
+@pytest.mark.parametrize("failure", [
+    "  alt wfctl answers\n  wfctl-->>renderer: answers\n  else wfctl fails\n"
+    "  wfctl-->>renderer: nothing\n  end",
+    "  opt the poll fails\n  renderer->>renderer: polls again\n  end",
+    "  break wfctl fails\n  wfctl-->>renderer: nothing\n  end",
+    "  critical wfctl answers\n  wfctl-->>renderer: answers\n  end",
+    "  wfctl--xrenderer: answers",
+])
+def test_any_drawn_failure_path_satisfies_it(tmp_path: Path, failure: str) -> None:
+    path = _write(
+        tmp_path, "a-decision",
+        _sequence("proposed", f"  renderer->>wfctl: polls\n{failure}"),
+    )
+
+    findings = _arch.validate([_arch.parse_record(path)])
+
+    assert not [f for f in findings if "no step that fails" in f.message]
+
+
+def test_the_failure_row_is_not_asked_of_other_kinds_or_of_accepted_records(
+    tmp_path: Path,
+) -> None:
+    """A `state` drawing follows one thing through its states and owes no
+    failure row, and an accepted record's body is frozen, so a finding against
+    it names work nobody is allowed to do — VR-007's reason for `proposed` only."""
+    happy = "  renderer->>wfctl: polls\n  wfctl-->>renderer: answers"
+    accepted = _write(tmp_path, "accepted-one", _sequence("accepted", happy))
+    state = _write(
+        tmp_path, "state-one",
+        _sequence("proposed", happy).replace("diagram: sequence", "diagram: state"),
+    )
+
+    findings = _arch.validate([_arch.parse_record(accepted), _arch.parse_record(state)])
+
+    assert not [f for f in findings if "no step that fails" in f.message]
+
+
+def test_a_commented_out_failure_block_does_not_count(tmp_path: Path) -> None:
+    """Mermaid ignores a `%%` line, so a failure path written there is not in
+    the picture a reader sees."""
+    path = _write(
+        tmp_path, "a-decision",
+        _sequence("proposed", "  renderer->>wfctl: polls\n  %% alt wfctl fails"),
+    )
+
+    findings = _arch.validate([_arch.parse_record(path)])
+
+    assert any("no step that fails" in f.message for f in findings)
+
+
 # --- the corpus run (T030) ---------------------------------------------------
 
 

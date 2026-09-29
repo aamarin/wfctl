@@ -302,6 +302,19 @@ def build_payload(root: Path) -> dict[str, list[dict[str, str | None]]]:
     payload["design-no-record"] = _dump(design, plain)
     payload["design-with-record"] = _dump(design, recorded)
 
+    # The gate's third answer (#498): a record was written, and its drawing is
+    # one `accept` would refuse. `recorded`'s record carries no frontmatter, so
+    # its status is unreadable and the gate never judges it; this one is
+    # proposed and draws nothing.
+    failing = _repo(root, "failing-drawing", tracker=True, record=False)
+    arch = failing / "docs" / "architecture"
+    arch.mkdir(parents=True, exist_ok=True)
+    (arch / "a-decision.md").write_text(
+        "---\nstatus: proposed\ndiagram: component\n---\n\n# A decision\n\n"
+        "## Log\n\n- 2026-09-26  proposed  — x\n"
+    )
+    payload["design-failing-drawing"] = _dump(design, failing)
+
     # spec_dir=None returns before any predicate runs.
     payload["no-spec-dir"] = _dump(None, plain)
 

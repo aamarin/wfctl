@@ -31,12 +31,6 @@ against each other by `tests/test_skill_attribution.py`.
 
     Copyright (c) 2025 Addy Osmani
 
-## ayghri/i-have-adhd
-
-<https://github.com/ayghri/i-have-adhd> — `i-have-adhd`.
-
-    Copyright (c) 2026 Ayoub Ghriss
-
 ## github/spec-kit
 
 <https://github.com/github/spec-kit> — `speckit-analyze`, `speckit-checklist`,

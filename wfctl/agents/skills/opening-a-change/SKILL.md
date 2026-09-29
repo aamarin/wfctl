@@ -50,14 +50,28 @@ diff seemed trivial is a decision made silently, per run, by the only party with
 an interest in the answer — which is the shape of the defect this step exists to
 remove, not an exception to it.
 
-**The panel's output is not content for the description.** A finding you applied
-is a commit on this branch, which the diff already shows; restating it in prose a
-reviewer has to trust adds a second account of the same fact, and the weaker one.
+**None of the panel's output goes in the description.** That covers every
+finding, whether you applied it, accepted it, or rejected it, and it covers the
+disposition table, the roster, and any line saying the panel ran. It holds for
+the first body and for every push after it.
 
-What the diff does not show is a finding you **did not apply** — accepted but
-deferred, or rejected outright. A reviewer raised it, you decided, and nothing in
-the change records that the question was asked. Say those under Additional
-Context, with the disposition and the reason, in a line each.
+The disposition table from the panel skill's Step 6 goes to the person you are
+working for, in the conversation. They are the one who can overrule a
+disposition, and the conversation is where they can. A finding you applied is a
+commit on this branch, which the diff already shows. A finding you did not apply
+was a decision made with that person, and it is theirs to carry further.
+
+On MarinVentures/pfms#680 a description that carried the panel gained a row
+with every review round until it held 15, 12 of them findings already applied,
+and the maintainer asked that the body not mention the panel at all. So the
+description is for the change, and the panel is not part of the change.
+
+A finding you did not apply can still be something a reviewer of the change
+needs to know, and then it is written about the code rather than as a finding.
+A rejected one becomes an open question ("Should `resolve` fall back to the main
+checkout when the manifest is missing?"). A deferred one becomes a follow-up you
+are deliberately leaving, with whether it was filed. Both go where the template
+keeps open questions and follow-ups, and neither names the panel or a reviewer.
 
 **Nothing checks this.** The panel does write artifacts — one report per reviewer
 under `$FEATURE_DIR/reviews/` — so the tempting repair is a check that they
@@ -142,8 +156,10 @@ Summary (context, then the drawing, then what / why / impact) · What changed ·
 How it was tested · Issue links · Additional context.
 ```
 
-Then fill those five. Additional context is where Step 1's undecided findings
-go, so a repository with no template still has somewhere to put them.
+Then fill those five. The panel's findings went to the person in the
+conversation, with or without a template. The one thing from Step 1 that can
+land here is a finding already rewritten about the code, as an open question or
+a follow-up, and that goes under Additional context like any other.
 
 `wfctl install-config github` seeds a real template — say so once, and do not
 block on it.
@@ -152,14 +168,21 @@ block on it.
 
 - **Every section the template has, in its order.** A section you have nothing
   for gets "None" or "N/A" — never silent deletion, which reads as an answer.
-- **A `## Review Panel` section is an older template, and it is where Step 1's
-  undecided findings go instead.** `install-config` writes a template once and
-  never touches it again, so a repository seeded before this skill changed still
-  carries that section, and its comment block still asks for the disposition
-  table and refuses "N/A". Fill it with the findings you did not apply, the same
-  ones Additional Context would have taken — the section is not a reason to
-  reproduce a table of what you already committed, and the template is the
-  project's file to change, not yours.
+- **A `## Review Panel` section is an older template, and it gets "N/A".**
+  `install-config` writes a template once and never touches it again, so a
+  repository seeded before this skill changed still carries that section, and
+  its comment block still asks for the disposition table and refuses "N/A".
+  Step 1 overrules that comment. Deleting the section would read as an answer,
+  and filling it would put the panel in the description; "N/A" does neither.
+  The template is the project's file to change, not yours. The same goes for a
+  checklist item or a comment block elsewhere in an older template that asks for
+  findings under Additional Context: leave the item unticked and write nothing
+  from the panel.
+- **A comment naming `conversation-response-shape` as the owner of the
+  form-selection table is an older template too.** That skill no longer ships
+  with wfctl, and the seed-once rule above means the pointer was never updated.
+  The table is in "Choosing a drawing" below, so read it there, and leave the
+  template's wording for the project to change.
 - **Answer the comment blocks; then delete them.** They are instructions to the
   author, not part of the description. Placeholders in brackets are replaced,
   not left.
@@ -173,12 +196,12 @@ block on it.
   line as it printed, the record as it is shaped, the error as it read. A
   sentence describing a string is longer than the string and less certain.
 - **Pick the drawing's form from the table, then read the template for its
-  notation.** `conversation-response-shape` owns which form the material calls
-  for. Whether that form ships as ASCII or as mermaid is the template's
-  question, and its answer is conditional rather than a default: mermaid where
-  the reader is at a desk and a layout engine should do the work, ASCII where
-  the drawing has to survive a phone or a terminal, and ASCII where placement
-  carries grouping, alignment, or counts positioned to be compared.
+  notation.** "Choosing a drawing" below is the single home for which form the
+  material calls for. Whether that form ships as ASCII or as mermaid is the
+  template's question, and its answer is conditional rather than a default:
+  mermaid where the reader is at a desk and a layout engine should do the work,
+  ASCII where the drawing has to survive a phone or a terminal, and ASCII where
+  placement carries grouping, alignment, or counts positioned to be compared.
 
   **Position that carries meaning is a reason to stay in ASCII, not something
   to re-draw.** A layout engine assigns position itself, so the distinction is
@@ -200,6 +223,46 @@ block on it.
   links the change to its issue in the tracker's own panel. Where the template
   has a section for it, that section's rules govern the details and this bullet
   stops here.
+
+## Choosing a drawing
+
+**Draw when the reader has to hold something to follow the sentence** — a set, a
+location, a count, a branch. Not when the prose gets long: a short paragraph can
+fail this just as badly, and length was never the signal.
+
+The drawing carries the argument. The line beneath it is a caption — it names
+what to look at and says nothing the drawing already says.
+
+**A proposed change is a set.** Naming a fix means naming what the code does
+today and what it does once changed, across every input that reaches it — the
+*rows against columns* row below, and the one most often missed. The diff is
+not that drawing: a branch the reviewer has to run in their head to recover the
+states is the holding a drawing exists to prevent.
+
+**Pick the form from what the material is**, before reaching for any of them:
+
+| The material is | Draw |
+|---|---|
+| a set split in two | two columns, counts in the headers |
+| one source, several destinations | a fan-out, annotations hanging right |
+| a chain whose destinations fan out again | a nested tree, each level indented under the node it hangs from |
+| a value and what it causes | the value, then `└─►` the consequence |
+| a sequence with exits | a flow, exits hanging off the step that takes them |
+| rows against columns | a table |
+
+Two columns is the most frequent row. *Before / after* is one filling of it —
+*can observe / cannot observe*, *checked / assumed*, *mirrored / not mirrored*
+are others — and the split is chosen from the material, not defaulted to.
+
+**Tabular content goes in a table.** Columns aligned by hand inside a code block
+read as jumbled the moment one cell outgrows its header — this is the rule
+`check-body` (Step 5) enforces mechanically; the rest of this section is
+judgment a check can't see. Reserve ASCII for flows, trees and timelines, where
+arrows and nesting carry what a table cannot.
+
+**Enumerate real states, not every trigger.** A property that varies across
+every row is a column, not a row. Two states that leave identical output are
+one state reached two ways — collapse them.
 
 ## Step 5: Open it
 
@@ -230,11 +293,11 @@ directory.
 A scratch directory your harness already gives you is better than either, being
 unique per session without deriving anything. Use it where you have one.
 
-`check-body` reads the drawings against `conversation-response-shape`, which the
-template above names as the owner of which drawing to use. It knows one thing and
-says so: a fenced block with columns aligned by hand *and* a cell that outgrew its
-header is tabular content, and tabular content goes in a table. That combination
-is the one the reader rejected on #208 — the fix was replacing the fence with a
+`check-body` reads the drawings against "Choosing a drawing" above, this skill's
+own home for which drawing to use. It knows one thing and says so: a fenced
+block with columns aligned by hand *and* a cell that outgrew its header is
+tabular content, and tabular content goes in a table. That combination is the
+one the reader rejected on #208 — the fix was replacing the fence with a
 markdown table, and the accepted drawings in the same body are hand-aligned too,
 which is why alignment alone is not the finding.
 
@@ -405,12 +468,15 @@ attributes.
 
 ## Red flags
 
-- "The description has no panel section, so Step 1 is optional." The step is not
-  reached through the body and never was; what the body stopped carrying is the
-  table, not the requirement to run the panel over every change.
-- Writing up the findings you applied. They are commits on the branch, and the
-  reviewer reads the diff. The half worth a line is the one the diff cannot
-  show: what a reviewer raised and you decided against.
+- "The description no longer mentions the panel, so Step 1 is optional." The
+  step is not reached through the body and never was; what the body stopped
+  carrying is the panel's output, not the requirement to run the panel over
+  every change.
+- Any mention of the review panel in the description, on the first body or on a
+  push after it. That includes a status line such as `Review panel: r1 ✓ r2 ✓
+  r3 ✓`, a roster, a findings table, and a single finding of any disposition.
+  The table goes to the person in the conversation, and a question a reviewer
+  needs is asked about the code.
 - Running the panel after the PR is open, because the diff is easier to point at
   there. The findings then arrive against a change reviewers have already been
   asked to read, and every fix lands as a commit pushed after they started.

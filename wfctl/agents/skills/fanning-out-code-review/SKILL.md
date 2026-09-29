@@ -5,7 +5,6 @@ description: 'Review a change with a panel of independent reviewers instead of o
 # worth running — a change about to be opened or merged — is a moment nobody
 # types a command. `install-skills` names this skill among those it mirrors into
 # `.claude/skills/`, so the model can reach it without one.
-# `conversation-response-shape` is the precedent.
 ---
 
 # Fanning out a code review
@@ -128,9 +127,10 @@ a PR is opened. That is the path an unattended run takes, where the description
 above matches nothing because nobody said anything (#187) — so this skill starts
 from a step in another file rather than from a phrase.
 
-The reconciled table from Step 6 is this skill's own output and stays here.
-`opening-a-change` decides separately what a description says about the panel,
-and it says the applied findings are commits the diff already shows.
+The reconciled table from Step 6 is this skill's own output, and it goes to the
+person you are working for, in the conversation. A change description carries
+nothing from the panel, and `opening-a-change` says the same from its side: no
+finding of any disposition, no table, and no roster or status line.
 
 **Comments already on the change are panel members you did not pay for** — a
 bot's review, a person's note. Collect them in the same pass.
@@ -374,6 +374,11 @@ the findings — two of four would have been wrong to apply as written.
 Every finding from every reviewer appears, with what you did about it and why.
 Silence on a finding is not an option: an unmentioned finding reads as one
 nobody raised.
+
+Report it to the person in the conversation, not into a change description. On
+a change that is already open, that holds for every later round as well; a
+description that took one row per round grew to 15 rows, 12 of them already
+applied.
 
 ```
 ## Review panel: <target> — 3 reviewers, 4 findings

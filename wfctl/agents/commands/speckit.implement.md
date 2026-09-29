@@ -1,5 +1,4 @@
 ---
-disable-model-invocation: true
 description: Execute the implementation plan by processing and executing all tasks defined in tasks.md
 allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(git diff*) Bash(git status*) Bash(git merge-base*) Bash(git log*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl verify*) Bash(wfctl report-block*)
 ---

@@ -1,21 +1,21 @@
 """`start-session`'s last step is a branch, not a question.
 
-Step 9 asked "what are we working on today?" unconditionally from the day it was
+Step 8 asked "what are we working on today?" unconditionally from the day it was
 written. Four worktrees created on 2026-09-06 with a full handoff each named
 their own first action, stated it, and then stopped for a human who was not
 there (#244).
 
 These assert against rows, not against the step as a whole. The first version of
-this file checked for substrings anywhere in step 9, and a review panel showed
+this file checked for substrings anywhere in step 8, and a review panel showed
 all three passing on a scratch copy with the two table cells *swapped* — #244
 reintroduced, and every unhandled session starting work unprompted, both green.
 A check the violating artifact passes is what `a-rule-is-expressed-as-a-check`
 calls the rule's absence, documented.
 
 Since #352 the branch reads the last stop's *kind* rather than the presence of a
-stop, so these also slice step 4 — the read step 9 is a branch on. Every helper
-here used to start at step 9's heading, which left the one step that decides what
-step 9 sees unreachable by any assertion in the file.
+stop, so these also slice step 3 — the read step 8 is a branch on. Every helper
+here used to start at step 8's heading, which left the one step that decides what
+step 8 sees unreachable by any assertion in the file.
 """
 from importlib.resources import files
 from pathlib import Path
@@ -27,46 +27,46 @@ import pytest
 # repoints the bundle root at a fake tree, and the shipped text is the subject.
 _SKILL = Path(str(files("wfctl"))) / "agents" / "skills" / "start-session" / "SKILL.md"
 
-# Anchored on the heading rather than on `"\n9. "`. The step has been renumbered
-# once already (8 → 9, `2fdbcdc`), and a renumber should fail as a named missing
-# heading rather than as a bare ValueError out of a helper.
-_STEP_NINE_HEADING = "**Answer the question, or ask it"
-_STEP_EIGHT_HEADING = "Report status to the user:"
-_STEP_FOUR_HEADING = "**Read the position, then the handoff:**"
-_STEP_FIVE_HEADING = "**Surface work done on this branch**"
+# Anchored on the heading rather than on `"\n8. "`. The step has been renumbered
+# twice already (8 → 9, `2fdbcdc`; 9 → 8, #485), and a renumber should fail as
+# a named missing heading rather than as a bare ValueError out of a helper.
+_STEP_EIGHT_HEADING = "**Answer the question, or ask it"
+_STEP_SEVEN_HEADING = "Report status to the user:"
+_STEP_THREE_HEADING = "**Read the position, then the handoff:**"
+_STEP_FOUR_HEADING = "**Surface work done on this branch**"
 
 
-def _step_nine() -> str:
+def _step_eight() -> str:
     text = _SKILL.read_text()
-    if _STEP_NINE_HEADING not in text:
-        pytest.fail(f"start-session no longer has a step headed {_STEP_NINE_HEADING!r}")
-    return text[text.index(_STEP_NINE_HEADING) :]
+    if _STEP_EIGHT_HEADING not in text:
+        pytest.fail(f"start-session no longer has a step headed {_STEP_EIGHT_HEADING!r}")
+    return text[text.index(_STEP_EIGHT_HEADING) :]
 
 
-def _step_four() -> str:
-    """Step 4 alone, bounded at both ends.
+def _step_three() -> str:
+    """Step 3 alone, bounded at both ends.
 
-    Step 9 is last, so `_step_nine` can run to the end of the file. Step 4 is in
-    the middle, and an unbounded slice would carry step 9's table into it — where
+    Step 8 is last, so `_step_eight` can run to the end of the file. Step 3 is in
+    the middle, and an unbounded slice would carry step 8's table into it — where
     a prefix match finds a row that belongs to the other table and asserts
     nothing about this one.
     """
     text = _SKILL.read_text()
-    for heading in (_STEP_FOUR_HEADING, _STEP_FIVE_HEADING):
+    for heading in (_STEP_THREE_HEADING, _STEP_FOUR_HEADING):
         if heading not in text:
             pytest.fail(f"start-session no longer has a step headed {heading!r}")
-    return text[text.index(_STEP_FOUR_HEADING) : text.index(_STEP_FIVE_HEADING)]
+    return text[text.index(_STEP_THREE_HEADING) : text.index(_STEP_FOUR_HEADING)]
 
 
 def _row(condition: str, section: str | None = None) -> str:
-    """The one table row in step 9 whose condition column starts with `condition`.
+    """The one table row in step 8 whose condition column starts with `condition`.
 
     Rows rather than the whole step, because the cell has to be tied to the
     condition that selects it — that binding is the entire content of the fix.
     """
     rows = [
         stripped
-        for line in (section if section is not None else _step_nine()).splitlines()
+        for line in (section if section is not None else _step_eight()).splitlines()
         # The table is indented inside the numbered step, so the row's own text
         # starts after the leading whitespace and the opening pipe.
         for stripped in [line.strip()]
@@ -112,25 +112,25 @@ def test_a_state_dir_with_no_answer_in_it_is_still_asked() -> None:
     assert "Do not ask" not in row
 
 
-def test_step_eight_reports_which_row_step_nine_took() -> None:
-    """Step 9's own argument for being checkable is that step 8 reports the row,
+def test_step_seven_reports_which_row_step_eight_took() -> None:
+    """Step 8's own argument for being checkable is that step 7 reports the row,
     so the report is the observable artifact and not decoration. It sits above
-    step 9 and every other test here slices below it, so without this a later
+    step 8 and every other test here slices below it, so without this a later
     edit can delete the evidence and leave the rationale green."""
     text = _SKILL.read_text()
-    if _STEP_EIGHT_HEADING not in text:
-        pytest.fail(f"start-session no longer has a step headed {_STEP_EIGHT_HEADING!r}")
-    step_eight = text[text.index(_STEP_EIGHT_HEADING) : text.index(_STEP_NINE_HEADING)]
-    assert "**Next**" in step_eight
-    assert "session-summary.md" in step_eight
+    if _STEP_SEVEN_HEADING not in text:
+        pytest.fail(f"start-session no longer has a step headed {_STEP_SEVEN_HEADING!r}")
+    step_seven = text[text.index(_STEP_SEVEN_HEADING) : text.index(_STEP_EIGHT_HEADING)]
+    assert "**Next**" in step_seven
+    assert "session-summary.md" in step_seven
     # Not just that it says "asking": the report has to separate the two rows
-    # that ask, or it cannot show which of the three step 9 took.
-    assert "which row of step 9" in step_eight
-    assert "rows two and three both ask" in step_eight
+    # that ask, or it cannot show which of the three step 8 took.
+    assert "which row of step 8" in step_seven
+    assert "rows two and three both ask" in step_seven
 
 
-def test_worktree_handoff_asks_for_a_line_step_nine_can_quote() -> None:
-    """The two skills are one mechanism: step 9 proceeds only on a quotable
+def test_worktree_handoff_asks_for_a_line_step_eight_can_quote() -> None:
+    """The two skills are one mechanism: step 8 proceeds only on a quotable
     imperative, and `worktree-handoff` is what makes handoff authors write one.
     Its previous wording — "plainly enough to be the default" — is the wording
     three of three panes satisfied while still asking, so a revert to it has to
@@ -170,30 +170,30 @@ def test_a_continued_stop_does_not_relax_the_quote_gate() -> None:
     assert "Do not ask" not in unquotable
 
 
-def test_step_four_reads_the_last_stop_and_not_any_stop() -> None:
+def test_step_three_reads_the_last_stop_and_not_any_stop() -> None:
     """FR-007, which lives entirely in this step's `tail -1`.
 
-    Step 4's old phrasing — *whether any line carries `"event": "end"`* — cannot
+    Step 3's old phrasing — *whether any line carries `"event": "end"`* — cannot
     express it. On a branch wrapped up once and interrupted since, "any" finds
     the older stop and asks a question the newer one already answered. The
     command is stated literally in the step because an agent improvising a grep
     gets it wrong in the direction that starts work unbidden."""
-    step_four = _step_four()
-    assert "tail -1" in step_four
-    assert "whether any line carries" not in step_four
+    step_three = _step_three()
+    assert "tail -1" in step_three
+    assert "whether any line carries" not in step_three
 
 
-def test_step_four_rejects_a_torn_line_rather_than_reading_it() -> None:
+def test_step_three_rejects_a_torn_line_rather_than_reading_it() -> None:
     """A partial append is a fragment of a stop, and it still says `end`.
 
     Without the `}$` the plain grep matches it, `tail -1` prefers it to the real
     stop underneath, and — lacking `"continued": true` — it reads as a wrap-up.
     A run that was cut off then asks, which is the defect this whole change
     removes, arriving through the log's most likely corruption."""
-    assert "}$" in _step_four()
+    assert "}$" in _step_three()
 
 
-def test_step_four_names_all_three_outcomes_of_that_read() -> None:
+def test_step_three_names_all_three_outcomes_of_that_read() -> None:
     """A two-outcome read is the same defect wearing the new command.
 
     `grep | tail -1` returns nothing, a continued line, or any other line, and
@@ -201,9 +201,9 @@ def test_step_four_names_all_three_outcomes_of_that_read() -> None:
     feature existed. Collapsing it to "continued or not" leaves the reader to
     decide what an absent key means, which is the one thing the migration
     turns on."""
-    step_four = _step_four()
+    step_three = _step_three()
     for outcome in ("nothing", '`"continued": true`', "any other line"):
-        assert outcome in step_four, f"step 4 states no outcome for {outcome}"
+        assert outcome in step_three, f"step 3 states no outcome for {outcome}"
 
 
 def test_an_issue_branch_is_never_asked_what_to_work_on() -> None:
@@ -223,8 +223,8 @@ def test_an_issue_branch_is_never_asked_what_to_work_on() -> None:
 def test_a_trunk_branch_with_no_stop_at_all_is_asked_too() -> None:
     """The state that matched no row when the branch axis first landed.
 
-    Step 4's table names the outcome — `nothing` comes back from the grep — and
-    step 9's rows consumed it nowhere: row one wanted an issue branch or a
+    Step 3's table names the outcome — `nothing` comes back from the grep — and
+    step 8's rows consumed it nowhere: row one wanted an issue branch or a
     continued stop, row two wanted a *last stop*, row three wanted an unquotable
     handoff. A trunk branch someone handed a filled handoff to fell through all
     three, and an agent resolving the gap by the pre-#352 table would have begun
@@ -234,8 +234,8 @@ def test_a_trunk_branch_with_no_stop_at_all_is_asked_too() -> None:
     assert "Ask:" in row
 
 
-def test_step_four_says_where_the_branch_kind_comes_from() -> None:
-    """The issue key decides two of the three rows, so step 4 has to hand step 9
+def test_step_three_says_where_the_branch_kind_comes_from() -> None:
+    """The issue key decides two of the three rows, so step 3 has to hand step 8
     a fact and not an impression.
 
     `wfctl status --json` is already run at the top of this step and `issue` is
@@ -243,6 +243,6 @@ def test_step_four_says_where_the_branch_kind_comes_from() -> None:
     literal it prints for a branch whose name carries no key — naming the literal
     is what stops an agent inferring "trunk" from a branch called `develop`, or
     missing it on one called `main-rewrite`."""
-    step_four = _step_four()
-    assert "issue" in step_four
-    assert "unknown" in step_four
+    step_three = _step_three()
+    assert "issue" in step_three
+    assert "unknown" in step_three

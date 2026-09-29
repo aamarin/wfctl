@@ -39,13 +39,6 @@ os.environ["NO_COLOR"] = "1"
 # already handled kept passing. Popping it is what makes the two agree.
 os.environ.pop("FORCE_COLOR", None)
 
-# Same shape, different variable. `WFCTL_SHAPE_ECHO=1` sends the `Stop` hook's
-# report to stderr, and the tests that assert on that hook parse its stdout as
-# JSON off a combined stream — so a developer who exported the flag to watch the
-# check fire by hand, which is the only reason it exists, would find four tests
-# failing on `Extra data`.
-os.environ.pop("WFCTL_SHAPE_ECHO", None)
-
 
 def init_git(path: Path) -> Path:
     """An initialized git repo at `path`, with a committer identity and no commits.
@@ -176,6 +169,42 @@ SPEC_SECTIONS = "".join(
 PLAN_SECTIONS = "".join(
     f"## {name}\n\nPlaceholder.\n\n" for name in _REQUIRED_PLAN_SECTIONS
 )
+
+# A proposed level-2 record `wfctl arch accept` would take, for a test whose
+# subject is that a record answers the boundary question. The design gate judges
+# a proposed record's drawing since #498, so a record with none holds brainstorm,
+# and a test about something else would fail on the drawing instead.
+ACCEPTABLE_RECORD = (
+    "---\nstatus: proposed\ndiagram: component\n---\n\n# x\n\n"
+    "## Boundary\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n"
+    "## Log\n\n- 2026-09-26  proposed  — x\n"
+)
+
+
+def write_record(
+    root: Path,
+    slug: str,
+    status: str = "proposed",
+    *,
+    diagram: str = "",
+    boundary: str = "",
+    log: bool = True,
+) -> Path:
+    """A level-2 record at `root/<slug>.md`, for a test whose subject is its drawing.
+
+    Each argument is one of the things `accept` asks of a record, so a test
+    varies exactly the one it is about. `log` defaults on because the missing
+    `## Log` is the one blocker that is not about the drawing.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{slug}.md"
+    front = f"---\nstatus: {status}\n"
+    if diagram:
+        front += f"diagram: {diagram}\n"
+    front += "---\n\n"
+    tail = "## Log\n\n- 2026-09-26  proposed  — x\n" if log else ""
+    path.write_text(f"{front}# {slug}\n\n{boundary}{tail}")
+    return path
 
 
 def structured(body: str) -> str:
