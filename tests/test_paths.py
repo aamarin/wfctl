@@ -1179,6 +1179,26 @@ def test_a_declared_trunk_that_is_a_revision_expression_is_not_a_branch(
     assert len(declared_trunk_problems(repo)) == 1
 
 
+def test_a_declared_trunk_of_head_is_refused_in_a_clone_with_an_origin(
+    tmp_path: Path,
+) -> None:
+    """A clone carries `refs/remotes/origin/HEAD`, so `show-ref` finds `HEAD`
+    there and the declaration passed as a branch while naming whatever discovery
+    guessed. The revision-expression test above cannot see this: its fixture has
+    no remote, so `HEAD` fails there for a different reason."""
+    from tests.conftest import git_repo
+    from wfctl._paths import declared_trunk_problems, trunk_branch
+
+    src = git_repo(tmp_path / "src")
+    _run_git("-C", str(src), "branch", "-M", "main")
+    clone = tmp_path / "clone"
+    _run_git("clone", "-q", str(src), str(clone))
+    _declare_trunk(clone, "HEAD")
+
+    assert trunk_branch(clone) is None
+    assert len(declared_trunk_problems(clone)) == 1
+
+
 def test_an_unreadable_wfctl_json_leaves_trunk_to_discovery(tmp_path: Path) -> None:
     """`doctor` and `check config` already report a file that will not parse,
     and `trunk_branch` runs inside `start`, which is no place for a traceback."""

@@ -196,7 +196,14 @@ def _resolve_declared(repo_root: Path, name: str) -> str | None:
     revision expression, so `"main~1"` would resolve to an ancestor commit and
     pass for a branch name. `show-ref` accepts only a ref that exists by that
     exact name.
+
+    `HEAD` is refused by name. A clone carries `refs/remotes/origin/HEAD`, a
+    symbolic ref to the remote's default branch, so `show-ref` finds it and
+    `"trunk": "HEAD"` would pass as a branch while naming whatever discovery
+    guessed, which is the answer a declaration exists to overrule.
     """
+    if name == "HEAD":
+        return None
     for ref, answer in (
         (f"refs/remotes/origin/{name}", f"origin/{name}"),
         (f"refs/heads/{name}", name),
