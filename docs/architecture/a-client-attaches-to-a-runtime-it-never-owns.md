@@ -145,7 +145,7 @@ names, applied to the runtime rather than to pipeline state.
 flowchart LR
     subgraph workmux["workmux — owns the lifecycle"]
         direction TB
-        C["workmux add<br>pre_create refuses a handle with no issue key"]
+        C["workmux add<br>creates the worktree; no hook runs before it"]
         P["post_create<br>install-skills · wfctl issue start"]
         L["workmux list<br>handle · worktree path"]
         R["workmux remove<br>pre_remove · wfctl archive-specs · issue stop"]
@@ -210,8 +210,8 @@ reported.
   the per-repository configuration is.
 - **Move the lifecycle into the client; workmux becomes a one-shot bootstrap.**
   Genuinely simpler for a human, and what a client that owns its own environments
-  should do. It loses because `pre_create`, `post_create` and `pre_remove` are
-  the repository's only hooks into the lifecycle and would all have to be
+  should do. It loses because `post_create` and `pre_remove` are the
+  repository's only hooks into the lifecycle and would all have to be
   reimplemented, while the client is a per-developer preference — moving them
   there moves a guarantee the repository makes into a tool the repository does
   not configure.
@@ -258,3 +258,5 @@ arrive will arrive with a recovery path already built.
 - 2026-09-20  proposed    — #436 level 2; a client holding lifecycle powers
   becomes a second environment manager by accretion, and the recovery path is
   where the invariant breaks first
+- 2026-09-27  proposed    — Boundary and Considered corrected on #497: workmux
+  has no `pre_create` hook, so `workmux add` refuses no handle; `wfctl start` does

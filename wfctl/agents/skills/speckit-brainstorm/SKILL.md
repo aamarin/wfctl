@@ -1,7 +1,7 @@
 ---
 name: 'speckit-brainstorm'
 description: 'Use when the pipeline reports `brainstorm` as the current step, or when `wfctl status` gives `/speckit.brainstorm` as the next command — runs the four design levels over a feature, writes the level-2 and level-3 records, and produces `design.md` for speckit pickup.'
-allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch context*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch context*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(wfctl arch accept --dry-run *) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
 compatibility: 'Requires wfctl to be installed'
 ---
 
@@ -136,6 +136,12 @@ open — usually the boundary question, since `wfctl status` holds the design st
 at `▶` with the reason on it and routes back here. A re-entered design step is
 the normal way that answer gets given, and the answer is a record under
 `wfctl arch-root`, or `wfctl arch none --reason "<why>"` carrying a real reason.
+The step is also held when a proposed record this branch added has a drawing
+`wfctl arch accept` would refuse. The reason then names the record and its first
+blocker, and the fix line `wfctl arch accept --dry-run -- <slug>` lists every
+blocker and writes nothing, so the answer is an edit to that record and not a
+new one. A record that was already on trunk is not judged here, even when this
+branch edits it.
 The design document is not what was missing; rewriting it loses the level-1 and
 level-3 work and leaves the gate exactly as it was.
 

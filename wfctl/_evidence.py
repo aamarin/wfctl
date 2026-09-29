@@ -20,13 +20,17 @@ and holds these functions as values, so the arrow only points one way.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _md, _plan_review, _tracker
 from wfctl._paths import arch_root
+
+if TYPE_CHECKING:
+    from wfctl._arch import Record
 
 # What reading one evidence source concluded. Three values rather than a bool
 # because "the evidence says proceed" and "there was no evidence" are the two a
@@ -71,11 +75,23 @@ class Assessment(NamedTuple):
     routing read wants the reason alone. Carried here rather than composed in the
     walk so the walk never has to know which step is the exception — that branch
     was the last `if name ==` left in it.
+
+    `remedy` is the fix line printed under `reason`, the next thing to run about
+    it. It need not clear the reason by itself: the architecture pass's lists
+    everything wrong with a record, and the edit that follows is what clears it.
+    A reader sets it only when it alone holds what the fix has to name. The
+    architecture pass is the case: it knows which record failed at the moment
+    it decides, and a fix built later from the reason's text would couple the
+    fix to wording `_arch` owns and rewords freely
+    (`docs/architecture/design/498-the-fix-line-travels-with-the-reason.md`).
+    A reader that sets it also sets `reason`, since a fix with nothing to answer
+    is not one.
     """
 
     state: State
     reason: str | None = None
     display: str | None = None
+    remedy: str | None = None
 
     def renders(self) -> str | None:
         """What a view shows for this step."""
@@ -795,12 +811,15 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 # The two conditions that hold over all eight are facts about the *walk*, not about
 # any reader, and they are stated in `_pipeline.py` where the walk is.
 #
-#   brainstorm  1, and a gesture at 6 rather than 6 itself: a design doc exists and
+#   brainstorm  1 + 2, and a gesture at 6 rather than 6 itself: a design doc exists and
 #               git says some path under `<arch>/` outside `design/` changed on this
 #               branch — an edit to a descriptive view, or a deletion, counts as
 #               readily as a new record — or git could not say, which proceeds
-#               (`ambient`). Never checked to be about this change, and not read at
-#               all once `spec.md` exists.
+#               (`ambient`). 2 is every proposed record the branch touched carrying
+#               what `accept` requires of it, which `_arch.accept_blockers` lists
+#               and this comment deliberately does not.
+#               Never checked to be about this change, and not read at all once
+#               `spec.md` exists.
 #   specify     1 + 2 + 3. `spec.md` carries every section in
 #               `_REQUIRED_SPEC_SECTIONS`, is not still its own template, and has
 #               no marker left. Nothing under a heading is read, so 2 is the
@@ -927,6 +946,52 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
+def _branch_records(
+    repo_root: Path, arch: Path, *, added_only: bool = False
+) -> dict[str, Record]:
+    """The level-2 records this branch added or modified, by slug, or with
+    `added_only` only the ones the branch base does not have.
+
+    One listing for the two readers that ask it, `fact_architecture_accepted`
+    and the design gate's drawing check. Built twice, the two would drift on
+    which records count, and a record the gate judged and the fact never listed
+    is a branch held for a reason nothing else on screen names.
+
+    The gate asks for `added_only` and the fact does not, so the gate judges a
+    subset of what the fact lists, and that direction is safe. The gate enforces
+    drawing rules that are newer than most records in a repo, and a branch
+    fixing a typo in an old proposed record would otherwise be held until that
+    record's drawing was redone. The fact asks whether a person ruled on what
+    the branch decided, and an edit to a record is a decision all the same.
+
+    Every subdirectory is excluded, not only `non_record_subtrees`. A record is
+    a direct child of the arch root, since `load_records` globs one level, and
+    the listing matches on bare stems. So a file under `design/` or `scans/`
+    sharing a stem with a top-level record would read as that record being
+    touched, and the gate would hold the branch on a drawing it never changed.
+    `non_record_subtrees` alone cannot say this: `design/` is left out of it on
+    purpose, because a level-3 record is a decision `records_on_this_branch`
+    has to list for its other caller.
+
+    A listing, so "git could not be asked" and an arch root outside the tree
+    both come back empty. A caller that has to tell those apart asks
+    `touched_on_this_branch` first, as the fact does.
+    """
+    from wfctl import _arch
+    from wfctl._paths import non_record_subtrees, records_on_this_branch
+
+    subdirs = [p for p in arch.iterdir() if p.is_dir()] if arch.is_dir() else []
+    slugs = set(
+        records_on_this_branch(
+            repo_root,
+            arch,
+            exclude=[*non_record_subtrees(arch), *subdirs],
+            added_only=added_only,
+        )
+    )
+    return {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
+
+
 def fact_architecture_accepted(repo_root: Path) -> Fact:
     """Has a human ruled on what this branch decided? Owner: the record's `status`.
 
@@ -947,25 +1012,14 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     answer. Nothing failed: git is being asked about a path it does not track, and
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
-    `scans/` is excluded by name, which is `AGENTS.md`'s standing instruction to
-    every reader of the arch root — a git pathspec naming a directory is
-    recursive and cannot be made otherwise. The intersection with `load_records`
-    below is what drops `design/`, `views/` and `declarations/`, because that
-    glob is one level deep. It is not enough on its own for `scans/`: it matches
-    on bare stems, so a scan file sharing a stem with a top-level record would
-    read as that record being touched.
+    `_branch_records` decides which records count, and the design gate asks it
+    too, so every record the gate holds the branch on is one this fact lists.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
     accepted". A branch that supersedes a record leaves it `superseded`, which a
     person decided; holding that branch would mean holding it forever.
     """
-    from wfctl import _arch
-    from wfctl._paths import (
-        is_in_tree,
-        non_record_subtrees,
-        records_on_this_branch,
-        touched_on_this_branch,
-    )
+    from wfctl._paths import is_in_tree, non_record_subtrees, touched_on_this_branch
 
     name = "architecture accepted"
     arch = arch_root(repo_root)
@@ -978,8 +1032,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     if not touched:
         return Fact(name, "n/a", "no level-2 record on this branch")
 
-    slugs = set(records_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch)))
-    records = {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
+    records = _branch_records(repo_root, arch)
     if not records:
         # Touched something under the arch root, and none of it a record the
         # projection reads — a level-3 record, a view, a declaration. The
@@ -1071,17 +1124,86 @@ def build_evidence(
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
     """Whether the boundary question was put and answered — a record, or a
-    `wfctl arch none` declaration.
+    `wfctl arch none` declaration — and whether the drawing a proposed record
+    carries is one `wfctl arch accept` would take.
 
     One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
     directly rather than `design_block`, which answers the same question with
     two extra guards that belong to the whole step (`design.md` exists;
-    `spec.md` does not) — `design.md` is the other pass's business, and a
-    branch past `spec.md` never reaches this reader at all, because `brainstorm`
-    reports `skipped` before any pass runs (research.md R7).
+    `spec.md` does not) — `design.md` is the other pass's business.
+
+    A branch past `spec.md` does reach this reader, whenever `design.md` exists
+    too: `brainstorm` reads `done` on `design.md` before it looks for `spec.md`,
+    and then both passes run. `_architecture_answered` returns early there by its
+    own escape, and the drawing check has to repeat it, or it would hold every
+    branch past specify on a record the pipeline had already moved beyond.
+
+    The drawing is judged here and not inside `_architecture_answered`, because
+    `brainstorm` asks that function whether the step has started at all. A
+    refusable drawing there would read as a step never begun, and send the
+    reader to start a step already half done.
     """
     reason = _architecture_answered(ev.spec_dir, ev.repo_root)
-    return Assessment("done" if reason is None else "in_progress", reason)
+    if reason is not None:
+        return Assessment("in_progress", reason)
+    if _file_exists(ev.spec_dir / "spec.md"):
+        return Assessment("done")
+    return _judge_drawings(ev.repo_root)
+
+
+def _judge_drawings(repo_root: Path) -> Assessment:
+    """Hold the pass on any proposed record this branch added whose drawing
+    `accept` would refuse, naming the first and handing back a fix for each.
+
+    Added, and not modified: the pass exists to catch a drawing when its record
+    is written. A record from before these rules is still refused by `accept`
+    when a person rules on it, which is where it was caught before this pass.
+
+    `_arch.accept_blockers` is the only definition of those rules, and asking it
+    here is what moves the first check from acceptance to the moment the record
+    is written. It ignores status on purpose, so the filter to `proposed` is
+    this gate's: an accepted record was ruled on by a person, and a status
+    outside the closed set is refused by `accept` for its status, which would
+    make the drawing the wrong thing to name.
+
+    Slug order, so the record the reason names is the same one on every read;
+    git lists paths in its own order. The reason holds one record because the
+    step table has room for one line, and the fix holds every failing record,
+    since fixing only the named one would meet the next on the following read.
+    The fix is built from the slug held here and never from the reason's text,
+    which is the level-3 record this pass was written against.
+
+    The slug is quoted because the fix is a line the reader pastes, and a slug
+    is a filename nothing constrains: `a;b.md` is a record, and unquoted its fix
+    runs `b`. `_block_remedy` quotes its free-text action for the same reason.
+
+    `--dry-run` comes first and `--` ends option parsing before the slug. Quoting
+    does nothing for a slug that starts with a dash, which Click would read as an
+    option, and `--` is what keeps it a slug. Brainstorm's grant is written as
+    `wfctl arch accept --dry-run *` to match: a grant that starts with the flag
+    cannot be met by a command that performs the acceptance, and one that ended
+    with it was met by `--agreed x -- --dry-run`, which accepts a record of that
+    name.
+    """
+    from wfctl import _arch
+
+    records = _branch_records(repo_root, arch_root(repo_root), added_only=True)
+    failing = [
+        (slug, blockers)
+        for slug in sorted(records)
+        if records[slug].status == "proposed"
+        and (blockers := _arch.accept_blockers(records[slug]))
+    ]
+    if not failing:
+        return Assessment("done")
+    slug, blockers = failing[0]
+    return Assessment(
+        "in_progress",
+        f"{slug}: {blockers[0]}",
+        remedy="\n".join(
+            f"  wfctl arch accept --dry-run -- {shlex.quote(s)}" for s, _ in failing
+        ),
+    )
 
 
 def brainstorm_design_doc(ev: Evidence) -> Assessment:

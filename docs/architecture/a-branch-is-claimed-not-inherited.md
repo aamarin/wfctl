@@ -71,9 +71,11 @@ the worktree was created.
   computed from the ancestor's directory name, which is identical in both trees.
   It says two branches carry different keys, which was never in doubt, and
   nothing about whether they share a feature.
-- **Record the spec dir at worktree creation** (#263's second option) —
-  `pre_create` knows both the issue key and the base, so it could write the
-  membership down at the one moment it is known. Sound, and it is what the
+- **Record the spec dir at worktree creation** (#263's second option) — a
+  creation hook knows both the issue key and the base, so it could write the
+  membership down at the one moment it is known. That hook would be
+  `post_create`, since workmux runs none before creation; the `pre_create` this
+  option first named was never a workmux hook (#497). Sound, and it is what the
   epic-planning convention would need to survive. It loses on cost and on
   `session-state-is-re-derived`: it introduces durable state that must survive a
   branch rename, for a convention with no live user in this repo.
@@ -123,3 +125,5 @@ leg — 0 of 18 local branches — and 18 of 23 features on `specs-trunk` carry 
 - 2026-09-06  proposed    — #263; the leg's convention and its bug are the same tree
 - 2026-09-06  proposed    — Consequences corrected on #269: the epic does not
   reclaim a child that has started its own dir, and the record had promised it would
+- 2026-09-27  proposed    — Considered corrected on #497: the creation hook it
+  named was `pre_create`, which workmux does not have

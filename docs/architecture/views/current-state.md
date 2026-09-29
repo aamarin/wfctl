@@ -27,7 +27,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
-   │ _bob_settings 96 _plan_review 114                            │      ┊
+   │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -84,6 +84,16 @@ below it. One edge runs upward, and it is drawn.
 The bands were recovered from the graph, not imposed on it: 13 of 14 modules
 already obey them. That is the useful finding — a layering exists and nobody had
 written it down, so nothing could hold it.
+
+The bands are Evans' responsibility layers, and the rule that a band may use any
+band below it is the relaxed layered system he pairs them with (*Domain-Driven
+Design*, ch. 16, "Responsibility Layers"). Evans also argues against how these
+bands were found. Layers recovered from the dependency graph are what he calls
+ad hoc layering, which shows what imports what and says nothing about what each
+layer is for. The third column of the table is what answers him; each band is
+admitted by a test of responsibility (what the module answers a question
+about), not by a test of imports. A band whose test ever becomes "it imports
+only from below" has fallen back into the form he warns against.
 
 ## What separates each band, and what breaks if it moves
 
@@ -289,7 +299,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _guard _verify _tracker _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review
 resolution  _paths _manifest
 mechanism   _io _md
 ```

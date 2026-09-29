@@ -14,7 +14,14 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, SPEC_SECTIONS, structured, write_plan_review
+from tests.conftest import (
+    ACCEPTABLE_RECORD,
+    CLEAN_PLAN,
+    CLEAN_SPEC,
+    SPEC_SECTIONS,
+    structured,
+    write_plan_review,
+)
 from wfctl import _verify
 from wfctl.cli import app
 from wfctl._pipeline import (
@@ -276,7 +283,7 @@ def test_a_record_written_for_this_change_advances(
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     root.mkdir(parents=True)
-    (root / "layer-model.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
+    (root / "layer-model.md").write_text(ACCEPTABLE_RECORD)
 
     # `exit_code == 0` alone is not the assertion. Since the gate reports
     # through the payload rather than by refusing, every `next` exits 0 —

@@ -170,6 +170,13 @@ For each approach, state:
 - checked evidence, assumptions, and the cheapest way to resolve uncertainty;
 - what makes the choice hard or easy to reverse.
 
+When the approaches trade places as one variable grows, name that variable and
+draw the cost of each approach over it, with the point where they cross. The
+crossing is the finding; a comparison that states which option wins without
+saying at what size has answered for one point on the curve. Percival and
+Gregory draw their domain model's trade-off this way (*Architecture Patterns
+with Python*, Figure 2-6).
+
 Use patterns, tactics, frameworks, or platform features only when they explain a
 real structural choice. A pattern name is vocabulary, not an argument. Do not
 consult or create a catalog merely to fill this step.
@@ -219,6 +226,13 @@ For each credible approach, show:
 - what crosses the boundary, in which direction, and under whose contract;
 - failure, release, data, and deployment coupling when they affect a driver.
 
+When a driver names a future change the boundary has to absorb, draw each
+approach's dependency graph and count the arrows that change would have to
+touch. When something crosses the boundary later than it was caused (an event,
+a poll, a retry), draw the sequence as well, including the row where a step
+fails halfway. The boundary sketch shows who owns what; neither of these two
+questions is answered by it.
+
 Follow `design-levels` rendering rules: a compact ASCII boundary sketch, not
 Mermaid and not a table chosen by default. Label current and proposed views.
 Arrows mean only actual crossings; state their meaning if it is not obvious.
@@ -240,6 +254,13 @@ Walk the ranked drivers through the proposed structure:
 Performance, scale, latency, availability, and cost claims require measurement
 or remain explicitly marked assumptions. A metric is diagnostic evidence; it
 does not choose the architecture.
+
+When the decision protects an architectural characteristic, name the fitness
+function that guards it, meaning the check that fails when a later change
+breaks it, or say why none can exist and the rule stays prose
+(`a-rule-is-expressed-as-a-check`). A contract that another tool reads names
+who writes the test for it, the provider or the consumer. The term is Ford,
+Parsons, Kua, and Sadalage's, *Building Evolutionary Architectures*, ch. 2.
 
 If a finding invalidates an earlier level, return to that level and revise. Do
 not work around the contradiction inside this iteration.

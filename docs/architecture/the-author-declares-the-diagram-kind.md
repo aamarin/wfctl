@@ -41,9 +41,9 @@ is an artifact the work already produces.
 ## Decision
 
 The record's frontmatter carries a `diagram` key naming one of `data-flow`,
-`component` or `state`. The author writes it. wfctl reads it, and checks only
-that the record carries a drawing — it never decides which kind the decision
-needed.
+`component`, `state` or `sequence`. The author writes it. wfctl reads it, and
+checks only that the record carries a drawing — it never decides which kind the
+decision needed.
 
 The key sits in frontmatter beside `status` and `supersedes` rather than in the
 body, because it is read by a parser and not by a reader: `_frontmatter` already
@@ -54,8 +54,9 @@ two.
 
 The author owns "what kind of diagram does this decision need?". The kind
 follows from the decision's subject — whether the thing being settled is a value
-moving between components, a line between them, or a sequence one thing passes
-through — and that subject is stated in prose written for a human.
+moving between components, a line between them, the states one thing passes
+through, or a request crossing several actors past a wait — and that subject is
+stated in prose written for a human.
 
 wfctl cannot compute it. It would have to classify English: decide that "who may
 assert a verdict" is ownership and "what a payload carries" is not, across
@@ -120,10 +121,23 @@ The crossed edge is the decision. Everything else is a read.
 Absent must therefore read as "not declared", never as a default kind — the same
 rule `status` already carries, for the same reason.
 
-The three names are wfctl's and are held against the template by a test, the way
-`required-sections-are-wfctls` holds the spec and plan section lists. A fourth
+The four names are wfctl's and are held against the template by a test, the way
+`required-sections-are-wfctls` holds the spec and plan section lists. A fifth
 kind is a change to both.
+
+`sequence` is the fourth, and `state` does not cover it. A `state` drawing
+follows one thing through its states; a `sequence` drawing follows a request
+across several actors, and it exists to show what each actor holds when a step
+fails partway. Percival and Gregory draw every flow that crosses a wait this way
+(*Architecture Patterns with Python*, Figures 9-4, 11-6, and 12-2), and in each
+case the reason they give is a step that can fail on its own. `wfctl arch
+accept` therefore refuses a `sequence` record whose drawing has no failure block
+and no lost message, and `wfctl doctor` warns about one while it is proposed.
+The check reads the declared kind and the drawing's syntax, never the English:
+which step counts as the failing one stays the author's judgment, and what the
+refusal asks is only that one is drawn, which is visible in the file.
 
 ## Log
 
 - 2026-09-16  proposed    — the level-2 gate for #109, first of two
+- 2026-09-25  amended     — #495 adds `sequence` as a fourth kind; still proposed

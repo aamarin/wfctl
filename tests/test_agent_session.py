@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_SPEC, write_plan_review
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_plan_review
 from wfctl import _session
 from wfctl.cli import app
 
@@ -73,7 +73,7 @@ def test_the_position_follows_the_artifacts_with_no_command_in_between(
 
     arch = storyctl_dir.repo_root / "docs" / "architecture"
     arch.mkdir(parents=True, exist_ok=True)
-    (arch / "a-boundary.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
+    (arch / "a-boundary.md").write_text(ACCEPTABLE_RECORD)
 
     assert "brainstorm   ●" in _run("status")
     assert "specify      ○  ← current" in _run("status")
