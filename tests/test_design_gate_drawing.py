@@ -547,31 +547,47 @@ def _architecture_pass(step: dict) -> dict:
     return next(s for s in step["sub_steps"] if s["name"] == "architecture")
 
 
-@pytest.mark.parametrize("committed", [False, True], ids=["uncommitted", "committed"])
-def test_with_no_trunk_a_failing_record_holds_the_step_until_it_is_committed(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, committed: bool
-) -> None:
-    """Without a trunk there is no base to diff against, so the listing holds only
-    what `git status` reports. The uncommitted record is still judged and holds the
-    step. Once committed it is unseen, and the step used to finish with nothing on
-    screen to say why; it now finishes and says the committed records went
-    unchecked, in `display`, so no caller reads the line as a held step."""
-    from wfctl._evidence import DRAWINGS_UNCHECKED
-
+def _failing_record_with_no_trunk(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> Path:
     root = _arch_root(storyctl_dir, monkeypatch)
     _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
     storyctl_dir.make_spec_artifact("brainstorm")
     write_record(root, "a-decision", diagram="component")
-    if committed:
-        _git(storyctl_dir.repo_root, "add", "-A")
-        _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+    return root
+
+
+def test_with_no_trunk_an_uncommitted_failing_record_still_holds_the_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a trunk the listing holds only what `git status` reports, and an
+    uncommitted record is in it. The gap is committed records alone, so the step
+    that finishes on those must still hold on this one."""
+    root = _failing_record_with_no_trunk(storyctl_dir, monkeypatch)
 
     step = _brainstorm()
 
-    if not committed:
-        assert step["state"] == "in_progress"
-        assert step["reason"] == f"a-decision: {_first_blocker(root, 'a-decision')}"
-        return
+    assert step["state"] == "in_progress"
+    assert step["reason"] == f"a-decision: {_first_blocker(root, 'a-decision')}"
+
+
+def test_with_no_trunk_a_committed_failing_record_finishes_the_step_and_says_so(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once committed, the record is unseen: there is no base to diff against. The
+    step used to finish with nothing on screen to say why. It now finishes and
+    says the committed records went unchecked, in `display`, so no caller reads
+    the line as a held step. The rendered assertion also holds the row to 80
+    columns, since the runner renders at that width and a wrapped line no longer
+    contains the string; the first wording failed it that way."""
+    from wfctl._evidence import DRAWINGS_UNCHECKED
+
+    _failing_record_with_no_trunk(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+
+    step = _brainstorm()
+
     assert step["state"] == "done"
     assert step["reason"] is None
     assert step["remedy"] is None
