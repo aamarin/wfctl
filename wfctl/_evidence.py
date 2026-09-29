@@ -65,9 +65,13 @@ State = Literal["done", "in_progress", "pending", "skipped"]
 class Assessment(NamedTuple):
     """What one reader concluded: the state, why, and what to render.
 
-    `reason` rather than a bool because the caller renders the string, and a
-    caller that only needs to know *whether* the step is blocked reads it as
-    truthy.
+    `reason` rather than a bool because the caller renders the string. It says
+    what is wrong, and `state` says whether that holds the step. On an
+    `in_progress` reading the two agree and the step is held. On a `done` or
+    `skipped` one the reason is a warning, a problem found after the step's
+    gate that holds nothing (`check-rework-loop`). That is safe because every
+    reader that routes on a reason reads the current step's, and the current
+    step is never `done` or `skipped`.
 
     `display` defaults to `None`, which means "the reason is what renders" —
     true of seven steps. `implement` is the eighth: it prefixes a task tally, so

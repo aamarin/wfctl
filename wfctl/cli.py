@@ -46,7 +46,7 @@ from wfctl._paths import (
 if TYPE_CHECKING:
     from wfctl import _session
     from wfctl._arch import Record
-    from wfctl._pipeline import PipelineReport
+    from wfctl._pipeline import PipelineReport, StepWarning
 
 app = typer.Typer(no_args_is_help=True)
 # highlight=False: don't let rich auto-color numbers/paths — this output is parsed
@@ -84,6 +84,11 @@ _STATE_GLYPH: dict[str, tuple[str, str]] = {
     "pending":     ("○", "dim"),
     "skipped":     ("–", "dim"),
 }
+
+# The mark a problem found after a gate carries, in `status`'s table and in the
+# lines `next` and `resume` print. One spelling, so a reader who learns it on one
+# view recognises it on the others.
+_WARNING_MARK = "[yellow]⚠[/yellow]"
 
 # Fact value → (glyph, rich style). A sibling of the table above rather than a
 # widening of it: the four step states and the three fact values are different
@@ -573,6 +578,7 @@ def status_cmd(
         STATUS_PAYLOAD_VERSION,
         STORY_COMPLETE_CONSOLE,
         build_report,
+        warnings_payload,
     )
     from wfctl._paths import resolve_spec_dir
     from wfctl._session import revoked as read_revoked
@@ -613,6 +619,11 @@ def status_cmd(
             # a key cannot tell an absent key from a false one.
             "auto_approve": report.auto_approve,
             "steps": report.steps,
+            # Always present, an empty list when nothing is wrong. A consumer
+            # reading a missing key as "no warnings" cannot tell that from a
+            # wfctl too old to say, and the orchestrate skill reads this to show
+            # a problem found after a gate to a run nobody is watching.
+            "warnings": warnings_payload(report.warnings),
             # Always three, always in order, never filtered. A consumer reading a
             # short list learns nothing; one reading no `facts` key at all learns
             # that this wfctl predates the question.
@@ -719,6 +730,11 @@ def status_cmd(
         console.print("[dim](no spec dir found)[/dim]")
 
     steps = report.steps
+    # Which rows carry a problem found after their gate, keyed as the report
+    # lists them. Read from the report and never worked out here from state and
+    # reason: the rule lives in `collect_warnings`, and a view that re-derived
+    # it would drift from the list `next` and `resume` print.
+    warned = {(w.step, w.pass_name): w for w in report.warnings}
     for step in steps:
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
@@ -738,19 +754,27 @@ def status_cmd(
             sub["is_current"] and sub["annotation"] == step["annotation"]
             for sub in step["sub_steps"]
         )
+        step_warning = warned.get((step["name"], None))
+        mark = f"{_WARNING_MARK} " if step_warning is not None else ""
         ann = (
-            f"  [dim]{escape(step['annotation'])}[/dim]"
+            f"  {mark}[dim]{escape(step['annotation'])}[/dim]"
             if step["annotation"] and not held_by_pass else ""
         )
         marker = "  [cyan]← current[/cyan]" if step["is_current"] else ""
         console.print(f"{name_fmt} {sym_fmt}{ann}{marker}")
+        if step_warning is not None:
+            _print_warning_remedy(step_warning)
 
         for sub in step["sub_steps"]:
             # A settled-away pass is hidden by default (FR-018) — `--all`
             # brings it back, carrying its claim if it has one. The pass
             # holding the pipeline is never `skipped`, so this filter alone
             # never hides the row a reader most needs (contracts/cli.md).
-            if sub["state"] == "skipped" and not show_all:
+            pass_warning = warned.get((step["name"], sub["name"]))
+            # Settled is not the same as fine. A skipped pass still carrying a
+            # problem is shown, since hiding a settled pass is the point of the
+            # filter and hiding a problem is not.
+            if sub["state"] == "skipped" and not show_all and pass_warning is None:
                 continue
             sub_glyph, sub_color = _STATE_GLYPH[sub["state"]]
             sub_sym = f"[{sub_color}]{sub_glyph}[/{sub_color}]"
@@ -765,7 +789,8 @@ def status_cmd(
                 # The pass's own reason, where it has one — `brainstorm`'s
                 # architecture pass carries `no architecture record for this
                 # change` exactly where the old single-reader arm did.
-                detail = f"  [dim]{escape(sub['annotation'])}[/dim]"
+                mark = f"{_WARNING_MARK} " if pass_warning is not None else ""
+                detail = f"  {mark}[dim]{escape(sub['annotation'])}[/dim]"
             elif sub["is_current"]:
                 # No reason of its own: the command that clears it, or the
                 # by-hand sentence for a manual pass, beside the outstanding
@@ -775,6 +800,8 @@ def status_cmd(
             else:
                 detail = ""
             console.print(f"{sub_name}{sub_sym}{detail}")
+            if pass_warning is not None:
+                _print_warning_remedy(pass_warning)
 
     # Between the step table and `next:`, and printed in every state including
     # the one where all three are met. Rendering it only when something is unmet
@@ -844,14 +871,15 @@ def next_cmd() -> None:
 
     from wfctl._pipeline import (
         STORY_COMPLETE_CONSOLE,
-        STORY_COMPLETE_FILE,
         _apply_block_hold,
         _current_step_name,
         _infer_steps,
         _outstanding_pass,
+        collect_warnings,
         manual_pass_reason,
         next_step_content,
         next_step_file,
+        story_complete_file,
     )
     from wfctl._evidence import build_evidence
     from wfctl._io import append_event
@@ -879,6 +907,9 @@ def next_cmd() -> None:
     # is the disagreement FR-016's asymmetry depends on not existing.
     steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
+    # After the hold, for `build_report`'s reason: a step a host block holds has
+    # not passed, and this file must list what `status --json` lists.
+    warnings = collect_warnings(steps)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
     # again. Recomputing runs the gate's git and verify work a second time on
@@ -918,9 +949,9 @@ def next_cmd() -> None:
         # The reason and the remedy travel with the command. Without them this
         # file says "run this to continue" over a step that is blocked, and the
         # one view that carried why — `status` — is not the view an agent reads.
-        content = next_step_file(command, auto, why, remedy)
+        content = next_step_file(command, auto, why, remedy, warnings=warnings)
     else:
-        content = STORY_COMPLETE_FILE
+        content = story_complete_file(warnings=warnings)
 
     # Composed, written, then printed. `blocked` is repo-supplied text — a verify
     # command carrying `[unit]` is legal — so rendering it can raise, and with the
@@ -935,7 +966,33 @@ def next_cmd() -> None:
             console.print(f"  [dim]{escape(why)}[/dim]")
     else:
         console.print(STORY_COMPLETE_CONSOLE)
+    _print_warnings(warnings)
     append_event(agent_dir, "next", command=command or "complete", auto=auto, step=step_name)
+
+
+def _print_warnings(warnings: "tuple[StepWarning, ...]") -> None:
+    """One line per problem a check found after its gate, with its remedy under
+    it — the console half of what `next-step.md` carries, shared by `next` and
+    `resume` so the two cannot print it differently (`check-rework-loop`).
+
+    Printed and never acted on. A warning changes no step and no route, which
+    is the whole of what separates it from the held step's reason above it.
+    `escape()` because a reason is repo-supplied text and `[wip]` is legal.
+    """
+    from rich.markup import escape
+
+    for w in warnings:
+        console.print(f"  {_WARNING_MARK} {escape(w.where)}: {escape(w.reason)}")
+        _print_warning_remedy(w)
+
+
+def _print_warning_remedy(warning: "StepWarning") -> None:
+    """A warning's fix, dim and nested under wherever the warning printed —
+    `status`'s row or `next`'s line alike."""
+    from rich.markup import escape
+
+    if warning.nested_remedy:
+        console.print(f"[dim]{escape(warning.nested_remedy)}[/dim]")
 
 
 def _revocation_line(reason: str) -> str:
@@ -999,7 +1056,7 @@ def resume_cmd() -> None:
     """Re-infer pipeline step, write next-step.md, and print current state."""
     from rich.markup import escape
 
-    from wfctl._pipeline import STORY_COMPLETE_FILE, build_report, next_step_file
+    from wfctl._pipeline import build_report, next_step_file, story_complete_file
     from wfctl._session import session_started
     from wfctl._io import append_event
 
@@ -1056,13 +1113,19 @@ def resume_cmd() -> None:
         # `bool(auto)`: `PipelineReport.__post_init__` pairs `auto` with
         # `next_command`, so inside this branch it is not None — an invariant
         # mypy cannot read off the dataclass.
-        next_step_md.write_text(next_step_file(command, bool(auto), blocked, remedy))
+        next_step_md.write_text(
+            next_step_file(command, bool(auto), blocked, remedy, warnings=report.warnings)
+        )
         console.print(f"[green]↺[/green] Resumed — step: {step_name}, next: {command} (auto: {auto_str})")
         if blocked:
             console.print(f"  [dim]{escape(blocked)}[/dim]")
     else:
-        next_step_md.write_text(STORY_COMPLETE_FILE)
+        next_step_md.write_text(story_complete_file(warnings=report.warnings))
         console.print(f"[green]↺[/green] Resumed — step: {step_name} — story complete.")
+    # Under the step line and above the mode notice: the warnings are facts
+    # about the pipeline, like the line they follow, and the notice is about
+    # the session.
+    _print_warnings(report.warnings)
 
     # Its own line, never a second item inside `(auto: …)`. The two answer
     # different questions — `auto` is whether this step advances unprompted,

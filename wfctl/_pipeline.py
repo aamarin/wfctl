@@ -170,7 +170,10 @@ STORY_COMPLETE_FILE = f"Story complete. Open PR or run {_END_SESSION}.\n"
 STORY_COMPLETE_CONSOLE = f"Story complete — open PR or run `{_END_SESSION}`."
 
 
-def next_step_file(command: str, auto: bool, blocked: str | None, remedy: str | None) -> str:
+def next_step_file(
+    command: str, auto: bool, blocked: str | None, remedy: str | None,
+    *, warnings: tuple["StepWarning", ...],
+) -> str:
     """What `next` and `resume` write to `next-step.md`.
 
     Here for the reason `STORY_COMPLETE_FILE` is: two commands write this file,
@@ -182,13 +185,42 @@ def next_step_file(command: str, auto: bool, blocked: str | None, remedy: str | 
     sits directly above the closing imperative and becomes its nearest
     antecedent, so "run this command" reads as pointing at a remedy rather than
     at `Next step:` above it.
+
+    `warnings` goes after the imperative for the same reason, and is required
+    rather than defaulted: this is the file an unattended run acts on, and a
+    writer that forgot to pass them would drop every warning with nothing to
+    say so. With none, the file is byte-for-byte what it was before warnings
+    existed.
     """
     why = f"why: {blocked}\n" if blocked else ""
     how = f"how:\n{remedy}\n" if remedy else ""
     return (
         f"Next step: {command}\nauto: {'true' if auto else 'false'}\n"
         f"{why}{how}Run this command to continue.\n"
-    )
+    ) + _warning_block(warnings)
+
+
+def story_complete_file(*, warnings: tuple["StepWarning", ...]) -> str:
+    """`next-step.md` once no step remains, with any warnings after it.
+
+    Its own function rather than `STORY_COMPLETE_FILE` written directly, so
+    both writers pass warnings through a signature that requires them. The
+    story-complete branch is where `decompose`'s warning most often arrives,
+    since it stops holding its step only once every task is closed.
+    """
+    return STORY_COMPLETE_FILE + _warning_block(warnings)
+
+
+def _warning_block(warnings: tuple["StepWarning", ...]) -> str:
+    """One `warning:` line per warning, each with its remedy nested under it.
+    Keyed like `why:` and `how:`, so a reader scanning the file can tell a
+    warning from the command without counting lines."""
+    lines = []
+    for w in warnings:
+        lines.append(f"warning: {w.where}: {w.reason}\n")
+        if w.nested_remedy:
+            lines.append(w.nested_remedy + "\n")
+    return "".join(lines)
 
 
 # Both escapes, because both are legitimate answers: `design-levels` excludes
@@ -224,7 +256,7 @@ MANUAL_PASS_WHY = "a person performs this pass"
 # that file, which `test_packaging.py` catches before release, cannot break a
 # caller that only ever asked the running command. The shipped file records
 # the same value; `test_status_contract.py` is what proves the two agree.
-STATUS_PAYLOAD_VERSION = "1.1"
+STATUS_PAYLOAD_VERSION = "1.2"
 
 # What `next` and `resume` name for a blocked design step: the step itself.
 #
@@ -883,6 +915,78 @@ class Attention(NamedTuple):
     detail: str
 
 
+class StepWarning(NamedTuple):
+    """A problem a check found after its gate (`check-rework-loop`): the step
+    or pass reads `done` or `skipped`, so the pipeline may advance past it, and
+    it still carries a reason saying what is wrong.
+
+    `pass_name` rather than `pass`, which is a keyword. `warnings_payload`
+    writes it under `pass`, the payload's own word for a sub-step.
+    """
+
+    step: str
+    pass_name: str | None
+    reason: str
+    remedy: str | None
+
+    @property
+    def where(self) -> str:
+        """`step`, or `step.pass` — the dotted form `next` already names a
+        manual pass by."""
+        return self.step if self.pass_name is None else f"{self.step}.{self.pass_name}"
+
+    @property
+    def nested_remedy(self) -> str | None:
+        """The remedy with every line indented two spaces past where the reader
+        left it, so it reads as belonging to its `warning:` line and not as a
+        second command after `Run this command to continue.`. One spelling for
+        `next-step.md` and the console alike."""
+        if not self.remedy:
+            return None
+        return "\n".join(f"  {line}" for line in self.remedy.rstrip("\n").splitlines())
+
+
+def collect_warnings(steps: list[_PipelineStep]) -> tuple[StepWarning, ...]:
+    """Every finished step and pass that still carries a reason, in pipeline
+    order, with a step's own warning before its passes'
+    (`design/532-payload-warnings-list.md`).
+
+    The one place the rule lives. A view that asked `state` and `reason` for
+    itself would be deriving pipeline state below the payload, which
+    `pipeline-state-is-one-payload` rules out, and the payload serializes no
+    pass reason for it to ask anyway.
+
+    Called after `_apply_block_hold`, so a step a host block holds reads
+    `in_progress` and drops out. A pass is judged on its own state and not on
+    its step's: a finished pass has passed its own gate whatever holds the step
+    above it, and `_apply_block_hold` rewrites a step without touching its
+    passes.
+
+    It changes nothing it reads. Routing takes the current step's reason, and
+    the current step is never `done` or `skipped`, which is why a reason on a
+    finished step can say what is wrong without holding anything.
+    """
+    finished = ("done", "skipped")
+    found: list[StepWarning] = []
+    for step in steps:
+        if step.state in finished and step.reason:
+            found.append(StepWarning(step.name, None, step.reason, step.remedy))
+        for sub in step.sub_steps:
+            if sub.state in finished and sub.reason:
+                found.append(StepWarning(step.name, sub.name, sub.reason, sub.remedy))
+    return tuple(found)
+
+
+def warnings_payload(warnings: tuple[StepWarning, ...]) -> list[dict[str, str | None]]:
+    """The `warnings` key of `status --json`. One function for `status_cmd`
+    and the test suite's transcription of its payload, so the wire keys cannot
+    drift between the two."""
+    return [
+        {"step": w.step, "pass": w.pass_name, "reason": w.reason, "remedy": w.remedy}
+        for w in warnings
+    ]
+
+
 @dataclass(frozen=True)
 class PipelineReport:
     """Where a feature stands — everything a caller needs from one inference.
@@ -956,6 +1060,11 @@ class PipelineReport:
     # Defaulted like `stall` beside it: `None` is the common case, a run with
     # nothing to say.
     attention: "Attention | None" = None
+    # Problems found after a gate, beside `attention` rather than in it:
+    # `attention` holds at most one condition and means a person is wanted,
+    # and a warning neither stops the run nor needs one (`check-rework-loop`).
+    # Defaulted like `facts`: a report built without it has nothing to say.
+    warnings: tuple[StepWarning, ...] = ()
     # This pass's own digest, for `resume` to record. On the report rather than
     # recomputed at the call site because the two reads could disagree while an
     # implementing agent is writing — the window `build_report`'s own seam
@@ -1106,6 +1215,9 @@ def build_report(
         auto_approve=granted,
         facts=_evidence.facts(ev, repo_root, verification),
         attention=_derive_attention(name, by_step.get(name), outstanding, stall),
+        # From `raw` after the hold, like everything else here: a step a host
+        # block holds has not passed, so its reason is not a warning.
+        warnings=collect_warnings(raw),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.
