@@ -1,6 +1,6 @@
 ---
 name: plan-walkthrough
-description: Walk the plan owner through their own plan or change, one question at a time, to find out privately whether they can explain it. Use when the person runs /plan-walkthrough, or asks to be walked through, quizzed on, or challenged about a plan or a finished change they are about to put their name on. The answers stay on the person's machine; the feature directory gets only a short marker. Never runs while auto-approve is on.
+description: Walk the plan owner through their own plan or change, one question at a time, to find out privately whether they can explain it. Use only when the person runs /plan-walkthrough; an agent never starts it on its own reading of a request. The answers stay on the person's machine; the feature directory gets only a short marker. Never runs while auto-approve is on.
 ---
 
 # Plan Walkthrough
