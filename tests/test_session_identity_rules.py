@@ -65,8 +65,25 @@ def test_start_session_names_no_host_variable(shipped_skill: Path) -> None:
     """
     text = (shipped_skill / "skills" / "start-session" / "SKILL.md").read_text()
 
-    assert '${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}' in text
+    assert "wfctl start && wfctl doctor" in text
     assert not _HOST_SESSION_VAR.search(text)
+
+
+def test_start_session_line_passes_no_shell_expanded_flag(shipped_skill: Path) -> None:
+    """The line an agent pastes into the user's shell must not split on `${VAR:+…}`.
+
+    The old line carried `${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}`.
+    zsh does not word-split a parameter expansion, so with the variable set
+    `wfctl start` received the single argument `--session-id abc` and exited 2,
+    and nobody saw it because the variable was unset everywhere it was tried
+    (#537). `wfctl start` reads the variable through typer's `envvar`, so the
+    flag was never needed.
+    """
+    text = (shipped_skill / "skills" / "start-session" / "SKILL.md").read_text()
+    command_lines = [ln for ln in text.splitlines() if ln.strip().startswith("wfctl start")]
+
+    assert command_lines
+    assert not [ln for ln in command_lines if ":+" in ln]
 
 
 def test_no_skill_reads_the_event_log_for_session_state(shipped_skill: Path) -> None:

@@ -386,12 +386,12 @@ def test_a_branch_with_no_start_event_is_none_rather_than_unknown(
 
 
 def test_empty_session_id_is_absent_not_an_identity(agent_dir: Path) -> None:
-    """`${WFCTL_SESSION_ID:+…}` already collapses unset and empty.
+    """An empty `WFCTL_SESSION_ID` is the same caller as an unset one.
 
-    The shipped skill passes the identity through that expansion, so a caller
-    with the variable set to `""` omits the flag entirely while one that spells
-    `--session-id ""` does not. Both did the same thing and must get the same
-    answer, or the behaviour depends on which shell form ran.
+    The shipped skill leaves the identity to the environment variable, so a
+    caller with it exported as `""` presents nothing while one that spells
+    `--session-id ""` presents a blank. Both did the same thing and must get the
+    same answer, or the behaviour depends on which form ran.
     """
     _log(agent_dir, {"event": "start", "session_id": "held"})
     for blank in ("", "   ", "\t\n"):
