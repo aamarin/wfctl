@@ -36,15 +36,31 @@ def test_regenerate_cleans_up_its_throwaway_repos(
     Measured in a directory of its own: the system temp directory is written
     by every process on the machine, and a `contract-*` directory another
     worktree's test run created between two listings read as a leak here
-    (#539). `mkdtemp` runs in this process, so pointing `tempfile.tempdir` at
-    `tmp_path` is what the command sees too."""
+    (#539). `mkdtemp` runs in this process and `gettempdir()` reads
+    `tempfile.tempdir`, so pointing that at `tmp_path` is what the command
+    sees too.
+
+    The directories `mkdtemp` hands out are recorded and counted. Without
+    that, a command that stopped honouring the patch, say by passing `dir=`,
+    would leak into the system temp directory while `tmp_path` stayed empty,
+    and this test would pass forever."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    assert not list(tmp_path.glob("contract-*"))
+    real_mkdtemp = tempfile.mkdtemp
+    made: list[Path] = []
+
+    def recording_mkdtemp(*args: object, **kwargs: object) -> str:
+        path = real_mkdtemp(*args, **kwargs)  # type: ignore[call-overload]
+        made.append(Path(path))
+        return str(path)
+
+    monkeypatch.setattr(tempfile, "mkdtemp", recording_mkdtemp)
 
     result = runner.invoke(app, ["contract", "regenerate"])
     assert result.exit_code == 0
 
-    assert not list(tmp_path.glob("contract-*"))
+    assert len(made) == 6
+    assert all(p.parent == tmp_path for p in made)
+    assert not any(p.exists() for p in made)
 
 
 def test_a_clean_tree_reports_no_change_and_writes_nothing() -> None:
