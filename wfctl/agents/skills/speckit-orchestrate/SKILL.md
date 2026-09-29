@@ -134,8 +134,9 @@ allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
    would refuse. `resume` and `status` are two renderings of one inference, so
    there is no answer step 3 has that step 4 lacks.
 
-4. Run `wfctl status --json` and read `next_command`, `auto` and `stall` off the
-   payload, and the current step's `reason` and `remedy` with them.
+4. Run `wfctl status --json` and read `next_command`, `auto`, `stall` and
+   `warnings` off the payload, and the current step's `reason` and `remedy` with
+   them.
    Not `$(wfctl state-dir)/next-step.md`: that file is written once per
    `resume`/`next` and holds whatever was true then, observed 2.5 hours stale
    during #114. `--json` re-derives from the artifacts on disk at the moment
@@ -143,6 +144,16 @@ allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
    the whole reason this one is taken again.
 
 5. Branch on the result:
+
+   **Every branch below displays `warnings` first, and none of them changes
+   because of it.** Each entry is a problem a check found after its step had
+   passed (`check-rework-loop`). Display it as `⚠ {step}: {reason}`, or
+   `⚠ {step}.{pass}: {reason}` when `pass` is not null, with its `remedy` under
+   it where there is one. Then take exactly the branch you would have taken
+   with an empty list. A warning never holds the run, so under `auto: true`
+   the `EXECUTE_COMMAND` line is still emitted. Displaying it is the point:
+   this is the one place an unattended run shows a problem found after a gate,
+   and `wfctl status` is not a view the loop reads.
 
    **Story complete** (`next_command` is `null`):
    - Display: "Story complete — open PR or run `/end-session`."
