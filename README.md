@@ -73,19 +73,20 @@ wfctl does two things:
 2. It reads what the work left behind and decides, independently of the agent,
    what that evidence proves.
 
-wfctl is built for a developer who runs several AI coding agents in parallel
-and leaves them running with nobody at the prompt. The two things above are not
-felt the same way. The first also pays off for a developer who works on one
-feature at a time in one terminal. That developer knows which step the feature
-is on, and the second fills no gap for them. The second pays off where nobody
-can keep track of which step each feature is on, and that happens in three
-places:
+wfctl is for developers running AI coding agents in parallel, whether those
+agents run autonomously or with the developer heavily in the loop. Its skills,
+steps, and sub-step controls let a developer decide how deeply they want to be
+involved in each feature. The two things above are not felt the same way. The
+first also pays off for a developer who works on one feature at a time in one
+terminal. That developer knows which step the feature is on, and the second
+fills no gap for them. The second pays off where nobody can keep track of which
+step each feature is on, and that happens in three places:
 
-1. An agent's session restarts partway through its work, with nobody at the
-   prompt, and the next session starts from what reached disk.
+1. An agent's session restarts partway through its work, and the next session
+   starts from what reached disk.
 2. Several agents work in parallel worktrees, each on its own feature.
-3. A session carries out a decision made in an earlier session, with nobody
-   there to explain it.
+3. A session carries out a decision made in an earlier session, on one of
+   several features the developer has in flight.
 
 **The design method** makes the agent think before it codes, and clean up what
 it built.

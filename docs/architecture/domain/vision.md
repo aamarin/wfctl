@@ -57,16 +57,17 @@ that reaches disk is one wfctl can later hold the work to.
 Across many worktrees, the same truth answers one more question: which of them
 needs a human now. That judgment is core; the screen that shows it is not.
 
-wfctl is built for a developer who runs several AI coding agents in parallel
-and leaves them running with nobody at the prompt. Its evidence-derived truth
-is felt at three seams:
+wfctl is for developers running AI coding agents in parallel, whether those
+agents run autonomously or with the developer heavily in the loop. Its skills,
+steps, and sub-step controls let a developer decide how deeply they want to be
+involved in each feature. The evidence-derived truth is felt at three seams:
 
-1. A session restart during an autonomous run, where the next session has only
-   what reached disk and nobody at the prompt to fill in the rest.
+1. A session restart partway through a feature, where the next session has
+   only what reached disk.
 2. Parallel worktrees, where more features are in flight than one person can
    keep track of.
 3. A handoff to a session that was not present for the decision it now has to
-   carry out, with nobody there to explain it.
+   carry out, on one of several features in flight.
 
 A developer working one feature at a time in one terminal holds the pipeline
 position in their head and feels no gap. That developer still gets the design
