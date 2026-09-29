@@ -361,7 +361,6 @@ def start_cmd(
     # and there is one place where blank becomes absent rather than one per use.
     caller = identity(session_id)
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     # Before the early return, not after. `start` is idempotent about the session
     # and must not be about the flag: `/start-session` opens the session on a
@@ -380,6 +379,11 @@ def start_cmd(
             f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
             else "[green]✓[/green] auto-approve off — design gates and review stops wait for a human"
         )
+
+    # After the grant, because the mode decides where the run stands: a pass
+    # that needs a person is skipped under auto-approve, so a report built
+    # first would print and log the pass this flag was typed to get past.
+    report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     if report.session_started and not force:
         # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller for whom
@@ -862,7 +866,12 @@ def next_cmd() -> None:
     # because this is the file an agent acts on, and without it a signed-off
     # plan reads stale here while `status` reads it done.
     ev = None if spec_dir is None else build_evidence(spec_dir, repo_root, agent_dir)
-    steps = _infer_steps(spec_dir, repo_root, ev)
+    # Read once, before inference, for `build_report`'s reason: a pass that
+    # needs a person is skipped under this mode, so inference and routing
+    # below have to see the same value or this file names the pass `status`
+    # has just passed by.
+    granted = read_auto_approve(agent_dir)
+    steps = _infer_steps(spec_dir, repo_root, ev, auto_approve=granted)
     # Same hold `build_report` applies for `status`/`resume` (FR-010, FR-011):
     # without it, a step a host block is holding reads here as whatever its own
     # artifacts say, and this is the file an agent actually acts on — `status`
@@ -895,7 +904,7 @@ def next_cmd() -> None:
     # the single writer of.
     command, auto = next_step_content(
         step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
-        outstanding=outstanding, auto_approve=read_auto_approve(agent_dir),
+        outstanding=outstanding, auto_approve=granted,
     )
 
     # Shared with `build_report`, which applies it to the same step's `reason`

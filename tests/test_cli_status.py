@@ -106,6 +106,7 @@ def test_all_does_not_change_the_json_payload(storyctl_dir: types.SimpleNamespac
     assert ui_design == {
         "name": "ui-design", "state": "skipped", "annotation": None,
         "command": None, "manual": True, "claimed": "backend-only", "is_current": False,
+        "needs_person": False,
     }
 
 
@@ -137,6 +138,21 @@ def test_check_config_exits_nonzero_on_a_finding(storyctl_dir: types.SimpleNames
     result = runner.invoke(app, ["check", "config"])
     assert result.exit_code == 1
     assert "declares no command and is not marked manual" in result.output
+
+
+def test_check_config_reports_both_needs_person_mistakes(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The two `needs_person` findings reach the person who runs the check, not
+    only the parser's return value."""
+    _declare(storyctl_dir, {"plan": [
+        {"name": "a", "manual": True, "evidence": "a.md", "needs_person": "yes"},
+        {"name": "b", "manual": True, "evidence": "b.md", "needs_person": True},
+    ]})
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 1
+    assert "plan.a has a 'needs_person' that is not a boolean" in result.output
+    assert "plan.b declares 'manual' and 'needs_person'" in result.output
 
 
 # --- T014: the console rendering is untouched by `attention` (FR-002, SC-003) ---

@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "paths": {
     "attention": "object | null",
     "attention.detail": "string",
@@ -41,6 +41,7 @@
     "steps[].sub_steps[].is_current": "boolean",
     "steps[].sub_steps[].manual": "boolean",
     "steps[].sub_steps[].name": "string",
+    "steps[].sub_steps[].needs_person": "boolean",
     "steps[].sub_steps[].state": "string",
     "version": "string"
   }

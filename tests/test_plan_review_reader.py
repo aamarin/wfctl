@@ -507,7 +507,7 @@ def test_a_stale_review_sends_a_finished_feature_back_to_the_review(
         {
             "name": "plan-review", "state": "in_progress", "annotation": _STALE,
             "command": "/plan-review", "manual": False, "claimed": None,
-            "is_current": True,
+            "needs_person": False, "is_current": True,
         },
     ]
 

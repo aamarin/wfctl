@@ -104,6 +104,14 @@ what the synthesis is of, not a derivation, and it reproduces no sample program
 or example from either book. Absence here is the positive claim that it is
 wfctl's own.
 
+`plan-walkthrough` is absent on the same grounds. It was built from a candidate
+skill that sat untracked in this repository, drafted by an agent, with no
+upstream project, licence, or copyright holder. Its `references/source-map.md`
+names the articles and projects its method drew on, such as gstack's one
+question at a time, and says it copies no text or files from any of them. That
+is a citation, not a derivation, so it adds nothing to `NOTICES.md`. Absence
+here is the positive claim that it is wfctl's own.
+
 `speckit-brainstorm`, `speckit-delivery-plan` and `speckit-orchestrate` are
 absent because they are wfctl's own: all three score 0% against every spec-kit
 command template. `speckit-brainstorm` joined them at #361, which split it out

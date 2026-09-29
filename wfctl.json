@@ -3,5 +3,13 @@
     ["uv", "run", "--frozen", "--extra", "dev", "pytest", "-q"],
     ["uv", "run", "--frozen", "--extra", "dev", "ruff", "check", "wfctl/", "tests/"],
     ["uv", "run", "--frozen", "--extra", "dev", "mypy", "wfctl/"]
-  ]
+  ],
+  "steps": {
+    "plan": [
+      { "name": "plan-walkthrough",
+        "command": "/plan-walkthrough",
+        "evidence": "plan-walkthrough.md",
+        "needs_person": true }
+    ]
+  }
 }
