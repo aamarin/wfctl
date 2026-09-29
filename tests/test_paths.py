@@ -1065,3 +1065,146 @@ def test_trunk_in_a_normal_layout_ignores_the_main_checkouts_branch(tmp_path: Pa
     _run_git("-C", str(main), "worktree", "add", "-q", str(wt), "-b", "10-x", "main")
 
     assert trunk_branch(wt) == "main"
+
+
+def _declare_trunk(root: Path, value: object) -> None:
+    import json
+
+    (root / "wfctl.json").write_text(json.dumps({"trunk": value}))
+
+
+def _bare_layout_whose_head_is_main(tmp_path: Path) -> tuple[Path, Path]:
+    """A bare clone carrying `main` and `dev`, its own HEAD on `main`, and one
+    linked worktree per branch — the layout where discovery answers `main`."""
+    from tests.conftest import git_repo
+
+    src = git_repo(tmp_path / "src")
+    _run_git("-C", str(src), "branch", "-M", "main")
+    _run_git("-C", str(src), "branch", "dev")
+    bare = tmp_path / "repo.git"
+    _run_git("clone", "-q", "--bare", str(src), str(bare))
+    main_wt, dev_wt = tmp_path / "main", tmp_path / "dev"
+    _run_git("-C", str(bare), "worktree", "add", "-q", str(main_wt), "main")
+    _run_git("-C", str(bare), "worktree", "add", "-q", str(dev_wt), "dev")
+    return main_wt, dev_wt
+
+
+def test_a_declared_trunk_overrules_the_bare_repositorys_head(tmp_path: Path) -> None:
+    """The failure #509 was filed about, in real git: a bare layout whose trunk
+    is `dev` but whose HEAD, and whose name guess, both say `main`. Discovery
+    has no source that can know better, so the repository says so itself."""
+    from wfctl._paths import trunk_branch
+
+    _, dev_wt = _bare_layout_whose_head_is_main(tmp_path)
+    assert trunk_branch(dev_wt) == "main"
+
+    _declare_trunk(dev_wt, "dev")
+    assert trunk_branch(dev_wt) == "dev"
+
+
+def test_a_declared_trunk_is_read_as_origins_copy_when_the_remote_has_it(
+    tmp_path: Path,
+) -> None:
+    """Discovery hands back `origin/main`, and a declaration of the same branch
+    has to land on the same commits. Used verbatim, `"trunk": "main"` would diff
+    against a local `main` that can sit behind origin's, and records already on
+    trunk would read as this branch's."""
+    from tests.conftest import git_repo
+    from wfctl._paths import trunk_branch
+
+    src = git_repo(tmp_path / "src")
+    _run_git("-C", str(src), "branch", "-M", "main")
+    _run_git("-C", str(src), "branch", "dev")
+    clone = tmp_path / "clone"
+    _run_git("clone", "-q", str(src), str(clone))
+    assert trunk_branch(clone) == "origin/main"
+
+    _declare_trunk(clone, "main")
+    assert trunk_branch(clone) == "origin/main"
+    _declare_trunk(clone, "dev")
+    assert trunk_branch(clone) == "origin/dev"
+
+
+def test_a_declared_trunk_only_on_this_machine_is_read_as_the_local_branch(
+    tmp_path: Path,
+) -> None:
+    """A repository with no origin, which is also what a bare clone looks like,
+    since it keeps no remote-tracking refs by default."""
+    from tests.conftest import git_repo
+    from wfctl._paths import trunk_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _run_git("-C", str(repo), "branch", "dev")
+    _declare_trunk(repo, "dev")
+
+    assert trunk_branch(repo) == "dev"
+
+
+@pytest.mark.parametrize("value", ["release", "", 5, ["dev"]])
+def test_a_declared_trunk_that_names_no_branch_is_never_replaced_by_a_guess(
+    tmp_path: Path, value: object
+) -> None:
+    """`main` exists here and the name guess would find it. Falling back to it
+    would put a declaration wfctl could not use on the same footing as one it
+    never read, which is the silence #509 was filed about."""
+    from tests.conftest import git_repo
+    from wfctl._paths import declared_trunk_problems, trunk_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _declare_trunk(repo, value)
+
+    assert trunk_branch(repo) is None
+    assert len(declared_trunk_problems(repo)) == 1
+
+
+def test_an_unreadable_wfctl_json_leaves_trunk_to_discovery(tmp_path: Path) -> None:
+    """`doctor` and `check config` already report a file that will not parse,
+    and `trunk_branch` runs inside `start`, which is no place for a traceback."""
+    from tests.conftest import git_repo
+    from wfctl._paths import declared_trunk_problems, trunk_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    (repo / "wfctl.json").write_text("{ not json")
+
+    assert trunk_branch(repo) == "main"
+    assert declared_trunk_problems(repo) == []
+
+
+def test_the_branch_diff_runs_against_a_declared_trunk(tmp_path: Path) -> None:
+    """Both diff callers read trunk through `trunk_branch`, and neither is
+    touched by the declaration, so this pins that the wiring reaches them. A
+    record committed on `dev` before this branch was cut is trunk's, not this
+    branch's; diffed against the guessed `main`, it read as work the branch did."""
+    from tests.conftest import git_repo
+    from wfctl._paths import records_on_this_branch, touched_on_this_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _run_git("-C", str(repo), "switch", "-q", "-c", "dev")
+    arch = repo / "docs" / "architecture"
+    arch.mkdir(parents=True)
+    (arch / "on-dev.md").write_text("x\n")
+    _run_git("-C", str(repo), "add", "docs")
+    _run_git("-C", str(repo), "commit", "-q", "-m", "record on dev")
+    _run_git("-C", str(repo), "switch", "-q", "-c", "9-x")
+    (repo / ".git" / "info" / "exclude").write_text("wfctl.json\n")
+
+    assert touched_on_this_branch(repo, arch) is True
+    assert records_on_this_branch(repo, arch) == ["on-dev"]
+
+    _declare_trunk(repo, "dev")
+    assert touched_on_this_branch(repo, arch) is False
+    assert records_on_this_branch(repo, arch) == []
+
+
+def test_the_three_copies_of_the_config_filename_agree() -> None:
+    """`_paths` spells the filename out because importing it from `_verify`
+    would pull rich into the session-restart hook's fast path. Three copies of
+    one name drift apart silently, and a trunk read from a different file than
+    `check config` validates would be the silence this key exists to end."""
+    from wfctl import _declared, _paths, _verify
+
+    assert _paths._CONFIG_PATH == _verify.CONFIG_PATH == _declared.CONFIG_PATH

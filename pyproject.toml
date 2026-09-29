@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wfctl"
-version = "0.21.0"
+version = "0.22.0"
 description = "Design method and evidence governance for AI coding agents"
 authors = [{ name = "Andre Marin", email = "andre@alexamarin.com" }]
 license = { text = "MIT" }
@@ -53,6 +53,7 @@ include = ["wfctl*"]
 testpaths = ["tests"]
 markers = [
     "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
+    "real_install_origin: reads the installed distribution's direct_url.json, so conftest's release stub steps aside",
     "runs_mypy: shells out to mypy, so it costs seconds rather than milliseconds",
     "builds_wheel: shells out to a real `python -m build`, so it costs seconds rather than milliseconds",
 ]

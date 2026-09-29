@@ -100,6 +100,31 @@ def _tool_version_is_not_under_test(
     monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: False)
 
 
+# A release, shaped like the payload `uv tool install` wrote on a real machine.
+RELEASE_ORIGIN = '{"url":"https://github.com/aamarin/wfctl.git","vcs_info":{"vcs":"git","commit_id":"4ca1604f3172d5f1ecd0221a2ca6d8d6fb231e22"}}'
+
+
+@pytest.fixture(autouse=True)
+def _install_origin_is_a_release(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every test runs as if wfctl were a released install.
+
+    The suite itself runs from an editable install, locally and in CI alike, so
+    left live every printed remedy would start with `uv run` and name whichever
+    checkout ran the tests. A test asserting a remedy would then pass or fail
+    depending on where it was run.
+
+    Tests that exercise the install record itself carry `real_install_origin`
+    and stub `importlib.metadata` instead, or set this to another shape.
+    """
+    if "real_install_origin" in request.keywords:
+        return
+    from wfctl import _provenance
+
+    monkeypatch.setattr(_provenance, "read", lambda: _provenance.parse(RELEASE_ORIGIN))
+
+
 @pytest.fixture(autouse=True)
 def bundle(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch

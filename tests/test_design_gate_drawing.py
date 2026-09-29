@@ -534,3 +534,103 @@ def test_a_failing_record_under_an_arch_root_outside_the_repository_is_not_judge
     write_record(root, "a-decision", diagram="component")
 
     assert _brainstorm()["state"] == "done"
+
+
+# --- A repository with no trunk (#508) ----------------------------------------
+#
+# The fixture's repo has no remote, so renaming its one branch to `trunk` leaves
+# `trunk_branch` nothing to find. That is the issue's reproduction, and a test in
+# which a trunk resolves has not exercised it.
+
+
+def _architecture_pass(step: dict) -> dict:
+    return next(s for s in step["sub_steps"] if s["name"] == "architecture")
+
+
+def _failing_record_with_no_trunk(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    storyctl_dir.make_spec_artifact("brainstorm")
+    write_record(root, "a-decision", diagram="component")
+    return root
+
+
+def test_with_no_trunk_an_uncommitted_failing_record_still_holds_the_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a trunk the listing holds only what `git status` reports, and an
+    uncommitted record is in it. The gap is committed records alone, so the step
+    that finishes on those must still hold on this one."""
+    root = _failing_record_with_no_trunk(storyctl_dir, monkeypatch)
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == f"a-decision: {_first_blocker(root, 'a-decision')}"
+
+
+def test_with_no_trunk_a_committed_failing_record_finishes_the_step_and_says_so(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once committed, the record is unseen: there is no base to diff against. The
+    step used to finish with nothing on screen to say why. It now finishes and
+    says the committed records went unchecked, in `display`, so no caller reads
+    the line as a held step. The rendered assertion also holds the row to 80
+    columns, since the runner renders at that width and a wrapped line no longer
+    contains the string; the first wording failed it that way."""
+    from wfctl._evidence import DRAWINGS_UNCHECKED
+
+    _failing_record_with_no_trunk(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+
+    step = _brainstorm()
+
+    assert step["state"] == "done"
+    assert step["reason"] is None
+    assert step["remedy"] is None
+    assert _architecture_pass(step)["annotation"] == DRAWINGS_UNCHECKED
+    assert DRAWINGS_UNCHECKED in runner.invoke(app, ["status"]).output
+
+
+def test_with_a_trunk_a_finished_pass_carries_no_unchecked_line(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The line is true only when the trunk cannot be resolved. Printed on every
+    pass it would be noise a reader learns to skip, and the one repository where
+    it is true would lose it with the rest. The trunk is named `main` here rather
+    than left to `init.defaultBranch`, which differs between machines."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "main")
+    _git(storyctl_dir.repo_root, "checkout", "-b", "418-storyctl")
+    storyctl_dir.make_spec_artifact("brainstorm")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+
+    step = _brainstorm()
+
+    assert step["state"] == "done"
+    assert _architecture_pass(step)["annotation"] is None
+
+
+def test_with_no_trunk_an_arch_root_outside_the_repository_carries_no_unchecked_line(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Records kept outside the repository are never committed on this branch, so
+    a line saying the committed ones went unchecked would be false there. Git was
+    never asked about them, trunk or not."""
+    root = tmp_path_factory.mktemp("outside") / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    storyctl_dir.make_spec_artifact("brainstorm")
+    write_record(root, "a-decision", diagram="component")
+
+    step = _brainstorm()
+
+    assert step["state"] == "done"
+    assert _architecture_pass(step)["annotation"] is None

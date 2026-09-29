@@ -363,9 +363,8 @@ def fixture_states() -> dict[str, FixtureRepo]:
     stopped *before* `specify` would leave it genuinely outstanding and reach
     the wrong pass first in the cascade. `nested` stops before `specify` for
     the opposite reason: it is the one state that wants `architecture`
-    genuinely outstanding, so that its own annotation — the one place a
-    sub-step's `annotation` is ever a real sentence rather than `null` — is
-    reachable at all.
+    genuinely outstanding, so that its own annotation — a reason rather than
+    the `null` a pass carries almost everywhere else — is reachable at all.
     """
     import shutil
 

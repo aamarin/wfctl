@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from wfctl.cli import _BOB_APPROVAL_ENTRIES, app
@@ -157,3 +158,29 @@ def test_doctor_warns_when_a_managed_entry_is_gone(agent_dir: Path) -> None:
     assert result.exit_code == 0, result.output
     assert _BOB_APPROVAL_ENTRIES[0] in result.output
     assert "Bob Shell will prompt for approval" in result.output
+
+
+def test_the_refusal_and_doctor_keep_the_source_the_run_was_given(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """`--from` is one-shot, so a forced line without it installs the running
+    bundle over the one the reader named, and succeeds. Both lines a reader
+    meets here, the refusal and then doctor's restore, have to carry it."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    source = tmp_path_factory.mktemp("named source")
+    (source / "agents" / "skills" / "test-skill").mkdir(parents=True)
+    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# s\n")
+    (source / "agents" / "commands").mkdir(parents=True)
+    (source / "agents" / "commands" / "test-cmd.md").write_text("# c\n")
+    args = ["install-skills", "--agent", "bob", "--from", str(source), "--yes"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    _settings_path(repo_root).write_text(json.dumps({}, indent=2) + "\n")
+    forced = f"--agent bob --from '{source}' --force"
+
+    refusal = runner.invoke(app, args)
+    doctor = runner.invoke(app, ["doctor"])
+
+    assert refusal.exit_code == 1, refusal.output
+    assert forced in refusal.output
+    assert forced in doctor.output

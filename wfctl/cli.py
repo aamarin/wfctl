@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple, NoReturn
 import typer
 from rich.console import Console
 
-from wfctl import _bob_settings, _bundle, _settings, _tracker
+from wfctl import _bob_settings, _bundle, _provenance, _settings, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
@@ -2756,7 +2756,7 @@ def _render_change_check(
                 f"ℹ No `fields` verb for changes — skipping check of "
                 f"{escape(change_id)}.\n"
                 "  A tracker config that predates this verb is refreshed with "
-                "`wfctl install-skills --tracker <name>`."
+                f"`{escape(_runner(repo_root))} install-skills --tracker <name>`."
             )
             return 0
         console.print(f"[red]✗[/red] could not read {escape(change_id)}: {escape(detail)}")
@@ -3120,6 +3120,11 @@ _NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 def _layer_keys(manifest: dict) -> list[str]:
     """Manifest keys that name an installed layer, base included."""
     return [k for k in manifest if k not in _NON_LAYER_KEYS]
+
+
+def _runner(repo_root: Path) -> str:
+    """How a printed remedy starts the wfctl running now; see `_provenance.runner`."""
+    return _provenance.runner(_provenance.read(), repo_root)
 
 
 def _agent_flag(layer: str) -> str:
@@ -4389,6 +4394,16 @@ def install_skills_cmd(
     # carries `MANAGED_PREFIX` and is wfctl's to correct in place; a deny rule is a
     # bare string the repo may have authored, so a receipt of wfctl's and a file
     # that no longer matches it is a change only a person can explain.
+    # The line both refusals below offer. It carries the source this run was
+    # given, because `--from` is one-shot: a reader who follows the line without
+    # it gets the running bundle installed over the one they named, and a run
+    # that succeeds. Quoted and not escaped here; the whole line is escaped
+    # where it is printed.
+    import shlex
+
+    frm = f" --from {shlex.quote(str(bundle_root))}" if source is not None else ""
+    forced = f"{_runner(repo_root)} install-skills --agent {agent}{frm} --force"
+
     drift = None if force else _permission_drift(repo_root, agent, manifest)
     if drift is not None:
         drifted_path, rule, related, was_wfctls = drift
@@ -4404,7 +4419,6 @@ def install_skills_cmd(
         )
         for existing in related:
             console.print(f"    it now denies: [cyan]{escape(existing)}[/cyan]")
-        forced = "wfctl install-skills --agent " + agent + " --force"
         console.print(
             "  Nothing was installed. Removing that rule is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
@@ -4432,7 +4446,6 @@ def install_skills_cmd(
             f"[cyan]{escape(entry)}[/cyan], {whose}.",
             soft_wrap=True,
         )
-        forced = "wfctl install-skills --agent " + agent + " --force"
         console.print(
             "  Nothing was installed. Removing that entry is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
@@ -4562,13 +4575,14 @@ def install_skills_cmd(
             # an absent key. `--tracker none` clears it and re-opens the
             # question.
             manifest["tracker"] = None
+            program = escape(_runner(repo_root))
             console.print(
                 "[dim]Skipped — `wfctl issue` / `wfctl change` no-op until a tracker "
                 "is set, and this won't be asked again. Set one later with:\n"
-                "  GitHub   wfctl install-skills --tracker github\n"
+                f"  GitHub   {program} install-skills --tracker github\n"
                 "  Custom   /scaffold-tracker writes .agents/trackers/<name>.json\n"
                 "           wfctl tracker-check <name>\n"
-                "           wfctl install-skills --tracker <name>\n"
+                f"           {program} install-skills --tracker <name>\n"
                 "Once set, later installs leave that choice — and your edits to its "
                 "config — alone.[/dim]"
             )
@@ -5087,7 +5101,16 @@ def install_skills_cmd(
     # The path as typed, not the resolved one the manifest holds: this line is
     # read next to the command that produced it, and `../116-pr` is what the
     # reader can match against what they wrote.
-    installed_from = escape(source) if source is not None else f"wfctl {wfctl_version}"
+    #
+    # Without `--from`, the version alone cannot say which files landed: a
+    # working copy reports its own `pyproject.toml` version, which is the
+    # released one until the next bump. The origin clause is what makes a
+    # checkout install impossible to read as a release.
+    if source is not None:
+        installed_from = escape(source)
+    else:
+        origin = escape(_provenance.describe(_provenance.read()))
+        installed_from = f"wfctl {wfctl_version} — {origin}"
     console.print(
         f"[green]✓[/green] Installed from {installed_from}",
         soft_wrap=True,
@@ -5130,8 +5153,12 @@ def install_skills_cmd(
             "\n[dim]Installed to .agents/ — skills and commands in their canonical, "
             "agent-agnostic form.\nIf your agent needs its own native paths:[/dim]"
         )
+        program = escape(_runner(repo_root))
         for a in opt_in:
-            console.print(f"[dim]  {a.ljust(width)}  wfctl install-skills --agent {a}[/dim]")
+            console.print(
+                f"[dim]  {a.ljust(width)}  {program} install-skills --agent {a}[/dim]",
+                soft_wrap=True,
+            )
         # `--agent` fixes the worktree the reader is standing in. `post_create`
         # reads the variable, and nothing else carries the choice across a
         # `workmux add` — so the flag alone teaches the hand-carried
@@ -5860,17 +5887,18 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes.
+    """Validate this repository's own declared pipeline passes and trunk.
 
-    Every rule `wfctl.json`'s `steps` key must satisfy, in one run (FR-022) —
-    the repository's own configuration, never wfctl's installed state, which
-    is `doctor`'s remit and not this one's (research.md R5). Nothing here is
-    dropped silently: a declaration this command discards without saying so is
-    indistinguishable to its author from one wfctl never read.
+    Every rule `wfctl.json`'s `steps` and `trunk` keys must satisfy, in one run
+    (FR-022) — the repository's own configuration, never wfctl's installed
+    state, which is `doctor`'s remit and not this one's (research.md R5).
+    Nothing here is dropped silently: a declaration this command discards
+    without saying so is indistinguishable to its author from one wfctl never
+    read.
     """
     from rich.markup import escape
 
-    from wfctl import _declared
+    from wfctl import _declared, _paths
 
     repo_root = get_repo_root()
     config_path = repo_root / _declared.CONFIG_PATH
@@ -5880,6 +5908,7 @@ def check_config_cmd() -> None:
         return
 
     _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
+    problems += _paths.declared_trunk_problems(repo_root)
     if problems:
         console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
         for problem in problems:
@@ -5896,13 +5925,23 @@ def check_config_cmd() -> None:
     n_passes = sum(len(v) for v in declared.values() if isinstance(v, list))
     if not n_passes:
         console.print(f"[green]✓[/green] {_declared.CONFIG_PATH}: no passes declared")
-        return
-    n_steps = sum(1 for v in declared.values() if isinstance(v, list) and v)
-    console.print(
-        f"[green]✓[/green] {_declared.CONFIG_PATH}: {n_passes} "
-        f"pass{'es' if n_passes != 1 else ''} under "
-        f"{n_steps} step{'s' if n_steps != 1 else ''}"
-    )
+    else:
+        n_steps = sum(1 for v in declared.values() if isinstance(v, list) and v)
+        console.print(
+            f"[green]✓[/green] {_declared.CONFIG_PATH}: {n_passes} "
+            f"pass{'es' if n_passes != 1 else ''} under "
+            f"{n_steps} step{'s' if n_steps != 1 else ''}"
+        )
+
+    # The resolved form beside the declared one, because they differ whenever
+    # origin carries the branch and a reader diffing against trunk by hand
+    # needs the one wfctl actually uses.
+    name, _ = _paths.declared_trunk(repo_root)
+    if name is not None:
+        console.print(
+            f"[green]✓[/green] {_declared.CONFIG_PATH}: trunk {escape(name)}, "
+            f"read as {escape(_paths.trunk_branch(repo_root) or name)}"
+        )
 
 
 def _verification_finding() -> list[str]:
@@ -6114,45 +6153,28 @@ class _Build(NamedTuple):
 def _installed_build() -> _Build | None:
     """Where this wfctl came from, or None if it did not come from a repository.
 
-    Read from PEP 610 `direct_url.json`, which pip and uv both write for a
-    source-control install. That the commit is already on disk is what keeps this
-    check free: no build-time stamping, no packaging change, no network.
-
     `pinned` and `None` answer two different questions, and collapsing them loses
     the url. A pinned build still has an origin, and every remedy has to name it —
     telling someone who pinned a fork to install from upstream would swap their
     lineage, which is the one instruction this command must never give. So a pin
     suppresses only the branch comparison.
 
-    None is for the shapes with no origin to name at all:
+    None is for every `_provenance.Kind` but VCS, since none of them has a branch
+    to compare against:
 
-      no direct_url.json    installed from an index or a source archive
-      no vcs_info           an editable or plain-directory install — a checkout
-                            is not drift, it is someone's working copy
-      unreadable            a health check must not raise on a metadata file
-                            some other tool wrote
+      INDEX         installed from an index or a source archive
+      DIRECTORY     a checkout is not drift, it is someone's working copy
+      ARCHIVE       a wheel file carries no branch
+      UNREADABLE    a health check must not raise on a metadata file
+                    some other tool wrote
 
-    Deliberately keyed on `vcs_info` rather than the URL scheme: `git+file://`
-    is a real git install of a local clone, with a real branch worth comparing.
+    `install-skills` reads the same parse and treats a checkout as its most
+    important answer; the second row is where the two questions part company.
     """
-    from importlib.metadata import PackageNotFoundError, distribution
-
-    try:
-        raw = distribution("wfctl").read_text("direct_url.json")
-    except (PackageNotFoundError, OSError):
+    origin = _provenance.read()
+    if origin.kind is not _provenance.Kind.VCS:
         return None
-    if not raw:
-        return None
-    try:
-        payload = json.loads(raw)
-        vcs = payload["vcs_info"]
-        return _Build(
-            url=str(payload["url"]),
-            commit=str(vcs["commit_id"]),
-            pinned="requested_revision" in vcs,
-        )
-    except (ValueError, KeyError, TypeError):
-        return None
+    return _Build(url=origin.url, commit=origin.commit, pinned=origin.pinned)
 
 
 def _remote_state(url: str) -> tuple[str, str, list[str]] | None:
@@ -6894,6 +6916,7 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     from rich.markup import escape
 
     drift = False
+    runner = _runner(repo_root)
     for layer in _layer_keys(manifest):
         paths = dict.fromkeys(
             record["path"] for record in manifest[layer].get("merged", [])
@@ -6911,7 +6934,8 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
 
             for event, command in MANAGED_HOOKS:
                 drift = (
-                    _report_hook_drift(settings, layer, rel, event, command) or drift
+                    _report_hook_drift(settings, layer, rel, event, command, runner)
+                    or drift
                 )
     return drift
 
@@ -6952,8 +6976,27 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
                 "one `/start-session`\n    runs unattended"
             )
             console.print(
-                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
+                f"    restore: {escape(_runner(repo_root))} install-skills"
+                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
+                soft_wrap=True,
             )
+
+
+def _recorded_from(manifest: dict, layer: str) -> str:
+    """The `--from` a printed repair for `layer` has to carry, or nothing.
+
+    `--from` is one-shot, so a repair line without it does not fail. It
+    installs the running bundle over the source the layer was installed from
+    and reports success, which destroys the thing the repair was called on.
+    Quoted before it is escaped, since the line is copied into a shell and a
+    source under a directory with a space printed as two arguments.
+    """
+    import shlex
+
+    from rich.markup import escape
+
+    source = manifest[layer].get("source")
+    return f" --from {escape(shlex.quote(source))}" if source else ""
 
 
 def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
@@ -6978,12 +7021,14 @@ def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
                 soft_wrap=True,
             )
             console.print(
-                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
+                f"    restore: {escape(_runner(repo_root))} install-skills"
+                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
+                soft_wrap=True,
             )
 
 
 def _report_hook_drift(
-    settings: dict, layer: str, rel: str, event: str, expected: str
+    settings: dict, layer: str, rel: str, event: str, expected: str, runner: str
 ) -> bool:
     """Print what one managed entry got wrong, if anything. True when it drifted.
 
@@ -7040,7 +7085,9 @@ def _report_hook_drift(
         f"{escape(rel)}\n  {state}",
         soft_wrap=True,
     )
-    console.print(f"    fix: wfctl install-skills --agent {layer}")
+    console.print(
+        f"    fix: {escape(runner)} install-skills --agent {layer}", soft_wrap=True
+    )
     return True
 
 
@@ -7222,7 +7269,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
         # the reader pastes, and a wrapped one pastes as two broken commands.
         console.print(
             f"    Remove the recorded one(s) with "
-            f"`wfctl install-skills{_agent_flag(layer)}{frm} --prune`.",
+            f"`{escape(_runner(repo_root))} install-skills{_agent_flag(layer)}{frm} --prune`.",
             soft_wrap=True,
         )
     if proven:
@@ -7278,6 +7325,8 @@ def doctor_cmd() -> None:
     one run reports everything wrong at once. `⚠` is the one marker that maps to
     either code: both cases warn a person, only one is a repo problem.
     """
+    from rich.markup import escape
+
     # Each check reports whether it found drift; the command's exit code is the
     # OR of them. The contract itself is stated above `_check_workmux_hook`.
     exit_code = int(_check_wfctl_version())
@@ -7314,7 +7363,10 @@ def doctor_cmd() -> None:
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
     if not layers:
-        console.print("Nothing installed — run `wfctl install-skills` first.")
+        console.print(
+            f"Nothing installed — run `{escape(_runner(repo_root))} install-skills` first.",
+            soft_wrap=True,
+        )
         raise typer.Exit(exit_code)
 
     # After the gate on purpose: with nothing recorded, every file in the owned
@@ -7334,11 +7386,9 @@ def doctor_cmd() -> None:
     _check_managed_permissions(repo_root, manifest)
     _check_managed_bob_tool_allows(repo_root, manifest)
 
-    # Both used only by the recorded-source branch below, which prints a path
-    # into a shell-shaped line.
+    # Used only by the recorded-source branch below, which prints a path into a
+    # shell-shaped line.
     import shlex
-
-    from rich.markup import escape
 
     # One hash per distinct bundle root, not one per layer: every entry produced
     # by a single install carries the same value, and layers installed from the
@@ -7358,6 +7408,11 @@ def doctor_cmd() -> None:
         # partial report to salvage — the other checks above have already run.
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1) from e
+
+    # Every repair line below starts with the same program, and it is the one
+    # running now. `/start-session` runs these unattended, and a bare `wfctl`
+    # printed by a working copy would repair the drift with the release.
+    runner = _runner(repo_root)
 
     for agent in layers:
         entry = manifest[agent]
@@ -7424,7 +7479,7 @@ def doctor_cmd() -> None:
             # arguments — the second one rejected, so the repair that
             # `/start-session` runs unattended failed at parse.
             console.print(
-                f"    update: wfctl install-skills{_agent_flag(agent)} "
+                f"    update: {escape(runner)} install-skills{_agent_flag(agent)} "
                 f"--from {escape(shlex.quote(recorded_source))}",
                 soft_wrap=True,
             )
@@ -7451,7 +7506,10 @@ def doctor_cmd() -> None:
         # stale as it found it — and this line is what the reader runs next. The
         # advice then reports the same drift on every later session, each time
         # re-running the same incomplete fix.
-        console.print(f"    update: wfctl install-skills{_agent_flag(agent)}")
+        console.print(
+            f"    update: {escape(runner)} install-skills{_agent_flag(agent)}",
+            soft_wrap=True,
+        )
 
     # Last, and dim: not a finding. `no-hardcoded-agent` is right that an unset
     # agent is the normal state, and the exit code stays out of it. What that
