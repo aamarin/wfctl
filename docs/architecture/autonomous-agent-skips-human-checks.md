@@ -32,10 +32,10 @@ is running (`approval-mode-is-stored-intent`).
 
 In the code, a check a repository adds counts as done only when its evidence
 file exists (`_declared.py:218`), and a note is read before that evidence
-(`_pipeline.py:431`). `wfctl step none` writes the note to
-`<arch-root>/step-claims/<branch>/<step>.<name>.md` (`cli.py:1716`), and
+(`_pipeline.py:442`). `wfctl step none` writes the note to
+`<arch-root>/step-claims/<branch>/<step>.<name>.md` (`cli.py:1757`), and
 `wfctl step` has no other command, so nothing in wfctl removes one. Auto-approve
-lets the agent run such a check without stopping (`_pipeline.py:802`).
+lets the agent run such a check without stopping (`_pipeline.py:814`).
 
 ## Direct baseline
 
