@@ -49,6 +49,15 @@ def _settings_path(repo_root: Path) -> Path:
     return repo_root / ".claude" / "settings.json"
 
 
+def _named_source(root: Path) -> Path:
+    """A bundle other than the running one, for a run given `--from`."""
+    (root / "agents" / "skills" / "test-skill").mkdir(parents=True)
+    (root / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# s\n")
+    (root / "agents" / "commands").mkdir(parents=True)
+    (root / "agents" / "commands" / "test-cmd.md").write_text("# c\n")
+    return root
+
+
 def _manifest(repo_root: Path) -> dict:
     return json.loads((repo_root / ".wf-skills-manifest.json").read_text())
 
@@ -756,13 +765,10 @@ def test_the_refusal_keeps_the_source_the_run_was_given(
     prints as two arguments and the second is rejected.
     """
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    source = tmp_path_factory.mktemp("named source")
-    (source / "agents" / "skills" / "test-skill").mkdir(parents=True)
-    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# s\n")
-    (source / "agents" / "commands").mkdir(parents=True)
-    (source / "agents" / "commands" / "test-cmd.md").write_text("# c\n")
+    source = _named_source(tmp_path_factory.mktemp("named source"))
     args = ["install-skills", "--agent", "claude", "--from", str(source), "--yes"]
-    runner.invoke(app, args)
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
     settings_path = _settings_path(repo_root)
     settings = json.loads(settings_path.read_text())
     del settings["permissions"]
@@ -938,6 +944,28 @@ def test_doctor_warns_about_a_removed_rule_without_failing_the_run(
     # the only place a reader learns that every install refuses meanwhile.
     assert "every install refuses until this is settled" in result.output
     assert "wfctl install-skills --agent claude --force" in result.output
+
+
+def test_doctors_restore_line_keeps_the_source_the_layer_was_installed_from(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """The refusal's twin, one command later. A reader who meets the refusal
+    runs `doctor` to see what is wrong, and a restore line without the recorded
+    `--from` puts the running bundle over the one they named and succeeds."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    source = _named_source(tmp_path_factory.mktemp("named source"))
+    result = runner.invoke(
+        app, ["install-skills", "--agent", "claude", "--from", str(source), "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert f"--agent claude --from '{source}' --force" in result.output
 
 
 def test_a_missing_hook_still_fails_the_run(agent_dir: Path) -> None:

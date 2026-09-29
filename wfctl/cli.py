@@ -6902,9 +6902,26 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
             )
             console.print(
                 f"    restore: {escape(_runner(repo_root))} install-skills"
-                f"{_agent_flag(layer)} --force",
+                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
                 soft_wrap=True,
             )
+
+
+def _recorded_from(manifest: dict, layer: str) -> str:
+    """The `--from` a printed repair for `layer` has to carry, or nothing.
+
+    `--from` is one-shot, so a repair line without it does not fail. It
+    installs the running bundle over the source the layer was installed from
+    and reports success, which destroys the thing the repair was called on.
+    Quoted before it is escaped, since the line is copied into a shell and a
+    source under a directory with a space printed as two arguments.
+    """
+    import shlex
+
+    from rich.markup import escape
+
+    source = manifest[layer].get("source")
+    return f" --from {escape(shlex.quote(source))}" if source else ""
 
 
 def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
@@ -6930,7 +6947,7 @@ def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
             )
             console.print(
                 f"    restore: {escape(_runner(repo_root))} install-skills"
-                f"{_agent_flag(layer)} --force",
+                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
                 soft_wrap=True,
             )
 
