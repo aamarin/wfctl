@@ -77,11 +77,9 @@ wfctl does two things:
 wfctl is for developers running AI coding agents in parallel, whether those
 agents run autonomously or with the developer heavily in the loop. Its skills,
 steps, and sub-step controls let a developer decide how deeply they want to be
-involved in each feature. The two things above are not felt the same way. The
-first also pays off for a developer who works on one feature at a time in one
-terminal. That developer knows which step the feature is on, and the second
-fills no gap for them. The second pays off where nobody can keep track of which
-step each feature is on, and that happens in three places:
+involved in each feature. wfctl works out which step each feature is on from
+the files the work leaves behind, so nobody has to keep track of it, and that
+matters in three places:
 
 1. An agent's session restarts partway through its work, and the next session
    starts from what reached disk.

@@ -60,7 +60,9 @@ needs a human now. That judgment is core; the screen that shows it is not.
 wfctl is for developers running AI coding agents in parallel, whether those
 agents run autonomously or with the developer heavily in the loop. Its skills,
 steps, and sub-step controls let a developer decide how deeply they want to be
-involved in each feature. The evidence-derived truth is felt at three seams:
+involved in each feature. wfctl works out which step each feature is on from
+the files the work leaves behind, so nobody has to keep track of it, and that
+matters in three places:
 
 1. A session restart partway through a feature, where the next session has
    only what reached disk.
@@ -68,12 +70,6 @@ involved in each feature. The evidence-derived truth is felt at three seams:
    keep track of.
 3. A handoff to a session that was not present for the decision it now has to
    carry out, on one of several features in flight.
-
-A developer who works on one feature at a time, in one terminal, already knows
-which step that feature is on. The evidence wfctl reads tells them nothing new,
-but the method around Spec Kit still pays off for them. So that developer can
-adopt the method and skip the evidence, and the open questions below record this
-as O3.
 
 **Where it sits beside Anthropic's long-running harness.** The problem is the
 same one — work that outlives a context window, handed from one fresh session
@@ -106,7 +102,6 @@ authority that interprets that evidence as completion.
 | --- | --- | --- | --- | --- |
 | O1 | Install-skills is stable only once skills are discovered correctly on hosts other than Claude, which has not been tested | Until then a new host may reopen it as more than supporting | Andre | A run on a second agent host |
 | O2 | The design method is core and ships as skill prose, while the other core rows are code | Core prose has no check behind it unless `a-rule-is-expressed-as-a-check` finds an artifact to read | Andre | The follow-up gate on this page's own classification |
-| O3 | The two cores are not adopted the same way. The design method pays off for a developer working one session at a time, and evidence governance is not felt without the three seams named in the vision statement | A developer outside that audience adopts the design method and skips the capability the vision statement opens with | Andre | A record deciding whether the audience named above stays as it is |
 
 ## What reopens this page
 
