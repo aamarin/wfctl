@@ -68,6 +68,12 @@ after.
   is where a snapshot was copied from, which can have moved on since. The line
   names it as a working copy in both cases, since both were copied from a tree
   someone can edit.
+- wfctl runs through its console script. Every checkout carries a
+  `wfctl.egg-info` from its editable build, and a process that puts the current
+  directory first on `sys.path` finds that metadata before the venv's, reads no
+  `direct_url.json`, and reports an index install. `uv run python -c` from a
+  checkout root does exactly that; `uv run wfctl` does not. `_installed_build`
+  had the same exposure before this change.
 
 ## Direct baseline
 
