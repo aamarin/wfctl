@@ -67,9 +67,11 @@ honestly. This means a public default defeats the check before it runs. The
 agent can't decide it either, since the agent is the one whose explanation would
 stand in for the plan owner's.
 
-wfctl owns "has this check been run against the current plan?". The evidence in
-the feature folder answers that without exposing any answer, the same way every
-other check a repository adds is answered by its evidence.
+wfctl owns "has this check been run?". The evidence in the feature folder
+answers that without exposing any answer, the same way every other check a
+repository adds is answered by its evidence. The evidence records which plan
+was walked through, and nothing compares that against the plan as it is now,
+so a plan edited after its walkthrough still reads as walked through.
 
 ## Boundary
 

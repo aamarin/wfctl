@@ -31,7 +31,7 @@ every time it shows status. So wfctl can already tell whether an autonomous agen
 is running (`approval-mode-is-stored-intent`).
 
 In the code, a check a repository adds counts as done only when its evidence
-file exists (`_declared.py:202`), and a note is read before that evidence
+file exists (`_declared.py:218`), and a note is read before that evidence
 (`_pipeline.py:431`). `wfctl step none` writes the note to
 `<arch-root>/step-claims/<branch>/<step>.<name>.md` (`cli.py:1716`), and
 `wfctl step` has no other command, so nothing in wfctl removes one. Auto-approve
