@@ -102,6 +102,23 @@ def test_an_autonomous_run_moves_past_the_skipped_pass(
     assert report.attention is None
 
 
+def test_next_step_md_moves_past_the_skipped_pass_too(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`next` infers steps on its own rather than through `build_report`, and
+    `next-step.md` is the file an autonomous run acts on. It once read the
+    passes without the mode, so `status` said skipped while `next-step.md` said
+    to run `/walk` with `auto: true`, which is the walkthrough starting with
+    nobody there."""
+    storyctl_dir.stage_upstream_of("tasks")
+    _declare(storyctl_dir, [_walkthrough()])
+    grant_auto_approve(storyctl_dir.agent_dir, True)
+
+    assert runner.invoke(app, ["next"]).exit_code == 0
+
+    assert "/walk" not in (storyctl_dir.agent_dir / "next-step.md").read_text()
+
+
 def test_with_auto_approve_off_the_pass_waits_for_a_person(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

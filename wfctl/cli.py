@@ -814,7 +814,12 @@ def next_cmd() -> None:
     # and a second `build_evidence` call here would be the same duplicate read
     # this function's own comment two lines down warns against.
     ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
-    steps = _infer_steps(spec_dir, repo_root, ev)
+    # Read once, before inference, for `build_report`'s reason: a pass that
+    # needs a person is skipped under this mode, so inference and routing
+    # below have to see the same value or this file names the pass `status`
+    # has just passed by.
+    granted = read_auto_approve(agent_dir)
+    steps = _infer_steps(spec_dir, repo_root, ev, auto_approve=granted)
     # Same hold `build_report` applies for `status`/`resume` (FR-010, FR-011):
     # without it, a step a host block is holding reads here as whatever its own
     # artifacts say, and this is the file an agent actually acts on — `status`
@@ -847,7 +852,7 @@ def next_cmd() -> None:
     # the single writer of.
     command, auto = next_step_content(
         step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
-        outstanding=outstanding, auto_approve=read_auto_approve(agent_dir),
+        outstanding=outstanding, auto_approve=granted,
     )
 
     # Shared with `build_report`, which applies it to the same step's `reason`
