@@ -197,8 +197,9 @@ def test_a_pass_without_the_flag_is_not_skipped_on_an_autonomous_run(
 def test_the_payload_says_which_passes_need_a_person(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """A consumer tells this skip from a claimed one and an inherited one by
-    fields, not by parsing the annotation, so every pass carries the key."""
+    """Every pass carries the key, so a consumer reads what the repository
+    declared without loading `wfctl.json`. It is the declaration and not the
+    reason for a skip: a pass under a skipped parent carries it too."""
     storyctl_dir.stage_upstream_of("tasks")
     _declare(storyctl_dir, [_walkthrough()])
 

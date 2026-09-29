@@ -238,9 +238,10 @@ class _PipelineSubStep:
     non-null reason a person wrote, or `None` when the state was inherited
     from a parent the pipeline walked past and no claim was ever owed.
 
-    `needs_person` is the third tell, carried from the declaration: a
-    `skipped` pass with no claim and this set was passed by because nobody
-    was expected, not because its parent was.
+    `needs_person` is the declaration, carried onto every reading whatever
+    the state, so it is not a tell. A pass skipped because nobody was
+    expected and one skipped because its parent was share `state`,
+    `claimed` and `needs_person` alike; only `annotation` separates them.
 
     `remedy` is the pass's own fix for its reason, when its reader built one.
     The roll-up carries it to the step, and the payload's `sub_steps` never
