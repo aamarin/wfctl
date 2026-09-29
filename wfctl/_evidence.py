@@ -1149,7 +1149,9 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     too: `brainstorm` reads `done` on `design.md` before it looks for `spec.md`,
     and then both passes run. `_architecture_answered` returns early there by its
     own escape, and the drawing check has to repeat it, or it would hold every
-    branch past specify on a record the pipeline had already moved beyond.
+    branch past specify on a record the pipeline had already moved beyond. The
+    check still runs there, and its verdict is folded into a `done` reading that
+    carries a reason: a warning, since the step is finished and holds nothing.
 
     The drawing is judged here and not inside `_architecture_answered`, because
     `brainstorm` asks that function whether the step has started at all. A
@@ -1159,9 +1161,15 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     reason = _architecture_answered(ev.spec_dir, ev.repo_root)
     if reason is not None:
         return Assessment("in_progress", reason)
-    if _file_exists(ev.spec_dir / "spec.md"):
-        return Assessment("done")
-    return _judge_drawings(ev.repo_root)
+    verdict = _judge_drawings(ev.repo_root)
+    if not _file_exists(ev.spec_dir / "spec.md"):
+        return verdict
+    # Past specify the step stays done whatever the drawings say, and what the
+    # check found travels as a warning instead (`design/532-payload-warnings-list.md`).
+    # The no-trunk line moves from `display` to `reason` here: before specify a
+    # reason holds the step, so it could not go there, and `collect_warnings`
+    # lists only what carries one.
+    return Assessment("done", verdict.reason or verdict.display, remedy=verdict.remedy)
 
 
 def _judge_drawings(repo_root: Path) -> Assessment:

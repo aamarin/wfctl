@@ -257,6 +257,68 @@ def test_a_failing_record_does_not_hold_a_branch_already_past_specify(
     assert step["reason"] is None
 
 
+def test_a_failing_record_past_specify_warns_and_names_the_fix(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check used to go quiet once `spec.md` existed, so a record added or
+    edited after specify said nothing until someone ran `accept` on it. It now
+    reports through `warnings`, with the same reason and fix line the held step
+    carries before specify, and the step stays done. Read from the payload and
+    the console both, since a line only one of them shows is a view deriving
+    state below the payload."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify")
+    write_record(root, "a-decision", diagram="component")
+
+    payload = _payload()
+
+    assert _brainstorm(payload)["state"] == "done"
+    assert payload["warnings"] == [{
+        "step": "brainstorm",
+        "pass": "architecture",
+        "reason": f"a-decision: {_first_blocker(root, 'a-decision')}",
+        "remedy": _dry_run("a-decision"),
+    }]
+    # The blocker sentence wraps at the runner's 80 columns, so the slug and the
+    # fix line stand in for it.
+    shown = runner.invoke(app, ["next"]).output
+    assert "a-decision:" in shown
+    assert _dry_run("a-decision").strip() in shown
+
+
+def test_a_good_drawing_past_specify_carries_no_warning(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_warning_block` writes nothing when there is nothing to say, so a
+    passing drawing must leave `warnings` empty and not add a line to every file."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+
+    assert _payload()["warnings"] == []
+
+
+def test_with_no_trunk_past_specify_the_unchecked_line_is_a_warning(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same sentence #529 put before specify, from the same constant, so the
+    two arms cannot drift. It travels as a reason here because only a reason
+    reaches `warnings`, and past specify a reason holds nothing."""
+    from wfctl._evidence import DRAWINGS_UNCHECKED
+
+    _failing_record_with_no_trunk(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("specify")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
+
+    payload = _payload()
+
+    assert _brainstorm(payload)["state"] == "done"
+    assert [w["reason"] for w in payload["warnings"]] == [DRAWINGS_UNCHECKED]
+
+
 def test_a_failing_record_with_no_design_doc_still_reads_brainstorm_started(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
