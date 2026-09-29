@@ -98,7 +98,9 @@ and calls `parse`. Three thin readers sit on top of it.
 2. `describe(origin)` in `_provenance` returns the clause for the success line;
    `aamarin/wfctl @ 4ca1604` for a repository, `working copy
    wt/76-install-provenance` for a directory, and a named clause for the other
-   three kinds, so no install prints the bare version alone.
+   three kinds, so no install prints the bare version alone. A run given
+   `--from` prints the path it was given and no clause, since the bundle then
+   came from that path and not from the running wfctl.
 3. `runner(origin, here)` in `_provenance` returns the program a repair line
    starts with; `wfctl` for everything but a working copy, `uv run wfctl` when
    `here` is that working copy, and `uv run --project <dir> wfctl` otherwise.
