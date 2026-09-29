@@ -5,7 +5,7 @@ import types
 
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_SPEC, structured
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, structured
 from wfctl._pipeline import _current_step_name, infer_pipeline
 from wfctl._pipeline import _infer_steps as _infer_pipeline
 from wfctl.cli import app
@@ -56,7 +56,7 @@ class TestInferPipeline:
         storyctl_dir.make_spec_artifact("brainstorm")
         arch = storyctl_dir.repo_root / "docs" / "architecture"
         arch.mkdir(parents=True, exist_ok=True)
-        (arch / "a-boundary.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
+        (arch / "a-boundary.md").write_text(ACCEPTABLE_RECORD)
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[0].state == "done"
 

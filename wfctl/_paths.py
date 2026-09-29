@@ -386,9 +386,27 @@ def touched_on_this_branch(
 
 
 def records_on_this_branch(
-    repo_root: Path, arch: Path, exclude: Sequence[Path] | None = None
+    repo_root: Path,
+    arch: Path,
+    exclude: Sequence[Path] | None = None,
+    *,
+    added_only: bool = False,
 ) -> list[str]:
     """The record slugs this branch adds or modifies, uncommitted work included.
+
+    `added_only` narrows the listing to records the branch base does not have.
+    A reader judging a record by rules newer than the record needs that line:
+    an edit to a record written before the rules existed would otherwise be
+    held to them.
+
+    "The base does not have it" is asked of the base's tree, never of git's
+    change codes. Those codes turn on whether git paired two paths as a rename
+    or a copy, which is a similarity guess that moves with staging and with each
+    machine's `diff.renames` and `status.renames`. Read that way, the same record
+    was judged before a commit and released after it, and a new record that git
+    paired with a deleted one was never judged at all. A rename is new by this
+    test, since the base has no file at its path, so renaming an older record
+    holds the branch on its drawing; that is the direction that fails closed.
 
     A sibling of `touched_on_this_branch` rather than a widening of it, because
     the two answer different questions and only one of them gates. That one
@@ -437,6 +455,18 @@ def records_on_this_branch(
     trunk = _trunk_branch(repo_root)
     if trunk is not None:
         found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
+
+    if added_only:
+        # The merge base is what `trunk...HEAD` diffs against. With no trunk,
+        # HEAD is the only base there is: a record committed before this read is
+        # indistinguishable from one on trunk, which is #508's gap and not this
+        # filter's to close. A base git cannot read lists nothing, so every
+        # touched record counts as added, which again fails closed.
+        base = names("merge-base", trunk, "HEAD") if trunk is not None else ["HEAD"]
+        rel = str(arch.resolve().relative_to(repo_root.resolve()))
+        tree = ["ls-tree", "-r", "--name-only", "--full-name"]
+        on_base = set(names(*tree, base[0], "--", rel)) if base else set()
+        found = [p for p in found if p not in on_base]
 
     slugs = {Path(p).stem for p in found if p.endswith(".md")}
     return sorted(slugs)

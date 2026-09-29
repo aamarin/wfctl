@@ -1763,8 +1763,12 @@ def arch_accept_cmd(
     slug: str = typer.Argument(
         "", help="The record to accept. Omit to list what could be accepted."
     ),
-    agreed: str = typer.Option(
-        "", "--agreed", help="Where the human agreed to this decision."
+    agreed: str | None = typer.Option(
+        None, "--agreed", help="Where the human agreed to this decision."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Say what accepting would refuse, and write nothing. --agreed is optional.",
     ),
 ) -> None:
     """Accept a record: mark it in force, and record where that was agreed.
@@ -1786,6 +1790,14 @@ def arch_accept_cmd(
     `arch none --reason` names for its own claim: the check is tamper-evident,
     not unforgeable, and what it buys is that a promotion with nothing behind it
     must state something false in the file a reviewer reads.
+
+    `--dry-run` rehearses all of this and stops before the write. It is the fix
+    line the design gate prints for a drawing this command would refuse, so it
+    runs before anyone has agreed to anything, and a missing `--agreed` is the
+    one refusal it skips. A citation that is given is still checked. It walks
+    this function rather than a helper that prints the blockers, because every
+    refusal added here later is then one the rehearsal makes too, and a
+    rehearsal that passes where the real run refuses is worse than none.
     """
     import difflib
     from datetime import datetime, timezone
@@ -1851,7 +1863,13 @@ def arch_accept_cmd(
         console.print(_not_promotable(record))
         raise typer.Exit(1)
 
-    if not agreed.strip():
+    # A dry run skips this only when no citation was given at all. A blank one
+    # was given and says nothing, and the real run refuses it. `None` is what
+    # tells the two apart: Click hands `--agreed ""` over as an empty string, so
+    # an empty-string default read the explicit blank as an omission.
+    given = agreed is not None
+    agreed = agreed or ""
+    if not agreed.strip() and (given or not dry_run):
         console.print(
             "[red]✗[/red] --agreed is required: say where the human agreed to this."
         )
@@ -1865,6 +1883,20 @@ def arch_accept_cmd(
         console.print(
             f'[red]✗[/red] "{escape(agreed.strip())}" is a placeholder, not a '
             "citation — say where the decision was agreed.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    # A flag given as the citation is a mistake every time. Click reads
+    # `accept <slug> --agreed --dry-run` as a real acceptance citing "--dry-run",
+    # so the rehearsal someone meant becomes the ruling a person owns.
+    # Brainstorm's grant starts with `--dry-run` rather than ending with it for
+    # the same reason, and this refusal covers everyone the grant does not, a
+    # person typing the command included. Only a lone dash-led token is refused:
+    # a citation pasted from a bullet, such as "- agreed on #511", is a sentence.
+    if re.fullmatch(r"-\S*", agreed.strip()):
+        console.print(
+            f'[red]✗[/red] --agreed was given "{escape(agreed.strip())}", which is '
+            "a flag, not a citation — say where the decision was agreed.",
             soft_wrap=True,
         )
         raise typer.Exit(1)
@@ -1904,6 +1936,12 @@ def arch_accept_cmd(
                 console.print(f"  {kind:<{width}}  {_DIAGRAM_KIND_BLURBS[kind]}")
         console.print(f"\n  {_arch_location(record.path, repo_root)}", soft_wrap=True)
         raise typer.Exit(1)
+
+    if dry_run:
+        console.print(
+            f"[green]✓[/green] {escape(record.slug)} would be accepted — dry run, nothing written."
+        )
+        return
 
     citation = agreed.strip()
     # UTC, like every other timestamp wfctl writes (`_session.py`, `_verify.py`,

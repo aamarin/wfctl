@@ -190,8 +190,8 @@ allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
    - Display: "Next: run `{next_command}` when ready."
    - Where the current step carries a `reason`, display it, and its `remedy`
      below it where there is one. `next_command` names the step to re-enter; the
-     reason is what re-entering has to answer, and the remedy is the part no
-     command can be. A step that reports blocked and is announced as merely
+     reason is what re-entering has to answer, and the remedy is how to answer
+     it, which re-entering alone does not say. A step that reports blocked and is announced as merely
      "next" sends the loop back in to do the work again rather than to give the
      answer that was missing.
    - Stop.
