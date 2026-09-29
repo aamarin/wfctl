@@ -987,12 +987,12 @@ def _print_warnings(warnings: "tuple[StepWarning, ...]") -> None:
 
 
 def _print_warning_remedy(warning: "StepWarning") -> None:
-    """A warning's fix, dim and as its reader built it, on the lines under
-    wherever the warning printed — `status`'s row or `next`'s line alike."""
+    """A warning's fix, dim and nested under wherever the warning printed —
+    `status`'s row or `next`'s line alike."""
     from rich.markup import escape
 
-    if warning.remedy:
-        console.print(f"[dim]{escape(warning.remedy.rstrip())}[/dim]")
+    if warning.nested_remedy:
+        console.print(f"[dim]{escape(warning.nested_remedy)}[/dim]")
 
 
 def _revocation_line(reason: str) -> str:

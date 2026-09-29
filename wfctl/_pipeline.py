@@ -212,14 +212,14 @@ def story_complete_file(*, warnings: tuple["StepWarning", ...]) -> str:
 
 
 def _warning_block(warnings: tuple["StepWarning", ...]) -> str:
-    """One `warning:` line per warning, each with its remedy under it as the
-    reader built it. Keyed like `why:` and `how:`, so a reader scanning the
-    file can tell a warning from the command without counting lines."""
+    """One `warning:` line per warning, each with its remedy nested under it.
+    Keyed like `why:` and `how:`, so a reader scanning the file can tell a
+    warning from the command without counting lines."""
     lines = []
     for w in warnings:
         lines.append(f"warning: {w.where}: {w.reason}\n")
-        if w.remedy:
-            lines.append(w.remedy.rstrip("\n") + "\n")
+        if w.nested_remedy:
+            lines.append(w.nested_remedy + "\n")
     return "".join(lines)
 
 
@@ -934,6 +934,16 @@ class StepWarning(NamedTuple):
         """`step`, or `step.pass` — the dotted form `next` already names a
         manual pass by."""
         return self.step if self.pass_name is None else f"{self.step}.{self.pass_name}"
+
+    @property
+    def nested_remedy(self) -> str | None:
+        """The remedy with every line indented two spaces past where the reader
+        left it, so it reads as belonging to its `warning:` line and not as a
+        second command after `Run this command to continue.`. One spelling for
+        `next-step.md` and the console alike."""
+        if not self.remedy:
+            return None
+        return "\n".join(f"  {line}" for line in self.remedy.rstrip("\n").splitlines())
 
 
 def collect_warnings(steps: list[_PipelineStep]) -> tuple[StepWarning, ...]:

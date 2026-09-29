@@ -277,6 +277,15 @@ def test_the_payload_writes_each_warning_under_the_four_wire_keys() -> None:
     ]
 
 
+def test_a_remedy_is_nested_under_its_warning_however_its_reader_indented_it() -> None:
+    """A remedy after `Run this command to continue.` at the same indent as the
+    file's own lines reads as a second command to run. Nesting it two spaces
+    past wherever the reader left it ties it to the warning above it."""
+    assert StepWarning("s", None, "r", "fix a\nfix b").nested_remedy == "  fix a\n  fix b"
+    assert StepWarning("s", None, "r", "  fix a\n").nested_remedy == "    fix a"
+    assert StepWarning("s", None, "r", None).nested_remedy is None
+
+
 # --- routing ------------------------------------------------------------------
 
 
@@ -362,7 +371,7 @@ def test_the_command_file_carries_the_warning_after_the_imperative(
     assert runner.invoke(app, [command]).exit_code == 0
     assert _next_step(storyctl_dir) == (
         "Next step: /plan-review\nauto: false\nRun this command to continue.\n"
-        "warning: specify.probe: a bad drawing\n  fix one\n  fix two\n"
+        "warning: specify.probe: a bad drawing\n    fix one\n    fix two\n"
     )
 
 
@@ -451,7 +460,7 @@ def test_status_console_prints_a_pass_warnings_remedy_under_its_row(
 
     row = next(i for i, line in enumerate(lines) if line.startswith("  probe"))
     assert "⚠ a bad drawing" in lines[row]
-    assert lines[row + 1:row + 3] == ["  fix one", "  fix two"]
+    assert lines[row + 1:row + 3] == ["    fix one", "    fix two"]
 
 
 def test_status_console_shows_a_skipped_pass_only_when_it_carries_a_warning(
