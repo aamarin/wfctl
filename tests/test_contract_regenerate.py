@@ -9,8 +9,10 @@ there is no synthetic repo to point it at instead.
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from wfctl.cli import app
@@ -23,24 +25,26 @@ CONTRACT_PATH = (
 PIPELINE_PATH = Path(__file__).resolve().parent.parent / "wfctl" / "_pipeline.py"
 
 
-def test_regenerate_cleans_up_its_throwaway_repos() -> None:
+def test_regenerate_cleans_up_its_throwaway_repos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`_init_throwaway_repo` never removes the directory it creates — five
     fixture repos plus the live probe, six per run, with no cleanup short of
     OS temp reaping. This is the one caller invoked repeatedly by a developer
-    rather than once per test process, so it removes what it built."""
-    import tempfile
+    rather than once per test process, so it removes what it built.
 
-    before = {
-        p.name for p in Path(tempfile.gettempdir()).glob("contract-*")
-    }
+    Measured in a directory of its own: the system temp directory is written
+    by every process on the machine, and a `contract-*` directory another
+    worktree's test run created between two listings read as a leak here
+    (#539). `mkdtemp` runs in this process, so pointing `tempfile.tempdir` at
+    `tmp_path` is what the command sees too."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    assert not list(tmp_path.glob("contract-*"))
 
     result = runner.invoke(app, ["contract", "regenerate"])
     assert result.exit_code == 0
 
-    after = {
-        p.name for p in Path(tempfile.gettempdir()).glob("contract-*")
-    }
-    assert after == before
+    assert not list(tmp_path.glob("contract-*"))
 
 
 def test_a_clean_tree_reports_no_change_and_writes_nothing() -> None:
