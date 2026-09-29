@@ -21,7 +21,8 @@ def _facts(**overrides: object) -> Facts:
     """A linked worktree on an open issue's branch, overridden per test."""
     base = Facts(
         linked=True, on_trunk=False, installed_here=True, installed_in_main=True,
-        bare=False, agent=None, base_source=None, tracker_configured=True, detached=False,
+        bare=False, agent=None, base_source=None, runner="wfctl", tracker_configured=True,
+        detached=False,
         branch="497-start-refuses", key="497", state="open",
     )
     return dataclasses.replace(base, **overrides)
@@ -127,6 +128,22 @@ def test_the_install_remedy_names_an_agent_and_source_only_from_the_environment(
     would reinstall the release over the checkout being tested.
     """
     verdict = decide(_facts(installed_here=False, agent=agent, base_source=source))
+    assert verdict.lines[2] == command
+
+
+@pytest.mark.parametrize(("source", "command"), [
+    (None, "    uv run wfctl install-skills"),
+    ("/src/wfctl", "    uv run wfctl install-skills --from /src/wfctl"),
+])
+def test_a_working_copy_prints_a_remedy_that_runs_the_working_copy(
+    source: str | None, command: str
+) -> None:
+    """#524. The bare `wfctl install-skills` this printed in wfctl's own
+    worktrees ran the release on PATH, which installed the release's skills over
+    the branch being tested and reported success. Which wfctl runs and which
+    bundle it installs are separate questions, so a recorded source still
+    travels as `--from`."""
+    verdict = decide(_facts(installed_here=False, runner="uv run wfctl", base_source=source))
     assert verdict.lines[2] == command
 
 
@@ -284,6 +301,27 @@ def test_gather_reads_the_install_here_and_in_the_main_checkout(
     facts = gather(wt, "7-x")
     assert (facts.installed_here, facts.installed_in_main) == (False, True)
     assert (facts.agent, facts.base_source) == ("claude", "/src/wfctl")
+
+
+def test_gather_asks_the_running_install_how_to_start_it_here(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The directory PEP 610 records is where the *running* wfctl came from,
+    which is not always the worktree being checked. Standing in it, `uv run`
+    finds it on its own; anywhere else, the remedy has to name it."""
+    from wfctl import _provenance
+
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+
+    def running_from(path: Path) -> None:
+        origin = _provenance.parse(f'{{"url":"{path.as_uri()}","dir_info":{{}}}}')
+        monkeypatch.setattr(_provenance, "read", lambda: origin)
+
+    running_from(wt)
+    assert gather(wt, "7-x").runner == "uv run wfctl"
+    running_from(main)
+    assert gather(wt, "7-x").runner == f"uv run --project {main} wfctl"
 
 
 def test_gather_reads_a_worktree_with_a_committed_manifest_but_no_skills_as_not_installed(
@@ -480,6 +518,31 @@ def test_a_refusal_prints_a_long_remedy_command_on_one_line(
 
     assert result.exit_code == 1, result.output
     assert f"    wfctl install-skills --from {long_source}" in result.output
+
+
+def test_start_in_a_bare_git_worktree_tells_a_working_copy_to_install_itself(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#524 end to end, short of running uv. A worktree made with `git worktree
+    add` skips `post_create`, and `uv run wfctl start` there is a working copy
+    of that same worktree, so the remedy is what `post_create` would have run."""
+    from wfctl import _provenance
+
+    main = git_repo(tmp_path / "main")
+    _install(main, tracker="github", base={"items": []})
+    wt = _add_worktree(main, "wt-no-install", "-b", "497-x")
+    origin = _provenance.parse(f'{{"url":"{wt.as_uri()}","dir_info":{{"editable":true}}}}')
+    monkeypatch.setattr(_provenance, "read", lambda: origin)
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    monkeypatch.chdir(wt)
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 1, result.output
+    assert "    uv run wfctl install-skills\n" in result.output
 
 
 def test_nothing_wfctl_ships_mentions_pre_create() -> None:

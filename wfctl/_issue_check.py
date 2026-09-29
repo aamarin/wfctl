@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from wfctl import _manifest, _paths, _tracker
+from wfctl import _manifest, _paths, _provenance, _tracker
 
 
 class Outcome(enum.Enum):
@@ -53,6 +53,8 @@ class Facts:
     bare: bool
     agent: str | None
     base_source: str | None
+    # How to start the wfctl running now: `wfctl`, or `uv run …` for a working copy.
+    runner: str
     tracker_configured: bool
     detached: bool
     branch: str
@@ -79,11 +81,13 @@ def _refuse(outcome: Outcome, *lines: str) -> Verdict:
 def _install_command(facts: Facts) -> str:
     """What `post_create` would have run here.
 
-    `--agent` only from `WFCTL_AGENT` (`no-hardcoded-agent`). `--from` only when
-    the main checkout recorded a source, since the bare form reinstalls the
-    release over a checkout someone installed from a working tree.
+    Two questions, answered separately. Which wfctl runs is `runner`, since a
+    bare `wfctl` beside a working copy is the release, and following it
+    installs the release's skills over the checkout being tested. Which bundle
+    it installs is `--from`, carried only when the main checkout recorded a
+    source. `--agent` only from `WFCTL_AGENT` (`no-hardcoded-agent`).
     """
-    command = "wfctl install-skills"
+    command = f"{facts.runner} install-skills"
     if facts.agent:
         command += f' --agent "{facts.agent}"'
     if facts.base_source:
@@ -248,6 +252,7 @@ def gather(repo_root: Path, branch: str) -> Facts:
         bare=_paths.is_bare_layout(repo_root),
         agent=os.environ.get("WFCTL_AGENT") or None,
         base_source=_base_source(main) if main is not None else None,
+        runner=_provenance.runner(_provenance.read(), repo_root),
         tracker_configured=pattern is not None,
         detached=_paths.is_detached(repo_root),
         branch=branch,

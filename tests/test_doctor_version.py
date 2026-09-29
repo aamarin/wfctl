@@ -8,6 +8,9 @@ mistake to make in this file.
 The stub's own return value is deliberately not quoted here: it lives in
 `tests/conftest.py`, and a copy of it in this docstring is a second place to
 update that nobody will.
+
+The whole module also carries `real_install_origin`, since the `build` fixture
+stubs `importlib.metadata` itself and conftest's release stub would bypass it.
 """
 from __future__ import annotations
 
@@ -15,6 +18,8 @@ import json
 import subprocess
 
 import pytest
+
+pytestmark = pytest.mark.real_install_origin
 
 UPSTREAM = "https://github.com/aamarin/wfctl.git"
 FORK = "https://github.com/someone/wfctl.git"
