@@ -33,7 +33,7 @@ when this drawing stops matching it. See **Staleness** below.
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
       ▼ ┊  _tracker    → _paths.DEFAULT_KEY_PATTERN        edge, and the ┊
    ╭─ resolution ─────────────────────────────────────╮     only cycle   ┊
-   │ _paths 660      _manifest 42                     │◄────────────────╌╯
+   │ _paths 660      _manifest 42     _provenance 173 │◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
    ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
@@ -300,7 +300,7 @@ red rather than stale.
 ```layers
 surface     cli _entry _hook _restart_send
 domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review
-resolution  _paths _manifest
+resolution  _paths _manifest _provenance
 mechanism   _io _md
 ```
 

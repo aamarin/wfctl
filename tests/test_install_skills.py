@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -583,6 +584,45 @@ def test_install_skills_reports_what_it_installed(agent_dir: Path, tmp_path: Pat
     )
     assert result.exit_code == 0
     assert f"Installed from wfctl {version('wfctl')}" in result.output
+
+
+def _running_from(monkeypatch: pytest.MonkeyPatch, raw: str | None) -> None:
+    """Replace conftest's release with another install record."""
+    from wfctl import _provenance
+
+    origin = _provenance.parse(raw)
+    monkeypatch.setattr(_provenance, "read", lambda: origin)
+
+
+def test_a_release_names_its_repository_and_commit(agent_dir: Path) -> None:
+    """#76. The version alone is the same for a release and for a working copy
+    that has not bumped, so the line has to carry the origin to be evidence."""
+    result = runner.invoke(app, ["install-skills", "--yes"])
+    assert f"Installed from wfctl {version('wfctl')} — aamarin/wfctl @ 4ca1604" in result.output
+
+
+def test_a_working_copy_says_so_and_names_its_directory(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The line #76 was opened for: impossible to read as the release."""
+    _running_from(
+        monkeypatch,
+        '{"url":"file:///Users/me/wfctl/wt/69-machine-checked-done","dir_info":{"editable":true}}',
+    )
+    result = runner.invoke(app, ["install-skills", "--yes"])
+    assert (
+        f"Installed from wfctl {version('wfctl')} — working copy wt/69-machine-checked-done"
+        in result.output
+    )
+
+
+def test_an_index_install_still_says_where_it_came_from(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No record at all is a shape with a name, not a reason to print nothing."""
+    _running_from(monkeypatch, None)
+    result = runner.invoke(app, ["install-skills", "--yes"])
+    assert f"Installed from wfctl {version('wfctl')} — package index" in result.output
 
 
 def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path) -> None:
@@ -1626,7 +1666,8 @@ def test_install_summary_reports_per_layer_counts(agent_dir: Path) -> None:
     layers = _summary_layers(bare.output)
     assert list(layers) == ["base"], layers
     assert "1 skill" in layers["base"] and "1 command" in layers["base"]
-    assert "0 " not in bare.output  # never a zero count anywhere
+    # A count is a bare number before a noun; `0.21.0 — ` in the ✓ line is not one.
+    assert not re.search(r"(?<![\d.])0 [a-z]", bare.output)  # never a zero count anywhere
 
     claude = runner.invoke(
         app, ["install-skills", "--agent", "claude"]
@@ -2771,6 +2812,26 @@ def test_doctor_names_the_agent_layer_in_the_command_it_advises(
     assert base_line, "the base layer still repairs with no flag"
 
 
+def test_doctor_run_from_a_working_copy_repairs_with_the_working_copy(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/start-session` runs doctor's repair line unattended. Printed by a
+    working copy as a bare `wfctl install-skills`, it ran the release on PATH,
+    which repaired the drift by installing the release over the branch."""
+    import os
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _running_from(monkeypatch, f'{{"url":"{repo_root.as_uri()}","dir_info":{{"editable":true}}}}')
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    (bundle / "agents" / "skills" / "later-skill").mkdir(parents=True)
+    (bundle / "agents" / "skills" / "later-skill" / "SKILL.md").write_text("# later\n")
+
+    out = runner.invoke(app, ["doctor"]).output
+
+    assert "update: uv run wfctl install-skills --agent claude" in out
+    assert "update: wfctl install-skills" not in out
+
+
 # ---------------------------------------------------------------------------
 # Bob agent: Claude-only frontmatter stripping
 # ---------------------------------------------------------------------------
@@ -3175,6 +3236,8 @@ def test_a_bracketed_source_path_survives_the_console(
 
     installed = runner.invoke(app, ["install-skills", "--from", str(source)])
     assert f"Installed from {source}" in installed.output
+    # `--from` already names the bundle, so the running wfctl's origin is not news.
+    assert "aamarin/wfctl @" not in installed.output
 
     current = runner.invoke(app, ["doctor"])
     assert f"skills current (from {source.resolve()})" in current.output

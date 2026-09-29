@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple, NoReturn
 import typer
 from rich.console import Console
 
-from wfctl import _bob_settings, _bundle, _settings, _tracker
+from wfctl import _bob_settings, _bundle, _provenance, _settings, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
@@ -3059,6 +3059,11 @@ def _layer_keys(manifest: dict) -> list[str]:
     return [k for k in manifest if k not in _NON_LAYER_KEYS]
 
 
+def _runner(repo_root: Path) -> str:
+    """How a printed remedy starts the wfctl running now; see `_provenance.runner`."""
+    return _provenance.runner(_provenance.read(), repo_root)
+
+
 def _agent_flag(layer: str) -> str:
     """The `--agent` a repair command needs to reach this layer, or nothing.
 
@@ -4341,7 +4346,7 @@ def install_skills_cmd(
         )
         for existing in related:
             console.print(f"    it now denies: [cyan]{escape(existing)}[/cyan]")
-        forced = "wfctl install-skills --agent " + agent + " --force"
+        forced = f"{_runner(repo_root)} install-skills --agent {agent} --force"
         console.print(
             "  Nothing was installed. Removing that rule is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
@@ -4369,7 +4374,7 @@ def install_skills_cmd(
             f"[cyan]{escape(entry)}[/cyan], {whose}.",
             soft_wrap=True,
         )
-        forced = "wfctl install-skills --agent " + agent + " --force"
+        forced = f"{_runner(repo_root)} install-skills --agent {agent} --force"
         console.print(
             "  Nothing was installed. Removing that entry is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
@@ -5024,7 +5029,16 @@ def install_skills_cmd(
     # The path as typed, not the resolved one the manifest holds: this line is
     # read next to the command that produced it, and `../116-pr` is what the
     # reader can match against what they wrote.
-    installed_from = escape(source) if source is not None else f"wfctl {wfctl_version}"
+    #
+    # Without `--from`, the version alone cannot say which files landed: a
+    # working copy reports its own `pyproject.toml` version, which is the
+    # released one until the next bump. The origin clause is what makes a
+    # checkout install impossible to read as a release.
+    if source is not None:
+        installed_from = escape(source)
+    else:
+        origin = escape(_provenance.describe(_provenance.read()))
+        installed_from = f"wfctl {wfctl_version} — {origin}"
     console.print(
         f"[green]✓[/green] Installed from {installed_from}",
         soft_wrap=True,
@@ -6051,45 +6065,28 @@ class _Build(NamedTuple):
 def _installed_build() -> _Build | None:
     """Where this wfctl came from, or None if it did not come from a repository.
 
-    Read from PEP 610 `direct_url.json`, which pip and uv both write for a
-    source-control install. That the commit is already on disk is what keeps this
-    check free: no build-time stamping, no packaging change, no network.
-
     `pinned` and `None` answer two different questions, and collapsing them loses
     the url. A pinned build still has an origin, and every remedy has to name it —
     telling someone who pinned a fork to install from upstream would swap their
     lineage, which is the one instruction this command must never give. So a pin
     suppresses only the branch comparison.
 
-    None is for the shapes with no origin to name at all:
+    None is for every `_provenance.Kind` but VCS, since none of them has a branch
+    to compare against:
 
-      no direct_url.json    installed from an index or a source archive
-      no vcs_info           an editable or plain-directory install — a checkout
-                            is not drift, it is someone's working copy
-      unreadable            a health check must not raise on a metadata file
-                            some other tool wrote
+      INDEX         installed from an index or a source archive
+      DIRECTORY     a checkout is not drift, it is someone's working copy
+      ARCHIVE       a wheel file carries no branch
+      UNREADABLE    a health check must not raise on a metadata file
+                    some other tool wrote
 
-    Deliberately keyed on `vcs_info` rather than the URL scheme: `git+file://`
-    is a real git install of a local clone, with a real branch worth comparing.
+    `install-skills` reads the same parse and treats a checkout as its most
+    important answer; the second row is where the two questions part company.
     """
-    from importlib.metadata import PackageNotFoundError, distribution
-
-    try:
-        raw = distribution("wfctl").read_text("direct_url.json")
-    except (PackageNotFoundError, OSError):
+    origin = _provenance.read()
+    if origin.kind is not _provenance.Kind.VCS:
         return None
-    if not raw:
-        return None
-    try:
-        payload = json.loads(raw)
-        vcs = payload["vcs_info"]
-        return _Build(
-            url=str(payload["url"]),
-            commit=str(vcs["commit_id"]),
-            pinned="requested_revision" in vcs,
-        )
-    except (ValueError, KeyError, TypeError):
-        return None
+    return _Build(url=origin.url, commit=origin.commit, pinned=origin.pinned)
 
 
 def _remote_state(url: str) -> tuple[str, str, list[str]] | None:
@@ -7296,6 +7293,11 @@ def doctor_cmd() -> None:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1) from e
 
+    # Every repair line below starts with the same program, and it is the one
+    # running now. `/start-session` runs these unattended, and a bare `wfctl`
+    # printed by a working copy would repair the drift with the release.
+    runner = _runner(repo_root)
+
     for agent in layers:
         entry = manifest[agent]
         recorded = entry.get("content_hash")
@@ -7361,7 +7363,7 @@ def doctor_cmd() -> None:
             # arguments — the second one rejected, so the repair that
             # `/start-session` runs unattended failed at parse.
             console.print(
-                f"    update: wfctl install-skills{_agent_flag(agent)} "
+                f"    update: {escape(runner)} install-skills{_agent_flag(agent)} "
                 f"--from {escape(shlex.quote(recorded_source))}",
                 soft_wrap=True,
             )
@@ -7388,7 +7390,10 @@ def doctor_cmd() -> None:
         # stale as it found it — and this line is what the reader runs next. The
         # advice then reports the same drift on every later session, each time
         # re-running the same incomplete fix.
-        console.print(f"    update: wfctl install-skills{_agent_flag(agent)}")
+        console.print(
+            f"    update: {escape(runner)} install-skills{_agent_flag(agent)}",
+            soft_wrap=True,
+        )
 
     # Last, and dim: not a finding. `no-hardcoded-agent` is right that an unset
     # agent is the normal state, and the exit code stays out of it. What that
