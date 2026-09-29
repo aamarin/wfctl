@@ -61,17 +61,17 @@ wfctl is built for a developer who runs several AI coding agents in parallel
 and leaves them running with nobody at the prompt. Its evidence-derived truth
 is felt at three seams:
 
-1. A session restart during an autonomous run, where the context fills, the
-   pane is cleared, and the next session has only what reached disk.
+1. A session restart during an autonomous run, where the next session has only
+   what reached disk and nobody at the prompt to fill in the rest.
 2. Parallel worktrees, where more features are in flight than one person can
    keep track of.
 3. A handoff to a session that was not present for the decision it now has to
-   carry out.
+   carry out, with nobody there to explain it.
 
 A developer working one feature at a time in one terminal holds the pipeline
 position in their head and feels no gap. That developer still gets the design
-method, and gets nothing from evidence governance that they would notice. The
-two cores are not adopted the same way, and O3 below records that.
+method, and evidence governance fills no gap for them. The two cores are not
+adopted the same way, and O3 below records that.
 
 **Where it sits beside Anthropic's long-running harness.** The problem is the
 same one — work that outlives a context window, handed from one fresh session
@@ -104,7 +104,7 @@ authority that interprets that evidence as completion.
 | --- | --- | --- | --- | --- |
 | O1 | Install-skills is stable only once skills are discovered correctly on hosts other than Claude, which has not been tested | Until then a new host may reopen it as more than supporting | Andre | A run on a second agent host |
 | O2 | The design method is core and ships as skill prose, while the other core rows are code | Core prose has no check behind it unless `a-rule-is-expressed-as-a-check` finds an artifact to read | Andre | The follow-up gate on this page's own classification |
-| O3 | The two cores are not adopted the same way. The design method pays off for a developer working one session at a time, and evidence governance is not felt without the three seams named in the vision statement | A developer outside that audience adopts half of what this page calls core, and the half they skip is the one the page calls unique | Andre | A record deciding whether the audience named above stays as it is |
+| O3 | The two cores are not adopted the same way. The design method pays off for a developer working one session at a time, and evidence governance is not felt without the three seams named in the vision statement | A developer outside that audience adopts the design method and skips the capability the vision statement opens with | Andre | A record deciding whether the audience named above stays as it is |
 
 ## What reopens this page
 

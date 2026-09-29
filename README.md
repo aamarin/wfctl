@@ -73,20 +73,19 @@ wfctl does two things:
 2. It reads what the work left behind and decides, independently of the agent,
    what that evidence proves.
 
-The two are not felt the same way. The design method pays off for a developer
-who works on one feature at a time in one terminal. That developer knows which
-step the feature is on and feels no gap for evidence governance to fill.
-Evidence governance pays off where nobody can hold that in their head, and that
-happens in three places:
+wfctl is built for a developer who runs several AI coding agents in parallel
+and leaves them running with nobody at the prompt. The two things above are not
+felt the same way. The first also pays off for a developer who works on one
+feature at a time in one terminal. That developer knows which step the feature
+is on, and the second fills no gap for them. The second pays off where nobody
+can keep track of which step each feature is on, and that happens in three
+places:
 
-1. An agent's session is cleared and restarted when its context fills, with
-   nobody at the prompt, and the next session starts from what reached disk.
-2. Several agents work in parallel worktrees, on more features than one person
-   can keep track of.
-3. A session picks up a decision it was not present for.
-
-wfctl is built for the developer who runs agents in parallel and leaves them
-running, where knowing which step each feature is on is what gets lost.
+1. An agent's session restarts partway through its work, with nobody at the
+   prompt, and the next session starts from what reached disk.
+2. Several agents work in parallel worktrees, each on its own feature.
+3. A session carries out a decision made in an earlier session, with nobody
+   there to explain it.
 
 **The design method** makes the agent think before it codes, and clean up what
 it built.
