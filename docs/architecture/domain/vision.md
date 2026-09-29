@@ -57,6 +57,20 @@ that reaches disk is one wfctl can later hold the work to.
 Across many worktrees, the same truth answers one more question: which of them
 needs a human now. That judgment is core; the screen that shows it is not.
 
+wfctl is for developers running AI coding agents in parallel, whether those
+agents run autonomously or with the developer heavily in the loop. Its skills,
+steps, and sub-step controls let a developer decide how deeply they want to be
+involved in each feature. wfctl works out which step each feature is on from
+the files the work leaves behind, so nobody has to keep track of it, and that
+matters in three places:
+
+1. A session restart partway through a feature, where the next session has
+   only what reached disk.
+2. Parallel worktrees, where more features are in flight than one person can
+   keep track of.
+3. A handoff to a session that was not present for the decision it now has to
+   carry out, on one of several features in flight.
+
 **Where it sits beside Anthropic's long-running harness.** The problem is the
 same one — work that outlives a context window, handed from one fresh session
 to the next through durable artifacts rather than memory. The answer differs in
