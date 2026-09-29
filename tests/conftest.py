@@ -394,7 +394,7 @@ def payload_of(
     fixture emits, and only the live half of the union catches it
     (423-the-promised-shape-is-a-shipped-data-file.md § Decision).
     """
-    from wfctl._pipeline import STATUS_PAYLOAD_VERSION
+    from wfctl._pipeline import STATUS_PAYLOAD_VERSION, warnings_payload
 
     return {
         "version": STATUS_PAYLOAD_VERSION,
@@ -409,6 +409,7 @@ def payload_of(
         "auto": report.auto,
         "auto_approve": report.auto_approve,
         "steps": report.steps,
+        "warnings": warnings_payload(report.warnings),
         "facts": [f._asdict() for f in report.facts],
         "stall": (
             None if report.stall is None

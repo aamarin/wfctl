@@ -541,7 +541,7 @@ def test_a_shapeless_spec_carries_its_reason_into_the_agents_file(
     current = _current_step_name(steps)
     reason = next(s.reason for s in steps if s.name == current)
     command, _auto = next_step_content(current, reason)
-    body = next_step_file(command, False, reason, None)
+    body = next_step_file(command, False, reason, None, warnings=())
     assert "/speckit.specify" in body
     assert "why: missing: User Scenarios & Testing" in body
 
