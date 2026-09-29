@@ -1,0 +1,499 @@
+"""`wfctl start` refuses a worktree whose branch names no open issue (#497)."""
+from __future__ import annotations
+
+import dataclasses
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+from tests.conftest import git_repo
+from wfctl import _tracker
+from wfctl._issue_check import Facts, Outcome, decide, gather
+from wfctl.cli import app
+
+runner = CliRunner()
+
+
+def _facts(**overrides: object) -> Facts:
+    """A linked worktree on an open issue's branch, overridden per test."""
+    base = Facts(
+        linked=True, on_trunk=False, installed_here=True, installed_in_main=True,
+        bare=False, agent=None, base_source=None, tracker_configured=True, detached=False,
+        branch="497-start-refuses", key="497", state="open",
+    )
+    return dataclasses.replace(base, **overrides)
+
+
+def _add_worktree(main: Path, name: str, *args: str) -> Path:
+    wt = main.parent / name
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-q", str(wt), *args],
+        check=True, capture_output=True,
+    )
+    return wt
+
+
+def _install(root: Path, **manifest: object) -> None:
+    """A wfctl install as `gather` sees one: the manifest, and the base layer's
+    always-installed destination, at the checkout root.
+
+    A real `install-skills` writes both; `_installed` now checks both, since
+    the manifest alone is a repo's own tracked file a bare `git worktree add`
+    can copy in without the gitignored base layer coming with it.
+    """
+    (root / ".wf-skills-manifest.json").write_text(json.dumps(manifest))
+    (root / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
+
+
+# --- decide ---
+
+
+def test_the_main_checkout_proceeds_on_any_branch() -> None:
+    """`/start-session` and orchestration from `main` work as they did."""
+    verdict = decide(_facts(linked=False))
+    assert (verdict.outcome, verdict.action, verdict.lines) == (
+        Outcome.MAIN_CHECKOUT, "proceed", ()
+    )
+
+
+def test_a_worktree_on_trunk_proceeds_like_the_main_checkout() -> None:
+    """A bare layout has no main checkout, so its `main` is a linked worktree.
+
+    Without this row, orchestration from trunk would be refused there as naming
+    no issue, which is the one thing the main-checkout exemption exists to keep.
+    """
+    verdict = decide(_facts(on_trunk=True, branch="dev", key=None))
+    assert (verdict.outcome, verdict.action, verdict.lines) == (Outcome.TRUNK, "proceed", ())
+
+
+def test_a_backend_without_state_gets_the_key_check_only() -> None:
+    """A tracker config installed before the verb existed reads as declining it."""
+    verdict = decide(_facts(state=None, state_declined=True))
+    assert (verdict.outcome, verdict.action, verdict.lines) == (Outcome.KEY_ONLY, "proceed", ())
+
+
+def test_a_tracker_with_no_answer_warns_and_proceeds() -> None:
+    """A session that cannot start without a network is the worse failure."""
+    verdict = decide(_facts(state=None, state_detail="connection refused\nretrying"))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_ANSWER, "warn")
+    assert verdict.lines == (
+        "⚠ could not ask the tracker whether #497 is open (connection refused) — starting anyway",
+    )
+
+
+_NO_INSTALL = (
+    "✗ this worktree has no wfctl install — it was not made by `workmux add`, so it",
+    "  has no skills and no tracker config to check its issue against.",
+)
+
+
+def test_a_worktree_with_no_install_refuses_when_the_main_checkout_has_one() -> None:
+    """The bare `git worktree add` route: no hook ran, so there is nothing to check with."""
+    verdict = decide(_facts(installed_here=False, installed_in_main=True))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_INSTALL, "refuse")
+    assert verdict.lines == (
+        *_NO_INSTALL, "    wfctl install-skills", "  then run `wfctl start` again.",
+    )
+
+
+def test_a_bare_layout_worktree_with_no_install_refuses() -> None:
+    """A bare layout has no main checkout to compare against, so absence is enough."""
+    verdict = decide(_facts(installed_here=False, installed_in_main=None, bare=True))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_INSTALL, "refuse")
+
+
+def test_a_repository_that_never_installed_wfctl_is_not_refused_for_it() -> None:
+    verdict = decide(_facts(
+        installed_here=False, installed_in_main=False, tracker_configured=False,
+    ))
+    assert verdict.outcome is Outcome.NO_TRACKER
+
+
+@pytest.mark.parametrize(("agent", "source", "command"), [
+    (None, None, "    wfctl install-skills"),
+    ("claude", None, '    wfctl install-skills --agent "claude"'),
+    (None, "/src/wfctl", "    wfctl install-skills --from /src/wfctl"),
+    ("claude", "/my src", "    wfctl install-skills --agent \"claude\" --from '/my src'"),
+])
+def test_the_install_remedy_names_an_agent_and_source_only_from_the_environment(
+    agent: str | None, source: str | None, command: str
+) -> None:
+    """`no-hardcoded-agent`: the remedy never names an agent of its own.
+
+    `--from` is carried when the main checkout recorded one, since the bare form
+    would reinstall the release over the checkout being tested.
+    """
+    verdict = decide(_facts(installed_here=False, agent=agent, base_source=source))
+    assert verdict.lines[2] == command
+
+
+@pytest.mark.parametrize(("overrides", "outcome"), [
+    ({"on_trunk": True, "installed_here": False}, Outcome.TRUNK),
+    ({"installed_here": False, "tracker_configured": False}, Outcome.NO_INSTALL),
+    ({"detached": True, "key": None}, Outcome.DETACHED),
+])
+def test_the_earlier_row_wins_when_two_rows_hold(overrides: dict, outcome: Outcome) -> None:
+    """The order is the decision, and each case here is one clarify settled.
+
+    A worktree with no install has no tracker config of its own, so reading the
+    tracker first would pass it as a repository with no tracker at all.
+    """
+    assert decide(_facts(**overrides)).outcome is outcome
+
+
+def test_a_repository_with_no_tracker_proceeds() -> None:
+    """A repository that declined a tracker creates no issues to name."""
+    verdict = decide(_facts(tracker_configured=False))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_TRACKER, "proceed")
+
+
+def test_a_detached_head_refuses_with_a_remedy_that_works_there() -> None:
+    """A detached HEAD has no branch to rename, so the rename remedy cannot apply.
+
+    wfctl substitutes the short hash for a missing branch name, and an all-digit
+    one such as `5611469` parses as issue 5611469, which is why `detached` is a
+    fact asked of git and settled before any key is read.
+    """
+    verdict = decide(_facts(detached=True, branch="5611469", key="5611469"))
+    assert (verdict.outcome, verdict.action) == (Outcome.DETACHED, "refuse")
+    assert verdict.lines == (
+        "✗ this worktree is on a detached HEAD — it names no branch, so no issue.",
+        "  Switch to the branch this worktree works on:",
+        "    git switch <key>-<slug>",
+        "  then run `wfctl start` again.",
+    )
+
+
+def test_a_branch_naming_no_issue_refuses_and_names_the_rename() -> None:
+    verdict = decide(_facts(branch="spike-foo", key=None))
+    assert (verdict.outcome, verdict.action) == (Outcome.NO_KEY, "refuse")
+    assert verdict.lines == (
+        "✗ 'spike-foo' names no issue — every worktree works against one.",
+        "  Open an issue, then rename the branch to start with its key:",
+        "    git branch -m <key>-spike-foo",
+    )
+
+
+def test_a_closed_issue_refuses() -> None:
+    verdict = decide(_facts(key="495", state="closed"))
+    assert (verdict.outcome, verdict.action) == (Outcome.CLOSED, "refuse")
+    assert verdict.lines == (
+        "✗ #495 is closed — this worktree works against an issue that is not open.",
+        "  Reopen it, or open a new issue and rename the branch to start with its key.",
+    )
+
+
+def test_a_missing_issue_refuses() -> None:
+    """A pull request number reaches this row too; the backend calls it missing."""
+    verdict = decide(_facts(key="9999", state="missing"))
+    assert (verdict.outcome, verdict.action) == (Outcome.MISSING, "refuse")
+    assert verdict.lines == (
+        "✗ #9999 is not an issue in this tracker.",
+        "  Open one, then rename the branch to start with its key.",
+    )
+
+
+def test_an_open_issue_proceeds_and_prints_nothing() -> None:
+    verdict = decide(_facts(state="open"))
+    assert (verdict.outcome, verdict.action, verdict.lines) == (Outcome.OPEN, "proceed", ())
+
+
+# --- gather ---
+
+
+def test_gather_reads_the_main_checkout_as_not_linked(tmp_path: Path) -> None:
+    """Asked of git at `repo_root`, not of the directory the suite runs in.
+
+    The suite itself runs inside a linked worktree, so a git call without
+    `cwd=repo_root` would read every test repository as linked.
+    """
+    main = git_repo(tmp_path / "main")
+    assert gather(main, "main").linked is False
+
+
+def test_gather_reads_a_linked_worktree_as_linked(tmp_path: Path) -> None:
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+    assert gather(wt, "7-x").linked is True
+
+
+def test_gather_reads_a_directory_git_cannot_answer_for_as_not_linked(tmp_path: Path) -> None:
+    assert gather(tmp_path, "main").linked is False
+
+
+def test_gather_reads_a_linked_worktree_as_linked_when_its_path_has_a_space(
+    tmp_path: Path,
+) -> None:
+    """`_is_linked` split git's two-line answer on any whitespace, so a path
+    containing a space produced more than two pieces and read as unlinked —
+    silently exempting the worktree from every refusal below it."""
+    main = git_repo(tmp_path / "my repo")
+    wt = _add_worktree(main, "linked wt", "-b", "7-x")
+    assert gather(wt, "7-x").linked is True
+
+
+def test_gather_reads_the_tracker_from_this_checkouts_own_manifest(tmp_path: Path) -> None:
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+    _install(main, tracker="github")
+    assert gather(wt, "7-x").tracker_configured is False
+    _install(wt, tracker="github")
+    assert gather(wt, "7-x").tracker_configured is True
+
+
+def test_gather_reads_trunk_in_a_bare_layout(tmp_path: Path) -> None:
+    """The bare repository's `HEAD` names trunk; `origin/HEAD` does not exist there."""
+    src = git_repo(tmp_path / "src")
+    subprocess.run(["git", "-C", str(src), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(src), "switch", "-q", "-c", "dev"], check=True)
+    bare = tmp_path / "repo.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
+    dev = _add_worktree(bare, "dev", "dev")
+    feature = _add_worktree(bare, "feature", "-b", "497-x", "dev")
+    assert gather(dev, "dev").on_trunk is True
+    assert gather(feature, "497-x").on_trunk is False
+
+
+def test_gather_strips_the_remote_from_origin_head(tmp_path: Path) -> None:
+    """`origin/HEAD` reads as `origin/main`, and a branch is never named that."""
+    src = git_repo(tmp_path / "src")
+    subprocess.run(["git", "-C", str(src), "branch", "-M", "main"], check=True)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    wt = _add_worktree(clone, "wt", "-b", "497-x")
+    subprocess.run(["git", "-C", str(clone), "switch", "-q", "-c", "elsewhere"], check=True)
+    main_wt = _add_worktree(clone, "main-wt", "main")
+    assert gather(main_wt, "main").on_trunk is True
+    assert gather(wt, "497-x").on_trunk is False
+
+
+def test_gather_reads_the_install_here_and_in_the_main_checkout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    facts = gather(wt, "7-x")
+    assert (facts.installed_here, facts.installed_in_main, facts.bare) == (False, False, False)
+
+    _install(main, tracker="github", base={"items": [], "source": "/src/wfctl"})
+    monkeypatch.setenv("WFCTL_AGENT", "claude")
+    facts = gather(wt, "7-x")
+    assert (facts.installed_here, facts.installed_in_main) == (False, True)
+    assert (facts.agent, facts.base_source) == ("claude", "/src/wfctl")
+
+
+def test_gather_reads_a_worktree_with_a_committed_manifest_but_no_skills_as_not_installed(
+    tmp_path: Path,
+) -> None:
+    """A repo can commit `.wf-skills-manifest.json` despite it being gitignored by
+    convention (AGENTS.md). A raw `git worktree add` then checks out that
+    tracked file into every new worktree, though the gitignored `.agents/skills`
+    it names never comes with it — the manifest alone is not proof anything was
+    installed *here*. Read unchecked, that let `wfctl start` proceed with no
+    skills and no tracker config to check its issue against, exactly what
+    Story 3 exists to refuse.
+    """
+    main = git_repo(tmp_path / "main")
+    _install(main, tracker="github")  # real install: manifest *and* .agents/skills
+    subprocess.run(
+        ["git", "-C", str(main), "add", ".wf-skills-manifest.json"], check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(main), "commit", "-q", "-m", "commit the manifest anyway"],
+        check=True,
+    )
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+
+    assert (wt / ".wf-skills-manifest.json").exists()  # checked out with the branch
+    assert not (wt / ".agents" / "skills").exists()  # gitignored, never copied
+
+    facts = gather(wt, "7-x")
+    assert (facts.installed_here, facts.installed_in_main) == (False, True)
+    assert decide(facts).outcome is Outcome.NO_INSTALL
+
+
+def test_gather_reads_a_bare_layout_as_having_no_main_checkout(tmp_path: Path) -> None:
+    src = git_repo(tmp_path / "src")
+    bare = tmp_path / "repo.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
+    wt = _add_worktree(bare, "wt", "-b", "7-x")
+    facts = gather(wt, "7-x")
+    assert (facts.bare, facts.installed_in_main, facts.installed_here) == (True, None, False)
+
+
+def test_gather_asks_git_whether_head_is_detached(tmp_path: Path, monkeypatch) -> None:
+    """Asked of git, not read off the name wfctl substitutes for the branch.
+
+    `WFCTL_BRANCH` is how the suite and a person name a branch explicitly, so a
+    worktree with it set is not treated as detached.
+    """
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "--detach", "HEAD")
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    assert gather(wt, "abc1234").detached is True
+    monkeypatch.setenv("WFCTL_BRANCH", "7-x")
+    assert gather(wt, "7-x").detached is False
+
+
+def test_gather_reads_the_key_through_the_trackers_pattern(tmp_path: Path) -> None:
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "497-x")
+    _install(wt, tracker="github")
+    assert gather(wt, "497-x").key == "497"
+    assert gather(wt, "spike-foo").key is None
+
+
+def test_gather_never_asks_the_tracker_when_the_local_facts_decide(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An exempt checkout pays for no network call, and a keyless branch neither."""
+    asked: list[str] = []
+    monkeypatch.setattr(
+        _tracker, "read_state", lambda root, key: asked.append(key) or ("open", None)
+    )
+    main = git_repo(tmp_path / "main")
+    _install(main, tracker="github")
+    gather(main, "main")
+    wt = _add_worktree(main, "wt", "-b", "spike-foo")
+    _install(wt, tracker="github")
+    gather(wt, "spike-foo")
+    assert asked == []
+
+    wt2 = _add_worktree(main, "wt2", "-b", "497-x")
+    _install(wt2, tracker="github")
+    assert gather(wt2, "497-x").state == "open"
+    assert asked == ["497"]
+
+
+# --- start ---
+
+
+def test_start_in_a_main_checkout_prints_what_it_printed_before(agent_dir: Path) -> None:
+    """The check adds nothing to the output of a checkout it exempts."""
+    result = runner.invoke(app, ["start"])
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("✓ Session started")
+
+
+def _refusing_worktree(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    """A linked worktree on `spike-foo`, with a tracker, as `start` sees it.
+
+    Returns the worktree and the state directory `start` would write to, which
+    is outside the worktree so that its absence can be asserted.
+    """
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "spike-foo")
+    _install(main, tracker="github")
+    _install(wt, tracker="github")
+    state = tmp_path / "state"
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.chdir(wt)
+    return wt, state
+
+
+def test_a_refused_start_refuses_again_and_writes_nothing(tmp_path: Path, monkeypatch) -> None:
+    """The refusal holds on every run, `--force` and `--auto-approve` included.
+
+    A refusal that wrote a `start` event would let `resume` and `end` through on
+    the second run, and one that wrote an auto-approve grant would leave a mode
+    set on a branch that never had a session.
+    """
+    _, state = _refusing_worktree(tmp_path, monkeypatch)
+    for args in (["start"], ["start"], ["start", "--force"], ["start", "--auto-approve"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 1, result.output
+        assert "names no issue" in result.output
+    assert not state.exists()
+
+
+def test_a_refused_start_leaves_an_existing_state_directory_byte_identical(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`_resolve_context()` deletes fossil files, so the check has to run first."""
+    _, state = _refusing_worktree(tmp_path, monkeypatch)
+    state.mkdir()
+    (state / "events.jsonl").write_text('{"event": "note"}\n')
+    (state / "current.md").write_text("fossil\n")
+    before = {p.name: p.read_bytes() for p in state.iterdir()}
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 1, result.output
+    assert {p.name: p.read_bytes() for p in state.iterdir()} == before
+
+
+def test_a_tracker_with_no_answer_warns_and_the_session_starts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The warning is printed and the session is recorded, not one or the other."""
+    main = git_repo(tmp_path / "main")
+    _install(main, tracker="github")
+    wt = _add_worktree(main, "wt", "-b", "497-x")
+    _install(wt, tracker="github")
+    state = tmp_path / "state"
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.chdir(wt)
+    monkeypatch.setattr(_tracker, "read_state", lambda root, key: (None, "connection refused"))
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 0, result.output
+    assert "⚠ could not ask the tracker whether #497 is open (connection refused)" in result.output
+    assert '"event": "start"' in (state / "events.jsonl").read_text()
+
+
+def test_a_refusal_prints_a_long_remedy_command_on_one_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`console.print` folds an unpiped-looking line at 80 columns without
+    `soft_wrap`, which broke a pasted `--from` command in two. The command-level
+    test in place before this one used the short branch `spike-foo`, so nothing
+    caught it; this one needs a `--from` path long enough to cross 80 columns.
+
+    `WFCTL_AGENT` cleared, so the command's shape doesn't depend on the caller's
+    own shell profile — only `--from` is under test here.
+    """
+    main = git_repo(tmp_path / "main")
+    long_source = str(tmp_path / ("src-" + "x" * 60))
+    _install(main, tracker="github", base={"source": long_source})
+    wt = main.parent / "wt-no-install"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-q", str(wt), "-b", "497-x"],
+        check=True, capture_output=True,
+    )
+    state = tmp_path / "state"
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    monkeypatch.chdir(wt)
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 1, result.output
+    assert f"    wfctl install-skills --from {long_source}" in result.output
+
+
+def test_nothing_wfctl_ships_mentions_pre_create() -> None:
+    """workmux has no `pre_create` hook, and ignores the key without a warning.
+
+    The gate it named never ran, and nine places said it did, which is how a
+    worktree with no issue went unrefused. `wfctl start` is what enforces the
+    rule now, and a line in the bundle naming the old hook is either a dead
+    config block or a claim that is false.
+    """
+    agents = Path(_tracker.__file__).parent / "agents"
+    naming = sorted(
+        str(p.relative_to(agents))
+        for p in agents.rglob("*")
+        if p.is_file() and "pre_create" in p.read_text(errors="ignore")
+    )
+    assert naming == []

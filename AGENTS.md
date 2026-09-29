@@ -112,8 +112,13 @@ none of it — and it registers no tmux session, which `workmux list` reports as
 `MUX -`. Neither failure announces itself; the first sign is a session that has
 no `/start-session` to run.
 
-The handle has to start with the issue number. `pre_create` rejects anything
-else, because wfctl derives both the spec dir and the state dir from it.
+The handle has to start with the issue number, because wfctl derives both the
+spec dir and the state dir from it. `wfctl start` is what enforces that, not
+workmux: in a linked worktree it refuses a session when the branch names no
+issue, when the issue is closed or missing, or when the worktree has no wfctl
+install, and it prints the command that fixes each. workmux has no hook that
+runs before creation, so the `pre_create` block this repo once carried never
+ran (#497).
 
 That is not the only way a worktree comes up short of skills, and the other way
 is quieter. `post_create` passes `--agent` only when `WFCTL_AGENT` is set

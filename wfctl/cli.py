@@ -22,6 +22,7 @@ from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
+from wfctl._manifest import BASE_SKILL_ROOT as _BASE_SKILL_ROOT
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
     arch_root,
@@ -152,13 +153,19 @@ def _remove_session_fossils(agent_dir: Path) -> None:
         (agent_dir / name).unlink(missing_ok=True)
 
 
-def _resolve_context() -> tuple[Path, Path, str, str]:
-    """Return (agent_dir, repo_root, branch, issue); exits on error."""
+def _get_repo_root_or_exit() -> Path:
+    """`get_repo_root()`, printed and re-raised as a typer exit rather than a
+    bare `SystemExit` — the one thing both of its callers need from it."""
     try:
-        repo_root = get_repo_root()
+        return get_repo_root()
     except SystemExit as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
+
+
+def _resolve_context() -> tuple[Path, Path, str, str]:
+    """Return (agent_dir, repo_root, branch, issue); exits on error."""
+    repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
     # Default key shape is \d+ (GitHub); a tracker with non-numeric keys
     # (Jira/Linear/Shortcut) overrides it via key_pattern in its config.
@@ -247,6 +254,33 @@ def _identity_kwarg(caller: str | None) -> dict[str, str]:
     return {"session_id": caller} if caller is not None else {}
 
 
+def _refuse_unless_the_issue_allows_a_session() -> None:
+    """Print the issue check's verdict, and exit 1 when it refuses.
+
+    First in `start`, ahead of `_resolve_context()`, which is not read-only: it
+    creates the branch's state directory and deletes fossil files in it, so a
+    refusal after it would leave a directory behind on a branch that never had a
+    session. `get_repo_root` and `resolve_branch` are the two reads the check
+    needs, and neither writes. Ahead of the `--auto-approve` grant and the
+    "Already initialized" return for the same reason: a refusal holds on every
+    run, and writes nothing on any of them.
+    """
+    from wfctl import _issue_check
+
+    repo_root = _get_repo_root_or_exit()
+    verdict = _issue_check.decide(
+        _issue_check.gather(repo_root, resolve_branch(repo_root))
+    )
+    style = {"refuse": "red", "warn": "yellow"}.get(verdict.action)
+    for i, line in enumerate(verdict.lines):
+        # soft_wrap: these lines are printed verbatim, remedy commands included,
+        # and rich otherwise folds them at 80 columns whenever output isn't a
+        # terminal — which is the case for /start-session and the restart hook.
+        console.print(line, style=style if i == 0 else None, markup=False, soft_wrap=True)
+    if verdict.action == "refuse":
+        raise typer.Exit(1)
+
+
 def _report_unfilled_in_flight(agent_dir: Path) -> None:
     """Say when the last handoff left `## In Flight` as the template wrote it.
 
@@ -313,6 +347,7 @@ def start_cmd(
     from wfctl._pipeline import build_report
     from wfctl._session import grant_auto_approve, identity, last_session_id
 
+    _refuse_unless_the_issue_allows_a_session()
     agent_dir, repo_root, branch, _ = _resolve_context()
     _report_unfilled_in_flight(agent_dir)
     # Resolved once, here, and passed down. The environment fallback lives on the
@@ -2292,6 +2327,7 @@ def issue_cmd(
       label   <id> --action add|remove --label NAME add/remove a label
       start   [id]                                  work on it has begun
       stop    [id]                                  work on it has stopped
+      state   <id>                                  open, closed, or missing
 
     \b
     Examples:
@@ -2514,7 +2550,10 @@ def change_cmd(
 
 # The canonical, agent-agnostic layer. Always installed, whatever --agent says:
 # wf-skills authors one copy of each skill and command wrapper, and this is where
-# that copy lives. Agent layers below are derived views of it.
+# that copy lives. Agent layers below are derived views of it. Its destination,
+# `_BASE_SKILL_ROOT`, is imported from `_manifest` rather than defined here, since
+# `_issue_check._installed` needs the same path to tell a recorded install from
+# one actually on disk.
 #
 # Every pair here and below is (source, destination). Sources are relative to
 # `_bundle.BUNDLE_ROOT` and carry no leading dot — inside the installed package
@@ -2522,7 +2561,6 @@ def change_cmd(
 # belongs to the destination alone, which is a real `.agents/` in the user's
 # repo. The two halves are no longer the same string even where they name the
 # same subtree, so neither is derivable from the other.
-_BASE_SKILL_ROOT = ".agents/skills"
 _BASE_TARGETS = [
     ("agents/skills", _BASE_SKILL_ROOT),
     ("agents/commands", ".agents/commands"),
@@ -2713,7 +2751,7 @@ _BACKUP_DIR = ".wf-skills-backup"
 # config's `start`/`stop` and `create` verbs invoke them by path, so the set
 # travels together or those verbs are declared and broken.
 _GITHUB_TRACKER_FILES = (
-    "github.json", "github-board.sh", "github-issue-create.sh",
+    "github.json", "github-board.sh", "github-issue-create.sh", "github-issue-state.sh",
 )
 
 

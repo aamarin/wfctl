@@ -30,6 +30,7 @@ stale — which it did, one release after `start` and `stop` were added.
 | `label`   | add/remove a label          | `{id}`, `{action}` (add\|remove), `{label}`|
 | `labels`  | list one issue's labels      | `{id}`                                     |
 | `fields`  | one issue's attributes, as JSON | `{id}`                                  |
+| `state`   | whether an issue is open     | `{id}`                                     |
 | `start`   | work on an issue has begun  | `{id}`                                     |
 | `stop`    | work on an issue has stopped| `{id}`                                     |
 
@@ -54,6 +55,25 @@ vocabulary living inside wfctl. Flatten before you hand it over (`--jq` for
 
 `fields` and `labels` overlap and are both kept; a backend may declare either,
 both, or neither.
+
+`state` must print **exactly one of `open`, `closed`, or `missing`** and exit 0.
+Those are wfctl's words, not your tracker's; map your vocabulary onto them, so a
+Jira `Done` prints `closed`. `wfctl start` reads it in a linked worktree to
+decide whether a session may open, and refuses on `closed` and `missing`.
+
+1. `missing` means the tracker has no issue by that key, including a key that
+   names something other than an issue, such as a pull request.
+2. Anything else, a non-zero exit, or no answer within 15 seconds is read as no
+   answer, and `wfctl start` warns and opens the session anyway.
+3. Print `missing` only when you can positively recognise the tracker saying so.
+   When a missing issue and a failed request look the same, exit non-zero. A
+   false `missing` refuses a session on an issue that is open, where a false
+   "no answer" only warns.
+
+A backend that cannot tell leaves `state` out, and `wfctl start` checks the
+branch's key alone. The GitHub backend's `state` is a script for the reason in
+rule 3: `gh` exits 1 alike for an unknown number and a dead connection, and only
+its error text tells them apart.
 
 `start` and `stop` are events, not values: they say *when*, and the backend
 decides what that means. wfctl wires them into worktree creation and removal, so

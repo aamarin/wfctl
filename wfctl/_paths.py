@@ -82,15 +82,84 @@ def resolve_branch(repo_root: Path) -> str:
         return "detached"
 
 
-def _trunk_branch(repo_root: Path) -> str | None:
-    """The repo's trunk — origin/HEAD when the remote publishes it, else the
-    first local main/master/dev that exists. None when nothing looks like one."""
+def is_detached(repo_root: Path) -> bool:
+    """HEAD names no branch, and nobody named one through `WFCTL_BRANCH`.
+
+    The question `resolve_branch` answers around rather than reports: it hands
+    back the short hash in place of a branch name, and an all-digit hash then
+    parses as an issue key. A caller that needs to know the branch is real asks
+    here instead of reading that name.
+    """
+    if os.environ.get(_BRANCH_OVERRIDE):
+        return False
+    r = subprocess.run(
+        ["git", "symbolic-ref", "-q", "HEAD"], cwd=repo_root, capture_output=True,
+    )
+    return r.returncode != 0
+
+
+def is_bare_layout(repo_root: Path) -> bool:
+    """Is this checkout a worktree of a bare repository, where none is the main one?"""
+    r = subprocess.run(
+        ["git", "config", "--bool", "core.bare"], cwd=repo_root, capture_output=True, text=True,
+    )
+    return r.stdout.strip() == "true"
+
+
+def _bare_head(repo_root: Path) -> str | None:
+    """The branch a bare repository's own HEAD names, or None outside a bare layout."""
+    if not is_bare_layout(repo_root):
+        return None
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if common.returncode != 0:
+        return None
+    git_dir = common.stdout.strip()
+    head = subprocess.run(
+        ["git", f"--git-dir={git_dir}", "symbolic-ref", "--short", "HEAD"],
+        capture_output=True, text=True,
+    )
+    branch = head.stdout.strip() if head.returncode == 0 else ""
+    if not branch:
+        return None
+    # `HEAD` names whatever branch existed when the bare repository was made
+    # (`git init --bare` defaults to `master`) and is never moved when the
+    # default branch changes afterwards, so the name it holds can be one
+    # nothing points at any more. Returning it unchecked regressed trunk
+    # detection below the name guess it replaced: a `main` worktree, with no
+    # `master` left, was refused as naming no issue.
+    exists = subprocess.run(
+        ["git", f"--git-dir={git_dir}", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        capture_output=True,
+    )
+    return branch if exists.returncode == 0 else None
+
+
+def trunk_branch(repo_root: Path) -> str | None:
+    """The repo's trunk — origin/HEAD when the remote publishes it, then a bare
+    repository's own HEAD, else the first local main/master/dev that exists. None
+    when nothing looks like one.
+
+    The bare HEAD is there because a bare clone records no origin/HEAD, so a
+    bare layout otherwise always falls through to the name guess, and a repo
+    whose trunk is `dev` but which also carries `main` is read as trunk `main`.
+    It is read only when `core.bare` says the layout is bare: in a normal layout
+    the shared HEAD is whatever the main checkout has checked out, which can be a
+    feature branch. `core.bare` rather than `rev-parse --is-bare-repository`,
+    which answers false from inside a bare layout's worktree. As stale as the
+    clone either way; a declared trunk is #509.
+    """
     head = subprocess.run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         cwd=repo_root, capture_output=True, text=True,
     )
     if head.returncode == 0 and head.stdout.strip():
         return head.stdout.strip()
+    bare = _bare_head(repo_root)
+    if bare is not None:
+        return bare
     for name in ("main", "master", "dev"):
         if subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", name],
@@ -378,7 +447,7 @@ def touched_on_this_branch(
     if dirty:
         return True
 
-    trunk = _trunk_branch(repo_root)
+    trunk = trunk_branch(repo_root)
     if trunk is None:
         return None
     committed = names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
@@ -452,7 +521,7 @@ def records_on_this_branch(
     # caller asking "did anything change" can still read as yes, and a caller
     # asking "which records" reads as none.
     found = names("status", "--porcelain", "-uall", "--", *spec)
-    trunk = _trunk_branch(repo_root)
+    trunk = trunk_branch(repo_root)
     if trunk is not None:
         found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
 
@@ -569,8 +638,10 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     finished pipeline is the quiet one (#120, #263).
 
     A branch with no parseable issue key resolves only by its own name, since no
-    map can name a key it does not have. wfctl's own worktrees always carry one
-    (`pre_create` enforces it) but the repos wfctl installs into need not.
+    map can name a key it does not have. `wfctl start` refuses a session in a
+    linked worktree whose branch carries none, in a repo with a tracker, but the
+    branch still exists and still resolves; the main checkout and a repo with no
+    tracker are never asked for one.
 
     Searches one root only, the one `spec_root` resolves. No second look under
     `repo_root/specs` when a root is configured: falling back would let one

@@ -1020,3 +1020,190 @@ def test_read_fields_names_the_key_whose_value_was_not_flattened(
     payload, detail = _tracker.read_fields(agent_dir.parent, "changes", "301")
     assert payload is None
     assert detail is not None and "labels" in detail
+
+
+# --- state (read_state) ---
+
+_STATE_CONFIG = {
+    "verbs": {
+        "list": ["gh", "issue", "list"],
+        "state": ["bash", ".agents/trackers/github-issue-state.sh", "{id}"],
+    },
+}
+
+
+def test_state_is_a_verb_that_takes_only_an_id(agent_dir: Path) -> None:
+    """`wfctl start` asks it with an issue key and nothing else to substitute."""
+    assert _tracker.validate_config(_STATE_CONFIG) == []
+    errs = _tracker.validate_config(
+        {"verbs": {"state": ["gh", "issue", "view", "{id}", "--body", "{body}"]}}
+    )
+    assert any("state" in e and "body" in e for e in errs)
+
+
+@pytest.mark.parametrize("word", ["open", "closed", "missing"])
+def test_read_state_returns_each_word_of_the_contract(
+    agent_dir: Path, monkeypatch, word: str
+) -> None:
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, stdout=f"{word}\n")
+    assert _tracker.read_state(agent_dir.parent, "497") == (word, None)
+
+
+def test_read_state_separates_a_declined_verb_from_no_answer(
+    agent_dir: Path, monkeypatch
+) -> None:
+    """A backend without `state` gets the key check only; a failed call warns.
+
+    Collapsing the two would either warn on every run in a repository whose
+    tracker cannot answer, or read a dead connection as a tracker that opted out.
+    """
+    _configure_tracker(agent_dir.parent, "jira", {"verbs": {"list": ["j", "ls"]}})
+    assert _tracker.read_state(agent_dir.parent, "7") == (None, None)
+
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, code=1)
+    assert _tracker.read_state(agent_dir.parent, "7") == (None, "boom")
+
+
+def test_read_state_reports_a_timeout_as_no_answer(agent_dir: Path, monkeypatch) -> None:
+    """A tracker that never answers must not hold `wfctl start` open."""
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, raises=subprocess.TimeoutExpired(["gh"], 15))
+    state, detail = _tracker.read_state(agent_dir.parent, "497")
+    assert state is None and detail is not None
+
+
+@pytest.mark.parametrize("stdout", ["OPEN", "", "open\nclosed", '{"state":"open"}'])
+def test_read_state_reads_output_outside_the_contract_as_no_answer(
+    agent_dir: Path, monkeypatch, stdout: str
+) -> None:
+    """A backend bug warns rather than refusing a session on an open issue.
+
+    `OPEN` is what `gh issue view --json state` prints, and is the likeliest
+    thing a hand-written config returns by mistake.
+    """
+    _configure_tracker(agent_dir.parent, "github", _STATE_CONFIG)
+    _stub_run(monkeypatch, stdout=stdout)
+    state, detail = _tracker.read_state(agent_dir.parent, "497")
+    assert state is None
+    assert detail is not None and "state" in detail
+
+
+# --- github-issue-state.sh ---
+
+
+def _run_state_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, stdout: str = "",
+    stderr: str = "", rc: int = 0, repo_stdout: str = "true\n", repo_rc: int = 0,
+) -> subprocess.CompletedProcess:
+    """Run the shipped script against a `gh` that answers once, as told.
+
+    The stub does not run the jq program; that is gh's, and the mapping it does
+    (a `pull_request` key reads as missing) is pinned by research against the
+    live API. What is under test is the script's own half: passing an answer
+    through, and telling a missing issue from a failed request by stderr alone.
+
+    On a 404/410 the script asks a second question, of the repository rather
+    than the issue, so the stub branches on which one it was asked.
+    `repo_stdout`/`repo_rc` answer that second call; their defaults ("the
+    repository is visible and has issues on") are what every test before that
+    check existed already assumed, so a test that never touches them is
+    unaffected by it.
+    """
+    calls = tmp_path / "calls"
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$@" >> "{calls}"\n'
+        'if [[ "$*" == *"issues/497"* ]]; then\n'
+        f"  printf %s {shlex.quote(stdout)}\n"
+        f"  printf %s {shlex.quote(stderr)} >&2\n"
+        f"  exit {rc}\n"
+        "else\n"
+        f"  printf %s {shlex.quote(repo_stdout)}\n"
+        f"  exit {repo_rc}\n"
+        "fi\n"
+    )
+    fake_gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    script = Path(_tracker.__file__).parent / "agents" / "trackers" / "github-issue-state.sh"
+    return subprocess.run(["bash", str(script), "497"], capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("word", ["open", "closed", "missing"])
+def test_state_script_passes_the_answer_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, word: str
+) -> None:
+    result = _run_state_script(tmp_path, monkeypatch, stdout=f"{word}\n")
+    assert (result.returncode, result.stdout) == (0, f"{word}\n")
+    assert "repos/{owner}/{repo}/issues/497" in (tmp_path / "calls").read_text()
+
+
+@pytest.mark.parametrize("status", ["404", "410"])
+def test_state_script_reads_not_found_as_missing_and_drops_the_error_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    """`gh api` prints the JSON error body on stdout as well as the status on stderr.
+
+    Measured against #99999: stdout carried `{"message":"Not Found",…}` and
+    stderr `gh: Not Found (HTTP 404)`. Passing stdout through would hand
+    `read_state` a JSON object instead of a word. 410 is a deleted issue.
+    """
+    body = '{"message":"Not Found","status":"%s"}' % status
+    result = _run_state_script(
+        tmp_path, monkeypatch, stdout=body, stderr=f"gh: Not Found (HTTP {status})\n", rc=1,
+    )
+    assert (result.returncode, result.stdout) == (0, "missing\n")
+
+
+@pytest.mark.parametrize("status", ["404", "410"])
+def test_state_script_does_not_report_missing_when_the_repository_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    """GitHub answers 404 for the wrong `gh auth` account or a fine-grained token
+    never granted this repo, and the issues endpoint cannot be told apart from
+    an issue that genuinely does not exist by its status code alone. Read as
+    `missing` outright, either would refuse every worktree on this repository,
+    open issues included — the mistake the script's own header says it must
+    never make. So a 404/410 is confirmed against the repository itself first;
+    a repository the token cannot even read fails that confirmation too."""
+    body = '{"message":"Not Found","status":"%s"}' % status
+    result = _run_state_script(
+        tmp_path, monkeypatch, stdout=body, stderr=f"gh: Not Found (HTTP {status})\n", rc=1,
+        repo_rc=1,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+
+
+def test_state_script_does_not_report_missing_when_issues_are_turned_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repository with issues disabled answers 410 on every issue number,
+    which would otherwise read as every one of them having been deleted."""
+    body = '{"message":"Not Found","status":"410"}'
+    result = _run_state_script(
+        tmp_path, monkeypatch, stdout=body, stderr="gh: Not Found (HTTP 410)\n", rc=1,
+        repo_stdout="false\n",
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+
+
+def test_state_script_reports_a_failed_request_as_no_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dead connection exits 1 from `gh` exactly as a missing issue does.
+
+    Only the error text separates them, which is why this verb is a script. A
+    false `missing` would refuse a session on an issue that is open; a non-zero
+    exit only warns.
+    """
+    result = _run_state_script(
+        tmp_path, monkeypatch,
+        stderr="Post \"https://api.github.com/graphql\": dial tcp: connection refused\n", rc=1,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "connection refused" in result.stderr

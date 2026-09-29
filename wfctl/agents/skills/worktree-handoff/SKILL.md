@@ -124,9 +124,14 @@ wm add <branch> --background --prompt-file "$HANDOFF" &&
   cp "$HANDOFF" "$(wfctl state-dir --branch <branch>)/session-summary.md"
 ```
 
-Chained on purpose. `pre_create` hooks reject branch names — this repo's requires
-a leading issue number — and an unchained `cp` runs anyway, creating a state dir
-for a branch that does not exist.
+Chained on purpose. `wm add` can fail before it creates anything, on a handle
+already in use or a name git rejects, and an unchained `cp` runs anyway,
+creating a state dir for a branch that does not exist.
+
+Name the branch for an open issue. Nothing refuses a bad name at `wm add`, since
+workmux has no hook that runs before creation; `wfctl start` refuses it instead,
+when the child's first turn runs `/start-session`, and by then the worktree and
+the handoff are both on disk.
 
 Both destinations, and neither is optional:
 
@@ -150,7 +155,7 @@ session's focus", and a handoff filed under that heading invents a session that
 never happened.
 
 Order matters: `wm add` first. Resolving the state dir creates it, and a branch
-whose `pre_create` hook rejected the name should not leave one behind.
+`wm add` never created should not leave one behind.
 
 `start-session` step 8 reads this file to decide whether to ask the reader what
 to work on, and it proceeds only on a **sentence it can quote** naming the first

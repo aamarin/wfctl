@@ -15,10 +15,25 @@ memory of it — load them before doing anything else.
 
 1. **Initialize and check freshness:**
    ```bash
-   wfctl start ${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}
-   wfctl doctor    # is the wfctl tool / installed skills up to date?
+   wfctl start ${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"} && wfctl doctor
    ```
    `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available.
+
+   **Chained with `&&`, not run as two lines.** Two unchained commands in one
+   block still run both, and the exit status a caller sees is `doctor`'s, which
+   is nearly always 0 — so a `start` refusal was invisible to exactly the check
+   that exists to stop on it. `&&` skips `doctor` outright when `start` exits 1,
+   which is what the rule below already assumes.
+
+   **If `wfctl start` exits 1, stop there.** Report what it printed verbatim,
+   the refusal line and the command under it, and run nothing after it: not
+   `doctor`, and none of the steps below. In a linked worktree `start` refuses a
+   branch that names no issue, an issue that is closed or missing, a detached
+   HEAD, and a worktree with no wfctl install, and it writes nothing when it
+   does. So there is no session for the later steps to report on, and a report
+   assembled anyway reads as a session that started. The remedy it prints is the
+   user's to run; renaming a branch or reopening an issue is not this skill's
+   call.
 
    **That expansion is the whole of how wfctl learns which conversation this
    is.** `wfctl start` records the value verbatim and compares it and nothing

@@ -43,6 +43,14 @@ ALLOWED = {
     # would read every other backend as having nothing set — silently, which is
     # the mistake a label read parsing `view` once made.
     "fields": {"id"},
+    # `state` reads whether an issue is open, in wfctl's words rather than the
+    # tracker's: `open`, `closed` or `missing`. The backend owns which word
+    # applies and wfctl owns what each does to a session
+    # (`backend-tracker-maps-issue-state`). A separate verb rather than a key
+    # read out of `fields`, because that contract says wfctl never reads a
+    # backend's keys by name; a backend that cannot say leaves it out, and
+    # `wfctl start` then checks the branch's key alone.
+    "state": {"id"},
     # `start`/`stop` say when work on an issue began and stopped; what a backend
     # does with that is its own business. A tracker with a board moves a column,
     # one without it declines the verb and the caller carries on — which is why
@@ -414,3 +422,27 @@ def read_fields(
                 "flatten to scalars or arrays of scalars"
             )
     return payload, None
+
+
+# The whole of the `state` verb's vocabulary. Anything else a backend prints is
+# not an answer, so an uppercase `OPEN` from a config that forgot to map it warns
+# rather than refusing a session on an issue that is open.
+_ISSUE_STATES = ("open", "closed", "missing")
+
+
+def read_state(repo_root: Path, item_id: str) -> tuple[str | None, str | None]:
+    """One issue's state as one of `_ISSUE_STATES`, through its `state` verb.
+
+    Same three-state return as `_read_verb`: `(None, None)` is a backend that
+    declines the verb, `(None, detail)` is no answer, and otherwise the word.
+    Output outside the contract is no answer with a detail naming it, for the
+    reason `read_fields` gives for a payload it cannot compare: the fault is in
+    a config, and the reader should be sent there.
+    """
+    out, detail = _read_verb(repo_root, "verbs", "state", item_id)
+    if out is None:
+        return None, detail
+    word = out.strip()
+    if word not in _ISSUE_STATES:
+        return None, f"'state' printed {word!r}, not one of {', '.join(_ISSUE_STATES)}"
+    return word, None

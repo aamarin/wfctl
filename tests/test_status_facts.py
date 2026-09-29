@@ -349,7 +349,7 @@ def test_git_being_unable_to_answer_is_not_the_same_as_nothing_to_accept(
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "record"],
                    check=True, capture_output=True)
     # No `main`, `master`, `dev` or `origin/HEAD` left to find, which is what
-    # `_trunk_branch` looks for and the only way it answers None.
+    # `trunk_branch` looks for and the only way it answers None.
     subprocess.run(["git", "-C", str(repo), "branch", "-M", "418-storyctl"],
                    check=True, capture_output=True)
     monkeypatch.setenv("WFCTL_BRANCH", "418-storyctl")
