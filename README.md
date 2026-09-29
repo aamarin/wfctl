@@ -5,8 +5,9 @@
 *The agent can produce evidence; it does not get to certify what that evidence proves.*
 
 wfctl is a command-line interface (CLI) for developers who build software with
-AI coding agents, such as Claude Code, Codex, Copilot, or Bob. It installs the
-skills that carry the design method into your project, works alongside
+AI coding agents, such as Claude Code, Codex, Copilot, or Bob, and it is built
+for running several of them in parallel. It installs the skills that carry the
+design method into your project, works alongside
 [Spec Kit](https://github.com/github/spec-kit), and reads the state of each
 feature from the files the work leaves in your repository.
 
