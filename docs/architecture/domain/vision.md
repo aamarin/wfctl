@@ -70,8 +70,7 @@ is felt at three seams:
 
 A developer working one feature at a time in one terminal holds the pipeline
 position in their head and feels no gap. That developer still gets the design
-method, and evidence governance fills no gap for them. The two cores are not
-adopted the same way, and O3 below records that.
+method. The two cores are not adopted the same way, and O3 below records that.
 
 **Where it sits beside Anthropic's long-running harness.** The problem is the
 same one — work that outlives a context window, handed from one fresh session
