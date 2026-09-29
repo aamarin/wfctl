@@ -214,3 +214,32 @@ def test_no_printed_install_command_names_a_bare_wfctl() -> None:
         and not any(allowed in text for allowed in _NOT_A_RUNNING_COMMAND)
     ]
     assert offenders == []
+
+
+@pytest.mark.parametrize("where", ["release", "here", "elsewhere"])
+def test_start_session_is_granted_every_repair_the_runner_can_print(
+    tmp_path: Path, where: str
+) -> None:
+    """`/start-session` runs doctor's repair line unattended, and its
+    `allowed-tools` grants what it may run without asking. A runner form with no
+    grant turns that refresh into a permission prompt nobody answers, and the
+    layer stays stale in the one flow the working-copy runner was built for.
+    Codex caught this on #536 after the runner shipped with only the bare grant.
+    """
+    import re
+    from fnmatch import fnmatchcase
+
+    from importlib.resources import files
+
+    from wfctl import _arch
+
+    checkout = tmp_path / "checkout dir"
+    checkout.mkdir()
+    origin = parse(RELEASE) if where == "release" else _working_copy(checkout)
+    here = checkout if where == "here" else tmp_path
+    line = f"{runner(origin, here)} install-skills --prune --yes --agent claude"
+    skill = Path(str(files("wfctl"))) / "agents" / "skills" / "start-session" / "SKILL.md"
+    allowed = _arch._frontmatter(skill.read_text()).get("allowed-tools", "")
+    grants = re.findall(r"Bash\(([^)]*)\)", allowed)
+
+    assert any(fnmatchcase(line, grant) for grant in grants), (line, grants)
