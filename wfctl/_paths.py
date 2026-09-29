@@ -528,9 +528,10 @@ def records_on_this_branch(
     if added_only:
         # The merge base is what `trunk...HEAD` diffs against. With no trunk,
         # HEAD is the only base there is: a record committed before this read is
-        # indistinguishable from one on trunk, which is #508's gap and not this
-        # filter's to close. A base git cannot read lists nothing, so every
-        # touched record counts as added, which again fails closed.
+        # indistinguishable from one on trunk. This filter cannot close that gap,
+        # so the design gate names it on its own row instead (#508). A base git
+        # cannot read lists nothing, so every touched record counts as added,
+        # which again fails closed.
         base = names("merge-base", trunk, "HEAD") if trunk is not None else ["HEAD"]
         rel = str(arch.resolve().relative_to(repo_root.resolve()))
         tree = ["ls-tree", "-r", "--name-only", "--full-name"]
