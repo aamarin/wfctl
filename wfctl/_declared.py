@@ -118,7 +118,11 @@ def _load_step(
     """
     problems: list[str] = []
     parsed: list[tuple[SubStep, str | None, str | None]] = []
-    seen: set[str] = {s.name for s in _STEPS[step].sub_steps}
+    # Two sets, not one seeded with the other: a name that matches wfctl's
+    # own pass and a name the repository wrote twice are both dropped, but
+    # only the second has a copy in `wfctl.json` for the author to go find.
+    builtin: frozenset[str] = frozenset(s.name for s in _STEPS[step].sub_steps)
+    seen: set[str] = set()
 
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict):
@@ -139,6 +143,9 @@ def _load_step(
             # way. Caught here so `check config` reports it before
             # `step none` ever runs.
             problems.append(f"{qualified} is not a valid pass name — '/' and '..' are rejected")
+            continue
+        if name in builtin:
+            problems.append(f"{qualified} is wfctl's own pass; rename the declared one")
             continue
         if name in seen:
             problems.append(f"{qualified} is declared twice under one step")

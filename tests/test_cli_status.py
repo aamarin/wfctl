@@ -31,9 +31,18 @@ def _stall_on(storyctl_dir: types.SimpleNamespace) -> None:
 def test_a_repository_that_declares_nothing_renders_byte_identically(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """US1 acceptance 4: the regression every repository would see first — no
-    indented rows, no blank line, no header, for the seven steps that carry no
-    pass at all."""
+    """US1 acceptance 4: the regression every repository would see first. A
+    repository that declares nothing beyond wfctl's built-in passes gets no
+    indented row, blank line, or header of its own.
+
+    Since #501 that premise is "nothing beyond the built-in passes" rather than
+    "nothing at all". `plan` carries the plan review as a built-in pass, and a
+    built-in pass is not a declaration: every repository gets it with no
+    `wfctl.json`, so it draws the same row before and after the empty file is
+    written. It is the one indented row here, because `brainstorm`'s two passes
+    are hidden while that step reads `skipped`. Any other indented row is one
+    this repository never asked for.
+    """
     storyctl_dir.make_spec_artifact("specify", content="# Spec\nsomething\n")
 
     before = runner.invoke(app, ["status"]).output
@@ -41,8 +50,10 @@ def test_a_repository_that_declares_nothing_renders_byte_identically(
     after = runner.invoke(app, ["status"]).output
 
     assert before == after
-    for line in after.splitlines():
-        assert not line.startswith("  "), f"an indented row appeared with nothing declared: {line!r}"
+    indented = [line for line in after.splitlines() if line.startswith("  ")]
+    assert indented == ["  plan-review   ○"], (
+        f"an indented row appeared with nothing declared: {indented!r}"
+    )
 
 
 def test_a_declared_pass_renders_indented_under_its_step(

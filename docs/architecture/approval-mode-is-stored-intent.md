@@ -94,6 +94,22 @@ setting is what tests.
 premise overrules — a run pointed at eight small-fry issues overnight spans
 session boundaries, and a mode that evaporates at `end` cannot serve one.
 
+wfctl is the mode's second writer, and it only ever writes `false`. An
+unattended run that keeps editing its plan and asking for another review would
+otherwise loop until someone noticed, so wfctl counts the plan reviews and
+sign-offs made since the last grant (#501). When the count reaches 3 and the
+plan review is still outstanding, wfctl turns the mode off, writes the reason
+into the mode file as `revoked`, and appends a `mode` event carrying
+`by: "wfctl"` and the same reason. `status` and `resume` print that reason in
+place of the auto-approve notice, so the person who granted the mode learns
+that the run stopped on its own and why.
+
+Only a new grant resets the count. The count starts at the last `mode` event
+that granted the mode, and it is read from the event log on every call, so a
+`/clear` and the `wfctl start` that follows it change neither the count nor the
+mode. A person who grants the mode again after a revocation gets three more
+reviews, and nothing else gives them.
+
 The payload gains a field whose provenance differs from every other field on it.
 That asymmetry is the decision, not an accident of it: a mode nothing can infer
 must still reach the same views, because `pipeline-state-is-one-payload`
@@ -129,6 +145,14 @@ event records that autonomy was granted and when, in a log that already carries
 conclusion. Naming a setter it cannot observe is the move #70 removed from
 `wfctl end`, and it is not reintroduced here for a field that would look more
 authoritative with a name on it.
+
+The revocation does not change who owns the question. It changes who can
+write the answer, and in one direction only. Writing `false` raises the bar,
+which #100 lets anyone do without a person; writing `true` lowers it, and that
+stays a grant. The agent cannot count its own reviews either, since it is the
+party the count bounds, so the count comes from lines wfctl wrote: a `resume`
+that saw the review report's hash change, and a `sign-off` event that only
+`wfctl step sign-off` appends.
 
 **Neither side owns *"did the agent honour the mode?"***. It is not observable.
 No artifact records a pause, so a run that stopped when it should not have and a
@@ -241,3 +265,6 @@ cannot establish it has to leave one in.
 ## Log
 
 - 2026-09-07  proposed    — #127 level 2; the payload's first non-inferred field
+- 2026-09-28  amended     — #501: wfctl is a second writer that only writes
+  `false`, its `mode` event carries the reason, and only a new grant resets
+  the review count

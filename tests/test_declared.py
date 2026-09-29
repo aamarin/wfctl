@@ -49,6 +49,42 @@ def test_duplicate_name_under_one_step_is_a_finding(declaring_repo: types.Simple
     assert any("specify.x is declared twice" in p for p in problems)
 
 
+def test_a_declared_pass_named_after_wfctls_own_is_told_it_collides(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """FR-009. The built-in names seed the same `seen` set a duplicate is
+    caught by, so this used to read "declared twice under one step". That
+    points the author at their own `wfctl.json` for a second copy that is not
+    there. The finding has to say whose the other pass is.
+
+    The declared pass is still dropped, and wfctl's own stays where it was."""
+    declaring_repo.write_config({"plan": [
+        {"name": "plan-review", "manual": True, "evidence": "mine.md"},
+    ]})
+    passes, problems = _declared.load(declaring_repo.root)
+    assert problems == ["plan.plan-review is wfctl's own pass; rename the declared one"]
+    assert [s.name for s in passes["plan"]] == ["plan-review"]
+    assert passes["plan"][0] is _STEPS["plan"].sub_steps[0]
+
+
+def test_a_pass_declared_twice_is_still_called_a_duplicate_beside_a_collision(
+    declaring_repo: types.SimpleNamespace,
+) -> None:
+    """The collision message must not swallow the genuine duplicate, which
+    shares the check it was split out of. Both in one step, so each finding
+    has to name its own pass."""
+    declaring_repo.write_config({"plan": [
+        {"name": "plan-review", "manual": True, "evidence": "mine.md"},
+        {"name": "x", "manual": True, "evidence": "a.md"},
+        {"name": "x", "manual": True, "evidence": "b.md"},
+    ]})
+    _, problems = _declared.load(declaring_repo.root)
+    assert problems == [
+        "plan.plan-review is wfctl's own pass; rename the declared one",
+        "plan.x is declared twice under one step",
+    ]
+
+
 def test_a_name_containing_a_slash_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
     """`step_none_cmd` builds a claim path from this name unvalidated — an
     unrejected `/` walks that write outside `step-claims/<branch>/` (and a
@@ -76,7 +112,13 @@ def test_the_same_name_under_two_different_steps_is_accepted(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
     """FR-002a: uniqueness is per step. A repository adding a pass under one
-    step is never refused on account of a pass under a step it did not name."""
+    step is never refused on account of a pass under a step it did not name.
+
+    `plan` lists `plan-review` first since #501. It is wfctl's built-in pass,
+    not a declaration, so it arrives with no `wfctl.json` at all and sits ahead
+    of what the repository declared. What this test holds is that the two
+    declared `x` passes are both accepted, beside whatever the step already
+    carries."""
     declaring_repo.write_config({
         "specify": [{"name": "x", "manual": True, "evidence": "a.md"}],
         "plan": [{"name": "x", "manual": True, "evidence": "b.md"}],
@@ -84,7 +126,7 @@ def test_the_same_name_under_two_different_steps_is_accepted(
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
     assert [s.name for s in passes["specify"]] == ["x"]
-    assert [s.name for s in passes["plan"]] == ["x"]
+    assert [s.name for s in passes["plan"]] == ["plan-review", "x"]
 
 
 def test_a_pass_with_both_command_and_manual_is_a_finding(
@@ -264,7 +306,7 @@ def test_a_pass_declared_as_needing_a_person_carries_the_flag(
     ]})
     passes, problems = _declared.load(declaring_repo.root, is_installed=lambda c: True)
     assert problems == []
-    assert passes["plan"][0].needs_person is True
+    assert {s.name: s.needs_person for s in passes["plan"]}["x"] is True
 
 
 def test_a_pass_that_does_not_say_it_needs_a_person_does_not(
@@ -275,7 +317,7 @@ def test_a_pass_that_does_not_say_it_needs_a_person_does_not(
     opt-in."""
     declaring_repo.write_config({"plan": [{"name": "x", "manual": True, "evidence": "a.md"}]})
     passes, _ = _declared.load(declaring_repo.root)
-    assert passes["plan"][0].needs_person is False
+    assert {s.name: s.needs_person for s in passes["plan"]}["x"] is False
 
 
 def test_needs_person_that_is_not_a_boolean_is_a_finding(
@@ -289,7 +331,7 @@ def test_needs_person_that_is_not_a_boolean_is_a_finding(
     ]})
     passes, problems = _declared.load(declaring_repo.root, is_installed=lambda c: True)
     assert "plan.walk has a 'needs_person' that is not a boolean" in problems
-    assert [s.name for s in passes.get("plan", [])] == []
+    assert [s.name for s in passes["plan"]] == ["plan-review"]
 
 
 def test_needs_person_on_a_manual_pass_is_a_finding(
@@ -306,7 +348,7 @@ def test_needs_person_on_a_manual_pass_is_a_finding(
         "plan.walk declares 'manual' and 'needs_person' — "
         "a manual pass already stops an autonomous run"
     ) in problems
-    assert [s.name for s in passes.get("plan", [])] == []
+    assert [s.name for s in passes["plan"]] == ["plan-review"]
 
 
 def test_no_built_in_pass_needs_a_person() -> None:

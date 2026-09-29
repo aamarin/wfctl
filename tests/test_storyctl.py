@@ -5,7 +5,7 @@ import types
 
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, structured
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, structured, write_plan_review
 from wfctl._pipeline import _current_step_name, infer_pipeline
 from wfctl._pipeline import _infer_steps as _infer_pipeline
 from wfctl.cli import app
@@ -197,6 +197,7 @@ class TestInferPipeline:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
+        write_plan_review(storyctl_dir.spec_dir)
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[3].state == "done"
 
@@ -372,6 +373,7 @@ class TestInferPipeline:
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content="[NEEDS CLARIFICATION] fix\n")
         storyctl_dir.make_spec_artifact("plan")
+        write_plan_review(storyctl_dir.spec_dir)
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[1].state == "in_progress"
         assert steps[3].state == "done"
@@ -462,14 +464,22 @@ class TestStatus:
         assert "/speckit.analyze" in content
         assert "auto: true" in content
 
-    def test_next_auto_true_for_tasks(self, storyctl_dir: NS) -> None:
+    def test_next_auto_false_for_tasks(self, storyctl_dir: NS) -> None:
+        """#501. Named for `true` until the plan review put a stop before `tasks`.
+
+        The state is the same one, a plan ready to become tasks, and it now
+        carries a clean review, since without one the plan review is what is
+        current. What moved is whether an unattended run may act on it: an
+        attended run stops here so a person reads the plan first (FR-003).
+        """
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
+        write_plan_review(storyctl_dir.spec_dir)
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "/speckit.tasks" in content
-        assert "auto: true" in content
+        assert "auto: false" in content
 
     def test_next_writes_completion_when_all_done(self, storyctl_dir: NS) -> None:
         storyctl_dir.make_spec_artifact("brainstorm")

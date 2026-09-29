@@ -91,10 +91,12 @@ class Step(NamedTuple):
     #100 ruled out, and it would cost `grep`: written this way, searching for a
     reader finds its definition and its row here.
 
-    `sub_steps` defaults to empty so every existing row keeps parsing. Only
-    `brainstorm` carries any today — the artifacts it already produces are what
-    earn a pass its own row (`a-step-carries-sub-steps-one-level-deep`); the
-    other seven steps have exactly one artifact each and nothing to split.
+    `sub_steps` defaults to empty so every existing row keeps parsing. Two
+    steps carry any today. `brainstorm` splits the two artifacts it already
+    produces, which is what earns a pass its own row
+    (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
+    review, whose report is a second artifact read against the first (#501).
+    The other six steps have exactly one artifact each and nothing to split.
     """
 
     command: str
@@ -117,8 +119,20 @@ _STEPS: dict[str, Step] = {
     ),
     "specify":    Step("/speckit.specify",    _AUTOMATIC,       _evidence.specify),
     "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _evidence.clarify),
-    "plan":       Step("/speckit.plan",       _AUTOMATIC,       _evidence.plan),
-    "tasks":      Step("/speckit.tasks",      _AUTOMATIC,       _evidence.tasks),
+    "plan": Step(
+        "/speckit.plan", _AUTOMATIC, _evidence.plan,
+        # Review required, so that the revision after a review with an open
+        # BLOCKER runs only when a person or a grant says so (FR-003, FR-026).
+        sub_steps=(
+            SubStep("plan-review", "/plan-review", _REVIEW_REQUIRED, _evidence.plan_review),
+        ),
+    ),
+    # Review required since #501. FR-003 stops an attended run after a clean
+    # plan review, before the plan becomes tasks, and that stop has to be in the
+    # payload for `speckit-orchestrate` to read. A skill that remembered it
+    # would be one a later session reading `auto: true` walks straight past
+    # (research R4). A grant answers it, as it answers a `review_required` pass.
+    "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks),
     "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
     "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
     "implement":  Step("/speckit.implement",  _AUTOMATIC,       _evidence.implement),
@@ -243,6 +257,12 @@ class _PipelineSubStep:
     expected and one skipped because its parent was share `state`,
     `claimed` and `needs_person` alike; only `annotation` separates them.
 
+    `reason` is the unrendered half of `annotation`, the same split
+    `_PipelineStep` carries. The roll-up copies it onto the step, and a step
+    with a reason reads as held and routes to its own command. A pass that
+    only has something to show, such as a stale plan review, puts it in
+    `annotation` alone, so the pass itself stays what routes (#501, research R3).
+
     `remedy` is the pass's own fix for its reason, when its reader built one.
     The roll-up carries it to the step, and the payload's `sub_steps` never
     serializes it: the step's `remedy` already says it once, and a second copy
@@ -257,6 +277,7 @@ class _PipelineSubStep:
     claimed: str | None = None
     is_current: bool = False
     needs_person: bool = False
+    reason: str | None = None
     remedy: str | None = None
 
 
@@ -274,8 +295,10 @@ class _PipelineStep:
     # without the fix.
     remedy: str | None = None
     # Always present, always complete — every pass this step has, including a
-    # settled-away one (FR-020). Empty for the seven steps with nothing to
-    # split, and for a report built with no spec dir at all.
+    # settled-away one (FR-020). Empty only for a step with no pass, built-in
+    # or declared. A report built with no spec dir still lists every pass,
+    # each `pending`, since a pass is declared per repository and not per
+    # feature directory.
     sub_steps: list[_PipelineSubStep] = field(default_factory=list)
 
 
@@ -369,6 +392,12 @@ def _infer_steps(
         # single reader could not reach: it read `design.md` before the record,
         # the read order `design.md` itself flagged as backwards.
         #
+        # The reason is the pass's own reason and not its annotation. A step
+        # with a reason is held and routes to the step's command, so a pass
+        # whose text is display only, such as a stale plan review, would
+        # otherwise send the reader to `/speckit.plan`, which overwrites
+        # `plan.md` (#501, research R3).
+        #
         # The remedy falls back to `_design_remedy` when the pass built none.
         # `brainstorm`'s architecture pass carries `DESIGN_BLOCK_REASON` for an
         # unanswered boundary question, and that fix is still built from the
@@ -379,7 +408,7 @@ def _infer_steps(
         if outstanding is not None:
             step_state.state = "in_progress"
             step_state.annotation = outstanding.annotation
-            step_state.reason = outstanding.annotation
+            step_state.reason = outstanding.reason
         if outstanding is not None and outstanding.remedy:
             step_state.remedy = outstanding.remedy
         else:
@@ -410,19 +439,26 @@ def _pass_states(
 
     A claim wins first and unconditionally (spec edge case 7): a person's
     judgment that a pass does not apply is not overturned by an artifact that
-    appears later, or by the step not having been reached yet.
+    appears later, or by the step not having been reached yet. A pass's own
+    reading of `skipped` is read the same way once it arrives: neither one
+    blocks a sibling that comes after it, so the cascade below tracks
+    `in_progress` only, not every non-`done` reading.
 
     Otherwise the parent's own reading gates whether passes are evaluated at
     all. `done` runs them in written order with a per-pass cascade exactly like
-    the step-level one below it: the first pass that is not `done` is
-    `in_progress`, and everything after it is `pending` without its reader
-    being called. `skipped` means none of them are, and neither is a pass —
-    inherited `skipped` is what "passed by with the parent" means. Every other
-    reading — `pending`, and `in_progress` for a reason that is the step's own
-    and not a pass's — means the step has not finished *its own* half yet, so
-    no pass under it has been reached either; both report `pending`, which is
-    the only one of the four names data-model.md's table gives a not-yet-`done`
-    parent's passes.
+    the step-level one below it: the first pass that reads `in_progress` is
+    where the cascade starts, and everything after it is `pending` without its
+    reader being called. A pass that reads `skipped` on its own account — such
+    as a plan review a feature planned before this pass existed never wrote —
+    does not start it, for the same reason a claim does not: neither is a pass
+    still outstanding, and a sibling's own evidence is a fact about that
+    sibling, not about the one before it (#501). Inherited `skipped` is the
+    other way `skipped` arrives, when the whole step passed by unevaluated, and
+    reads the same. Every other reading — `pending`, and `in_progress` for a
+    reason that is the step's own and not a pass's — means the step has not
+    finished *its own* half yet, so no pass under it has been reached either;
+    both report `pending`, which is the only one of the four names
+    data-model.md's table gives a not-yet-`done` parent's passes.
 
     The `in_progress` case is the one an earlier pass at this function got
     wrong: mirroring the parent's own `in_progress` onto every pass made a
@@ -431,8 +467,10 @@ def _pass_states(
     at once, which is not one of the four states a pass can honestly hold.
 
     A pass that needs a person, read while `auto_approve` is on, is `skipped`
-    once its reader has said it is not `done`
-    (`autonomous-agent-skips-human-checks`). After the reader and not before
+    once its reader has said it is `in_progress`
+    (`autonomous-agent-skips-human-checks`). Only then: a pass that reads
+    `skipped` on its own account is already not outstanding, and keeps its own
+    reason rather than having this one written over it. After the reader and not before
     it, so a walkthrough someone already finished still counts; and without
     setting `cascade`, because the run is moving past this pass the way it
     moves past a claimed one, not stopping at it.
@@ -455,12 +493,14 @@ def _pass_states(
             continue
         assert ev is not None  # own_state == "done" is only reachable once Evidence exists
         reading = sub.reads(ev)
-        if reading.state != "done" and sub.needs_person and auto_approve:
+        if reading.state == "in_progress" and sub.needs_person and auto_approve:
             result.append(_read_pass(sub, "skipped", NEEDS_PERSON_REASON))
             continue
-        if reading.state != "done":
+        if reading.state == "in_progress":
             cascade = True
-        result.append(_read_pass(sub, reading.state, reading.renders(), remedy=reading.remedy))
+        result.append(_read_pass(
+            sub, reading.state, reading.renders(), reason=reading.reason, remedy=reading.remedy,
+        ))
     return result
 
 
@@ -472,14 +512,14 @@ NEEDS_PERSON_REASON = "needs a person; auto-approve is on"
 
 def _read_pass(
     sub: SubStep, state: State, annotation: str | None = None, claimed: str | None = None,
-    remedy: str | None = None,
+    reason: str | None = None, remedy: str | None = None,
 ) -> "_PipelineSubStep":
     """A pass's reading with its declared shape carried across. One place, so a
     field added to `SubStep` reaches every branch of `_pass_states` rather than
     whichever ones the author remembered."""
     return _PipelineSubStep(
         sub.name, state, annotation, sub.command, sub.on_finish,
-        claimed=claimed, needs_person=sub.needs_person, remedy=remedy,
+        claimed=claimed, needs_person=sub.needs_person, reason=reason, remedy=remedy,
     )
 
 
@@ -768,6 +808,14 @@ def next_step_content(
     (`_AUTO_APPROVE_NOTICE`): autonomy is one switch, not one per kind of gate
     (FR-021b).
 
+    A step row follows the same rule since #501. `tasks` requires review, so
+    that an attended run stops after a clean plan review, and a grant answers
+    that stop as it answers a pass (research R4). This reverses #325, which
+    kept a step row's flag independent of any grant. No step name appears
+    here, so the rule reaches every `review_required` row, and `tasks` is the
+    only one today. A grant never reaches a blocked step or a manual pass, since
+    both return `auto=False` before either rule is read.
+
     An undefined step yields ("", False) rather than raising: `_current_step_name`
     returns "complete" for a story with nothing left, and the caller reads the
     empty command as the finished pipeline it is.
@@ -814,7 +862,7 @@ def next_step_content(
             return f"{step}.{outstanding.name}", False
         return outstanding.command, (outstanding.on_finish == _AUTOMATIC or auto_approve)
     row = _STEPS.get(step)
-    return (row.command, row.on_finish == _AUTOMATIC) if row else ("", False)
+    return (row.command, row.on_finish == _AUTOMATIC or auto_approve) if row else ("", False)
 
 
 class Attention(NamedTuple):
@@ -856,7 +904,9 @@ class PipelineReport:
     auto: bool | None
     session_started: bool
     # The one field here nothing infers — a human's answer to "may the design
-    # gates be answered without me", read back rather than recomputed. Defaulted
+    # gates and the review stops be answered without me", read back rather than
+    # recomputed. The review stops are every `review_required` pass and, since
+    # #501, the `review_required` step before `tasks`. Defaulted
     # because it is the only field whose absence has a correct value: a report
     # built without it is a report about a feature nobody granted anything to.
     #
@@ -964,7 +1014,7 @@ def build_report(
     # same three files, and two reads of them can disagree while an implementing
     # agent is writing — the window `build_report` was made to close for the
     # blocked reason, met again by a field added beside it.
-    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root)
+    ev = None if spec_dir is None else build_evidence(spec_dir, repo_root, agent_dir)
     # Read before inference, not after it: a pass that needs a person reads
     # differently under each mode, and routing below must see the same mode
     # the passes were read under.

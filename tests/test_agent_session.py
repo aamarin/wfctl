@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_plan_review
 from wfctl import _session
 from wfctl.cli import app
 
@@ -154,6 +154,7 @@ def test_start_infers_the_step_rather_than_naming_a_placeholder(
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan")
+    write_plan_review(storyctl_dir.spec_dir)
 
     output = _run("start")
 
@@ -187,6 +188,7 @@ def test_start_force_opens_a_session_over_an_existing_one(
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan")
+    write_plan_review(storyctl_dir.spec_dir)
 
     assert "step: tasks" in _run("start", "--force")
 

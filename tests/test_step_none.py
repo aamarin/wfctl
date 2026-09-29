@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -245,3 +246,35 @@ def test_a_refused_claim_does_not_settle_the_pass(
     ui_design = next(s for s in brainstorm["sub_steps"] if s["name"] == "ui-design")
     assert ui_design["state"] != "skipped"
     assert ui_design["claimed"] is None
+
+
+def test_the_built_in_plan_review_can_be_claimed_away_and_a_person_still_starts_tasks(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """FR-008: `plan-review` is wfctl's own pass, not a declaration, so the
+    claim has to resolve with no `wfctl.json` at all. Every other test here
+    declares its pass first, which would hide a resolver that only searched
+    the repository's declarations.
+
+    The payload after the claim is R4's point. A person made the claim, not a
+    review, so nothing about it grants the mode: with auto-approve off, the
+    next command is `/speckit.tasks` and `auto` stays false, the same stop a
+    clean review leaves."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
+    storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
+    assert not (storyctl_dir.repo_root / "wfctl.json").exists()
+
+    result = runner.invoke(app, ["step", "none", "plan.plan-review",
+                                  "--reason", "a one-line config change"])
+
+    assert result.exit_code == 0, result.output
+    claim = root / "step-claims" / "418-storyctl" / "plan.plan-review.md"
+    assert "a one-line config change" in claim.read_text()
+
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    plan = next(s for s in payload["steps"] if s["name"] == "plan")
+    review = next(s for s in plan["sub_steps"] if s["name"] == "plan-review")
+    assert review["state"] == "skipped"
+    assert "a one-line config change" in review["claimed"]
+    assert (payload["next_command"], payload["auto"]) == ("/speckit.tasks", False)

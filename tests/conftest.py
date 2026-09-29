@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from wfctl._evidence import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+from wfctl._plan_review import REPORT_NAME, identity
 
 if TYPE_CHECKING:
     from wfctl._pipeline import PipelineReport
@@ -257,6 +258,34 @@ CLEAN_SPEC = (
     + "## Clarifications\n\n### Session 2026-08-25\n\n"
     "- No critical ambiguities detected.\n"
 )
+
+
+def write_plan_review(feature: Path, blockers: int = 0) -> Path:
+    """A plan review of the `plan.md` in `feature` as it is now, with
+    `blockers` findings of priority BLOCKER open. Returns the report's path.
+
+    Since #501 a complete plan with no report stops the pipeline at `plan` and
+    names `/plan-review`. A test about something else that stages a plan and
+    expects the walk to move past it needs a clean review beside the plan,
+    and this is that review with the default count. Call it after the plan is
+    written, because the report records the plan's identity at the moment it
+    is called, and an edit afterwards makes the review stale.
+
+    Only the two lines wfctl reads are shaped for it, the `plan.md` row under
+    `## Reviewed inputs` and the count under `## Summary`. A test about the
+    report format itself builds its own report.
+    """
+    report = feature / REPORT_NAME
+    report.write_text(
+        "# Plan review\n\n"
+        f"## Summary\n\nBLOCKER: {blockers}\nMAJOR: 0\nMINOR: 0\n\n"
+        "## Reviewed inputs\n\n"
+        "| Input | Identity | Role |\n"
+        "| --- | --- | --- |\n"
+        f"| plan.md | {identity(feature / 'plan.md')} | technical strategy |\n\n"
+        "## Findings\n\nnone\n"
+    )
+    return report
 
 _STEP_ARTIFACTS: dict[str, object] = {
     "brainstorm": lambda root, spec: spec / "design.md",

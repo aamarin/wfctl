@@ -56,6 +56,21 @@ The repository holds the attestation; the spec store keeps the detail.
 verdict as one of `satisfied` / `unsatisfied` / `inconclusive`, the coverage the
 scan achieved, what it found, and a path to the full artifact in `FEATURE_DIR`.
 
+Plan review, the check #501 adds after `plan`, writes a scan file too, at
+`<arch-root>/scans/<issue>-plan-review.md`. Like `clarify` and `analyze`, its
+whole job is finding problems. This means that without a committed scan file, a
+review that found three BLOCKER findings and a review that never ran look the
+same in the pull request.
+
+Two differences made plan review look like it belonged in the feature folder
+instead. Neither holds up.
+
+1. It reviews a document written before any code exists. So does `clarify`.
+2. It runs again every time the plan owner or the autonomous agent revises the
+   plan. So its scan file gets one section per run, headed `## Review` with the
+   time, instead of the usual one section per day. Two runs on the same day
+   review two different plans.
+
 The `FEATURE_DIR` artifacts are unchanged, and so are the predicates that read
 them. Nothing about which steps are automatic changes.
 
@@ -195,3 +210,7 @@ gate, and gates are #100's.
   `Direct baseline` cited as precedent, on the argument the baseline had already
   made against itself. The baseline is reworded; the Decision it lost a
   precedent for is the one it never rested on.
+- 2026-09-26  amended     — #501 added `plan-review`, a third pass whose job is
+  to find problems, and the Decision names it beside the two steps.
+- 2026-09-28  rewritten   — #501's paragraph in plain language, and it says a
+  plan review takes one section per run rather than one per day
