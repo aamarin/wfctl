@@ -356,7 +356,6 @@ def start_cmd(
     # and there is one place where blank becomes absent rather than one per use.
     caller = identity(session_id)
     spec_dir = resolve_spec_dir(branch, repo_root)
-    report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     # Before the early return, not after. `start` is idempotent about the session
     # and must not be about the flag: `/start-session` opens the session on a
@@ -375,6 +374,11 @@ def start_cmd(
             f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
             else "[green]✓[/green] auto-approve off — design gates stop for a human"
         )
+
+    # After the grant, because the mode decides where the run stands: a pass
+    # that needs a person is skipped under auto-approve, so a report built
+    # first would print and log the pass this flag was typed to get past.
+    report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     if report.session_started and not force:
         # Takeover (contracts/cli.md § `wfctl start`, FR-012). A caller for whom

@@ -119,6 +119,22 @@ def test_next_step_md_moves_past_the_skipped_pass_too(
     assert "/walk" not in (storyctl_dir.agent_dir / "next-step.md").read_text()
 
 
+def test_start_with_auto_approve_reports_the_step_after_the_skipped_pass(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`start` built its report before it saved the mode it was handed, so the
+    first `start --auto-approve` printed `next: /walk` and wrote that position
+    into the log, while an immediate `status` had already moved past the pass."""
+    storyctl_dir.stage_upstream_of("tasks")
+    _declare(storyctl_dir, [_walkthrough()])
+
+    result = runner.invoke(app, ["start", "--auto-approve"])
+
+    assert result.exit_code == 0, result.output
+    assert "/walk" not in result.output
+    assert "step: decompose" not in result.output
+
+
 def test_with_auto_approve_off_the_pass_waits_for_a_person(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
