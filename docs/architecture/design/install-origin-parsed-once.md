@@ -10,9 +10,11 @@ Someone who installs wfctl's skills from their own checkout and someone who
 installs them from a release are told the same thing today: `Installed from
 wfctl 0.21.0`. The version cannot tell them apart, since a checkout reports the
 version in its own `pyproject.toml` until the next bump. The same gap shows in
-the remedy `wfctl start` prints for a worktree with no install. It prints a bare
-`wfctl install-skills`, and in a repository that develops wfctl, following it
-installs the release over the checkout being tested.
+every repair line wfctl prints, such as the one `wfctl start` gives a worktree
+with no install and the `update:` line `doctor` gives a drifted layer. Each
+prints a bare `wfctl install-skills`, and in a repository that develops wfctl,
+following it runs the release on PATH and installs the release over the
+checkout being tested.
 
 The answer is already on disk. pip and uv write a PEP 610 `direct_url.json`
 for every install that did not come from an index, and it says which of three
@@ -27,8 +29,9 @@ So three callers now ask about one file.
 1. `doctor` asks whether the build can drift, and a checkout is not an answer.
 2. `install-skills` asks where the files it just wrote came from, and a
    checkout is the answer that matters most.
-3. `wfctl start` asks what command would reinstall the same bundle, and needs
-   the checkout's directory to name.
+3. `wfctl start`, `doctor`, and the refusals inside `install-skills` ask what
+   command starts this same wfctl again, and a checkout needs a different
+   answer from a release.
 
 The structural choice is where the file's shapes are enumerated. No
 architecture record constrains it; all three questions are wfctl's before and
@@ -82,7 +85,7 @@ A new module, `_provenance`, holds the parse. `parse(raw)` is pure and turns
 the file's text into an `Origin`, a frozen record carrying its kind (repository,
 directory, archive, index, or unreadable), its URL, its commit, and whether the
 revision was pinned. `read()` fetches the text from the installed distribution
-and calls `parse`. Two thin readers sit on top of it.
+and calls `parse`. Three thin readers sit on top of it.
 
 1. `_installed_build()` in `cli.py` keeps its signature and its docstring. It
    returns a `_Build` for a repository origin and None for every other kind.
@@ -90,10 +93,14 @@ and calls `parse`. Two thin readers sit on top of it.
    `aamarin/wfctl @ 4ca1604` for a repository, `working copy
    wt/76-install-provenance` for a directory, and a named clause for the other
    three kinds, so no install prints the bare version alone.
+3. `runner(origin, here)` in `_provenance` returns the program a repair line
+   starts with; `wfctl` for everything but a working copy, `uv run wfctl` when
+   `here` is that working copy, and `uv run --project <dir> wfctl` otherwise.
 
-`_issue_check.gather` calls `read()` itself and records the directory, when
-there is one, as a fact beside `base_source`. The remedy names it with
-`--from`.
+`_issue_check.gather` calls `runner` itself and records the result as a fact
+beside `base_source`, so `decide` stays pure. The runner answers which wfctl
+runs, and `--from` goes on answering which bundle it installs; a remedy that
+has both prints both.
 
 What the extra function buys over the baseline is that the five shapes are
 written down once. The baseline enumerates them in two functions, and the part
@@ -138,9 +145,9 @@ stable              ┌───────────────────
 ════ process edge: installed metadata ══════════════════════════════
                        │          │           │
 volatile  ┌────────────┴─┐ ┌──────┴───┐ ┌─────┴────┐
-          │ _installed   │ │ describe │ │ gather   │
-          │ _build       │ │ (install │ │ (start)  │
-          │ (doctor)     │ │ -skills) │ │          │
+          │ _installed   │ │ describe │ │ runner   │
+          │ _build       │ │ (install │ │ (start,  │
+          │ (doctor)     │ │ -skills) │ │ doctor)  │
           └──────────────┘ └──────────┘ └──────────┘
           ┌──────────────────────────┐  reads  ┌─────────────────┐
           │ _provenance.read (new)   │───────► │ direct_url.json │
@@ -152,7 +159,8 @@ process edge. In the baseline, two functions read `direct_url.json` and each
 carries its own list of shapes and failures, and `gather` reaches the answer
 only because `start_cmd` passes it in. In the decision, one function reads the
 file, and the three readers depend on the parsed `Origin` rather than on the
-file. The change this is built
+file. The readers sit below `parse` because they change whenever a question's
+wording or answer does, and `parse` changes only when the file gains a shape. The change this is built
 to absorb is a new shape or a new way of failing to read one; the baseline
 touches two functions for it and the decision touches one. No divider is new.
 The process edge is the one `497-issue-check-is-a-pure-verdict` already draws
@@ -171,6 +179,15 @@ between `gather` and `decide`, and `parse` sits above it for the same reason
   agree on five shapes and four ways of failing to read one, and nothing checks
   that they do. It also needs `start_cmd` to carry a fact into `gather` that
   `gather` otherwise asks for itself.
+- **A remedy that names the working copy with `--from`.** It installs the
+  right bundle, and it is what the handoff for this change proposed first. It
+  loses on two counts. The command still runs the release's code, so a branch
+  that changes how `install-skills` writes settings or manifests is not the
+  code that runs. And it records the directory as the layer's source; once the
+  main checkout carries one, every later worktree remedy reads it as
+  `base_source` and installs the main checkout's skills into the worktree.
+  `uv run` is what this repository's `post_create` already runs, and it records
+  nothing.
 - **Inferring the origin from the version string.** Ruled out before any shape
   was drawn. A checkout reports the released version until the next bump, so
   the version cannot separate two installs with different files.
@@ -182,9 +199,14 @@ between `gather` and `decide`, and `parse` sits above it for the same reason
 ## Consequences
 
 The success line always carries a clause, so no run reads as a release when it
-was not one. The remedy `wfctl start` prints names the running wfctl's own
-directory when that wfctl is a working copy, so following it installs the same
-bundle the refusing wfctl carries.
+was not one. Every repair line starts with the program that is running now, so
+following it runs the same code and installs the same bundle as the wfctl that
+printed it.
+
+A working copy's repair line now needs uv on PATH. That holds for every
+install this repository documents, and a working copy installed with pip alone
+would see a command it cannot run, where before it saw one that silently
+installed the wrong thing.
 
 The cost is one more module, and a reader of `_installed_build` now follows one
 call to see what the file can hold. The failure mode is a reader that switches
@@ -203,7 +225,10 @@ explicitly and its tests cover each, which is where that would show.
 4. A worktree made with `git worktree add`, refused by `uv run wfctl start`,
    ends up holding its own skills after the printed remedy is run exactly as
    printed.
+5. `doctor` run from a working copy prints `update: uv run wfctl
+   install-skills`, and a test pins it.
 
 ## Log
 
 - 2026-09-29  proposed  — install-skills and the start remedy needed to tell a working copy from a release, and doctor's reader answers a different question about the same file
+- 2026-09-29  proposed  — the remedy runs the working copy through uv rather than naming it with `--from`, and doctor's repair lines take the same runner
