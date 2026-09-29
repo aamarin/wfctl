@@ -8,6 +8,7 @@ is for the eight built-in rows.
 from __future__ import annotations
 
 import json
+import subprocess
 import types
 
 from typer.testing import CliRunner
@@ -138,6 +139,30 @@ def test_check_config_exits_nonzero_on_a_finding(storyctl_dir: types.SimpleNames
     result = runner.invoke(app, ["check", "config"])
     assert result.exit_code == 1
     assert "declares no command and is not marked manual" in result.output
+
+
+def test_check_config_reports_a_declared_trunk_that_names_no_branch(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`trunk_branch` answers None for this declaration rather than guessing,
+    so this is the only place its author hears that it is wrong."""
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"trunk": "release"}))
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 1
+    assert "'trunk' names 'release', which is neither a local branch" in result.output
+
+
+def test_check_config_says_what_a_declared_trunk_is_read_as(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    branch = subprocess.run(
+        ["git", "-C", str(storyctl_dir.repo_root), "branch", "--show-current"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"trunk": branch}))
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 0
+    assert f"trunk {branch}, read as {branch}" in result.output
 
 
 def test_check_config_reports_both_needs_person_mistakes(

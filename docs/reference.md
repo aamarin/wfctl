@@ -121,6 +121,43 @@ A pass that does not apply to one change is `wfctl step none <step>.<name>
 --reason "…"`. That writes a note into the change under review, and the note wins
 over everything else until a person deletes it.
 
+## Declaring your trunk (`trunk`)
+
+wfctl needs to know your trunk branch for two things:
+
+1. `wfctl start` lets a worktree on trunk run without an open issue.
+2. The design checks compare your branch against trunk to see which
+   architecture records it adds or changes.
+
+Without a declaration, wfctl works the trunk out. It reads `origin/HEAD` first,
+then the bare repository's own `HEAD` in a bare-repository layout, and then
+takes the first of `main`, `master`, and `dev` that exists. That guess is wrong
+for a repository whose trunk is `dev` and which also carries `main`, and both
+`HEAD`s keep the default branch the clone was made with even after it changes.
+
+Name the branch in `wfctl.json` to settle it:
+
+```json
+{ "trunk": "dev" }
+```
+
+The value is a plain branch name. wfctl reads it as `origin/dev` when origin
+has that branch, and as the local `dev` otherwise, so declaring the branch
+discovery already found changes nothing it compares against. A declared trunk
+is read before anything wfctl would discover.
+
+wfctl reads the declaration from the `wfctl.json` in the checkout you are
+working in, the same as `verify` and `steps`. So a branch cut before the
+declaration landed on trunk still uses discovery until it picks the declaration
+up, and a change to `trunk` shows in the branch's diff like any other policy
+change.
+
+Run `wfctl check config` after adding it. A value that names no local branch
+and no branch on origin is a finding there, and wfctl does not fall back to
+guessing while it stands; it treats the repository as having no trunk until the
+declaration is fixed. When the declaration is valid, `check config` prints the
+branch and the form wfctl reads it as.
+
 ## What lands in your repo
 
 After `install-skills` (and optionally `install-config`):

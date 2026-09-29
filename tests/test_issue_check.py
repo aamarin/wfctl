@@ -274,6 +274,40 @@ def test_gather_reads_trunk_in_a_bare_layout(tmp_path: Path) -> None:
     assert gather(feature, "497-x").on_trunk is False
 
 
+def test_gather_reads_a_declared_trunk_over_the_bare_repositorys_head(
+    tmp_path: Path,
+) -> None:
+    """`start` exempts a worktree on trunk from the open-issue check, so a bare
+    layout whose HEAD says `main` refused orchestration from the real trunk,
+    `dev`, as naming no issue. The declaration is what moves the exemption."""
+    src = git_repo(tmp_path / "src")
+    subprocess.run(["git", "-C", str(src), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(src), "branch", "dev"], check=True)
+    bare = tmp_path / "repo.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
+    main_wt = _add_worktree(bare, "main", "main")
+    dev_wt = _add_worktree(bare, "dev", "dev")
+    for wt in (main_wt, dev_wt):
+        (wt / "wfctl.json").write_text(json.dumps({"trunk": "dev"}))
+
+    assert gather(dev_wt, "dev").on_trunk is True
+    assert gather(main_wt, "main").on_trunk is False
+
+
+def test_gather_strips_the_remote_from_a_declared_trunk(tmp_path: Path) -> None:
+    """A declared name resolves to `origin/dev` when the remote has it, and the
+    branch checked out is still called `dev`."""
+    src = git_repo(tmp_path / "src")
+    subprocess.run(["git", "-C", str(src), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(src), "branch", "dev"], check=True)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    dev_wt = _add_worktree(clone, "dev-wt", "dev")
+    (dev_wt / "wfctl.json").write_text(json.dumps({"trunk": "dev"}))
+
+    assert gather(dev_wt, "dev").on_trunk is True
+
+
 def test_gather_strips_the_remote_from_origin_head(tmp_path: Path) -> None:
     """`origin/HEAD` reads as `origin/main`, and a branch is never named that."""
     src = git_repo(tmp_path / "src")
