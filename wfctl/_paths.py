@@ -1,6 +1,7 @@
 """Path resolution for wfctl state, branch, spec dir, and repo root."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -137,10 +138,91 @@ def _bare_head(repo_root: Path) -> str | None:
     return branch if exists.returncode == 0 else None
 
 
+# Spelled out rather than imported from `_verify`, which sits a band above this
+# module and loads rich at import. `hook session-restart` imports this module on
+# a path that must load neither, and `test_restart_hook_cli` is what says so.
+_CONFIG_PATH = "wfctl.json"
+TRUNK_KEY = "trunk"
+
+
+def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
+    """Return (the branch `wfctl.json` names as trunk, problems). Both empty
+    means the repository declares none.
+
+    A declaration that is present but unusable comes back as a problem and no
+    name, never as "none declared". `trunk_branch` reads the difference: the
+    first falls through to discovery, and the second must not, because a
+    declaration wfctl drops without saying so is indistinguishable to its author
+    from one wfctl never read.
+
+    A file that will not parse is "none declared" rather than a problem here.
+    `doctor` and `check config` both report it already, and this reader runs
+    inside `start` and `status`, where a third copy of the same finding is not
+    what anyone asked for.
+    """
+    path = repo_root / _CONFIG_PATH
+    if not path.exists():
+        return None, []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None, []
+    if not isinstance(data, dict):
+        return None, []
+    declared = data.get(TRUNK_KEY)
+    if declared is None:
+        return None, []
+    if not isinstance(declared, str) or not declared.strip():
+        return None, [f"'{TRUNK_KEY}' must be a branch name, such as \"main\""]
+    return declared, []
+
+
+def _resolve_declared(repo_root: Path, name: str) -> str | None:
+    """The revision a declared branch name stands for: `origin/<name>` when the
+    remote has it, else the local branch, else None.
+
+    The declaration names a plain branch, and the remote-tracking form wins
+    because it is what discovery already hands back from `origin/HEAD`. Used
+    verbatim, `"trunk": "main"` would diff against a local `main` that can sit
+    behind `origin/main`, so declaring the trunk discovery already found would
+    change which commits `touched_on_this_branch` compares, and records already
+    on trunk would read as this branch's. A bare clone keeps no remote-tracking
+    refs by default, so there the local branch is the answer.
+    """
+    for ref, answer in (
+        (f"refs/remotes/origin/{name}", f"origin/{name}"),
+        (f"refs/heads/{name}", name),
+    ):
+        if subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref],
+            cwd=repo_root, capture_output=True,
+        ).returncode == 0:
+            return answer
+    return None
+
+
+def declared_trunk_problems(repo_root: Path) -> list[str]:
+    """Everything wrong with the repository's trunk declaration, for `check config`."""
+    name, problems = declared_trunk(repo_root)
+    if name is not None and _resolve_declared(repo_root, name) is None:
+        problems.append(
+            f"'{TRUNK_KEY}' names '{name}', which is neither a "
+            "local branch nor a branch on origin"
+        )
+    return problems
+
+
 def trunk_branch(repo_root: Path) -> str | None:
-    """The repo's trunk — origin/HEAD when the remote publishes it, then a bare
-    repository's own HEAD, else the first local main/master/dev that exists. None
-    when nothing looks like one.
+    """The repo's trunk: the branch `wfctl.json` declares, else origin/HEAD when
+    the remote publishes it, then a bare repository's own HEAD, else the first
+    local main/master/dev that exists. None when nothing looks like one.
+
+    The declaration comes first because a repository that declares its trunk is
+    correcting discovery, and one read only where discovery failed would correct
+    nothing. A declaration that names no branch, or is not a name at all, answers
+    None rather than falling through: discovery is the answer the author wrote
+    the declaration to overrule, and `check config` is where they learn it is
+    broken.
 
     The bare HEAD is there because a bare clone records no origin/HEAD, so a
     bare layout otherwise always falls through to the name guess, and a repo
@@ -148,9 +230,16 @@ def trunk_branch(repo_root: Path) -> str | None:
     It is read only when `core.bare` says the layout is bare: in a normal layout
     the shared HEAD is whatever the main checkout has checked out, which can be a
     feature branch. `core.bare` rather than `rev-parse --is-bare-repository`,
-    which answers false from inside a bare layout's worktree. As stale as the
-    clone either way; a declared trunk is #509.
+    which answers false from inside a bare layout's worktree. Both discovered
+    sources are as stale as the clone, and a changed default reaches them only
+    through a fresh clone; the declaration is the one source that moves when
+    the repository says so.
     """
+    name, problems = declared_trunk(repo_root)
+    if problems:
+        return None
+    if name is not None:
+        return _resolve_declared(repo_root, name)
     head = subprocess.run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         cwd=repo_root, capture_output=True, text=True,
