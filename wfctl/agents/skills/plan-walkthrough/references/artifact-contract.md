@@ -68,8 +68,11 @@ Date: YYYY-MM-DD
 ```
 
 - **Plan mode**: `plan-walkthrough.md`, and `Walked through` is the sha256 of
-  `plan.md`. Compute it with `sha256sum plan.md`, or `shasum -a 256 plan.md`
-  where `sha256sum` is missing, and record the hex digest only.
+  `FEATURE_DIR/plan.md`. Compute it with `sha256sum <FEATURE_DIR>/plan.md`, or
+  `shasum -a 256 <FEATURE_DIR>/plan.md` where `sha256sum` is missing, with the
+  path `wfctl feature-paths` printed in place of `<FEATURE_DIR>`, and record the
+  hex digest only. A bare `plan.md` names a file in the working directory, which
+  is not the plan: the feature directory usually sits outside the repository.
 - **Change mode**: `change-walkthrough.md`, and `Walked through` is the commit id
   of `HEAD` from `git rev-parse HEAD`.
 
