@@ -69,9 +69,11 @@ involved in each feature. The evidence-derived truth is felt at three seams:
 3. A handoff to a session that was not present for the decision it now has to
    carry out, on one of several features in flight.
 
-A developer working one feature at a time in one terminal holds the pipeline
-position in their head and feels no gap. That developer still gets the design
-method. The two cores are not adopted the same way, and O3 below records that.
+A developer who works on one feature at a time, in one terminal, already knows
+which step that feature is on. The evidence wfctl reads tells them nothing new,
+but the method around Spec Kit still pays off for them. So that developer can
+adopt the method and skip the evidence, and the open questions below record this
+as O3.
 
 **Where it sits beside Anthropic's long-running harness.** The problem is the
 same one — work that outlives a context window, handed from one fresh session
