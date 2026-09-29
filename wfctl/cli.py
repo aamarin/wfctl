@@ -6833,6 +6833,7 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
     from rich.markup import escape
 
     drift = False
+    runner = _runner(repo_root)
     for layer in _layer_keys(manifest):
         paths = dict.fromkeys(
             record["path"] for record in manifest[layer].get("merged", [])
@@ -6850,7 +6851,8 @@ def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
 
             for event, command in MANAGED_HOOKS:
                 drift = (
-                    _report_hook_drift(settings, layer, rel, event, command) or drift
+                    _report_hook_drift(settings, layer, rel, event, command, runner)
+                    or drift
                 )
     return drift
 
@@ -6891,7 +6893,9 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
                 "one `/start-session`\n    runs unattended"
             )
             console.print(
-                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
+                f"    restore: {escape(_runner(repo_root))} install-skills"
+                f"{_agent_flag(layer)} --force",
+                soft_wrap=True,
             )
 
 
@@ -6917,12 +6921,14 @@ def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
                 soft_wrap=True,
             )
             console.print(
-                f"    restore: wfctl install-skills{_agent_flag(layer)} --force"
+                f"    restore: {escape(_runner(repo_root))} install-skills"
+                f"{_agent_flag(layer)} --force",
+                soft_wrap=True,
             )
 
 
 def _report_hook_drift(
-    settings: dict, layer: str, rel: str, event: str, expected: str
+    settings: dict, layer: str, rel: str, event: str, expected: str, runner: str
 ) -> bool:
     """Print what one managed entry got wrong, if anything. True when it drifted.
 
@@ -6979,7 +6985,9 @@ def _report_hook_drift(
         f"{escape(rel)}\n  {state}",
         soft_wrap=True,
     )
-    console.print(f"    fix: wfctl install-skills --agent {layer}")
+    console.print(
+        f"    fix: {escape(runner)} install-skills --agent {layer}", soft_wrap=True
+    )
     return True
 
 
@@ -7217,6 +7225,8 @@ def doctor_cmd() -> None:
     one run reports everything wrong at once. `⚠` is the one marker that maps to
     either code: both cases warn a person, only one is a repo problem.
     """
+    from rich.markup import escape
+
     # Each check reports whether it found drift; the command's exit code is the
     # OR of them. The contract itself is stated above `_check_workmux_hook`.
     exit_code = int(_check_wfctl_version())
@@ -7253,8 +7263,6 @@ def doctor_cmd() -> None:
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
     if not layers:
-        from rich.markup import escape
-
         console.print(
             f"Nothing installed — run `{escape(_runner(repo_root))} install-skills` first.",
             soft_wrap=True,
@@ -7278,11 +7286,9 @@ def doctor_cmd() -> None:
     _check_managed_permissions(repo_root, manifest)
     _check_managed_bob_tool_allows(repo_root, manifest)
 
-    # Both used only by the recorded-source branch below, which prints a path
-    # into a shell-shaped line.
+    # Used only by the recorded-source branch below, which prints a path into a
+    # shell-shaped line.
     import shlex
-
-    from rich.markup import escape
 
     # One hash per distinct bundle root, not one per layer: every entry produced
     # by a single install carries the same value, and layers installed from the

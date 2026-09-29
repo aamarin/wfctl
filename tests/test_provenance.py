@@ -143,3 +143,74 @@ def test_a_working_copy_elsewhere_is_named_so_uv_does_not_find_another_project(
 def test_a_working_copy_path_with_a_space_is_quoted_for_the_shell(tmp_path: Path) -> None:
     source = tmp_path / "my src"
     assert runner(_working_copy(source), tmp_path) == f"uv run --project '{source}' wfctl"
+
+
+@pytest.mark.real_install_origin
+def test_a_record_that_is_not_utf8_is_unreadable_rather_than_a_traceback(monkeypatch) -> None:
+    """`read` runs on every `doctor`, `start` and `install-skills`, and the file
+    is one some other tool wrote."""
+    import importlib.metadata
+
+    class _Dist:
+        def read_text(self, name: str) -> str:
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(importlib.metadata, "distribution", lambda name: _Dist())
+    assert _provenance.read().kind is Kind.UNREADABLE
+
+
+# --- every printed install command ---
+
+# Strings that name `wfctl install-skills` and are deliberately not a command
+# the running wfctl should start. The `.workmux.yaml` entry is the repository's
+# own config, whose right command depends on the repository.
+_NOT_A_RUNNING_COMMAND = (
+    "post_create does not call `wfctl install-skills`",
+    '&& wfctl install-skills ${WFCTL_AGENT:+--agent "$WFCTL_AGENT"} || true',
+)
+
+
+def _printed_strings(path: Path) -> list[str]:
+    """Every string literal in a module except its docstrings.
+
+    Adjacent literals arrive joined, as the compiler joins them. The fragments of an f-string are Constant nodes of their own, so a command
+    built as `f"{runner} install-skills"` leaves the fragment ` install-skills`,
+    which the pattern below does not match.
+    """
+    import ast
+
+    tree = ast.parse(path.read_text())
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def test_no_printed_install_command_names_a_bare_wfctl() -> None:
+    """#524 was fixed at one site and survived at seven more, three of them
+    found only after a pass that said "every". A bare `wfctl install-skills`
+    printed by a working copy runs the release on PATH, so each one is either
+    built from `_runner` or named above as not meant to be."""
+    import re
+
+    import wfctl
+
+    offenders = [
+        f"{module.name}: {text!r}"
+        for module in sorted(Path(wfctl.__file__).parent.glob("*.py"))
+        for text in _printed_strings(module)
+        if re.search(r"(?<![\w-])wfctl install-skills", text)
+        and not any(allowed in text for allowed in _NOT_A_RUNNING_COMMAND)
+    ]
+    assert offenders == []

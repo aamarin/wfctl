@@ -90,12 +90,16 @@ def read() -> Origin:
 
     `distribution` is looked up at call time rather than imported at module
     load, so a test that stubs `importlib.metadata.distribution` reaches it.
+
+    ValueError covers a file that is not UTF-8. A file this user cannot read
+    is the one case that reads as an index install, because `read_text`
+    swallows PermissionError and returns what it returns for a missing file.
     """
     from importlib.metadata import PackageNotFoundError, distribution
 
     try:
         raw = distribution("wfctl").read_text("direct_url.json")
-    except (PackageNotFoundError, OSError):
+    except (PackageNotFoundError, OSError, ValueError):
         return Origin(Kind.UNREADABLE)
     return parse(raw)
 
