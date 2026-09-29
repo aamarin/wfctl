@@ -23,8 +23,8 @@ declares the context or boundary it governs.
 In scope: wfctl's own contexts, the parties outside them, a context map, and a
 placement for each of the 13 accepted records.
 
-Out of scope: the 41 proposed records, which are held on purpose, the 32 level-3
-records, the record format, the `arch context` command, and the
+Out of scope: the 41 proposed records, which are held on purpose, the 31 level-3
+records under `design/`, the record format, the `arch context` command, and the
 `software-design-decisions` skill. Each of those changes in a follow-up once
 this model is reviewed.
 
@@ -44,14 +44,15 @@ it works around the model instead of drawing it.
 | E6 | The design method skills wrap Spec Kit. The brainstorm runs before its steps and a review runs before the spec is finalized, so the spec that reaches implementation is more detailed. Spec Kit itself is essentially unchanged, and what surrounds it keeps changing. | stated | Andre, 2026-09-29 | |
 | E7 | Session continuity depends on workmux lifecycle hooks, both for creating a branch and for removing worktrees and stale specs. | stated | Andre, 2026-09-29 | |
 | E8 | workmux may grow a sidebar that could replace wfctl's dashboard. Nothing about it is drawn yet. | stated | Andre, 2026-09-29 | |
-| E9 | The workmux `post_create` hook is what runs `wfctl install-skills` in a new worktree. | observed | `AGENTS.md`, Worktrees | |
+| E9 | The workmux `post_create` hook is what runs `wfctl install-skills` in a new worktree. | observed | `.workmux.yaml`, `post_create` | |
+| E10 | 8 of the 13 accepted records sit on an edge to a party outside wfctl, 2 sit between two of wfctl's own contexts, 1 sits inside one context, and 2 bind the whole repository. | inferred | the placement table on this page | |
 | E11 | Pattern selection is meant to be language agnostic: it recognizes common problems that software development has already documented a pattern for. The Python catalog is one reference for it, and not the intent. | stated | Andre, 2026-09-29 | `level-4-owns-pattern-selection` and the `python-pattern-selection` skill both name Python; #416 tracks that every other language gets no catalog |
 | E12 | The C++ design book is Iglberger's *C++ Software Design*, and it is cited by the level-3 record template, not by the level-4 skill. The level-4 skill cites Ayeva and Kasampalis, *Mastering Python Design Patterns*. | observed | `software-design-decisions/design-record-template.md`, `python-pattern-selection/SKILL.md` | |
 | E13 | The large modules carry long comments explaining what the code does, which is a code smell. The code should be restructured so it reads on its own and the interacting pieces are modular, since today it is maintainable only by an agent. | stated | Andre, 2026-09-29 | |
 | E14 | `cli.py` is 7,420 of wfctl's 17,804 lines, and the next largest are `_evidence.py` at 1,514, `_pipeline.py` at 1,120, and `_arch.py` at 983. | observed | `wc -l wfctl/*.py` at 63345fe | |
 | E15 | Andre asked whether automated checks on the architecture, such as fitness functions that catch violations or drift, are a gap the six contexts miss. | stated | Andre, 2026-09-29 | |
 | E16 | The references already cite fitness functions from *Building Evolutionary Architectures*, and name `a-rule-is-expressed-as-a-check` as that claim stated for wfctl. No record in wfctl declares a fitness function that guards it. | observed | `docs/references/README.md`, "Keeping an architecture true while it changes" | |
-| E10 | 9 of the 13 accepted records sit on an edge to a party outside wfctl, and 3 sit between two of wfctl's own contexts. | inferred | a reading of the 13 records | |
+| E17 | The six bounded contexts hold, and none is missing that Andre can name. | stated | Andre, 2026-09-29 | |
 
 ## Scenarios
 
@@ -123,6 +124,7 @@ flowchart LR
     HOST["Agent host (outside)"]
     REPO["Consumer repo (outside)"]
     TR["Trackers (outside)"]
+    UP["Upstream projects (outside)"]
     DM["Design method"]
     AR["Architecture records"]
     EV["Evidence and derivation"]
@@ -143,25 +145,27 @@ flowchart LR
     HOST -->|"session id"| SC
     REPO -->|"verify command"| EV
     IN -->|"writes files"| REPO
-    TR -->|"issue state"| AT
+    TR -->|"issue and pull request state"| AT
+    UP -->|"derived skills and scripts"| DM
 ```
 
 | Relationship | Upstream | Downstream | Team relationship | Translation owner | Mechanism | Consistency and failure |
 | --- | --- | --- | --- | --- | --- | --- |
 | R1 | Spec Kit | Evidence and derivation | Conformist; another project, and wfctl has no say in its steps | wfctl, through pinned section names checked against the template it ships (`required-sections-are-wfctls`) | files in the spec directory | A renamed upstream heading fails a test in wfctl's own suite. |
 | R2 | Design method | Spec Kit | wfctl layers on top and does not fork (`vendor-upstream-skills`) | wfctl | `design.md` in before the steps, reviews around them | An edit inside a derived skill is reverted by the next upstream pull. |
-| R3 | Design method | Architecture records | Same owner; skills propose, a person accepts | wfctl | a proposed record written to the arch root | A proposed record waits until someone accepts it, and nothing reads it in the meantime. |
-| R4 | Architecture records | Evidence and derivation | Same owner | wfctl | accepted records enter the status payload as a fact | Only accepted records count. |
-| R5 | Design method | Install and drift | Same owner | wfctl | skill source under `wfctl/agents/` shipped as package data (`layer-model`) | Editing installed output instead of source reaches nothing. |
+| R3 | Design method | Architecture records | Same owner; skills propose, a person accepts | wfctl | a proposed record written to the arch root | The branch that wrote a proposed record is held until a person rules on it. |
+| R4 | Architecture records | Evidence and derivation | Same owner | wfctl | `arch context` projects the accepted records into every session, and the "architecture accepted" fact reads the records this branch touched | A branch is held only on its own records, and a record counts as ruled on once it is accepted, superseded, rejected, or retired. |
+| R5 | Design method | Install and drift | Same owner | wfctl | skill source under `wfctl/agents/` shipped as package data | A skill fixed in source reaches a repo only when `install-skills` runs there. |
 | R6 | Evidence and derivation | Session continuity | Same owner; the payload is the published language | wfctl | one status payload (`pipeline-state-is-one-payload`) | Session state is re-derived on every read (`session-state-is-re-derived`). |
 | R7 | Evidence and derivation | Attention | Same owner | wfctl | the same status payload | The screen shows what is derived and decides nothing. |
-| R8 | workmux | Session continuity | Conformist | wfctl | lifecycle hooks for creating branches and removing worktrees | wfctl ships its own grouping without waiting on workmux. |
+| R8 | workmux | Session continuity | Conformist | wfctl | lifecycle hooks for creating branches and removing worktrees | A worktree made with bare `git worktree add` skips the hooks and registers no tmux session, and nothing announces it. |
 | R9 | workmux | Install and drift | Conformist | wfctl | the `post_create` hook running `install-skills` | The hook exits 0 even when it installs less than intended. |
 | R10 | workmux | Attention | Conformist | wfctl | agent state reported through hooks | An interrupted agent fires no hook, so it can read as working for days. |
-| R11 | Agent host | Session continuity | Conformist | wfctl records the id as given | an opaque session id (`session-identity-comes-from-the-caller`) | A conversation that never presents its id is refused by the gates. |
+| R11 | Agent host | Session continuity | Conformist | wfctl records the id as given | an opaque session id (`session-identity-comes-from-the-caller`) | A conversation that presents a different id is refused. With no host wiring at all, the holder reads `unknown` and the gates behave as they did before the id existed. |
 | R12 | Consumer repo | Evidence and derivation | Customer-supplier; the repo supplies the command, and wfctl owns the verdict | wfctl | a declared verification command | With no declared command, wfctl reports it unverified. |
 | R13 | Install and drift | Consumer repo | wfctl owns a whole file, or one entry in a file the repo owns (`install-modes`) | wfctl | the manifest and three install modes | Overwriting a repo's own file loses its work, so what was overwritten is backed up. |
 | R14 | Trackers | Attention | Conformist | wfctl | the tracker verbs | The screen has no facts about a pull request until the tracker answers. |
+| R15 | Upstream projects | Design method | Conformist; wfctl layers its changes over what it takes and does not fork (`vendor-upstream-skills`) | wfctl | derived skills, and the shell scripts and templates the Spec Kit runtime is built from, each attributed | An edit made inside a derived file is reverted by the next upstream pull, with no conflict to notice. |
 
 ## Invariants and Aggregates
 
@@ -173,10 +177,9 @@ Andre reviewed the six contexts on 2026-09-29 and confirmed they hold. Each plac
 
 | Record | Governs | Why |
 | --- | --- | --- |
-| `a-rule-is-expressed-as-a-check` | Design method and Evidence and derivation | Skill prose has to become something wfctl can derive from. |
 | `pipeline-state-is-one-payload` | Evidence and derivation, toward Session continuity and Attention | Every view reads the one payload. |
 | `session-state-is-re-derived` | Session continuity and Evidence and derivation | Session reads what evidence owns and keeps only the handoff. |
-| `level-4-owns-pattern-selection` | inside Design method, between level 3 and level 4 | It decides which stage of the method owns pattern selection, and the skills on both sides have to honor it: `architecture-design` and `software-design-decisions` each exclude it by name. That is a rule several parts of one context share, so it earns its record without crossing a context boundary. |
+| `level-4-owns-pattern-selection` | inside Design method, between level 3 and level 4 | It decides which stage of the method owns pattern selection, and three skills have to honor it. `architecture-design` excludes "local pattern selection" by name, `software-design-decisions` leaves out a choice with no credible alternative, and `python-pattern-selection` is the skill it created. That is a rule several parts of one context share, so it earns its record without crossing a context boundary. |
 | `install-modes` | Install and drift and the consumer repo | Who owns a file, wfctl or the repo. |
 | `layer-model` | Install and drift and the consumer repo | Source against generated output. |
 | `no-hardcoded-agent` | Install and drift and workmux | Committed hook config is shared across developers. |
@@ -185,6 +188,7 @@ Andre reviewed the six contexts on 2026-09-29 and confirmed they hold. Each plac
 | `session-identity-comes-from-the-caller` | Session continuity and the agent host | The host supplies the id. |
 | `supervisory-screen-owns-grouping` | Attention, workmux, and the trackers | wfctl groups, and the others supply facts. |
 | `vendor-upstream-skills` | Design method and the upstream projects | Attribution and layering, not forking. |
+| `a-rule-is-expressed-as-a-check` | the whole repository | It binds every rule wfctl ships, whichever context the rule belongs to, and the record calls itself a repo-wide claim. |
 | `knowledge-placement` | the whole repository | It says where anyone writing in this repository puts a fact, and no context in wfctl reads or enforces it. The code cites it only to explain where a comment sits. |
 
 Proposed records are held on purpose and are not placed here.
@@ -193,22 +197,20 @@ Proposed records are held on purpose and are not placed here.
 
 | Scenario or invariant | Code, test or spike | What it means for the model | Status |
 | --- | --- | --- | --- |
-| S2 | `AGENTS.md` describes `post_create` running `install-skills` and the silent no-agent case. | R9 is real, and the silent failure lives on that edge. | consistent |
+| S2 | `.workmux.yaml` runs `install-skills` from `post_create`, and passes `--agent` only when `WFCTL_AGENT` is set. | R9 is real, and the silent no-agent case lives on that edge. | consistent |
 | E1 | `wfctl doctor` reports features that claim the same issue. | The code has already met the one-to-many case between a feature and its issues, and patches it with a grouping map. The language says a feature is a unit of work and the issue is only a handle. | open |
-| E10 | The placement table above. | Most records govern an edge to an outside party, so a scope that could name only wfctl's own contexts would leave 9 of 13 with nothing to name. | open |
+| E10 | The placement table above. | Most records govern an edge to an outside party, so a scope that could name only wfctl's own contexts would leave 8 of 13 with nothing to name. | open |
 
 ## Recommendation: how a record declares what it governs
 
 This is a recommendation and not a change. Each item is filed as follow-up work once Andre has reviewed the contexts.
 
-1. A record gains a `governs` field naming one context, or one boundary written as `A and B`. Either side of a boundary can be a party outside wfctl, since 9 of the 13 accepted records need that. The names come from the Bounded Contexts table on this page, and a name that is not on it is a finding from `wfctl check`, in line with `a-rule-is-expressed-as-a-check`.
+1. A record gains a `governs` field listing every context or outside party it binds. One name is a record inside one context, two or more is a boundary, and `repository` is the whole repository. An outside party can be named, since 8 of the 13 accepted records need one, and a record can bind more than two parties, as `supervisory-screen-owns-grouping` and `pipeline-state-is-one-payload` do. The names come from the Bounded Contexts table and the list of parties outside wfctl on this page, and a name on neither is a finding from `wfctl check`, in line with `a-rule-is-expressed-as-a-check`.
 2. A branch declares the contexts it touches, in the same place it already says whether a boundary moves. `arch context` prints the records whose `governs` names one of them first, and reduces the rest to a count. With no declaration it prints everything, as it does today. Mapping changed paths to contexts was considered and not recommended while the modules cut across contexts, because it is a module list under another name. Once item 6 gives each context its own package, the package a change touches names its context, and the declaration can be derived instead of written.
 3. The level-3 bar changes from "credible alternatives were weighed" to "the choice is one that a second module has to honor". A choice that only one module needs to know about has its reasoning in that module's docstring, and it does not get a record. A level-3 record names the context it sits in.
-4. A level-2 record governs a boundary, or one context when several parts inside it have to honor the rule. `level-4-owns-pattern-selection` is the example among the 13: it governs the design method alone, and three of its skills are bound by it. A record that can name neither is reported as a finding, and it is not silently rescoped.
-
-5. A record can also govern the whole repository, when it binds anyone writing in it rather than any one context. `knowledge-placement` is the example. `arch context` prints a repository-wide record in every session.
-6. Each context gets its own package in the code, and the relationships in the Context Map become import contracts that a check enforces. Today `arch context` prints a record and the brainstorm gate asks that a boundary be decided, but nothing checks that the code keeps to the boundary afterward. With one package per context, a module in one context that imports another context's internals is visible in the code, so by `a-rule-is-expressed-as-a-check` it becomes a check. That restructure is also the answer to E13 and E14: the long comments explain couplings that a package boundary would make explicit.
-
+4. A level-2 record governs a boundary, or one context when several parts inside it have to honor the rule. `level-4-owns-pattern-selection` is the example among the 13: it governs the design method alone, and the three skills named in its placement are bound by it. A record that can name neither is reported as a finding, and it is not silently rescoped.
+5. A record can also govern the whole repository, when it binds anyone writing in it rather than any one context. `knowledge-placement` and `a-rule-is-expressed-as-a-check` are the two examples. `arch context` prints a repository-wide record in every session.
+6. Each context gets its own package in the code, and the relationships in the Context Map become import contracts that a check enforces. Today `arch context` prints a record and the brainstorm gate asks that a boundary be decided, but nothing checks that the code keeps to the boundary afterward. With one package per context, a module in one context that imports another context's internals is visible in the code, so by `a-rule-is-expressed-as-a-check` it becomes a check. That restructure is also the answer to E13 and E14, since much of what the long comments explain is how the pieces depend on each other, and a package boundary would make that explicit.
 7. A record can name the fitness function that guards it, and wfctl runs it the way it runs the verification command and reads its verdict as evidence. That adds no context: the record declares the check, which is Architecture records, and running it and recording the verdict is Evidence and derivation, so it is a new mechanism on R4. The import contracts in item 6 are the first fitness functions wfctl's own code would carry.
 
 Follow-up issues not filed yet: the record format, `arch context`, and the `software-design-decisions` skill. The pipeline question of whether a context map is a prerequisite is #543, and the restructure in item 6 is #544.
@@ -221,11 +223,11 @@ none — this round accepted no record. The 13 accepted records are placed above
 
 | Row | Question or conflict | Why it matters | Who can answer | Next evidence |
 | --- | --- | --- | --- | --- |
-| O2 | Does a workmux sidebar replace the dashboard, and does Attention then shrink or leave? | It changes what wfctl owns in the Attention context. | Andre | The sidebar drawn, or tried. |
-| O3 | Where does a branch declare the contexts it touches? | `arch context` cannot use `governs` without it. | Andre | A design pass on the follow-up. |
-| O6 | The record and the skill say "Python pattern selection", while the intent is language agnostic. | The term is doing two jobs, and an agent working in another language gets no pattern guidance. | Andre | #416, which already tracks the gap. |
-| O7 | Should "drift" be renamed in one of its two meanings? | Once fitness functions report architectural drift, `doctor`'s drift and a failing fitness function would share a word and mean different things. | Andre | A fitness function shipped under item 7. |
-| O5 | Which handle claims a spec directory when one feature groups several issues? | The doctor notices in E2 show the code and the language disagreeing. | Andre | The language settled, then a check. |
+| O1 | Does a workmux sidebar replace the dashboard, and does Attention then shrink or leave? | It changes what wfctl owns in the Attention context. | Andre | The sidebar drawn, or tried. |
+| O2 | Where does a branch declare the contexts it touches? | `arch context` cannot use `governs` without it. | Andre | A design pass on the follow-up. |
+| O3 | Which handle claims a spec directory when one feature groups several issues? | The doctor notices in E2 show the code and the language disagreeing. | Andre | The language settled, then a check. |
+| O4 | The record and the skill say "Python pattern selection", while the intent is language agnostic. | The term is doing two jobs, and an agent working in another language gets no pattern guidance. | Andre | #416, which already tracks the gap. |
+| O5 | Should "drift" be renamed in one of its two meanings? | Once fitness functions report architectural drift, `doctor`'s drift and a failing fitness function would share a word and mean different things. | Andre | A fitness function shipped under item 7. |
 
 ## What reopens this model
 
