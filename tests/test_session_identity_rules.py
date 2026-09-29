@@ -60,8 +60,8 @@ def test_start_session_names_no_host_variable(shipped_skill: Path) -> None:
     The skill is committed, so a variable named in it would ship to every
     project that installs wfctl and be wrong in all but one of them. The
     `${VAR:+--flag "$VAR"}` shape is what `--agent` already uses for the same
-    reason, and it is also what makes the unset case a no-op rather than a flag
-    carrying an empty string.
+    reason. The skill leaves the identity to the environment variable, so it
+    names no host and the unset case is a no-op.
     """
     text = (shipped_skill / "skills" / "start-session" / "SKILL.md").read_text()
 
@@ -80,10 +80,13 @@ def test_start_session_line_passes_no_shell_expanded_flag(shipped_skill: Path) -
     flag was never needed.
     """
     text = (shipped_skill / "skills" / "start-session" / "SKILL.md").read_text()
-    command_lines = [ln for ln in text.splitlines() if ln.strip().startswith("wfctl start")]
+    command_lines = [
+        ln for ln in text.splitlines()
+        if re.match(r"\s*(uv run )?wfctl start\b", ln)
+    ]
 
     assert command_lines
-    assert not [ln for ln in command_lines if ":+" in ln]
+    assert not [ln for ln in command_lines if ":+" in ln or "--session-id" in ln]
 
 
 def test_no_skill_reads_the_event_log_for_session_state(shipped_skill: Path) -> None:
