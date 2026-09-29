@@ -214,6 +214,9 @@ passes" section of wfctl's `docs/reference.md` shows how. Nothing here holds
 - Keep evidence apart from assertion, the model's and the person's alike.
 - Treat accepted architecture records and repository invariants as settled.
   Ask the person to explain them, not to reopen them.
+- The person may look at the plan, the code, or any other artifact while
+  answering. This checks whether they can explain the work, not whether they
+  can recite it from memory.
 - Never edit the plan, the code, or the architecture records during the
   walkthrough.
 - Do not turn the interview into trivia about syntax or framework APIs unless
