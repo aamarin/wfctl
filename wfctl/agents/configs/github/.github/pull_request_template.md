@@ -29,7 +29,8 @@ branch, a dependency. Short prose still earns a drawing; the question is whether
 the structure survives being read one clause at a time, not whether the drawing
 is quicker than the sentence.
 
-A change made only of prose has no structure to draw; write N/A or one line.
+A change that only rewords or reorders text has no structure to draw; write
+N/A, or one line naming the new order.
 
 This section is rendered on github.com, so the terminal-ASCII rule from
 `design-levels` and `architecture-design` does not reach it — those govern skills
