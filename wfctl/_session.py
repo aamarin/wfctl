@@ -81,12 +81,11 @@ def identity(presented: str | None) -> str | None:
     """The caller's identity, or None when it presented none.
 
     Empty and whitespace-only read as absent rather than as an identity, because
-    the shipped skill passes the value through
-    `${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"}`, which already
-    collapses unset and empty into "the flag is not there". A reader that treated
-    `""` as an identity would answer differently depending on which of the two
-    the shell happened to produce, for a caller that did the same thing both
-    times.
+    the shipped skill leaves the value to the `WFCTL_SESSION_ID` environment
+    variable, and a variable exported as `""` is the same caller as one never
+    exported. A reader that treated `""` as an identity would answer differently
+    depending on which of the two the shell happened to produce, for a caller
+    that did the same thing both times.
 
     The one transformation wfctl performs on the value. Equality is the only
     other operation — never a parse, a split or a pattern

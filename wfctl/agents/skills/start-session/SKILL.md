@@ -15,7 +15,7 @@ memory of it — load them before doing anything else.
 
 1. **Initialize and check freshness:**
    ```bash
-   wfctl start ${WFCTL_SESSION_ID:+--session-id "$WFCTL_SESSION_ID"} && wfctl doctor
+   wfctl start && wfctl doctor
    ```
    `wfctl doctor` reports green ✓ current · cyan ⬆ upgrade available.
 
@@ -35,22 +35,31 @@ memory of it — load them before doing anything else.
    user's to run; renaming a branch or reopening an issue is not this skill's
    call.
 
-   **That expansion is the whole of how wfctl learns which conversation this
-   is.** `wfctl start` records the value verbatim and compares it and nothing
-   else, so a later conversation on the same branch is refused by `resume`,
-   `end` and the orchestrate gate rather than walking through them (#200).
-   Running it again from the displaced conversation takes the branch back.
+   **`WFCTL_SESSION_ID` is the whole of how wfctl learns which conversation this
+   is.** `wfctl start` reads it from the environment itself, records the value
+   verbatim and compares it and nothing else, so a later conversation on the
+   same branch is refused by `resume`, `end` and the orchestrate gate rather
+   than walking through them (#200). Running it again from the displaced
+   conversation takes the branch back.
+
+   **The line passes no flag on purpose.** An expansion that yields a flag and
+   its value, such as `${VAR:+--flag "$VAR"}`, splits into two words under `sh`
+   and `bash` and stays one word under zsh, which is the default shell on macOS,
+   so `wfctl` receives `--flag value` as a single argument and refuses it
+   (#537). An expansion that yields one word either way, such as
+   `${BASE:+${BASE}..HEAD}` in step 4, is not affected. In a line pasted into
+   the user's shell, do not carry a flag and its value through an expansion; give
+   the flag an `envvar` and let wfctl read the variable.
 
    **Set `WFCTL_SESSION_ID` in your shell profile, beside `WFCTL_AGENT`, mapping
    whatever your host exports.** It is not named here on purpose: a committed
    hook may not name an agent (`no-hardcoded-agent`) and may not name a host's
-   session variable either — the environment is the sanctioned source, and
-   `${VAR:+--flag "$VAR"}` is the shape that already carries `--agent`.
+   session variable either. The environment is the sanctioned source.
 
-   **With it unset the flag is not passed and nothing is refused.** The gates
-   report `unknown` and behave exactly as they did before this existed, so an
-   unwired repo is no worse off — it simply does not get the second answer.
-   Surface that in step 7's session-identity bullet: the profile is the
+   **With it unset nothing is refused.** The gates report `unknown` and behave
+   exactly as they did before this existed, so an unwired repo is no worse off;
+   it simply does not get the second answer. Surface that in step 7's
+   session-identity bullet: the profile is the
    user's to edit, not this step's to write.
 
    **If it reports any layer's skills behind or drifted, bring them level now.**
