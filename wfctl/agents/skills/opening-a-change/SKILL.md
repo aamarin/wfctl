@@ -233,6 +233,17 @@ fail this just as badly, and length was never the signal.
 The drawing carries the argument. The line beneath it is a caption — it names
 what to look at and says nothing the drawing already says.
 
+**A change that only rewords or reorders text takes no drawing.** A reworded
+paragraph has no set, location, count, or branch for the reader to hold, and the
+diff already is the before and after. The only thing left to draw is a
+paraphrase of the new text, which repeats what What, Why, and Impact already say.
+So Before / After reads `N/A`, or at most one high-level line naming the new
+order when a document was reorganized. A text edit that changes a rule the text
+states, such as a skill's branching instruction, is not this case; the rule has
+a before and after, and it is drawn like any other. The test is what the change
+does and not how much of it there is, so a one-line code change that flips a
+branch still earns a drawing.
+
 **A proposed change is a set.** Naming a fix means naming what the code does
 today and what it does once changed, across every input that reaches it — the
 *rows against columns* row below, and the one most often missed. The diff is
@@ -485,7 +496,8 @@ attributes.
   than the thing being filled.
 - "The template is boilerplate for this change." The sections a change makes
   look like boilerplate — usually Before / After and the test details — are the
-  ones a reviewer cannot reconstruct themselves.
+  ones a reviewer cannot reconstruct themselves. A change that only rewords
+  text is the one exception for Before / After, and "Choosing a drawing" says so.
 - Reporting a green suite as the test evidence. A negative case checked by hand
   — the new check failing when the fix is reverted — is the half that gets
   skipped, and the only half that proves the check works.
