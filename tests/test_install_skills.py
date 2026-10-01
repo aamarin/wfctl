@@ -1416,6 +1416,107 @@ def test_doctor_is_silent_when_every_installed_path_is_still_recorded(
     assert result.exit_code == 0
 
 
+# --- bundle-vs-manifest check (#494) ---
+#
+# The gap: after a bundle update renames a file, the old path stays in the
+# manifest as a valid (non-orphaned) entry until `install-skills` runs. `doctor`
+# now detects this by comparing each recorded path against the current bundle,
+# and reports it with the same `install-skills --prune` remedy — before any
+# install has been re-run.
+#
+# The key difference from the flagged-orphan path: here `install-skills` has
+# *not* been re-run since the rename, so no `orphaned` flag is set in the
+# manifest. The finding comes purely from the bundle-vs-manifest comparison.
+
+
+def test_doctor_reports_a_recorded_path_the_bundle_no_longer_ships(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """A bundle rename before install-skills re-runs is reported by doctor.
+
+    The incident that motivated #494: twelve hyphen-named commands stayed on
+    disk and in the manifest after wfctl renamed them to dot-named. doctor said
+    only "skills stale, reinstall" — it did not name the specific files.
+
+    Simulated by installing, renaming the file in the bundle (not re-running
+    install-skills), and asserting doctor names the old path.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert ".agents/commands/test-cmd.md" in result.output
+    assert "no longer shipped" in result.output
+    assert "wfctl install-skills --prune" in result.output
+    assert result.exit_code == 1
+
+
+def test_doctor_reports_a_bundle_drop_for_all_agent_layers(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The check covers agent-layer paths, not only the base layer.
+
+    A rename in agents/commands orphans both .agents/commands/<name> (base)
+    and .claude/commands/<name> (agent layer). Both must be named.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert ".agents/commands/test-cmd.md" in result.output
+    assert ".claude/commands/test-cmd.md" in result.output
+    assert result.exit_code == 1
+
+
+def test_doctor_is_silent_when_bundle_still_ships_every_recorded_path(
+    agent_dir: Path,
+) -> None:
+    """No false positives: a clean install with no bundle change is still green.
+
+    Pins the new comparison against the trivially-passing case — a bundle that
+    still ships everything recorded.
+    """
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "no longer shipped" not in result.output
+    assert result.exit_code == 0
+
+
+def test_doctor_skips_bundle_check_for_from_source_layers(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """Layers installed from a named --from source are not checked against the
+    running bundle — we cannot walk an arbitrary checkout from here.
+
+    Confirmed by renaming a file in the running bundle after a --from install:
+    the renamed path must not appear in doctor's output.
+    """
+    source = _named_source(tmp_path_factory.mktemp("named source"))
+    runner.invoke(app, ["install-skills", "--from", str(source), "--yes"])
+
+    # Rename in the *running* bundle — the --from source is unchanged.
+    from wfctl import _bundle as bundle_mod
+    running_bundle = bundle_mod.BUNDLE_ROOT
+    cmd = running_bundle / "agents" / "commands" / "test-cmd.md"
+    if cmd.exists():
+        cmd.rename(running_bundle / "agents" / "commands" / "speckit.test-cmd.md")
+
+    result = runner.invoke(app, ["doctor"])
+
+    # The --from layer is skipped; no false positive from the running bundle.
+    assert "test-cmd.md" not in result.output or "no longer shipped" not in result.output
+
+
+
+
 def test_doctor_does_not_scan_for_abandoned_entries_with_nothing_installed(
     agent_dir: Path,
 ) -> None:

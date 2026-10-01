@@ -7076,6 +7076,64 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
         if i.get("orphaned") and (repo_root / i["path"]).exists()
     }
 
+    # A third source of evidence: paths the manifest records as installed that the
+    # current bundle no longer ships — the gap between a bundle update and the next
+    # `install-skills` run. `install-skills` catches these when it runs and flags
+    # them `orphaned`; this check catches them before that run so `doctor` names
+    # specific files rather than only saying "skills stale, reinstall".
+    #
+    # Works by reversing the (source, destination) target tables to ask, for each
+    # recorded destination path: does the bundle still carry the corresponding
+    # source file? A path whose source is gone from the bundle is a finding.
+    #
+    # Skips items already in `flagged` — they are already reported. Skips items
+    # installed from a `--from` source: we cannot walk an arbitrary checkout's
+    # bundle from here, so we have no basis to declare its paths dropped. Skips
+    # items the file no longer exists for — the reader already deleted them.
+    #
+    # Keyed by layer (same as `flagged`) so the remedy line below prints the
+    # right `--agent` flag per layer.
+    #
+    # The reverse map covers all target tables — base, runtime, and every agent.
+    # Agent targets use the same filename on disk as in the bundle (no rename
+    # during copy), so stripping the destination prefix and substituting the
+    # source prefix is exact.
+    _dest_to_src: dict[str, str] = {
+        dst: src
+        for src, dst in (*_BASE_TARGETS, *_RUNTIME_TARGETS, *(
+            pair
+            for targets in _AGENT_TARGETS.values()
+            for pair in targets
+        ))
+    }
+    bundle_root = _bundle.BUNDLE_ROOT
+
+    not_in_bundle: dict[str, str] = {}  # dest_path -> layer
+    for layer in _layer_keys(manifest):
+        layer_source = manifest[layer].get("source")
+        if layer_source:
+            # Installed from a named --from path; we cannot walk that checkout.
+            continue
+        for item in manifest[layer].get("items", ()):
+            dest = item["path"]
+            if item.get("orphaned"):
+                continue  # already in `flagged`
+            if dest in flagged:
+                continue
+            if not (repo_root / dest).exists():
+                continue  # already deleted by hand
+            # Find which source tree this destination came from.
+            dest_parent = str(Path(dest).parent)
+            src_rel = _dest_to_src.get(dest_parent)
+            if src_rel is None:
+                continue  # path outside any known target (e.g. merged entries)
+            # exists() handles both files (commands) and directories (skills).
+            # bundle_paths() only returns file paths, so a skill directory would
+            # never match; checking the source path directly works for both.
+            src_name = Path(dest).name
+            if not (bundle_root / src_rel / src_name).exists():
+                not_in_bundle[dest] = layer
+
     # Kept as (destination, path) pairs, because which destination a candidate
     # came from is what says whether `_scan_owns` proved anything about it.
     found = sorted(
@@ -7127,7 +7185,9 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # Only paths wfctl can show are its own return a finding. Exiting 1 on the
     # rest meant a repo keeping one skill of its own could never have a green
     # `doctor`, and the remedy offered for that was to delete the skill.
-    abandoned = sorted({*flagged, *proven})
+    # `not_in_bundle` entries join here: they are equally proven — the manifest
+    # says wfctl installed them, and the bundle says wfctl no longer ships them.
+    abandoned = sorted({*flagged, *proven, *not_in_bundle})
     if not abandoned:
         return False
 
@@ -7152,7 +7212,9 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # source path holding a space printed as two arguments.
     import shlex
 
-    for layer in sorted(set(flagged.values())):
+    # Combine flagged and not_in_bundle layers — both are repaired by --prune.
+    all_flagged_layers = {**flagged, **not_in_bundle}
+    for layer in sorted(set(all_flagged_layers.values())):
         source = manifest[layer].get("source")
         frm = f" --from {escape(shlex.quote(source))}" if source else ""
         # soft_wrap for the same reason the path lines have it: this is a line
@@ -7165,7 +7227,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     if proven:
         console.print(
             "    Delete the rest by hand once you've checked nothing needs them."
-            if flagged
+            if all_flagged_layers
             else f"    Delete {'it' if one else 'them'} by hand once you've "
             f"checked nothing needs {'it' if one else 'them'}."
         )
