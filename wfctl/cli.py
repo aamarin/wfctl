@@ -2372,7 +2372,7 @@ def arch_check_cmd(
         # and knowingly: an unrecognised message is refused rather than
         # exempted, so a translated git costs a false refusal and never a
         # false pass.
-        if "(or any of the parent directories)" in probe.stderr:
+        if "(or any" in probe.stderr:
             console.print(
                 "[yellow]ℹ[/yellow] No git repository here, so no change carries "
                 "this record and no\n  reviewer is waiting for it. Not a failure.",
