@@ -467,6 +467,12 @@ def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None
     corpus = _corpus()
     if corpus is None:
         pytest.skip("no durable spec root resolves from here")
+    # A corpus root that exists but has no qualifying spec.md files is also
+    # unavailable — a worktree whose spec dir has only design.md, for instance.
+    # Skipping matches the intent of the outer guard: the check requires a
+    # populated corpus to be meaningful.
+    if not any((d / "spec.md").is_file() for d in corpus.iterdir() if d.is_dir()):
+        pytest.skip("spec root resolves but has no qualifying spec.md files")
     legacy = {
         "24-read-artifacts-from-specs",
         "configurable-issue-key",
