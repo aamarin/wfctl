@@ -1441,8 +1441,6 @@ def test_doctor_reports_a_recorded_path_the_bundle_no_longer_ships(
     Simulated by installing, renaming the file in the bundle (not re-running
     install-skills), and asserting doctor names the old path.
     """
-    import os
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills"])
     _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
 
@@ -1462,8 +1460,6 @@ def test_doctor_reports_a_bundle_drop_for_all_agent_layers(
     A rename in agents/commands orphans both .agents/commands/<name> (base)
     and .claude/commands/<name> (agent layer). Both must be named.
     """
-    import os
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
     _rename_shipped_command(bundle, "test-cmd.md", "speckit.test-cmd.md")
 
