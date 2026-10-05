@@ -27,7 +27,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _guard 293      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
-   │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
+   │ _issue_check 247   _plan_review 114                          │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -299,7 +299,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review
 resolution  _paths _manifest
 mechanism   _io _md
 ```
