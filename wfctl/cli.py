@@ -7098,6 +7098,9 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # Agent targets use the same filename on disk as in the bundle (no rename
     # during copy), so stripping the destination prefix and substituting the
     # source prefix is exact.
+    # Last-writer-wins on a duplicate destination key, but
+    # `test_layer_destinations_are_disjoint` enforces that no two target tables
+    # share a destination directory, so no collision is possible in practice.
     _dest_to_src: dict[str, str] = {
         dst: src
         for src, dst in (*_BASE_TARGETS, *_RUNTIME_TARGETS, *(

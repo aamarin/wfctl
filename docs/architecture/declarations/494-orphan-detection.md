@@ -1,3 +1,3 @@
 # No new boundary — 494-orphan-detection
 
-Adds bundle_paths() to _bundle.py (existing module) and a new check in cli.py — no component boundary moved or drawn. The level-3 placement decision (docs/architecture/design/494-bundle-paths-placement.md) records where within the existing module the function lives, not a new boundary.
+Adds a new check in cli.py (_check_abandoned_entries) that compares manifest-recorded paths against the bundle using direct .exists() probes — no component boundary moved or drawn. No new module; all changes are in existing files (_bundle.py and cli.py).

@@ -1508,9 +1508,7 @@ def test_doctor_skips_bundle_check_for_from_source_layers(
     result = runner.invoke(app, ["doctor"])
 
     # The --from layer is skipped; no false positive from the running bundle.
-    assert "test-cmd.md" not in result.output or "no longer shipped" not in result.output
-
-
+    assert "no longer shipped" not in result.output
 
 
 def test_doctor_does_not_scan_for_abandoned_entries_with_nothing_installed(

@@ -92,42 +92,6 @@ def content_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
-def bundle_paths(root: Path) -> frozenset[str]:
-    """The set of source-relative POSIX paths the bundle ships under `root`.
-
-    Same walk as `content_hash` — sorted rglob over `TREES` — but collects
-    names rather than hashing bytes. Used by `doctor` to detect manifest entries
-    that the current bundle no longer ships: a path recorded as installed but
-    absent from this set was renamed or dropped upstream.
-
-    Returns source-relative paths (e.g. ``agents/commands/speckit.tasks.md``),
-    not destination paths. The caller translates using the target tables
-    (``_BASE_TARGETS``, ``_RUNTIME_TARGETS``, ``_AGENT_TARGETS``).
-
-    Does not raise when a tree is missing — a partial bundle is a real state
-    during a re-sync and the empty set is an honest answer for that tree. Raises
-    ``FileNotFoundError`` only when *no* tree is present at all, matching
-    ``content_hash``'s contract: a completely missing bundle should not silently
-    return an empty set that makes every recorded path look orphaned.
-    """
-    trees = [root / tree for tree in TREES]
-    if not any(base.is_dir() for base in trees):
-        raise FileNotFoundError(
-            f"no bundled trees under {root} — expected one of {', '.join(TREES)}. "
-            "The wfctl install is incomplete; reinstall the package."
-        )
-
-    paths = set()
-    for base in trees:
-        if not base.is_dir():
-            continue
-        # rglob, not glob.glob: the stdlib glob module drops dot-prefixed names,
-        # which would silently exclude `agents/configs/workmux/.workmux.yaml`.
-        for path in base.rglob("*"):
-            if path.is_file():
-                paths.add(path.relative_to(root).as_posix())
-    return frozenset(paths)
-
 
 def resolve_root(path: Path) -> Path:
     """Turn a user-supplied path into a validated, absolute bundle root.
