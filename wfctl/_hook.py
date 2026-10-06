@@ -15,8 +15,7 @@ So this module holds the decision's whole runtime and imports `json`,
 `subprocess`, `sys` and `wfctl._guard` — the last of which costs only `re`.
 `wfctl/_entry.py` is what reaches it without loading the CLI. A command already
 headed for a refusal also imports `wfctl._paths`, to find the spec and state
-roots, and
-that path is rare enough to leave out of the measurement above.
+roots, and that path is rare enough to leave out of the measurement above.
 
 What none of this reaches is 27.1 ms of interpreter startup, which is the floor
 for a hook spawned per Bash call and is not worth another pass.
@@ -86,7 +85,10 @@ def resolved_state_root(here: str) -> str | None:
     """The state root a session in `here` writes its handoff under, or None.
 
     `_paths.state_root`, under the same environment caveat as the spec root.
-    None when git cannot name the project, for the same reason as above.
+    When git cannot name the project, `project_name` falls back to the
+    directory's own name, so the root may be one nothing writes to. That costs
+    nothing, since exempting an unused directory allows no write that matters.
+    None only when resolving it raises, as it does for a `here` that is gone.
     """
     from pathlib import Path
 

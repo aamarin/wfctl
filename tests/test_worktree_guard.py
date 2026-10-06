@@ -400,19 +400,23 @@ def test_a_read_under_the_spec_root_is_still_allowed() -> None:
     assert not refuses_with_store(f"git -C {STORE} log --oneline")
 
 
+@pytest.mark.parametrize("slot", ["spec", "state"])
 @pytest.mark.parametrize("spec_root", [MAIN, f"{MAIN}/wt", "/Users/dev"])
-def test_a_spec_root_holding_code_is_not_honoured(spec_root: str) -> None:
-    """A spec root declared too broadly cannot open the worktrees it covers.
+def test_a_spec_root_holding_code_is_not_honoured(spec_root: str, slot: str) -> None:
+    """A shared root declared too broadly cannot open the worktrees it covers.
 
     `"spec_root": "."` in the main checkout's manifest names the main checkout,
     and `"wt"` names the directory every feature worktree sits in. Honoured,
     either would turn `rm -rf` on a peer into an allowed write, so the guard
-    refuses exactly as it would with no spec root at all.
+    refuses exactly as it would with no spec root at all. `WFCTL_STATE_DIR` set
+    to the main checkout is the same mistake from the state side, and the
+    second slot pins that the rule is applied to every root, not the first.
     """
+    shared = [spec_root, None] if slot == "spec" else [None, spec_root]
     for command in (f"rm -rf {MAIN}/wfctl", f"rm -rf {OTHER}/src", f"rm -rf {MAIN}/wt"):
         before = _guard.refusal(command, HERE, ROOTS)
         assert before is not None, command
-        assert _guard.refusal(command, HERE, ROOTS, shared=[spec_root]) == before, command
+        assert _guard.refusal(command, HERE, ROOTS, shared=shared) == before, command
 
 
 def test_the_main_checkout_is_never_the_spec_root() -> None:

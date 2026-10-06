@@ -15,7 +15,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
-   │   └─► _hook 161                                    2 out · 2 in   │
+   │   └─► _hook 163                                    2 out · 2 in   │
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
