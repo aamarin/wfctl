@@ -350,6 +350,33 @@ def stage_upstream_of(env: FixtureRepo, step: str, tasks: str = "- [x] T001 done
             path.write_text("x\n")
 
 
+def _warn_without_holding(env: FixtureRepo) -> None:
+    """Turn a finished fixture into one that still warns, on a step and with
+    no fix line, so `warnings[].pass` and `warnings[].remedy` are recorded as
+    nullable.
+
+    Every fixture staged through `tasks` already warns that its plan was never
+    reviewed, which is a pass's warning with a fix, and without a second kind
+    the contract would record both fields as never null. Clarify's warning is
+    the step-level one, reached by a spec with no `## Clarifications` section.
+    `decompose`'s is the one with no fix, reached by a configured tracker and
+    an Issue Grouping Map row with no key. Neither holds its step, so `current`
+    stays `null` in the fixture that needs it to.
+    """
+    clarified = _clean_spec()
+    (env.spec_dir / "spec.md").write_text(clarified[: clarified.index("## Clarifications")])
+    trackers = env.repo_root / ".agents" / "trackers"
+    trackers.mkdir(parents=True)
+    (trackers / "custom.json").write_text(json.dumps({"verbs": {"list": ["true"]}}))
+    (env.repo_root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "custom"}))
+    (env.spec_dir / "delivery.md").write_text(
+        "# Delivery Plan\n\n## Issue Grouping Map\n\n"
+        "| Issue | Tasks | Title | Estimate | Closes With |\n"
+        "|-------|-------|-------|----------|-------------|\n"
+        "| _(TBD)_ | T001 | `[0] fixture` | 1h | PR #1 |\n"
+    )
+
+
 def fixture_states() -> dict[str, FixtureRepo]:
     """The five throwaway repos FR-013a's comparison needs — nothing
     outstanding, a standing block, an outstanding manual pass, a stall, and a
@@ -381,6 +408,7 @@ def fixture_states() -> dict[str, FixtureRepo]:
         quiet = build_fixture_repo("quiet")
         states["quiet"] = quiet
         stage_upstream_of(quiet, "tasks")
+        _warn_without_holding(quiet)
 
         blocked = build_fixture_repo("blocked")
         states["blocked"] = blocked

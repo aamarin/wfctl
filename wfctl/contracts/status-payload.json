@@ -46,9 +46,9 @@
     "version": "string",
     "warnings": "array",
     "warnings[]": "object",
-    "warnings[].pass": "string",
+    "warnings[].pass": "string | null",
     "warnings[].reason": "string",
-    "warnings[].remedy": "string",
+    "warnings[].remedy": "string | null",
     "warnings[].step": "string"
   }
 }
