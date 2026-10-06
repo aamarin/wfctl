@@ -43,7 +43,12 @@ def test_regenerate_cleans_up_its_throwaway_repos(
     The directories `mkdtemp` hands out are recorded and counted. Without
     that, a command that stopped honouring the patch, say by passing `dir=`,
     would leak into the system temp directory while `tmp_path` stayed empty,
-    and this test would pass forever."""
+    and this test would pass forever.
+
+    It restores both shipped files, although it corrupts neither. While a
+    change to the payload is being written, the contract has not caught up
+    yet, so this real run bumps the contract and the version constant. Without
+    the restore, the suite leaves both edits in the developer's tree."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     real_mkdtemp = tempfile.mkdtemp
     made: list[Path] = []
@@ -55,7 +60,13 @@ def test_regenerate_cleans_up_its_throwaway_repos(
 
     monkeypatch.setattr(tempfile, "mkdtemp", recording_mkdtemp)
 
-    result = runner.invoke(app, ["contract", "regenerate"])
+    original_contract = CONTRACT_PATH.read_text()
+    original_pipeline = PIPELINE_PATH.read_text()
+    try:
+        result = runner.invoke(app, ["contract", "regenerate"])
+    finally:
+        CONTRACT_PATH.write_text(original_contract)
+        PIPELINE_PATH.write_text(original_pipeline)
     assert result.exit_code == 0
 
     assert len(made) == 6
@@ -64,11 +75,19 @@ def test_regenerate_cleans_up_its_throwaway_repos(
 
 
 def test_a_clean_tree_reports_no_change_and_writes_nothing() -> None:
+    """Restored like the cleanup test above, for its reason: on a tree whose
+    contract has not caught up, this run is the one that writes."""
     before = CONTRACT_PATH.read_bytes()
-    result = runner.invoke(app, ["contract", "regenerate"])
+    original_pipeline = PIPELINE_PATH.read_text()
+    try:
+        result = runner.invoke(app, ["contract", "regenerate"])
+        after = CONTRACT_PATH.read_bytes()
+    finally:
+        CONTRACT_PATH.write_bytes(before)
+        PIPELINE_PATH.write_text(original_pipeline)
     assert result.exit_code == 0
     assert "no change" in result.output
-    assert CONTRACT_PATH.read_bytes() == before
+    assert after == before
 
 
 def test_hold_version_moves_the_paths_and_leaves_the_version() -> None:

@@ -1,5 +1,5 @@
 {
-  "version": "1.2",
+  "version": "1.3",
   "paths": {
     "attention": "object | null",
     "attention.detail": "string",
@@ -44,6 +44,11 @@
     "steps[].sub_steps[].needs_person": "boolean",
     "steps[].sub_steps[].state": "string",
     "version": "string",
-    "warnings": "array"
+    "warnings": "array",
+    "warnings[]": "object",
+    "warnings[].pass": "string | null",
+    "warnings[].reason": "string",
+    "warnings[].remedy": "string | null",
+    "warnings[].step": "string"
   }
 }

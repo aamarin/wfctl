@@ -30,6 +30,7 @@ from wfctl import _pipeline
 from wfctl._evidence import Assessment, Evidence
 from wfctl._paths import STEP_CLAIMS_DIR, arch_root
 from wfctl._pipeline import (
+    STATUS_PAYLOAD_VERSION,
     STORY_COMPLETE_FILE,
     StepWarning,
     SubStep,
@@ -104,25 +105,34 @@ def test_a_finished_step_with_a_reason_is_listed_as_a_warning(
     )
 
 
-def test_a_tally_and_a_skipped_display_line_are_not_warnings(
-    storyctl_dir: types.SimpleNamespace, spec_tree: Callable[..., Path], tmp_path: Path,
-) -> None:
+def test_a_tally_is_not_a_warning(storyctl_dir: types.SimpleNamespace) -> None:
     """`display` on a finished step is what renders, and it is not a problem.
 
-    `implement`'s `1/1 done` sits in `display` on a done step, and clarify's
-    `scan never ran` sits in `display` on a skipped one. Reading either as a
+    `implement`'s `1/1 done` sits in `display` on a done step. Reading it as a
     warning would put a task count in front of an unattended run as if it were
     something to fix.
     """
     _keyed(storyctl_dir)
     assert _report(storyctl_dir).warnings == ()
 
+
+def test_a_clarify_skipped_on_the_plan_warns_that_the_scan_never_ran(
+    spec_tree: Callable[..., Path], tmp_path: Path,
+) -> None:
+    """Clarify passes on the plan's existence, not on a scan. Before #542 that
+    lived in `display`, which only `status` prints, so `next`, `resume` and an
+    unattended run never heard it."""
     unscanned = spec_tree(
         "design.md", "plan.md", content={"spec.md": "# Spec\n\n" + SPEC_SECTIONS},
     )
     steps = _infer_steps(unscanned, tmp_path)
-    assert next(s for s in steps if s.name == "clarify").annotation == "scan never ran"
-    assert collect_warnings(steps) == ()
+
+    assert next(s for s in steps if s.name == "clarify").state == "skipped"
+    # Filtered to clarify, because a tree outside git also warns that the
+    # drawings went unchecked, which is not this test's subject.
+    assert [w for w in collect_warnings(steps) if w.step == "clarify"] == [
+        StepWarning("clarify", None, "scan never ran", "  run /speckit.clarify"),
+    ]
 
 
 def test_a_held_step_is_never_a_warning_whatever_its_reason(
@@ -330,7 +340,7 @@ def test_status_json_carries_the_warning_and_an_empty_list_without_one(
     _warned(storyctl_dir)
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
 
-    assert payload["version"] == "1.2"
+    assert payload["version"] == STATUS_PAYLOAD_VERSION
     assert payload["warnings"] == [
         {"step": "decompose", "pass": None, "reason": _UNKEYED, "remedy": None},
     ]
@@ -417,6 +427,31 @@ def test_next_prints_the_warning_under_the_story_complete_line(
 
     assert lines[-1] == f"  ⚠ decompose: {_UNKEYED}"
     assert lines[-2].startswith("Story complete")
+
+
+def test_a_spec_never_clarified_warns_while_a_plan_never_reviewed_holds(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The two checks #542 is about, read where an agent reads them, and they
+    now answer differently. A spec never clarified under a plan only warns,
+    since clarifying it now would rewrite a document the plan is built on.
+    Tasks written from a plan no review has read hold the step, since that
+    review is cheap to run late and is the catch for an out-of-order run.
+    The file the agent acts on routes to the review and still names the
+    clarify gap with its fix."""
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify", content="# Spec\n\n" + SPEC_SECTIONS)
+    storyctl_dir.make_spec_artifact("plan")
+    storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    runner.invoke(app, ["start"])
+
+    output = runner.invoke(app, ["next"]).output
+
+    written = _next_step(storyctl_dir).splitlines()
+    assert "/plan-review" in written[0]
+    assert written[-2:] == ["warning: clarify: scan never ran", "    run /speckit.clarify"]
+    assert "⚠ clarify: scan never ran" in output
+    assert "plan.plan-review" not in output
 
 
 def test_a_bracketed_reason_prints_literally_and_is_written_verbatim(

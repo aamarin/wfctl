@@ -21,10 +21,11 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC, write_plan_review
 from wfctl import cli
 from wfctl.cli import app
-from wfctl._pipeline import PipelineReport, _infer_steps, build_report
+from wfctl._evidence import Assessment
+from wfctl._pipeline import PipelineReport, SubStep, _infer_steps, _pass_states, build_report
 
 # Every symbol the renderer can emit. Asserted against *values*, never source
 # text: `_pipeline.py` names these in comments, and `_verify` prints some of them
@@ -225,6 +226,7 @@ def test_a_finished_story_has_neither_a_current_step_nor_a_command(
         "design.md", "plan.md", "delivery.md", "checklists/analysis-report.md",
         content={"spec.md": CLEAN_SPEC, "tasks.md": "- [x] T001 done\n"},
     )
+    write_plan_review(done)
     report = build_report(done, tmp_path, tmp_path)
     assert report.current is None
     assert report.next_command is None
@@ -383,38 +385,30 @@ def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
     # block and both route to `wfctl verify`, so it passed while testing the
     # wrong branch.
     (tmp_path / "wfctl.json").write_text('{"verify": [["true"]]}')
-    blocked = build_report(
-        spec_tree(
-            content={
-                "spec.md": CLEAN_SPEC,
-                "plan.md": CLEAN_PLAN,
-                "tasks.md": "- [x] T001 done\n",
-                "delivery.md": "# Delivery\n",
-                "checklists/analysis-report.md": "# Report\n",
-            }
-        ),
-        tmp_path,
-        tmp_path,
+    finished = spec_tree(
+        content={
+            "spec.md": CLEAN_SPEC,
+            "plan.md": CLEAN_PLAN,
+            "tasks.md": "- [x] T001 done\n",
+            "delivery.md": "# Delivery\n",
+            "checklists/analysis-report.md": "# Report\n",
+        }
     )
+    write_plan_review(finished)
+    blocked = build_report(finished, tmp_path, tmp_path)
     assert (blocked.current, blocked.next_command) == ("implement", "wfctl verify")
     assert blocked.auto is False
 
 
-def test_a_skipped_plan_review_does_not_hide_a_declared_pass_after_it(
-    storyctl_dir: types.SimpleNamespace,
+def test_a_claimed_plan_review_does_not_hide_a_declared_pass_after_it(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A feature planned before this pass existed has `tasks.md` and no
-    report, so `plan-review` reads `skipped` (US4). A repository's own `plan`
-    pass listed after it in `wfctl.json` must still get its own reader run —
-    `skipped` is a pass's own terminal reading, the same as a `step none`
-    claim, and neither may cascade to a sibling the way an `in_progress`
-    reading does (#501).
-
-    Reproduced directly against `_pass_states` before this test existed: with
-    the cascade keyed on `!= "done"` instead of `== "in_progress"`, a declared
-    pass whose own evidence already existed still read `pending`, because
-    `plan-review`'s `skipped` ran ahead of it in written order and suppressed
-    every reader after it.
+    report, and `wfctl step none` is how it gets past `plan-review` (#542). A
+    repository's own `plan` pass listed after it in `wfctl.json` must still
+    get its own reader run, since a claimed pass is not outstanding (#501).
+    The same rule for a pass whose own reader says `skipped` is pinned by the
+    test below, since this one never calls the claimed pass's reader.
     """
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"plan": [{"name": "extra-check", "manual": True, "evidence": "extra.md"}]}}
@@ -424,9 +418,28 @@ def test_a_skipped_plan_review_does_not_hide_a_declared_pass_after_it(
     (storyctl_dir.spec_dir / "plan.md").write_text(CLEAN_PLAN)
     (storyctl_dir.spec_dir / "tasks.md").write_text("- [ ] T001 do it\n")
     (storyctl_dir.spec_dir / "extra.md").write_text("the declared pass's own evidence")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(storyctl_dir.repo_root / "docs" / "architecture"))
+    claimed = runner.invoke(
+        app, ["step", "none", "plan.plan-review", "--reason", "planned before the review existed"],
+    )
+    assert claimed.exit_code == 0, claimed.output
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
     plan = next(s for s in payload["steps"] if s["name"] == "plan")
     sub_steps = {s["name"]: s["state"] for s in plan["sub_steps"]}
     assert sub_steps["plan-review"] == "skipped"
     assert sub_steps["extra-check"] == "done"
+
+
+def test_a_pass_that_reads_skipped_on_its_own_does_not_hide_the_next_one() -> None:
+    """The cascade is keyed on `in_progress`, never on "not done". No built-in
+    reader returns `skipped` since plan review stopped doing so (#542), so
+    this calls `_pass_states` with a stub that does. Keyed on `!= "done"`, the
+    pass after it reads `pending` without its reader being called, which is
+    what a plan review skipped this way once did to a declared pass (#501)."""
+    first = SubStep("first", "/first", "automatic", lambda ev: Assessment("skipped"))
+    second = SubStep("second", "/second", "automatic", lambda ev: Assessment("done"))
+
+    readings = _pass_states("plan", (first, second), types.SimpleNamespace(), "done", {})
+
+    assert [(r.name, r.state) for r in readings] == [("first", "skipped"), ("second", "done")]

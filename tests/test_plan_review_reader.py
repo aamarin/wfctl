@@ -512,14 +512,14 @@ def test_a_stale_review_sends_a_finished_feature_back_to_the_review(
     ]
 
 
-# --- a feature planned before the pass existed (T023) -----------------------
+# --- tasks written before any review (#542) ---------------------------------
 
 
-def _planned_before_the_pass(
+def _tasked_without_a_review(
     storyctl_dir: types.SimpleNamespace, tasks_md: str, *later: str,
 ) -> None:
-    """A feature whose plan was written, and turned into tasks, before
-    `plan-review` existed, so it has no report and never will."""
+    """A feature whose plan was turned into tasks with no review on record,
+    whether the run went out of order or the plan predates this pass."""
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
     storyctl_dir.make_spec_artifact("tasks", content=tasks_md)
@@ -528,54 +528,48 @@ def _planned_before_the_pass(
 
 
 @pytest.mark.parametrize(
-    ("tasks_md", "later", "current"),
+    ("tasks_md", "later"),
     [
-        ("# Tasks\n\nno checkbox yet\n", (), "tasks"),
-        ("- [ ] t1\n", (), "analyze"),
-        ("- [x] t1\n- [ ] t2\n", ("analyze", "decompose"), "implement"),
+        ("# Tasks\n\nno checkbox yet\n", ()),
+        ("- [ ] t1\n", ()),
+        ("- [x] t1\n- [ ] t2\n", ("analyze", "decompose")),
     ],
     ids=["at tasks", "at analyze", "at implement"],
 )
-def test_a_feature_past_tasks_with_no_report_keeps_its_current_step(
-    storyctl_dir: types.SimpleNamespace, tasks_md: str, later: tuple[str, ...], current: str,
+def test_tasks_written_before_any_review_hold_the_plan_for_one(
+    storyctl_dir: types.SimpleNamespace, tasks_md: str, later: tuple[str, ...],
 ) -> None:
-    """SC-003: upgrading wfctl sends no finished work back. The pass reads
-    `skipped`, and `current` is wherever the other artifacts put it, the same
-    as before the pass was registered. `claimed` stays null because no person
-    declared the pass inapplicable; the `tasks.md` on disk is the evidence
-    that planning finished without it. Read `in_progress` instead, and every
-    feature in flight on the day of the upgrade would stop at `/plan-review`
-    to review a plan its tasks are already built on."""
-    _planned_before_the_pass(storyctl_dir, tasks_md, *later)
+    """The pass used to read `skipped` here and only warn, so a run that went
+    from the plan straight to `/speckit.tasks` carried on with an unreviewed
+    plan under everything it built next. However far the later artifacts got,
+    the route goes back to `/plan-review`, and the row says why."""
+    _tasked_without_a_review(storyctl_dir, tasks_md, *later)
 
     report = build_report(
         storyctl_dir.spec_dir, storyctl_dir.repo_root, storyctl_dir.agent_dir,
     )
 
+    assert (report.current, report.next_command) == ("plan", "/plan-review")
     plan = next(s for s in report.steps if s["name"] == "plan")
-    assert plan["state"] == "done"
     [review] = plan["sub_steps"]
-    assert (review["name"], review["state"], review["claimed"]) == ("plan-review", "skipped", None)
-    assert report.current == current
+    assert (review["state"], review["annotation"]) == ("in_progress", _evidence.PLAN_UNREVIEWED)
+    assert report.warnings == ()
 
 
-def test_a_feature_at_implement_with_no_report_is_never_sent_to_the_review(
-    storyctl_dir: types.SimpleNamespace,
+def test_a_claim_lets_a_feature_planned_before_the_pass_keep_its_step(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The same guarantee through the commands an unattended loop runs. Under
-    auto-approve nothing stops the loop but the payload, so a single
-    `/plan-review` from `resume` would run a review over a plan whose
-    implementation is half done, and `status` has to agree with what `resume`
-    wrote."""
-    _planned_before_the_pass(storyctl_dir, "- [x] t1\n- [ ] t2\n", "analyze", "decompose")
-    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+    """The way out for a feature whose tasks predate this pass. Without one,
+    every such feature resumed after the upgrade would have nowhere to go but
+    a review of a plan its implementation is half built on."""
+    _tasked_without_a_review(storyctl_dir, "- [x] t1\n- [ ] t2\n", "analyze", "decompose")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(storyctl_dir.repo_root / "docs" / "architecture"))
 
-    for _ in range(3):
-        result = runner.invoke(app, ["resume"])
-        assert result.exit_code == 0, result.output
-        written = (storyctl_dir.agent_dir / "next-step.md").read_text()
-        assert "/plan-review" not in written
+    claimed = runner.invoke(
+        app, ["step", "none", "plan.plan-review", "--reason", "planned before the review existed"],
+    )
+    assert claimed.exit_code == 0, claimed.output
 
-        payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
-        assert payload["current"] == "implement"
-        assert payload["next_command"] != "/plan-review"
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert payload["current"] == "implement"
+    assert payload["warnings"] == []

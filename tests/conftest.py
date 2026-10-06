@@ -387,6 +387,10 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
 
         `specify` gets a spec carrying a `## Clarifications` section, because
         `clarify` reads `▶` without one and cascades just the same.
+
+        A staged `tasks.md` gets a clean plan review beside the plan, for the
+        same reason. Without one, `plan-review` holds `plan` with "no review
+        recorded", and the cascade stops there.
         """
         order = ("brainstorm", "specify", "plan", "analyze", "decompose", "tasks")
         for name in order[: order.index(step) + 1]:
@@ -394,6 +398,7 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
                 make_spec_artifact("specify", content=CLEAN_SPEC)
             elif name == "tasks":
                 make_spec_artifact("tasks", content=tasks)
+                write_plan_review(spec_dir)
             else:
                 make_spec_artifact(name)
 

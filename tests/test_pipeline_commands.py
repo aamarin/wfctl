@@ -210,6 +210,8 @@ def test_a_finished_pipeline_prints_the_checked_completion_messages(
     # A spec that reads as clarified: the section clarify writes, no open markers.
     storyctl_dir.make_spec_artifact("specify", structured("# Spec\n\n## Clarifications\n\nnone\n"))
     storyctl_dir.make_spec_artifact("tasks", "- [x] T001 done\n")
+    # And a reviewed plan, since an unreviewed one appends a warning to the file.
+    write_plan_review(storyctl_dir.spec_dir)
 
     result = runner.invoke(app, ["next"])
 
@@ -1050,6 +1052,7 @@ def test_the_json_view_and_the_console_view_agree(
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan")
     storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    write_plan_review(storyctl_dir.spec_dir)
 
     result = runner.invoke(app, ["status", "--json"])
     assert result.exit_code == 0, result.output
@@ -1150,7 +1153,7 @@ def test_state_4_a_spec_that_predates_the_gate_shows_clarify_skipped(
 
     assert "specify      ●" in lines
     # Since #309 the line carries why it passed: the plan's existence, not a scan.
-    assert "clarify      –  scan never ran" in lines
+    assert "clarify      –  ⚠ scan never ran" in lines
     assert "plan         ●" in lines
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
@@ -1488,6 +1491,7 @@ def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan")
     storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    write_plan_review(storyctl_dir.spec_dir)
     (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
     (storyctl_dir.spec_dir / "checklists" / "analysis-report.md").write_text("# r\n")
     # The rows are only read inside this section — a table without the heading is

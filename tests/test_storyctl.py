@@ -459,6 +459,7 @@ class TestStatus:
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
+        write_plan_review(storyctl_dir.spec_dir)
         runner.invoke(app, ["next"])
         content = (storyctl_dir.agent_dir / "next-step.md").read_text()
         assert "/speckit.analyze" in content
@@ -486,6 +487,7 @@ class TestStatus:
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n")
+        write_plan_review(storyctl_dir.spec_dir)
         storyctl_dir.make_spec_artifact("analyze")
         storyctl_dir.make_spec_artifact("decompose")
         runner.invoke(app, ["next"])

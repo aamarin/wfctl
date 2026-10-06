@@ -22,7 +22,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import CLEAN_SPEC
+from tests.conftest import CLEAN_SPEC, write_plan_review
 from wfctl._pipeline import _infer_steps, build_report
 
 # The two halves of the PFMS file. Two shapes are deliberate. The `PR
@@ -80,12 +80,15 @@ def _feature(spec_tree: Callable[..., Path], delivery: str, tasks: str = "- [ ] 
 
     Every upstream artifact, not just the one under test: `_infer_steps`
     cascades, so a feature carrying only `delivery.md` reports decompose
-    `pending` for a reason that has nothing to do with its issues.
+    `pending` for a reason that has nothing to do with its issues. The plan
+    review is one of them, since tasks with no review hold `plan`.
     """
-    return spec_tree(
+    feature = spec_tree(
         "design.md", "plan.md", "checklists/analysis-report.md",
         content={"spec.md": CLEAN_SPEC, "tasks.md": tasks, "delivery.md": delivery},
     )
+    write_plan_review(feature)
+    return feature
 
 
 def _states(spec_dir: Path, repo_root: Path) -> dict[str, str]:
@@ -303,6 +306,7 @@ def test_a_feature_that_has_analyzed_enters_decompose_without_a_prompt(
         "design.md", "plan.md", "checklists/analysis-report.md",
         content={"spec.md": CLEAN_SPEC, "tasks.md": "- [ ] T001 open\n"},
     )
+    write_plan_review(feature)
     report = build_report(feature, tmp_path, tmp_path)
     assert (report.current, report.next_command, report.auto) == (
         "decompose", "/speckit.decompose", True,

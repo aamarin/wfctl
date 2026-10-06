@@ -88,6 +88,9 @@ class Assessment(NamedTuple):
     it decides, and a fix built later from the reason's text would couple the
     fix to wording `_arch` owns and rewords freely
     (`docs/architecture/design/498-the-fix-line-travels-with-the-reason.md`).
+    A warning is the other case. A finished step is never current, so no view
+    prints its command, and the only fix a reader sees is the one its reader
+    names, such as `run /speckit.clarify` under clarify's `scan never ran`.
     A reader that sets it also sets `reason`, since a fix with nothing to answer
     is not one.
     """
@@ -350,6 +353,9 @@ UNWRITTEN_TEMPLATE = "still the template"
 
 # clarify passed because a plan already exists, not because a scan ran.
 CLARIFY_UNSCANNED = "scan never ran"
+
+# tasks were written from a plan no review has read.
+PLAN_UNREVIEWED = "no review recorded"
 
 
 def missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
@@ -839,7 +845,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #               heading and not its contents.
 #   clarify     2 + 3. A `## Clarifications` heading, and no marker left; nothing
 #               under the heading is read. `skipped` where `plan.md` exists and the
-#               heading does not — annotated `scan never ran`, because that pass
+#               heading does not, warning `scan never ran`, because that pass
 #               is on the plan's existence and not on evidence a scan happened.
 #   plan        1 + 2. `plan.md` carries every section in `_REQUIRED_PLAN_SECTIONS`
 #               and is not still its own template — which structure alone cannot
@@ -1343,18 +1349,18 @@ def clarify(ev: Evidence) -> Assessment:
         # saying otherwise would hide that. Does not block, so an in-flight story
         # is not sent back to clarify a spec its implementation is already built on.
         #
-        # The display string is what stops it being silent (#309): `skipped` advances
-        # the pipeline exactly as `done` does, and this branch passes the step on
-        # the plan's existence rather than on any evidence a scan happened. In
-        # `display` and not `reason` — a `skipped` step is never
-        # `_current_step_name`, so a reason here would reach no consumer, and it
-        # would widen what that field means in exchange for nothing observable.
+        # The reason is what stops it being silent: `skipped` advances the
+        # pipeline exactly as `done` does, and this branch passes the step on the
+        # plan's existence rather than on any evidence a scan happened. A reason
+        # on a `skipped` reading is a warning, which every view that routes
+        # prints and none of them acts on (#542, `check-rework-loop`), so the
+        # step still never holds.
         #
         # Existence, deliberately, and not the section read `plan` now performs.
         # The question is whether planning already passed through here, which a
         # thin plan still answers yes; tightening it would send an in-flight spec
         # back to re-clarify a document its plan is already built on.
-        return Assessment("skipped", display=CLARIFY_UNSCANNED)
+        return Assessment("skipped", CLARIFY_UNSCANNED, remedy="  run /speckit.clarify")
     return Assessment("in_progress")
 
 
@@ -1394,12 +1400,16 @@ def plan_review(ev: Evidence) -> Assessment:
     which copies the template over `plan.md` (research R3). With no reason, the
     pass itself routes, and the next command is `/plan-review`.
 
-    Two readings are deliberately not `pending`. With no report and no
-    `tasks.md` the pass reads `in_progress`, because the roll-up holds a step
-    only on an `in_progress` pass, and a `pending` one would let `tasks` become
-    current before the first review (research R2). With no report and a
-    `tasks.md`, it reads `skipped`, so a feature planned before this pass
-    existed is not sent back to review a plan its tasks are already built on.
+    With no report the pass reads `in_progress`, never `pending`, because the
+    roll-up holds a step only on an `in_progress` pass, and a `pending` one
+    would let `tasks` become current before the first review (research R2).
+
+    A `tasks.md` beside the plan does not change that. Tasks written before
+    any review are the out-of-order run this pass exists to catch, so the
+    step holds and says no review was recorded (#542). A feature planned
+    before this pass existed holds the same way. When a review of it is not
+    wanted, `wfctl step none plan.plan-review` declares the pass
+    inapplicable, and a claim wins over this reader.
 
     "N BLOCKER findings open" keeps its plural at 1. The `/plan-review` wrapper
     chooses between revising and reviewing on this reading, and a text whose
@@ -1409,7 +1419,9 @@ def plan_review(ev: Evidence) -> Assessment:
     if not report.is_file():
         # `ev.tasks_text` rather than a second look at the file, so this row and
         # the `tasks` reader cannot disagree about whether `tasks.md` exists.
-        return Assessment("skipped" if ev.tasks_text else "in_progress")
+        if ev.tasks_text:
+            return Assessment("in_progress", None, PLAN_UNREVIEWED)
+        return Assessment("in_progress")
     # Row 3, ahead of every row that reads the report. A sign-off accepts the
     # plan as it is now whatever the report says about an earlier one, so a
     # stale or unreadable report under a signed-off plan still reads done.

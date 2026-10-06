@@ -31,6 +31,7 @@ and say in the commit message which verdict moved and why.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -59,6 +60,19 @@ CLARIFIED_SPEC = (
     WRITTEN_SPEC + "\n## Clarifications\n\n### Session 2026-01-01\n\n- none\n"
 )
 OPEN_TASKS = "- [x] T001 done\n- [ ] T002 open\n"
+# A clean review of `WRITTEN_PLAN`, beside every row that has tasks. Since #542
+# tasks with no review hold `plan`, so without it every row past `plan` would
+# stop there and the arms after it would go unexercised. One row leaves it out.
+_PLAN_ID = hashlib.sha1(
+    b"blob %d\0" % len(WRITTEN_PLAN.encode()) + WRITTEN_PLAN.encode()
+).hexdigest()
+REVIEWED = {
+    "plan-review.md": (
+        "# Plan review\n\n## Summary\n\nBLOCKER: 0\n\n## Reviewed inputs\n\n"
+        "| Input | Identity | Role |\n| --- | --- | --- |\n"
+        f"| plan.md | {_PLAN_ID} | technical strategy |\n"
+    ),
+}
 CLOSED_TASKS = "- [x] T001 done\n- [x] T002 done\n"
 # #308: a file that exists and holds no task, and one whose only box is a worked
 # example inside a fence. Both cleared `tasks` and `implement` before #308 while
@@ -92,6 +106,7 @@ _ANALYZED = {
     "plan.md": WRITTEN_PLAN,
     "tasks.md": OPEN_TASKS,
     "checklists/analysis-report.md": "x",
+    **REVIEWED,
 }
 
 # Each row reaches an arm no other row reaches. A row that duplicates another's
@@ -103,8 +118,18 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ("spec-marked", {"spec.md": MARKED_SPEC}),
     ("spec-clarified", {"spec.md": CLARIFIED_SPEC}),
     ("spec-plan-unclarified", {"spec.md": WRITTEN_SPEC, "plan.md": WRITTEN_PLAN}),
-    ("tasks-open", {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS}),
-    ("tasks-closed", {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": CLOSED_TASKS}),
+    (
+        "tasks-open",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS, **REVIEWED},
+    ),
+    (
+        "tasks-open-unreviewed",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS},
+    ),
+    (
+        "tasks-closed",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": CLOSED_TASKS, **REVIEWED},
+    ),
     ("analyzed", _ANALYZED),
     ("decompose-keyed", {**_ANALYZED, "delivery.md": KEYED_DELIVERY}),
     ("decompose-unkeyed-tasks-open", {**_ANALYZED, "delivery.md": UNKEYED_DELIVERY}),
@@ -114,18 +139,30 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ),
     ("decompose-no-map", {**_ANALYZED, "delivery.md": NO_MAP_DELIVERY}),
     ("decompose-skipped", {**_ANALYZED, "tasks.md": CLOSED_TASKS}),
-    ("tasks-no-checkbox", {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS}),
+    (
+        "tasks-no-checkbox",
+        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS, **REVIEWED},
+    ),
     (
         "tasks-only-a-fenced-example",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": FENCED_TASKS},
+        {
+            "spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": FENCED_TASKS,
+            **REVIEWED,
+        },
     ),
     (
         "tasks-no-checkbox-but-implemented",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS, **SENTINEL},
+        {
+            "spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS,
+            **SENTINEL, **REVIEWED,
+        },
     ),
     (
         "tasks-open-but-implemented",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS, **SENTINEL},
+        {
+            "spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS,
+            **SENTINEL, **REVIEWED,
+        },
     ),
     # The design gate's other early return: past the boundary, so a `design.md`
     # with no record still reads `done` once `spec.md` exists.
