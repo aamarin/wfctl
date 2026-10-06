@@ -53,15 +53,23 @@ Worktrees outside `wt/` are *not* on that list: the roots come from
 `git worktree list`, so `.claude/worktrees/agent-*` — eighteen of them in this
 repo today — is the same case as `wt/<handle>`, not a gap.
 
-## The spec root is not a peer
+## The spec root and the state root are not peers
 
 Every feature worktree writes its spec, plan, and reviews under the spec root,
 because `feature-paths` tells it to. A project that keeps that store checked out
 as its own worktree, beside the code, would otherwise see every one of those
 writes refused. So the resolved spec root is writable from any worktree, git
 commands in it included, and that covers other features' spec dirs as well as
-this one's. A spec root that is the main checkout, or that contains any
-worktree, is not honoured, since exempting it would open the peers it holds.
+this one's.
+
+The state root is the same case. It normally sits under `~/.local/state`, where
+no worktree owns it, but `XDG_STATE_HOME` can put it inside the main checkout or
+a checkout of its own, and then a session's own handoff is refused. It is exempt
+for the whole project rather than one branch, because a worktree handoff writes
+into the child branch's state dir before that branch exists.
+
+A shared root that is the main checkout, or that contains any worktree, is not
+honoured, since exempting it would open the peers it holds.
 """
 from __future__ import annotations
 
@@ -191,8 +199,8 @@ def _owner(path: str, roots: Iterable[str]) -> str | None:
     return max(matches, key=len) if matches else None
 
 
-def _owner_of(path: str, roots: list[str], shared: str | None) -> str | None:
-    """`_owner`, except that the spec root owns only paths that stay inside it.
+def _owner_of(path: str, roots: list[str], shared: set[str]) -> str | None:
+    """`_owner`, except that a shared root owns only paths that stay inside it.
 
     Ownership is read off the text, so `<spec root>/../<main>/src` starts with
     the spec root and would be exempt while it names the main checkout. Before
@@ -202,7 +210,7 @@ def _owner_of(path: str, roots: list[str], shared: str | None) -> str | None:
     was before.
     """
     root = _owner(path, roots)
-    if shared and root == shared:
+    if root in shared:
         root = _owner(posixpath.normpath(path), roots)
     return root
 
@@ -264,19 +272,19 @@ def _reads_only(segment: str) -> bool:
     return verb in _READ_VERBS
 
 
-def _shareable(spec_root: str | None, roots: list[str]) -> str | None:
-    """`spec_root` as the guard may exempt it, or None when it may not.
+def _shareable(candidate: str | None, roots: list[str]) -> str | None:
+    """`candidate` as the guard may exempt it, or None when it may not.
 
-    The exemption is for a store of spec files, and a spec root declared too
+    The exemption is for a store of spec or state files, and a root declared too
     broadly would hand it to code instead. A spec root of `.` in the main
     checkout's manifest names the main checkout itself, and one of `wt` holds
     every feature worktree, so either would make `rm -rf` on a peer an allowed
     write. Neither is a store, so neither is honoured: the main checkout is the
     first root `git worktree list` prints, and any other root strictly beneath
-    the spec root means it holds a worktree. A spec root that is itself a
-    worktree, like a `specs-trunk` checkout beside the project, passes both.
+    the candidate means it holds a worktree. A store that is itself a worktree,
+    like a `specs-trunk` checkout beside the project, passes both.
     """
-    shared = (spec_root or "").rstrip("/")
+    shared = (candidate or "").rstrip("/")
     if not shared or (roots and roots[0].rstrip("/") == shared):
         return None
     if any(r.startswith(shared + "/") for r in roots):
@@ -285,7 +293,7 @@ def _shareable(spec_root: str | None, roots: list[str]) -> str | None:
 
 
 def refusal(
-    command: str, here: str, worktrees: Iterable[str], spec_root: str | None = None
+    command: str, here: str, worktrees: Iterable[str], shared: Iterable[str | None] = ()
 ) -> str | None:
     """Why `command` may not run from `here`, or None if it may.
 
@@ -293,16 +301,17 @@ def refusal(
     knows about, `here` included — it is what tells a sibling worktree apart
     from an ordinary subdirectory.
 
-    `spec_root` is the directory `feature-paths` hands every feature worktree a
-    `FEATURE_DIR` inside, and a path under it is nobody's trespass. It joins the
-    ownership lookup as a root of its own, rather than only being dropped from
-    the list. Dropped, a spec root inside the main checkout would fall back to
-    the main checkout as its owner and still be refused.
+    `shared` holds the spec root and the state root, the directories wfctl hands
+    every feature worktree to write in, and a path under either is nobody's
+    trespass. Each joins the ownership lookup as a root of its own, rather than
+    only being dropped from the list. Dropped, a spec root inside the main
+    checkout would fall back to the main checkout as its owner and still be
+    refused. A None entry is a root that could not be resolved, and exempts
+    nothing.
     """
     roots = list(worktrees)
-    shared = _shareable(spec_root, roots)
-    if shared:
-        roots.append(shared)
+    exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
+    roots.extend(exempt)
 
     # Segment by segment, each judged against the paths *it* names. Judging the
     # whole command against a trespass found anywhere in it refuses the local
@@ -315,8 +324,8 @@ def refusal(
             (
                 (root, path)
                 for path in _ABS_PATH.findall(segment)
-                for root in [_owner_of(path.rstrip(".,:"), roots, shared)]
-                if root and root != here and root != shared
+                for root in [_owner_of(path.rstrip(".,:"), roots, exempt)]
+                if root and root != here and root not in exempt
             ),
             None,
         )

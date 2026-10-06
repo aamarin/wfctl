@@ -88,14 +88,14 @@ def test_a_command_naming_a_path_still_resolves_worktrees(
     assert calls == [str(REPO)]
 
 
-def test_the_spec_root_is_resolved_only_for_a_command_headed_for_refusal(
+def test_the_shared_roots_are_resolved_only_for_a_command_headed_for_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Resolving it can cost a third git subprocess, so it waits for a refusal.
+    """Resolving them can cost more git subprocesses, so they wait for a refusal.
 
     Both orderings return the same exit codes, so only the call record can tell
-    a hook that resolves the spec root on every command naming a path from one
-    that resolves it when it might matter.
+    a hook that resolves the spec and state roots on every command naming a path
+    from one that resolves them when they might matter.
     """
     calls: list[str] = []
 
@@ -103,6 +103,7 @@ def test_the_spec_root_is_resolved_only_for_a_command_headed_for_refusal(
 
     monkeypatch.setattr(hook, "worktree_roots", lambda cwd: ("/r/a", ["/r", "/r/a", "/r/b"]))
     monkeypatch.setattr(hook, "resolved_spec_root", lambda here: calls.append(here) or None)
+    monkeypatch.setattr(hook, "resolved_state_root", lambda here: calls.append(here) or None)
 
     def guard(command: str) -> int:
         return hook.worktree_guard(json.dumps({"cwd": "/r/a", "tool_input": {"command": command}}))
@@ -112,7 +113,7 @@ def test_the_spec_root_is_resolved_only_for_a_command_headed_for_refusal(
     assert calls == []
 
     assert guard("rm -rf /r/b/build") == 2
-    assert calls == ["/r/a"]
+    assert calls == ["/r/a", "/r/a"]
 
 
 def test_the_refusal_path_never_imports_typer_or_rich() -> None:

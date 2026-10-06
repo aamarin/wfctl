@@ -15,7 +15,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
-   │   └─► _hook 142                                    2 out · 2 in   │
+   │   └─► _hook 161                                    2 out · 2 in   │
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
@@ -24,7 +24,7 @@ when this drawing stops matching it. See **Staleness** below.
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
    │ _pipeline 439   _evidence 603    _arch 458      _archive 339 │      ┊
-   │ _guard 351      _verify 245      _tracker 497   _workmux 274 │      ┊
+   │ _guard 360      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
@@ -46,7 +46,7 @@ when this drawing stops matching it. See **Staleness** below.
 `_entry` is drawn above the two it reaches because it is the only one with no
 importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` reaches `_guard` directly, and `_paths` only on the way to
-a refusal, to find the spec root. Neither import reaches `cli`, which is what
+a refusal, to find the spec and state roots. Neither import reaches `cli`, which is what
 lets the guard run without it — see the surface split below. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
@@ -236,9 +236,9 @@ which that path uses (#135).
 So this is a band with two doors rather than a new band. The decision still
 lives in `_guard`, one band down, and both doors reach it the same way — which
 is what makes the split safe to have: `_entry` holds no policy, and `_hook` holds
-none either beyond which fields of a payload it will trust. It does gather one
-more input, the spec root, so that `_guard` can exempt it, and it asks
-`_paths` for it rather than deciding where the spec root is.
+none either beyond which fields of a payload it will trust. It does gather two
+more inputs, the spec root and the state root, so that `_guard` can exempt them,
+and it asks `_paths` for both rather than deciding where either is.
 
 #371 added a second fast-path argv beside the guard's: `hook session-restart`
 runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is

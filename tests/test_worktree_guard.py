@@ -352,7 +352,7 @@ ROOTS_WITH_STORE = [*ROOTS, STORE]
 
 
 def refuses_with_store(command: str) -> bool:
-    return _guard.refusal(command, HERE, ROOTS_WITH_STORE, spec_root=STORE) is not None
+    return _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) is not None
 
 
 @pytest.mark.parametrize("command", [
@@ -391,7 +391,7 @@ def test_naming_the_spec_root_leaves_a_peer_refusal_unchanged() -> None:
     command = f"uv run pytest {OTHER}/tests"
     before = _guard.refusal(command, HERE, ROOTS)
     assert before is not None
-    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, spec_root=STORE) == before
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
 
 
 def test_a_read_under_the_spec_root_is_still_allowed() -> None:
@@ -412,7 +412,7 @@ def test_a_spec_root_holding_code_is_not_honoured(spec_root: str) -> None:
     for command in (f"rm -rf {MAIN}/wfctl", f"rm -rf {OTHER}/src", f"rm -rf {MAIN}/wt"):
         before = _guard.refusal(command, HERE, ROOTS)
         assert before is not None, command
-        assert _guard.refusal(command, HERE, ROOTS, spec_root=spec_root) == before, command
+        assert _guard.refusal(command, HERE, ROOTS, shared=[spec_root]) == before, command
 
 
 def test_the_main_checkout_is_never_the_spec_root() -> None:
@@ -422,7 +422,7 @@ def test_the_main_checkout_is_never_the_spec_root() -> None:
     main, here = "/Users/dev/project", "/Users/dev/project-wt/129-cross-worktree-guard"
     roots = [main, here]
     command = f"rm -rf {main}/wfctl"
-    assert _guard.refusal(command, here, roots, spec_root=main) == _guard.refusal(
+    assert _guard.refusal(command, here, roots, shared=[main]) == _guard.refusal(
         command, here, roots
     )
 
@@ -435,7 +435,7 @@ def test_a_path_that_climbs_out_of_the_spec_root_is_judged_where_it_lands() -> N
     is normalised and refused as a write to the main checkout, where it lands.
     """
     command = f"rm -rf {STORE}/../project/wfctl"
-    message = _guard.refusal(command, HERE, ROOTS_WITH_STORE, spec_root=STORE)
+    message = _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE])
     assert message is not None
     assert f"({MAIN})" in message
     assert not refuses_with_store(f"mkdir -p {STORE}/a/../129-cross-worktree-guard")
@@ -451,8 +451,8 @@ def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
     shared = f"{MAIN}/specs"
     command = f"mkdir -p {shared}/129-cross-worktree-guard/reviews"
     assert _guard.refusal(command, HERE, ROOTS) is not None
-    assert _guard.refusal(command, HERE, ROOTS, spec_root=shared) is None
-    assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, spec_root=shared) is not None
+    assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) is None
+    assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, shared=[shared]) is not None
 
 
 def _store_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -528,3 +528,52 @@ def test_an_unreadable_manifest_refuses_rather_than_raising(
     (main / ".wf-skills-manifest.json").write_text("{not json")
 
     assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard").exit_code == 2
+
+
+def test_the_spec_root_and_the_state_root_are_exempt_together() -> None:
+    """Both are handed to the guard at once, and one that could not be resolved
+    must not cost the other its exemption."""
+    state = f"{MAIN}/.state/wfctl/project"
+    spec = f"mkdir -p {STORE}/129-cross-worktree-guard/reviews"
+    handoff = f"cp /tmp/h.md {state}/130-child/session-summary.md"
+
+    def refused(command: str, shared: list[str | None]) -> bool:
+        return _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=shared) is not None
+
+    assert refused(handoff, [])
+    assert not refused(spec, [STORE, state])
+    assert not refused(handoff, [STORE, state])
+    assert not refused(spec, [STORE, None])
+    assert not refused(handoff, [None, state])
+    assert refused(f"rm -rf {OTHER}/src", [STORE, state])
+
+
+def test_the_hook_allows_a_handoff_into_a_state_root_inside_the_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`XDG_STATE_HOME` can put the state root inside a repo, and inside the main
+    checkout the main checkout owns it, so a feature worktree's handoff read as a
+    write to the main checkout. The child branch's dir is the case that needs the
+    whole project exempt: a handoff writes it before the branch exists."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(main / ".state"))
+    child = main / ".state" / "wfctl" / "project" / "130-child"
+
+    assert _hook(feature, f"mkdir -p {child}").exit_code == 0
+    assert _hook(feature, f"cp /tmp/h.md {child}/session-summary.md").exit_code == 0
+    assert _hook(feature, f"rm -rf {main}/README.md").exit_code == 2
+
+
+def test_the_hook_honours_the_state_dir_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_STATE_DIR` names one state dir, so that dir is exempt and its
+    neighbours in the same checkout are not."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(main / ".state"))
+
+    assert _hook(feature, f"touch {main}/.state/events.jsonl").exit_code == 0
+    assert _hook(feature, f"touch {main}/.other/events.jsonl").exit_code == 2

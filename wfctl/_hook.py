@@ -14,7 +14,8 @@ it then refused to use.
 So this module holds the decision's whole runtime and imports `json`,
 `subprocess`, `sys` and `wfctl._guard` — the last of which costs only `re`.
 `wfctl/_entry.py` is what reaches it without loading the CLI. A command already
-headed for a refusal also imports `wfctl._paths`, to find the spec root, and
+headed for a refusal also imports `wfctl._paths`, to find the spec and state
+roots, and
 that path is rare enough to leave out of the measurement above.
 
 What none of this reaches is 27.1 ms of interpreter startup, which is the floor
@@ -81,6 +82,22 @@ def resolved_spec_root(here: str) -> str | None:
         return None
 
 
+def resolved_state_root(here: str) -> str | None:
+    """The state root a session in `here` writes its handoff under, or None.
+
+    `_paths.state_root`, under the same environment caveat as the spec root.
+    None when git cannot name the project, for the same reason as above.
+    """
+    from pathlib import Path
+
+    from wfctl._paths import state_root
+
+    try:
+        return str(state_root(Path(here)))
+    except Exception:
+        return None
+
+
 def worktree_guard(stdin_text: str | bytes) -> int:
     """The guard's exit code for one payload: 2 to refuse, 0 to allow.
 
@@ -127,12 +144,14 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     from wfctl import _guard
 
     message = _guard.refusal(command, here, roots)
-    # The spec root is resolved only once a command is already headed for a
-    # refusal. Resolving it can cost a third git subprocess, for the main
-    # checkout's manifest, and nearly every command that names a path names one
-    # in this worktree and was never going to need it.
+    # The spec and state roots are resolved only once a command is already
+    # headed for a refusal. Each can cost another git subprocess, for the main
+    # checkout's manifest and for the project name, and nearly every command
+    # that names a path names one in this worktree and was never going to need
+    # either.
     if message:
-        message = _guard.refusal(command, here, roots, spec_root=resolved_spec_root(here))
+        shared = [resolved_spec_root(here), resolved_state_root(here)]
+        message = _guard.refusal(command, here, roots, shared=shared)
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

@@ -494,13 +494,22 @@ Reading a sibling is ordinary review work and cannot cause the failure, so it
 stays allowed. Executing is not reading: `uv run pytest` over there writes a
 `.venv`, builds the package, and reports on a branch this session is not on.
 
-The spec root is the one exception. Every feature worktree writes its spec,
-plan, and reviews there because `wfctl feature-paths` tells it to, so the guard
-allows writes under the spec root `feature-paths` resolves, git commands in it
-included. That matters when the spec root is a worktree of its own, such as a
-`specs-trunk` checkout beside the project, which would otherwise be refused like
-any peer. The exemption covers the whole store, other features' spec dirs
-included. A spec root that is the main checkout, or that contains another
+The spec root and the state root are the two exceptions. Every feature worktree
+writes its spec, plan, and reviews under the spec root because `wfctl
+feature-paths` tells it to, so the guard allows writes under the spec root
+`feature-paths` resolves, git commands in it included. That matters when the
+spec root is a worktree of its own, such as a `specs-trunk` checkout beside the
+project, which would otherwise be refused like any peer. The exemption covers
+the whole store, other features' spec dirs included.
+
+The state root is the directory `wfctl state-dir` prints a branch's state dir
+inside: `$XDG_STATE_HOME/wfctl/<project>`, or `WFCTL_STATE_DIR` itself when that
+is set. It is normally outside every worktree and needs no exemption. When
+`XDG_STATE_HOME` points inside the main checkout or another checkout, writes to
+it are allowed for the same reason, other branches' state dirs included, since a
+worktree handoff writes into the child branch's.
+
+A spec root or state root that is the main checkout, or that contains another
 worktree, gets no exemption.
 
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
