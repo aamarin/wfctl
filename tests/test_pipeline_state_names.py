@@ -21,7 +21,7 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC, write_plan_review
 from wfctl import cli
 from wfctl.cli import app
 from wfctl._pipeline import PipelineReport, _infer_steps, build_report
@@ -225,6 +225,7 @@ def test_a_finished_story_has_neither_a_current_step_nor_a_command(
         "design.md", "plan.md", "delivery.md", "checklists/analysis-report.md",
         content={"spec.md": CLEAN_SPEC, "tasks.md": "- [x] T001 done\n"},
     )
+    write_plan_review(done)
     report = build_report(done, tmp_path, tmp_path)
     assert report.current is None
     assert report.next_command is None
@@ -383,32 +384,30 @@ def test_the_report_carries_the_auto_flag_of_the_step_that_is_current(
     # block and both route to `wfctl verify`, so it passed while testing the
     # wrong branch.
     (tmp_path / "wfctl.json").write_text('{"verify": [["true"]]}')
-    blocked = build_report(
-        spec_tree(
-            content={
-                "spec.md": CLEAN_SPEC,
-                "plan.md": CLEAN_PLAN,
-                "tasks.md": "- [x] T001 done\n",
-                "delivery.md": "# Delivery\n",
-                "checklists/analysis-report.md": "# Report\n",
-            }
-        ),
-        tmp_path,
-        tmp_path,
+    finished = spec_tree(
+        content={
+            "spec.md": CLEAN_SPEC,
+            "plan.md": CLEAN_PLAN,
+            "tasks.md": "- [x] T001 done\n",
+            "delivery.md": "# Delivery\n",
+            "checklists/analysis-report.md": "# Report\n",
+        }
     )
+    write_plan_review(finished)
+    blocked = build_report(finished, tmp_path, tmp_path)
     assert (blocked.current, blocked.next_command) == ("implement", "wfctl verify")
     assert blocked.auto is False
 
 
-def test_a_skipped_plan_review_does_not_hide_a_declared_pass_after_it(
-    storyctl_dir: types.SimpleNamespace,
+def test_a_claimed_plan_review_does_not_hide_a_declared_pass_after_it(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A feature planned before this pass existed has `tasks.md` and no
-    report, so `plan-review` reads `skipped` (US4). A repository's own `plan`
-    pass listed after it in `wfctl.json` must still get its own reader run —
-    `skipped` is a pass's own terminal reading, the same as a `step none`
-    claim, and neither may cascade to a sibling the way an `in_progress`
-    reading does (#501).
+    report, and `wfctl step none` is how it gets past `plan-review` (#542), so
+    the pass reads `skipped`. A repository's own `plan` pass listed after it
+    in `wfctl.json` must still get its own reader run. `skipped` is a pass's
+    own terminal reading and may not cascade to a sibling the way an
+    `in_progress` reading does (#501).
 
     Reproduced directly against `_pass_states` before this test existed: with
     the cascade keyed on `!= "done"` instead of `== "in_progress"`, a declared
@@ -424,6 +423,11 @@ def test_a_skipped_plan_review_does_not_hide_a_declared_pass_after_it(
     (storyctl_dir.spec_dir / "plan.md").write_text(CLEAN_PLAN)
     (storyctl_dir.spec_dir / "tasks.md").write_text("- [ ] T001 do it\n")
     (storyctl_dir.spec_dir / "extra.md").write_text("the declared pass's own evidence")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(storyctl_dir.repo_root / "docs" / "architecture"))
+    claimed = runner.invoke(
+        app, ["step", "none", "plan.plan-review", "--reason", "planned before the review existed"],
+    )
+    assert claimed.exit_code == 0, claimed.output
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
     plan = next(s for s in payload["steps"] if s["name"] == "plan")

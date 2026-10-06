@@ -389,9 +389,8 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
         `clarify` reads `▶` without one and cascades just the same.
 
         A staged `tasks.md` gets a clean plan review beside the plan, for the
-        same reason in its quieter form. Without one, `plan-review` reads
-        skipped and warns "no review recorded" on every view that routes, so
-        a test about some other warning would find two.
+        same reason. Without one, `plan-review` holds `plan` with "no review
+        recorded", and the cascade stops there.
         """
         order = ("brainstorm", "specify", "plan", "analyze", "decompose", "tasks")
         for name in order[: order.index(step) + 1]:

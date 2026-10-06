@@ -135,23 +135,6 @@ def test_a_clarify_skipped_on_the_plan_warns_that_the_scan_never_ran(
     ]
 
 
-def test_a_plan_review_skipped_on_the_tasks_warns_that_no_review_was_recorded(
-    storyctl_dir: types.SimpleNamespace,
-) -> None:
-    """The pass passes on `tasks.md` existing and said nothing at all, in
-    `status` included. It still advances, so the warning is all that changes."""
-    _decompose_feature(storyctl_dir, "#251", "#252")
-    reviewed = _report(storyctl_dir)
-    (storyctl_dir.spec_dir / "plan-review.md").unlink()
-
-    report = _report(storyctl_dir)
-
-    assert report.warnings == (
-        StepWarning("plan", "plan-review", "no review recorded", "  run /plan-review"),
-    )
-    assert (report.current, report.next_command) == (reviewed.current, reviewed.next_command)
-
-
 def test_a_held_step_is_never_a_warning_whatever_its_reason(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
@@ -446,13 +429,16 @@ def test_next_prints_the_warning_under_the_story_complete_line(
     assert lines[-2].startswith("Story complete")
 
 
-def test_a_feature_that_predates_both_checks_routes_unchanged_and_says_so_twice(
+def test_a_spec_never_clarified_warns_while_a_plan_never_reviewed_holds(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """The case #542 exists for, read where an agent reads it: a spec never
-    clarified and a plan never reviewed, both passed on later work. The route
-    is the one it was before either check existed, and the file it acts on
-    names both gaps in pipeline order, each with the command that closes it."""
+    """The two checks #542 is about, read where an agent reads them, and they
+    now answer differently. A spec never clarified under a plan only warns,
+    since clarifying it now would rewrite a document the plan is built on.
+    Tasks written from a plan no review has read hold the step, since that
+    review is cheap to run late and is the catch for an out-of-order run.
+    The file the agent acts on routes to the review and still names the
+    clarify gap with its fix."""
     storyctl_dir.make_spec_artifact("brainstorm")
     storyctl_dir.make_spec_artifact("specify", content="# Spec\n\n" + SPEC_SECTIONS)
     storyctl_dir.make_spec_artifact("plan")
@@ -461,15 +447,11 @@ def test_a_feature_that_predates_both_checks_routes_unchanged_and_says_so_twice(
 
     output = runner.invoke(app, ["next"]).output
 
-    assert _next_step(storyctl_dir).splitlines()[-4:] == [
-        "warning: clarify: scan never ran",
-        "    run /speckit.clarify",
-        "warning: plan.plan-review: no review recorded",
-        "    run /plan-review",
-    ]
-    assert "/speckit.analyze" in _next_step(storyctl_dir).splitlines()[0]
+    written = _next_step(storyctl_dir).splitlines()
+    assert "/plan-review" in written[0]
+    assert written[-2:] == ["warning: clarify: scan never ran", "    run /speckit.clarify"]
     assert "⚠ clarify: scan never ran" in output
-    assert "⚠ plan.plan-review: no review recorded" in output
+    assert "plan.plan-review" not in output
 
 
 def test_a_bracketed_reason_prints_literally_and_is_written_verbatim(

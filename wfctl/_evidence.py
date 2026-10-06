@@ -354,7 +354,7 @@ UNWRITTEN_TEMPLATE = "still the template"
 # clarify passed because a plan already exists, not because a scan ran.
 CLARIFY_UNSCANNED = "scan never ran"
 
-# plan review passed because tasks already exist, not because a review ran.
+# tasks were written from a plan no review has read.
 PLAN_UNREVIEWED = "no review recorded"
 
 
@@ -1400,15 +1400,16 @@ def plan_review(ev: Evidence) -> Assessment:
     which copies the template over `plan.md` (research R3). With no reason, the
     pass itself routes, and the next command is `/plan-review`.
 
-    Two readings are deliberately not `pending`. With no report and no
-    `tasks.md` the pass reads `in_progress`, because the roll-up holds a step
-    only on an `in_progress` pass, and a `pending` one would let `tasks` become
-    current before the first review (research R2). With no report and a
-    `tasks.md`, it reads `skipped`, so a feature planned before this pass
-    existed is not sent back to review a plan its tasks are already built on.
-    That reading carries a reason, which on a `skipped` pass is a warning and
-    holds nothing, so the pass advances and still says no review was recorded
-    (#542).
+    With no report the pass reads `in_progress`, never `pending`, because the
+    roll-up holds a step only on an `in_progress` pass, and a `pending` one
+    would let `tasks` become current before the first review (research R2).
+
+    A `tasks.md` beside the plan does not change that. Tasks written before
+    any review are the out-of-order run this pass exists to catch, so the
+    step holds and says no review was recorded (#542). A feature planned
+    before this pass existed holds the same way. When a review of it is not
+    wanted, `wfctl step none plan.plan-review` declares the pass
+    inapplicable, and a claim wins over this reader.
 
     "N BLOCKER findings open" keeps its plural at 1. The `/plan-review` wrapper
     chooses between revising and reviewing on this reading, and a text whose
@@ -1419,7 +1420,7 @@ def plan_review(ev: Evidence) -> Assessment:
         # `ev.tasks_text` rather than a second look at the file, so this row and
         # the `tasks` reader cannot disagree about whether `tasks.md` exists.
         if ev.tasks_text:
-            return Assessment("skipped", PLAN_UNREVIEWED, remedy="  run /plan-review")
+            return Assessment("in_progress", None, PLAN_UNREVIEWED)
         return Assessment("in_progress")
     # Row 3, ahead of every row that reads the report. A sign-off accepts the
     # plan as it is now whatever the report says about an earlier one, so a

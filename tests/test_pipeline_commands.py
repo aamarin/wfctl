@@ -1052,6 +1052,7 @@ def test_the_json_view_and_the_console_view_agree(
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan")
     storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    write_plan_review(storyctl_dir.spec_dir)
 
     result = runner.invoke(app, ["status", "--json"])
     assert result.exit_code == 0, result.output
@@ -1490,6 +1491,7 @@ def test_a_blocked_decompose_says_why_in_the_file_an_agent_reads(
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan")
     storyctl_dir.make_spec_artifact("tasks", content="- [ ] T001 open\n")
+    write_plan_review(storyctl_dir.spec_dir)
     (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
     (storyctl_dir.spec_dir / "checklists" / "analysis-report.md").write_text("# r\n")
     # The rows are only read inside this section — a table without the heading is

@@ -2956,5 +2956,121 @@
       "remedy": null,
       "state": "pending"
     }
+  ],
+  "tasks-open-unreviewed": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no review recorded",
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "tasks-open-unreviewed (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no review recorded",
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
   ]
 }

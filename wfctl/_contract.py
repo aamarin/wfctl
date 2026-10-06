@@ -335,7 +335,13 @@ def stage_upstream_of(env: FixtureRepo, step: str, tasks: str = "- [x] T001 done
     `storyctl_dir.stage_upstream_of`, rebuilt here so `fixture_states` needs no
     import from `tests/` (production code cannot reach a package the wheel
     does not ship).
+
+    A staged `tasks.md` gets a clean plan review beside the plan, as it does
+    there. Without one the plan review pass holds `plan`, and no fixture
+    staged through `tasks` would get past it.
     """
+    from wfctl._plan_review import REPORT_NAME, identity
+
     names = [name for name, _ in _FIXTURE_ARTIFACTS]
     for name, rel in _FIXTURE_ARTIFACTS[: names.index(step) + 1]:
         path = env.spec_dir / rel
@@ -346,25 +352,36 @@ def stage_upstream_of(env: FixtureRepo, step: str, tasks: str = "- [x] T001 done
             path.write_text(_clean_plan())
         elif name == "tasks":
             path.write_text(tasks)
+            (env.spec_dir / REPORT_NAME).write_text(
+                "# Plan review\n\n## Summary\n\nBLOCKER: 0\n\n"
+                "## Reviewed inputs\n\n"
+                "| Input | Identity | Role |\n| --- | --- | --- |\n"
+                f"| plan.md | {identity(env.spec_dir / 'plan.md')} | technical strategy |\n"
+            )
         else:
             path.write_text("x\n")
 
 
 def _warn_without_holding(env: FixtureRepo) -> None:
-    """Turn a finished fixture into one that still warns, on a step and with
-    no fix line, so `warnings[].pass` and `warnings[].remedy` are recorded as
-    nullable.
+    """Turn a finished fixture into one that still warns, so `warnings[].pass`
+    and `warnings[].remedy` are each recorded as a string or null.
 
-    Every fixture staged through `tasks` already warns that its plan was never
-    reviewed, which is a pass's warning with a fix, and without a second kind
-    the contract would record both fields as never null. Clarify's warning is
-    the step-level one, reached by a spec with no `## Clarifications` section.
-    `decompose`'s is the one with no fix, reached by a configured tracker and
-    an Issue Grouping Map row with no key. Neither holds its step, so `current`
-    stays `null` in the fixture that needs it to.
+    It reaches three kinds, one of each shape the wire carries, and none of
+    them holds its step, so `current` stays `null` in the fixture that needs
+    it to. Clarify's warning is the step-level one, reached by a spec with no
+    `## Clarifications` section. `decompose`'s is the one with no fix, reached
+    by a configured tracker and an Issue Grouping Map row with no key. The
+    architecture pass's is the one naming a pass, reached by a proposed record
+    with no drawing; past specify the drawing check warns and holds nothing.
     """
     clarified = _clean_spec()
     (env.spec_dir / "spec.md").write_text(clarified[: clarified.index("## Clarifications")])
+    records = env.repo_root / "docs" / "architecture"
+    records.mkdir(parents=True)
+    (records / "a-decision.md").write_text(
+        "---\nstatus: proposed\ndiagram: component\n---\n\n# a-decision\n\n"
+        "## Log\n\n- 2026-09-26  proposed  x\n"
+    )
     trackers = env.repo_root / ".agents" / "trackers"
     trackers.mkdir(parents=True)
     (trackers / "custom.json").write_text(json.dumps({"verbs": {"list": ["true"]}}))

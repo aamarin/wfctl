@@ -41,7 +41,7 @@ the entry in its `sub_steps` whose `name` is `plan-review`, and read that entry'
 | --- | --- |
 | `in_progress`, annotation `N BLOCKER findings open`, and every checked input row matches its file now | revise |
 | `in_progress`, annotation `N BLOCKER findings open`, and a checked input row does not match its file now | review |
-| `in_progress` with no annotation, or with `the review records no plan.md identity`, `stale; plan.md changed since the review`, or `the review records no BLOCKER count` | review |
+| `in_progress` with no annotation, or with `no review recorded`, `the review records no plan.md identity`, `stale; plan.md changed since the review`, or `the review records no BLOCKER count` | review |
 | `done` | review of the same plan, which the method runs as a re-review when the plan copy matches and in full otherwise |
 | `skipped`, `pending`, or no `plan-review` entry at all | review |
 

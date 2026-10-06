@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
 from wfctl._pipeline import _infer_steps, _PipelineStep, build_report
 
 # The issue's file: a `tasks.md` a step wrote and no task in it.
@@ -33,9 +33,10 @@ def _feature(spec_tree: Callable[..., Path], tasks: str, **extra: str) -> Path:
 
     Everything upstream of `tasks` present and clean, because `_infer_steps`
     cascades — a feature missing `spec.md` reads `tasks pending` for a reason
-    that has nothing to do with what the file holds.
+    that has nothing to do with what the file holds. The plan review is
+    upstream too, since tasks with no review hold `plan`.
     """
-    return spec_tree(
+    feature = spec_tree(
         content={
             "spec.md": CLEAN_SPEC,
             "plan.md": CLEAN_PLAN,
@@ -44,6 +45,8 @@ def _feature(spec_tree: Callable[..., Path], tasks: str, **extra: str) -> Path:
             **extra,
         }
     )
+    write_plan_review(feature)
+    return feature
 
 
 def _states(feature: Path, repo_root: Path) -> dict[str, str]:
