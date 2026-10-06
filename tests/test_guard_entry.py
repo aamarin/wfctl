@@ -88,6 +88,55 @@ def test_a_command_naming_a_path_still_resolves_worktrees(
     assert calls == [str(REPO)]
 
 
+def test_the_spec_root_is_resolved_only_for_a_command_headed_for_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolving it can cost a third git subprocess, so it waits for a refusal.
+
+    Both orderings return the same exit codes, so only the call record can tell
+    a hook that resolves the spec root on every command naming a path from one
+    that resolves it when it might matter.
+    """
+    calls: list[str] = []
+
+    import wfctl._hook as hook
+
+    monkeypatch.setattr(hook, "worktree_roots", lambda cwd: ("/r/a", ["/r", "/r/a", "/r/b"]))
+    monkeypatch.setattr(hook, "resolved_spec_root", lambda here: calls.append(here) or None)
+
+    def guard(command: str) -> int:
+        return hook.worktree_guard(json.dumps({"cwd": "/r/a", "tool_input": {"command": command}}))
+
+    assert guard("cat /r/b/README.md") == 0
+    assert guard("rm -rf /r/a/build") == 0
+    assert calls == []
+
+    assert guard("rm -rf /r/b/build") == 2
+    assert calls == ["/r/a"]
+
+
+def test_the_refusal_path_never_imports_typer_or_rich() -> None:
+    """The import test above returns before `_guard` runs, so it cannot see this.
+
+    A refusal is the one path that imports `_paths`, to find the spec root, and
+    `_paths` reaching `cli` would put #135's cost back on exactly the commands
+    the guard exists to stop.
+    """
+    payload = json.dumps({"cwd": "/r/a", "tool_input": {"command": "rm -rf /r/b/build"}})
+    result = _run(
+        "import sys\n"
+        "import wfctl._hook as hook\n"
+        "hook.worktree_roots = lambda cwd: ('/r/a', ['/r', '/r/a', '/r/b'])\n"
+        f"print(hook.worktree_guard({payload!r}), file=sys.stderr)\n"
+        "loaded = {m for m in ('typer', 'rich', 'wfctl.cli') if m in sys.modules}\n"
+        "print(sorted(loaded), 'wfctl._paths' in sys.modules)\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.strip().endswith("2"), result.stderr
+    assert result.stdout.strip() == "[] True"
+
+
 def test_a_flag_on_the_subcommand_falls_through_to_typer() -> None:
     """`hook worktree-guard --help` must reach typer, not the fast path.
 

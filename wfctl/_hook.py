@@ -13,7 +13,9 @@ it then refused to use.
 
 So this module holds the decision's whole runtime and imports `json`,
 `subprocess`, `sys` and `wfctl._guard` — the last of which costs only `re`.
-`wfctl/_entry.py` is what reaches it without loading the CLI.
+`wfctl/_entry.py` is what reaches it without loading the CLI. A command already
+headed for a refusal also imports `wfctl._paths`, to find the spec root, and
+that path is rare enough to leave out of the measurement above.
 
 What none of this reaches is 27.1 ms of interpreter startup, which is the floor
 for a hook spawned per Bash call and is not worth another pass.
@@ -55,23 +57,28 @@ def worktree_roots(cwd: str) -> tuple[str, list[str]]:
     return here.strip(), roots
 
 
-def spec_roots(here: str) -> list[str]:
-    """The spec root `feature-paths` would hand a session in `here`, as a list.
+def resolved_spec_root(here: str) -> str | None:
+    """The spec root `feature-paths` would hand a session in `here`, or None.
 
-    The same `_paths.spec_root` call, so the guard exempts exactly the directory
-    an agent was told to write to and cannot drift from it. Empty when it cannot
-    be resolved, which leaves the guard as it was before the exemption existed.
-    A malformed manifest raises there on purpose, and that is right for a
-    command but wrong for a hook that runs before every Bash call.
+    The same `_paths.spec_root` call, so the guard exempts the directory an
+    agent was told to write to. It reads this process's environment, though,
+    and a `WFCTL_SPEC_DIR` set only inside the agent's shell does not reach it,
+    so the two can still disagree. When they do, the store is refused as it was
+    before the exemption existed, which is the safe direction.
+
+    None when it cannot be resolved. A malformed manifest raises there on
+    purpose, which is right for a command but wrong for a hook that runs before
+    every Bash call, and a manifest of the wrong shape raises `AttributeError`
+    or `TypeError` rather than a JSON error, hence the broad catch.
     """
     from pathlib import Path
 
     from wfctl._paths import spec_root
 
     try:
-        return [str(spec_root(Path(here)))]
+        return str(spec_root(Path(here)))
     except Exception:
-        return []
+        return None
 
 
 def worktree_guard(stdin_text: str | bytes) -> int:
@@ -125,7 +132,7 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # checkout's manifest, and nearly every command that names a path names one
     # in this worktree and was never going to need it.
     if message:
-        message = _guard.refusal(command, here, roots, shared=spec_roots(here))
+        message = _guard.refusal(command, here, roots, spec_root=resolved_spec_root(here))
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

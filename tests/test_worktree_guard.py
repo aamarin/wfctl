@@ -352,7 +352,7 @@ ROOTS_WITH_STORE = [*ROOTS, STORE]
 
 
 def refuses_with_store(command: str) -> bool:
-    return _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) is not None
+    return _guard.refusal(command, HERE, ROOTS_WITH_STORE, spec_root=STORE) is not None
 
 
 @pytest.mark.parametrize("command", [
@@ -391,26 +391,54 @@ def test_naming_the_spec_root_leaves_a_peer_refusal_unchanged() -> None:
     command = f"uv run pytest {OTHER}/tests"
     before = _guard.refusal(command, HERE, ROOTS)
     assert before is not None
-    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, spec_root=STORE) == before
 
 
 def test_a_read_under_the_spec_root_is_still_allowed() -> None:
+    """The exemption only ever removes refusals, and reads had none to remove."""
     assert not refuses_with_store(f"cat {STORE}/129-cross-worktree-guard/spec.md")
     assert not refuses_with_store(f"git -C {STORE} log --oneline")
 
 
-def test_a_worktree_inside_the_spec_root_is_still_a_peer() -> None:
-    """The exemption covers the spec root's own files, not every root below it.
+@pytest.mark.parametrize("spec_root", [MAIN, f"{MAIN}/wt", "/Users/dev"])
+def test_a_spec_root_holding_code_is_not_honoured(spec_root: str) -> None:
+    """A spec root declared too broadly cannot open the worktrees it covers.
 
-    Ownership is still the longest matching root, so a worktree checked out
-    inside the store owns its paths and is judged like any other peer. A spec
-    root declared too broadly cannot open the feature worktrees under it.
+    `"spec_root": "."` in the main checkout's manifest names the main checkout,
+    and `"wt"` names the directory every feature worktree sits in. Honoured,
+    either would turn `rm -rf` on a peer into an allowed write, so the guard
+    refuses exactly as it would with no spec root at all.
     """
-    nested = f"{STORE}/wt/105-mypy-cold-venv"
-    roots = [*ROOTS_WITH_STORE, nested]
-    message = _guard.refusal(f"rm -rf {nested}/wfctl", HERE, roots, shared=[STORE])
+    for command in (f"rm -rf {MAIN}/wfctl", f"rm -rf {OTHER}/src", f"rm -rf {MAIN}/wt"):
+        before = _guard.refusal(command, HERE, ROOTS)
+        assert before is not None, command
+        assert _guard.refusal(command, HERE, ROOTS, spec_root=spec_root) == before, command
+
+
+def test_the_main_checkout_is_never_the_spec_root() -> None:
+    """With worktrees kept beside the checkout rather than inside it, the main
+    checkout holds no other root, so only its place in the list says it is code.
+    `git worktree list` prints the main worktree first."""
+    main, here = "/Users/dev/project", "/Users/dev/project-wt/129-cross-worktree-guard"
+    roots = [main, here]
+    command = f"rm -rf {main}/wfctl"
+    assert _guard.refusal(command, here, roots, spec_root=main) == _guard.refusal(
+        command, here, roots
+    )
+
+
+def test_a_path_that_climbs_out_of_the_spec_root_is_judged_where_it_lands() -> None:
+    """`..` is text to this module, so the prefix alone would exempt it.
+
+    Before the exemption this was refused as a write to the store. Exempting it
+    on the prefix would have turned a refusal into an allow, so the exempt case
+    is normalised and refused as a write to the main checkout, where it lands.
+    """
+    command = f"rm -rf {STORE}/../project/wfctl"
+    message = _guard.refusal(command, HERE, ROOTS_WITH_STORE, spec_root=STORE)
     assert message is not None
-    assert "workmux send 105-mypy-cold-venv" in message
+    assert f"({MAIN})" in message
+    assert not refuses_with_store(f"mkdir -p {STORE}/a/../129-cross-worktree-guard")
 
 
 def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
@@ -423,8 +451,8 @@ def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
     shared = f"{MAIN}/specs"
     command = f"mkdir -p {shared}/129-cross-worktree-guard/reviews"
     assert _guard.refusal(command, HERE, ROOTS) is not None
-    assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) is None
-    assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, shared=[shared]) is not None
+    assert _guard.refusal(command, HERE, ROOTS, spec_root=shared) is None
+    assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, spec_root=shared) is not None
 
 
 def _store_layout(tmp_path: Path) -> tuple[Path, Path, Path]:

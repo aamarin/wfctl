@@ -494,6 +494,15 @@ Reading a sibling is ordinary review work and cannot cause the failure, so it
 stays allowed. Executing is not reading: `uv run pytest` over there writes a
 `.venv`, builds the package, and reports on a branch this session is not on.
 
+The spec root is the one exception. Every feature worktree writes its spec,
+plan, and reviews there because `wfctl feature-paths` tells it to, so the guard
+allows writes under the spec root `feature-paths` resolves, git commands in it
+included. That matters when the spec root is a worktree of its own, such as a
+`specs-trunk` checkout beside the project, which would otherwise be refused like
+any peer. The exemption covers the whole store, other features' spec dirs
+included. A spec root that is the main checkout, or that contains another
+worktree, gets no exemption.
+
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
 lands in `.claude/settings.json` — the merge mode below lists the rest:
 
