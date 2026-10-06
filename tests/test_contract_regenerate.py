@@ -75,11 +75,19 @@ def test_regenerate_cleans_up_its_throwaway_repos(
 
 
 def test_a_clean_tree_reports_no_change_and_writes_nothing() -> None:
+    """Restored like the cleanup test above, for its reason: on a tree whose
+    contract has not caught up, this run is the one that writes."""
     before = CONTRACT_PATH.read_bytes()
-    result = runner.invoke(app, ["contract", "regenerate"])
+    original_pipeline = PIPELINE_PATH.read_text()
+    try:
+        result = runner.invoke(app, ["contract", "regenerate"])
+        after = CONTRACT_PATH.read_bytes()
+    finally:
+        CONTRACT_PATH.write_bytes(before)
+        PIPELINE_PATH.write_text(original_pipeline)
     assert result.exit_code == 0
     assert "no change" in result.output
-    assert CONTRACT_PATH.read_bytes() == before
+    assert after == before
 
 
 def test_hold_version_moves_the_paths_and_leaves_the_version() -> None:

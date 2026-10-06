@@ -487,9 +487,9 @@ def _pass_states(
     all. `done` runs them in written order with a per-pass cascade exactly like
     the step-level one below it: the first pass that reads `in_progress` is
     where the cascade starts, and everything after it is `pending` without its
-    reader being called. A pass that reads `skipped` on its own account — such
-    as a plan review a feature planned before this pass existed never wrote —
-    does not start it, for the same reason a claim does not: neither is a pass
+    reader being called. A pass that reads `skipped` on its own account, which
+    no built-in reader returns today and a declared or future one may, does
+    not start it, for the same reason a claim does not: neither is a pass
     still outstanding, and a sibling's own evidence is a fact about that
     sibling, not about the one before it (#501). Inherited `skipped` is the
     other way `skipped` arrives, when the whole step passed by unevaluated, and

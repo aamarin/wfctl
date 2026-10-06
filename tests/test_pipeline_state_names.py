@@ -24,7 +24,8 @@ from typer.testing import CliRunner
 from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC, write_plan_review
 from wfctl import cli
 from wfctl.cli import app
-from wfctl._pipeline import PipelineReport, _infer_steps, build_report
+from wfctl._evidence import Assessment
+from wfctl._pipeline import PipelineReport, SubStep, _infer_steps, _pass_states, build_report
 
 # Every symbol the renderer can emit. Asserted against *values*, never source
 # text: `_pipeline.py` names these in comments, and `_verify` prints some of them
@@ -403,17 +404,11 @@ def test_a_claimed_plan_review_does_not_hide_a_declared_pass_after_it(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A feature planned before this pass existed has `tasks.md` and no
-    report, and `wfctl step none` is how it gets past `plan-review` (#542), so
-    the pass reads `skipped`. A repository's own `plan` pass listed after it
-    in `wfctl.json` must still get its own reader run. `skipped` is a pass's
-    own terminal reading and may not cascade to a sibling the way an
-    `in_progress` reading does (#501).
-
-    Reproduced directly against `_pass_states` before this test existed: with
-    the cascade keyed on `!= "done"` instead of `== "in_progress"`, a declared
-    pass whose own evidence already existed still read `pending`, because
-    `plan-review`'s `skipped` ran ahead of it in written order and suppressed
-    every reader after it.
+    report, and `wfctl step none` is how it gets past `plan-review` (#542). A
+    repository's own `plan` pass listed after it in `wfctl.json` must still
+    get its own reader run, since a claimed pass is not outstanding (#501).
+    The same rule for a pass whose own reader says `skipped` is pinned by the
+    test below, since this one never calls the claimed pass's reader.
     """
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"plan": [{"name": "extra-check", "manual": True, "evidence": "extra.md"}]}}
@@ -434,3 +429,17 @@ def test_a_claimed_plan_review_does_not_hide_a_declared_pass_after_it(
     sub_steps = {s["name"]: s["state"] for s in plan["sub_steps"]}
     assert sub_steps["plan-review"] == "skipped"
     assert sub_steps["extra-check"] == "done"
+
+
+def test_a_pass_that_reads_skipped_on_its_own_does_not_hide_the_next_one() -> None:
+    """The cascade is keyed on `in_progress`, never on "not done". No built-in
+    reader returns `skipped` since plan review stopped doing so (#542), so
+    this calls `_pass_states` with a stub that does. Keyed on `!= "done"`, the
+    pass after it reads `pending` without its reader being called, which is
+    what a plan review skipped this way once did to a declared pass (#501)."""
+    first = SubStep("first", "/first", "automatic", lambda ev: Assessment("skipped"))
+    second = SubStep("second", "/second", "automatic", lambda ev: Assessment("done"))
+
+    readings = _pass_states("plan", (first, second), types.SimpleNamespace(), "done", {})
+
+    assert [(r.name, r.state) for r in readings] == [("first", "skipped"), ("second", "done")]

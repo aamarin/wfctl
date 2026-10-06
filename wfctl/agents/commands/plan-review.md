@@ -45,6 +45,13 @@ the entry in its `sub_steps` whose `name` is `plan-review`, and read that entry'
 | `done` | review of the same plan, which the method runs as a re-review when the plan copy matches and in full otherwise |
 | `skipped`, `pending`, or no `plan-review` entry at all | review |
 
+`no review recorded` means `tasks.md` was written before any review of the
+plan, and the review runs as for any other `in_progress` reading. A feature
+planned before this pass existed reads the same way. For one of those, a person
+can decide the review is not wanted and run `wfctl step none plan.plan-review
+--reason "…"` instead; that is their call to make, so say the option and do not
+take it.
+
 Only the first row revises. A person runs this command on a `done` pass to have
 the plan reviewed again, most often after `spec.md` changed, and on a `pending`
 one only by hand, since the pipeline names `/plan-review` only once `plan` has
@@ -137,7 +144,8 @@ review cap counts as a review.
 
 The method names no pipeline, so the review run supplies these to it:
 
-1. The review sits after `plan` and before `tasks`. `analyze` runs later, over
+1. The review sits after `plan` and before `tasks`, and runs late when tasks
+   were written without it. `analyze` runs later, over
    `tasks.md`, and checks consistency across the three artifacts. This review
    does not do that job, and `analyze` does not do this one.
 2. `spec.md` marks an unresolved question with `[NEEDS CLARIFICATION`. A marker
