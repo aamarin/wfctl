@@ -342,3 +342,161 @@ def test_the_hook_blocks_with_exit_2_against_real_worktrees(tmp_path: Path) -> N
 
     assert run(f"cat {other}/README.md").exit_code == 0
     assert run("workmux send 105-mypy-cold-venv 'go'").exit_code == 0
+
+
+# The spec root as pfms lays it out: `specs-trunk` checked out beside the main
+# checkout, so `git worktree list` names it and every feature worktree's
+# `FEATURE_DIR` lands inside it.
+STORE = "/Users/dev/project-specs"
+ROOTS_WITH_STORE = [*ROOTS, STORE]
+
+
+def refuses_with_store(command: str) -> bool:
+    return _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) is not None
+
+
+@pytest.mark.parametrize("command", [
+    f"mkdir -p {STORE}/129-cross-worktree-guard/reviews",
+    f"cat > {STORE}/129-cross-worktree-guard/reviews/a.md <<'EOF'\nx\nEOF",
+    f"echo done > {STORE}/129-cross-worktree-guard/reviews/a.md",
+    f"git -C {STORE} add 129-cross-worktree-guard",
+    f"git -C {STORE} commit -m 'specs(129): reviews'",
+])
+def test_a_write_under_the_spec_root_is_allowed(command: str) -> None:
+    """`feature-paths` hands every feature worktree a `FEATURE_DIR` here.
+
+    Refusing it meant one wfctl component told the agent where to write and the
+    other blocked the write, pointing at a handoff to a session the store never
+    has. Each row is a form `fanning-out-code-review` or #359 reaches for.
+    """
+    assert not refuses_with_store(command)
+
+
+def test_the_spec_root_is_a_peer_when_nobody_names_it() -> None:
+    """The exemption comes from the caller, never from the root's shape.
+
+    Without it the store is one more worktree, which is exactly how a repo with
+    no spec root configured has always behaved.
+    """
+    command = f"mkdir -p {STORE}/129-cross-worktree-guard/reviews"
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE) is not None
+
+
+def test_naming_the_spec_root_leaves_a_peer_refusal_unchanged() -> None:
+    """A peer feature worktree is the boundary the guard exists for.
+
+    Byte-identical rather than merely refused, so the exemption cannot quietly
+    reword the handoff a peer still needs.
+    """
+    command = f"uv run pytest {OTHER}/tests"
+    before = _guard.refusal(command, HERE, ROOTS)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
+
+
+def test_a_read_under_the_spec_root_is_still_allowed() -> None:
+    assert not refuses_with_store(f"cat {STORE}/129-cross-worktree-guard/spec.md")
+    assert not refuses_with_store(f"git -C {STORE} log --oneline")
+
+
+def test_a_worktree_inside_the_spec_root_is_still_a_peer() -> None:
+    """The exemption covers the spec root's own files, not every root below it.
+
+    Ownership is still the longest matching root, so a worktree checked out
+    inside the store owns its paths and is judged like any other peer. A spec
+    root declared too broadly cannot open the feature worktrees under it.
+    """
+    nested = f"{STORE}/wt/105-mypy-cold-venv"
+    roots = [*ROOTS_WITH_STORE, nested]
+    message = _guard.refusal(f"rm -rf {nested}/wfctl", HERE, roots, shared=[STORE])
+    assert message is not None
+    assert "workmux send 105-mypy-cold-venv" in message
+
+
+def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
+    """A spec root need not be a worktree of its own.
+
+    Declared as `specs/` in the main checkout's manifest, it is an ordinary
+    gitignored directory there, so the main checkout owns it and every write from
+    a feature worktree used to read as a write to the main checkout.
+    """
+    shared = f"{MAIN}/specs"
+    command = f"mkdir -p {shared}/129-cross-worktree-guard/reviews"
+    assert _guard.refusal(command, HERE, ROOTS) is not None
+    assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) is None
+    assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, shared=[shared]) is not None
+
+
+def _store_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """The main checkout, a spec store beside it, and a feature worktree."""
+    main = git_repo(tmp_path / "project")
+    store = tmp_path / "project-specs"
+    feature = main / "wt" / "129-cross-worktree-guard"
+    for branch, path in (("specs-trunk", store), ("129-cross-worktree-guard", feature)):
+        subprocess.run(
+            ["git", "-C", str(main), "worktree", "add", "-b", branch, str(path)],
+            check=True, capture_output=True,
+        )
+    return main, store, feature
+
+
+def _hook(cwd: Path, command: str) -> Result:
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    return runner.invoke(app, ["hook", "worktree-guard"], input=payload)
+
+
+def test_the_hook_allows_the_spec_root_the_main_checkout_declares(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pfms reproduction, end to end against `git worktree list`.
+
+    The declaration sits in the main checkout's manifest, which is the only place
+    a fresh feature worktree can find it, so this also holds the hook to the same
+    resolution `feature-paths` uses rather than a copy of it.
+    """
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(store)}))
+
+    assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard/reviews").exit_code == 0
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 0
+
+    peer = _hook(feature, f"rm -rf {main}/README.md")
+    assert peer.exit_code == 2
+    assert "workmux send project " in (peer.stderr or peer.output)
+
+
+def test_the_hook_honours_the_spec_dir_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_SPEC_DIR` moves `FEATURE_DIR`, so it has to move the exemption too."""
+    _, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+
+    assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard").exit_code == 0
+
+
+def test_the_hook_refuses_the_store_when_no_spec_root_is_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing declared the spec root is `<worktree>/specs`, and the store
+    beside the checkout is a peer like any other: the behaviour before #365."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    _, store, feature = _store_layout(tmp_path)
+
+    refused = _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard")
+    assert refused.exit_code == 2
+    assert "workmux send project-specs" in (refused.stderr or refused.output)
+
+
+def test_an_unreadable_manifest_refuses_rather_than_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`spec_root` raises on a malformed manifest, which is right for a command
+    and wrong for a hook on every Bash call. Unresolvable means no exemption, so
+    the guard falls back to what it did before rather than to a traceback."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text("{not json")
+
+    assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard").exit_code == 2

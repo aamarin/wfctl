@@ -55,6 +55,25 @@ def worktree_roots(cwd: str) -> tuple[str, list[str]]:
     return here.strip(), roots
 
 
+def spec_roots(here: str) -> list[str]:
+    """The spec root `feature-paths` would hand a session in `here`, as a list.
+
+    The same `_paths.spec_root` call, so the guard exempts exactly the directory
+    an agent was told to write to and cannot drift from it. Empty when it cannot
+    be resolved, which leaves the guard as it was before the exemption existed.
+    A malformed manifest raises there on purpose, and that is right for a
+    command but wrong for a hook that runs before every Bash call.
+    """
+    from pathlib import Path
+
+    from wfctl._paths import spec_root
+
+    try:
+        return [str(spec_root(Path(here)))]
+    except Exception:
+        return []
+
+
 def worktree_guard(stdin_text: str | bytes) -> int:
     """The guard's exit code for one payload: 2 to refuse, 0 to allow.
 
@@ -101,6 +120,12 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     from wfctl import _guard
 
     message = _guard.refusal(command, here, roots)
+    # The spec root is resolved only once a command is already headed for a
+    # refusal. Resolving it can cost a third git subprocess, for the main
+    # checkout's manifest, and nearly every command that names a path names one
+    # in this worktree and was never going to need it.
+    if message:
+        message = _guard.refusal(command, here, roots, shared=spec_roots(here))
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

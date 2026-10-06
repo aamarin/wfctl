@@ -237,14 +237,29 @@ def _reads_only(segment: str) -> bool:
     return verb in _READ_VERBS
 
 
-def refusal(command: str, here: str, worktrees: Iterable[str]) -> str | None:
+def refusal(
+    command: str, here: str, worktrees: Iterable[str], shared: Iterable[str] = ()
+) -> str | None:
     """Why `command` may not run from `here`, or None if it may.
 
     `here` is the session's own worktree root; `worktrees` is every root git
     knows about, `here` included — it is what tells a sibling worktree apart
     from an ordinary subdirectory.
+
+    `shared` names directories every worktree writes to by design, and today
+    that is the spec root alone. `feature-paths` hands each feature worktree a
+    `FEATURE_DIR` inside it, and a store checked out beside the project shows up
+    in `git worktree list` like any peer, so without this the guard blocks the
+    write wfctl itself asked for.
+
+    A shared directory joins the ownership lookup as a root of its own, rather
+    than being dropped from the list. Dropped, a spec root inside the main
+    checkout would fall back to the main checkout as its owner and still be
+    refused. Joined, a worktree nested inside the spec root is still the longer
+    root, so it is still judged as a peer.
     """
-    roots = list(worktrees)
+    exempt = {s.rstrip("/") for s in shared}
+    roots = [*worktrees, *exempt]
 
     # Segment by segment, each judged against the paths *it* names. Judging the
     # whole command against a trespass found anywhere in it refuses the local
@@ -258,7 +273,7 @@ def refusal(command: str, here: str, worktrees: Iterable[str]) -> str | None:
                 (root, path)
                 for path in _ABS_PATH.findall(segment)
                 for root in [_owner(path.rstrip(".,:"), roots)]
-                if root and root != here
+                if root and root != here and root not in exempt
             ),
             None,
         )
