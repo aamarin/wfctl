@@ -269,18 +269,20 @@ def test_a_skipped_clarify_says_the_scan_never_ran(
     assert step.annotation == "scan never ran"
 
 
-def test_a_skipped_clarify_carries_no_reason(
+def test_a_skipped_clarify_carries_its_annotation_as_a_reason_with_a_fix(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
-    """Annotation only — the field's contract is arms setting `in_progress`.
+    """A reason on a `skipped` step is a warning, and a warning reaches every
+    view that routes. In `display` it reached `status` alone (#542).
 
-    A `skipped` step is never `_current_step_name`, so a reason set here would
-    reach no consumer: `next-step.md`'s `why:` and the report both read the
-    *current* step's reason. Putting it there would widen what `reason` means in
-    exchange for nothing observable.
+    The remedy comes from the step's own reading with no pass outstanding,
+    which is the roll-up arm only this reader takes. Dropped there, the
+    warning would print with no fix under it.
     """
     spec = spec_tree(content={"spec.md": FULL_SPEC, "plan.md": FULL_PLAN})
-    assert _step(spec, tmp_path, "clarify").reason is None
+    step = _step(spec, tmp_path, "clarify")
+    assert step.reason == CLARIFY_UNSCANNED
+    assert step.remedy == "  run /speckit.clarify"
 
 
 def test_a_scanned_clarify_carries_no_annotation(

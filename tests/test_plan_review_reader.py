@@ -566,7 +566,11 @@ def test_a_feature_at_implement_with_no_report_is_never_sent_to_the_review(
     auto-approve nothing stops the loop but the payload, so a single
     `/plan-review` from `resume` would run a review over a plan whose
     implementation is half done, and `status` has to agree with what `resume`
-    wrote."""
+    wrote.
+
+    The file still names `/plan-review`, as the fix under the warning that no
+    review was recorded (#542). So the check is on the command line alone, the
+    one line the loop acts on."""
     _planned_before_the_pass(storyctl_dir, "- [x] t1\n- [ ] t2\n", "analyze", "decompose")
     assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
 
@@ -574,7 +578,9 @@ def test_a_feature_at_implement_with_no_report_is_never_sent_to_the_review(
         result = runner.invoke(app, ["resume"])
         assert result.exit_code == 0, result.output
         written = (storyctl_dir.agent_dir / "next-step.md").read_text()
-        assert "/plan-review" not in written
+        command_line, *_ = written.splitlines()
+        assert "/plan-review" not in command_line
+        assert "warning: plan.plan-review: no review recorded" in written
 
         payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
         assert payload["current"] == "implement"

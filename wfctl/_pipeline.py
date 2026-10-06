@@ -256,7 +256,7 @@ MANUAL_PASS_WHY = "a person performs this pass"
 # that file, which `test_packaging.py` catches before release, cannot break a
 # caller that only ever asked the running command. The shipped file records
 # the same value; `test_status_contract.py` is what proves the two agree.
-STATUS_PAYLOAD_VERSION = "1.2"
+STATUS_PAYLOAD_VERSION = "1.3"
 
 # What `next` and `resume` name for a blocked design step: the step itself.
 #
@@ -436,6 +436,11 @@ def _infer_steps(
         # reason, as it was before a pass could say how it is cleared. A drawing
         # `accept` would refuse is the pass's other reason, and its fix names a
         # record only the pass knows, so the pass builds it and this copies it.
+        #
+        # With no pass outstanding, the step's own reader may have built one, as
+        # clarify does for its warning. It is kept only then: an outstanding pass
+        # has replaced the step's reason, and the step's fix would answer a
+        # reason that is no longer on the row.
         outstanding = next((s for s in step_state.sub_steps if s.state == "in_progress"), None)
         if outstanding is not None:
             step_state.state = "in_progress"
@@ -443,6 +448,8 @@ def _infer_steps(
             step_state.reason = outstanding.reason
         if outstanding is not None and outstanding.remedy:
             step_state.remedy = outstanding.remedy
+        elif outstanding is None and reading.remedy:
+            step_state.remedy = reading.remedy
         else:
             step_state.remedy = _design_remedy(step_state, repo_root)
         steps.append(step_state)

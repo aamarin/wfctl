@@ -2163,8 +2163,8 @@
     {
       "annotation": "scan never ran",
       "name": "clarify",
-      "reason": null,
-      "remedy": null,
+      "reason": "scan never ran",
+      "remedy": "  run /speckit.clarify",
       "state": "skipped"
     },
     {
@@ -2221,8 +2221,8 @@
     {
       "annotation": "scan never ran",
       "name": "clarify",
-      "reason": null,
-      "remedy": null,
+      "reason": "scan never ran",
+      "remedy": "  run /speckit.clarify",
       "state": "skipped"
     },
     {
