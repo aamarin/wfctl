@@ -2431,11 +2431,15 @@ def arch_check_cmd(
         # alone also matches `fatal: not a git repository: /nonexistent` — a
         # `.git` file pointing at a gitdir that is gone, which is a broken
         # repository and not the absence of one. Git prints the walk it did
-        # only when it really walked to the root and found nothing. English,
+        # only when it really walked to the root and found nothing, and words it
+        # two ways: `(or any of the parent directories)` when the walk reached
+        # `/`, and `(or any parent up to mount point /)` when it stopped at a
+        # filesystem boundary. The shared prefix `(or any` is the load-bearing
+        # part, since matching either full phrase alone misses the other. English,
         # and knowingly: an unrecognised message is refused rather than
         # exempted, so a translated git costs a false refusal and never a
         # false pass.
-        if "(or any of the parent directories)" in probe.stderr:
+        if "(or any" in probe.stderr:
             console.print(
                 "[yellow]ℹ[/yellow] No git repository here, so no change carries "
                 "this record and no\n  reviewer is waiting for it. Not a failure.",
@@ -3511,6 +3515,99 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
         and agent in _AGENT_SKILL_EXTRAS
         and item.stem in _MIRRORED_SKILLS
     )
+
+
+def _layered_targets(agent: str) -> list[tuple[str, str, str, str]]:
+    """Every (layer, kind, source, destination) an install for `agent` copies.
+
+    Base first, then the agent's own layer, then the repo-level runtime. An agent
+    install is additive — it never replaces the base — and the runtime is
+    agent-independent, so it belongs to base too. Shared by `install-skills` and by
+    `doctor`'s dropped-path check, so what doctor calls shipped is read from the
+    list the installer walks and not from a second copy of it.
+    """
+    return [
+        *((_BASE_LAYER, _kind_of(s), s, d) for s, d in _BASE_TARGETS),
+        *((agent, _kind_of(s), s, d) for s, d in _AGENT_TARGETS.get(agent, [])),
+        *((_BASE_LAYER, "runtime", s, d) for s, d in _RUNTIME_TARGETS),
+    ]
+
+
+def _plan_source(
+    repo_root: Path, layer: str, agent: str, src_rel: str, dst_rel: str, src: Path
+) -> list[tuple[str, str, str, Path, Path]]:
+    """What one source directory contributes to an install for `agent`, as
+    `(layer, kind, rel_dest, dest, item)` rows.
+
+    The decisions the filesystem does not record live here: a wrapper the agent's
+    mirror supersedes is left out, and a mirrored skill adds a second row under the
+    agent's native path. `doctor` asks this function whether a recorded path would
+    still be written, because the bundle holding the source file says nothing about
+    either rule, and neither is covered by the bundle hash.
+    """
+    rows: list[tuple[str, str, str, Path, Path]] = []
+    for item in src.iterdir():
+        if _mirror_supersedes_wrapper(layer, agent, src_rel, item):
+            continue
+        dest = repo_root / dst_rel / item.name
+        rows.append(
+            (layer, _kind_of(src_rel, item), str(dest.relative_to(repo_root)), dest, item)
+        )
+        if src_rel == "agents/skills":
+            extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
+            extra = extra_fn(repo_root, item) if extra_fn else None
+            if extra:
+                # An extra mirror is the agent's own, even though its source is
+                # a base-layer path.
+                extra_rel, extra_dest, extra_item = extra
+                rows.append((agent, "skill", extra_rel, extra_dest, extra_item))
+    return rows
+
+
+_TRACKER_DIR = ".agents/trackers"
+
+
+def _planned_dirs() -> set[str]:
+    """Every directory an install plan writes directly into, the Claude skill
+    mirror included, which no `_AGENT_TARGETS` pair produces."""
+    return {
+        _CLAUDE_NATIVE_SKILL_ROOT,
+        *(dst for agent in _AGENT_TARGETS for _, _, _, dst in _layered_targets(agent)),
+    }
+
+
+def _installer_destinations(repo_root: Path, manifest: dict) -> dict[str, set[str]]:
+    """Per recorded layer, the paths an install run today would write, read from
+    the installer's own planning and not from the bundle's file listing.
+
+    One plan per recorded agent plus one for base alone, since a layer's rows
+    depend on which agent the run names (the mirror and its suppression rule are
+    per agent). Tracker files are added to base by name: they are copied by a
+    branch of `install_skills_cmd` outside the target tables, and the set it
+    carries forward for a recorded backend is `_GITHUB_TRACKER_FILES`, not what
+    the bundle holds, so a file the bundle lost while the constant still names it
+    is a broken bundle the installer warns about and not a path it dropped.
+    """
+    bundle_root = _bundle.BUNDLE_ROOT
+    agents = [k for k in _layer_keys(manifest) if k != _BASE_LAYER and k in _AGENT_TARGETS]
+    out: dict[str, set[str]] = {}
+    for agent in ("none", *agents):
+        for layer, _kind, src_rel, dst_rel in _layered_targets(agent):
+            src = bundle_root / src_rel
+            if not src.is_dir():
+                continue
+            for row_layer, _k, rel_dest, _dest, _item in _plan_source(
+                repo_root, layer, agent, src_rel, dst_rel, src
+            ):
+                out.setdefault(row_layer, set()).add(rel_dest)
+    # Only the recorded backend's files: the installer carries forward
+    # `_tracker_files(manifest["tracker"])` and nothing else, so another
+    # backend's recorded file is not one it would write, whatever the constant says.
+    tracker = manifest.get("tracker")
+    out.setdefault(_BASE_LAYER, set()).update(
+        f"{_TRACKER_DIR}/{f}" for f in (_tracker_files(tracker) if tracker else ())
+    )
+    return out
 
 
 def _read_settings(path: Path) -> tuple[dict | None, str | None]:
@@ -4672,17 +4769,8 @@ def install_skills_cmd(
     # Tracker config is deliberately excluded: it's project-owned,
     # user-editable, and meant to be committed.
     gitignore_targets: list[str] = []
-    # Base layer first, then the agent's own layer, then the repo-level
-    # runtime. An agent install is additive — it never replaces the base.
-    # The runtime is agent-independent, so it belongs to base too.
-    layered = [
-        *((_BASE_LAYER, _kind_of(s), s, d) for s, d in _BASE_TARGETS),
-        *((agent, _kind_of(s), s, d) for s, d in targets),
-        *((_BASE_LAYER, "runtime", s, d) for s, d in _RUNTIME_TARGETS),
-    ]
-    for layer, kind, src_rel, dst_rel in layered:
+    for layer, kind, src_rel, dst_rel in _layered_targets(agent):
         src = bundle_root / src_rel
-        dst = repo_root / dst_rel
         if not src.exists():
             # Two ways to arrive here, and they blame opposite parties. Without
             # `--from` the bundle ships with the package, so a missing tree means
@@ -4701,27 +4789,12 @@ def install_skills_cmd(
                 soft_wrap=True,
             )
             continue
-        for item in src.iterdir():
-            if _mirror_supersedes_wrapper(layer, agent, src_rel, item):
-                continue
-            dest = dst / item.name
-            rel_dest = str(dest.relative_to(repo_root))
-            plan.append((layer, _kind_of(src_rel, item), rel_dest, dest, item))
-            gitignore_targets.append(rel_dest)
-            if dest.exists() and rel_dest not in prior_items:
-                foreign_overwrites.append((layer, rel_dest))
-
-            if src_rel == "agents/skills":
-                extra_fn = _AGENT_SKILL_EXTRAS.get(agent)
-                extra = extra_fn(repo_root, item) if extra_fn else None
-                if extra:
-                    # An extra mirror is the agent's own, even though its
-                    # source is a base-layer path.
-                    extra_rel, extra_dest, extra_item = extra
-                    plan.append((agent, "skill", extra_rel, extra_dest, extra_item))
-                    gitignore_targets.append(extra_rel)
-                    if extra_dest.exists() and extra_rel not in prior_items:
-                        foreign_overwrites.append((agent, extra_rel))
+        for row in _plan_source(repo_root, layer, agent, src_rel, dst_rel, src):
+            plan.append(row)
+            row_layer, _, row_rel, row_dest, _ = row
+            gitignore_targets.append(row_rel)
+            if row_dest.exists() and row_rel not in prior_items:
+                foreign_overwrites.append((row_layer, row_rel))
 
     # 'github' is the only tracker the bundle ships; copy the files it is made
     # of. More than the config, because a board write is two API calls and a
@@ -7186,6 +7259,50 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
         if i.get("orphaned") and (repo_root / i["path"]).exists()
     }
 
+    # A third source of evidence: a path the manifest records that an install run
+    # today would not write — the gap between a bundle update and the next
+    # `install-skills`, which would flag it `orphaned` itself. Catching it here
+    # lets `doctor` name the file instead of only saying the skills are stale.
+    #
+    # The question is "would the installer write this path", asked of the
+    # installer's own planning (`_plan_source`) rather than of the bundle's file
+    # listing. The two differ wherever the installer decides something the
+    # filesystem does not record: a wrapper its mirror supersedes still sits in
+    # the bundle, and `content_hash` does not cover that rule, so a layer can read
+    # current while two registrations for one slash command stay on disk.
+    #
+    # Skipped: paths already in `flagged`; paths the reader deleted; layers
+    # installed from a `--from` source, whose checkout cannot be walked from here;
+    # and paths outside every planned directory, such as merged settings entries,
+    # which no plan produces and so cannot be judged by one.
+    would_install = _installer_destinations(repo_root, manifest)
+    # Membership is asked of every layer's plan, not the recorded layer's: a
+    # manifest from before the layer split filed `.agents/*` under the agent key,
+    # and the installer's own orphan diff is unkeyed for the same reason. The
+    # recorded layer is still what names the repair below.
+    planned_anywhere = set().union(*would_install.values())
+    planned_dirs = _planned_dirs()
+    not_in_bundle: dict[str, str] = {}  # dest_path -> layer
+    dropped_trackers: dict[str, str] = {}
+    for layer in _layer_keys(manifest):
+        if manifest[layer].get("source"):
+            continue
+        for item in manifest[layer].get("items", ()):
+            dest = item["path"]
+            if item.get("orphaned") or dest in flagged:
+                continue
+            if not (repo_root / dest).exists():
+                continue
+            if str(Path(dest).parent) == _TRACKER_DIR:
+                # Not in any target table: `install_skills_cmd` copies these from
+                # their own branch, and only when a tracker is chosen. Their
+                # repair differs too, so they are kept apart below.
+                if dest not in would_install.get(_BASE_LAYER, ()):
+                    dropped_trackers[dest] = layer
+            elif str(Path(dest).parent) in planned_dirs:
+                if dest not in planned_anywhere:
+                    not_in_bundle[dest] = layer
+
     # Kept as (destination, path) pairs, because which destination a candidate
     # came from is what says whether `_scan_owns` proved anything about it.
     found = sorted(
@@ -7237,7 +7354,10 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # Only paths wfctl can show are its own return a finding. Exiting 1 on the
     # rest meant a repo keeping one skill of its own could never have a green
     # `doctor`, and the remedy offered for that was to delete the skill.
-    abandoned = sorted({*flagged, *proven})
+    # `not_in_bundle` and `dropped_trackers` join here: they are equally proven —
+    # the manifest says wfctl installed them, and the installer's plan says it
+    # would not write them today.
+    abandoned = sorted({*flagged, *proven, *not_in_bundle, *dropped_trackers})
     if not abandoned:
         return False
 
@@ -7245,7 +7365,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     console.print(
         f"[yellow]⚠[/yellow] {len(abandoned)} installed "
         f"{'path is' if one else 'paths are'} no longer shipped — "
-        f"renamed or dropped upstream:"
+        f"renamed, dropped, or no longer installed for their layer:"
     )
     for path in abandoned:
         console.print(f"    {escape(path)}", soft_wrap=True)
@@ -7262,7 +7382,13 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # source path holding a space printed as two arguments.
     import shlex
 
-    for layer in sorted(set(flagged.values())):
+    # A dropped tracker file takes the same line as any other path. `--tracker
+    # github` would be wrong here: it rewrites all four files and takes no backup
+    # for a path already on record, so a hand-edited `github.json` would go with
+    # no way back. A plain prune is enough, because the installer carries forward
+    # only the recorded backend's current files and orphans the rest.
+    all_flagged_layers = {**flagged, **not_in_bundle, **dropped_trackers}
+    for layer in sorted(set(all_flagged_layers.values())):
         source = manifest[layer].get("source")
         frm = f" --from {escape(shlex.quote(source))}" if source else ""
         # soft_wrap for the same reason the path lines have it: this is a line
@@ -7275,7 +7401,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     if proven:
         console.print(
             "    Delete the rest by hand once you've checked nothing needs them."
-            if flagged
+            if all_flagged_layers
             else f"    Delete {'it' if one else 'them'} by hand once you've "
             f"checked nothing needs {'it' if one else 'them'}."
         )
