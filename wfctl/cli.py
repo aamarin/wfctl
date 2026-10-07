@@ -3532,8 +3532,12 @@ def _installer_destinations(repo_root: Path, manifest: dict) -> dict[str, set[st
                 repo_root, layer, agent, src_rel, dst_rel, src
             ):
                 out.setdefault(row_layer, set()).add(rel_dest)
+    # Only the recorded backend's files: the installer carries forward
+    # `_tracker_files(manifest["tracker"])` and nothing else, so another
+    # backend's recorded file is not one it would write, whatever the constant says.
+    tracker = manifest.get("tracker")
     out.setdefault(_BASE_LAYER, set()).update(
-        f"{_TRACKER_DIR}/{f}" for f in _GITHUB_TRACKER_FILES
+        f"{_TRACKER_DIR}/{f}" for f in (_tracker_files(tracker) if tracker else ())
     )
     return out
 
@@ -7162,6 +7166,12 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # and paths outside every planned directory, such as merged settings entries,
     # which no plan produces and so cannot be judged by one.
     would_install = _installer_destinations(repo_root, manifest)
+    # Membership is asked of every layer's plan, not the recorded layer's: a
+    # manifest from before the layer split filed `.agents/*` under the agent key,
+    # and the installer's own orphan diff is unkeyed for the same reason. The
+    # recorded layer is still what names the repair below.
+    planned_anywhere = set().union(*would_install.values())
+    planned_dirs = _planned_dirs()
     not_in_bundle: dict[str, str] = {}  # dest_path -> layer
     dropped_trackers: dict[str, str] = {}
     for layer in _layer_keys(manifest):
@@ -7179,8 +7189,8 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
                 # repair differs too, so they are kept apart below.
                 if dest not in would_install.get(_BASE_LAYER, ()):
                     dropped_trackers[dest] = layer
-            elif str(Path(dest).parent) in _planned_dirs():
-                if dest not in would_install.get(layer, ()):
+            elif str(Path(dest).parent) in planned_dirs:
+                if dest not in planned_anywhere:
                     not_in_bundle[dest] = layer
 
     # Kept as (destination, path) pairs, because which destination a candidate
@@ -7245,7 +7255,7 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     console.print(
         f"[yellow]⚠[/yellow] {len(abandoned)} installed "
         f"{'path is' if one else 'paths are'} no longer shipped — "
-        f"renamed or dropped upstream:"
+        f"renamed, dropped, or no longer installed for their layer:"
     )
     for path in abandoned:
         console.print(f"    {escape(path)}", soft_wrap=True)
@@ -7262,11 +7272,12 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     # source path holding a space printed as two arguments.
     import shlex
 
-    # A tracker path is repaired by `--tracker github`, not by the layer line: a
-    # bare install fills a missing tracker file and never refreshes a present one,
-    # so the layer repair would write a new bundle hash, report green, and leave
-    # the obsolete file where it was.
-    all_flagged_layers = {**flagged, **not_in_bundle}
+    # A dropped tracker file takes the same line as any other path. `--tracker
+    # github` would be wrong here: it rewrites all four files and takes no backup
+    # for a path already on record, so a hand-edited `github.json` would go with
+    # no way back. A plain prune is enough, because the installer carries forward
+    # only the recorded backend's current files and orphans the rest.
+    all_flagged_layers = {**flagged, **not_in_bundle, **dropped_trackers}
     for layer in sorted(set(all_flagged_layers.values())):
         source = manifest[layer].get("source")
         frm = f" --from {escape(shlex.quote(source))}" if source else ""
@@ -7277,17 +7288,10 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
             f"`wfctl install-skills{_agent_flag(layer)}{frm} --prune`.",
             soft_wrap=True,
         )
-    if dropped_trackers:
-        layer = next(iter(dropped_trackers.values()))
-        console.print(
-            f"    Remove the tracker one(s) with "
-            f"`wfctl install-skills{_agent_flag(layer)} --tracker github --prune`.",
-            soft_wrap=True,
-        )
     if proven:
         console.print(
             "    Delete the rest by hand once you've checked nothing needs them."
-            if all_flagged_layers or dropped_trackers
+            if all_flagged_layers
             else f"    Delete {'it' if one else 'them'} by hand once you've "
             f"checked nothing needs {'it' if one else 'them'}."
         )

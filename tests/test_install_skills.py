@@ -1523,17 +1523,43 @@ def test_doctor_reports_a_wrapper_the_claude_layer_no_longer_installs(
     assert runner.invoke(app, ["doctor"]).exit_code == 0, "the printed repair clears it"
 
 
+def test_doctor_is_silent_on_a_pre_layer_manifest(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """A repo installed before the layer split is not reported as having dropped paths.
+
+    That manifest records every `.agents/*` path under the agent key, while the
+    installer now plans those same paths as `base`. A check that only asks the
+    recorded layer's plan reads each still-shipped path as dropped, and doctor
+    exits 1 on a valid install. The installer's own orphan diff is not keyed by
+    layer for the same reason.
+    """
+    repo_root = agent_dir.parent
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    legacy_items = [i for entry in manifest.values() for i in entry.get("items", [])]
+    manifest_file.write_text(
+        json.dumps({"claude": {**manifest["claude"], "items": legacy_items}})
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "no longer shipped" not in result.output, result.output
+    assert ".agents/commands/test-cmd.md" not in result.output
+
+
 def test_doctor_reports_a_tracker_file_the_backend_no_longer_ships(
     bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Tracker files are copied by their own branch of the installer, in none of
     the target tables, so a check built from the tables skips them without a word.
 
-    The remedy is the second half. A bare `install-skills` fills a missing tracker
-    file and never refreshes a present one, so the generic repair would write a new
-    bundle hash, report green, and leave the obsolete file on disk. The line has to
-    say `--tracker github`, and carry `--prune` because the install only names a
-    dropped path without it.
+    The remedy is the second half. The line has to be a plain prune, not
+    `--tracker github`: that rewrites every tracker file and takes no backup for a
+    path already on record, so a hand-edited `github.json` would be lost. The
+    installer carries forward only the recorded backend's current files, so a
+    prune alone orphans the dropped one and leaves the edit in place.
     """
     repo_root = agent_dir.parent
     trackers_src = bundle / "agents" / "trackers"
@@ -1554,14 +1580,69 @@ def test_doctor_reports_a_tracker_file_the_backend_no_longer_ships(
     assert ".agents/trackers/github-board.sh" in result.output
     assert ".agents/trackers/github.json" not in result.output, "still shipped"
     assert "no longer shipped" in result.output
-    assert "install-skills --tracker github --prune" in result.output
+    assert "install-skills --prune" in result.output
+    assert "--tracker" not in result.output
     assert result.exit_code == 1
 
-    runner.invoke(app, ["install-skills", "--tracker", "github", "--prune", "--yes"])
+    edited = repo_root / ".agents" / "trackers" / "github.json"
+    edited.write_text(json.dumps({"verbs": {}, "hand_edited": True}))
+    runner.invoke(app, ["install-skills", "--prune", "--yes"])
+
+    assert "hand_edited" in edited.read_text(), "the repair must not overwrite an edit"
 
     assert not (repo_root / ".agents" / "trackers" / "github-board.sh").exists()
     assert (repo_root / ".agents" / "trackers" / "github.json").exists()
     assert runner.invoke(app, ["doctor"]).exit_code == 0, "the printed repair clears it"
+
+
+def test_doctor_is_silent_when_the_bundle_loses_a_tracker_file_the_constant_names(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tracker file missing from the bundle while the installer still names it is
+    a broken bundle, which the installer warns about, and not a path it dropped.
+
+    Reporting it as dropped would offer a prune that deletes a file wfctl still
+    ships.
+    """
+    repo_root = agent_dir.parent
+    trackers_src = bundle / "agents" / "trackers"
+    trackers_src.mkdir(parents=True, exist_ok=True)
+    (trackers_src / "github.json").write_text(json.dumps({"verbs": {}}))
+    (trackers_src / "github-board.sh").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(
+        "wfctl.cli._GITHUB_TRACKER_FILES", ("github.json", "github-board.sh")
+    )
+    runner.invoke(app, ["install-skills", "--tracker", "github", "--yes"])
+    (trackers_src / "github-board.sh").unlink()
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "no longer shipped" not in result.output, result.output
+    assert (repo_root / ".agents" / "trackers" / "github-board.sh").exists()
+
+
+def test_doctor_reports_a_tracker_file_of_a_backend_that_is_no_longer_recorded(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The installer carries forward only the recorded backend's files, so a
+    github file left on record after the manifest names another backend is one it
+    would no longer write, and the plain prune repairs it.
+    """
+    repo_root = agent_dir.parent
+    trackers_src = bundle / "agents" / "trackers"
+    trackers_src.mkdir(parents=True, exist_ok=True)
+    (trackers_src / "github.json").write_text(json.dumps({"verbs": {}}))
+    runner.invoke(app, ["install-skills", "--tracker", "github", "--yes"])
+    manifest_file = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest["tracker"] = "jira"
+    manifest_file.write_text(json.dumps(manifest))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert ".agents/trackers/github.json" in result.output
+    assert "--tracker" not in result.output
+    assert result.exit_code == 1
 
 
 def test_doctor_skips_bundle_check_for_from_source_layers(
