@@ -92,7 +92,6 @@ def content_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
-
 def resolve_root(path: Path) -> Path:
     """Turn a user-supplied path into a validated, absolute bundle root.
 
