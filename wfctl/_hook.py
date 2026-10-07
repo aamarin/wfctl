@@ -87,6 +87,61 @@ def shared_roots(here: str) -> list[str | None]:
     return found
 
 
+def committable(here: str, shared: list[str | None]) -> list[str]:
+    """The shared roots where a commit lands on a branch of the store's own.
+
+    Asked of git rather than read from the path, because git picks the
+    repository from files inside the root. A root qualifies when it belongs to
+    another repository than `here`, or when it has a branch checked out that no
+    other worktree of this project has. A plain `<main>/specs` fails, since git
+    there finds the main checkout and its branch, and so does a store whose
+    `.git` was replaced to point at the main checkout's.
+
+    This reads the hook's environment, so a `GIT_DIR` exported only in the
+    agent's shell is not seen, the same limit `shared_roots` states.
+    """
+    import os
+    import subprocess
+
+    def git(cwd: str, *args: str) -> str | None:
+        try:
+            out = subprocess.run(
+                ["git", "-C", cwd, *args], capture_output=True, text=True, check=True
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return out.stdout.strip()
+
+    def common_dir(cwd: str) -> str | None:
+        found = git(cwd, "rev-parse", "--git-common-dir")
+        return os.path.realpath(os.path.join(cwd, found)) if found else None
+
+    ours = common_dir(here)
+    # Each porcelain block names one worktree and, unless it is detached, the
+    # branch it has checked out.
+    checked_out: list[tuple[str, str]] = []
+    for block in (git(here, "worktree", "list", "--porcelain") or "").split("\n\n"):
+        fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
+        if "worktree" in fields and "branch" in fields:
+            checked_out.append((os.path.realpath(fields["worktree"]), fields["branch"]))
+    found: list[str] = []
+    for root in shared:
+        if not root or not os.path.isdir(root):
+            continue
+        real = os.path.realpath(root)
+        theirs = common_dir(root)
+        if theirs is None:
+            continue
+        if theirs != ours:
+            found.append(root)
+            continue
+        branch = git(root, "symbolic-ref", "-q", "HEAD")
+        taken = {b for path, b in checked_out if path != real}
+        if branch and branch not in taken:
+            found.append(root)
+    return found
+
+
 def worktree_guard(stdin_text: str | bytes) -> int:
     """The guard's exit code for one payload: 2 to refuse, 0 to allow.
 
@@ -138,8 +193,12 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # checkout's manifest and for the project name, and nearly every command
     # that names a path names one in this worktree and was never going to need
     # either.
+    # Whether a root takes commits costs three more, so it is asked only of a
+    # command that runs git at all.
     if message:
-        message = _guard.refusal(command, here, roots, shared=shared_roots(here))
+        shared = shared_roots(here)
+        commits = committable(here, shared) if "git" in command else []
+        message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

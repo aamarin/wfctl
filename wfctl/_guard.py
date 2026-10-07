@@ -92,10 +92,17 @@ one. That means:
 
     writes      mkdir, touch, cp, mv, rm, tee, and echo, cat, or printf
                 with a redirect. `bash <store>/x.sh` is running the store,
-                not writing it, and gets no exemption. Neither does git:
-                which repository it commits to is decided by files inside
-                the store, which the text cannot show, and a store whose
-                `.git` was replaced commits to the main checkout's branch.
+                not writing it, and gets no exemption.
+    commits     `git -C <root> add` or `commit`, and only in a root the
+                caller has asked git about. Which branch a commit lands on
+                is decided by files inside the store, which the text cannot
+                show: with a plain `<main>/specs` it is the main checkout's,
+                and with a `.git` replaced in the store it is whatever the
+                replacement names. So the caller asks git, and passes in the
+                roots whose commits land in a repository of their own or on
+                a branch no other worktree has checked out. Nothing but
+                reads may sit beside the commit, since a write in the same
+                command could replace that `.git` after the caller asked.
     the text    no `$`, backtick, or backslash outside single quotes, and
                 no glob, brace, parenthesis, `~`, or `#` outside any quotes,
                 so nothing the shell would rewrite or skip is taken at its
@@ -161,6 +168,11 @@ _WORKMUX_OK = frozenset({
 # --directory` out of reach of any check on the text. echo, cat, and printf
 # write only through a redirect, and a redirect target is a path like any other.
 _WRITE_VERBS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "tee", "echo", "cat", "printf"})
+
+# The git writes a spec commit needs, and the only ones exempt. Neither runs
+# anything a session names, and neither moves a ref other than the branch the
+# root has checked out.
+_GIT_WRITES = frozenset({"add", "commit"})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -525,22 +537,50 @@ def _stays(path: str, here: str, roots: list[str], within: set[str]) -> bool:
     return True
 
 
-def _exempt(command: str, here: str, roots: list[str], exempt: set[str]) -> bool:
+def _commit_target(words: list[str]) -> str | None:
+    """Where `git -C <path> add|commit …` commits, resolved, or None.
+
+    Only that spelling, with `-C` as git's sole option. `-c`, `--git-dir` and
+    `--work-tree` each move the repository or run something, and a second `-C`
+    moves the first.
+    """
+    if len(words) < 4 or words[:2] != ["git", "-C"] or words[3] not in _GIT_WRITES:
+        return None
+    if not posixpath.isabs(words[2]):
+        return None
+    return posixpath.realpath(words[2])
+
+
+def _exempt(
+    command: str, here: str, roots: list[str], exempt: set[str], committable: set[str],
+) -> bool:
     """Whether `command` only writes where a shared root lets it.
 
-    Each simple command must be a write from the allowlist, or a read
-    `_reads_only` accepts, and nothing else: a `cd` earlier in the command moves
-    where every relative path after it lands, and `uv run` executes whatever it
-    finds. Its paths must then stay in a shared root, this worktree, or no
-    worktree, unless it is a read with no redirect, which may name any worktree
-    as it always could. One that fails declines the exemption for the whole
-    command, and `refusal()` then judges it as if nothing were shared.
+    Each simple command must be a write from the allowlist, a commit into a root
+    in `committable`, or a read `_reads_only` accepts, and nothing else: a `cd`
+    earlier in the command moves where every relative path after it lands, and
+    `uv run` executes whatever it finds. Its paths must then stay in a shared
+    root, this worktree, or no worktree, unless it is a read with no redirect,
+    which may name any worktree as it always could. One that fails declines the
+    exemption for the whole command, and `refusal()` then judges it as if
+    nothing were shared.
+
+    A commit is checked against `committable` exactly, not as a prefix: a
+    `<root>/129` could hold a `.git` of its own that the caller never asked
+    about.
     """
     simple = _commands(command)
     if simple is None:
         return False
 
-    for s in simple:
+    commits = [_commit_target(s.words) for s in simple]
+    if any(commits):
+        if not all(c in committable for c in commits if c):
+            return False
+        if not all(c or _reads_only(" ".join(s.words)) for s, c in zip(simple, commits)):
+            return False
+
+    for s, commit in zip(simple, commits):
         named = s.words + s.reads + s.writes
         # A relative `..` lands wherever the command started, which the text
         # does not say. Judging only its own simple command is not enough: the
@@ -551,7 +591,7 @@ def _exempt(command: str, here: str, roots: list[str], exempt: set[str]) -> bool
         if any(_climbs(w) or ".git" in re.split(r"[/=:]", w.casefold()) for w in named):
             return False
         reads = _reads_only(" ".join(s.words))
-        if not reads and (not s.words or s.words[0] not in _WRITE_VERBS):
+        if not reads and not commit and (not s.words or s.words[0] not in _WRITE_VERBS):
             return False
 
         def stays(word: str) -> bool:
@@ -567,7 +607,11 @@ def _exempt(command: str, here: str, roots: list[str], exempt: set[str]) -> bool
 
 
 def refusal(
-    command: str, here: str, worktrees: Iterable[str], shared: Iterable[str | None] = ()
+    command: str,
+    here: str,
+    worktrees: Iterable[str],
+    shared: Iterable[str | None] = (),
+    committable: Iterable[str] = (),
 ) -> str | None:
     """Why `command` may not run from `here`, or None if it may.
 
@@ -582,10 +626,16 @@ def refusal(
     well as one that is a worktree of its own. Any other command is judged
     against `worktrees` alone, exactly as with nothing shared. A None entry is a
     root that could not be resolved, and exempts nothing.
+
+    `committable` holds the shared roots where the caller found that git
+    commits to a branch of the store's own. It is a question about the
+    filesystem, which this module does not ask, and a root missing from it
+    gets no commit exemption.
     """
     roots = list(worktrees)
     exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
-    if exempt and _exempt(command, here, roots, exempt):
+    commits = {posixpath.realpath(c) for c in committable} & exempt
+    if exempt and _exempt(command, here, roots, exempt, commits):
         return None
 
     # Segment by segment, each judged against the paths *it* names. Judging the
@@ -610,6 +660,11 @@ def refusal(
         )
         if trespass is None:
             continue
+        target = _commit_target(segment.split())
+        for pool in (commits, exempt):
+            store = next((s for s in pool if target and _owner(target, [s])), None)
+            if store:
+                return _commit_message(store, store in commits)
         if _WRITE_REDIRECT.search(segment):
             why = "it redirects output"
         elif not _reads_only(segment):
@@ -618,6 +673,31 @@ def refusal(
             continue
         return _message(here, *trespass, why)
     return None
+
+
+def _commit_message(store: str, committable: bool) -> str:
+    """The refusal for a commit into a shared root, which no handoff fixes.
+
+    A store has no session to hand off to, so the generic message's remedy is
+    wrong here. What the agent can act on is either the spelling, when the root
+    takes commits, or the layout, which is the user's to change.
+    """
+    if committable:
+        return (
+            f"Refused: a commit into {store} is allowed only when it is written "
+            f"plainly, as `git -C {store} add <path>` or `git -C {store} commit "
+            f"-m '…'`, with nothing beside it but reads: no `$`, no glob, no other "
+            f"git option, and no other write in the same command.\n"
+            f"Run the writes first, then the commit as a command of its own."
+        )
+    return (
+        f"Refused: a commit in {store} would not land on a branch of its own, so "
+        f"it could land on this project's branch instead.\n"
+        f"Specs can be committed from a feature worktree only when the spec root "
+        f"is its own repository, or a worktree on a branch no other worktree has "
+        f"checked out, such as `specs-trunk`. Ask the user to commit it, or to "
+        f"move the spec root to one of those."
+    )
 
 
 def _message(here: str, root: str, path: str, why: str) -> str:

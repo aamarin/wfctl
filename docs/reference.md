@@ -531,11 +531,20 @@ root>/out.txt`, since `uv` is on neither list. A `cd` into either root is
 refused as before, since the guard would then read the store as the session's
 own worktree.
 
-git commands that write, `git add` and `git commit` included, get no exemption.
-git commits to the repository it finds from files inside the store, and the
-command cannot show which one that is: with the spec root at `<main>/specs` it
-is the main checkout. A feature session that needs a commit in the spec store
-hands it off, as it would any other cross-worktree write.
+A feature session can commit its specs, but only onto the spec root's own
+branch, never onto the main checkout's or another feature's. git picks the
+branch from files inside the store, so the command alone cannot show where a
+commit lands, and the guard asks git before allowing one. A commit is allowed
+when the spec root is its own repository, or a worktree on a branch no other
+worktree has checked out, such as `specs-trunk`. With the spec root a plain
+`<main>/specs`, a commit would land on the main checkout's branch, so it is
+refused, and the refusal says why.
+
+The commit has to be written as `git -C <spec root> add <path>` or `git -C
+<spec root> commit -m '…'`, with nothing beside it but reads. A write in the
+same command could change where git commits after the guard asked, so the
+writes go first, in a command of their own. Every other git write, such as
+`reset` or `push`, gets no exemption.
 
 A path is judged where it lands, so one that climbs out of either root with
 `..` or through a symlink that already exists is judged as if the root were not

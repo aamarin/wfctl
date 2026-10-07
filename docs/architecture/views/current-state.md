@@ -15,7 +15,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
-   │   └─► _hook 149                                    2 out · 2 in   │
+   │   └─► _hook 208                                    2 out · 2 in   │
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
@@ -24,7 +24,7 @@ when this drawing stops matching it. See **Staleness** below.
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
    │ _pipeline 439   _evidence 603    _arch 458      _archive 339 │      ┊
-   │ _guard 639      _verify 245      _tracker 497   _workmux 274 │      ┊
+   │ _guard 719      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
