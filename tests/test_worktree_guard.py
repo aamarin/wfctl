@@ -472,6 +472,8 @@ def test_a_path_that_climbs_out_of_a_shared_root_is_not_exempt(
     'rm -rf {s}/".."/project/wfctl',
     "rm -rf {s}/\\../project/wfctl",
     "rm -rf {s}/$UP/project/wfctl",
+    'rm -rf "{s}/a b/../../project/wfctl"',
+    "rm -rf {s}/a\\ b/../../project/wfctl",
 ])
 def test_a_path_the_shell_rewrites_is_not_exempt(
     command: str, store: str, roots: list[str],
@@ -510,7 +512,9 @@ def test_a_path_that_climbs_within_this_worktree_is_still_its_own() -> None:
 
 def test_a_symlink_in_the_store_exempts_nothing(tmp_path: Path) -> None:
     """A link in the store pointing at a peer is a write to the peer. The text
-    starts with the store, so only the filesystem can say where it lands."""
+    starts with the store, so only the filesystem can say where it lands, and a
+    glob reaching the link is the same write: `realpath` reads the `*` as a name
+    and lands in the store, while the shell expands it to the link."""
     main, store, peer = (str(tmp_path.resolve() / n) for n in ("p", "p-specs", "p/wt/b"))
     here = f"{main}/wt/a"
     for d in (here, peer, store):
@@ -518,10 +522,15 @@ def test_a_symlink_in_the_store_exempts_nothing(tmp_path: Path) -> None:
     os.symlink(peer, f"{store}/link")
     roots = [main, here, store, peer]
 
-    command = f"rm -rf {store}/link/src"
-    before = _guard.refusal(command, here, roots)
-    assert before is not None
-    assert _guard.refusal(command, here, roots, shared=[store]) == before
+    for command in (
+        f"rm -rf {store}/link/src",
+        f"rm -rf {store}/link*/src",
+        f"rm -rf {store}/l?nk/src",
+        f"rm -rf {store}/[l]ink/src",
+    ):
+        before = _guard.refusal(command, here, roots)
+        assert before is not None, command
+        assert _guard.refusal(command, here, roots, shared=[store]) == before, command
     assert _guard.refusal(f"rm -rf {store}/a/src", here, roots, shared=[store]) is None
 
 
@@ -563,12 +572,17 @@ def test_a_path_that_climbs_back_into_a_shared_root_is_exempt() -> None:
     f"cd {STORE}",
     f"pushd {STORE}/129-cross-worktree-guard",
     f"cd {STORE}/129-cross-worktree-guard && rm -rf ../../project/wfctl",
+    f"builtin cd {STORE} && rm -rf ../project/wfctl",
+    f"command cd {STORE} && rm -rf ../project/wfctl",
+    f"X=1 cd {STORE} && rm -rf ../project/wfctl",
+    f'bash -c "cd {STORE} && rm -rf ../project/wfctl"',
 ])
 def test_changing_directory_into_a_shared_root_is_still_refused(command: str) -> None:
     """The hook reads `here` from the session's working directory. After a `cd`
     into the store, the store is this session's own worktree as far as the
     guard can tell, and the real one is refused with a handoff to itself. The
-    `cd` refusal was also all that stopped the relative `rm` in the last row."""
+    `cd` refusal was also all that stopped the relative `rm` in the later rows,
+    and a wrapper or an assignment in front of the `cd` hid it from that."""
     before = _guard.refusal(command, HERE, ROOTS_WITH_STORE)
     assert before is not None
     assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
@@ -586,6 +600,36 @@ def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
     assert _guard.refusal(command, HERE, ROOTS) is not None
     assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) is None
     assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, shared=[shared]) is not None
+
+
+@pytest.mark.parametrize("command", [
+    "git -C {s} reset --hard HEAD",
+    "git -C {s}/129 commit -m x",
+    "command git -C {s} reset --hard HEAD",
+])
+def test_git_in_a_shared_root_without_its_own_repository_is_refused(command: str) -> None:
+    """git acts on the repository it discovers, so `git -C <main>/specs reset
+    --hard` resets the main checkout. Writing files there is exempt, and a git
+    command that writes is judged as the main checkout's, since that is where
+    it lands."""
+    shared = f"{MAIN}/specs"
+    command = command.format(s=shared)
+    before = _guard.refusal(command, HERE, ROOTS)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) == before
+    assert _guard.refusal(f"git -C {shared} log", HERE, ROOTS, shared=[shared]) is None
+
+
+def test_git_in_a_shared_root_with_its_own_repository_is_exempt(tmp_path: Path) -> None:
+    """A store that is its own clone, rather than a worktree, carries its own
+    `.git`, and a commit there stays there."""
+    main, store = (str(tmp_path.resolve() / n) for n in ("p", "p/specs"))
+    here = f"{main}/wt/a"
+    for d in (here, f"{store}/.git"):
+        os.makedirs(d)
+    command = f"git -C {store} commit -m x"
+    assert _guard.refusal(command, here, [main, here]) is not None
+    assert _guard.refusal(command, here, [main, here], shared=[store]) is None
 
 
 def _store_layout(tmp_path: Path) -> tuple[Path, Path, Path]:

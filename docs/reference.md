@@ -501,7 +501,7 @@ A path is judged where it lands as well as how it is written, so
 The spec root and the state root are the two exceptions. Every feature worktree
 writes its spec, plan, and reviews under the spec root because `wfctl
 feature-paths` tells it to, so the guard allows writes under the spec root
-`feature-paths` resolves, git commands in it included. That matters when the
+`feature-paths` resolves. That matters when the
 spec root is a worktree of its own, such as a `specs-trunk` checkout beside the
 project, which would otherwise be refused like any peer. The exemption covers
 the whole store, other features' spec dirs included.
@@ -517,9 +517,15 @@ A spec root or state root that is the main checkout, or that contains another
 worktree, gets no exemption. A path is exempt only where it lands, so one that
 climbs out of either root is judged as if the root were not exempt, whether it
 climbs with `..`, a quoted `'..'`, or a symlink. A path the shell would expand
-first, through a brace or a variable, gets no exemption either. A `cd` into
-either root is still refused, since the guard would then read the store as the
-session's own worktree.
+first, through a brace, a variable, or a glob, gets no exemption either. A `cd`
+into either root is still refused, with a wrapper such as `builtin cd` too,
+since the guard would then read the store as the session's own worktree.
+
+A git command that writes is exempt only in a root that is its own repository,
+either a worktree or a directory with its own `.git`. git acts on the
+repository it finds, so with the spec root at `<main>/specs`, `git -C
+<main>/specs reset --hard` resets the main checkout and is refused as a write
+there.
 
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
 lands in `.claude/settings.json` — the merge mode below lists the rest:

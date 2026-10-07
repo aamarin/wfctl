@@ -126,6 +126,7 @@ _WORKMUX_OK = frozenset({
 # Verbs that move the session's working directory, which is where the hook reads
 # `here` from. `refusal()` withholds the spec and state root exemption from them.
 _CHANGES_DIRECTORY = frozenset({"cd", "pushd"})
+_GIT = frozenset({"git"})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -222,21 +223,53 @@ _WORD_END = re.compile(r"[\s;|&<>()]")
 _QUOTING = str.maketrans("", "", "'\"\\")
 
 # What the shell expands into a path the text does not show: `<store>/{x,..}`
-# is two paths, one of them above the store, and a variable can be anything.
-_EXPANSION = re.compile(r"[{$]")
+# is two paths, one of them above the store, a variable can be anything, and
+# `<store>/link*` is whatever the link points at while `realpath` reads the `*`
+# as a name.
+_EXPANSION = re.compile(r"[{$*?\[]")
 
 
 def _word(segment: str, start: int) -> str:
     """The shell word the path at `segment[start]` begins, as the shell reads it.
 
     Quotes and backslashes are removed, so `<here>/'..'/x` keeps the `..` the
-    shell will act on. Only `,` and `:` are stripped from the end: a trailing
-    `.` is stripped later, for a path ending a sentence, and stripped here it
-    would turn a trailing `..` into the directory it climbs out of.
+    shell will act on. Whitespace ends the word only outside quotes and when not
+    escaped: `"<store>/a b/../../<main>/src"` cut at the space is `<store>/a`,
+    which is exempt, and the rest of it names no worktree. The scan starts at
+    the front of the segment because the path can begin inside a quote opened
+    before it.
+
+    Only `,` and `:` are stripped from the end: a trailing `.` is stripped
+    later, for a path ending a sentence, and stripped here it would turn a
+    trailing `..` into the directory it climbs out of.
     """
-    end = _WORD_END.search(segment, start)
-    word = segment[start:end.start() if end else len(segment)]
-    return word.translate(_QUOTING).rstrip(",:")
+    word: list[str] = []
+    quote, i = "", 0
+    while i < len(segment):
+        c = segment[i]
+        if not quote and i >= start and _WORD_END.match(c):
+            break
+        if c == "\\" and quote != "'" and i + 1 < len(segment):
+            i += 1
+            c = segment[i]
+        elif c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+            c = ""
+        if i >= start:
+            word.append(c)
+        i += 1
+    return "".join(word).rstrip(",:")
+
+
+def _names(segment: str, verbs: frozenset[str]) -> bool:
+    """Whether `segment` runs one of `verbs` anywhere in it, not only first.
+
+    `builtin cd`, `command git`, `X=1 cd`, and `bash -c "cd …"` each put the verb
+    behind another word, where `verb_of` cannot see it. A word that only looks
+    like one, as in `echo cd`, costs an exemption, which is the safe direction.
+    """
+    words = [w.translate(_QUOTING).strip("(){}") for w in segment.split()]
+    return verb_of(segment) in verbs or any(w in verbs for w in words)
 
 
 def _lands_in(word: str, exempt: set[str]) -> bool:
@@ -355,6 +388,13 @@ def refusal(
     """
     roots = list(worktrees)
     exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
+    # git acts on the repository it discovers, not the directory it is pointed
+    # at. With the spec root a plain `<main>/specs`, `git -C <main>/specs reset
+    # --hard` resets the main checkout. So a git command that writes is exempt
+    # only in a shared root that is its own repository: a worktree, or a
+    # directory holding its own `.git`.
+    real = {posixpath.realpath(r) for r in roots} if exempt else set()
+    repos = {s for s in exempt if s in real or posixpath.lexists(f"{s}/.git")}
 
     # Segment by segment, each judged against the paths *it* names. Judging the
     # whole command against a trespass found anywhere in it refuses the local
@@ -368,7 +408,11 @@ def refusal(
         # store reads as this session's own worktree, and the real one is
         # refused with a handoff to itself. The refusal was also what stopped
         # `cd <store> && rm -rf ../<main>/src`, whose relative half is invisible.
-        usable = set() if verb_of(segment) in _CHANGES_DIRECTORY else exempt
+        usable = exempt
+        if _names(segment, _CHANGES_DIRECTORY):
+            usable = set()
+        elif _names(segment, _GIT) and not (verb_of(segment) == "git" and _reads_only(segment)):
+            usable = repos
         trespass = next(
             (
                 (root, path)
