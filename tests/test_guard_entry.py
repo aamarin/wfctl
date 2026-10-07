@@ -102,8 +102,7 @@ def test_the_shared_roots_are_resolved_only_for_a_command_headed_for_refusal(
     import wfctl._hook as hook
 
     monkeypatch.setattr(hook, "worktree_roots", lambda cwd: ("/r/a", ["/r", "/r/a", "/r/b"]))
-    monkeypatch.setattr(hook, "resolved_spec_root", lambda here: calls.append(here) or None)
-    monkeypatch.setattr(hook, "resolved_state_root", lambda here: calls.append(here) or None)
+    monkeypatch.setattr(hook, "shared_roots", lambda here: calls.append(here) or [])
 
     def guard(command: str) -> int:
         return hook.worktree_guard(json.dumps({"cwd": "/r/a", "tool_input": {"command": command}}))
@@ -113,7 +112,7 @@ def test_the_shared_roots_are_resolved_only_for_a_command_headed_for_refusal(
     assert calls == []
 
     assert guard("rm -rf /r/b/build") == 2
-    assert calls == ["/r/a", "/r/a"]
+    assert calls == ["/r/a"]
 
 
 def test_the_refusal_path_never_imports_typer_or_rich() -> None:

@@ -69,7 +69,10 @@ for the whole project rather than one branch, because a worktree handoff writes
 into the child branch's state dir before that branch exists.
 
 A shared root that is the main checkout, or that contains any worktree, is not
-honoured, since exempting it would open the peers it holds.
+honoured, since exempting it would open the peers it holds. A path is exempt
+only where it lands, so `<spec root>/..` is judged as the directory above it.
+And `cd` into a shared root is still refused, since the session would then be
+standing in the store and read it as its own worktree.
 """
 from __future__ import annotations
 
@@ -112,6 +115,10 @@ _WORKMUX_OK = frozenset({
     "add", "remove", "rm", "merge", "rename", "open", "close",
     "list", "ls", "path", "status", "send", "capture", "wait",
 })
+
+# Verbs that move the session's working directory, which is where the hook reads
+# `here` from. `refusal()` withholds the spec and state root exemption from them.
+_CHANGES_DIRECTORY = frozenset({"cd", "pushd"})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -199,20 +206,18 @@ def _owner(path: str, roots: Iterable[str]) -> str | None:
     return max(matches, key=len) if matches else None
 
 
-def _owner_of(path: str, roots: list[str], shared: set[str]) -> str | None:
-    """`_owner`, except that a shared root owns only paths that stay inside it.
+def _lands_in(path: str, exempt: set[str]) -> bool:
+    """Whether `path`, once `..` is resolved, is inside one of `exempt`.
 
-    Ownership is read off the text, so `<spec root>/../<main>/src` starts with
-    the spec root and would be exempt while it names the main checkout. Before
-    the exemption that spelling was refused as a write to the store, and
-    normalising it here keeps it refused, as a write to where it lands. Only
-    the exempt case is normalised, so every other path is judged exactly as it
-    was before.
+    Read off the text alone, `<spec root>/..` starts with the spec root while it
+    names the directory above it, which can be the main checkout. So the path is
+    normalised before it is compared, and a `..` that climbs out of the root is
+    exempt from nothing. It takes the token with only `,` and `:` stripped:
+    `_owner`'s caller also strips `.`, for a path ending a sentence, and that
+    turns a trailing `..` into the root itself.
     """
-    root = _owner(path, roots)
-    if root in shared:
-        root = _owner(posixpath.normpath(path), roots)
-    return root
+    landed = posixpath.normpath(path)
+    return any(landed == r or landed.startswith(r + "/") for r in exempt)
 
 
 def _git_words(args: list[str]) -> list[str]:
@@ -302,16 +307,15 @@ def refusal(
     from an ordinary subdirectory.
 
     `shared` holds the spec root and the state root, the directories wfctl hands
-    every feature worktree to write in, and a path under either is nobody's
-    trespass. Each joins the ownership lookup as a root of its own, rather than
-    only being dropped from the list. Dropped, a spec root inside the main
-    checkout would fall back to the main checkout as its owner and still be
-    refused. A None entry is a root that could not be resolved, and exempts
-    nothing.
+    every feature worktree to write in, and a path that lands under either is
+    nobody's trespass. It is passed over before ownership is asked at all, so a
+    spec root that is a plain directory inside the main checkout is exempt as
+    well as one that is a worktree of its own. Every other path is judged
+    against `worktrees` alone. A None entry is a root that could not be
+    resolved, and exempts nothing.
     """
     roots = list(worktrees)
     exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
-    roots.extend(exempt)
 
     # Segment by segment, each judged against the paths *it* names. Judging the
     # whole command against a trespass found anywhere in it refuses the local
@@ -320,12 +324,19 @@ def refusal(
     # left this worktree. Compound commands like that are ordinary, and the `&`
     # separator widened the class.
     for segment in _SEPARATORS.split(command):
+        # A `cd` into a shared root is refused as it always was. The hook takes
+        # `here` from the session's working directory, so after that `cd` the
+        # store reads as this session's own worktree, and the real one is
+        # refused with a handoff to itself. The refusal was also what stopped
+        # `cd <store> && rm -rf ../<main>/src`, whose relative half is invisible.
+        usable = set() if verb_of(segment) in _CHANGES_DIRECTORY else exempt
         trespass = next(
             (
                 (root, path)
                 for path in _ABS_PATH.findall(segment)
-                for root in [_owner_of(path.rstrip(".,:"), roots, exempt)]
-                if root and root != here and root not in exempt
+                if not _lands_in(path.rstrip(",:"), usable)
+                for root in [_owner(path.rstrip(".,:"), roots)]
+                if root and root != here
             ),
             None,
         )

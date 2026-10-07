@@ -57,47 +57,34 @@ def worktree_roots(cwd: str) -> tuple[str, list[str]]:
     return here.strip(), roots
 
 
-def resolved_spec_root(here: str) -> str | None:
-    """The spec root `feature-paths` would hand a session in `here`, or None.
+def shared_roots(here: str) -> list[str | None]:
+    """The spec root and the state root a session in `here` writes under.
 
-    The same `_paths.spec_root` call, so the guard exempts the directory an
-    agent was told to write to. It reads this process's environment, though,
-    and a `WFCTL_SPEC_DIR` set only inside the agent's shell does not reach it,
-    so the two can still disagree. When they do, the store is refused as it was
-    before the exemption existed, which is the safe direction.
+    The same `_paths` calls `feature-paths` and `state-dir` make, so the guard
+    exempts the directories an agent was told to write to. They read this
+    process's environment, though, and a `WFCTL_SPEC_DIR` set only inside the
+    agent's shell does not reach it, so the two can still disagree. When they
+    do, the store is refused like any peer, which is the safe direction.
 
-    None when it cannot be resolved. A malformed manifest raises there on
-    purpose, which is right for a command but wrong for a hook that runs before
-    every Bash call, and a manifest of the wrong shape raises `AttributeError`
-    or `TypeError` rather than a JSON error, hence the broad catch.
+    None in place of a root that cannot be resolved. A malformed manifest makes
+    `spec_root` raise on purpose, which is right for a command but wrong for a
+    hook that runs before every Bash call, and a manifest of the wrong shape
+    raises `AttributeError` or `TypeError` rather than a JSON error, hence the
+    broad catch. When git cannot name the project, `project_name` falls back to
+    the directory's own name, so the state root may be one nothing writes to,
+    and exempting an unused directory allows no write that matters.
     """
     from pathlib import Path
 
-    from wfctl._paths import spec_root
+    from wfctl._paths import spec_root, state_root
 
-    try:
-        return str(spec_root(Path(here)))
-    except Exception:
-        return None
-
-
-def resolved_state_root(here: str) -> str | None:
-    """The state root a session in `here` writes its handoff under, or None.
-
-    `_paths.state_root`, under the same environment caveat as the spec root.
-    When git cannot name the project, `project_name` falls back to the
-    directory's own name, so the root may be one nothing writes to. That costs
-    nothing, since exempting an unused directory allows no write that matters.
-    None only when resolving it raises, as it does for a `here` that is gone.
-    """
-    from pathlib import Path
-
-    from wfctl._paths import state_root
-
-    try:
-        return str(state_root(Path(here)))
-    except Exception:
-        return None
+    found: list[str | None] = []
+    for find in (spec_root, state_root):
+        try:
+            found.append(str(find(Path(here))))
+        except Exception:
+            found.append(None)
+    return found
 
 
 def worktree_guard(stdin_text: str | bytes) -> int:
@@ -152,8 +139,7 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # that names a path names one in this worktree and was never going to need
     # either.
     if message:
-        shared = [resolved_spec_root(here), resolved_state_root(here)]
-        message = _guard.refusal(command, here, roots, shared=shared)
+        message = _guard.refusal(command, here, roots, shared=shared_roots(here))
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

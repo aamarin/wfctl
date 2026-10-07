@@ -402,7 +402,7 @@ def test_a_read_under_the_spec_root_is_still_allowed() -> None:
 
 @pytest.mark.parametrize("slot", ["spec", "state"])
 @pytest.mark.parametrize("spec_root", [MAIN, f"{MAIN}/wt", "/Users/dev"])
-def test_a_spec_root_holding_code_is_not_honoured(spec_root: str, slot: str) -> None:
+def test_a_shared_root_covering_a_worktree_is_not_honoured(spec_root: str, slot: str) -> None:
     """A shared root declared too broadly cannot open the worktrees it covers.
 
     `"spec_root": "."` in the main checkout's manifest names the main checkout,
@@ -431,18 +431,55 @@ def test_the_main_checkout_is_never_the_spec_root() -> None:
     )
 
 
-def test_a_path_that_climbs_out_of_the_spec_root_is_judged_where_it_lands() -> None:
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+@pytest.mark.parametrize("command", [
+    "rm -rf {s}/../project/wfctl",
+    "rm -rf {s}/..",
+    "rm -rf {s}/../",
+    "rm -rf {s}/x/../..",
+    "rm -rf {s}/..:",
+    "mv {s}/.. /tmp/gone",
+])
+def test_a_path_that_climbs_out_of_a_shared_root_is_not_exempt(
+    command: str, store: str, roots: list[str],
+) -> None:
     """`..` is text to this module, so the prefix alone would exempt it.
 
-    Before the exemption this was refused as a write to the store. Exempting it
-    on the prefix would have turned a refusal into an allow, so the exempt case
-    is normalised and refused as a write to the main checkout, where it lands.
+    A trailing `..` was the spelling that got through: the strip that drops a
+    sentence's closing `.` turned `<store>/..` into the store itself, and
+    `rm -rf <main>/specs/..` deleted the main checkout and every worktree in it.
+    A climbing path is exempt from nothing, so its refusal is the one it gets
+    with no shared root named at all.
     """
-    command = f"rm -rf {STORE}/../project/wfctl"
-    message = _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE])
-    assert message is not None
-    assert f"({MAIN})" in message
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
+    assert before is not None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+
+
+def test_a_path_that_climbs_back_into_a_shared_root_is_exempt() -> None:
+    """Normalising cuts both ways: a `..` that lands inside the store is a
+    write to the store."""
     assert not refuses_with_store(f"mkdir -p {STORE}/a/../129-cross-worktree-guard")
+    assert not refuses_with_store(f"git -C {STORE}/. commit -m x")
+
+
+@pytest.mark.parametrize("command", [
+    f"cd {STORE}",
+    f"pushd {STORE}/129-cross-worktree-guard",
+    f"cd {STORE}/129-cross-worktree-guard && rm -rf ../../project/wfctl",
+])
+def test_changing_directory_into_a_shared_root_is_still_refused(command: str) -> None:
+    """The hook reads `here` from the session's working directory. After a `cd`
+    into the store, the store is this session's own worktree as far as the
+    guard can tell, and the real one is refused with a handoff to itself. The
+    `cd` refusal was also all that stopped the relative `rm` in the last row."""
+    before = _guard.refusal(command, HERE, ROOTS_WITH_STORE)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
 
 
 def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
