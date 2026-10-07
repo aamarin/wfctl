@@ -486,6 +486,28 @@ def test_a_path_the_shell_rewrites_is_not_exempt(
     assert _guard.refusal(command, HERE, roots, shared=[store]) == before
 
 
+@pytest.mark.parametrize("command", [
+    f"rm -rf {HERE}/..",
+    f"rm -rf {HERE}/../",
+    f"rm -rf {HERE}/x/../..",
+    f"rm -rf {HERE}/../105-mypy-cold-venv/src",
+    f"rm -rf {HERE}/'..'/105-mypy-cold-venv/src",
+    f"mv {HERE}/.. /tmp/gone",
+])
+def test_a_path_that_climbs_out_of_this_worktree_is_judged_where_it_lands(command: str) -> None:
+    """`<here>/..` starts with this session's own root, and the strip that drops
+    a sentence's closing `.` turned it into that root, so `rm -rf <here>/..`
+    deleted the directory holding every feature worktree. A path that names
+    this worktree and lands in another one is a write to the other one."""
+    assert _guard.refusal(command, HERE, ROOTS) is not None
+
+
+def test_a_path_that_climbs_within_this_worktree_is_still_its_own() -> None:
+    """Resolving `..` adds a refusal only where the path lands elsewhere."""
+    assert _guard.refusal(f"rm -rf {HERE}/x/../y", HERE, ROOTS) is None
+    assert _guard.refusal(f"cat {HERE}/../105-mypy-cold-venv/README.md", HERE, ROOTS) is None
+
+
 def test_a_symlink_in_the_store_exempts_nothing(tmp_path: Path) -> None:
     """A link in the store pointing at a peer is a write to the peer. The text
     starts with the store, so only the filesystem can say where it lands."""

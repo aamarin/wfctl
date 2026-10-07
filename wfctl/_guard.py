@@ -25,6 +25,11 @@ set of commands worth allowing across the boundary is a dozen long and is
 written out below. A verb nobody thought of is therefore refused, not allowed,
 and that asymmetry is the whole design.
 
+A path is judged twice, as written and where the shell lands it, with quotes
+removed and `..` resolved, and it is refused if either names another worktree.
+`<here>/../<peer>/src` starts with this session's own root and lands in the
+peer, and `<here>/..` is the directory holding every feature worktree.
+
 ## What this cannot catch
 
 Stated because a guard believed complete is worse than one known partial: the
@@ -210,7 +215,7 @@ def _owner(path: str, roots: Iterable[str]) -> str | None:
 
 # The end of the shell word a path sits in. `_ABS_PATH` stops at a quote, so
 # `<store>/'..'/x` arrives as `<store>/` and the `..` the shell will see is cut
-# off. The exemption is decided on the whole word instead.
+# off. A path is judged on its whole word instead.
 _WORD_END = re.compile(r"[\s;|&<>()]")
 
 # What the shell removes from a word before the path reaches the filesystem.
@@ -221,27 +226,29 @@ _QUOTING = str.maketrans("", "", "'\"\\")
 _EXPANSION = re.compile(r"[{$]")
 
 
-def _lands_in(segment: str, start: int, exempt: set[str]) -> bool:
-    """Whether the path at `segment[start]` lands inside one of `exempt`.
+def _word(segment: str, start: int) -> str:
+    """The shell word the path at `segment[start]` begins, as the shell reads it.
 
-    Read off the text alone, `<spec root>/..` starts with the spec root while it
-    names the directory above it, which can be the main checkout. So the path is
-    judged where the filesystem would put it: quotes and backslashes removed,
-    then `..` and symlinks resolved. A symlink in the store pointing at a peer
-    therefore exempts nothing, and neither does a word the shell would expand,
-    since the text cannot say where that lands.
-
-    Only `,` and `:` are stripped from the end. `_owner`'s caller also strips
-    `.`, for a path ending a sentence, and that turns a trailing `..` into the
-    root itself.
+    Quotes and backslashes are removed, so `<here>/'..'/x` keeps the `..` the
+    shell will act on. Only `,` and `:` are stripped from the end: a trailing
+    `.` is stripped later, for a path ending a sentence, and stripped here it
+    would turn a trailing `..` into the directory it climbs out of.
     """
-    if not exempt:
-        return False
     end = _WORD_END.search(segment, start)
     word = segment[start:end.start() if end else len(segment)]
-    if _EXPANSION.search(word):
+    return word.translate(_QUOTING).rstrip(",:")
+
+
+def _lands_in(word: str, exempt: set[str]) -> bool:
+    """Whether `word` lands inside one of `exempt`.
+
+    Judged where the filesystem would put it, with `..` and symlinks resolved,
+    so a symlink in the store pointing at a peer exempts nothing. Neither does
+    a word the shell would expand, since the text cannot say where that lands.
+    """
+    if not exempt or _EXPANSION.search(word):
         return False
-    landed = posixpath.realpath(word.translate(_QUOTING).rstrip(",:"))
+    landed = posixpath.realpath(word)
     return any(landed == r or landed.startswith(r + "/") for r in exempt)
 
 
@@ -366,9 +373,12 @@ def refusal(
             (
                 (root, path)
                 for match in _ABS_PATH.finditer(segment)
-                if not _lands_in(segment, match.start(), usable)
-                for path in [match.group()]
-                for root in [_owner(path.rstrip(".,:"), roots)]
+                for path, word in [(match.group(), _word(segment, match.start()))]
+                if not _lands_in(word, usable)
+                for root in (
+                    _owner(path.rstrip(".,:"), roots),
+                    _owner(posixpath.normpath(word).rstrip("."), roots),
+                )
                 if root and root != here
             ),
             None,

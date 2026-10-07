@@ -494,6 +494,10 @@ Reading a sibling is ordinary review work and cannot cause the failure, so it
 stays allowed. Executing is not reading: `uv run pytest` over there writes a
 `.venv`, builds the package, and reports on a branch this session is not on.
 
+A path is judged where it lands as well as how it is written, so
+`<this worktree>/../<sibling>/src` is a write to the sibling, and
+`<this worktree>/..` is a write to the directory that holds every worktree.
+
 The spec root and the state root are the two exceptions. Every feature worktree
 writes its spec, plan, and reviews under the spec root because `wfctl
 feature-paths` tells it to, so the guard allows writes under the spec root
