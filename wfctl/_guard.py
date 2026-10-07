@@ -169,9 +169,9 @@ _WORKMUX_OK = frozenset({
 # write only through a redirect, and a redirect target is a path like any other.
 _WRITE_VERBS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "tee", "echo", "cat", "printf"})
 
-# The git writes a spec commit needs, and the only ones exempt. Neither runs
-# anything a session names, and neither moves a ref other than the branch the
-# root has checked out.
+# The git writes a spec commit needs, and the only ones exempt. Neither moves a
+# ref other than the branch the root has checked out. A commit does run the
+# project's hooks, which a session can already run from its own worktree.
 _GIT_WRITES = frozenset({"add", "commit"})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
@@ -577,7 +577,12 @@ def _exempt(
     if any(commits):
         if not all(c in committable for c in commits if c):
             return False
-        if not all(c or _reads_only(" ".join(s.words)) for s, c in zip(simple, commits)):
+        # A redirect is a write whatever the verb, and one into a link already
+        # in the store can rewrite the `.git` it points at.
+        if not all(
+            c or (_reads_only(" ".join(s.words)) and all(w == "/dev/null" for w in s.writes))
+            for s, c in zip(simple, commits)
+        ):
             return False
 
     for s, commit in zip(simple, commits):
@@ -644,7 +649,18 @@ def refusal(
     # was refused with "`uv` is not a read command", about a segment that never
     # left this worktree. Compound commands like that are ordinary, and the `&`
     # separator widened the class.
+    #
+    # A commit into a shared root is refused whether or not a worktree owns the
+    # root, since a store outside every worktree commits wherever its `.git`
+    # says. Its message waits until every other segment has been judged, so a
+    # peer write beside it is reported as the peer write it is.
+    commit_refusal = None
     for segment in _SEPARATORS.split(command):
+        target = _commit_target(segment.split())
+        store = next((s for s in exempt if target and _owner(target, [s])), None)
+        if store:
+            commit_refusal = commit_refusal or _commit_message(store, store in commits)
+            continue
         trespass = next(
             (
                 (root, path)
@@ -660,11 +676,6 @@ def refusal(
         )
         if trespass is None:
             continue
-        target = _commit_target(segment.split())
-        for pool in (commits, exempt):
-            store = next((s for s in pool if target and _owner(target, [s])), None)
-            if store:
-                return _commit_message(store, store in commits)
         if _WRITE_REDIRECT.search(segment):
             why = "it redirects output"
         elif not _reads_only(segment):
@@ -672,7 +683,7 @@ def refusal(
         else:
             continue
         return _message(here, *trespass, why)
-    return None
+    return commit_refusal
 
 
 def _commit_message(store: str, committable: bool) -> str:
@@ -691,12 +702,12 @@ def _commit_message(store: str, committable: bool) -> str:
             f"Run the writes first, then the commit as a command of its own."
         )
     return (
-        f"Refused: a commit in {store} would not land on a branch of its own, so "
-        f"it could land on this project's branch instead.\n"
+        f"Refused: `git add` or `git commit` in {store} would not land on a "
+        f"branch of its own, so it could land on this project's branch instead.\n"
         f"Specs can be committed from a feature worktree only when the spec root "
-        f"is its own repository, or a worktree on a branch no other worktree has "
-        f"checked out, such as `specs-trunk`. Ask the user to commit it, or to "
-        f"move the spec root to one of those."
+        f"is its own repository, or the top of a worktree on a branch no other "
+        f"worktree has checked out, such as `specs-trunk`. Ask the user to commit "
+        f"it, or to move the spec root to one of those."
     )
 
 

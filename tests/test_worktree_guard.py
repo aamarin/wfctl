@@ -761,6 +761,7 @@ def test_a_commit_into_a_root_git_has_not_vouched_for_is_refused(
     "cp -r /tmp/x/. {s}/ && git -C {s} add 129",
     "git -C {s} add 129 && rm -rf {s}/129",
     "git -C {s} commit -m x > /Users/dev/project/wfctl/log",
+    "git -C {s} log -1 > {s}/l && git -C {s} commit -m x",
 ])
 def test_a_commit_is_exempt_only_written_plainly_and_alone(command: str) -> None:
     """The caller asked git about the store as it stood before the command ran.
@@ -773,6 +774,30 @@ def test_a_commit_is_exempt_only_written_plainly_and_alone(command: str) -> None
     assert _guard.refusal(
         command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
     ) is not None
+
+
+def test_a_peer_write_beside_a_commit_is_reported_as_the_peer_write() -> None:
+    """A refused command can carry a commit and a peer write at once, and the
+    peer write is the one a handoff fixes. Reporting the commit instead tells
+    the agent to respell a command whose real problem it never hears about."""
+    command = f"git -C {STORE} commit -m x && rm -rf {OTHER}/src"
+    message = _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
+    )
+    assert message is not None
+    assert "workmux send 105-mypy-cold-venv" in message
+
+
+def test_a_commit_into_a_store_outside_every_worktree_is_still_judged() -> None:
+    """A spec repository of its own sits outside every worktree, so no owner
+    makes a commit there a trespass. Its `.git` can still be replaced to name
+    the main checkout's, and then only the caller's answer says so."""
+    store = "/Users/dev/elsewhere-specs"
+    command = f"git -C {store} commit -m x"
+    assert _guard.refusal(command, HERE, ROOTS, shared=[store], committable=[store]) is None
+    message = _guard.refusal(command, HERE, ROOTS, shared=[store])
+    assert message is not None
+    assert "would not land on a branch of its own" in message
 
 
 def test_a_root_that_is_not_shared_takes_no_commits() -> None:
@@ -958,3 +983,44 @@ def test_the_hook_allows_a_commit_into_a_spec_repository_nested_in_the_main_chec
 
     assert _hook(feature, f"git -C {specs} add 129.md").exit_code == 0
     assert _hook(feature, f"git -C {specs} commit -m x").exit_code == 0
+
+
+def test_the_hook_refuses_a_commit_into_a_store_with_a_detached_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A commit on a detached head lands on no branch, so it is not on the
+    store's own branch either."""
+    main, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    subprocess.run(["git", "-C", str(store), "checkout", "--detach"], check=True, capture_output=True)
+
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 2
+
+
+def test_the_hook_refuses_a_commit_once_the_store_points_at_a_peer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `.git` naming a feature worktree's admin dir commits onto that
+    feature's branch, which the feature worktree has checked out."""
+    main, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    admin = main / ".git" / "worktrees" / feature.name
+    (store / ".git").write_text(f"gitdir: {admin}\n")
+
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 2
+
+
+def test_the_hook_never_lets_the_state_root_take_commits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing commits handoffs. A state root inside a repository of its own,
+    such as a dotfiles checkout over `~/.local/state`, would otherwise pass the
+    same check a spec repository passes."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(main / ".state"))
+    state = git_repo(main / ".state" / "wfctl" / "project")
+
+    assert _hook(feature, f"touch {state}/129.md").exit_code == 0
+    assert _hook(feature, f"git -C {state} commit -m x").exit_code == 2

@@ -95,7 +95,9 @@ def committable(here: str, shared: list[str | None]) -> list[str]:
     another repository than `here`, or when it has a branch checked out that no
     other worktree of this project has. A plain `<main>/specs` fails, since git
     there finds the main checkout and its branch, and so does a store whose
-    `.git` was replaced to point at the main checkout's.
+    `.git` was replaced to point at the main checkout's. So does a spec root
+    one level inside a store worktree, which reads exactly like `<main>/specs`
+    or a folder in a peer: the root has to be the top of its checkout.
 
     This reads the hook's environment, so a `GIT_DIR` exported only in the
     agent's shell is not seen, the same limit `shared_roots` states.
@@ -116,7 +118,10 @@ def committable(here: str, shared: list[str | None]) -> list[str]:
         found = git(cwd, "rev-parse", "--git-common-dir")
         return os.path.realpath(os.path.join(cwd, found)) if found else None
 
+    roots = [r for r in shared if r and os.path.isdir(r)]
     ours = common_dir(here)
+    if not roots or ours is None:
+        return []
     # Each porcelain block names one worktree and, unless it is detached, the
     # branch it has checked out.
     checked_out: list[tuple[str, str]] = []
@@ -125,9 +130,7 @@ def committable(here: str, shared: list[str | None]) -> list[str]:
         if "worktree" in fields and "branch" in fields:
             checked_out.append((os.path.realpath(fields["worktree"]), fields["branch"]))
     found: list[str] = []
-    for root in shared:
-        if not root or not os.path.isdir(root):
-            continue
+    for root in roots:
         real = os.path.realpath(root)
         theirs = common_dir(root)
         if theirs is None:
@@ -194,10 +197,12 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # that names a path names one in this worktree and was never going to need
     # either.
     # Whether a root takes commits costs three more, so it is asked only of a
-    # command that runs git at all.
+    # command that runs git at all. Only the spec root is asked: nothing commits
+    # handoffs, and a state root under a dotfiles repository would otherwise
+    # take commits nobody meant it to.
     if message:
         shared = shared_roots(here)
-        commits = committable(here, shared) if "git" in command else []
+        commits = committable(here, shared[:1]) if "git" in command else []
         message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
     if not message:
         return 0
