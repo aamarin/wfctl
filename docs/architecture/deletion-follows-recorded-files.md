@@ -41,8 +41,9 @@ names that file, so nothing can report or remove it.
 The runtime scripts are recorded one file per entry, the same way the templates
 already are, and wfctl deletes a script only when its record names that file. A
 manifest that still records `.specify/scripts/bash` as a directory has that
-entry retired the first time an install records the files below it. Retiring
-drops the entry from the record and deletes nothing.
+entry dropped the first time an install writes files below it. An install never
+treats a directory it has just written into as abandoned, so `--prune` never
+deletes it.
 
 ## Owns truth
 
@@ -66,7 +67,7 @@ flowchart LR
     end
     subgraph install["install-skills"]
         plan["plan, one row per file"]
-        retire["retire a directory entry with recorded files below it"]
+        retire["drop a directory entry it just wrote files into"]
     end
     subgraph record["the record"]
         entries["one entry per script"]
@@ -106,21 +107,28 @@ reason to delete.
   reported as dropped upstream, and the `--prune` that `doctor` then prints
   deletes the three scripts ten shipped skills run by path. A simulation of it
   went further than the issue recorded: the prune runs after the copy, so the
-  same install that wrote the new scripts deletes them again.
+  same install that wrote the new scripts deletes them again. `/start-session`
+  runs that prune unattended, so this is not a case a careful reader avoids.
+- **A full migration of the old record.** The old directory entry would be
+  translated into per-file entries when the record is read, carrying its backup
+  down to each file, and `doctor` would warn about a repository that has not
+  reinstalled yet. It is sound, and it loses on cost. wfctl is installed in a
+  handful of repositories today, all of them a reinstall away from the new
+  record, so the upgrade window it smooths over lasts one install.
 
 ## Consequences
 
-- An upgraded wfctl changes the record without changing the bundle hash, so a
-  repository that does not reinstall is told its skills are current while it
-  still holds the directory entry. `doctor` needs a check that names a recorded
-  directory wfctl now records file by file, and that check cannot come from the
-  hash.
-- Retiring the entry has to carry its backup forward to the files below it.
-  Otherwise the install treats its own scripts as a developer's and backs them
-  up.
+- Until a repository reinstalls, `doctor` reports its skills as current, since
+  the change moves no bundle file and the bundle hash does not change. It lists
+  the three scripts as not on record and leaves them alone. The next install
+  records them and the line goes away.
+- The first install over the old record backs up the three scripts once, since
+  no entry names them yet, and a run without `--yes` asks before overwriting
+  them. The backup is harmless and nothing reads it unless the layer is
+  uninstalled.
 - The disk scan moves down with the target, since it reads its directories from
-  the same table. A leftover from before the upgrade, or a developer's own
-  script, is then reported in `bash/` and left alone.
+  the same table. A developer's own script in `bash/` is then reported and left
+  alone.
 - A test asserts that every runtime source holds only files. A nested directory
   added there later would bring the directory entry back, and the test is what
   fails when it does.
@@ -131,4 +139,5 @@ reason to delete.
 
 - 2026-10-07  proposed    — #293's level-2 gate. Andre chose recording the
   scripts per file over a general mirror, and moved the skill folders to the
-  install revamp (#565).
+  install revamp (#565). He also chose dropping the old directory entry over a
+  full migration of it, since wfctl is installed in a handful of repositories.
