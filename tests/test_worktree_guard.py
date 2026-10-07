@@ -588,6 +588,111 @@ def test_changing_directory_into_a_shared_root_is_still_refused(command: str) ->
     assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
 
 
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+@pytest.mark.parametrize("command", [
+    # A separator or a substitution inside the path, which the quote-blind
+    # split cut in two so that each half passed on its own.
+    "rm -rf {s}/$(echo ..)/project/wfctl",
+    "rm -rf {s}/`echo ..`/project/wfctl",
+    'rm -rf "{s}/$(echo ..)/project/wfctl"',
+    "rm -rf {s}/$(echo ..)/project/wt/105-mypy-cold-venv/src",
+    'rm -rf "{s}/a;b/../../project/wfctl"',
+    'rm -rf "{s}/a|b/../../project/wfctl"',
+    'rm -rf "{s}/a\nb/../../project/wfctl"',
+    "rm -rf {s}/a\\;/../../project/wfctl",
+    'mkdir -p "{s}/a;" && rm -rf "{s}/a;/../../project/src"',
+    "rm -rf $P{s}/x",
+    "cat > {s}/x <<EOF\n$(rm -rf /Users/dev/project/wfctl)\nEOF",
+    # A verb the text does not show, or one that changes directory.
+    "G=git; $G -C {s} reset --hard HEAD",
+    "X=cd; $X {s} && rm -rf ../project/wfctl",
+    "env /usr/bin/git -C {s} reset --hard HEAD",
+    "env -C {s} rm -rf ../project/src",
+    "make -C {s} -f ../project/Makefile clean",
+    "uv --directory {s} sync",
+    "find {s} -maxdepth 0 -execdir rm -rf project/src ;",
+    "cd .. && rm -rf wt/105-mypy-cold-venv/src > {s}/log",
+    "rm -rf {s}/x ../project/wt/105-mypy-cold-venv/src",
+    # git pointed somewhere the path does not name, or changing shared state.
+    'git -C {s} --git-dir="$GIT_DIR" commit -m x',
+    "git -C {s} --work-tree=../project checkout -- x",
+    "git -C {s} -c core.worktree=/Users/dev/project commit -m x",
+    "git -C {s} -c core.hooksPath=/tmp/h commit -m x",
+    "git --git-dir={s}/.git commit -m x",
+    "git -C {s} worktree remove --force ../project/wt/105-mypy-cold-venv",
+    "git -C {s} config core.hooksPath /tmp/h",
+    "git -C {s} update-ref -d HEAD",
+    # A repository, or a link, made inside the store.
+    "mkdir -p {s}/.git",
+    'echo "gitdir: /Users/dev/project/.git" > {s}/.git',
+    "ln -s ../project/src {s}/l && echo x > {s}/l/evil.py",
+    "cp -s /Users/dev/project/src {s}/l",
+])
+def test_a_construct_the_exemption_cannot_follow_is_judged_as_if_nothing_were_shared(
+    command: str, store: str, roots: list[str],
+) -> None:
+    """Every row got through an exemption that trusted all but the known tricks,
+    found across four review rounds. The two `$(echo ..)` rows reach the main
+    checkout's source and a peer worktree, and need nothing on disk. Each was
+    refused before the exemption existed and has to stay refused, with the
+    same message, so none of them can quietly reword the handoff either."""
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
+    assert before is not None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+
+
+@pytest.mark.parametrize("command", [
+    f"bash {STORE}/x.sh",
+    f"python {STORE}/evil.py",
+    f"sh < {STORE}/x.sh",
+    f"uv run pytest > {STORE}/129/out.txt",
+])
+def test_running_from_a_shared_root_is_not_writing_to_it(command: str) -> None:
+    """The store is shared between every feature worktree, so a file one writes
+    there is a file another would run. The exemption is for writing, and a
+    verb not on its list declines it, even where all it does with the store is
+    redirect into it: `uv run pytest > <store>/out` is the cost of that."""
+    before = _guard.refusal(command, HERE, ROOTS_WITH_STORE)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
+
+
+@pytest.mark.parametrize("command", [
+    f"cat > {STORE}/129/reviews/a.md <<'EOF'\nit's done; see $(x) and `y` in /Users/dev\nEOF",
+    f"cat > {STORE}/129/a.md <<-'EOF'\n\tbody\n\tEOF",
+    f"git -C {STORE} commit -m 'specs(129): a; b | c'",
+    f"cat {OTHER}/README.md && mkdir -p {STORE}/129/reviews",
+    f"git -C {STORE} add 129 2>&1",
+    f"cp /tmp/h.md {STORE}/129/ && git -C {STORE} add 129 && git -C {STORE} commit -m x",
+])
+def test_the_forms_a_spec_write_takes_stay_exempt(command: str) -> None:
+    """Parsing quotes properly is what lets the allowlist stay strict without
+    refusing the ordinary forms. A quoted here-document's body is data, so its
+    apostrophe and `$(` are the shell's business, not the guard's, and a
+    separator inside a commit message is part of the message."""
+    assert not refuses_with_store(command)
+
+
+def test_a_relative_shared_root_exempts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_SPEC_DIR` is read raw, and a relative value resolves against the
+    hook process's directory rather than the session's, so the store it would
+    name is a guess. Here the guess is right, and it is still not honoured."""
+    monkeypatch.chdir(tmp_path)
+    main, store = str(tmp_path / "p"), str(tmp_path / "p-specs")
+    here = f"{main}/wt/a"
+    roots = [main, here, store]
+    command = f"mkdir -p {store}/129"
+    assert _guard.refusal(command, here, roots, shared=[store]) is None
+    assert _guard.refusal(command, here, roots, shared=["p-specs"]) is not None
+    assert _guard.refusal(command, here, roots, shared=["~/p-specs"]) is not None
+
+
 def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
     """A spec root need not be a worktree of its own.
 
@@ -704,7 +809,9 @@ def test_an_unreadable_manifest_refuses_rather_than_raising(
     main, store, feature = _store_layout(tmp_path)
     (main / ".wf-skills-manifest.json").write_text("{not json")
 
-    assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard").exit_code == 2
+    refused = _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard")
+    assert refused.exit_code == 2
+    assert "workmux send project-specs" in (refused.stderr or refused.output)
 
 
 def test_the_spec_root_and_the_state_root_are_exempt_together() -> None:

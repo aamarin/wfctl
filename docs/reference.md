@@ -513,19 +513,38 @@ is set. It is normally outside every worktree and needs no exemption. When
 it are allowed for the same reason, other branches' state dirs included, since a
 worktree handoff writes into the child branch's.
 
-A spec root or state root that is the main checkout, or that contains another
-worktree, gets no exemption. A path is exempt only where it lands, so one that
-climbs out of either root is judged as if the root were not exempt, whether it
-climbs with `..`, a quoted `'..'`, or a symlink. A path the shell would expand
-first, through a brace, a variable, or a glob, gets no exemption either. A `cd`
-into either root is still refused, with a wrapper such as `builtin cd` too,
-since the guard would then read the store as the session's own worktree.
+A spec root or state root that is the main checkout, that contains another
+worktree, or that is a relative path gets no exemption.
 
-A git command that writes is exempt only in a root that is its own repository,
-either a worktree or a directory with its own `.git`. git acts on the
-repository it finds, so with the spec root at `<main>/specs`, `git -C
-<main>/specs reset --hard` resets the main checkout and is refused as a write
-there.
+The exemption covers writing, not running. A command gets it only when every
+part of it is one of these, and is otherwise judged as if neither root were
+exempt:
+
+1. A write with `mkdir`, `touch`, `cp`, `mv`, `rm`, or `tee`, or with `echo`,
+   `cat`, or `printf` and a redirect, where every path lands in either root,
+   this worktree, or no worktree.
+2. `git add` or `git commit`, with no option before the subcommand except `-C`,
+   in a root that is its own repository: a worktree, or a directory with its
+   own `.git`. git acts on the repository it finds, so with the spec root at
+   `<main>/specs`, `git -C <main>/specs commit` commits to the main checkout.
+3. A read the guard already allows, such as `cat`, `grep`, or `git -C <path>
+   log`.
+
+So `bash <spec root>/x.sh` is refused, and so is `uv run pytest > <spec
+root>/out.txt`, since `uv` is on neither list. A `cd` into either root is
+refused as before, since the guard would then read the store as the session's
+own worktree.
+
+A path is judged where it lands, so one that climbs out of either root with
+`..` or through a symlink that already exists is judged as if the root were not
+exempt. A relative path that climbs with `..` cannot be judged at all, so the
+exemption is withheld. So is any command with a `$`, a backtick, a backslash, a
+glob, a brace, or a parenthesis outside single quotes, since the shell rewrites
+those before the path reaches the filesystem. A here-document is read only with
+a quoted delimiter, as in `<<'EOF'`. A command that writes a `.git` anywhere
+gets no exemption, since that would turn the store into a repository git acts
+on. A symlink made earlier in the same command is the one case the guard cannot
+see, because the link does not exist yet when it checks.
 
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
 lands in `.claude/settings.json` — the merge mode below lists the rest:

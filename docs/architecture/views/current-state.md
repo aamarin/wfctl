@@ -24,7 +24,7 @@ when this drawing stops matching it. See **Staleness** below.
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
    │ _pipeline 439   _evidence 603    _arch 458      _archive 339 │      ┊
-   │ _guard 458      _verify 245      _tracker 497   _workmux 274 │      ┊
+   │ _guard 667      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
@@ -33,7 +33,7 @@ when this drawing stops matching it. See **Staleness** below.
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
       ▼ ┊  _tracker    → _paths.DEFAULT_KEY_PATTERN        edge, and the ┊
    ╭─ resolution ─────────────────────────────────────╮     only cycle   ┊
-   │ _paths 660      _manifest 42     _provenance 173 │◄────────────────╌╯
+   │ _paths 931      _manifest 42     _provenance 173 │◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
    ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session

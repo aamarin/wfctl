@@ -44,7 +44,11 @@ argument means parsing shell, which is a losing game, so it does not try.
                      cd's — the command text never contains the path.
     quoting          segments are split on `|`, `&&` and `;` without honouring
                      quotes, so a separator inside a quoted string splits a
-                     segment early. It fails toward refusing.
+                     segment early. That mostly refuses, but in
+                     `"<dir>/a;b/../../<peer>"` the `..` climbs from a
+                     directory the second half never names. No allowance is
+                     granted on this split: the spec and state root exemption
+                     below parses quotes properly instead.
     new worktrees    nothing fires unless a path in the segment is owned by a
                      worktree that already exists, so `git worktree add` is
                      caught only when its target is absolute *and* inside a
@@ -74,18 +78,44 @@ for the whole project rather than one branch, because a worktree handoff writes
 into the child branch's state dir before that branch exists.
 
 A shared root that is the main checkout, or that contains any worktree, is not
-honoured, since exempting it would open the peers it holds. A path is exempt
-only where it lands, so `<spec root>/..` is judged as the directory above it,
-and so are `<spec root>/'..'` and a symlink in the store. A path the shell
-would expand, through a brace or a variable, is exempt from nothing. And `cd`
-into a shared root is still refused, since the session would then be standing
-in the store and read it as its own worktree.
+honoured, since exempting it would open the peers it holds.
+
+The exemption is an allowlist, and it is granted to a whole command or not at
+all. A command earns it only when every simple command in it is one this module
+can read completely, and each is either a plain write whose every path lands in
+a shared root, this worktree, or no worktree, or a read `refusal()` would allow
+anyway. Anything else is judged exactly as if no root were shared. Four rounds
+of review patched an exemption that trusted everything but the known tricks,
+and each round found new ones: a quoted `;`, a `$(…)`, `env -C`, `git
+--work-tree`. So it no longer tries to see through a construct; it declines
+one. That means:
+
+    writes      mkdir, touch, cp, mv, rm, tee, and echo, cat, or printf
+                with a redirect. `git add` and `git commit`, with no option
+                but `-C`, and only in a shared root that is its own
+                repository. `bash <store>/x.sh` is running the store, not
+                writing it, and gets no exemption.
+    the text    no `$`, backtick, backslash, glob, brace, parenthesis, or
+                `~` outside single quotes, so nothing the shell would rewrite
+                is taken at its word. A here-document is read only with a
+                quoted delimiter, whose body the shell leaves alone.
+    the paths   each one judged where it lands, `..` and symlinks resolved.
+                A relative path may not climb with `..`, since where it
+                starts is not in the text, and no path may name a `.git`,
+                since writing one turns a store into a repository git would
+                act on.
+
+A `cd` into a shared root is refused as it always was: it is not a write, and
+the session would then be standing in the store and read it as its own
+worktree. A symlink made earlier in the same command is the one thing this
+cannot see, since the path it checks does not yet exist.
 """
 from __future__ import annotations
 
 import posixpath
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 
 # Verbs that only read, and may therefore name another worktree. Absence is the
 # refusal: this list does not need to be complete, it needs to be small.
@@ -123,10 +153,17 @@ _WORKMUX_OK = frozenset({
     "list", "ls", "path", "status", "send", "capture", "wait",
 })
 
-# Verbs that move the session's working directory, which is where the hook reads
-# `here` from. `refusal()` withholds the spec and state root exemption from them.
-_CHANGES_DIRECTORY = frozenset({"cd", "pushd"})
-_GIT = frozenset({"git"})
+# The verbs the spec and state root exemption is for, and nothing else. Each
+# writes only the paths it names, and none has an option that moves where a
+# relative path lands, which is what put `env -C`, `make -C`, and `uv
+# --directory` out of reach of any check on the text. echo, cat, and printf
+# write only through a redirect, and a redirect target is a path like any other.
+_WRITE_VERBS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "tee", "echo", "cat", "printf"})
+
+# git writes a store in two ways, staging and committing. `reset`, `checkout`,
+# `config`, `worktree remove`, and `update-ref` each change something every
+# worktree shares, so they are judged as a write to whoever owns the path.
+_GIT_WRITES = frozenset({"add", "commit"})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -215,18 +252,9 @@ def _owner(path: str, roots: Iterable[str]) -> str | None:
 
 
 # The end of the shell word a path sits in. `_ABS_PATH` stops at a quote, so
-# `<store>/'..'/x` arrives as `<store>/` and the `..` the shell will see is cut
+# `<here>/'..'/x` arrives as `<here>/` and the `..` the shell will see is cut
 # off. A path is judged on its whole word instead.
 _WORD_END = re.compile(r"[\s;|&<>()]")
-
-# What the shell removes from a word before the path reaches the filesystem.
-_QUOTING = str.maketrans("", "", "'\"\\")
-
-# What the shell expands into a path the text does not show: `<store>/{x,..}`
-# is two paths, one of them above the store, a variable can be anything, and
-# `<store>/link*` is whatever the link points at while `realpath` reads the `*`
-# as a name.
-_EXPANSION = re.compile(r"[{$*?\[]")
 
 
 def _word(segment: str, start: int) -> str:
@@ -234,10 +262,10 @@ def _word(segment: str, start: int) -> str:
 
     Quotes and backslashes are removed, so `<here>/'..'/x` keeps the `..` the
     shell will act on. Whitespace ends the word only outside quotes and when not
-    escaped: `"<store>/a b/../../<main>/src"` cut at the space is `<store>/a`,
-    which is exempt, and the rest of it names no worktree. The scan starts at
-    the front of the segment because the path can begin inside a quote opened
-    before it.
+    escaped: `"<here>/a b/../../<peer>/src"` cut at the space is `<here>/a`,
+    which is this worktree's, and the rest of it names no worktree. The scan
+    starts at the front of the segment because the path can begin inside a
+    quote opened before it.
 
     Only `,` and `:` are stripped from the end: a trailing `.` is stripped
     later, for a path ending a sentence, and stripped here it would turn a
@@ -259,30 +287,6 @@ def _word(segment: str, start: int) -> str:
             word.append(c)
         i += 1
     return "".join(word).rstrip(",:")
-
-
-def _names(segment: str, verbs: frozenset[str]) -> bool:
-    """Whether `segment` runs one of `verbs` anywhere in it, not only first.
-
-    `builtin cd`, `command git`, `X=1 cd`, and `bash -c "cd …"` each put the verb
-    behind another word, where `verb_of` cannot see it. A word that only looks
-    like one, as in `echo cd`, costs an exemption, which is the safe direction.
-    """
-    words = [w.translate(_QUOTING).strip("(){}") for w in segment.split()]
-    return verb_of(segment) in verbs or any(w in verbs for w in words)
-
-
-def _lands_in(word: str, exempt: set[str]) -> bool:
-    """Whether `word` lands inside one of `exempt`.
-
-    Judged where the filesystem would put it, with `..` and symlinks resolved,
-    so a symlink in the store pointing at a peer exempts nothing. Neither does
-    a word the shell would expand, since the text cannot say where that lands.
-    """
-    if not exempt or _EXPANSION.search(word):
-        return False
-    landed = posixpath.realpath(word)
-    return any(landed == r or landed.startswith(r + "/") for r in exempt)
 
 
 def _git_words(args: list[str]) -> list[str]:
@@ -354,11 +358,15 @@ def _shareable(candidate: str | None, roots: list[str]) -> str | None:
     the candidate means it holds a worktree. A store that is itself a worktree,
     like a `specs-trunk` checkout beside the project, passes both.
 
-    Both sides are compared resolved, as `_lands_in` compares a path. A root
+    Both sides are compared resolved, as `_stays` compares a path. A root
     declared as `<main>/wt/../specs` is the store it names, and one declared as a
     symlink to the main checkout is the main checkout.
+
+    A relative root, such as a `WFCTL_SPEC_DIR` of `specs` or `~/specs` read raw
+    from the environment, would resolve against the hook process's directory
+    rather than the session's, so it names no store this module can find.
     """
-    if not candidate:
+    if not candidate or not posixpath.isabs(candidate):
         return None
     shared = posixpath.realpath(candidate)
     real = [posixpath.realpath(r) for r in roots]
@@ -367,6 +375,223 @@ def _shareable(candidate: str | None, roots: list[str]) -> str | None:
     if any(r.startswith(shared + "/") for r in real):
         return None
     return shared
+
+
+# What the shell rewrites before a word reaches the filesystem, so a word holding
+# one says nothing certain about where it lands. Inside double quotes only the
+# first three still act; inside single quotes nothing does.
+_REWRITES = frozenset("$`\\")
+_UNQUOTED_REWRITES = _REWRITES | frozenset("*?[]{}()~!")
+
+# Longest first, so `>>` is not read as `>` followed by a word starting `>`.
+# `<<<` and `<>` are not followed, and decline the exemption.
+_REDIRECTS = ("&>>", "&>", ">>", ">|", ">&", ">", "<<-", "<<", "<&", "<")
+
+
+@dataclass
+class _Simple:
+    """One simple command: its words, and the paths it reads from and writes to."""
+
+    words: list[str] = field(default_factory=list)
+    reads: list[str] = field(default_factory=list)
+    writes: list[str] = field(default_factory=list)
+
+
+def _commands(command: str) -> list[_Simple] | None:
+    """`command` as the simple commands the shell would run, or None.
+
+    None whenever the text holds anything the shell would rewrite or that this
+    does not follow to the end: an unclosed quote, a substitution, a glob, a
+    subshell, a here-document with a delimiter the shell would expand inside.
+    That is the point of it. `_SEPARATORS` splits quote-blind, which is safe
+    only for refusing; an exemption granted on that split cut `rm -rf
+    "<store>/a;b/../../<main>/src"` in two and allowed both halves.
+    """
+    found: list[_Simple] = []
+    current = _Simple()
+    word: list[str] | None = None
+    quoted = False
+    target = ""
+    heredocs: list[tuple[str, bool]] = []
+
+    def finish_word() -> bool:
+        nonlocal word, quoted, target
+        if word is None:
+            return True
+        text = "".join(word)
+        if target in ("<<", "<<-"):
+            if not quoted:
+                return False
+            heredocs.append((text, target == "<<-"))
+        elif target in (">&", "<&") and (text.isdigit() or text == "-"):
+            pass
+        elif target.startswith("<"):
+            current.reads.append(text)
+        elif target:
+            current.writes.append(text)
+        else:
+            current.words.append(text)
+        word, quoted, target = None, False, ""
+        return True
+
+    def finish_command() -> bool:
+        nonlocal current
+        if not finish_word() or target:
+            return False
+        if current.words or current.reads or current.writes:
+            found.append(current)
+        current = _Simple()
+        return True
+
+    i = 0
+    while i < len(command):
+        c = command[i]
+        if c in "'\"":
+            close = command.find(c, i + 1)
+            if close < 0:
+                return None
+            body = command[i + 1:close]
+            if c == '"' and _REWRITES.intersection(body):
+                return None
+            word = (word or []) + [body]
+            quoted = True
+            i = close + 1
+        elif c in _UNQUOTED_REWRITES:
+            return None
+        elif c in " \t":
+            if not finish_word():
+                return None
+            i += 1
+        elif c == "\n":
+            if not finish_command():
+                return None
+            i += 1
+            # A here-document's body is data, and with a quoted delimiter the
+            # shell leaves it alone, so it is skipped rather than parsed.
+            for delimiter, strip_tabs in heredocs:
+                while True:
+                    if i >= len(command):
+                        return None
+                    end = command.find("\n", i)
+                    end = len(command) if end < 0 else end
+                    line = command[i:end]
+                    i = end + 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            heredocs.clear()
+        elif command.startswith(("&&", "||"), i) or (c in ";|&" and not command.startswith("&>", i)):
+            if not finish_command():
+                return None
+            i += 2 if command.startswith(("&&", "||"), i) else 1
+        elif c in "<>&":
+            op = next(r for r in _REDIRECTS if command.startswith(r, i))
+            if command.startswith(("<<<", "<>"), i):
+                return None
+            # A run of digits right before the operator is the descriptor it
+            # redirects, as in `2>`, not a word of the command.
+            if word is not None and not quoted and "".join(word).isdigit():
+                word = None
+            if not finish_word() or target:
+                return None
+            target = op
+            i += len(op)
+        else:
+            word = (word or []) + [c]
+            i += 1
+    if heredocs or not finish_command():
+        return None
+    return found
+
+
+def _git_writes(args: list[str]) -> bool:
+    """Whether `git <args>` stages or commits, steered by nothing but `-C`.
+
+    `--git-dir`, `--work-tree`, and `-c core.worktree=…` each point git at a
+    repository or a tree the path in the text does not name, so any option
+    before the subcommand other than `-C` declines the exemption.
+    """
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] != "-C" or i + 1 >= len(args):
+            return False
+        i += 2
+    return i < len(args) and args[i] in _GIT_WRITES
+
+
+def _climbs(word: str) -> bool:
+    """Whether a relative `word` holds a `..`, which lands wherever it started."""
+    return not word.startswith("/") and ".." in re.split(r"[/=:]", word)
+
+
+def _stays(path: str, here: str, roots: list[str], within: set[str]) -> bool:
+    """Whether `path` lands in one of `within`, or else in no worktree but `here`.
+
+    Judged three ways: as written, with `..` resolved, and with symlinks
+    resolved too. Only the last can say a link in the store points at a peer,
+    and only the first matches what `refusal()` would refuse with nothing shared.
+    """
+    for p in {path, path.rstrip(",:")}:
+        landed = posixpath.realpath(p)
+        if any(landed == r or landed.startswith(r + "/") for r in within):
+            continue
+        owners = {_owner(q, roots) for q in (p.rstrip(".,:"), posixpath.normpath(p), landed)}
+        if not owners <= {None, here}:
+            return False
+    return True
+
+
+def _exempt(command: str, here: str, roots: list[str], exempt: set[str]) -> bool:
+    """Whether `command` only writes where a shared root lets it.
+
+    Each simple command must be a write from the allowlist, or a read
+    `_reads_only` accepts, and nothing else: a `cd` earlier in the command moves
+    where every relative path after it lands, and `uv run` executes whatever it
+    finds. Its paths must then stay in a shared root, this worktree, or no
+    worktree, unless it is a read with no redirect, which may name any worktree
+    as it always could. One that fails declines the exemption for the whole
+    command, and `refusal()` then judges it as if nothing were shared.
+    """
+    simple = _commands(command)
+    if simple is None:
+        return False
+    # git acts on the repository it discovers, not the directory it is pointed
+    # at. With the spec root a plain `<main>/specs`, `git -C <main>/specs reset
+    # --hard` resets the main checkout. So a git write is exempt only in a
+    # shared root that is its own repository: a worktree, or a directory holding
+    # its own `.git`.
+    real = {posixpath.realpath(r) for r in roots}
+    repos = {s for s in exempt if s in real or posixpath.lexists(f"{s}/.git")}
+
+    for s in simple:
+        named = s.words + s.reads + s.writes
+        # Writing a `.git` is what makes a store into a repository git would
+        # act on, which is the one thing `repos` above has to be able to trust.
+        if any(".git" in re.split(r"[/=:]", w) for w in named):
+            return False
+        verb = s.words[0] if s.words else ""
+        reads = _reads_only(" ".join(s.words))
+        if verb == "git" and _git_writes(s.words[1:]):
+            usable = repos
+        elif verb in _WRITE_VERBS or reads:
+            usable = exempt
+        else:
+            return False
+        # A relative `..` lands wherever the command started, which the text
+        # does not say, so `rm -rf <store>/x ../<peer>/src` is judged with
+        # nothing shared.
+        if any(_climbs(w) for w in named):
+            usable = set()
+
+        def stays(word: str) -> bool:
+            paths = [word] if word.startswith("/") else [m.group() for m in _ABS_PATH.finditer(word)]
+            return all(_stays(p, here, roots, usable) for p in paths)
+
+        if all(stays(w) for w in named):
+            continue
+        if reads and all(w == "/dev/null" for w in s.writes):
+            continue
+        return False
+    return True
 
 
 def refusal(
@@ -379,22 +604,17 @@ def refusal(
     from an ordinary subdirectory.
 
     `shared` holds the spec root and the state root, the directories wfctl hands
-    every feature worktree to write in, and a path that lands under either is
-    nobody's trespass. It is passed over before ownership is asked at all, so a
+    every feature worktree to write in. A command that only writes there, in the
+    forms the module docstring lists, is allowed whoever owns the root, so a
     spec root that is a plain directory inside the main checkout is exempt as
-    well as one that is a worktree of its own. Every other path is judged
-    against `worktrees` alone. A None entry is a root that could not be
-    resolved, and exempts nothing.
+    well as one that is a worktree of its own. Any other command is judged
+    against `worktrees` alone, exactly as with nothing shared. A None entry is a
+    root that could not be resolved, and exempts nothing.
     """
     roots = list(worktrees)
     exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
-    # git acts on the repository it discovers, not the directory it is pointed
-    # at. With the spec root a plain `<main>/specs`, `git -C <main>/specs reset
-    # --hard` resets the main checkout. So a git command that writes is exempt
-    # only in a shared root that is its own repository: a worktree, or a
-    # directory holding its own `.git`.
-    real = {posixpath.realpath(r) for r in roots} if exempt else set()
-    repos = {s for s in exempt if s in real or posixpath.lexists(f"{s}/.git")}
+    if exempt and _exempt(command, here, roots, exempt):
+        return None
 
     # Segment by segment, each judged against the paths *it* names. Judging the
     # whole command against a trespass found anywhere in it refuses the local
@@ -403,22 +623,11 @@ def refusal(
     # left this worktree. Compound commands like that are ordinary, and the `&`
     # separator widened the class.
     for segment in _SEPARATORS.split(command):
-        # A `cd` into a shared root is refused as it always was. The hook takes
-        # `here` from the session's working directory, so after that `cd` the
-        # store reads as this session's own worktree, and the real one is
-        # refused with a handoff to itself. The refusal was also what stopped
-        # `cd <store> && rm -rf ../<main>/src`, whose relative half is invisible.
-        usable = exempt
-        if _names(segment, _CHANGES_DIRECTORY):
-            usable = set()
-        elif _names(segment, _GIT) and not (verb_of(segment) == "git" and _reads_only(segment)):
-            usable = repos
         trespass = next(
             (
                 (root, path)
                 for match in _ABS_PATH.finditer(segment)
                 for path, word in [(match.group(), _word(segment, match.start()))]
-                if not _lands_in(word, usable)
                 for root in (
                     _owner(path.rstrip(".,:"), roots),
                     _owner(posixpath.normpath(word).rstrip("."), roots),
