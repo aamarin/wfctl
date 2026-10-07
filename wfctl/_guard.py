@@ -67,8 +67,8 @@ repo today — is the same case as `wt/<handle>`, not a gap.
 Every feature worktree writes its spec, plan, and reviews under the spec root,
 because `feature-paths` tells it to. A project that keeps that store checked out
 as its own worktree, beside the code, would otherwise see every one of those
-writes refused. So the resolved spec root is writable from any worktree, git
-commands in it included, and that covers other features' spec dirs as well as
+writes refused. So the resolved spec root is writable from any worktree, by the
+plain writes listed below, and that covers other features' spec dirs as well as
 this one's.
 
 The state root is the same case. It normally sits under `~/.local/state`, where
@@ -91,24 +91,26 @@ and each round found new ones: a quoted `;`, a `$(…)`, `env -C`, `git
 one. That means:
 
     writes      mkdir, touch, cp, mv, rm, tee, and echo, cat, or printf
-                with a redirect. `git add` and `git commit`, with no option
-                but `-C`, and only in a shared root that is its own
-                repository. `bash <store>/x.sh` is running the store, not
-                writing it, and gets no exemption.
-    the text    no `$`, backtick, backslash, glob, brace, parenthesis, or
-                `~` outside single quotes, so nothing the shell would rewrite
-                is taken at its word. A here-document is read only with a
-                quoted delimiter, whose body the shell leaves alone.
+                with a redirect. `bash <store>/x.sh` is running the store,
+                not writing it, and gets no exemption. Neither does git:
+                which repository it commits to is decided by files inside
+                the store, which the text cannot show, and a store whose
+                `.git` was replaced commits to the main checkout's branch.
+    the text    no `$`, backtick, or backslash outside single quotes, and
+                no glob, brace, parenthesis, `~`, or `#` outside any quotes,
+                so nothing the shell would rewrite or skip is taken at its
+                word. A here-document is read only with a quoted delimiter,
+                whose body the shell leaves alone.
     the paths   each one judged where it lands, `..` and symlinks resolved.
                 A relative path may not climb with `..`, since where it
-                starts is not in the text, and no path may name a `.git`,
-                since writing one turns a store into a repository git would
-                act on.
+                starts is not in the text, and no path may name a `.git`
+                in any case, since one in the store redirects whatever git
+                command a session later runs there.
 
 A `cd` into a shared root is refused as it always was: it is not a write, and
 the session would then be standing in the store and read it as its own
-worktree. A symlink made earlier in the same command is the one thing this
-cannot see, since the path it checks does not yet exist.
+worktree. A symlink made earlier in the same command is not seen, since the
+path it checks does not yet exist.
 """
 from __future__ import annotations
 
@@ -159,11 +161,6 @@ _WORKMUX_OK = frozenset({
 # --directory` out of reach of any check on the text. echo, cat, and printf
 # write only through a redirect, and a redirect target is a path like any other.
 _WRITE_VERBS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "tee", "echo", "cat", "printf"})
-
-# git writes a store in two ways, staging and committing. `reset`, `checkout`,
-# `config`, `worktree remove`, and `update-ref` each change something every
-# worktree shares, so they are judged as a write to whoever owns the path.
-_GIT_WRITES = frozenset({"add", "commit"})
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -379,9 +376,12 @@ def _shareable(candidate: str | None, roots: list[str]) -> str | None:
 
 # What the shell rewrites before a word reaches the filesystem, so a word holding
 # one says nothing certain about where it lands. Inside double quotes only the
-# first three still act; inside single quotes nothing does.
+# first three still act; inside single quotes nothing does. `#` is here for the
+# opposite reason: the shell skips the rest of the line as a comment, so a
+# here-document operator after it is one this parser would follow and the shell
+# would not, and the lines it skipped as a body the shell runs as commands.
 _REWRITES = frozenset("$`\\")
-_UNQUOTED_REWRITES = _REWRITES | frozenset("*?[]{}()~!")
+_UNQUOTED_REWRITES = _REWRITES | frozenset("*?[]{}()~!#")
 
 # Longest first, so `>>` is not read as `>` followed by a word starting `>`.
 # `<<<` and `<>` are not followed, and decline the exemption.
@@ -503,21 +503,6 @@ def _commands(command: str) -> list[_Simple] | None:
     return found
 
 
-def _git_writes(args: list[str]) -> bool:
-    """Whether `git <args>` stages or commits, steered by nothing but `-C`.
-
-    `--git-dir`, `--work-tree`, and `-c core.worktree=…` each point git at a
-    repository or a tree the path in the text does not name, so any option
-    before the subcommand other than `-C` declines the exemption.
-    """
-    i = 0
-    while i < len(args) and args[i].startswith("-"):
-        if args[i] != "-C" or i + 1 >= len(args):
-            return False
-        i += 2
-    return i < len(args) and args[i] in _GIT_WRITES
-
-
 def _climbs(word: str) -> bool:
     """Whether a relative `word` holds a `..`, which lands wherever it started."""
     return not word.startswith("/") and ".." in re.split(r"[/=:]", word)
@@ -554,37 +539,24 @@ def _exempt(command: str, here: str, roots: list[str], exempt: set[str]) -> bool
     simple = _commands(command)
     if simple is None:
         return False
-    # git acts on the repository it discovers, not the directory it is pointed
-    # at. With the spec root a plain `<main>/specs`, `git -C <main>/specs reset
-    # --hard` resets the main checkout. So a git write is exempt only in a
-    # shared root that is its own repository: a worktree, or a directory holding
-    # its own `.git`.
-    real = {posixpath.realpath(r) for r in roots}
-    repos = {s for s in exempt if s in real or posixpath.lexists(f"{s}/.git")}
 
     for s in simple:
         named = s.words + s.reads + s.writes
-        # Writing a `.git` is what makes a store into a repository git would
-        # act on, which is the one thing `repos` above has to be able to trust.
-        if any(".git" in re.split(r"[/=:]", w) for w in named):
-            return False
-        verb = s.words[0] if s.words else ""
-        reads = _reads_only(" ".join(s.words))
-        if verb == "git" and _git_writes(s.words[1:]):
-            usable = repos
-        elif verb in _WRITE_VERBS or reads:
-            usable = exempt
-        else:
-            return False
         # A relative `..` lands wherever the command started, which the text
-        # does not say, so `rm -rf <store>/x ../<peer>/src` is judged with
-        # nothing shared.
-        if any(_climbs(w) for w in named):
-            usable = set()
+        # does not say. Judging only its own simple command is not enough: the
+        # word holds no absolute path for `_stays` to refuse, so `mkdir
+        # <store>/x && rm -rf ../<peer>/src` passed on the strength of the first
+        # half. And a `.git` in the store, in any case on a filesystem that
+        # ignores it, redirects whatever git command a session later runs there.
+        if any(_climbs(w) or ".git" in re.split(r"[/=:]", w.casefold()) for w in named):
+            return False
+        reads = _reads_only(" ".join(s.words))
+        if not reads and (not s.words or s.words[0] not in _WRITE_VERBS):
+            return False
 
         def stays(word: str) -> bool:
             paths = [word] if word.startswith("/") else [m.group() for m in _ABS_PATH.finditer(word)]
-            return all(_stays(p, here, roots, usable) for p in paths)
+            return all(_stays(p, here, roots, exempt) for p in paths)
 
         if all(stays(w) for w in named):
             continue

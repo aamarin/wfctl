@@ -360,8 +360,6 @@ def refuses_with_store(command: str) -> bool:
     f"mkdir -p {STORE}/129-cross-worktree-guard/reviews",
     f"cat > {STORE}/129-cross-worktree-guard/reviews/a.md <<'EOF'\nx\nEOF",
     f"echo done > {STORE}/129-cross-worktree-guard/reviews/a.md",
-    f"git -C {STORE} add 129-cross-worktree-guard",
-    f"git -C {STORE} commit -m 'specs(129): reviews'",
     f'mkdir -p "{STORE}/129-cross-worktree-guard/reviews"',
 ])
 def test_a_write_under_the_spec_root_is_allowed(command: str) -> None:
@@ -565,7 +563,7 @@ def test_a_path_that_climbs_back_into_a_shared_root_is_exempt() -> None:
     """Normalising cuts both ways: a `..` that lands inside the store is a
     write to the store."""
     assert not refuses_with_store(f"mkdir -p {STORE}/a/../129-cross-worktree-guard")
-    assert not refuses_with_store(f"git -C {STORE}/. commit -m x")
+    assert not refuses_with_store(f"touch {STORE}/./129/a.md")
 
 
 @pytest.mark.parametrize("command", [
@@ -616,6 +614,10 @@ def test_changing_directory_into_a_shared_root_is_still_refused(command: str) ->
     "find {s} -maxdepth 0 -execdir rm -rf project/src ;",
     "cd .. && rm -rf wt/105-mypy-cold-venv/src > {s}/log",
     "rm -rf {s}/x ../project/wt/105-mypy-cold-venv/src",
+    "mkdir -p {s}/x && rm -rf ../105-mypy-cold-venv/src",
+    "mkdir -p {s}/x && echo x > ../105-mypy-cold-venv/evil.py",
+    # A comment the shell skips and this parser would not.
+    "mkdir -p {s}/x # <<':'\nrm -rf /Users/dev/project/wt/105-mypy-cold-venv/src\n:",
     # git pointed somewhere the path does not name, or changing shared state.
     'git -C {s} --git-dir="$GIT_DIR" commit -m x',
     "git -C {s} --work-tree=../project checkout -- x",
@@ -628,6 +630,7 @@ def test_changing_directory_into_a_shared_root_is_still_refused(command: str) ->
     # A repository, or a link, made inside the store.
     "mkdir -p {s}/.git",
     'echo "gitdir: /Users/dev/project/.git" > {s}/.git',
+    "printf x > {s}/.GIT",
     "ln -s ../project/src {s}/l && echo x > {s}/l/evil.py",
     "cp -s /Users/dev/project/src {s}/l",
 ])
@@ -664,16 +667,15 @@ def test_running_from_a_shared_root_is_not_writing_to_it(command: str) -> None:
 @pytest.mark.parametrize("command", [
     f"cat > {STORE}/129/reviews/a.md <<'EOF'\nit's done; see $(x) and `y` in /Users/dev\nEOF",
     f"cat > {STORE}/129/a.md <<-'EOF'\n\tbody\n\tEOF",
-    f"git -C {STORE} commit -m 'specs(129): a; b | c'",
+    f"echo 'specs(129): a; b | c # d' > {STORE}/129/note.md",
     f"cat {OTHER}/README.md && mkdir -p {STORE}/129/reviews",
-    f"git -C {STORE} add 129 2>&1",
-    f"cp /tmp/h.md {STORE}/129/ && git -C {STORE} add 129 && git -C {STORE} commit -m x",
+    f"cp /tmp/h.md {STORE}/129/ 2>&1 && git -C {STORE} status --short",
 ])
 def test_the_forms_a_spec_write_takes_stay_exempt(command: str) -> None:
     """Parsing quotes properly is what lets the allowlist stay strict without
     refusing the ordinary forms. A quoted here-document's body is data, so its
     apostrophe and `$(` are the shell's business, not the guard's, and a
-    separator inside a commit message is part of the message."""
+    separator or a `#` inside quotes is part of the text."""
     assert not refuses_with_store(command)
 
 
@@ -707,34 +709,32 @@ def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
     assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, shared=[shared]) is not None
 
 
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
 @pytest.mark.parametrize("command", [
-    "git -C {s} reset --hard HEAD",
+    "git -C {s} add 129",
+    "git -C {s} commit -m 'specs(129): reviews'",
     "git -C {s}/129 commit -m x",
+    "git -C {s} -C /Users/dev/project commit -m x",
+    "git -C {s} reset --hard HEAD",
     "command git -C {s} reset --hard HEAD",
 ])
-def test_git_in_a_shared_root_without_its_own_repository_is_refused(command: str) -> None:
-    """git acts on the repository it discovers, so `git -C <main>/specs reset
-    --hard` resets the main checkout. Writing files there is exempt, and a git
-    command that writes is judged as the main checkout's, since that is where
-    it lands."""
-    shared = f"{MAIN}/specs"
-    command = command.format(s=shared)
-    before = _guard.refusal(command, HERE, ROOTS)
+def test_git_that_writes_in_a_shared_root_is_never_exempt(
+    command: str, store: str, roots: list[str],
+) -> None:
+    """git commits to the repository it discovers from files inside the store,
+    and the text of the command cannot show which one that is. With the store a
+    plain `<main>/specs`, that is the main checkout's; with a `.git` replaced in
+    the store, it is whatever the replacement names. So a git write there is
+    judged as if nothing were shared, and committing to the store is a handoff
+    like any other cross-worktree write. Reading it stays allowed."""
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
     assert before is not None
-    assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) == before
-    assert _guard.refusal(f"git -C {shared} log", HERE, ROOTS, shared=[shared]) is None
-
-
-def test_git_in_a_shared_root_with_its_own_repository_is_exempt(tmp_path: Path) -> None:
-    """A store that is its own clone, rather than a worktree, carries its own
-    `.git`, and a commit there stays there."""
-    main, store = (str(tmp_path.resolve() / n) for n in ("p", "p/specs"))
-    here = f"{main}/wt/a"
-    for d in (here, f"{store}/.git"):
-        os.makedirs(d)
-    command = f"git -C {store} commit -m x"
-    assert _guard.refusal(command, here, [main, here]) is not None
-    assert _guard.refusal(command, here, [main, here], shared=[store]) is None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+    assert _guard.refusal(f"git -C {store} log", HERE, roots, shared=[store]) is None
 
 
 def _store_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -769,7 +769,8 @@ def test_the_hook_allows_the_spec_root_the_main_checkout_declares(
     (main / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(store)}))
 
     assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard/reviews").exit_code == 0
-    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 0
+    assert _hook(feature, f"git -C {store} log --oneline").exit_code == 0
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 2
 
     peer = _hook(feature, f"rm -rf {main}/README.md")
     assert peer.exit_code == 2

@@ -523,11 +523,7 @@ exempt:
 1. A write with `mkdir`, `touch`, `cp`, `mv`, `rm`, or `tee`, or with `echo`,
    `cat`, or `printf` and a redirect, where every path lands in either root,
    this worktree, or no worktree.
-2. `git add` or `git commit`, with no option before the subcommand except `-C`,
-   in a root that is its own repository: a worktree, or a directory with its
-   own `.git`. git acts on the repository it finds, so with the spec root at
-   `<main>/specs`, `git -C <main>/specs commit` commits to the main checkout.
-3. A read the guard already allows, such as `cat`, `grep`, or `git -C <path>
+2. A read the guard already allows, such as `cat`, `grep`, or `git -C <path>
    log`.
 
 So `bash <spec root>/x.sh` is refused, and so is `uv run pytest > <spec
@@ -535,16 +531,23 @@ root>/out.txt`, since `uv` is on neither list. A `cd` into either root is
 refused as before, since the guard would then read the store as the session's
 own worktree.
 
+git commands that write, `git add` and `git commit` included, get no exemption.
+git commits to the repository it finds from files inside the store, and the
+command cannot show which one that is: with the spec root at `<main>/specs` it
+is the main checkout. A feature session that needs a commit in the spec store
+hands it off, as it would any other cross-worktree write.
+
 A path is judged where it lands, so one that climbs out of either root with
 `..` or through a symlink that already exists is judged as if the root were not
-exempt. A relative path that climbs with `..` cannot be judged at all, so the
-exemption is withheld. So is any command with a `$`, a backtick, a backslash, a
-glob, a brace, or a parenthesis outside single quotes, since the shell rewrites
-those before the path reaches the filesystem. A here-document is read only with
-a quoted delimiter, as in `<<'EOF'`. A command that writes a `.git` anywhere
-gets no exemption, since that would turn the store into a repository git acts
-on. A symlink made earlier in the same command is the one case the guard cannot
-see, because the link does not exist yet when it checks.
+exempt. Any command holding a relative path that climbs with `..` gets no
+exemption, since where it starts cannot be read from the text. Neither does a
+command with a `$`, a backtick, or a backslash outside single quotes, or a
+glob, a brace, a parenthesis, a `~`, or a `#` outside any quotes, since the
+shell rewrites or skips those before the path reaches the filesystem. A
+here-document is read only with a quoted delimiter, as in `<<'EOF'`. A command
+naming a `.git`, in any letter case, gets no exemption either. A symlink made
+earlier in the same command is not seen, because the link does not exist yet
+when the guard checks.
 
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
 lands in `.claude/settings.json` — the merge mode below lists the rest:
