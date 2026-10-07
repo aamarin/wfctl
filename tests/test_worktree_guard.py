@@ -13,6 +13,7 @@ every command aimed at it.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -361,6 +362,7 @@ def refuses_with_store(command: str) -> bool:
     f"echo done > {STORE}/129-cross-worktree-guard/reviews/a.md",
     f"git -C {STORE} add 129-cross-worktree-guard",
     f"git -C {STORE} commit -m 'specs(129): reviews'",
+    f'mkdir -p "{STORE}/129-cross-worktree-guard/reviews"',
 ])
 def test_a_write_under_the_spec_root_is_allowed(command: str) -> None:
     """`feature-paths` hands every feature worktree a `FEATURE_DIR` here.
@@ -401,7 +403,7 @@ def test_a_read_under_the_spec_root_is_still_allowed() -> None:
 
 
 @pytest.mark.parametrize("slot", ["spec", "state"])
-@pytest.mark.parametrize("spec_root", [MAIN, f"{MAIN}/wt", "/Users/dev"])
+@pytest.mark.parametrize("spec_root", [MAIN, f"{MAIN}/wt", "/Users/dev", f"{MAIN}/wt/.."])
 def test_a_shared_root_covering_a_worktree_is_not_honoured(spec_root: str, slot: str) -> None:
     """A shared root declared too broadly cannot open the worktrees it covers.
 
@@ -458,6 +460,74 @@ def test_a_path_that_climbs_out_of_a_shared_root_is_not_exempt(
     before = _guard.refusal(command, HERE, roots)
     assert before is not None
     assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+
+
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+@pytest.mark.parametrize("command", [
+    "rm -rf {s}/{{x,..}}/project/wfctl",
+    "rm -rf {s}/'..'/project/wfctl",
+    'rm -rf {s}/".."/project/wfctl',
+    "rm -rf {s}/\\../project/wfctl",
+    "rm -rf {s}/$UP/project/wfctl",
+])
+def test_a_path_the_shell_rewrites_is_not_exempt(
+    command: str, store: str, roots: list[str],
+) -> None:
+    """The shell sees a `..` the text hides. `_ABS_PATH` stops at a quote, so
+    `<store>/'..'/x` arrived as `<store>/` and was exempt, and a brace or a
+    variable can expand to anywhere. Each row is a write above the store that
+    was refused before the exemption existed and has to stay refused."""
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
+    assert before is not None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+
+
+def test_a_symlink_in_the_store_exempts_nothing(tmp_path: Path) -> None:
+    """A link in the store pointing at a peer is a write to the peer. The text
+    starts with the store, so only the filesystem can say where it lands."""
+    main, store, peer = (str(tmp_path.resolve() / n) for n in ("p", "p-specs", "p/wt/b"))
+    here = f"{main}/wt/a"
+    for d in (here, peer, store):
+        os.makedirs(d)
+    os.symlink(peer, f"{store}/link")
+    roots = [main, here, store, peer]
+
+    command = f"rm -rf {store}/link/src"
+    before = _guard.refusal(command, here, roots)
+    assert before is not None
+    assert _guard.refusal(command, here, roots, shared=[store]) == before
+    assert _guard.refusal(f"rm -rf {store}/a/src", here, roots, shared=[store]) is None
+
+
+def test_a_shared_root_is_compared_where_it_resolves(tmp_path: Path) -> None:
+    """A root declared as `<main>/wt/../specs`, or through a symlink, names the
+    store, so a write to the store's own spelling is exempt. A path is compared
+    resolved, and a root left as declared would match none of them. And a root
+    declared as a symlink to the main checkout is the main checkout, which is
+    never honoured."""
+    assert not _guard.refusal(
+        f"mkdir -p {MAIN}/specs/129", HERE, ROOTS, shared=[f"{MAIN}/wt/../specs"],
+    )
+
+    main, store = (str(tmp_path.resolve() / n) for n in ("p", "p-specs"))
+    here = f"{main}/wt/a"
+    for d in (here, store):
+        os.makedirs(d)
+    os.symlink(store, tmp_path / "store-link")
+    os.symlink(main, tmp_path / "main-link")
+    roots = [main, here, store]
+    assert not _guard.refusal(
+        f"mkdir -p {store}/129", here, roots, shared=[str(tmp_path / "store-link")],
+    )
+
+    command = f"rm -rf {main}/src"
+    before = _guard.refusal(command, here, roots)
+    assert before is not None
+    assert _guard.refusal(command, here, roots, shared=[str(tmp_path / "main-link")]) == before
 
 
 def test_a_path_that_climbs_back_into_a_shared_root_is_exempt() -> None:

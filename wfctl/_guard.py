@@ -70,9 +70,11 @@ into the child branch's state dir before that branch exists.
 
 A shared root that is the main checkout, or that contains any worktree, is not
 honoured, since exempting it would open the peers it holds. A path is exempt
-only where it lands, so `<spec root>/..` is judged as the directory above it.
-And `cd` into a shared root is still refused, since the session would then be
-standing in the store and read it as its own worktree.
+only where it lands, so `<spec root>/..` is judged as the directory above it,
+and so are `<spec root>/'..'` and a symlink in the store. A path the shell
+would expand, through a brace or a variable, is exempt from nothing. And `cd`
+into a shared root is still refused, since the session would then be standing
+in the store and read it as its own worktree.
 """
 from __future__ import annotations
 
@@ -206,17 +208,40 @@ def _owner(path: str, roots: Iterable[str]) -> str | None:
     return max(matches, key=len) if matches else None
 
 
-def _lands_in(path: str, exempt: set[str]) -> bool:
-    """Whether `path`, once `..` is resolved, is inside one of `exempt`.
+# The end of the shell word a path sits in. `_ABS_PATH` stops at a quote, so
+# `<store>/'..'/x` arrives as `<store>/` and the `..` the shell will see is cut
+# off. The exemption is decided on the whole word instead.
+_WORD_END = re.compile(r"[\s;|&<>()]")
+
+# What the shell removes from a word before the path reaches the filesystem.
+_QUOTING = str.maketrans("", "", "'\"\\")
+
+# What the shell expands into a path the text does not show: `<store>/{x,..}`
+# is two paths, one of them above the store, and a variable can be anything.
+_EXPANSION = re.compile(r"[{$]")
+
+
+def _lands_in(segment: str, start: int, exempt: set[str]) -> bool:
+    """Whether the path at `segment[start]` lands inside one of `exempt`.
 
     Read off the text alone, `<spec root>/..` starts with the spec root while it
     names the directory above it, which can be the main checkout. So the path is
-    normalised before it is compared, and a `..` that climbs out of the root is
-    exempt from nothing. It takes the token with only `,` and `:` stripped:
-    `_owner`'s caller also strips `.`, for a path ending a sentence, and that
-    turns a trailing `..` into the root itself.
+    judged where the filesystem would put it: quotes and backslashes removed,
+    then `..` and symlinks resolved. A symlink in the store pointing at a peer
+    therefore exempts nothing, and neither does a word the shell would expand,
+    since the text cannot say where that lands.
+
+    Only `,` and `:` are stripped from the end. `_owner`'s caller also strips
+    `.`, for a path ending a sentence, and that turns a trailing `..` into the
+    root itself.
     """
-    landed = posixpath.normpath(path)
+    if not exempt:
+        return False
+    end = _WORD_END.search(segment, start)
+    word = segment[start:end.start() if end else len(segment)]
+    if _EXPANSION.search(word):
+        return False
+    landed = posixpath.realpath(word.translate(_QUOTING).rstrip(",:"))
     return any(landed == r or landed.startswith(r + "/") for r in exempt)
 
 
@@ -288,11 +313,18 @@ def _shareable(candidate: str | None, roots: list[str]) -> str | None:
     first root `git worktree list` prints, and any other root strictly beneath
     the candidate means it holds a worktree. A store that is itself a worktree,
     like a `specs-trunk` checkout beside the project, passes both.
+
+    Both sides are compared resolved, as `_lands_in` compares a path. A root
+    declared as `<main>/wt/../specs` is the store it names, and one declared as a
+    symlink to the main checkout is the main checkout.
     """
-    shared = (candidate or "").rstrip("/")
-    if not shared or (roots and roots[0].rstrip("/") == shared):
+    if not candidate:
         return None
-    if any(r.startswith(shared + "/") for r in roots):
+    shared = posixpath.realpath(candidate)
+    real = [posixpath.realpath(r) for r in roots]
+    if shared == "/" or (real and real[0] == shared):
+        return None
+    if any(r.startswith(shared + "/") for r in real):
         return None
     return shared
 
@@ -333,8 +365,9 @@ def refusal(
         trespass = next(
             (
                 (root, path)
-                for path in _ABS_PATH.findall(segment)
-                if not _lands_in(path.rstrip(",:"), usable)
+                for match in _ABS_PATH.finditer(segment)
+                if not _lands_in(segment, match.start(), usable)
+                for path in [match.group()]
                 for root in [_owner(path.rstrip(".,:"), roots)]
                 if root and root != here
             ),

@@ -510,10 +510,12 @@ it are allowed for the same reason, other branches' state dirs included, since a
 worktree handoff writes into the child branch's.
 
 A spec root or state root that is the main checkout, or that contains another
-worktree, gets no exemption. A path that climbs out of either root with `..` is
-judged as if the root were not exempt, and a `cd` into either root is still
-refused, since the guard would then read the store as the session's own
-worktree.
+worktree, gets no exemption. A path is exempt only where it lands, so one that
+climbs out of either root is judged as if the root were not exempt, whether it
+climbs with `..`, a quoted `'..'`, or a symlink. A path the shell would expand
+first, through a brace or a variable, gets no exemption either. A `cd` into
+either root is still refused, since the guard would then read the store as the
+session's own worktree.
 
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
 lands in `.claude/settings.json` — the merge mode below lists the rest:
