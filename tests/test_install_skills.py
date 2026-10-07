@@ -1486,6 +1486,84 @@ def test_doctor_is_silent_when_bundle_still_ships_every_recorded_path(
     assert result.exit_code == 0
 
 
+def test_doctor_reports_a_wrapper_the_claude_layer_no_longer_installs(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The source wrapper stays in the bundle, and the installer still stops
+    emitting it for the Claude layer once its name is in `_MIRRORED_SKILLS`.
+
+    A consumer who installed Claude before the name joined that set keeps two
+    registrations for one slash command. The bundle file still exists, so a check
+    that only asks whether the source exists reads the path as shipped, and
+    `content_hash` does not cover the Python table either, so the layer reads
+    current at the same time. Only asking what the installer would plan today
+    names it.
+    """
+    repo_root = agent_dir.parent
+    # A second command keeps the Claude layer non-empty once the first is
+    # suppressed; a layer that installs nothing reads as deselected, not diffed.
+    (bundle / "agents" / "commands" / "other-cmd.md").write_text("# other\n")
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    assert (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+    monkeypatch.setattr(
+        "wfctl.cli._MIRRORED_SKILLS", frozenset({*_MIRRORED_SKILLS, "test-cmd"})
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert ".claude/commands/test-cmd.md" in result.output
+    assert ".agents/commands/test-cmd.md" not in result.output, "base still ships it"
+    assert "install-skills --agent claude --prune" in result.output
+    assert result.exit_code == 1
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--prune", "--yes"])
+
+    assert not (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
+    assert (repo_root / ".agents" / "commands" / "test-cmd.md").exists()
+    assert runner.invoke(app, ["doctor"]).exit_code == 0, "the printed repair clears it"
+
+
+def test_doctor_reports_a_tracker_file_the_backend_no_longer_ships(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tracker files are copied by their own branch of the installer, in none of
+    the target tables, so a check built from the tables skips them without a word.
+
+    The remedy is the second half. A bare `install-skills` fills a missing tracker
+    file and never refreshes a present one, so the generic repair would write a new
+    bundle hash, report green, and leave the obsolete file on disk. The line has to
+    say `--tracker github`, and carry `--prune` because the install only names a
+    dropped path without it.
+    """
+    repo_root = agent_dir.parent
+    trackers_src = bundle / "agents" / "trackers"
+    trackers_src.mkdir(parents=True, exist_ok=True)
+    (trackers_src / "github.json").write_text(json.dumps({"verbs": {}}))
+    (trackers_src / "github-board.sh").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(
+        "wfctl.cli._GITHUB_TRACKER_FILES", ("github.json", "github-board.sh")
+    )
+    runner.invoke(app, ["install-skills", "--tracker", "github", "--yes"])
+    recorded = {i["path"] for i in _recorded_items(_manifest(repo_root))}
+    assert ".agents/trackers/github-board.sh" in recorded, "fixture must record it"
+    monkeypatch.setattr("wfctl.cli._GITHUB_TRACKER_FILES", ("github.json",))
+    (trackers_src / "github-board.sh").unlink()
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert ".agents/trackers/github-board.sh" in result.output
+    assert ".agents/trackers/github.json" not in result.output, "still shipped"
+    assert "no longer shipped" in result.output
+    assert "install-skills --tracker github --prune" in result.output
+    assert result.exit_code == 1
+
+    runner.invoke(app, ["install-skills", "--tracker", "github", "--prune", "--yes"])
+
+    assert not (repo_root / ".agents" / "trackers" / "github-board.sh").exists()
+    assert (repo_root / ".agents" / "trackers" / "github.json").exists()
+    assert runner.invoke(app, ["doctor"]).exit_code == 0, "the printed repair clears it"
+
+
 def test_doctor_skips_bundle_check_for_from_source_layers(
     tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
 ) -> None:
