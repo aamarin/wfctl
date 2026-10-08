@@ -1489,9 +1489,8 @@ def archive_specs_cmd(
         story = handle or os.environ.get("WM_HANDLE") or branch
         # `story` keys the spec lookup: an explicit handle wins, because the
         # caller knows which story is being torn down better than HEAD does.
-        # Only fall back to `branch` when it differs — a miss walks every
-        # ancestor branch, which is ~270ms of git, and repeating it is free of
-        # any new answer.
+        # Only fall back to `branch` when it differs. When it does not, the
+        # second call is a duplicate lookup, free of any new answer.
         spec_dir = resolve_spec_dir(story, repo_root)
         if spec_dir is None and story != branch:
             spec_dir = resolve_spec_dir(branch, repo_root)
