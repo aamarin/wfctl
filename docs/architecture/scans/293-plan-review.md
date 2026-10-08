@@ -104,3 +104,46 @@
   and `§Source Code`, and `design.md §Structure`, still describe the
   two-change plan without the helper. It stands because those sections were not
   updated with Summary.
+
+## Review 2026-10-08T22:32Z
+
+- Verdict: satisfied
+- Reviewed: plan.md d7a81cbc1e3ceafdaa2185a6d6573857a65aace6, spec.md 124c2d23ebe59177ecefe30d9707df75ca3dfccb, .specify/memory/constitution.md absent, design.md 01d0f724e1ec585823dc28dbd821dd563b90d353, research.md c26248e4fafb1720c1a001211fabfcc660285499, data-model.md 2dee00f7d4fb5e7e484652f7630145064936e37b, quickstart.md 6ae3b68a119462ac7c9f065b5f48acea428da431, docs/architecture/deletion-follows-recorded-files.md 0b68dc4d882006850550d851b60578533ccab080, docs/architecture/install-modes.md 4233b4dbe4343f4c734e175db91417108db59428, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, plan-review.plan.md f23f4bbc6634ac512c550b178822f3ec35e28d22 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 3 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/293-mirror-below-recorded-dir/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Outstanding (PR-009, PR-011) |
+| Architecture and boundaries | Resolved (PR-003 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-010) |
+| Security and reliability | Resolved (PR-001 and PR-002 remain fixed) |
+
+### Findings
+
+- **PR-003, MINOR, fixed.** Fixed by `research.md §1`, which now says the
+  stale `none`-layer cleanup compares every path, and why no entry naming the
+  scripts folder survives an install since the layer split.
+- **PR-005, MINOR, fixed.** Fixed by `plan.md §Test Plan`, which maps all 12
+  scenarios that name a command, FR-006, FR-008, and SC-004 to a test.
+- **PR-006, MINOR, fixed.** Fixed by `plan.md §Summary`, which states the
+  per-script `.gitignore` lines and when none are written.
+- **PR-007, MINOR, fixed.** Fixed by `quickstart.md §1`, which now expects no
+  backup and checks for one.
+- **PR-008, MINOR, fixed.** Fixed by `plan.md §Summary` part 3, which gives the
+  backup branch its two cases.
+- **PR-001, PR-002, and PR-004** remain fixed, as the earlier review recorded.
+- **PR-009, MINOR, open.** `design.md §Software design decisions` and `§MVP
+  Scope` still describe the change without the helper. It stands because only
+  `design.md §Structure` was updated.
+- **PR-010, MINOR, open.** The FR-008 test row checks the helper only, and the
+  plan does not say the orphan guard shares that comparison. A string-prefix
+  guard would pass every row. It stands because no test covers the guard's
+  comparison.
+- **PR-011, MINOR, open.** The US2 scenario 1 test row does not run `doctor`
+  after the upgrade, and `spec.md §FR-007` and `§SC-002` require a clean
+  `doctor`. It stands because the row omits that step.
