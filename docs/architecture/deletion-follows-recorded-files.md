@@ -130,8 +130,8 @@ reason to delete.
   it stays under `.wf-skills-backup/` and nothing restores it.
 - An older wfctl that installs with `--prune` over the new record deletes the
   three scripts, since it plans the folder and reports each recorded script as
-  dropped. This is accepted rather than guarded. Andre is the only user of wfctl
-  today, and running the current wfctl again puts the scripts back.
+  dropped. This is accepted while Andre is the only user of wfctl, since running
+  the current wfctl again puts the scripts back. A second user reopens it.
 - The disk scan moves down with the target, since it reads its directories from
   the same table. A developer's own script in `bash/` is then reported and left
   alone.
