@@ -128,6 +128,10 @@ reason to delete.
   than restoring wfctl's earlier copies. A backup the old folder entry carried,
   of scripts that were there before wfctl, is no longer pointed at by any entry;
   it stays under `.wf-skills-backup/` and nothing restores it.
+- An older wfctl that installs with `--prune` over the new record deletes the
+  three scripts, since it plans the folder and reports each recorded script as
+  dropped. This is accepted rather than guarded. Andre is the only user of wfctl
+  today, and running the current wfctl again puts the scripts back.
 - The disk scan moves down with the target, since it reads its directories from
   the same table. A developer's own script in `bash/` is then reported and left
   alone.
