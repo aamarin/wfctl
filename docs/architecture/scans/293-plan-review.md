@@ -52,3 +52,55 @@
   one per script, instead of `.specify/scripts/bash`, so a developer's own
   script there shows in `git status`. It stands because the plan says the
   change adds nothing a developer can see.
+
+## Review 2026-10-08T10:33Z
+
+- Verdict: satisfied
+- Reviewed: plan.md f23f4bbc6634ac512c550b178822f3ec35e28d22, spec.md 124c2d23ebe59177ecefe30d9707df75ca3dfccb, .specify/memory/constitution.md absent, design.md c32081dc9e19f32a52a40b72d957e872874ddf87, research.md 02989e5be9ffc3f3cc110c408654ef2a150d56ba, data-model.md 2dee00f7d4fb5e7e484652f7630145064936e37b, quickstart.md fdeafb100cd743ffdff0b942bcb4a0b4476d697a, docs/architecture/deletion-follows-recorded-files.md 0b68dc4d882006850550d851b60578533ccab080, docs/architecture/install-modes.md 4233b4dbe4343f4c734e175db91417108db59428, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, plan-review.plan.md cf53f835537e3406c244454340cbff24544f607e (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 7 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/293-mirror-below-recorded-dir/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-007, PR-009) |
+| Requirements and traceability | Outstanding (PR-005, PR-006, PR-007, PR-009) |
+| Architecture and boundaries | Outstanding (PR-003) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-007, PR-008) |
+| Security and reliability | Resolved (PR-001 and PR-002 fixed) |
+
+### Findings
+
+- **PR-001, MAJOR, fixed.** Fixed by `plan.md §Summary` part 3, `spec.md
+  §FR-008`, User Story 2 scenarios 4 and 5, and the record's amended
+  Consequences. A path below a recorded folder now counts as on record, so the
+  upgrade takes no backup and a later uninstall restores nothing.
+- **PR-002, MAJOR, fixed.** Fixed by the record's Consequences and `spec.md
+  §Edge Cases`, which accept the cost while Andre is the only user of wfctl.
+  The reviewer traced the recovery, a run of the current wfctl, and it holds.
+- **PR-004, MINOR, fixed.** Fixed by the `plan.md §Summary` paragraph requiring
+  `Path.parents`, which `spec.md §FR-008` repeats.
+- **PR-003, MINOR, open.** `research.md §1` says the stale `none`-layer cleanup
+  reads only `.agents/` paths, and it compares every path. It stands because
+  the research claim is still wrong as written.
+- **PR-005, MINOR, open.** The plan names three test themes against twelve
+  scenarios that name a command, SC-004, and FR-008. US1 scenario 3, US2
+  scenarios 2 - 5, the FR-008 sibling-name case, US3 scenarios 1 and 4, and
+  SC-004 map to no named test. It stands because the plan carries no mapping.
+- **PR-006, MINOR, open.** A fresh install writes three `.gitignore` lines
+  instead of one folder line, and the plan says no visible string changes. It
+  stands because the plan has not been corrected.
+- **PR-007, MINOR, open.** `quickstart.md §1` still says the install backs the
+  scripts up once, which contradicts plan part 3, FR-008, and US2 scenario 4. It
+  stands because the quickstart was not updated with the plan.
+- **PR-008, MINOR, open.** Swapping the helper into the backup branch alone
+  raises `KeyError` on `prior_items[rel_dest]` for a path on record only through
+  a parent. It stands because the plan does not say that branch needs two cases,
+  an exact match that carries its backup forward and a parent match that
+  records none.
+- **PR-009, MINOR, open.** `plan.md §Constitution Check`, `§Project Structure`,
+  and `§Source Code`, and `design.md §Structure`, still describe the
+  two-change plan without the helper. It stands because those sections were not
+  updated with Summary.
