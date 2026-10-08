@@ -122,10 +122,12 @@ reason to delete.
   the change moves no bundle file and the bundle hash does not change. It lists
   the three scripts as not on record and leaves them alone. The next install
   records them and the line goes away.
-- The first install over the old record backs up the three scripts once, since
-  no entry names them yet, and a run without `--yes` asks before overwriting
-  them. The backup is harmless and nothing reads it unless the layer is
-  uninstalled.
+- The first install over the old record treats the three scripts as its own,
+  since the folder entry above them is on record. It takes no backup of them and
+  does not ask before overwriting them, so a later uninstall removes them rather
+  than restoring wfctl's earlier copies. A backup the old folder entry carried,
+  of scripts that were there before wfctl, is no longer pointed at by any entry;
+  it stays under `.wf-skills-backup/` and nothing restores it.
 - The disk scan moves down with the target, since it reads its directories from
   the same table. A developer's own script in `bash/` is then reported and left
   alone.
@@ -141,3 +143,7 @@ reason to delete.
   scripts per file over a general mirror, and moved the skill folders to the
   install revamp (#565). He also chose dropping the old directory entry over a
   full migration of it, since wfctl is installed in a handful of repositories.
+- 2026-10-08  amended     — The plan review found that the upgrade's one-time
+  backup made a later uninstall restore wfctl's own earlier copies of the
+  scripts. Andre chose not restoring them, so a file below a recorded folder now
+  counts as on record and is never backed up.
