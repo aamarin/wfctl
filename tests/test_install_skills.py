@@ -4042,7 +4042,6 @@ def _recorded_paths(repo_root: Path) -> set[str]:
     return {i["path"] for i in _recorded_items(manifest)}
 
 
-
 def _install_claude(*extra: str) -> object:
     return runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", *extra])
 
