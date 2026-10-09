@@ -649,10 +649,12 @@ def records_on_this_branch(
 def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:
     """The record files under `arch` that differ from HEAD, or None when git fails.
 
-    Modified, staged, deleted, and untracked all count, because none of them has
-    landed. A worktree branched from the last commit loads the committed copy of
-    every record, so an edit left in this checkout is a decision those worktrees
-    never see (#180).
+    Modified, staged, deleted, untracked, and ignored all count, because none of
+    them has landed. A worktree branched from the last commit loads the committed
+    copy of every record, so an edit left in this checkout is a decision those
+    worktrees never see (#180). `--ignored` is what reaches the last case, since
+    `load_records` reads an ignored record from disk and `git status` alone never
+    lists it.
 
     Only direct children of `arch`, which is what `load_records` reads. Every
     subdirectory holds something other than a top-level record, whether a scan, a
@@ -664,14 +666,24 @@ def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:
     first record in a new directory as the directory, which names no file.
     """
     r = subprocess.run(
-        ["git", "status", "--porcelain", "-uall", "--", str(arch)],
+        ["git", "status", "--porcelain", "-z", "-uall", "--ignored", "--", str(arch)],
         cwd=repo_root, capture_output=True, text=True,
     )
     if r.returncode != 0:
         return None
-    # The path is the last field for every status code, and for a rename it is
-    # the new name. Porcelain paths are relative to the repository root.
-    paths = (repo_root / line.split()[-1] for line in r.stdout.splitlines() if line.strip())
+    # `-z` because git quotes a path holding a space or a non-ASCII character in
+    # line mode, and a quoted name ends in `.md"` and silently fails the suffix
+    # test. Each entry is a two-letter code, a space, and a path relative to the
+    # repository root. A rename or copy carries its old path as the next field,
+    # with no code, so it is skipped and the new name stands.
+    fields = iter(r.stdout.split("\0"))
+    paths = []
+    for field in fields:
+        if not field:
+            continue
+        paths.append(repo_root / field[3:])
+        if field[0] in "RC" or field[1] in "RC":
+            next(fields, None)
     resolved = arch.resolve()
     return sorted(p.name for p in paths if p.suffix == ".md" and p.parent.resolve() == resolved)
 

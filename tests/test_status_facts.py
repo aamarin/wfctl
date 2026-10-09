@@ -592,3 +592,58 @@ def test_records_kept_outside_the_repo_are_not_asked_of_git(
     fact = _facts()["records committed"]
     assert fact["value"] == "n/a"
     assert "outside this repository" in fact["detail"]
+
+
+@pytest.mark.parametrize("slug", ["a decision", "décision"])
+def test_a_record_whose_name_git_would_quote_is_still_named(
+    storyctl_dir: types.SimpleNamespace, slug: str,
+) -> None:
+    """Git quotes a path with a space or a non-ASCII character in line mode.
+
+    The quoted name ends in `.md"`, so it failed the suffix test and the fact
+    read met over a record that had not landed, which is #180's failure exactly.
+    """
+    _record(storyctl_dir.repo_root, slug, "accepted")
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "unmet"
+    assert f"{slug}.md" in fact["detail"]
+
+
+def test_a_gitignored_record_is_named(storyctl_dir: types.SimpleNamespace) -> None:
+    """`arch context` reads an ignored record from disk, and no commit will ever carry it."""
+    repo = storyctl_dir.repo_root
+    _record(repo, "a-decision", "accepted")
+    _commit(repo, "record")
+    (repo / ".gitignore").write_text("docs/architecture/local-*.md\n")
+    _commit(repo, "ignore")
+    _record(repo, "local-decision", "accepted")
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "unmet"
+    assert "local-decision.md" in fact["detail"]
+
+
+@pytest.mark.parametrize("change", ["deleted", "staged", "renamed"])
+def test_a_record_changed_without_a_commit_is_named(
+    storyctl_dir: types.SimpleNamespace, change: str,
+) -> None:
+    repo = storyctl_dir.repo_root
+    path = _record(repo, "a-decision", "proposed")
+    _commit(repo, "record")
+    if change == "deleted":
+        path.unlink()
+        expected = "a-decision.md"
+    elif change == "staged":
+        path.write_text(RECORD.format(status="accepted"))
+        subprocess.run(["git", "-C", str(repo), "add", str(path)],
+                       check=True, capture_output=True)
+        expected = "a-decision.md"
+    else:
+        subprocess.run(["git", "-C", str(repo), "mv", str(path), str(path.with_name("b.md"))],
+                       check=True, capture_output=True)
+        expected = "b.md"
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "unmet"
+    assert expected in fact["detail"]

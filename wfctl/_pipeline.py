@@ -1041,7 +1041,7 @@ class PipelineReport:
     # what makes the default the released behaviour rather than a refusal.
     session_open: bool = False
     session_holder: str = "unknown"
-    # The three questions that decide whether the branch is ready, each read from
+    # The four questions that decide whether the branch is ready, each read from
     # its own owner (`readiness-is-not-a-step-state`). Beside `steps` and never
     # inside them: they are facts about the branch, so a field on a step would
     # repeat one value down eight rows and assert a per-step variation that does

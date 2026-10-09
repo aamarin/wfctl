@@ -105,7 +105,7 @@ _FACT_GLYPH: dict[str, tuple[str, str]] = {
     "n/a":   ("–", "dim"),
 }
 
-# The width of the longest of the three fact names, `architecture accepted`.
+# The width of the longest fact name, `architecture accepted`.
 # A constant because the literal would otherwise sit inline in a loop that reads
 # as a column, where a name longer than the reserved width shifts every row and
 # nothing says what the number was for.
