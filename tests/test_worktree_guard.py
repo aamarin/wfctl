@@ -907,6 +907,24 @@ def test_an_unreadable_manifest_refuses_rather_than_raising(
     assert "workmux send project-specs" in (refused.stderr or refused.output)
 
 
+@pytest.mark.parametrize("command", [
+    "rm -rf {main}/README.md\0",
+    "git -C {store}/a\0b commit -m x && rm -rf {main}/README.md",
+])
+def test_a_null_byte_is_refused_rather_than_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str,
+) -> None:
+    """Resolving a path that holds a NUL raises `ValueError`, so the hook exited
+    1 instead of 2. Claude Code treats exit 1 as an error and runs the command
+    anyway. As a result, a write to a peer that the first pass refused went
+    through whenever a spec root was declared."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(store)}))
+
+    assert _hook(feature, command.format(main=main, store=store)).exit_code == 2
+
+
 def test_the_spec_root_and_the_state_root_are_exempt_together() -> None:
     """Both are handed to the guard at once, and one that could not be resolved
     must not cost the other its exemption."""

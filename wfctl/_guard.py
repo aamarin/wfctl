@@ -425,7 +425,12 @@ def _commands(command: str) -> list[_Simple] | None:
     That is the point of it. `_SEPARATORS` splits quote-blind, which is safe
     only for refusing; an exemption granted on that split cut `rm -rf
     "<store>/a;b/../../<main>/src"` in two and allowed both halves.
+
+    A NUL is refused as well. No argument the shell passes can hold one, and
+    resolving a path that does raises `ValueError`.
     """
+    if "\0" in command:
+        return None
     found: list[_Simple] = []
     current = _Simple()
     word: list[str] | None = None
@@ -553,7 +558,7 @@ def _commit_target(words: list[str]) -> str | None:
     """
     if len(words) < 4 or words[:2] != ["git", "-C"] or words[3] not in _GIT_WRITES:
         return None
-    if not posixpath.isabs(words[2]):
+    if not posixpath.isabs(words[2]) or "\0" in words[2]:
         return None
     return posixpath.realpath(words[2])
 
