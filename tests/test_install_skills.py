@@ -4238,6 +4238,51 @@ def test_uninstall_removes_the_recorded_scripts_and_keeps_a_developers_own(
     assert _scripts_on_disk(repo_root) == {"mine.sh"}
 
 
+def _link_scripts_in_from_a_main_checkout(repo_root: Path) -> Path:
+    """Move the installed `bash/` out and leave a symlink in its place, which is how
+    a worktree shares one set of scripts with its main checkout."""
+    installed = repo_root / _SCRIPTS_DIR
+    elsewhere = repo_root.parent / "main-checkout-bash"
+    shutil.move(str(installed), str(elsewhere))
+    installed.symlink_to(elsewhere)
+    return elsewhere
+
+
+def test_uninstall_does_not_delete_scripts_through_a_symlinked_folder(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Recording the scripts one file per entry put the symlink above the recorded
+    paths, so unlinking `bash/common.sh` followed it into the main checkout. The
+    link is not on record, and the files behind it belong to whoever made it."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    elsewhere = _link_scripts_in_from_a_main_checkout(repo_root)
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["uninstall-skills"])
+
+    assert {p.name for p in elsewhere.iterdir()} == set(_RUNTIME_SCRIPTS)
+    assert "below a symlink" in result.output
+
+
+def test_prune_does_not_delete_scripts_through_a_symlinked_folder(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The same hazard on the other removal path: a script the bundle stops shipping
+    is pruned by its recorded path, which runs through the link."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    elsewhere = _link_scripts_in_from_a_main_checkout(repo_root)
+    _drop_runtime_script(bundle, "common.sh")
+
+    result = _install_claude("--prune")
+
+    assert (elsewhere / "common.sh").exists()
+    assert "below a symlink" in result.output
+
+
 def test_doctor_says_nothing_about_a_developer_script_committed_to_git(
     bundle: Path, agent_dir: Path
 ) -> None:

@@ -3168,6 +3168,22 @@ def _recorded_path(repo_root: Path, rel: str) -> Path | None:
     return repo_root / rel
 
 
+def _below_a_link(repo_root: Path, path: Path) -> bool:
+    """Whether a recorded path sits under a symlinked directory inside the repo.
+
+    Linking `.specify/scripts/bash` in from a main checkout is the layout
+    `_remove_recorded` protects. Recording the scripts one file per entry puts the
+    link above the recorded paths, so `unlink` on `bash/common.sh` follows it and
+    deletes the file in the checkout the link points at. The link itself is not
+    named by any entry, so the files below it are left for whoever owns the target.
+    """
+    return any(
+        parent != repo_root and parent.is_symlink()
+        for parent in path.parents
+        if repo_root in parent.parents or parent == repo_root
+    )
+
+
 def _remove_recorded(path: Path) -> None:
     """Remove a path wfctl recorded, whatever kind it turns out to be.
 
@@ -5073,6 +5089,12 @@ def install_skills_cmd(
                     soft_wrap=True,
                 )
                 continue
+            if _below_a_link(repo_root, path):
+                console.print(
+                    f"[yellow]⚠[/yellow] {item['path']} is below a symlink — left alone",
+                    soft_wrap=True,
+                )
+                continue
             _remove_recorded(path)
 
             # The same undo `uninstall-skills` performs on a recorded item, for
@@ -5307,6 +5329,12 @@ def uninstall_skills_cmd(
             console.print(
                 f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
                 "this repo — left alone",
+                soft_wrap=True,
+            )
+            continue
+        if _below_a_link(repo_root, path):
+            console.print(
+                f"[yellow]⚠[/yellow] {item['path']} is below a symlink — left alone",
                 soft_wrap=True,
             )
             continue
