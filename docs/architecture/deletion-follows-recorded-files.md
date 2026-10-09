@@ -39,11 +39,11 @@ names that file, so nothing can report or remove it.
 ## Decision
 
 The runtime scripts are recorded one file per entry, the same way the templates
-already are, and wfctl deletes a script only when its record names that file. A
-manifest that still records `.specify/scripts/bash` as a directory has that
-entry dropped the first time an install writes files below it. An install never
-treats a directory it has just written into as abandoned, so `--prune` never
-deletes it.
+already are, and wfctl deletes a script only when its record names that file.
+No code retires the old directory entry. A repository installed before this
+change is redone by hand once: uninstall every layer, agent layers first, then
+install again. The uninstall removes the old entry and the fresh install records
+each script.
 
 ## Owns truth
 
@@ -67,7 +67,6 @@ flowchart LR
     end
     subgraph install["install-skills"]
         plan["plan, one row per file"]
-        retire["drop a directory entry it just wrote files into"]
     end
     subgraph record["the record"]
         entries["one entry per script"]
@@ -79,7 +78,6 @@ flowchart LR
     scripts --> plan
     plan --> entries
     plan --> bash
-    retire --> entries
     entries -.->|"--prune, uninstall: named files only"| bash
     bash --x|"an unrecorded file is reported, never deleted"| entries
 ```
@@ -102,13 +100,12 @@ reason to delete.
   skill folders have not lost a file yet, since every deletion under
   `wfctl/agents/skills/` so far removed a whole skill, and changing how 42 skills
   are recorded belongs with the install revamp rather than with a two-script bug.
-- **Point the target one level deeper with no migration.** This is the one-line
-  fix #293 rejects. An old manifest's `bash` entry stops being planned and is
-  reported as dropped upstream, and the `--prune` that `doctor` then prints
-  deletes the three scripts ten shipped skills run by path. A simulation of it
-  went further than the issue recorded: the prune runs after the copy, so the
-  same install that wrote the new scripts deletes them again. `/start-session`
-  runs that prune unattended, so this is not a case a careful reader avoids.
+- **Retire the old directory entry in the install.** The orphan diff would skip
+  a prior entry when the same install wrote files below it, and a file below a
+  recorded directory would count as on record, so the upgrade takes no backup.
+  It is sound, and it was the decision until the plan review. It loses on cost:
+  two path comparisons and a special case in the backup step, kept forever, to
+  spare a manual redo in the handful of repositories wfctl is installed in.
 - **A full migration of the old record.** The old directory entry would be
   translated into per-file entries when the record is read, carrying its backup
   down to each file, and `doctor` would warn about a repository that has not
@@ -118,16 +115,15 @@ reason to delete.
 
 ## Consequences
 
-- Until a repository reinstalls, `doctor` reports its skills as current, since
-  the change moves no bundle file and the bundle hash does not change. It lists
-  the three scripts as not on record and leaves them alone. The next install
-  records them and the line goes away.
-- The first install over the old record treats the three scripts as its own,
-  since the folder entry above them is on record. It takes no backup of them and
-  does not ask before overwriting them, so a later uninstall removes them rather
-  than restoring wfctl's earlier copies. A backup the old folder entry carried,
-  of scripts that were there before wfctl, is no longer pointed at by any entry;
-  it stays under `.wf-skills-backup/` and nothing restores it.
+- A repository that is not redone loses the three scripts at its next
+  `install-skills --prune`, which `/start-session` runs unattended. The old
+  directory entry is no longer planned, so the install reports it as dropped,
+  and the prune deletes the directory after the same install wrote the scripts
+  into it. `doctor` does not notice, since it does not check that recorded files
+  exist. Another install puts the scripts back and records them per file. This
+  is accepted while Andre is the only user of wfctl.
+- Until a repository is redone, `doctor` reports its skills as current and
+  lists the three scripts as not on record. It does not say a redo is needed.
 - An older wfctl that installs with `--prune` over the new record deletes the
   three scripts, since it plans the folder and reports each recorded script as
   dropped. This is accepted while Andre is the only user of wfctl, since running
@@ -151,3 +147,7 @@ reason to delete.
   backup made a later uninstall restore wfctl's own earlier copies of the
   scripts. Andre chose not restoring them, so a file below a recorded folder now
   counts as on record and is never backed up.
+- 2026-10-08  amended     — Andre chose the one-line fix with a manual redo
+  over retiring the old entry in code, since he can uninstall and reinstall
+  each of his repositories by hand. The guard and the on-record helper are
+  dropped.
