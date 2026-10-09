@@ -86,9 +86,13 @@ copy, so the `implement` step reopens.
 Ticking a box or adding a note does not reopen the step, since neither adds a
 new incomplete task. Rewording an incomplete task does reopen it, because
 wfctl cannot tell a reworded task from a new one. That errs on the safe side:
-the agent is sent back to look at the task again. A completion record with no
-copy in it, such as every one written before this change, is ignored, and
-wfctl counts the boxes instead.
+the agent is sent back to look at the task again.
+
+A completion record with no copy in it, such as every one written before this
+change, cannot show which tasks are new. wfctl therefore treats any incomplete
+task as open work. A task list with no tasks at all stays finished, since it
+has no incomplete task to find, and the `tasks` step reads the same record the
+same way.
 
 ## Owns truth
 
@@ -138,7 +142,7 @@ flowchart TD
   cmp -- "open work" --> open
   cmp -- "nothing new" --> closed
   boxes -- "open work" --> open
-  boxes -- "every box ticked" --> closed
+  boxes -- "none incomplete" --> closed
 ```
 
 The dotted line is the completion record, written once and read later. The
@@ -181,14 +185,14 @@ completion record just because it exists.
 
 The implement instructions change: step 9b now runs the completion command
 instead of writing the file directly. If an agent writes the file directly
-anyway, the record has no copy inside, so wfctl ignores it and counts the
-boxes. Any unticked box then reads as open work. That errs on the safe side,
+anyway, the record has no copy inside, so any unticked box reads as open
+work. That errs on the safe side,
 since wfctl may send the agent back to finished work but won't call
 unfinished work complete.
 
-Completion records written before this change have no copy, so wfctl ignores
-them. A story that was finished with unticked boxes before this change will
-therefore reopen the next time wfctl reads it. We accept that cost while
+Completion records written before this change have no copy. A story that was
+finished with unticked boxes before this change will therefore reopen the next
+time wfctl reads it. A story whose task list holds no tasks stays finished. We accept that cost while
 Andre is wfctl's only user. If wfctl gains a second user, this decision needs
 revisiting.
 
