@@ -893,6 +893,24 @@ def project_name(repo_root: Path) -> str:
     return git_dir.parent.name or repo_root.name
 
 
+def project_state_dir(repo_root: Path) -> Path:
+    """`$XDG_STATE_HOME/wfctl/<project>`, the parent of every branch's state dir."""
+    xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
+    return xdg_base / "wfctl" / project_name(repo_root)
+
+
+def state_root(repo_root: Path) -> Path:
+    """The directory holding every state dir a session here may write to.
+
+    `WFCTL_STATE_DIR` names one state dir and nothing beside it, so it is its
+    own root. Otherwise it is the project's directory, which holds every
+    branch's, since a worktree handoff writes into a child branch's state dir
+    from the parent's worktree.
+    """
+    override = os.environ.get(_STATE_DIR_OVERRIDE)
+    return Path(override) if override else project_state_dir(repo_root)
+
+
 def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path:
     """Return state dir: WFCTL_STATE_DIR → `$XDG_STATE_HOME/wfctl/<project>/<branch>`.
 
@@ -907,14 +925,7 @@ def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path
     behind for each branch anyone replied on.
     """
     override = os.environ.get(_STATE_DIR_OVERRIDE)
-    if override:
-        d = Path(override)
-    else:
-        repo_name = project_name(repo_root)
-        xdg_base = Path(
-            os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
-        )
-        d = xdg_base / "wfctl" / repo_name / branch
+    d = Path(override) if override else project_state_dir(repo_root) / branch
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d

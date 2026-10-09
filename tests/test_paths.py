@@ -16,6 +16,7 @@ from wfctl._paths import (
     resolve_agent_dir,
     resolve_branch,
     resolve_spec_dir,
+    state_root,
     worktree_branches,
 )
 
@@ -526,6 +527,24 @@ def test_resolve_agent_dir_keys_on_main_checkout_not_worktree(
 
     assert from_main == from_worktree
     assert from_worktree.parent.name == repo_root.name
+
+
+def test_every_state_dir_sits_under_the_state_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worktree guard exempts `state_root`, and a session writes to
+    `resolve_agent_dir`. If the two layouts drift apart, a handoff is refused
+    again with nothing in the guard's own tests to say so."""
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+
+    for branch in ("123-feature", "124-child-not-yet-created"):
+        assert resolve_agent_dir(repo, branch, create=False).parent == state_root(repo)
+
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "override"))
+    assert resolve_agent_dir(repo, "123-feature", create=False) == state_root(repo)
 
 
 def test_project_name_from_a_worktree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

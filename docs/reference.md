@@ -494,6 +494,100 @@ Reading a sibling is ordinary review work and cannot cause the failure, so it
 stays allowed. Executing is not reading: `uv run pytest` over there writes a
 `.venv`, builds the package, and reports on a branch this session is not on.
 
+A path is judged where it lands as well as how it's written. For example,
+`<this worktree>/../<sibling>/src` counts as a write to the sibling, and
+`<this worktree>/..` counts as a write to the directory that holds every
+worktree.
+
+### The spec root and the state root
+
+Every feature worktree writes its spec, plan, and reviews under the spec root,
+because `wfctl feature-paths` tells it to. When the spec root is a worktree of
+its own, such as a `specs-trunk` checkout beside the project, the guard would
+refuse those writes like writes to any other worktree. That's why the guard
+allows writes anywhere under the spec root that `feature-paths` resolves,
+other features' folders included.
+
+The state root is the directory holding each branch's state dir, the one
+`wfctl state-dir` prints. It's `$XDG_STATE_HOME/wfctl/<project>`, or
+`WFCTL_STATE_DIR` when that's set. It normally sits outside every worktree and
+needs no exception. When `XDG_STATE_HOME` points inside a checkout, the guard
+allows writes to it for the same reason. The exception covers the whole
+project, because a worktree handoff writes into the child branch's state dir
+before that branch exists.
+
+A spec root or state root gets no exception when it's the main checkout,
+contains another worktree, or is a relative path. The first two would open
+other worktrees to writes, and where a relative path lands depends on the
+directory a command runs from.
+
+The exception covers writing files, not running commands. A command gets it
+only when every part of it is one of these:
+
+1. A write with `mkdir`, `touch`, `cp`, `mv`, `rm`, or `tee`, or with `echo`,
+   `cat`, or `printf` and a redirect, where every path lands in either root,
+   this worktree, or no worktree.
+2. A read the guard already allows, such as `cat`, `grep`, or `git -C <path>
+   log`.
+3. A commit into the spec root, as described below.
+
+Any other command is judged as if neither root had an exception. For example,
+`bash <spec root>/x.sh` is refused, and so is `uv run pytest > <spec
+root>/out.txt`, because neither `bash` nor `uv` is on the list.
+
+A `cd` into a spec root that a worktree owns is refused. If the guard allowed
+it, the session would be standing in the spec root, and the guard would then
+treat the spec root as the session's own worktree. A spec root outside every
+worktree has no owner, so a `cd` there is allowed.
+
+A feature session can commit its specs onto the spec root's own branch, but
+never onto the main checkout's branch or another feature's. Git picks the
+branch from files inside the spec root, so the command text doesn't show where
+a commit lands. That's why the guard asks git before it allows a commit.
+
+A commit is allowed when the spec root is a repository of its own, or a
+worktree on a branch no other worktree has checked out, such as `specs-trunk`.
+When the spec root is a plain `<main>/specs` folder, a commit there would land
+on the main checkout's branch. As a result, the guard refuses it, and the
+refusal explains why.
+
+The commit has to be written as `git -C <path> add <file>` or `git -C <path>
+commit -m '…'`, with nothing beside it but reads. A write in the same command
+could change where git commits after the guard has asked, so run the writes
+first, as a command of their own. Every other git write, such as `reset` or
+`push`, gets no exception.
+
+The `-C` path can be the spec root itself, or a feature's own folder inside
+it, such as `<spec root>/129`, which is the path `feature-paths` prints. For a
+folder, the guard asks git for the folder's top level and allows the commit
+only when that's the spec root. As a result, a folder that is a repository of
+its own is still refused.
+
+The guard doesn't check commits into a spec repository that sits outside every
+worktree. No worktree owns that path, so the command never reaches the commit
+check. If that repository's `.git` file is rewritten to point at the main
+checkout's repository, a commit there lands on the main checkout's branch.
+Checking the commit alone wouldn't prevent this, because rewriting the `.git`
+file is itself a plain write to a directory no worktree owns, and the guard
+never refuses that either.
+
+A command the guard can't read with certainty gets no exception. That covers
+four cases:
+
+1. A relative path that climbs with `..`, since where it lands depends on the
+   directory the command runs from.
+2. A `$`, a backtick, or a backslash outside single quotes, or a glob, a brace,
+   a parenthesis, a `~`, or a `#` outside any quotes, since the shell rewrites
+   or skips those before the path reaches the filesystem.
+3. A here-document with an unquoted delimiter. Quote it, as in `<<'EOF'`.
+4. A path naming a `.git`, in any letter case, since a `.git` inside the spec
+   root decides where every later git command there commits.
+
+Paths are judged after symlinks are resolved, so a path that climbs out of
+either root with `..` or through an existing symlink is judged as if the root
+had no exception. A symlink created earlier in the same command isn't seen,
+because it doesn't exist yet when the guard checks.
+
 `wfctl install-skills --agent claude` wires it up. The guard's half of what
 lands in `.claude/settings.json` — the merge mode below lists the rest:
 

@@ -13,7 +13,9 @@ it then refused to use.
 
 So this module holds the decision's whole runtime and imports `json`,
 `subprocess`, `sys` and `wfctl._guard` — the last of which costs only `re`.
-`wfctl/_entry.py` is what reaches it without loading the CLI.
+`wfctl/_entry.py` is what reaches it without loading the CLI. A command already
+headed for a refusal also imports `wfctl._paths`, to find the spec and state
+roots, and that path is rare enough to leave out of the measurement above.
 
 What none of this reaches is 27.1 ms of interpreter startup, which is the floor
 for a hook spawned per Bash call and is not worth another pass.
@@ -53,6 +55,110 @@ def worktree_roots(cwd: str) -> tuple[str, list[str]]:
         if line.startswith("worktree ")
     ]
     return here.strip(), roots
+
+
+def shared_roots(here: str) -> list[str | None]:
+    """The spec root and the state root a session in `here` writes under.
+
+    The same `_paths` calls `feature-paths` and `state-dir` make, so the guard
+    exempts the directories an agent was told to write to. They read this
+    process's environment, though, and a `WFCTL_SPEC_DIR` set only inside the
+    agent's shell does not reach it, so the two can still disagree. When they
+    do, the store is refused like any peer, which is the safe direction.
+
+    None in place of a root that cannot be resolved. A malformed manifest makes
+    `spec_root` raise on purpose, which is right for a command but wrong for a
+    hook that runs before every Bash call, and a manifest of the wrong shape
+    raises `AttributeError` or `TypeError` rather than a JSON error, hence the
+    broad catch. When git cannot name the project, `project_name` falls back to
+    the directory's own name, so the state root may be one nothing writes to,
+    and exempting an unused directory allows no write that matters.
+    """
+    from pathlib import Path
+
+    from wfctl._paths import spec_root, state_root
+
+    found: list[str | None] = []
+    for find in (spec_root, state_root):
+        try:
+            found.append(str(find(Path(here))))
+        except Exception:
+            found.append(None)
+    return found
+
+
+def committable(
+    here: str, shared: list[str | None], targets: list[str] | None = None,
+) -> list[str]:
+    """The shared roots, and folders in them, where a commit lands on a branch of
+    the store's own.
+
+    Asked of git rather than read from the path, because git picks the
+    repository from files inside the root. A root qualifies when it belongs to
+    another repository than `here`, or when it has a branch checked out that no
+    other worktree of this project has. A plain `<main>/specs` fails, since git
+    there finds the main checkout and its branch, and so does a store whose
+    `.git` was replaced to point at the main checkout's. So does a spec root
+    one level inside a store worktree, which reads exactly like `<main>/specs`
+    or a folder in a peer: the root has to be the top of its checkout.
+
+    A commit is often run from a feature's own folder, `<root>/129`, since that
+    is the path `feature-paths` prints. Each of `targets` below a qualifying
+    root is returned as well when git names that root as its top level. One
+    that is a repository of its own names itself, and is left out.
+
+    This reads the hook's environment, so a `GIT_DIR` exported only in the
+    agent's shell is not seen, the same limit `shared_roots` states.
+    """
+    import os
+    import subprocess
+
+    def git(cwd: str, *args: str) -> str | None:
+        try:
+            out = subprocess.run(
+                ["git", "-C", cwd, *args], capture_output=True, text=True, check=True
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return out.stdout.strip()
+
+    def common_dir(cwd: str) -> str | None:
+        found = git(cwd, "rev-parse", "--git-common-dir")
+        return os.path.realpath(os.path.join(cwd, found)) if found else None
+
+    roots = [r for r in shared if r and os.path.isdir(r)]
+    ours = common_dir(here)
+    if not roots or ours is None:
+        return []
+    # Each porcelain block names one worktree and, unless it is detached, the
+    # branch it has checked out.
+    checked_out: list[tuple[str, str]] = []
+    for block in (git(here, "worktree", "list", "--porcelain") or "").split("\n\n"):
+        fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
+        if "worktree" in fields and "branch" in fields:
+            checked_out.append((os.path.realpath(fields["worktree"]), fields["branch"]))
+    found: list[str] = []
+    for root in roots:
+        real = os.path.realpath(root)
+        theirs = common_dir(root)
+        if theirs is None:
+            continue
+        if theirs != ours:
+            found.append(root)
+            continue
+        branch = git(root, "symbolic-ref", "-q", "HEAD")
+        taken = {b for path, b in checked_out if path != real}
+        if branch and branch not in taken:
+            found.append(root)
+    qualified = {os.path.realpath(r) for r in found}
+    folders: list[str] = []
+    for target in dict.fromkeys(os.path.realpath(t) for t in targets or []):
+        if not any(target.startswith(r + "/") for r in qualified):
+            continue
+        top = git(target, "rev-parse", "--show-toplevel")
+        if top and os.path.realpath(top) in qualified:
+            folders.append(target)
+    return found + folders
 
 
 def worktree_guard(stdin_text: str | bytes) -> int:
@@ -101,6 +207,23 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     from wfctl import _guard
 
     message = _guard.refusal(command, here, roots)
+    # The spec and state roots are resolved only once a command is already
+    # headed for a refusal. Each can cost another git subprocess, for the main
+    # checkout's manifest and for the project name, and nearly every command
+    # that names a path names one in this worktree and was never going to need
+    # either.
+    # Whether a root takes commits costs three more, and one per feature folder
+    # a commit names, so it is asked only of a command that runs git at all.
+    # Only the spec root is asked: nothing commits handoffs, and a state root
+    # under a dotfiles repository would otherwise take commits nobody meant it
+    # to.
+    if message:
+        shared = shared_roots(here)
+        commits = (
+            committable(here, shared[:1], _guard.commit_targets(command))
+            if "git" in command else []
+        )
+        message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

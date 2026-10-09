@@ -13,6 +13,7 @@ every command aimed at it.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -342,3 +343,761 @@ def test_the_hook_blocks_with_exit_2_against_real_worktrees(tmp_path: Path) -> N
 
     assert run(f"cat {other}/README.md").exit_code == 0
     assert run("workmux send 105-mypy-cold-venv 'go'").exit_code == 0
+
+
+# The spec root as pfms lays it out: `specs-trunk` checked out beside the main
+# checkout, so `git worktree list` names it and every feature worktree's
+# `FEATURE_DIR` lands inside it.
+STORE = "/Users/dev/project-specs"
+ROOTS_WITH_STORE = [*ROOTS, STORE]
+
+
+def refuses_with_store(command: str) -> bool:
+    return _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) is not None
+
+
+@pytest.mark.parametrize("command", [
+    f"mkdir -p {STORE}/129-cross-worktree-guard/reviews",
+    f"cat > {STORE}/129-cross-worktree-guard/reviews/a.md <<'EOF'\nx\nEOF",
+    f"echo done > {STORE}/129-cross-worktree-guard/reviews/a.md",
+    f'mkdir -p "{STORE}/129-cross-worktree-guard/reviews"',
+])
+def test_a_write_under_the_spec_root_is_allowed(command: str) -> None:
+    """`feature-paths` hands every feature worktree a `FEATURE_DIR` here.
+
+    Refusing it meant one wfctl component told the agent where to write and the
+    other blocked the write, pointing at a handoff to a session the store never
+    has. Each row is a form `fanning-out-code-review` or #359 reaches for.
+    """
+    assert not refuses_with_store(command)
+
+
+def test_the_spec_root_is_a_peer_when_nobody_names_it() -> None:
+    """The exemption comes from the caller, never from the root's shape.
+
+    Without it the store is one more worktree, which is exactly how a repo with
+    no spec root configured has always behaved.
+    """
+    command = f"mkdir -p {STORE}/129-cross-worktree-guard/reviews"
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE) is not None
+
+
+def test_naming_the_spec_root_leaves_a_peer_refusal_unchanged() -> None:
+    """A peer feature worktree is the boundary the guard exists for.
+
+    Byte-identical rather than merely refused, so the exemption cannot quietly
+    reword the handoff a peer still needs.
+    """
+    command = f"uv run pytest {OTHER}/tests"
+    before = _guard.refusal(command, HERE, ROOTS)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
+
+
+def test_a_read_under_the_spec_root_is_still_allowed() -> None:
+    """The exemption only ever removes refusals, and reads had none to remove."""
+    assert not refuses_with_store(f"cat {STORE}/129-cross-worktree-guard/spec.md")
+    assert not refuses_with_store(f"git -C {STORE} log --oneline")
+
+
+@pytest.mark.parametrize("slot", ["spec", "state"])
+@pytest.mark.parametrize("spec_root", [MAIN, f"{MAIN}/wt", "/Users/dev", f"{MAIN}/wt/.."])
+def test_a_shared_root_covering_a_worktree_is_not_honoured(spec_root: str, slot: str) -> None:
+    """A shared root declared too broadly cannot open the worktrees it covers.
+
+    `"spec_root": "."` in the main checkout's manifest names the main checkout,
+    and `"wt"` names the directory every feature worktree sits in. Honoured,
+    either would turn `rm -rf` on a peer into an allowed write, so the guard
+    refuses exactly as it would with no spec root at all. `WFCTL_STATE_DIR` set
+    to the main checkout is the same mistake from the state side, and the
+    second slot pins that the rule is applied to every root, not the first.
+    """
+    shared = [spec_root, None] if slot == "spec" else [None, spec_root]
+    for command in (f"rm -rf {MAIN}/wfctl", f"rm -rf {OTHER}/src", f"rm -rf {MAIN}/wt"):
+        before = _guard.refusal(command, HERE, ROOTS)
+        assert before is not None, command
+        assert _guard.refusal(command, HERE, ROOTS, shared=shared) == before, command
+
+
+def test_the_main_checkout_is_never_the_spec_root() -> None:
+    """With worktrees kept beside the checkout rather than inside it, the main
+    checkout holds no other root, so only its place in the list says it is code.
+    `git worktree list` prints the main worktree first."""
+    main, here = "/Users/dev/project", "/Users/dev/project-wt/129-cross-worktree-guard"
+    roots = [main, here]
+    command = f"rm -rf {main}/wfctl"
+    assert _guard.refusal(command, here, roots, shared=[main]) == _guard.refusal(
+        command, here, roots
+    )
+
+
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+@pytest.mark.parametrize("command", [
+    "rm -rf {s}/../project/wfctl",
+    "rm -rf {s}/..",
+    "rm -rf {s}/../",
+    "rm -rf {s}/x/../..",
+    "rm -rf {s}/..:",
+    "mv {s}/.. /tmp/gone",
+])
+def test_a_path_that_climbs_out_of_a_shared_root_is_not_exempt(
+    command: str, store: str, roots: list[str],
+) -> None:
+    """`..` is text to this module, so the prefix alone would exempt it.
+
+    A trailing `..` was the spelling that got through: the strip that drops a
+    sentence's closing `.` turned `<store>/..` into the store itself, and
+    `rm -rf <main>/specs/..` deleted the main checkout and every worktree in it.
+    A climbing path is exempt from nothing, so its refusal is the one it gets
+    with no shared root named at all.
+    """
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
+    assert before is not None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+
+
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+@pytest.mark.parametrize("command", [
+    "rm -rf {s}/{{x,..}}/project/wfctl",
+    "rm -rf {s}/'..'/project/wfctl",
+    'rm -rf {s}/".."/project/wfctl',
+    "rm -rf {s}/\\../project/wfctl",
+    "rm -rf {s}/$UP/project/wfctl",
+    'rm -rf "{s}/a b/../../project/wfctl"',
+    "rm -rf {s}/a\\ b/../../project/wfctl",
+])
+def test_a_path_the_shell_rewrites_is_not_exempt(
+    command: str, store: str, roots: list[str],
+) -> None:
+    """The shell sees a `..` the text hides. `_ABS_PATH` stops at a quote, so
+    `<store>/'..'/x` arrived as `<store>/` and was exempt, and a brace or a
+    variable can expand to anywhere. Each row is a write above the store that
+    was refused before the exemption existed and has to stay refused."""
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
+    assert before is not None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+
+
+@pytest.mark.parametrize("command", [
+    f"rm -rf {HERE}/..",
+    f"rm -rf {HERE}/../",
+    f"rm -rf {HERE}/x/../..",
+    f"rm -rf {HERE}/../105-mypy-cold-venv/src",
+    f"rm -rf {HERE}/'..'/105-mypy-cold-venv/src",
+    f"mv {HERE}/.. /tmp/gone",
+])
+def test_a_path_that_climbs_out_of_this_worktree_is_judged_where_it_lands(command: str) -> None:
+    """`<here>/..` starts with this session's own root, and the strip that drops
+    a sentence's closing `.` turned it into that root, so `rm -rf <here>/..`
+    deleted the directory holding every feature worktree. A path that names
+    this worktree and lands in another one is a write to the other one."""
+    assert _guard.refusal(command, HERE, ROOTS) is not None
+
+
+def test_a_path_that_climbs_within_this_worktree_is_still_its_own() -> None:
+    """Resolving `..` adds a refusal only where the path lands elsewhere."""
+    assert _guard.refusal(f"rm -rf {HERE}/x/../y", HERE, ROOTS) is None
+    assert _guard.refusal(f"cat {HERE}/../105-mypy-cold-venv/README.md", HERE, ROOTS) is None
+
+
+def test_a_symlink_in_the_store_exempts_nothing(tmp_path: Path) -> None:
+    """A link in the store pointing at a peer is a write to the peer. The text
+    starts with the store, so only the filesystem can say where it lands, and a
+    glob reaching the link is the same write: `realpath` reads the `*` as a name
+    and lands in the store, while the shell expands it to the link."""
+    main, store, peer = (str(tmp_path.resolve() / n) for n in ("p", "p-specs", "p/wt/b"))
+    here = f"{main}/wt/a"
+    for d in (here, peer, store):
+        os.makedirs(d)
+    os.symlink(peer, f"{store}/link")
+    roots = [main, here, store, peer]
+
+    for command in (
+        f"rm -rf {store}/link/src",
+        f"rm -rf {store}/link*/src",
+        f"rm -rf {store}/l?nk/src",
+        f"rm -rf {store}/[l]ink/src",
+    ):
+        before = _guard.refusal(command, here, roots)
+        assert before is not None, command
+        assert _guard.refusal(command, here, roots, shared=[store]) == before, command
+    assert _guard.refusal(f"rm -rf {store}/a/src", here, roots, shared=[store]) is None
+
+
+def test_a_shared_root_is_compared_where_it_resolves(tmp_path: Path) -> None:
+    """A root declared as `<main>/wt/../specs`, or through a symlink, names the
+    store, so a write to the store's own spelling is exempt. A path is compared
+    resolved, and a root left as declared would match none of them. And a root
+    declared as a symlink to the main checkout is the main checkout, which is
+    never honoured."""
+    assert not _guard.refusal(
+        f"mkdir -p {MAIN}/specs/129", HERE, ROOTS, shared=[f"{MAIN}/wt/../specs"],
+    )
+
+    main, store = (str(tmp_path.resolve() / n) for n in ("p", "p-specs"))
+    here = f"{main}/wt/a"
+    for d in (here, store):
+        os.makedirs(d)
+    os.symlink(store, tmp_path / "store-link")
+    os.symlink(main, tmp_path / "main-link")
+    roots = [main, here, store]
+    assert not _guard.refusal(
+        f"mkdir -p {store}/129", here, roots, shared=[str(tmp_path / "store-link")],
+    )
+
+    command = f"rm -rf {main}/src"
+    before = _guard.refusal(command, here, roots)
+    assert before is not None
+    assert _guard.refusal(command, here, roots, shared=[str(tmp_path / "main-link")]) == before
+
+
+def test_a_path_that_climbs_back_into_a_shared_root_is_exempt() -> None:
+    """Normalising cuts both ways: a `..` that lands inside the store is a
+    write to the store."""
+    assert not refuses_with_store(f"mkdir -p {STORE}/a/../129-cross-worktree-guard")
+    assert not refuses_with_store(f"touch {STORE}/./129/a.md")
+
+
+@pytest.mark.parametrize("command", [
+    f"cd {STORE}",
+    f"pushd {STORE}/129-cross-worktree-guard",
+    f"cd {STORE}/129-cross-worktree-guard && rm -rf ../../project/wfctl",
+    f"builtin cd {STORE} && rm -rf ../project/wfctl",
+    f"command cd {STORE} && rm -rf ../project/wfctl",
+    f"X=1 cd {STORE} && rm -rf ../project/wfctl",
+    f'bash -c "cd {STORE} && rm -rf ../project/wfctl"',
+])
+def test_changing_directory_into_a_shared_root_is_still_refused(command: str) -> None:
+    """The hook reads `here` from the session's working directory. After a `cd`
+    into the store, the store is this session's own worktree as far as the
+    guard can tell, and the real one is refused with a handoff to itself. The
+    `cd` refusal was also all that stopped the relative `rm` in the later rows,
+    and a wrapper or an assignment in front of the `cd` hid it from that."""
+    before = _guard.refusal(command, HERE, ROOTS_WITH_STORE)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
+
+
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+@pytest.mark.parametrize("command", [
+    # A separator or a substitution inside the path, which the quote-blind
+    # split cut in two so that each half passed on its own.
+    "rm -rf {s}/$(echo ..)/project/wfctl",
+    "rm -rf {s}/`echo ..`/project/wfctl",
+    'rm -rf "{s}/$(echo ..)/project/wfctl"',
+    "rm -rf {s}/$(echo ..)/project/wt/105-mypy-cold-venv/src",
+    'rm -rf "{s}/a;b/../../project/wfctl"',
+    'rm -rf "{s}/a|b/../../project/wfctl"',
+    'rm -rf "{s}/a\nb/../../project/wfctl"',
+    "rm -rf {s}/a\\;/../../project/wfctl",
+    'mkdir -p "{s}/a;" && rm -rf "{s}/a;/../../project/src"',
+    "rm -rf $P{s}/x",
+    "cat > {s}/x <<EOF\n$(rm -rf /Users/dev/project/wfctl)\nEOF",
+    # A verb the text does not show, or one that changes directory.
+    "G=git; $G -C {s} reset --hard HEAD",
+    "X=cd; $X {s} && rm -rf ../project/wfctl",
+    "env /usr/bin/git -C {s} reset --hard HEAD",
+    "env -C {s} rm -rf ../project/src",
+    "make -C {s} -f ../project/Makefile clean",
+    "uv --directory {s} sync",
+    "find {s} -maxdepth 0 -execdir rm -rf project/src ;",
+    "cd .. && rm -rf wt/105-mypy-cold-venv/src > {s}/log",
+    "rm -rf {s}/x ../project/wt/105-mypy-cold-venv/src",
+    "mkdir -p {s}/x && rm -rf ../105-mypy-cold-venv/src",
+    "mkdir -p {s}/x && echo x > ../105-mypy-cold-venv/evil.py",
+    # A comment the shell skips and this parser would not.
+    "mkdir -p {s}/x # <<':'\nrm -rf /Users/dev/project/wt/105-mypy-cold-venv/src\n:",
+    # git pointed somewhere the path does not name, or changing shared state.
+    'git -C {s} --git-dir="$GIT_DIR" commit -m x',
+    "git -C {s} --work-tree=../project checkout -- x",
+    "git -C {s} -c core.worktree=/Users/dev/project commit -m x",
+    "git -C {s} -c core.hooksPath=/tmp/h commit -m x",
+    "git --git-dir={s}/.git commit -m x",
+    "git -C {s} worktree remove --force ../project/wt/105-mypy-cold-venv",
+    "git -C {s} config core.hooksPath /tmp/h",
+    "git -C {s} update-ref -d HEAD",
+    # A repository, or a link, made inside the store.
+    "mkdir -p {s}/.git",
+    'echo "gitdir: /Users/dev/project/.git" > {s}/.git',
+    "printf x > {s}/.GIT",
+    "ln -s ../project/src {s}/l && echo x > {s}/l/evil.py",
+    "cp -s /Users/dev/project/src {s}/l",
+])
+def test_a_construct_the_exemption_cannot_follow_is_judged_as_if_nothing_were_shared(
+    command: str, store: str, roots: list[str],
+) -> None:
+    """Every row got through an exemption that trusted all but the known tricks,
+    found across four review rounds. The two `$(echo ..)` rows reach the main
+    checkout's source and a peer worktree, and need nothing on disk. Each was
+    refused before the exemption existed and has to stay refused, with the
+    same message, so none of them can quietly reword the handoff either."""
+    command = command.format(s=store)
+    before = _guard.refusal(command, HERE, roots)
+    assert before is not None
+    assert _guard.refusal(command, HERE, roots, shared=[store]) == before
+    assert _guard.refusal(command, HERE, roots, shared=[store], committable=[store]) == before
+
+
+@pytest.mark.parametrize("command", [
+    f"bash {STORE}/x.sh",
+    f"python {STORE}/evil.py",
+    f"sh < {STORE}/x.sh",
+    f"uv run pytest > {STORE}/129/out.txt",
+])
+def test_running_from_a_shared_root_is_not_writing_to_it(command: str) -> None:
+    """The store is shared between every feature worktree, so a file one writes
+    there is a file another would run. The exemption is for writing, and a
+    verb not on its list declines it, even where all it does with the store is
+    redirect into it: `uv run pytest > <store>/out` is the cost of that."""
+    before = _guard.refusal(command, HERE, ROOTS_WITH_STORE)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=[STORE]) == before
+
+
+@pytest.mark.parametrize("command", [
+    f"cat > {STORE}/129/reviews/a.md <<'EOF'\nit's done; see $(x) and `y` in /Users/dev\nEOF",
+    f"cat > {STORE}/129/a.md <<-'EOF'\n\tbody\n\tEOF",
+    f"echo 'specs(129): a; b | c # d' > {STORE}/129/note.md",
+    f"cat {OTHER}/README.md && mkdir -p {STORE}/129/reviews",
+    f"cp /tmp/h.md {STORE}/129/ 2>&1 && git -C {STORE} status --short",
+])
+def test_the_forms_a_spec_write_takes_stay_exempt(command: str) -> None:
+    """Parsing quotes properly is what lets the allowlist stay strict without
+    refusing the ordinary forms. A quoted here-document's body is data, so its
+    apostrophe and `$(` are the shell's business, not the guard's, and a
+    separator or a `#` inside quotes is part of the text."""
+    assert not refuses_with_store(command)
+
+
+def test_a_relative_shared_root_exempts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_SPEC_DIR` is read raw, and a relative value resolves against the
+    hook process's directory rather than the session's, so the store it would
+    name is a guess. Here the guess is right, and it is still not honoured."""
+    monkeypatch.chdir(tmp_path)
+    main, store = str(tmp_path / "p"), str(tmp_path / "p-specs")
+    here = f"{main}/wt/a"
+    roots = [main, here, store]
+    command = f"mkdir -p {store}/129"
+    assert _guard.refusal(command, here, roots, shared=[store]) is None
+    assert _guard.refusal(command, here, roots, shared=["p-specs"]) is not None
+    assert _guard.refusal(command, here, roots, shared=["~/p-specs"]) is not None
+
+
+def test_a_spec_root_inside_the_main_checkout_is_exempt() -> None:
+    """A spec root need not be a worktree of its own.
+
+    Declared as `specs/` in the main checkout's manifest, it is an ordinary
+    gitignored directory there, so the main checkout owns it and every write from
+    a feature worktree used to read as a write to the main checkout.
+    """
+    shared = f"{MAIN}/specs"
+    command = f"mkdir -p {shared}/129-cross-worktree-guard/reviews"
+    assert _guard.refusal(command, HERE, ROOTS) is not None
+    assert _guard.refusal(command, HERE, ROOTS, shared=[shared]) is None
+    assert _guard.refusal(f"rm -rf {MAIN}/wfctl", HERE, ROOTS, shared=[shared]) is not None
+
+
+@pytest.mark.parametrize("command", [
+    "git -C {s} add 129",
+    "git -C {s} add {s}/129/reviews/a.md",
+    "git -C {s} commit -m 'specs(129): reviews'",
+    "git -C {s} add 129 && git -C {s} commit -m 'specs(129): reviews'",
+    "git -C {s} commit -m x && git -C {s} log --oneline -1",
+])
+def test_a_commit_into_a_root_that_takes_commits_is_exempt(command: str) -> None:
+    """Committing a feature's specs is the step #359 adds, and it runs from the
+    feature worktree. Once the caller has found that a commit there lands on a
+    branch of the store's own, the commit is a write to the store like any
+    other."""
+    command = command.format(s=STORE)
+    assert _guard.refusal(command, HERE, ROOTS_WITH_STORE) is not None
+    assert _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
+    ) is None
+
+
+@pytest.mark.parametrize("store, roots", [
+    (STORE, ROOTS_WITH_STORE),
+    (f"{MAIN}/specs", ROOTS),
+], ids=["store-beside-checkout", "store-inside-checkout"])
+def test_a_commit_into_a_root_git_has_not_vouched_for_is_refused(
+    store: str, roots: list[str],
+) -> None:
+    """Which branch a commit lands on is decided by files inside the store, so
+    the text alone never earns the exemption. With the store a plain
+    `<main>/specs` the commit lands on the main checkout's branch, and the
+    refusal says so instead of offering a handoff to a session the store does
+    not have."""
+    message = _guard.refusal(f"git -C {store} commit -m x", HERE, roots, shared=[store])
+    assert message is not None
+    assert "would not land on a branch of its own" in message
+    assert "workmux send" not in message
+
+
+@pytest.mark.parametrize("command", [
+    "git -C {s}/129 commit -m x",
+    "git -C {s} -C /Users/dev/project commit -m x",
+    "git --work-tree {s} commit -m x",
+    "git -C {s} reset --hard HEAD",
+    "git -C {s} push origin HEAD",
+    "command git -C {s} commit -m x",
+    "/usr/bin/git -C {s} commit -m x",
+    "GIT_DIR=/Users/dev/project/.git git -C {s} commit -m x",
+    'git -C {s} commit -m "$(date)"',
+    "mkdir -p {s}/129 && git -C {s} add 129",
+    "cp -r /tmp/x/. {s}/ && git -C {s} add 129",
+    "git -C {s} add 129 && rm -rf {s}/129",
+    "git -C {s} commit -m x > /Users/dev/project/wfctl/log",
+    "git -C {s} log -1 > {s}/l && git -C {s} commit -m x",
+])
+def test_a_commit_is_exempt_only_written_plainly_and_alone(command: str) -> None:
+    """The caller asked git about the store as it stood before the command ran.
+    A write in the same command could replace the store's `.git` first, as the
+    `cp -r /tmp/x/.` row does without ever naming it, so nothing but reads may
+    sit beside a commit. A `-C` below the root could hold a `.git` of its own
+    the caller never asked about, and every other spelling moves the repository
+    or runs something."""
+    command = command.format(s=STORE)
+    assert _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
+    ) is not None
+
+
+@pytest.mark.parametrize("command", [
+    "git -C {s}/129 add .",
+    "git -C {s}/129 commit -m 'specs(129): reviews'",
+])
+def test_a_commit_from_a_feature_folder_the_caller_vouched_for_is_exempt(command: str) -> None:
+    """`feature-paths` prints `<store>/129`, so that is where an agent commits
+    from. Exactness still holds: the folder is exempt because the caller asked
+    git about it, and the store being exempt does not carry down to it."""
+    command = command.format(s=STORE)
+    assert _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
+    ) is not None
+    assert _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE, f"{STORE}/129"],
+    ) is None
+
+
+def test_a_peer_write_beside_a_commit_is_reported_as_the_peer_write() -> None:
+    """A refused command can carry a commit and a peer write at once, and the
+    peer write is the one a handoff fixes. Reporting the commit instead tells
+    the agent to respell a command whose real problem it never hears about."""
+    command = f"git -C {STORE} commit -m x && rm -rf {OTHER}/src"
+    message = _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
+    )
+    assert message is not None
+    assert "workmux send 105-mypy-cold-venv" in message
+
+
+def test_a_commit_into_a_store_outside_every_worktree_is_still_judged() -> None:
+    """A spec repository of its own sits outside every worktree, so no owner
+    makes a commit there a trespass. Handed the store, `refusal()` still judges
+    the commit by the caller's answer. The hook never hands it one, since
+    nothing refused the command first, and the module docstring lists that."""
+    store = "/Users/dev/elsewhere-specs"
+    command = f"git -C {store} commit -m x"
+    assert _guard.refusal(command, HERE, ROOTS, shared=[store], committable=[store]) is None
+    message = _guard.refusal(command, HERE, ROOTS, shared=[store])
+    assert message is not None
+    assert "would not land on a branch of its own" in message
+
+
+def test_a_root_that_is_not_shared_takes_no_commits() -> None:
+    """`committable` narrows the exemption and never widens it: a peer the
+    caller wrongly vouched for is still a peer."""
+    command = f"git -C {OTHER} commit -m x"
+    before = _guard.refusal(command, HERE, ROOTS)
+    assert before is not None
+    assert _guard.refusal(command, HERE, ROOTS, shared=[STORE], committable=[OTHER]) == before
+
+
+def _store_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """The main checkout, a spec store beside it, and a feature worktree."""
+    main = git_repo(tmp_path / "project")
+    store = tmp_path / "project-specs"
+    feature = main / "wt" / "129-cross-worktree-guard"
+    for branch, path in (("specs-trunk", store), ("129-cross-worktree-guard", feature)):
+        subprocess.run(
+            ["git", "-C", str(main), "worktree", "add", "-b", branch, str(path)],
+            check=True, capture_output=True,
+        )
+    return main, store, feature
+
+
+def _hook(cwd: Path, command: str) -> Result:
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    return runner.invoke(app, ["hook", "worktree-guard"], input=payload)
+
+
+def test_the_hook_allows_the_spec_root_the_main_checkout_declares(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pfms reproduction, end to end against `git worktree list`.
+
+    The declaration sits in the main checkout's manifest, which is the only place
+    a fresh feature worktree can find it, so this also holds the hook to the same
+    resolution `feature-paths` uses rather than a copy of it.
+    """
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(store)}))
+
+    assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard/reviews").exit_code == 0
+    assert _hook(feature, f"git -C {store} log --oneline").exit_code == 0
+    (store / "129.md").write_text("x\n")
+    assert _hook(feature, f"git -C {store} add 129.md").exit_code == 0
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 0
+
+    peer = _hook(feature, f"rm -rf {main}/README.md")
+    assert peer.exit_code == 2
+    assert "workmux send project " in (peer.stderr or peer.output)
+
+
+def test_the_hook_honours_the_spec_dir_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_SPEC_DIR` moves `FEATURE_DIR`, so it has to move the exemption too."""
+    _, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+
+    assert _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard").exit_code == 0
+
+
+def test_the_hook_refuses_the_store_when_no_spec_root_is_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing declared the spec root is `<worktree>/specs`, and the store
+    beside the checkout is a peer like any other: the behaviour before #365."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    _, store, feature = _store_layout(tmp_path)
+
+    refused = _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard")
+    assert refused.exit_code == 2
+    assert "workmux send project-specs" in (refused.stderr or refused.output)
+
+
+def test_an_unreadable_manifest_refuses_rather_than_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`spec_root` raises on a malformed manifest, which is right for a command
+    and wrong for a hook on every Bash call. Unresolvable means no exemption, so
+    the guard falls back to what it did before rather than to a traceback."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text("{not json")
+
+    refused = _hook(feature, f"mkdir -p {store}/129-cross-worktree-guard")
+    assert refused.exit_code == 2
+    assert "workmux send project-specs" in (refused.stderr or refused.output)
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf {main}/README.md\0",
+    "git -C {store}/a\0b commit -m x && rm -rf {main}/README.md",
+])
+def test_a_null_byte_is_refused_rather_than_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str,
+) -> None:
+    """Resolving a path that holds a NUL raises `ValueError`, so the hook exited
+    1 instead of 2. Claude Code treats exit 1 as an error and runs the command
+    anyway. As a result, a write to a peer that the first pass refused went
+    through whenever a spec root was declared."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(store)}))
+
+    assert _hook(feature, command.format(main=main, store=store)).exit_code == 2
+
+
+def test_the_spec_root_and_the_state_root_are_exempt_together() -> None:
+    """Both are handed to the guard at once, and one that could not be resolved
+    must not cost the other its exemption."""
+    state = f"{MAIN}/.state/wfctl/project"
+    spec = f"mkdir -p {STORE}/129-cross-worktree-guard/reviews"
+    handoff = f"cp /tmp/h.md {state}/130-child/session-summary.md"
+
+    def refused(command: str, shared: list[str | None]) -> bool:
+        return _guard.refusal(command, HERE, ROOTS_WITH_STORE, shared=shared) is not None
+
+    assert refused(handoff, [])
+    assert not refused(spec, [STORE, state])
+    assert not refused(handoff, [STORE, state])
+    assert not refused(spec, [STORE, None])
+    assert not refused(handoff, [None, state])
+    assert refused(f"rm -rf {OTHER}/src", [STORE, state])
+
+
+def test_the_hook_allows_a_handoff_into_a_state_root_inside_the_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`XDG_STATE_HOME` can put the state root inside a repo, and inside the main
+    checkout the main checkout owns it, so a feature worktree's handoff read as a
+    write to the main checkout. The child branch's dir is the case that needs the
+    whole project exempt: a handoff writes it before the branch exists."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(main / ".state"))
+    child = main / ".state" / "wfctl" / "project" / "130-child"
+
+    assert _hook(feature, f"mkdir -p {child}").exit_code == 0
+    assert _hook(feature, f"cp /tmp/h.md {child}/session-summary.md").exit_code == 0
+    assert _hook(feature, f"rm -rf {main}/README.md").exit_code == 2
+
+
+def test_the_hook_honours_the_state_dir_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_STATE_DIR` names one state dir, so that dir is exempt and its
+    neighbours in the same checkout are not."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(main / ".state"))
+
+    assert _hook(feature, f"touch {main}/.state/events.jsonl").exit_code == 0
+    assert _hook(feature, f"touch {main}/.other/events.jsonl").exit_code == 2
+
+
+def test_the_hook_refuses_a_commit_once_the_store_points_at_the_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store whose `.git` file was replaced to name the main checkout's
+    repository commits onto the main checkout's branch, though every word of
+    the command still names the store. Only git can say so."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    main, store, feature = _store_layout(tmp_path)
+    (main / ".wf-skills-manifest.json").write_text(json.dumps({"spec_root": str(store)}))
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 0
+
+    (store / ".git").write_text(f"gitdir: {main / '.git'}\n")
+    refused = _hook(feature, f"git -C {store} commit -m x")
+    assert refused.exit_code == 2
+    assert "would not land on a branch of its own" in (refused.stderr or refused.output)
+
+
+def test_the_hook_refuses_a_commit_into_a_plain_spec_folder_in_the_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `specs/` with no repository of its own is part of the main checkout, so
+    a commit there lands on the main checkout's branch. Writing there stays
+    allowed."""
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(tmp_path / "project" / "specs"))
+    main, _, feature = _store_layout(tmp_path)
+    (main / "specs").mkdir()
+
+    assert _hook(feature, f"mkdir -p {main}/specs/129").exit_code == 0
+    for target in (f"{main}/specs", f"{main}/specs/129"):
+        refused = _hook(feature, f"git -C {target} commit -m x")
+        assert refused.exit_code == 2
+        assert "would not land on a branch of its own" in (refused.stderr or refused.output)
+
+
+def test_the_hook_allows_a_commit_into_a_spec_repository_nested_in_the_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A spec root that is a repository of its own takes its own commits,
+    wherever it sits, so nesting it inside the main checkout costs nothing."""
+    main, _, feature = _store_layout(tmp_path)
+    specs = git_repo(main / "specs")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+    (specs / "129.md").write_text("x\n")
+
+    assert _hook(feature, f"git -C {specs} add 129.md").exit_code == 0
+    assert _hook(feature, f"git -C {specs} commit -m x").exit_code == 0
+
+
+def test_the_hook_allows_a_commit_from_a_feature_folder_in_the_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pfms layout, committed the way `feature-paths` points: from the
+    feature's own folder in the store, not from the store's top. A folder that
+    is a repository of its own commits there instead, so it stays refused."""
+    main, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    (store / "129").mkdir()
+    (store / "129" / "spec.md").write_text("x\n")
+
+    assert _hook(feature, f"git -C {store}/129 add .").exit_code == 0
+    assert _hook(feature, f"git -C {store}/129 commit -m x").exit_code == 0
+
+    nested = git_repo(store / "130")
+    refused = _hook(feature, f"git -C {nested} commit -m x")
+    assert refused.exit_code == 2
+    assert f"Commit from {store} itself" in (refused.stderr or refused.output)
+
+    # Judged where it lands: a folder linked out to a repository of its own is
+    # that repository, whatever path names it.
+    (store / "131").symlink_to(git_repo(tmp_path / "elsewhere"))
+    assert _hook(feature, f"git -C {store}/131 commit -m x").exit_code == 2
+
+
+def test_a_feature_folder_refused_for_its_spelling_is_told_about_the_spelling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A folder git does place in the store, committed with a `$(…)` message,
+    is refused for the `$`. Asked about only on a whole reading, the folder went
+    unvouched and the refusal blamed it instead."""
+    _, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    (store / "129").mkdir()
+
+    refused = _hook(feature, f'git -C {store}/129 commit -m "$(date)"')
+    assert refused.exit_code == 2
+    assert "written plainly" in (refused.stderr or refused.output)
+
+
+def test_the_hook_refuses_a_commit_into_a_store_with_a_detached_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A commit on a detached head lands on no branch, so it is not on the
+    store's own branch either."""
+    main, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    subprocess.run(["git", "-C", str(store), "checkout", "--detach"], check=True, capture_output=True)
+
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 2
+
+
+def test_the_hook_refuses_a_commit_once_the_store_points_at_a_peer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `.git` naming a feature worktree's admin dir commits onto that
+    feature's branch, which the feature worktree has checked out."""
+    main, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    admin = main / ".git" / "worktrees" / feature.name
+    (store / ".git").write_text(f"gitdir: {admin}\n")
+
+    assert _hook(feature, f"git -C {store} commit -m x").exit_code == 2
+
+
+def test_the_hook_never_lets_the_state_root_take_commits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing commits handoffs. A state root inside a repository of its own,
+    such as a dotfiles checkout over `~/.local/state`, would otherwise pass the
+    same check a spec repository passes."""
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(main / ".state"))
+    state = git_repo(main / ".state" / "wfctl" / "project")
+
+    assert _hook(feature, f"touch {state}/129.md").exit_code == 0
+    assert _hook(feature, f"git -C {state} commit -m x").exit_code == 2
