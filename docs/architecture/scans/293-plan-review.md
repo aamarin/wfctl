@@ -231,3 +231,41 @@
   `plan.md` did not change with the spec, and the same line rules out the
   guard that would make the rule absolute.
 - **PR-002 through PR-011** remain fixed, as the report records.
+
+## Review 2026-10-09T09:22Z
+
+- Verdict: satisfied
+- Reviewed: plan.md b3a6055f26ad3682d1e444f7f864c75de6c32447, spec.md d94cd4dcff98a52399770c7e04e070cad8e63d87, .specify/memory/constitution.md absent, design.md da3188fe0adbff1a41e466028d96ca6fe8a37b2d, research.md db347b387762792da9328bf029c9ad661d7512e2, data-model.md e950c13cfde3f24fa6e8acfdf3b23ca8e232f3c7, quickstart.md a3b8e3dd8c7c73f57039573a90f4ed20a668b133, docs/architecture/deletion-follows-recorded-files.md 1293d70d8f186e31156d9f606e1494488baae550, docs/architecture/install-modes.md 4233b4dbe4343f4c734e175db91417108db59428, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, plan-review.plan.md 627fb00f0756dc7b046dd32181e69c7b7d62ba85 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 1 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/293-mirror-below-recorded-dir/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-015 fixed) |
+| Requirements and traceability | Resolved (PR-015 fixed) |
+| Architecture and boundaries | Resolved (PR-015 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-016; PR-014 fixed) |
+| Security and reliability | Outstanding (PR-016; PR-014 fixed) |
+
+### Findings
+
+- **PR-014, MINOR, fixed.** The record's second Consequences item and
+  `quickstart.md §1` now say to delete `.wf-skills-backup/.specify/scripts/bash/`
+  before the redo. The code confirms the exit works: with the backups gone, the
+  uninstall removes the scripts instead of restoring them, and the next install
+  has nothing to back up.
+- **PR-015, MINOR, fixed.** `plan.md §Technical Context` now scopes the
+  deletion rule to a repository that has been redone or freshly installed, and
+  names the pruning install as the accepted exception, the way `spec.md §FR-004`
+  does.
+- **PR-016, MINOR, open.** The exit says the backups in that folder are all
+  wfctl's own copies. A repository that had its own scripts folder before its
+  first wfctl install, such as one that ran Spec Kit first, had that folder
+  backed up whole to the same path, so deleting it also loses that
+  repository's original scripts that wfctl never shipped. It stands because
+  the record and `quickstart.md §1` both state the claim without that
+  condition. Deleting only the three files wfctl ships would avoid it.
+- **PR-001 through PR-013** remain fixed, as the report records.
