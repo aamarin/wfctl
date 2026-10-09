@@ -3,12 +3,12 @@ status: proposed
 diagram: data-flow
 ---
 
-# A finished implementation covers only the tasks it was finished over
+# A task added after implementation finishes reopens it
 
 **What does this record decide?**
-When implementation finishes, wfctl saves a copy of the task list as it was at
-that moment. A task added afterwards and left unticked reopens implementation,
-and wfctl decides that by comparing the two files, not by asking the agent.
+When implementation finishes, wfctl saves a copy of the task list. If a new
+unticked task shows up later, wfctl reopens implementation. wfctl finds it by
+comparing the task list against the copy, and never asks the agent.
 
 ## Context
 
@@ -18,8 +18,8 @@ that says the work is done over boxes nobody ticked. The finish file exists
 because checkboxes are unreliable; work done outside the implement skill
 leaves them empty even when the work is real.
 
-The finish file is read by existence alone, and nothing ever removes it. So a
-story that finishes and then grows keeps the old verdict:
+wfctl only checks that the finish file exists, and nothing ever removes it. So
+a story that finishes and later gains a task still reads finished:
 
 ```
 round 1   tasks.md: - [x] T001            implement finishes, writes the finish file
@@ -27,15 +27,15 @@ round 2   tasks.md: - [x] T001            scope grows, /speckit.tasks re-run
                     - [ ] T002 new work   the finish file is not touched
 ```
 
-With a definition of done configured, the story halts on verification, which
-is safe but sends the agent to the wrong place. With none configured, the same
-tree reports implementation `done` and the story complete, beside an
-annotation that says `1/2 done`.
+With a definition of done configured, wfctl sends the agent to run
+verification instead of to T002. That is safe, but it is the wrong next step.
+With none configured, wfctl reports the story complete while showing `1/2 done`
+beside it.
 
-The two readings cannot be told apart by what either file says. A finish file
-standing in for unticked boxes and a finish file that predates a new task look
-identical. What separates them is which tasks existed when the finish was
-written, and nothing records that today.
+wfctl cannot tell an unticked box that was finished outside the skill from an
+unticked box that was added later. Both look the same in `tasks.md`. To tell
+them apart, wfctl needs to know which tasks existed when implementation
+finished, and nothing records that today.
 
 ## Direct baseline
 
@@ -48,23 +48,21 @@ trusting the finish file.
 
 ## Decision
 
-wfctl owns the finish file. The implement step finishes by running a wfctl
-command, which writes the finish file and saves inside it a copy of `tasks.md`
-as it is at that moment. A finish file with no copy inside, which is every
-finish file written before this change, covers no task. wfctl then reads the
-boxes alone, as if the file were not there. wfctl does not ask who wrote the
-file, only whether the copy is in it.
+When the implement step finishes, it runs a wfctl command that writes the
+finish file. The file holds a copy of `tasks.md` as it was at that moment.
 
-Every time wfctl reports, it compares the live `tasks.md` with the saved copy.
-An unticked task in the live file that was not unticked in the copy is open
-work, and implementation reads in progress with `/speckit.implement` as the
-next step, whether or not a definition of done is configured. Every other edit
-leaves the finish standing; a box ticked later, a typo fixed, or a note added
-opens nothing, because none of them adds an unticked task.
+Each time wfctl reports, it compares the current `tasks.md` against that copy.
+An unticked task that was not unticked in the copy is new work, so
+implementation reopens with `/speckit.implement` as the next step. This holds
+whether or not a definition of done is configured. For example, the copy holds
+T001 ticked and T002 unticked, because T002 was done outside the implement
+skill. Later, T003 is added unticked. T002 was already unticked in the copy, so
+it stays covered. T003 was not in the copy, so implementation reopens.
 
-For example, the copy holds T001 ticked and T002 unticked, because T002 was
-done outside the implement skill. The live file later gains T003, unticked. T002 is covered, since
-it was unticked in the copy too. T003 is not, so implementation reopens.
+Ticking a box, fixing a typo, or adding a note does not reopen it, since none
+of these adds a new unticked task. A finish file with no copy in it, such as
+every one written before this change, is ignored, and wfctl counts the boxes
+instead.
 
 ## Owns truth
 
@@ -82,8 +80,8 @@ A timestamp cannot answer it either. Restoring a feature folder from
 `plan-edit-requires-new-review` already rejected timestamps.
 
 The finish command owns "what did `tasks.md` say when implementation
-finished?". It runs at the only moment that question can be answered. Once `tasks.md` has
-changed, nothing on disk says what it held before.
+finished?". It runs at the only moment that question can be answered. Once
+`tasks.md` has changed, nothing on disk says what it held before.
 
 ## Boundary
 
