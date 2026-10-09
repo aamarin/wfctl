@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -168,3 +168,4 @@ A second user reopens each of them.
   repository not being redone, or of the redo itself: stale backups of the
   scripts, a developer's own script deleted by the prune, and tracker edits
   replaced. Andre accepted all three while he is the only user of wfctl.
+- 2026-10-09  accepted    — Andre, in the 2026-10-09 session on branch 293-mirror-below-recorded-dir, after the review panel and before merging PR 566
