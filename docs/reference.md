@@ -550,14 +550,13 @@ folder, such as `<spec root>/129`, since that is where `feature-paths` points.
 The guard asks git for that folder's top level and allows the commit when it is
 the spec root, so a folder that is a repository of its own is still refused.
 
-The guard cannot see every way to reach a spec repository that sits outside
-every worktree. If that repository's `.git` is rewritten to name the main
-checkout's, a commit run there lands on the main checkout's branch, and the
-guard does not refuse it. No worktree owns the path, so the command never
-reaches the commit check, however it is spelled.
-Rewriting the `.git` is a plain write into a directory no worktree owns, which
-the guard never refuses either, so a check on the commit alone would add
-friction and close nothing.
+The guard does not check a commit into a spec repository that sits outside
+every worktree. No worktree owns the path, so the command never reaches the
+commit check, however it is spelled. If that repository's `.git` is rewritten
+to name the main checkout's, a commit run there lands on the main checkout's
+branch. Rewriting the `.git` is a plain write into a directory no worktree
+owns, which the guard never refuses either, so a check on the commit alone
+would add friction and close nothing.
 
 A path is judged where it lands, so one that climbs out of either root with
 `..` or through a symlink that already exists is judged as if the root were not

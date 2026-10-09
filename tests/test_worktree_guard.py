@@ -807,8 +807,9 @@ def test_a_peer_write_beside_a_commit_is_reported_as_the_peer_write() -> None:
 
 def test_a_commit_into_a_store_outside_every_worktree_is_still_judged() -> None:
     """A spec repository of its own sits outside every worktree, so no owner
-    makes a commit there a trespass. Its `.git` can still be replaced to name
-    the main checkout's, and then only the caller's answer says so."""
+    makes a commit there a trespass. Handed the store, `refusal()` still judges
+    the commit by the caller's answer. The hook never hands it one, since
+    nothing refused the command first, and the module docstring lists that."""
     store = "/Users/dev/elsewhere-specs"
     command = f"git -C {store} commit -m x"
     assert _guard.refusal(command, HERE, ROOTS, shared=[store], committable=[store]) is None
@@ -983,9 +984,10 @@ def test_the_hook_refuses_a_commit_into_a_plain_spec_folder_in_the_main_checkout
     (main / "specs").mkdir()
 
     assert _hook(feature, f"mkdir -p {main}/specs/129").exit_code == 0
-    refused = _hook(feature, f"git -C {main}/specs commit -m x")
-    assert refused.exit_code == 2
-    assert "would not land on a branch of its own" in (refused.stderr or refused.output)
+    for target in (f"{main}/specs", f"{main}/specs/129"):
+        refused = _hook(feature, f"git -C {target} commit -m x")
+        assert refused.exit_code == 2
+        assert "would not land on a branch of its own" in (refused.stderr or refused.output)
 
 
 def test_the_hook_allows_a_commit_into_a_spec_repository_nested_in_the_main_checkout(
@@ -1017,7 +1019,29 @@ def test_the_hook_allows_a_commit_from_a_feature_folder_in_the_store(
     assert _hook(feature, f"git -C {store}/129 commit -m x").exit_code == 0
 
     nested = git_repo(store / "130")
-    assert _hook(feature, f"git -C {nested} commit -m x").exit_code == 2
+    refused = _hook(feature, f"git -C {nested} commit -m x")
+    assert refused.exit_code == 2
+    assert f"Commit from {store} itself" in (refused.stderr or refused.output)
+
+    # Judged where it lands: a folder linked out to a repository of its own is
+    # that repository, whatever path names it.
+    (store / "131").symlink_to(git_repo(tmp_path / "elsewhere"))
+    assert _hook(feature, f"git -C {store}/131 commit -m x").exit_code == 2
+
+
+def test_a_feature_folder_refused_for_its_spelling_is_told_about_the_spelling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A folder git does place in the store, committed with a `$(…)` message,
+    is refused for the `$`. Asked about only on a whole reading, the folder went
+    unvouched and the refusal blamed it instead."""
+    _, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    (store / "129").mkdir()
+
+    refused = _hook(feature, f'git -C {store}/129 commit -m "$(date)"')
+    assert refused.exit_code == 2
+    assert "written plainly" in (refused.stderr or refused.output)
 
 
 def test_the_hook_refuses_a_commit_into_a_store_with_a_detached_head(

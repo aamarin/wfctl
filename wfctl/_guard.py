@@ -561,11 +561,13 @@ def _commit_target(words: list[str]) -> str | None:
 def commit_targets(command: str) -> list[str]:
     """Every directory `command` commits in, resolved, for the caller to ask git about.
 
-    A command `_exempt` cannot read whole earns no exemption whatever git would
-    say, so it names no target.
+    Split the way `refusal()` splits when it picks a commit's message, not the
+    way `_exempt` reads, so a commit refused for its spelling is still asked
+    about. Otherwise its message would blame the folder for what the spelling
+    did.
     """
-    simple = _commands(command)
-    return [t for t in (_commit_target(s.words) for s in simple or []) if t]
+    targets = (_commit_target(s.split()) for s in _SEPARATORS.split(command))
+    return [t for t in targets if t]
 
 
 def _exempt(
@@ -672,16 +674,18 @@ def refusal(
     # left this worktree. Compound commands like that are ordinary, and the `&`
     # separator widened the class.
     #
-    # A commit into a shared root is refused whether or not a worktree owns the
-    # root, since a store outside every worktree commits wherever its `.git`
-    # says. Its message waits until every other segment has been judged, so a
-    # peer write beside it is reported as the peer write it is.
+    # A commit into a shared root the caller has not vouched for is refused
+    # whether or not a worktree owns the root. The hook calls this with `shared`
+    # only once a first pass refused, so a store outside every worktree never
+    # reaches here from it; the module docstring lists that as a limit. The
+    # message waits until every other segment has been judged, so a peer write
+    # beside it is reported as the peer write it is.
     commit_refusal = None
     for segment in _SEPARATORS.split(command):
         target = _commit_target(segment.split())
         store = next((s for s in exempt if target and _owner(target, [s])), None)
-        if store:
-            commit_refusal = commit_refusal or _commit_message(store, target in commits)
+        if store and target:
+            commit_refusal = commit_refusal or _commit_message(store, target, commits)
             continue
         trespass = next(
             (
@@ -708,20 +712,28 @@ def refusal(
     return commit_refusal
 
 
-def _commit_message(store: str, committable: bool) -> str:
+def _commit_message(store: str, target: str, commits: set[str]) -> str:
     """The refusal for a commit into a shared root, which no handoff fixes.
 
     A store has no session to hand off to, so the generic message's remedy is
-    wrong here. What the agent can act on is either the spelling, when the root
-    takes commits, or the layout, which is the user's to change.
+    wrong here. What the agent can act on is the spelling, when the target
+    takes commits, or the folder, when the store does and the target does not.
+    Otherwise it is the layout, which is the user's to change.
     """
-    if committable:
+    if target in commits:
         return (
             f"Refused: a commit into {store} is allowed only when it is written "
             f"plainly, as `git -C {store} add <path>` or `git -C {store} commit "
             f"-m '…'`, with nothing beside it but reads: no `$`, no glob, no other "
             f"git option, and no other write in the same command.\n"
             f"Run the writes first, then the commit as a command of its own."
+        )
+    if store in commits:
+        return (
+            f"Refused: {target} does not commit into {store}, since git finds a "
+            f"repository of its own there, or none at all.\n"
+            f"Commit from {store} itself, or from a feature folder git places in "
+            f"it, as `git -C {store} add <path>`."
         )
     return (
         f"Refused: `git add` or `git commit` in {store} would not land on a "

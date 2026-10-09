@@ -90,7 +90,8 @@ def shared_roots(here: str) -> list[str | None]:
 def committable(
     here: str, shared: list[str | None], targets: list[str] | None = None,
 ) -> list[str]:
-    """The shared roots where a commit lands on a branch of the store's own.
+    """The shared roots, and folders in them, where a commit lands on a branch of
+    the store's own.
 
     Asked of git rather than read from the path, because git picks the
     repository from files inside the root. A root qualifies when it belongs to
@@ -149,13 +150,15 @@ def committable(
         taken = {b for path, b in checked_out if path != real}
         if branch and branch not in taken:
             found.append(root)
-    for target in targets or []:
-        real = os.path.realpath(target)
-        below = [r for r in found if real.startswith(os.path.realpath(r) + "/")]
-        top = git(real, "rev-parse", "--show-toplevel") if below else None
-        if top and os.path.realpath(top) in {os.path.realpath(r) for r in below}:
-            found.append(real)
-    return found
+    qualified = {os.path.realpath(r) for r in found}
+    folders: list[str] = []
+    for target in dict.fromkeys(os.path.realpath(t) for t in targets or []):
+        if not any(target.startswith(r + "/") for r in qualified):
+            continue
+        top = git(target, "rev-parse", "--show-toplevel")
+        if top and os.path.realpath(top) in qualified:
+            folders.append(target)
+    return found + folders
 
 
 def worktree_guard(stdin_text: str | bytes) -> int:
@@ -210,9 +213,10 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # that names a path names one in this worktree and was never going to need
     # either.
     # Whether a root takes commits costs three more, and one per feature folder
-    # a commit names, so it is asked only of a command that runs git at all. Only the spec root is asked: nothing commits
-    # handoffs, and a state root under a dotfiles repository would otherwise
-    # take commits nobody meant it to.
+    # a commit names, so it is asked only of a command that runs git at all.
+    # Only the spec root is asked: nothing commits handoffs, and a state root
+    # under a dotfiles repository would otherwise take commits nobody meant it
+    # to.
     if message:
         shared = shared_roots(here)
         commits = (
