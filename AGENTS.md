@@ -14,6 +14,20 @@ slash commands that drive that pipeline, and installs them into a project.
 Python 3.11+, `typer` + `rich`, no other runtime dependencies. Packaged with
 setuptools; the skills tree is package data, not a separate download.
 
+It ships three shell scripts as well, because the speckit skills run them. The
+plan step runs `setup-plan.sh`, which creates `plan.md` from its template. The
+tasks, clarify, analyze, implement, and checklist steps run
+`check-prerequisites.sh`, which checks that the files the step needs are in the
+feature's spec directory. Both source `common.sh`. The skills call them by the
+fixed path `.specify/scripts/bash/`, so `install-skills` copies them into every
+project beside the skills.
+
+They come from Spec Kit, and most of what they did there is gone. They no
+longer work out the spec directory themselves; they ask `wfctl feature-paths`.
+The skills still call them by path because those skills are Spec Kit-derived,
+and an in-place edit there is reverted by the next upstream pull
+(`vendor-upstream-skills`).
+
 ## Setup
 
 There is no setup step. `uv run` resolves the environment from `uv.lock` on

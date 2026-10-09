@@ -3995,3 +3995,307 @@ def test_doctor_survives_an_in_repo_specs_dir_it_cannot_list(
 
     assert result.exception is None
     assert "Permission denied" not in result.output
+
+
+# --- #293: the speckit runtime scripts are recorded one file per entry ----------
+
+_RUNTIME_SCRIPTS = ("check-prerequisites.sh", "common.sh", "setup-plan.sh")
+_SCRIPTS_DIR = ".specify/scripts/bash"
+
+
+def _add_runtime_scripts(bundle: Path, names: tuple[str, ...] = _RUNTIME_SCRIPTS) -> None:
+    """Give the `bundle` fixture the speckit scripts it deliberately omits.
+
+    The autouse fixture builds no `specify/` tree, so a test about how the scripts
+    are recorded would otherwise install nothing and pass over an empty record.
+    """
+    scripts = bundle / "specify" / "scripts" / "bash"
+    scripts.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (scripts / name).write_text(f"#!/usr/bin/env bash\n# {name}\n")
+
+
+def _drop_runtime_script(bundle: Path, name: str) -> None:
+    """Stop shipping one script, as a release that deleted it would."""
+    (bundle / "specify" / "scripts" / "bash" / name).unlink()
+
+
+def _record_scripts_as_one_folder(repo_root: Path) -> None:
+    """Rewrite the record the way an install before #293 left it.
+
+    That install named `.specify/scripts/bash` as one directory entry. The scripts
+    stay on disk; only the record changes, which is the state a real upgrade
+    meets and the one a fresh install can no longer produce.
+    """
+    with _edit_manifest(repo_root) as manifest:
+        items = manifest["base"]["items"]
+        items[:] = [i for i in items if not i["path"].startswith(f"{_SCRIPTS_DIR}/")]
+        items.append({"path": _SCRIPTS_DIR, "backup": None})
+
+
+def _script_paths() -> set[str]:
+    return {f"{_SCRIPTS_DIR}/{n}" for n in _RUNTIME_SCRIPTS}
+
+
+def _recorded_paths(repo_root: Path) -> set[str]:
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    return {i["path"] for i in _recorded_items(manifest)}
+
+
+def _install_claude(*extra: str) -> object:
+    return runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", *extra])
+
+
+def _scripts_on_disk(repo_root: Path) -> set[str]:
+    folder = repo_root / _SCRIPTS_DIR
+    return {p.name for p in folder.iterdir()} if folder.is_dir() else set()
+
+
+def test_a_script_the_bundle_stops_shipping_is_named_by_the_next_install(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The defect #293 exists for: the record named `bash/` as one folder, so the
+    comparison between two installs could not see a script leave it, and the dropped
+    file stayed on disk with nothing reporting it."""
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _drop_runtime_script(bundle, "common.sh")
+
+    result = _install_claude()
+
+    assert "no longer shipped" in result.output
+    assert f"{_SCRIPTS_DIR}/common.sh" in result.output
+
+
+def test_prune_removes_only_the_script_the_bundle_stopped_shipping(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The removal half. Reporting alone leaves the dropped script on disk for good;
+    deleting by directory would take the two scripts still shipped with it."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _drop_runtime_script(bundle, "common.sh")
+
+    result = _install_claude("--prune")
+
+    assert result.exit_code == 0
+    assert _scripts_on_disk(repo_root) == {"check-prerequisites.sh", "setup-plan.sh"}
+
+
+def test_doctor_reports_a_script_the_bundle_no_longer_ships_and_exits_1(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Before the fix doctor said clean over the dropped script, which is the other
+    half of the issue's title: nothing reported it, and nothing failed."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _drop_runtime_script(bundle, "common.sh")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert f"{_SCRIPTS_DIR}/common.sh" in result.output
+    assert "no longer shipped" in result.output
+    assert result.exit_code == 1
+    assert (repo_root / _SCRIPTS_DIR / "common.sh").exists(), "doctor never removes"
+
+
+def test_a_fresh_install_records_each_script_and_not_the_folder(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Pins SC-004 and the `.gitignore` lines the plan calls the visible change.
+
+    A folder entry anywhere under `.specify/` brings the defect back, and the
+    ignore lines follow the record: one per script, none for the folder, so a
+    developer's own script beside them shows in `git status`.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+
+    _install_claude()
+
+    recorded = _recorded_paths(repo_root)
+    assert _script_paths() <= recorded
+    assert _SCRIPTS_DIR not in recorded
+    ignored = (repo_root / ".gitignore").read_text().splitlines()
+    assert all(f"{_SCRIPTS_DIR}/{n}" in ignored for n in _RUNTIME_SCRIPTS)
+    assert _SCRIPTS_DIR not in ignored
+
+
+def test_the_redo_takes_an_old_record_to_one_entry_per_script(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The upgrade is a manual redo, not code, so this is the test that it works.
+
+    Uninstall every layer, agent layers first, then install again. The old folder
+    entry leaves with the uninstall; the fresh install records each script, and
+    doctor has nothing to say.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _record_scripts_as_one_folder(repo_root)
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    runner.invoke(app, ["uninstall-skills"])
+    _install_claude()
+
+    recorded = _recorded_paths(repo_root)
+    assert _scripts_on_disk(repo_root) == set(_RUNTIME_SCRIPTS)
+    assert _script_paths() <= recorded
+    assert _SCRIPTS_DIR not in recorded
+    assert runner.invoke(app, ["doctor"]).exit_code == 0
+
+
+def test_doctor_before_the_redo_lists_the_scripts_and_does_not_fail(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Before the redo the old folder entry is still planned, so doctor must not call
+    it dropped; the three scripts are simply not on record, and left alone."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _record_scripts_as_one_folder(repo_root)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "no longer shipped" not in result.output
+    assert f"{_SCRIPTS_DIR}/common.sh" in result.output
+    assert result.exit_code == 0
+
+
+def test_a_pruning_install_over_the_old_record_deletes_the_scripts_and_the_next_restores_them(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Pins a cost the record accepts while wfctl has one user, not a behavior
+    anyone wants. The old folder entry is no longer planned, so the prune that
+    /start-session runs unattended deletes the folder; a second install puts the
+    scripts back and records them per file."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _record_scripts_as_one_folder(repo_root)
+
+    _install_claude("--prune")
+    assert _scripts_on_disk(repo_root) == set()
+
+    _install_claude()
+    assert _scripts_on_disk(repo_root) == set(_RUNTIME_SCRIPTS)
+    assert _script_paths() <= _recorded_paths(repo_root)
+
+
+def _developer_script(repo_root: Path) -> Path:
+    mine = repo_root / _SCRIPTS_DIR / "mine.sh"
+    mine.write_text("#!/usr/bin/env bash\necho mine\n")
+    return mine
+
+
+def test_doctor_names_a_developers_own_script_and_leaves_it_alone(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The directory entry used to claim the whole folder, so this script was either
+    deleted or invisible. Now it is a path wfctl cannot show it wrote."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _developer_script(repo_root)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "mine.sh" in result.output
+    assert result.exit_code == 0
+
+
+def test_prune_leaves_a_developers_own_script_in_the_folder(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The safety property behind the whole change: deleting by record, never by
+    looking at the directory."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    mine = _developer_script(repo_root)
+
+    _install_claude("--prune")
+
+    assert mine.exists()
+
+
+def test_uninstall_removes_the_recorded_scripts_and_keeps_a_developers_own(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Improves on the folder entry, whose uninstall deleted the developer's script
+    with wfctl's three."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    _developer_script(repo_root)
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    runner.invoke(app, ["uninstall-skills"])
+
+    assert _scripts_on_disk(repo_root) == {"mine.sh"}
+
+
+def _link_scripts_in_from_a_main_checkout(repo_root: Path) -> Path:
+    """Move the installed `bash/` out and leave a symlink in its place, which is how
+    a worktree shares one set of scripts with its main checkout."""
+    installed = repo_root / _SCRIPTS_DIR
+    elsewhere = repo_root.parent / "main-checkout-bash"
+    shutil.move(str(installed), str(elsewhere))
+    installed.symlink_to(elsewhere)
+    return elsewhere
+
+
+def test_uninstall_does_not_delete_scripts_through_a_symlinked_folder(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Recording the scripts one file per entry put the symlink above the recorded
+    paths, so unlinking `bash/common.sh` followed it into the main checkout. The
+    link is not on record, and the files behind it belong to whoever made it."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    elsewhere = _link_scripts_in_from_a_main_checkout(repo_root)
+
+    runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["uninstall-skills"])
+
+    assert {p.name for p in elsewhere.iterdir()} == set(_RUNTIME_SCRIPTS)
+    assert "below a symlink" in result.output
+
+
+def test_prune_does_not_delete_scripts_through_a_symlinked_folder(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """The same hazard on the other removal path: a script the bundle stops shipping
+    is pruned by its recorded path, which runs through the link."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    elsewhere = _link_scripts_in_from_a_main_checkout(repo_root)
+    _drop_runtime_script(bundle, "common.sh")
+
+    result = _install_claude("--prune")
+
+    assert (elsewhere / "common.sh").exists()
+    assert "below a symlink" in result.output
+
+
+def test_doctor_says_nothing_about_a_developer_script_committed_to_git(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """A tracked file is the repository's own and needs no mention, the same filter
+    that keeps a committed template quiet."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    _install_claude()
+    mine = _developer_script(repo_root)
+    subprocess.run(["git", "-C", str(repo_root), "add", "-f", str(mine)],
+                   check=True, capture_output=True)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "mine.sh" not in result.output
+    assert result.exit_code == 0
