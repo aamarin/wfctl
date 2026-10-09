@@ -804,7 +804,7 @@ def status_cmd(
                 _print_warning_remedy(pass_warning)
 
     # Between the step table and `next:`, and printed in every state including
-    # the one where all three are met. Rendering it only when something is unmet
+    # the one where every fact is met. Rendering it only when something is unmet
     # would make its *absence* carry meaning, which a reader cannot tell from a
     # wfctl too old to know the question.
     #

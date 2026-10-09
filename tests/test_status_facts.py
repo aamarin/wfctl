@@ -30,6 +30,7 @@ FACT_NAMES = (
     "artifacts written",
     "definition of done",
     "architecture accepted",
+    "records committed",
 )
 
 RECORD = """---
@@ -203,7 +204,7 @@ def test_a_malformed_definition_of_done_is_unmet_and_not_absent(
     assert "malformed" in fact["detail"]
 
 
-def test_every_branch_carries_all_three_facts_in_the_same_order(
+def test_every_branch_carries_all_four_facts_in_the_same_order(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """FR-004 and FR-007, asserted on the input that has the least to say.
@@ -217,14 +218,14 @@ def test_every_branch_carries_all_three_facts_in_the_same_order(
     assert all(f["detail"] for f in payload["facts"])
 
 
-def test_a_feature_with_no_spec_dir_still_answers_the_other_two(
+def test_a_feature_with_no_spec_dir_still_answers_the_other_three(
     tmp_path: Path,
 ) -> None:
     """The state today's payload cannot describe at all.
 
     A branch whose feature directory does not exist still has a definition of
     done and a record set. Only the first fact reads the spec dir, and the walk
-    returns eight `pending` steps that say nothing about the other two.
+    returns eight `pending` steps that say nothing about the other three.
     """
     report = build_report(None, tmp_path, tmp_path)
     facts = {f.name: f for f in report.facts}
@@ -257,6 +258,7 @@ def test_no_fact_is_derived_from_a_step(storyctl_dir: types.SimpleNamespace) -> 
         _evidence.fact_artifacts_written,
         _evidence.fact_definition_of_done,
         _evidence.fact_architecture_accepted,
+        _evidence.fact_records_committed,
     ):
         annotations = str(inspect.signature(fn))
         assert "Assessment" not in annotations
@@ -493,3 +495,100 @@ def test_no_fact_claims_authority_to_merge_or_to_act_outside_the_repo(
     assert not any(
         word in n for n in names for word in ("integration", "merge", "authorized")
     ), names
+
+
+def _commit(repo: Path, message: str) -> None:
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", message],
+                   check=True, capture_output=True)
+
+
+def test_a_record_edited_and_never_committed_is_named(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The case #180 was filed against.
+
+    A record was accepted in the main checkout and never committed, so every
+    worktree branched from main loaded seven decisions instead of eight for a
+    week. The edit sat in the working tree, where no pull request diff could see
+    it, and the status line is the one place that reads the working tree on
+    every run.
+    """
+    repo = storyctl_dir.repo_root
+    path = _record(repo, "a-decision", "proposed")
+    _commit(repo, "record")
+    path.write_text(RECORD.format(status="accepted"))
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "unmet"
+    assert "a-decision.md" in fact["detail"]
+    assert "a-decision.md" in _console()
+
+
+def test_a_new_record_never_added_to_git_is_named(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """An untracked record has not landed either.
+
+    A bare `git status --porcelain` collapses a new directory to one entry, so
+    the first record written into a repo that has none would be reported as
+    `docs/architecture/` and named as nothing.
+    """
+    _record(storyctl_dir.repo_root, "a-decision", "accepted")
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "unmet"
+    assert "a-decision.md" in fact["detail"]
+
+
+def test_committed_records_read_as_met(storyctl_dir: types.SimpleNamespace) -> None:
+    repo = storyctl_dir.repo_root
+    _record(repo, "a-decision", "accepted")
+    _commit(repo, "record")
+
+    assert _facts()["records committed"]["value"] == "met"
+
+
+def test_uncommitted_work_outside_the_records_does_not_count(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Scoped to records on purpose.
+
+    Uncommitted code is the normal state of a session in progress, and so is a
+    scan or a level-3 design note. If any of them turned this fact unmet, it
+    would be unmet on every branch and read past, which is how the original
+    report went unread for a week.
+    """
+    repo = storyctl_dir.repo_root
+    _record(repo, "a-decision", "accepted")
+    _commit(repo, "record")
+    arch = repo / "docs" / "architecture"
+    for sub in ("scans", "design"):
+        (arch / sub).mkdir()
+        (arch / sub / "a-decision.md").write_text("# not a top-level record\n")
+    (repo / "README.md").write_text("edited\n")
+
+    assert _facts()["records committed"]["value"] == "met"
+
+
+def test_a_repo_with_no_records_is_not_reported_met(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """"All committed" over an empty set is a claim about records that do not exist."""
+    assert _facts()["records committed"]["value"] == "n/a"
+
+
+def test_records_kept_outside_the_repo_are_not_asked_of_git(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Git cannot say whether a file outside the repo is committed, and nothing failed."""
+    outside = tmp_path.parent / "records-elsewhere"
+    outside.mkdir(exist_ok=True)
+    (outside / "a-decision.md").write_text(RECORD.format(status="accepted"))
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "n/a"
+    assert "outside this repository" in fact["detail"]

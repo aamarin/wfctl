@@ -646,6 +646,36 @@ def records_on_this_branch(
     return sorted(slugs)
 
 
+def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:
+    """The record files under `arch` that differ from HEAD, or None when git fails.
+
+    Modified, staged, deleted, and untracked all count, because none of them has
+    landed. A worktree branched from the last commit loads the committed copy of
+    every record, so an edit left in this checkout is a decision those worktrees
+    never see (#180).
+
+    Only direct children of `arch`, which is what `load_records` reads. Every
+    subdirectory holds something other than a top-level record, whether a scan, a
+    level-3 design note, or a claim, and leaving one uncommitted mid-session is
+    normal work. `non_record_subtrees` alone would let `design/` through, since
+    that list keeps level-3 records for a different caller.
+
+    `-uall` for `records_on_this_branch`'s reason. Without it git reports the
+    first record in a new directory as the directory, which names no file.
+    """
+    r = subprocess.run(
+        ["git", "status", "--porcelain", "-uall", "--", str(arch)],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return None
+    # The path is the last field for every status code, and for a rename it is
+    # the new name. Porcelain paths are relative to the repository root.
+    paths = (repo_root / line.split()[-1] for line in r.stdout.splitlines() if line.strip())
+    resolved = arch.resolve()
+    return sorted(p.name for p in paths if p.suffix == ".md" and p.parent.resolve() == resolved)
+
+
 def is_in_tree(root: Path, repo_root: Path) -> bool:
     """Would a file under `root` be committed with the code in `repo_root`?
 
