@@ -80,8 +80,8 @@ A timestamp cannot answer it either. Restoring a feature folder from
 `plan-edit-requires-new-review` already rejected timestamps.
 
 The finish command owns "what did `tasks.md` say when implementation
-finished?". Only that moment knows. Once `tasks.md` has changed, nothing on disk
-says what it held before.
+finished?". It runs at the only moment that question can be answered. Once `tasks.md` has
+changed, nothing on disk says what it held before.
 
 ## Boundary
 
@@ -132,10 +132,11 @@ statement from the agent about whether an edit mattered reaches wfctl.
 
 ## Consequences
 
-The degrade path gets a test, since it is the arm that reported a story
-complete over open work. The test holds a finish file, one unticked task added
-after it, and no definition of done configured. It is what fails if a later
-change trusts the finish file by existence again.
+A repository with no definition of done gets a test, since that is where a
+story was reported complete over open work and no test covered it. The test
+holds a finish file, one unticked task added after it, and no definition of
+done configured. It fails if a later change trusts the finish file by
+existence again.
 
 The implement instructions change. Step 9b runs the finish command instead of
 writing the file by hand. An agent that writes the file by hand anyway gets a
