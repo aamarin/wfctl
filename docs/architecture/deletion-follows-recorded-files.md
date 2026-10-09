@@ -127,7 +127,9 @@ reason to delete.
   backup on each new entry. Every later uninstall then restores those stale
   copies, and a redo after that backs them up again. This is accepted while
   Andre is the only user of wfctl, since a redo before the first install avoids
-  it.
+  it. A repository already caught in it deletes
+  `.wf-skills-backup/.specify/scripts/bash/` before the redo, since the backups
+  are wfctl's own earlier copies.
 - The same pruning install deletes the whole scripts folder, so a developer's
   own script in it is deleted too, unattended. The rule that wfctl deletes only
   what its record names holds once a repository is redone, not before. This is
