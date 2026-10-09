@@ -122,6 +122,20 @@ reason to delete.
   into it. `doctor` does not notice, since it does not check that recorded files
   exist. Another install puts the scripts back and records them per file. This
   is accepted while Andre is the only user of wfctl.
+- A repository that is not redone and installs over the old record backs up
+  wfctl's own three scripts, since the record does not name them, and records a
+  backup on each new entry. Every later uninstall then restores those stale
+  copies, and a redo after that backs them up again. This is accepted while
+  Andre is the only user of wfctl, since a redo before the first install avoids
+  it.
+- The same pruning install deletes the whole scripts folder, so a developer's
+  own script in it is deleted too, unattended. The rule that wfctl deletes only
+  what its record names holds once a repository is redone, not before. This is
+  accepted while Andre is the only user of wfctl.
+- The redo uninstalls the base layer, which deletes the tracker files, and the
+  next install fills them from the bundle. A project's edits under
+  `.agents/trackers/` are replaced, so a project that edited them copies them
+  aside before the redo. This is accepted while Andre is the only user of wfctl.
 - Until a repository is redone, `doctor` reports its skills as current and
   lists the three scripts as not on record. It does not say a redo is needed.
 - An older wfctl that installs with `--prune` over the new record deletes the
@@ -151,3 +165,7 @@ reason to delete.
   over retiring the old entry in code, since he can uninstall and reinstall
   each of his repositories by hand. The guard and the on-record helper are
   dropped.
+- 2026-10-09  amended     — The fourth plan review found three costs of a
+  repository not redone, or of the redo itself: stale backups of the scripts, a
+  developer's own script deleted by the prune, and tracker edits replaced. Andre
+  accepted all three while he is the only user of wfctl.
