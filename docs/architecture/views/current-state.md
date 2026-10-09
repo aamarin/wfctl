@@ -45,9 +45,10 @@ when this drawing stops matching it. See **Staleness** below.
 
 `_entry` is drawn above the two it reaches because it is the only one with no
 importer: it is what the console script resolves to, and it decides which of the
-other two answers. `_hook` reaches `_guard` directly, and `_paths` only on the way to
-a refusal, to find the spec and state roots. Neither import reaches `cli`, which is what
-lets the guard run without it — see the surface split below. The line
+other two answers. `_hook` imports `_guard` directly. It imports `_paths` only
+when a command is about to be refused, to find the spec root and the state
+root. Neither import pulls in `cli`, which is what lets the guard run without
+it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
 `cli` reaches `_pipeline._apply_block_hold` directly from `next_cmd`, the same
@@ -236,9 +237,11 @@ which that path uses (#135).
 So this is a band with two doors rather than a new band. The decision still
 lives in `_guard`, one band down, and both doors reach it the same way — which
 is what makes the split safe to have: `_entry` holds no policy, and `_hook` holds
-none either beyond which fields of a payload it will trust. It does gather two
-more inputs, the spec root and the state root, so that `_guard` can exempt them,
-and it asks `_paths` for both rather than deciding where either is.
+none either, beyond deciding which fields of a payload it trusts. It also hands
+`_guard` the spec root and the state root so the guard can exempt them, and it
+asks `_paths` where both are rather than deciding that itself. Which folders in
+the spec root take commits is a fact about the filesystem, so `_hook` asks git
+and `_guard` decides what the answer allows.
 
 #371 added a second fast-path argv beside the guard's: `hook session-restart`
 runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is
