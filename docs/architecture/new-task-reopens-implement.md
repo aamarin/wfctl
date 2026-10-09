@@ -3,7 +3,7 @@ status: proposed
 diagram: data-flow
 ---
 
-# A new task reopens the implement step
+# A new task reopens the `implement` step
 
 **What does this record decide?**
 When implementation finishes, wfctl saves a copy of the task list. If a new
@@ -48,7 +48,7 @@ trusting the finish file.
 
 ## Decision
 
-When the implement step finishes, it runs a wfctl command that writes the
+When the `implement` step finishes, it runs a wfctl command that writes the
 finish file. The file holds a copy of `tasks.md` as it was at that moment.
 
 Each time wfctl reports, it compares the current `tasks.md` against that copy.
