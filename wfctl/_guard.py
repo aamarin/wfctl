@@ -57,6 +57,12 @@ argument means parsing shell, which is a losing game, so it does not try.
                      that would own it, both pass. #137 tracks the real fix,
                      which is detecting the resulting state rather than the
                      command that caused it.
+    outside stores   a spec repository outside every worktree is judged by no
+                     owner, so a commit there is never checked. With its
+                     `.git` rewritten to name the main checkout's, the commit
+                     lands on the main checkout's branch. The rewrite is
+                     itself a write no worktree owns, so checking the commit
+                     alone would add friction and close nothing.
 
 Worktrees outside `wt/` are *not* on that list: the roots come from
 `git worktree list`, so `.claude/worktrees/agent-*` — eighteen of them in this
@@ -114,10 +120,11 @@ one. That means:
                 in any case, since one in the store redirects whatever git
                 command a session later runs there.
 
-A `cd` into a shared root is refused as it always was: it is not a write, and
-the session would then be standing in the store and read it as its own
-worktree. A symlink made earlier in the same command is not seen, since the
-path it checks does not yet exist.
+A `cd` into a shared root that a worktree owns is refused as it always was: it
+is not a write, and the session would then be standing in the store and read it
+as its own worktree. A root outside every worktree has no owner to refuse for,
+so a `cd` there passes. A symlink made earlier in the same command is not seen,
+since the path it checks does not yet exist.
 """
 from __future__ import annotations
 
@@ -551,6 +558,16 @@ def _commit_target(words: list[str]) -> str | None:
     return posixpath.realpath(words[2])
 
 
+def commit_targets(command: str) -> list[str]:
+    """Every directory `command` commits in, resolved, for the caller to ask git about.
+
+    A command `_exempt` cannot read whole earns no exemption whatever git would
+    say, so it names no target.
+    """
+    simple = _commands(command)
+    return [t for t in (_commit_target(s.words) for s in simple or []) if t]
+
+
 def _exempt(
     command: str, here: str, roots: list[str], exempt: set[str], committable: set[str],
 ) -> bool:
@@ -567,7 +584,9 @@ def _exempt(
 
     A commit is checked against `committable` exactly, not as a prefix: a
     `<root>/129` could hold a `.git` of its own that the caller never asked
-    about.
+    about. A feature's own folder is where `feature-paths` points, so the
+    caller asks git about that folder too, and vouches for it when its top
+    level is a root that takes commits.
     """
     simple = _commands(command)
     if simple is None:
@@ -632,14 +651,17 @@ def refusal(
     against `worktrees` alone, exactly as with nothing shared. A None entry is a
     root that could not be resolved, and exempts nothing.
 
-    `committable` holds the shared roots where the caller found that git
-    commits to a branch of the store's own. It is a question about the
-    filesystem, which this module does not ask, and a root missing from it
-    gets no commit exemption.
+    `committable` holds the directories in a shared root where the caller found
+    that git commits to a branch of the store's own: the root itself, and any
+    folder below it whose top level is that root. It is a question about the
+    filesystem, which this module does not ask, and a directory missing from
+    it gets no commit exemption.
     """
     roots = list(worktrees)
     exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
-    commits = {posixpath.realpath(c) for c in committable} & exempt
+    commits = {
+        c for c in (posixpath.realpath(c) for c in committable) if _owner(c, exempt)
+    }
     if exempt and _exempt(command, here, roots, exempt, commits):
         return None
 
@@ -659,7 +681,7 @@ def refusal(
         target = _commit_target(segment.split())
         store = next((s for s in exempt if target and _owner(target, [s])), None)
         if store:
-            commit_refusal = commit_refusal or _commit_message(store, store in commits)
+            commit_refusal = commit_refusal or _commit_message(store, target in commits)
             continue
         trespass = next(
             (

@@ -87,7 +87,9 @@ def shared_roots(here: str) -> list[str | None]:
     return found
 
 
-def committable(here: str, shared: list[str | None]) -> list[str]:
+def committable(
+    here: str, shared: list[str | None], targets: list[str] | None = None,
+) -> list[str]:
     """The shared roots where a commit lands on a branch of the store's own.
 
     Asked of git rather than read from the path, because git picks the
@@ -98,6 +100,11 @@ def committable(here: str, shared: list[str | None]) -> list[str]:
     `.git` was replaced to point at the main checkout's. So does a spec root
     one level inside a store worktree, which reads exactly like `<main>/specs`
     or a folder in a peer: the root has to be the top of its checkout.
+
+    A commit is often run from a feature's own folder, `<root>/129`, since that
+    is the path `feature-paths` prints. Each of `targets` below a qualifying
+    root is returned as well when git names that root as its top level. One
+    that is a repository of its own names itself, and is left out.
 
     This reads the hook's environment, so a `GIT_DIR` exported only in the
     agent's shell is not seen, the same limit `shared_roots` states.
@@ -142,6 +149,12 @@ def committable(here: str, shared: list[str | None]) -> list[str]:
         taken = {b for path, b in checked_out if path != real}
         if branch and branch not in taken:
             found.append(root)
+    for target in targets or []:
+        real = os.path.realpath(target)
+        below = [r for r in found if real.startswith(os.path.realpath(r) + "/")]
+        top = git(real, "rev-parse", "--show-toplevel") if below else None
+        if top and os.path.realpath(top) in {os.path.realpath(r) for r in below}:
+            found.append(real)
     return found
 
 
@@ -196,13 +209,16 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # checkout's manifest and for the project name, and nearly every command
     # that names a path names one in this worktree and was never going to need
     # either.
-    # Whether a root takes commits costs three more, so it is asked only of a
-    # command that runs git at all. Only the spec root is asked: nothing commits
+    # Whether a root takes commits costs three more, and one per feature folder
+    # a commit names, so it is asked only of a command that runs git at all. Only the spec root is asked: nothing commits
     # handoffs, and a state root under a dotfiles repository would otherwise
     # take commits nobody meant it to.
     if message:
         shared = shared_roots(here)
-        commits = committable(here, shared[:1]) if "git" in command else []
+        commits = (
+            committable(here, shared[:1], _guard.commit_targets(command))
+            if "git" in command else []
+        )
         message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
     if not message:
         return 0

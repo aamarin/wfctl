@@ -776,6 +776,23 @@ def test_a_commit_is_exempt_only_written_plainly_and_alone(command: str) -> None
     ) is not None
 
 
+@pytest.mark.parametrize("command", [
+    "git -C {s}/129 add .",
+    "git -C {s}/129 commit -m 'specs(129): reviews'",
+])
+def test_a_commit_from_a_feature_folder_the_caller_vouched_for_is_exempt(command: str) -> None:
+    """`feature-paths` prints `<store>/129`, so that is where an agent commits
+    from. Exactness still holds: the folder is exempt because the caller asked
+    git about it, and the store being exempt does not carry down to it."""
+    command = command.format(s=STORE)
+    assert _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE],
+    ) is not None
+    assert _guard.refusal(
+        command, HERE, ROOTS_WITH_STORE, shared=[STORE], committable=[STORE, f"{STORE}/129"],
+    ) is None
+
+
 def test_a_peer_write_beside_a_commit_is_reported_as_the_peer_write() -> None:
     """A refused command can carry a commit and a peer write at once, and the
     peer write is the one a handoff fixes. Reporting the commit instead tells
@@ -983,6 +1000,24 @@ def test_the_hook_allows_a_commit_into_a_spec_repository_nested_in_the_main_chec
 
     assert _hook(feature, f"git -C {specs} add 129.md").exit_code == 0
     assert _hook(feature, f"git -C {specs} commit -m x").exit_code == 0
+
+
+def test_the_hook_allows_a_commit_from_a_feature_folder_in_the_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pfms layout, committed the way `feature-paths` points: from the
+    feature's own folder in the store, not from the store's top. A folder that
+    is a repository of its own commits there instead, so it stays refused."""
+    main, store, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(store))
+    (store / "129").mkdir()
+    (store / "129" / "spec.md").write_text("x\n")
+
+    assert _hook(feature, f"git -C {store}/129 add .").exit_code == 0
+    assert _hook(feature, f"git -C {store}/129 commit -m x").exit_code == 0
+
+    nested = git_repo(store / "130")
+    assert _hook(feature, f"git -C {nested} commit -m x").exit_code == 2
 
 
 def test_the_hook_refuses_a_commit_into_a_store_with_a_detached_head(

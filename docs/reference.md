@@ -527,9 +527,10 @@ exempt:
    log`.
 
 So `bash <spec root>/x.sh` is refused, and so is `uv run pytest > <spec
-root>/out.txt`, since `uv` is on neither list. A `cd` into either root is
-refused as before, since the guard would then read the store as the session's
-own worktree.
+root>/out.txt`, since `uv` is on neither list. A `cd` into a root that a
+worktree owns is refused as before, since the guard would then read the store as
+the session's own worktree. A root outside every worktree has no owner to
+refuse for, so a `cd` there passes.
 
 A feature session can commit its specs, but only onto the spec root's own
 branch, never onto the main checkout's or another feature's. git picks the
@@ -544,7 +545,19 @@ The commit has to be written as `git -C <spec root> add <path>` or `git -C
 <spec root> commit -m '…'`, with nothing beside it but reads. A write in the
 same command could change where git commits after the guard asked, so the
 writes go first, in a command of their own. Every other git write, such as
-`reset` or `push`, gets no exemption.
+`reset` or `push`, gets no exemption. The `-C` path can also be a feature's own
+folder, such as `<spec root>/129`, since that is where `feature-paths` points.
+The guard asks git for that folder's top level and allows the commit when it is
+the spec root, so a folder that is a repository of its own is still refused.
+
+The guard cannot see every way to reach a spec repository that sits outside
+every worktree. If that repository's `.git` is rewritten to name the main
+checkout's, a commit run there lands on the main checkout's branch, and the
+guard does not refuse it. No worktree owns the path, so the command never
+reaches the commit check, however it is spelled.
+Rewriting the `.git` is a plain write into a directory no worktree owns, which
+the guard never refuses either, so a check on the commit alone would add
+friction and close nothing.
 
 A path is judged where it lands, so one that climbs out of either root with
 `..` or through a symlink that already exists is judged as if the root were not
