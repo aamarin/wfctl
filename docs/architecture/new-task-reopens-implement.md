@@ -50,21 +50,20 @@ trusting the finish file.
 
 wfctl owns the finish file. The implement step finishes by running a wfctl
 command, which writes the finish file and saves inside it a copy of `tasks.md`
-as it is at that moment. A finish file without that copy, including every one
-written by hand, covers no task, so wfctl reads the boxes alone as if the file
-were not there.
+as it is at that moment. A finish file with no copy inside, which is every
+finish file written before this change, covers no task. wfctl then reads the
+boxes alone, as if the file were not there. wfctl does not ask who wrote the
+file, only whether the copy is in it.
 
 Every time wfctl reports, it compares the live `tasks.md` with the saved copy.
 An unticked task in the live file that was not unticked in the copy is open
 work, and implementation reads in progress with `/speckit.implement` as the
 next step, whether or not a definition of done is configured. Every other edit
 leaves the finish standing; a box ticked later, a typo fixed, or a note added
-opens nothing. wfctl never decides whether an edit was harmless. It asks only
-whether an unticked task appeared, and an edit that added none is harmless by
-that rule.
+opens nothing, because none of them adds an unticked task.
 
 For example, the copy holds T001 ticked and T002 unticked, because T002 was
-done by hand. The live file later gains T003, unticked. T002 is covered, since
+done outside the implement skill. The live file later gains T003, unticked. T002 is covered, since
 it was unticked in the copy too. T003 is not, so implementation reopens.
 
 ## Owns truth
@@ -108,7 +107,7 @@ flowchart TD
   finish --> save
   save -. "implement-complete.md" .-> exists
   exists -- "with a copy" --> cmp
-  exists -- "missing, or written by hand" --> boxes
+  exists -- "no copy inside" --> boxes
   cmp -- "open work" --> open
   cmp -- "nothing new" --> closed
   boxes -- "open work" --> open
@@ -145,9 +144,9 @@ done configured. It fails if a later change trusts the finish file by
 existence again.
 
 The implement instructions change. Step 9b runs the finish command instead of
-writing the file by hand. An agent that writes the file by hand anyway gets a
-finish that covers nothing, so its unticked boxes read as open, which is the
-safe direction.
+writing the file itself. An agent that writes the file itself anyway, with no
+copy inside, gets a finish that covers nothing, so its unticked boxes read as
+open, which is the safe direction.
 
 A finish file written before this change covers no task. A story finished over
 unticked boxes before this change reopens the next time wfctl reads it. That
