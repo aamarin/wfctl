@@ -188,3 +188,46 @@
   `doctor`.
 - **PR-002 through PR-008** remain fixed or were made moot by the redesign, as
   the report records.
+
+## Review 2026-10-09T09:18Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 627fb00f0756dc7b046dd32181e69c7b7d62ba85, spec.md d94cd4dcff98a52399770c7e04e070cad8e63d87, .specify/memory/constitution.md absent, design.md da3188fe0adbff1a41e466028d96ca6fe8a37b2d, research.md db347b387762792da9328bf029c9ad661d7512e2, data-model.md e950c13cfde3f24fa6e8acfdf3b23ca8e232f3c7, quickstart.md 9aad8d07d8dd1fa32890d5353179241eb06a7bb6, docs/architecture/deletion-follows-recorded-files.md c91cf2cb63cc77ff2cc3e544c1c3d3f564593293, docs/architecture/install-modes.md 4233b4dbe4343f4c734e175db91417108db59428, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, plan-review.plan.md 627fb00f0756dc7b046dd32181e69c7b7d62ba85 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/293-mirror-below-recorded-dir/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-015) |
+| Requirements and traceability | Outstanding (PR-015; PR-012 fixed) |
+| Architecture and boundaries | Outstanding (PR-015) |
+| Adversarial implementation and verification | Outstanding (PR-014; PR-001 and PR-013 fixed) |
+| Security and reliability | Outstanding (PR-014; PR-001, PR-012, and PR-013 fixed) |
+
+### Findings
+
+- **PR-001, MAJOR, fixed.** Fixed as an accepted cost. The record's second
+  Consequences item and the third item of `spec.md §Edge Cases` now name the
+  stale backups and accept them while Andre is the only user of wfctl.
+- **PR-012, MINOR, fixed.** Fixed as an accepted cost. The record's third
+  Consequences item and the fourth item of `spec.md §Edge Cases` name the
+  developer's script deleted by the prune, and `§FR-004` and `§SC-003` are now
+  scoped to a repository that has been redone or freshly installed.
+- **PR-013, MINOR, fixed.** Fixed as an accepted cost. `research.md §2` no
+  longer says nothing is lost, and it and the record tell a project that edited
+  its tracker files to copy them aside before the redo.
+- **PR-014, MINOR, open.** A repository that installed over the old record is
+  caught in the backup cycle, and the documented redo does not get it out: the
+  uninstall restores wfctl's stale scripts, and the install backs them up
+  again. Deleting `.wf-skills-backup/.specify/scripts/bash/` before the redo
+  breaks it. It stands because the record and the spec say how to avoid the
+  cycle and not how to leave it.
+- **PR-015, MINOR, open.** `plan.md §Technical Context` still says a path wfctl
+  cannot show it wrote is never deleted, citing the record, while the record
+  now says that holds only once a repository is redone. It stands because
+  `plan.md` did not change with the spec, and the same line rules out the
+  guard that would make the rule absolute.
+- **PR-002 through PR-011** remain fixed, as the report records.
