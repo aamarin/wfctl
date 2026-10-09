@@ -277,3 +277,24 @@ def test_resolve_root_returns_an_absolute_path(tmp_path: Path, monkeypatch) -> N
 
     assert resolved.is_absolute()
     assert resolved == (tmp_path / "pkg").resolve()
+
+
+def test_every_runtime_source_holds_only_files() -> None:
+    """A nested directory in a runtime source brings the folder entry back (#293).
+
+    The installer records a directory it finds as one entry, so a subdirectory under
+    `specify/scripts/bash/` would hide every file inside it from the comparison that
+    reports a dropped script. Read from the real package, not the fixture bundle,
+    since the fixture holds only what a test put there.
+    """
+    from wfctl import cli
+
+    package = Path(cli.__file__).parent
+    nested = [
+        str(p.relative_to(package))
+        for src, _ in cli._RUNTIME_TARGETS
+        for p in (package / src).iterdir()
+        if p.is_dir()
+    ]
+
+    assert nested == []

@@ -2936,8 +2936,16 @@ _AGENT_NOTICES = {
 # `.specify/templates/*`. That runtime is repo-level (not per-agent) and
 # version-locked to the skills, so it installs alongside them from the same
 # bundle — a managed mirror, same (src, dst) copy machinery as above.
+#
+# The scripts target names `bash/` and not its parent. The install records a
+# directory it finds in a source as one entry, and the comparison between two
+# installs cannot see inside an entry, so a script wfctl stopped shipping would
+# stay on disk with nothing reporting it. Naming `bash/` makes the record one
+# entry per script, as it already is for the templates. A source must therefore
+# hold only files; `test_every_runtime_source_holds_only_files` fails when it
+# does not.
 _RUNTIME_TARGETS = [
-    ("specify/scripts", ".specify/scripts"),
+    ("specify/scripts/bash", ".specify/scripts/bash"),
     ("specify/templates", ".specify/templates"),
 ]
 
