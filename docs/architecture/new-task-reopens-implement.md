@@ -51,14 +51,17 @@ trusting the finish file.
 wfctl owns the finish file. The implement step finishes by running a wfctl
 command, which writes the finish file and saves inside it a copy of `tasks.md`
 as it is at that moment. A finish file without that copy, including every one
-written by hand, covers no task.
+written by hand, covers no task, so wfctl reads the boxes alone as if the file
+were not there.
 
 Every time wfctl reports, it compares the live `tasks.md` with the saved copy.
 An unticked task in the live file that was not unticked in the copy is open
 work, and implementation reads in progress with `/speckit.implement` as the
 next step, whether or not a definition of done is configured. Every other edit
 leaves the finish standing; a box ticked later, a typo fixed, or a note added
-opens nothing.
+opens nothing. wfctl never decides whether an edit was harmless. It asks only
+whether an unticked task appeared, and an edit that added none is harmless by
+that rule.
 
 For example, the copy holds T001 ticked and T002 unticked, because T002 was
 done by hand. The live file later gains T003, unticked. T002 is covered, since
@@ -86,34 +89,37 @@ changed, nothing on disk says what it held before.
 ## Boundary
 
 ```mermaid
-flowchart LR
-  subgraph agent["implement step (agent)"]
+flowchart TD
+  subgraph agent["implement step (agent), once"]
     work["does the work, ticks some boxes"]
     finish["runs the finish command"]
-    vouch["'this edit was harmless'"]
   end
-  subgraph cmd["finish command (wfctl)"]
+  subgraph cmd["finish command (wfctl), once"]
     save["writes the finish file<br/>with a copy of tasks.md"]
   end
   subgraph wfctl["wfctl, every time it reports"]
-    copy["reads the saved copy"]
-    live["reads tasks.md now"]
-    cmp{"an unticked task<br/>the copy did not cover?"}
+    exists{"finish file<br/>with a copy?"}
+    boxes{"any unticked task<br/>in tasks.md now?"}
+    cmp{"an unticked task in tasks.md now<br/>that was not unticked in the copy?"}
     open["implement ▶<br/>next: /speckit.implement"]
-    covered["finish stands"]
+    closed["tasks read finished<br/>definition of done, if configured, decides"]
   end
   work --> finish
   finish --> save
-  save -. "implement-complete.md" .-> copy
-  copy --> cmp
-  live --> cmp
-  cmp -- yes --> open
-  cmp -- no --> covered
-  vouch --x wfctl
+  save -. "implement-complete.md" .-> exists
+  exists -- "with a copy" --> cmp
+  exists -- "missing, or written by hand" --> boxes
+  cmp -- "open work" --> open
+  cmp -- "nothing new" --> closed
+  boxes -- "open work" --> open
+  boxes -- "every box ticked" --> closed
 ```
 
-A dotted edge is a file read later. The crossed-out edge is the decision: no
-statement from the agent about whether an edit mattered reaches wfctl.
+A dotted edge is a file read later. The left side runs once, when
+implementation finishes. The right side runs on every `wfctl status` and
+`wfctl next`, whether or not anyone has edited `tasks.md` since, and an
+unedited file simply finds nothing new. No box in the drawing asks anyone
+whether an edit mattered; wfctl asks only which unticked tasks exist.
 
 ## Considered
 
