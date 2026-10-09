@@ -3,7 +3,7 @@ status: proposed
 diagram: data-flow
 ---
 
-# A task added after implementation finishes reopens it
+# A new task reopens the implement step
 
 **What does this record decide?**
 When implementation finishes, wfctl saves a copy of the task list. If a new
