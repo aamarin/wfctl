@@ -147,3 +147,44 @@
 - **PR-011, MINOR, open.** The US2 scenario 1 test row does not run `doctor`
   after the upgrade, and `spec.md §FR-007` and `§SC-002` require a clean
   `doctor`. It stands because the row omits that step.
+
+## Review 2026-10-09T03:10Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 627fb00f0756dc7b046dd32181e69c7b7d62ba85, spec.md c0a699118ac59bdd14c669ece8c7f7852439ecb8, .specify/memory/constitution.md absent, design.md da3188fe0adbff1a41e466028d96ca6fe8a37b2d, research.md af6616ce5bc8959e5627ad0e0d7ed250de13d5e8, data-model.md e950c13cfde3f24fa6e8acfdf3b23ca8e232f3c7, quickstart.md 9aad8d07d8dd1fa32890d5353179241eb06a7bb6, docs/architecture/deletion-follows-recorded-files.md 6fcdacbce50844568045c85c1c01db7576cc580b, docs/architecture/install-modes.md 4233b4dbe4343f4c734e175db91417108db59428, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, plan-review.plan.md d7a81cbc1e3ceafdaa2185a6d6573857a65aace6 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 2 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/293-mirror-below-recorded-dir/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Outstanding (PR-012) |
+| Architecture and boundaries | Resolved (PR-003 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-001, PR-013) |
+| Security and reliability | Outstanding (PR-001, PR-012, PR-013) |
+
+### Findings
+
+- **PR-001, MAJOR, open.** Reopened by the redesign. A repository that is not
+  redone and then installs over the old record backs up wfctl's own three
+  scripts and records a backup on each entry. Every later uninstall restores
+  those stale copies, and a redo after that backs them up again. It stands
+  because the plan dropped the code that prevented the backup, and the record,
+  spec, and plan do not name the cost.
+- **PR-012, MINOR, open.** A pruning install over the old record deletes the
+  whole scripts folder, so a developer's own script in it goes too, unattended.
+  It stands because the spec's Edge Cases name only the uninstall case, and
+  FR-004 and SC-003 read as if this cannot happen.
+- **PR-013, MINOR, open.** The redo uninstalls the base layer, which deletes the
+  tracker files, and the next install fills them from the bundle, so a
+  project's edits to them are replaced. It stands because `research.md §2` says
+  nothing a developer had is lost.
+- **PR-009, PR-010, and PR-011, MINOR, fixed.** PR-009 by `design.md §MVP Scope`
+  and `§Software design decisions`; PR-010 by the redesign, which removed the
+  guard it asked to test; PR-011 by the US2 scenario 1 test row, which now runs
+  `doctor`.
+- **PR-002 through PR-008** remain fixed or were made moot by the redesign, as
+  the report records.
