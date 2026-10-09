@@ -7,7 +7,7 @@ diagram: data-flow
 
 **What does this record decide?**
 When the `implement` step finishes, wfctl saves a copy of the task list. If a
-new unticked task shows up later, wfctl reopens the `implement` step. wfctl
+new incomplete task shows up later, wfctl reopens the `implement` step. wfctl
 detects the new task by comparing the current task list against the copy, so
 the agent is never asked to judge its own work.
 
@@ -67,20 +67,28 @@ completion record. The record holds a copy of `tasks.md` as it was at that
 moment.
 
 Each time wfctl reports status, it compares the current `tasks.md` against
-that copy. An unticked task that was not unticked in the copy is new work.
+that copy. An incomplete task that was not incomplete in the copy is new work.
 When wfctl finds one, it reopens the `implement` step and gives
 `/speckit.implement` as the next step, whether or not a definition of done is
 configured.
 
+wfctl matches a task to the copy by its description, word for word, and not
+by its spec-kit ID such as T003. Spec-kit numbers tasks in execution order,
+and a re-run of `/speckit.tasks` writes the file again from the top. A new
+task inserted in the middle can therefore take the number an old task had,
+and matching by ID would read it as old work.
+
 For example, the copy holds T001 ticked and T002 unticked, because T002 was
 done outside the implement skill. Later, T003 is added unticked. T002 was
-already unticked in the copy, so the completion record still covers it. T003
-was not in the copy, so the `implement` step reopens.
+already incomplete in the copy, so it is not new work. T003 was not in the
+copy, so the `implement` step reopens.
 
-Ticking a box, fixing a typo, or adding a note does not reopen the step, since
-none of these adds a new unticked task. A completion record with no copy in
-it, such as every one written before this change, is ignored, and wfctl counts
-the boxes instead.
+Ticking a box or adding a note does not reopen the step, since neither adds a
+new incomplete task. Rewording an incomplete task does reopen it, because
+wfctl cannot tell a reworded task from a new one. That errs on the safe side:
+the agent is sent back to look at the task again. A completion record with no
+copy in it, such as every one written before this change, is ignored, and
+wfctl counts the boxes instead.
 
 ## Owns truth
 
@@ -117,8 +125,8 @@ flowchart TD
   end
   subgraph wfctl["wfctl, every time it reports"]
     exists{"completion record<br/>with a copy?"}
-    boxes{"any unticked task<br/>in tasks.md now?"}
-    cmp{"an unticked task in tasks.md now<br/>that was not unticked in the copy?"}
+    boxes{"any incomplete task<br/>in tasks.md now?"}
+    cmp{"an incomplete task in tasks.md now<br/>that was not incomplete in the copy?"}
     open["implement ▶<br/>next: /speckit.implement"]
     closed["tasks read finished<br/>definition of done, if configured, decides"]
   end
@@ -138,7 +146,7 @@ agent and the completion command run once, when the `implement` step
 finishes. The wfctl group runs on every `wfctl status` and `wfctl next`,
 whether or not anyone has edited `tasks.md` since. If nobody has, the
 comparison finds no new task and nothing changes. wfctl never asks anyone
-whether an edit mattered; it only checks which unticked tasks exist.
+whether an edit mattered; it only checks which incomplete tasks exist.
 
 ## Considered
 
@@ -152,17 +160,23 @@ whether an edit mattered; it only checks which unticked tasks exist.
   that the change did not matter. This approach is sound and is the usual
   answer in build tools, but it fits this problem poorly for two reasons:
   1. Every ticked box or fixed typo changes the hash, so the `implement` step
-     reopens. For a story whose boxes were never ticked, that false reopen
+     reopens. For a story whose boxes were never ticked, reopening the step
      sends the agent to redo finished work.
   2. The sign-off asks the agent to judge whether its own edit mattered,
      which is the judgment this record takes away from it.
+- **Match tasks by their spec-kit ID** instead of their description. A
+  reworded task would then keep its place and not reopen the step. It was
+  rejected because a re-run of `/speckit.tasks` renumbers tasks in execution
+  order, so a new task can take an old task's ID and be read as old work. That
+  failure hides new work, while matching by description can only reopen the
+  step when it did not need to.
 
 ## Consequences
 
 A new test covers a repository with no definition of done configured. That
 case reported a story complete while it still had open work, and no existing
 test covered it. The test sets up a completion record and then adds one
-unticked task after it. It fails if a later change goes back to trusting the
+incomplete task after it. It fails if a later change goes back to trusting the
 completion record just because it exists.
 
 The implement instructions change: step 9b now runs the completion command
@@ -177,6 +191,10 @@ them. A story that was finished with unticked boxes before this change will
 therefore reopen the next time wfctl reads it. We accept that cost while
 Andre is wfctl's only user. If wfctl gains a second user, this decision needs
 revisiting.
+
+A re-run of `/speckit.tasks` that rewords tasks reopens the `implement` step,
+even when the work behind them was done outside the skill. The agent then
+checks that work again. This costs time but never hides open work.
 
 The copy lives in the spec folder, so anyone can edit it. This record keeps
 the completion record in step with the task list; it does not protect the
