@@ -3087,6 +3087,22 @@ assert {_settings.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} 
 
 _BACKUP_DIR = ".wf-skills-backup"
 
+
+def _free_backup_path(backup: Path) -> Path:
+    """The first of `backup`, `backup.2`, `backup.3`, ... that nothing occupies.
+
+    A path is backed up again when the manifest has lost its record of an
+    earlier install while that install's backups are still on disk. The earlier
+    copy may be the only original left, so it is never overwritten, and the
+    new copy goes beside it under the next free number.
+    """
+    n = 1
+    candidate = backup
+    while candidate.exists() or candidate.is_symlink():
+        n += 1
+        candidate = backup.with_name(f"{backup.name}.{n}")
+    return candidate
+
 # What `--tracker github` installs. The scripts are not optional extras: the
 # config's `start`/`stop` and `create` verbs invoke them by path, so the set
 # travels together or those verbs are declared and broken.
@@ -4870,6 +4886,7 @@ def install_skills_cmd(
     count = 0
     new_backups = 0
     backup_layers: set[str] = set()
+    second_backups: list[tuple[str, str]] = []
     items: dict[str, list[dict]] = {}
     summary: dict[str, dict[str, int]] = {}
     for layer, kind, rel_dest, dest, item in plan:
@@ -4882,13 +4899,15 @@ def install_skills_cmd(
         if rel_dest in prior_items:
             backup_rel = prior_items[rel_dest].get("backup")
         elif dest.exists():
-            backup_dest = repo_root / _BACKUP_DIR / rel_dest
+            backup_dest = _free_backup_path(repo_root / _BACKUP_DIR / rel_dest)
             backup_dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.is_dir():
                 shutil.copytree(dest, backup_dest)
             else:
                 shutil.copy2(dest, backup_dest)
-            backup_rel = str(Path(_BACKUP_DIR) / rel_dest)
+            backup_rel = str(backup_dest.relative_to(repo_root))
+            if backup_rel != str(Path(_BACKUP_DIR) / rel_dest):
+                second_backups.append((rel_dest, backup_rel))
             new_backups += 1
             backup_layers.add(layer)
         else:
@@ -5143,6 +5162,12 @@ def install_skills_cmd(
         console.print(
             f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
+        )
+    for backed_up, second in second_backups:
+        console.print(
+            f"[yellow]ℹ[/yellow] {_BACKUP_DIR}/{backed_up} already held an earlier "
+            f"backup, which was kept. {backed_up} was backed up to {second}",
+            soft_wrap=True,
         )
 
     if orphans and not prune:
