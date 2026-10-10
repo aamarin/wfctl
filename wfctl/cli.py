@@ -1829,7 +1829,10 @@ def arch_none_cmd(
 
 step_app = typer.Typer(
     no_args_is_help=True,
-    help="Declare a pipeline pass inapplicable, or sign off the plan without a review.",
+    help=(
+        "Declare a pipeline pass inapplicable, sign off the plan without a review, or "
+        "record implement complete."
+    ),
 )
 app.add_typer(step_app, name="step")
 
@@ -2107,6 +2110,75 @@ def step_sign_off_cmd(
     _, fired = _apply_review_cap(agent_dir, repo_root, branch, spec_dir, report, None)
     if fired is not None:
         console.print(_revocation_line(fired), soft_wrap=True)
+
+
+@step_app.command("complete")
+def step_complete_cmd(
+    step: str = typer.Argument(..., help="The step to record complete. Only implement."),
+) -> None:
+    """Record the implement step complete, with a copy of tasks.md (#264).
+
+    The copy is what lets a task added later reopen the step, and it is only
+    worth anything if it is taken when the step finishes, since previous
+    versions of `tasks.md` are not preserved. So wfctl writes the record, and
+    the implement command runs this where the derived skill's step 9b writes
+    the file by hand (`264-the-completion-command-is-a-step-verb`).
+
+    It refuses while a step before `implement` is current. A record written
+    then would copy every task as incomplete, so no task could ever count as
+    new work, and with no definition of done the story would read complete
+    with nothing built. It runs once the story reads complete too, which is
+    where a finish with every box ticked and no definition of done sits.
+    """
+    from datetime import date
+
+    from rich.markup import escape
+
+    from wfctl import _completion
+    from wfctl._evidence import task_tally
+    from wfctl._io import write_atomic
+    from wfctl._pipeline import build_report
+
+    if step != "implement":
+        console.print(f"[red]✗[/red] step complete records only implement, not {escape(step)}")
+        raise typer.Exit(1)
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    if spec_dir is None:
+        console.print(
+            "[red]✗[/red] No feature directory for this branch, so there is no tasks.md to record"
+        )
+        raise typer.Exit(1)
+    tasks_md = spec_dir / "tasks.md"
+    if not tasks_md.is_file():
+        console.print(
+            f"[red]✗[/red] No tasks.md in {escape(str(spec_dir))}, so there is nothing to record",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    # The one inference every view renders, and it writes nothing, so asking
+    # it from a writer has no side effect. `None` is the story complete.
+    current = build_report(spec_dir, repo_root, agent_dir, _caller_identity()).current
+    if current not in ("implement", None):
+        console.print(
+            f"[red]✗[/red] implement is not reached yet: {current} is the current step"
+        )
+        raise typer.Exit(1)
+
+    # One read for the copy and the tally, so the counts printed are the counts
+    # of the copy written, even while an agent is still editing the file.
+    tasks_text = tasks_md.read_text()
+    record = spec_dir / _completion.RECORD
+    record.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(record, _completion.render(tasks_text, date.today()))
+
+    done, total = task_tally(tasks_text)
+    console.print(
+        "[green]✓[/green] Recorded implement complete, with a copy of tasks.md "
+        f"({total} tasks, {total - done} incomplete)"
+    )
 
 
 # Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a

@@ -1,6 +1,6 @@
 ---
 description: Execute the implementation plan by processing and executing all tasks defined in tasks.md
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(git diff*) Bash(git status*) Bash(git merge-base*) Bash(git log*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl verify*) Bash(wfctl report-block*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(git rev-parse*) Bash(git diff*) Bash(git status*) Bash(git merge-base*) Bash(git log*) Bash(wfctl feature-paths*) Bash(wfctl arch context*) Bash(wfctl arch-root*) Bash(wfctl verify*) Bash(wfctl step complete*) Bash(wfctl report-block*)
 ---
 
 ## User Input
@@ -48,8 +48,9 @@ closed. Once every box is ticked, `implement` reads as finished wherever the
 repository declares no definition of done, and wherever the declared one has
 passed on the current tree. A run restarted after that tick would move on and
 never come back for the pass. With one box still open, a restart returns to
-`/speckit.implement`. The step 9b sentinel is no later point, because wfctl
-reads it as a second way of saying the same thing. Before 9c, so that
+`/speckit.implement`. `wfctl step complete implement` at step 9b is no later
+point, because the completion record it writes is a second way of saying the
+same thing. Before 9c, so that
 `wfctl verify` judges the tree the pass left rather than the one it started
 from.
 
@@ -68,10 +69,35 @@ being a step of its own because nothing downstream can tell whether it ran —
 review sees a diff either way — which makes it a method, and
 `a-repo-concern-earns-a-step-hook-or-method` keeps methods out of the pipeline.
 That record's third kind, a boundary hook, is refused for a narrower reason:
-spec-kit's `after_implement` hook fires at step 11, after the sentinel and
-after `wfctl verify`, so a pass there would change the tree that the verdict
-describes. A pass that selects nothing is a finished pass. Its report still
-says what it inspected.
+spec-kit's `after_implement` hook fires at step 11, after the completion
+record and after `wfctl verify`, so a pass there would change the tree that
+the verdict describes. A pass that selects nothing is a finished pass. Its
+report still says what it inspected.
+
+## Record the step complete through wfctl
+
+At step 9b, run `wfctl step complete implement` instead of writing
+`checklists/implement-complete.md` yourself.
+
+The command writes the completion record with a copy of `tasks.md` as it is
+now. wfctl compares the task list against that copy every time it reads the
+pipeline, so a task added after this point reopens the step. A record written
+by hand has no copy, and it closes the step only once every box is ticked. As
+a result, work done outside this skill and left unticked would read as
+unfinished.
+
+Run it after the last box is ticked and the refactor pass above is done, and
+before step 9c. The copy accepts every task still incomplete in it as
+finished, so a copy taken earlier would accept work that was never done.
+
+If the command refuses, stop and report its message. Writing the file by hand
+is not a fallback. A refusal means the record would say something false: there
+is no feature directory or no `tasks.md`, or a step before `implement` is still
+current. The message names that step, such as `decompose` when the delivery
+plan is missing, and that step runs first.
+
+This lives here rather than in `speckit-implement/SKILL.md` for the reason the
+host-refusal section below gives (#364).
 
 ## Report a host refusal, whichever task hits it
 

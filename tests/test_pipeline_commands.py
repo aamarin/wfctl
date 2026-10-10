@@ -943,6 +943,141 @@ def test_a_fresh_checkout_of_a_verified_branch_reports_unverified(
     assert state == "in_progress" and "unverified" in annotation
 
 
+# --- wfctl step complete implement (#264) ------------------------------------
+#
+# The completion record now carries a copy of `tasks.md`, and the copy is only
+# worth anything if it is taken at the moment the step finishes. So wfctl
+# writes the record, and refuses wherever a record written then would say
+# something false.
+
+
+def _complete(*args: str) -> tuple[int, str]:
+    result = runner.invoke(app, ["step", "complete", *args])
+    return result.exit_code, result.output
+
+
+def test_step_complete_writes_the_record_with_a_copy_and_says_what_it_accepted(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-001 and Story 2 #1. The tally is printed so the agent sees how many
+    incomplete tasks the record has just accepted as finished."""
+    tasks = "- [x] T001 done\n- [ ] T002 done outside the skill\n"
+    storyctl_dir.stage_upstream_of("tasks", tasks=tasks)
+
+    code, output = _complete("implement")
+
+    assert code == 0, output
+    assert "Recorded implement complete, with a copy of tasks.md (2 tasks, 1 incomplete)" in output
+    record = (storyctl_dir.spec_dir / _completion.RECORD).read_text()
+    assert record.startswith("Implementation complete: ")
+    assert _completion.copy_of(record) == tasks
+    assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "done"
+
+
+def test_step_complete_refuses_any_step_but_implement(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-002 and Story 2 #3. No other step has a completion record, so a
+    name that is not `implement` is a typo, and writing anything for it would
+    leave a file no reader looks at."""
+    storyctl_dir.stage_upstream_of("tasks")
+
+    code, output = _complete("plan")
+
+    assert code == 1
+    assert "step complete records only implement, not plan" in output
+    assert not (storyctl_dir.spec_dir / _completion.RECORD).exists()
+
+
+def test_step_complete_refuses_a_branch_with_no_feature_directory(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """contracts/cli.md. There is no `tasks.md` to copy, and no directory to
+    write the record into."""
+    monkeypatch.setenv("WFCTL_BRANCH", "999-no-such-feature")
+
+    code, output = _complete("implement")
+
+    assert code == 1
+    assert "No feature directory for this branch" in output
+
+
+def test_step_complete_refuses_a_feature_with_no_tasks_file(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-003. A record with nothing to copy would read as a record with no
+    copy, which is the shape this command exists to stop writing."""
+    storyctl_dir.stage_upstream_of("decompose")
+
+    code, output = _complete("implement")
+
+    assert code == 1
+    assert "No tasks.md in" in output and "nothing to record" in output
+    assert not (storyctl_dir.spec_dir / _completion.RECORD).exists()
+
+
+def test_step_complete_refuses_while_a_step_before_implement_is_current(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-003a and Story 2 #4. A record written now would copy every task as
+    incomplete, so no task could ever count as new work, and with no
+    definition of done the story would read complete with nothing built."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 not built\n")
+    (storyctl_dir.spec_dir / "checklists" / "analysis-report.md").unlink()
+
+    code, output = _complete("implement")
+
+    assert code == 1
+    assert "implement is not reached yet: analyze is the current step" in output
+    assert not (storyctl_dir.spec_dir / _completion.RECORD).exists()
+
+
+def test_step_complete_refuses_while_decompose_stands_in_front_of_implement(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The limit the spec's Edge Cases records. With no delivery plan and a
+    task open, `decompose` is current, and the refusal names it so the agent
+    knows which step to run first."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 not built\n")
+    (storyctl_dir.spec_dir / "delivery.md").unlink()
+
+    code, output = _complete("implement")
+
+    assert code == 1
+    assert "decompose is the current step" in output
+
+
+def test_step_complete_runs_once_the_story_reads_complete(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-003a and Story 2 #5. With every box ticked and no definition of
+    done, the pipeline has moved past `implement` before the agent reaches
+    the step that finishes it. Refusing there would refuse every ordinary
+    finish."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+
+    code, output = _complete("implement")
+
+    assert code == 0, output
+    assert (storyctl_dir.spec_dir / _completion.RECORD).is_file()
+
+
+def test_a_second_step_complete_replaces_the_record_and_its_copy(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A story reopened by a new task is finished again by running the
+    command again, and the record then covers the task list as it is now."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+    assert _complete("implement")[0] == 0
+
+    tasks = "- [x] T001 done\n- [x] T002 added and done\n"
+    (storyctl_dir.spec_dir / "tasks.md").write_text(tasks)
+    assert _complete("implement")[0] == 0
+
+    record = (storyctl_dir.spec_dir / _completion.RECORD).read_text()
+    assert _completion.copy_of(record) == tasks
+
+
 # --- US3: projects without a definition of done are untouched ----------------
 
 @pytest.mark.parametrize(

@@ -537,13 +537,14 @@ def quoted_out(text: str) -> str:
     return _blanked(text, comments=True)
 
 
-def _task_tally(tasks_text: str) -> tuple[int, int]:
+def task_tally(tasks_text: str) -> tuple[int, int]:
     """How many tasks are ticked, and how many there are.
 
-    One spelling for the three readers that need it — `_tasks_open`, the `tasks`
-    reader, and the tally `implement` displays. The count is what they
-    would each have written out, and #262 is what two hand-written copies of a
-    tasks reader cost.
+    One spelling for the four readers that need it — `_tasks_open`, the `tasks`
+    reader, the tally `implement` displays, and the tally `wfctl step complete`
+    prints for the copy it records. The count is what they would each have
+    written out, and #262 is what two hand-written copies of a tasks reader
+    cost.
 
     A total of zero is not the same fact as an empty string, and the difference
     is #308: no file means the step has not run, and a file with no box in it
@@ -598,7 +599,7 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     second read inside here let the tally and this answer come from two versions
     of a file an implementing agent may be rewriting.
     """
-    done, total = _task_tally(tasks_text)
+    done, total = task_tally(tasks_text)
     record = spec_dir / _completion.RECORD
     if _file_exists(record):
         if not total:
@@ -1145,7 +1146,7 @@ def build_evidence(
     plan_raw = plan_md.read_text() if _file_exists(plan_md) else ""
     plan_text = quoted_out(plan_raw)
 
-    done, total = _task_tally(tasks_text)
+    done, total = task_tally(tasks_text)
     return Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
