@@ -200,6 +200,10 @@ A re-run of `/speckit.tasks` that rewords tasks reopens the `implement` step,
 even when the work behind them was done outside the skill. The agent then
 checks that work again. This costs time but never hides open work.
 
+A reopened story goes to `/speckit.decompose` first when its `decompose` step
+is not done, and `implement` follows once it is. That is the case for a feature
+with no delivery plan, or one whose delivery plan has a row with no issue key.
+
 The copy lives in the spec folder, so anyone can edit it. This record keeps
 the completion record in step with the task list; it does not protect the
 record from tampering. Where a definition of done is configured, verification
