@@ -22,8 +22,9 @@ run before this file was written.
 - Detail: no `FEATURE_DIR` artifact. This branch ran no pipeline step, so
   everything the evaluation established is here.
 
-**The recommendation is a release script owned by this repo, with the person
-cutting the release still making the version call.** Neither generator can
+**The recommendation is a release script owned by this repo, fed by a
+release note that every pull request has to carry, with the person cutting the
+release still making the version call.** Neither generator can
 produce the part of the notes that matters most, the list of what changes for an
 existing consumer without them doing anything. That list is not recorded
 anywhere at merge time today: none of the five items 0.23.0 led with was marked
@@ -33,11 +34,17 @@ would have published notes without the list, and would have computed the right
 version for 0.23.0 only because four unrelated feature commits happened to be
 in the window.
 
+Established projects agree that this judgment does not belong in the commit
+type (finding 9). Most of them capture it once per pull request, in a field the
+merge cannot skip, and still have a person edit it at release time. So the
+release note moves to the pull request that makes the change, where the author
+has the context, and CI refuses a pull request without one (finding 10).
+
 What the script automates is the rest of the job, which is where the dropped
-steps came from: reading every merged pull request, bumping the version,
-relocking, and writing the notes once. The CI tag job keeps its gate, and
-publishes the release commit's body as the GitHub release instead of a
-generated pull request list.
+steps came from: collecting those notes, proposing the version from them,
+bumping it, relocking, and writing the release notes once. The CI tag job keeps
+its gate, and publishes the release commit's body as the GitHub release instead
+of a generated pull request list.
 
 ### Coverage
 
@@ -52,6 +59,14 @@ generated pull request list.
 | G · The tag job's gate under each candidate | Clear (findings 4, 5, 6) |
 | H · Merged work sitting unreleased | Deferred (finding 7) |
 | I · Whether the choice rules out publishing to PyPI | Clear (none of the three does; finding 8) |
+| J · How established open source projects capture the same judgment | Clear (finding 9) |
+| K · Whether a commit message, enforced by a hook, can carry it | Clear (per pull request, not per commit; finding 10) |
+
+Rows J and K were added after the first verdict, at the maintainer's request.
+They are marked as added rather than folded in, since rows named after the
+fact are the thing naming them beforehand guards against. Finding 9 changed
+the verdict's input side and finding 3's rejection, and both are edited in
+place above rather than left standing wrong.
 
 The four requirements in rows D to F are the issue's Scope list:
 
@@ -140,12 +155,12 @@ made once, at release time, by someone reading every merged pull request. That
 is how 0.22.0 and 0.23.0 got their lead lists, and the 0.23.0 reading took a
 subagent over 17 pull requests.
 
-A fourth candidate was considered on this evidence: a release-note fragment per
-pull request, in the style of towncrier, where the author files the consumer
-impact with the change. It is not recommended. The template already asks the
-same question at the same moment and was answered correctly once in five, so a
-fragment would need its own enforcement before it was any better, and the
-release-time reading it replaces is the step that already works.
+The first version of this finding rejected capturing the judgment per pull
+request, on the grounds that the template already asks and was answered
+correctly once in five. That reasoning does not hold. The checkbox is optional
+and nothing reads it, so the count shows that an optional field gets skipped,
+not that a required one would. Finding 9 shows projects that require it, and
+finding 10 is how this repo would.
 
 ## Finding 4 — release-please does not fit how releases are cut here
 
@@ -213,16 +228,17 @@ how releases are cut today
 The script does the four steps of the issue's "How a release is cut today" and
 leaves the version call with the person running it:
 
-1. **Version:** the script lists every pull request merged since the last tag,
-   with its ticked types and its Impact line, and proposes a minor when any is
-   anything other than docs or tests. The person confirms or changes it. Every
-   release from 0.17.0 to 0.23.0 was a minor, so the proposal is the common
-   case.
+1. **Version:** the script collects the release note from every pull request
+   merged since the last tag (finding 10) and proposes a minor when any is a
+   behaviour change or an addition, and a patch otherwise. The person confirms
+   or changes it. Every release from 0.17.0 to 0.23.0 was a minor, so the
+   proposal is the common case.
 2. **Notes:** the script drafts the release commit body in the 0.22.0 and
-   0.23.0 shape, with the lead list left for the person or an agent to write
-   from that listing. The tag job then publishes that body as the GitHub
-   release (`gh release create --notes-file`), so the notes are written once.
-   That fixes the issue's second cost.
+   0.23.0 shape. The behaviour-change notes become the lead list, and the rest
+   become the remainder, for the person to edit rather than write from
+   nothing. The tag job then publishes that body as the GitHub release
+   (`gh release create --notes-file`), so the notes are written once. That
+   fixes the issue's second cost.
 3. **Relock:** the script runs `uv lock` and commits the lock with the bump.
    That is the step 0.18.0, 0.20.0, and 0.21.0 dropped.
 4. **Gate:** unchanged. The person pushes the release commit, the push starts
@@ -231,8 +247,9 @@ leaves the version call with the person running it:
 
 No token, app, or third-party action is added, and the process stays a direct
 commit to `main`. The cost is a script to maintain, and the reading in step 1
-stays a person's or an agent's judgment. Finding 3 is the evidence that it has
-to.
+stays a person's judgment at release time, as it does in finding 9's
+projects. The note each pull request carries makes that an edit rather than a
+reconstruction.
 
 ## Finding 7 — The reminder for unreleased work is not settled
 
@@ -248,6 +265,83 @@ prompt for a release, and where (a scheduled job, a line in `wfctl status` on
 Publishing to PyPI would be a job after `tag`, started by the tag. None of the
 three candidates changes what that job has to do, so the choice made here
 neither helps nor blocks it.
+
+## Finding 9 — Established projects keep this judgment out of the commit type
+
+The comparison covered 13 projects and tools, chosen to span the main
+approaches, plus the write-ups found on the subject. Each claim below is from
+the project's own contributing or release documentation.
+
+| Project | Where the user-facing note is written | What enforces it |
+| --- | --- | --- |
+| Kubernetes | A `release-note` block in the pull request body, under "Does this PR introduce a user-facing change?" | A bot blocks the merge until the block holds a note or `NONE` ([guide](https://www.kubernetes.dev/docs/guide/release-notes/)) |
+| pip | A fragment file per pull request, typed `removal`, `feature`, `bugfix`, and so on | Reviewers; a "skip news" label opts out ([docs](https://pip.pypa.io/en/stable/development/contributing/)) |
+| pytest | A fragment file per pull request, with `breaking` as its own type | Reviewers ([CONTRIBUTING](https://github.com/pytest-dev/pytest/blob/main/CONTRIBUTING.rst)) |
+| CPython | A news file per pull request under `Misc/NEWS.d/` | Reviewers ([devguide](https://devguide.python.org/getting-started/pull-request-lifecycle/)) |
+| Astro | A changeset file per pull request, where the author picks the bump | The bot-opened release pull request ([CONTRIBUTING](https://github.com/withastro/astro/blob/main/CONTRIBUTING.md)) |
+| Django | An entry in the release's notes, written in the pull request | A reviewer checklist that asks about backwards incompatibility ([checklist](https://docs.djangoproject.com/en/dev/internals/contributing/writing-code/submitting-patches/)) |
+| GitLab | A `Changelog:` trailer on the first commit of a merge request | A review bot, by report; not confirmed ([docs](https://docs.gitlab.com/development/changelog/)) |
+| uv, ruff | Generated from pull request labels, then edited by hand | A person at release time; ruff's guide says "labels are often missing" ([CONTRIBUTING](https://github.com/astral-sh/ruff/blob/main/CONTRIBUTING.md)) |
+| Rust | A `relnotes` label opens a tracking issue, and the release team writes the compatibility notes | A person during the beta ([forge](https://forge.rust-lang.org/release/release-notes.html)) |
+| release-please, release-plz, semantic-release | The commit subject | Commit discipline, and release-please recommends squash merges so the pull request title is the subject it reads ([README](https://github.com/googleapis/release-please/blob/main/README.md)) |
+
+**Measured:** 10 of the 13 capture something per pull request or merge
+request, and none of them reads it from the commit type. Seven capture the
+note itself; uv, ruff, and Rust capture only a label and write the note at
+release time. The three that derive everything from subjects are the tools
+themselves, and the discipline they document is squash merging with an
+edited title, which this repo does not use. Keep a Changelog states the
+general case: "Using commit log diffs as changelogs is a bad idea: they're
+full of noise" ([1.1.0](https://keepachangelog.com/en/1.1.0/)).
+
+**Concluded:** the 0 of 5 in finding 2 is not a lapse peculiar to this repo.
+A commit type describes what the code change is, and the release note
+describes what a user sees, so the two disagree whenever a bug fix changes
+behaviour. The projects that get this right ask for the second thing
+separately, and most of them still have a person edit the result at release
+time. No evidence was found either way on whether a required field
+gets filled honestly or with `NONE` by default.
+
+## Finding 10 — A commit message can carry it, once per pull request and checked in CI
+
+A trailer on the commit message, such as `Release-note: changed: the next
+prune deletes the speckit scripts unless the project reinstalls once`, is a
+format git already parses. GitLab uses the same shape. But two parts of the
+idea do not fit this repo as first stated.
+
+The first is the unit. The 17 pull requests in 0.23.0 carried 1 to 24
+commits each, and 6 of them carried 7 or more. The user-facing change is
+usually the sum of a pull request's commits rather than any one of them.
+A trailer on every commit would mostly read `none`, which teaches the author to
+type it without thinking. GitLab asks for the trailer on the first commit only.
+
+The second is where the check runs. A local `commit-msg` hook is skipped by
+`--no-verify`, and it is not present in a fresh worktree unless something
+installs it. CI on the pull request is the one check an agent cannot skip.
+
+So the requirement is one release note per pull request, checked in CI, in one
+of two places:
+
+1. **A required section in the pull request body.** The template gains a
+   "Release note" section with a category (behaviour change, addition, fix,
+   or none) and one line written for an existing user. `wfctl check-body`
+   already reads the body before a change is opened, so it gives the author
+   the finding first, and a CI job on `pull_request` refuses a body without
+   one. This is the Kubernetes shape. The release script reads the notes back
+   through `gh`.
+2. **A trailer on one commit in the branch.** A CI job over the pull
+   request's commits requires at least one `Release-note:` trailer, and a
+   local hook can give the same answer earlier. The release script reads
+   them with `git log`, with no network call.
+
+The first is recommended. The body is where this repo already writes the
+change's impact, it can be corrected after the commits are pushed, and the
+check has a home in a command that already runs on every change. A trailer
+fixed in a commit needs a rebase to correct, and with merge commits that
+rewrites a branch the review has already read.
+
+The commit subjects stay as they are. `fix:` keeps describing the code change,
+and the release note carries the consumer impact.
 
 ## What this changes in the repo's stated rationale
 
