@@ -95,8 +95,15 @@ exactly the changes the release notes lead with.
 
 The person cutting the release can answer it, but only by reconstructing it.
 They read each pull request after the context is gone, and the effort grows with
-every pull request that waits. The author knows the answer when the change is
-written, so asking them then costs one line.
+every pull request that waits. An agent reading the history at release time is
+the same reconstruction, done with less context than the author had. The author
+knows the answer when the change is written, so asking them then costs one line.
+
+In this repository the author is almost always the agent that opens the pull
+request. It writes the release note along with the rest of the description, so
+the note adds no work for a person. What the agent does skip is an optional
+field, as the "Breaking change" box showed, and that's why CI requires the note
+rather than asking for it.
 
 The person cutting the release owns "which version is this, and what do the
 release notes say?".
