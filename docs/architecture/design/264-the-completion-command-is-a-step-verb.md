@@ -6,13 +6,14 @@ status: proposed
 
 ## Context
 
-`new-task-reopens-implement` (proposed, level 2) decides that a wfctl command
-writes the completion record when the `implement` step finishes, so the agent
-no longer writes the file itself. This record decides what that command is
-called and where it sits in the CLI.
+When the `implement` step finishes, a wfctl command now writes the completion
+record, and the agent no longer writes the file itself. The architecture
+record that lets a new task reopen the `implement` step decides that. This
+record decides what the command is called and where it sits in the CLI.
 
-A command name is a promise. Skill files and agents in other repositories call
-wfctl by name, so a name that ships is hard to take back.
+The name matters because it's hard to change once it ships. Skill files and
+agents in other repositories call wfctl by name, and a rename would break
+them.
 
 ## Verified
 
@@ -28,8 +29,8 @@ wfctl by name, so a name that ships is hard to take back.
 
 ## Assumed
 
-- That no other step will need a completion command soon. If one does, it
-  joins this verb with a new step name rather than a new command.
+- No other step is expected to need a completion command soon. If one does,
+  it joins this verb with a new step name rather than adding a new command.
 
 ## Direct baseline
 
@@ -80,11 +81,13 @@ to mark a step's state finds all three in one place.
 ## Considered
 
 - `wfctl implement-complete`, the direct baseline. It is easier to guess and
-  needs no argument. It lost on fit: it crowds the top level, and it sits
-  apart from `step sign-off`, which does the same kind of job for the plan.
+  needs no argument. It was rejected because it adds to an already crowded
+  top level, and it sits apart from `step sign-off`, which does the same kind
+  of job for the plan.
 - `wfctl step sign-off implement`. It reuses an existing verb, but sign-off
   means "accept this without a review" and requires `--reason`. Completing
-  implementation is not a waiver, so sharing the verb would blur two meanings.
+  implementation is not a waiver, so sharing the verb would give one word two
+  meanings.
 
 ## Consequences
 
@@ -98,7 +101,7 @@ or the host will prompt for it.
 
 - A test that `wfctl step complete implement` writes the completion record
   with a copy, and that `wfctl step complete plan` exits 1 naming `implement`.
-- A review question: does `wfctl step --help` read as one family of commands?
+- A review that `wfctl step --help` reads as one family of commands.
 
 ## Log
 

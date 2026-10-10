@@ -6,15 +6,17 @@ status: proposed
 
 ## Context
 
-`new-task-reopens-implement` (proposed, level 2) decides that the completion
-record holds a copy of `tasks.md` as it was when the `implement` step
-finished. wfctl compares the live task list against that copy to find new
-incomplete tasks. This record decides where the copy is stored on disk.
+When the `implement` step finishes, wfctl saves a copy of `tasks.md` as it
+was at that moment. wfctl compares the live task list against that copy to
+find new incomplete tasks. The architecture record that lets a new task reopen
+the `implement` step decides that, and this record decides where the copy is
+stored on disk.
 
-Two places work. The copy can sit inside `checklists/implement-complete.md`,
-below the line that says when implementation finished, or in a second file
-beside it. Plan review already keeps its copy of the plan in a second file,
-so that is the shape this repository has used before.
+The copy can go in one of two places. It can sit inside
+`checklists/implement-complete.md`, below the line that says when
+implementation finished, or in a second file beside it. Plan review already
+keeps its copy of the plan in a second file, so that is the shape this
+repository has used before.
 
 ## Verified
 
@@ -30,10 +32,10 @@ so that is the shape this repository has used before.
 
 ## Assumed
 
-- That no task list holds a fence longer than any the writer can pick. The
-  writer picks a fence one character longer than the longest run in the copy,
-  so this fails only if the copy itself cannot be read, which is a broken file
-  rather than a large one.
+- No task list holds a fence longer than any fence the writer can pick. The
+  writer picks a fence one character longer than the longest fence in the
+  copy, so this assumption fails only when the copy can't be read at all. That
+  is a broken file rather than a large one.
 
 ## Direct baseline
 
@@ -96,12 +98,14 @@ new row existed. No boundary moves in either graph.
 ## Considered
 
 - A second file beside the record, the direct baseline. It needs no fence
-  handling and follows plan review's shape. It lost because the record and the
-  copy can then exist separately, and because the archive needs a new row to
-  keep them together. A record whose copy went missing is still safe, since it
-  reads as a record with no copy, but it reopens the step for no reason.
-- A hash of `tasks.md` instead of a copy. Rejected at level 2: a hash cannot
-  say which tasks are new, only that something changed.
+  handling and follows plan review's shape. It was rejected because the record
+  and the copy can then exist separately, and because the archive needs a new
+  row to keep them together. A record whose copy went missing is still safe,
+  since it reads as a record with no copy, but it reopens the step even though
+  no task was added.
+- A hash of `tasks.md` instead of a copy. The architecture record rejected
+  this, because a hash shows only that something changed, not which tasks are
+  new.
 
 ## Consequences
 
