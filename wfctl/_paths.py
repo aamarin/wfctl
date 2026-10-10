@@ -675,7 +675,9 @@ def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:
     # line mode, and a quoted name ends in `.md"` and silently fails the suffix
     # test. Each entry is a two-letter code, a space, and a path relative to the
     # repository root. A rename or copy carries its old path as the next field,
-    # with no code, so it is skipped and the new name stands.
+    # with no code. A rename keeps both names, because a record renamed into
+    # `design/` or away from `.md` leaves only the old name passing the filter
+    # below. A copy's source is untouched, so it is skipped.
     fields = iter(r.stdout.split("\0"))
     paths = []
     for field in fields:
@@ -683,7 +685,9 @@ def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:
             continue
         paths.append(repo_root / field[3:])
         if field[0] in "RC" or field[1] in "RC":
-            next(fields, None)
+            old = next(fields, "")
+            if old and "R" in field[:2]:
+                paths.append(repo_root / old)
     resolved = arch.resolve()
     return sorted(p.name for p in paths if p.suffix == ".md" and p.parent.resolve() == resolved)
 

@@ -647,3 +647,25 @@ def test_a_record_changed_without_a_commit_is_named(
     fact = _facts()["records committed"]
     assert fact["value"] == "unmet"
     assert expected in fact["detail"]
+
+
+@pytest.mark.parametrize("destination", ["design/a-decision.md", "a-decision.txt"])
+def test_a_record_renamed_out_of_the_top_level_is_named(
+    storyctl_dir: types.SimpleNamespace, destination: str,
+) -> None:
+    """A staged rename names the new path first and the old one second.
+
+    Only the new path was read, and it is no longer a top-level record, so the
+    fact read met while HEAD still held a record this checkout had removed.
+    """
+    repo = storyctl_dir.repo_root
+    _record(repo, "keep", "accepted")
+    path = _record(repo, "a-decision", "accepted")
+    _commit(repo, "records")
+    (path.parent / "design").mkdir()
+    subprocess.run(["git", "-C", str(repo), "mv", str(path), str(path.parent / destination)],
+                   check=True, capture_output=True)
+
+    fact = _facts()["records committed"]
+    assert fact["value"] == "unmet"
+    assert "a-decision.md" in fact["detail"]
