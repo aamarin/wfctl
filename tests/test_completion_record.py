@@ -322,3 +322,105 @@ def test_without_a_delivery_plan_a_reopened_story_goes_to_decompose_first(
     )
 
     assert _position(feature, tmp_path) == ("decompose", "/speckit.decompose")
+
+
+# --- Story 3: ordinary edits leave a finished story finished -----------------
+
+
+_FINISHED = "- [x] T001 Build it\n- [ ] T002 Deferred\n"
+
+
+def test_ticking_noting_and_rewording_a_ticked_task_leave_the_step_closed(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """SC-003 and Story 3 #1 - 3. These are the edits people make to a task
+    list after the work ships. Reopening on any of them would send a finished
+    story back to `/speckit.implement` for nothing."""
+    edits = {
+        "ticking a box": "- [x] T001 Build it\n- [x] T002 Deferred\n",
+        "adding a note": _FINISHED + "  Note: T002 moved to the next release.\n",
+        "rewording a ticked task": "- [x] T001 Build the whole thing\n- [ ] T002 Deferred\n",
+    }
+    for edit, live in edits.items():
+        feature = _feature(spec_tree, live, **_record(_FINISHED))
+        assert _states(feature, tmp_path)["implement"] == "done", edit
+
+
+def test_rewording_an_incomplete_task_reopens_the_step(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Story 3 #4. Matching is by description, so a reworded incomplete task
+    cannot be told from a new one, and the rule fails toward reopening."""
+    live = "- [x] T001 Build it\n- [ ] T002 Deferred, and now also migrate\n"
+    feature = _feature(spec_tree, live, **_record(_FINISHED))
+
+    assert _states(feature, tmp_path)["implement"] == "in_progress"
+
+
+def test_a_task_ticked_in_the_copy_and_incomplete_now_reopens_the_step(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Spec Edge Cases. Unticking a task says the work it named is not done
+    after all, which is new work the record never accepted."""
+    live = "- [ ] T001 Build it\n- [ ] T002 Deferred\n"
+    feature = _feature(spec_tree, live, **_record(_FINISHED))
+
+    assert _states(feature, tmp_path)["implement"] == "in_progress"
+
+
+# --- Story 4: records written before this change still read safely ----------
+
+
+def test_a_record_with_no_copy_and_an_incomplete_task_leaves_implement_current(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-007 and Story 4 #1. A one-line record cannot say whether the task
+    was open when the step finished or was added since, so it is read as
+    added since, which is the direction that cannot hide work."""
+    feature = _feature(spec_tree, _FINISHED, **_record(None))
+
+    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+
+
+def test_a_record_with_no_copy_over_a_fully_ticked_list_reads_finished(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Story 4 #2. Every box is ticked, so there is nothing for a copy to
+    find, and the story reads complete as it did before this change."""
+    feature = _feature(spec_tree, "- [x] T001 Build it\n", **_record(None))
+
+    assert _states(feature, tmp_path)["implement"] == "done"
+    assert _position(feature, tmp_path) == (None, None)
+
+
+def test_any_record_over_a_task_list_with_no_task_reads_finished_and_tasks_skipped(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-008, SC-004 and Story 4 #3. A shipped story whose `tasks.md` holds no
+    task has nowhere to go: `/speckit.tasks` rewrites the file from a template.
+    So the record still closes it, with or without a copy."""
+    prose = "# Tasks\n\nProse, and not one box.\n"
+    for copy in (None, prose):
+        feature = _feature(spec_tree, prose, **_record(copy))
+        states = _states(feature, tmp_path)
+        assert (states["tasks"], states["implement"]) == ("skipped", "done"), copy
+
+
+def test_decompose_agrees_with_implement_on_every_shape_of_record(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """SC-004. With no delivery plan, `decompose` is skipped exactly when the
+    tasks read closed, so it reads the same `tasks_open` as `implement`. A
+    reader that consulted the record by existence would skip `decompose` for
+    a story `implement` had just reopened."""
+    cases: list[tuple[str, dict[str, str], str]] = [
+        (_FINISHED, {}, "pending"),
+        ("- [x] T001 Build it\n", {}, "skipped"),
+        (_FINISHED, _record(None), "pending"),
+        ("- [x] T001 Build it\n", _record(None), "skipped"),
+        (_FINISHED, _record(_FINISHED), "skipped"),
+        (_FINISHED + "- [ ] T003 New\n", _record(_FINISHED), "pending"),
+    ]
+    for tasks, record, expected in cases:
+        feature = _feature(spec_tree, tasks, delivery=False, **record)
+        assert _states(feature, tmp_path)["decompose"] == expected, (tasks, record)
