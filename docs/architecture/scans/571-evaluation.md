@@ -343,6 +343,16 @@ rewrites a branch the review has already read.
 The commit subjects stay as they are. `fix:` keeps describing the code change,
 and the release note carries the consumer impact.
 
+The proposed record settled on a third place instead of either of these. A
+release note file committed with each change, `changes/<issue>.md`, is checked
+by a script in this repository's `verify` list, so wfctl's definition of done
+fails without it. That keeps the per-pull-request unit and the easy correction
+of the first option, and adds the one thing the description can't give. wfctl
+can see a committed file locally, before any pull request exists, and the
+release script reads it from git rather than from GitHub. This is the shape
+pip, pytest, and CPython use. The record is
+`change-carries-release-note.md`.
+
 ## What this changes in the repo's stated rationale
 
 The comment above the `tag` job says the bump "belongs in the PR that makes the
