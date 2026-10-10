@@ -28,6 +28,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
+   │ _completion 150                                              │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -38,9 +39,9 @@ when this drawing stops matching it. See **Staleness** below.
 
    ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
    │ _io 43                            0 out · 5 in   │      _tracker
-   │ _md 98                            0 out · 3 in   │      _verify cli
+   │ _md 98                            0 out · 4 in   │      _verify cli
    ╰──────────────────────────────────────────────────╯  ◄── _arch _shape
-                                                             _evidence
+                                                             _evidence _completion
 ```
 
 `_entry` is drawn above the two it reaches because it is the only one with no
@@ -299,7 +300,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review _completion
 resolution  _paths _manifest _provenance
 mechanism   _io _md
 ```

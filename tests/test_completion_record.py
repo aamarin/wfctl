@@ -216,3 +216,109 @@ def _position(feature: Path, repo_root: Path) -> tuple[str | None, str | None]:
     view renders."""
     report = build_report(feature, repo_root, repo_root)
     return report.current, report.next_command
+
+
+# --- Story 1: a task added after the story finished reopens implement --------
+
+
+def test_a_task_added_after_completion_reopens_implement_without_a_definition_of_done(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-005, FR-010, FR-013 and SC-002, and the arm the issue says lies.
+
+    With no definition of done, this tree read `implement` done and the story
+    complete beside `1/2 done`, because the record existed. Going back to
+    trusting the record by its existence fails this test.
+    """
+    feature = _feature(
+        spec_tree,
+        "- [x] T001 Build it\n- [ ] T002 Handle the new case\n",
+        **_record("- [x] T001 Build it\n"),
+    )
+    step = _step(feature, tmp_path, "implement")
+
+    assert (step.state, step.annotation) == ("in_progress", "1/2 done")
+    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+
+
+def test_only_the_task_added_since_completion_is_new_work(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Story 1 #3. T002 was incomplete when the step finished, and the record
+    accepted it then. Only T003 is work the record never saw."""
+    copy = "- [x] T001 Build it\n- [ ] T002 Deferred\n"
+    live = copy + "- [ ] T003 Added later\n"
+
+    assert _incomplete(live, copy) == Counter({"- Added later": 1})
+
+
+def test_a_new_task_that_takes_an_old_tasks_id_still_reads_as_new(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-006 and Story 1 #4. A task inserted in the middle shifts every ID
+    after it, so matching by ID would read the new T002 as the old one."""
+    copy = "- [x] T001 Build it\n- [ ] T002 Deferred\n"
+    live = "- [x] T001 Build it\n- [ ] T002 Inserted\n- [ ] T003 Deferred\n"
+    feature = _feature(spec_tree, live, **_record(copy))
+
+    assert _incomplete(live, copy) == Counter({"- Inserted": 1})
+    assert _states(feature, tmp_path)["implement"] == "in_progress"
+
+
+def test_a_tag_change_on_an_incomplete_task_leaves_the_step_closed(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Clarification 1. A re-run of `/speckit.tasks` moves `[P]` and `[USn]`
+    tags without changing the work, and reopening on it would send a finished
+    story back for nothing."""
+    copy = "- [x] T001 Build it\n- [ ] T002 [P] [US1] Deferred\n"
+    live = "- [x] T001 Build it\n- [ ] T005 [US2] Deferred\n"
+    feature = _feature(spec_tree, live, **_record(copy))
+
+    assert _states(feature, tmp_path)["implement"] == "done"
+
+
+def test_a_second_incomplete_task_with_the_same_description_reopens_the_step(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-006. Tasks are matched by count, so a duplicate added since is new,
+    where matching by set would read it as already accounted for."""
+    copy = "- [x] T001 Build it\n- [ ] T002 Check it\n"
+    live = copy + "- [ ] T003 Check it\n"
+    feature = _feature(spec_tree, live, **_record(copy))
+
+    assert _states(feature, tmp_path)["implement"] == "in_progress"
+
+
+def test_a_task_inside_a_code_example_is_not_counted_in_either_list(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-009. The tally already reads the file with code quoted out, and a
+    comparison that did not would reopen on a worked example."""
+    copy = "- [x] T001 Build it\n"
+    live = copy + "\n```\n- [ ] T999 what a task looks like\n```\n"
+    feature = _feature(spec_tree, live, **_record(copy + "```\n- [ ] T998 old\n```\n"))
+
+    assert _incomplete(live, copy) == Counter()
+    assert _states(feature, tmp_path)["implement"] == "done"
+
+
+def test_without_a_delivery_plan_a_reopened_story_goes_to_decompose_first(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The limit this change records rather than fixes (spec Edge Cases).
+
+    With no `delivery.md`, `decompose` is skipped only while the tasks read
+    closed. A reopened story makes them open, so `decompose` becomes current
+    and `implement` waits behind it. Changing that would widen the change into
+    the `decompose` reader, and every feature in the spec store that holds a
+    completion record also holds a delivery plan.
+    """
+    feature = _feature(
+        spec_tree,
+        "- [x] T001 Build it\n- [ ] T002 Handle the new case\n",
+        delivery=False,
+        **_record("- [x] T001 Build it\n"),
+    )
+
+    assert _position(feature, tmp_path) == ("decompose", "/speckit.decompose")

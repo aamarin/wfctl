@@ -8,6 +8,7 @@ one until someone runs it, which is how #23 went a week unnoticed.
 import json
 import subprocess
 import types
+from datetime import date
 from importlib.resources import files
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from tests.conftest import (
     structured,
     write_plan_review,
 )
-from wfctl import _verify
+from wfctl import _completion, _verify
 from wfctl.cli import app
 from wfctl._pipeline import (
     STORY_COMPLETE_CONSOLE,
@@ -783,12 +784,34 @@ def test_the_sentinel_closes_the_tasks_even_with_a_box_left_open(
     whose definition of done has not passed. `state` is what the two disagreed
     about, so an assertion on it passes against the defect — the flag is the
     whole test.
+
+    The record carries a copy holding T002 open, since #264 reads a record with
+    no copy as closing the tasks only once every box is ticked.
     """
     gated.make_spec_artifact("tasks", "- [x] T001 done\n- [ ] T002 open\n")
-    (gated.spec_dir / "checklists" / "implement-complete.md").write_text("done\n")
+    (gated.spec_dir / _completion.RECORD).write_text(
+        _completion.render("- [x] T001 done\n- [ ] T002 open\n", date(2026, 10, 9))
+    )
     result = runner.invoke(app, ["next"])
     assert "wfctl verify" in result.output
     assert "auto: false" in (gated.agent_dir / "next-step.md").read_text()
+
+
+def test_a_task_added_after_completion_routes_to_implement_not_verification(
+    gated: types.SimpleNamespace,
+) -> None:
+    """#264, FR-010 and SC-001. The record's copy holds T001 alone, so T002 is
+    work the record never saw. Read by existence, the record closed the tasks
+    and `next` sent the agent to `wfctl verify`, which can only report on the
+    code already written.
+    """
+    gated.make_spec_artifact("tasks", "- [x] T001 done\n- [ ] T002 added later\n")
+    (gated.spec_dir / _completion.RECORD).write_text(
+        _completion.render("- [x] T001 done\n", date(2026, 10, 9))
+    )
+    result = runner.invoke(app, ["next"])
+    assert "/speckit.implement" in result.output
+    assert "wfctl verify" not in result.output
 
 
 def test_a_verified_story_reports_complete_rather_than_a_next_step(
@@ -956,12 +979,27 @@ def test_the_sentinel_route_still_works_without_a_definition_of_done(
     """The sentinel keeps its existing job: tasks run outside the skill.
 
     Verification is an AND on top, so removing this route would break every
-    project that has not adopted the feature.
+    project that has not adopted the feature. Since #264 the record says T001
+    was accepted open through its copy, which holds T001 incomplete.
     """
     storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 not done\n")
     (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
-    (storyctl_dir.spec_dir / "checklists" / "implement-complete.md").write_text("done\n")
+    (storyctl_dir.spec_dir / _completion.RECORD).write_text(
+        _completion.render("- [ ] T001 not done\n", date(2026, 10, 9))
+    )
     assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "done"
+
+
+def test_a_record_with_no_copy_no_longer_closes_an_open_box(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """#264. A one-line record cannot say whether T001 was open when the step
+    finished or was added since, so it closes the tasks only once every box is
+    ticked. Every record written before the copy existed reads this way."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [ ] T001 not done\n")
+    (storyctl_dir.spec_dir / "checklists").mkdir(exist_ok=True)
+    (storyctl_dir.spec_dir / _completion.RECORD).write_text("done\n")
+    assert _implement_state(storyctl_dir.spec_dir, storyctl_dir.repo_root)[0] == "in_progress"
 
 
 def test_an_empty_verify_list_is_the_same_as_no_file(
