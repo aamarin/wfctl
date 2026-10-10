@@ -112,3 +112,70 @@ reader.
   resolves to the installed release, which has no `step complete`. The
   quickstart's `spec_tree` pointer also writes a plan review that does not
   clear `plan`.
+
+## Review 2026-10-10T01:37Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 1797be85e18f6a5d6f364b0cd1b049d83b10f30c, spec.md e63d64911c6132e33deeaaeebb8cb4f4bd8ac50c, .specify/memory/constitution.md absent, design.md 5c686de27a6212a1692331fb32dcf695f7372772, docs/architecture/design/264-the-task-copy-lives-in-the-completion-record.md 73d6c1664f0986dd82400ff10a2165a1588547b9, docs/architecture/design/264-the-completion-command-is-a-step-verb.md 6938214375db57bbe96bd0992d114812fcf90749, docs/architecture/new-task-reopens-implement.md 800f96d21795ee68ef91441bb3373f62b82eea9e, research.md 37b719254e4b58c5947b6f3c6a0f6ae2255a4e3f, data-model.md aac2aa3e59090497e429651da8469dd2a2b5e76f, contracts/cli.md 0eacf07ff9625faad3e1e42f07d87a8a09a93642, quickstart.md 1b6384fb8d4f74077512e8853124234990759a6d, checklists/requirements.md 3f61287371e0bafbc032dbdaa791ed2c1e3c3709, checklists/analysis-report.md 75050b8fa04f75cb0a2d1c38b36f445e255d8f69, plan-review.plan.md 597f94bc5473d1795b088140ad8bc913f6190e7a (base)
+- Review type: re-review (plan.md § Summary item 2 and spec.md edited by the analyze pass)
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 8 · Fixed since the earlier review: 1
+- Detail: /Users/andremarin/Development/wfctl-specs/264-sentinel-goes-stale/plan-review.md
+
+The review ran in a fresh-context subagent. The analyze pass changed `spec.md`
+as well as `plan.md`, and no earlier copy of `spec.md` exists to diff against,
+so the review read `spec.md` in full and reviewed all of `plan.md` against it.
+The analysis report was read only to find which files analyze edited, and no
+finding rests on it.
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-003, PR-011) |
+| Requirements and traceability | Outstanding (PR-008, PR-011; PR-001 fixed) |
+| Architecture and boundaries | Outstanding (PR-004, PR-008) |
+| Adversarial implementation and verification | Outstanding (PR-003, PR-005, PR-006, PR-010; PR-001, PR-002, PR-009 fixed) |
+| Security and reliability | Outstanding (PR-007) |
+
+### Findings
+
+- **PR-001, MAJOR, fixed.** It stays fixed. `plan.md` § Summary and § Test
+  Plan, research R1, the spec's Edge Cases and FR-010, and the quickstart all
+  send a reopened story with no `delivery.md` to `/speckit.decompose`, and one
+  test pins it.
+- **PR-002, MINOR, fixed.** It stays fixed. Both snapshot rows are rebuilt
+  from `_ANALYZED` plus a keyed `delivery.md`, so they reach `implement`.
+- **PR-003, MINOR, open.** Research R4 and `data-model.md` still size the
+  copy's fence against tilde fences only, which differs from FR-004 and the
+  level-3 record. A tilde line nested inside a backtick block can still cut the
+  task copy short.
+- **PR-004, MINOR, open.** `_completion` needs `quoted_out` from `_evidence`,
+  and `_evidence` imports `_completion`. The plan still does not say which way
+  the dependency runs.
+- **PR-005, MINOR, open.** Research R2 still says matching a line by its first
+  box can only reopen the step. A line with a ticked first box and a later
+  incomplete box hides work instead.
+- **PR-006, MINOR, open.** The plan still does not say what the agent does when
+  `wfctl step complete implement` refuses. The skill's step 9b, which writes
+  the completion record by hand, is still there as a fallback that bypasses the
+  FR-003a guard.
+- **PR-007, MINOR, open.** The plan still does not say the completion record is
+  written with `write_atomic`, or that `tasks.md` is read once.
+- **PR-008, MINOR, open.** Half of it is fixed: FR-010 now applies only when
+  `decompose` reads done or skipped, which matches the reader. The level-2
+  record `new-task-reopens-implement` still gives `/speckit.implement` with no
+  exception, so it now disagrees with FR-010.
+- **PR-009, MINOR, fixed.** Fixed by `plan.md` § Summary item 2 and the spec's
+  Edge Cases. Both now say "while the tasks read closed", name the unkeyed-row
+  route, and make `implement` current once the delivery plan's rows are keyed
+  or no tracker is declared.
+- **PR-010, MINOR, open.** `quickstart.md` is unchanged. Its `uv run wfctl`,
+  run from a scratch repository, resolves to the installed release, which has
+  no `step complete`, and its `spec_tree` pointer writes a plan review that
+  does not clear `plan`.
+- **PR-011, MINOR, open.** New in this review. The limit is stated three ways.
+  The plan's new sentence can be read as covering a repository with no tracker
+  and no `delivery.md`, which the next sentence and the `decompose` reader both
+  contradict. The spec's wording is exact, and research R1 still gives the
+  older, narrower wording. The fix is to use the spec's wording in `plan.md`
+  § Summary item 2 and research R1.
