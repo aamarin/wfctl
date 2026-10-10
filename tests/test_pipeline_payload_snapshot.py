@@ -37,9 +37,11 @@ import os
 import re
 import subprocess
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 from tests.conftest import CLEAN_PLAN, SPEC_SECTIONS, git_repo
+from wfctl import _completion
 from wfctl._pipeline import _infer_steps
 
 SNAPSHOT = Path(__file__).parent / "pipeline_payload_snapshot.json"
@@ -81,6 +83,9 @@ CLOSED_TASKS = "- [x] T001 done\n- [x] T002 done\n"
 NO_TASKS = "# Tasks\n\nProse, and not one box.\n"
 FENCED_TASKS = "# Tasks\n\n```\n- [ ] T001 what a task looks like\n```\n"
 SENTINEL = {"checklists/implement-complete.md": "x"}
+SENTINEL_WITH_COPY = {
+    "checklists/implement-complete.md": _completion.render(OPEN_TASKS, date(2026, 10, 9)),
+}
 
 KEYED_DELIVERY = """# Delivery
 
@@ -157,12 +162,14 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
             **SENTINEL, **REVIEWED,
         },
     ),
+    # Both reach `implement`, which is what the record decides. #264 is the
+    # difference between them: a record with no copy cannot say T002 was open
+    # when the step finished, so it no longer closes it, and one whose copy
+    # holds T002 open still does.
+    ("tasks-open-but-implemented", {**_ANALYZED, "delivery.md": KEYED_DELIVERY, **SENTINEL}),
     (
-        "tasks-open-but-implemented",
-        {
-            "spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS,
-            **SENTINEL, **REVIEWED,
-        },
+        "tasks-open-implemented-with-copy",
+        {**_ANALYZED, "delivery.md": KEYED_DELIVERY, **SENTINEL_WITH_COPY},
     ),
     # The design gate's other early return: past the boundary, so a `design.md`
     # with no record still reads `done` once `spec.md` exists.

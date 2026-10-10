@@ -2882,21 +2882,21 @@
       "name": "analyze",
       "reason": null,
       "remedy": null,
-      "state": "pending"
+      "state": "done"
     },
     {
       "annotation": null,
       "name": "decompose",
       "reason": null,
       "remedy": null,
-      "state": "pending"
+      "state": "done"
     },
     {
-      "annotation": null,
+      "annotation": "1/2 done",
       "name": "implement",
       "reason": null,
       "remedy": null,
-      "state": "pending"
+      "state": "in_progress"
     }
   ],
   "tasks-open-but-implemented (no tracker)": [
@@ -2940,21 +2940,137 @@
       "name": "analyze",
       "reason": null,
       "remedy": null,
-      "state": "pending"
+      "state": "done"
     },
     {
       "annotation": null,
       "name": "decompose",
       "reason": null,
       "remedy": null,
-      "state": "pending"
+      "state": "done"
     },
     {
-      "annotation": null,
+      "annotation": "1/2 done",
       "name": "implement",
       "reason": null,
       "remedy": null,
-      "state": "pending"
+      "state": "in_progress"
+    }
+  ],
+  "tasks-open-implemented-with-copy": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    }
+  ],
+  "tasks-open-implemented-with-copy (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
     }
   ],
   "tasks-open-unreviewed": [

@@ -26,7 +26,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from wfctl import _md, _plan_review, _tracker
+from wfctl import _completion, _md, _plan_review, _tracker
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
@@ -537,13 +537,14 @@ def quoted_out(text: str) -> str:
     return _blanked(text, comments=True)
 
 
-def _task_tally(tasks_text: str) -> tuple[int, int]:
+def task_tally(tasks_text: str) -> tuple[int, int]:
     """How many tasks are ticked, and how many there are.
 
-    One spelling for the three readers that need it — `_tasks_open`, the `tasks`
-    reader, and the tally `implement` displays. The count is what they
-    would each have written out, and #262 is what two hand-written copies of a
-    tasks reader cost.
+    One spelling for the four readers that need it — `_tasks_open`, the `tasks`
+    reader, the tally `implement` displays, and the tally `wfctl step complete`
+    prints for the copy it records. The count is what they would each have
+    written out, and #262 is what two hand-written copies of a tasks reader
+    cost.
 
     A total of zero is not the same fact as an empty string, and the difference
     is #308: no file means the step has not run, and a file with no box in it
@@ -563,7 +564,8 @@ def _task_tally(tasks_text: str) -> tuple[int, int]:
 
 def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     """Whether the tasks are still open, by the two routes `implement` reads as
-    finished: every box ticked, or the sentinel that says so over one left open.
+    finished: every box ticked, or the completion record that says so over one
+    left open.
 
     Only the tasks. A caller asking whether *implementation* is finished wants
     this and `verification_block` — a definition of done gets the last word over
@@ -579,17 +581,38 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     `_infer_steps` and cannot reach `next_step_content`, which spelled the
     reader with the boxes alone and routed a story whose definition of done
     had not passed straight back to `/speckit.implement` with `auto: true`
-    (#262). The sentinel exists precisely for the story whose boxes are not a
-    reliable signal, so dropping it inverts the case it was written for.
+    (#262). The completion record exists precisely for the story whose boxes
+    are not a reliable signal, so dropping it inverts the case it was written
+    for.
+
+    The record carries a copy of the task list as it stood when the step
+    finished, and only an incomplete task the copy does not account for
+    reopens the step (#264). Read by existence, the record went on closing the
+    tasks after the story gained one, and nothing ever removed it. A record
+    with no copy, which is every one written before the copy existed, says
+    nothing about which tasks it covered, so it closes the tasks only when
+    every box is ticked. Neither reading consults a modification time: a
+    restore from `specs-trunk` gives every file the same one.
 
     Takes the text rather than reading it, so a caller that already holds it
     decides from one read. The walk reads `tasks.md` for its own tally, and a
     second read inside here let the tally and this answer come from two versions
     of a file an implementing agent may be rewriting.
     """
-    if _file_exists(spec_dir / "checklists" / "implement-complete.md"):
-        return False
-    done, total = _task_tally(tasks_text)
+    done, total = task_tally(tasks_text)
+    record = spec_dir / _completion.RECORD
+    if _file_exists(record):
+        if not total:
+            # A list with no task has nothing to reopen, under either shape of
+            # record. `tasks` reads `skipped` over the same pair.
+            return False
+        try:
+            copy = _completion.copy_of(record.read_text())
+        except (OSError, UnicodeDecodeError):
+            copy = None
+        if copy is None:
+            return done < total
+        return bool(_completion.new_incomplete(tasks_text, copy, quoted_out))
     if total:
         return done < total
     # No box anywhere. An absent file is not this function's question — the
@@ -1159,7 +1182,7 @@ def build_evidence(
     plan_raw = plan_md.read_text() if _file_exists(plan_md) else ""
     plan_text = quoted_out(plan_raw)
 
-    done, total = _task_tally(tasks_text)
+    done, total = task_tally(tasks_text)
     return Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
@@ -1495,16 +1518,18 @@ def tasks(ev: Evidence) -> Assessment:
         return Assessment("pending")
     if ev.tasks_total:
         return Assessment("done")
-    if _file_exists(ev.spec_dir / "checklists" / "implement-complete.md"):
+    if _file_exists(ev.spec_dir / _completion.RECORD):
         # A story declared implemented over a file with no task in it. `skipped`
         # rather than `done`, for clarify's reason: the step genuinely produced
         # nothing, and `done` would hide that. It stops blocking for decompose's
         # reason: `/speckit.tasks` rewrites this file from a template, so sending
         # a shipped story there is a pipeline with no route to `/end-session` (#8).
         #
-        # Not a second escape from #308. The sentinel is written by hand at the
+        # Not a second escape from #308. The completion record is written at the
         # end of implementation, which is the declaration that was missing when a
-        # bare file cleared both steps unattended.
+        # bare file cleared both steps unattended. Read by existence here, unlike
+        # in `_tasks_open`: with no task in the list there is no new work for a
+        # copy to find.
         return Assessment("skipped")
     # The step wrote its artifact and put no task in it, which is the same shape
     # `brainstorm` reads when `design.md` exists with no record behind it: a file
