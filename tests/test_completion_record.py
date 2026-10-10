@@ -14,6 +14,7 @@ when every box is ticked.
 """
 from __future__ import annotations
 
+import os
 from collections import Counter
 from collections.abc import Callable
 from datetime import date
@@ -131,6 +132,8 @@ def test_a_task_id_later_in_the_text_stays_in_the_description() -> None:
 
 
 def test_whitespace_collapses_and_the_ends_are_stripped() -> None:
+    """A re-run of `/speckit.tasks` can change indentation and spacing without
+    changing the work, so an indented task still matches its copy."""
     assert _completion.description("  - [ ]  T001   Add\tthe   reader  ") == "- Add the reader"
 
 
@@ -155,7 +158,7 @@ def test_a_box_inside_an_inline_code_span_is_not_the_task_box() -> None:
 
 
 def _incomplete(live: str, copy: str) -> Counter[str]:
-    return _completion.new_incomplete(live, quoted_out(live), copy, quoted_out(copy))
+    return _completion.new_incomplete(live, copy, quoted_out)
 
 
 def test_a_line_whose_first_box_is_ticked_and_a_later_box_is_not_reads_incomplete() -> None:
@@ -241,9 +244,7 @@ def test_a_task_added_after_completion_reopens_implement_without_a_definition_of
     assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
 
 
-def test_only_the_task_added_since_completion_is_new_work(
-    spec_tree: Callable[..., Path], tmp_path: Path
-) -> None:
+def test_only_the_task_added_since_completion_is_new_work() -> None:
     """Story 1 #3. T002 was incomplete when the step finished, and the record
     accepted it then. Only T003 is work the record never saw."""
     copy = "- [x] T001 Build it\n- [ ] T002 Deferred\n"
@@ -424,3 +425,51 @@ def test_decompose_agrees_with_implement_on_every_shape_of_record(
     for tasks, record, expected in cases:
         feature = _feature(spec_tree, tasks, delivery=False, **record)
         assert _states(feature, tmp_path)["decompose"] == expected, (tasks, record)
+
+
+# --- what the reading does not depend on --------------------------------------
+
+
+def _age(path: Path, seconds: int) -> None:
+    """Move `path`'s modification time `seconds` into the past."""
+    then = path.stat().st_mtime - seconds
+    os.utime(path, (then, then))
+
+
+def test_a_note_added_after_the_record_was_written_leaves_the_step_closed(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-012 and SC-003. Every other fixture writes the record after
+    `tasks.md`, which is the opposite of real use: the edits Story 3 cares
+    about come later. T002 stays incomplete, as the copy accepted it, so a
+    reader that reopened whenever `tasks.md` was newer than the record would
+    pass every other test here and reopen this finished story on a note."""
+    feature = _feature(spec_tree, _FINISHED + "  Note: T002 moved on.\n", **_record(_FINISHED))
+    _age(feature / _completion.RECORD, 3600)
+
+    assert _states(feature, tmp_path)["implement"] == "done"
+
+
+def test_a_task_added_before_a_newer_record_still_reopens_the_step(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """FR-012, the mirror. A restore from `specs-trunk` or a copy can make the
+    record newer than a `tasks.md` that gained a task after it, so a reader
+    that trusted the newer record would hide the new task."""
+    feature = _feature(spec_tree, _FINISHED + "- [ ] T003 New\n", **_record(_FINISHED))
+    _age(feature / "tasks.md", 3600)
+
+    assert _states(feature, tmp_path)["implement"] == "in_progress"
+
+
+def test_a_record_that_cannot_be_decoded_reads_as_a_record_with_no_copy(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """data-model.md. A record that fails to decode says nothing about which
+    tasks it covered. Reading it as closing the tasks would bring #264 back by
+    a new route, so it reads as a record with no copy."""
+    feature = _feature(spec_tree, _FINISHED)
+    (feature / _completion.RECORD).parent.mkdir(parents=True, exist_ok=True)
+    (feature / _completion.RECORD).write_bytes(b"\xff\xfe not text")
+
+    assert _states(feature, tmp_path)["implement"] == "in_progress"

@@ -14,25 +14,31 @@ file could go missing apart from the record, and the archive would need a
 second row to keep the two together.
 
 This module imports `_md` and the standard library and never `_evidence`,
-which imports it. The quoted-out text a caller already holds is passed in
-beside the raw text, rather than recomputed here through an import cycle.
+which imports it. The function that quotes a task list out is passed in by the
+caller, since importing `quoted_out` here would close that cycle.
 """
 from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
 from wfctl import _md
 
 RECORD = Path("checklists") / "implement-complete.md"
-"""Relative to the feature directory. Named once because three readers and
-one writer use it, where two readers named it before."""
+"""Relative to the feature directory. Named once for the two readers in
+`_evidence` and the writer in `cli`. `_archive._SPEC_MAP` keeps its own
+string, since that table is plain paths, so a rename has to touch it too."""
 
 _HEADING = "## Tasks at completion"
 
 _BOX = re.compile(r"\[[ xX]\]")
+# The inline-span rule `_evidence._blanked` applies. It is spelled again here
+# rather than imported, because `_evidence` imports this module. If the two
+# drift, a box inside a span is taken as the task's box, its ID stays in the
+# description, and a renumber reopens the step, which is the safe direction.
 _SPAN = re.compile(r"`[^`\n]+`")
 # Only what spec-kit writes straight after the box. A task ID later in the
 # text, such as "after T012", stays part of the description, so a new task that
@@ -91,6 +97,7 @@ def copy_of(record_text: str) -> str | None:
     if opener is None or not opener.fence:
         return None
     copied: list[str] = []
+    # `number` is 1-based, so as an index it is the line after the opener.
     for line in walked[opener.number :]:
         if line.fence:
             return "".join(f"{text}\n" for text in copied)
@@ -120,7 +127,7 @@ def description(raw_line: str) -> str:
     return " ".join(f"{raw_line[: box.start()]} {rest[tags.end() :]}".split())
 
 
-def _incomplete(raw: str, quoted: str) -> Counter[str]:
+def _incomplete(raw: str, quote: Callable[[str], str]) -> Counter[str]:
     """The incomplete tasks in a task list, counted by description.
 
     Which lines are tasks is decided on the quoted-out text, so a task shown in
@@ -128,23 +135,29 @@ def _incomplete(raw: str, quoted: str) -> Counter[str]:
     the raw line, so an inline code span keeps its text. The two line up by
     index because quoting out blanks a line rather than dropping it.
 
+    The raw text is split with `splitlines`, not `_lines`, because that is how
+    `_blanked` splits it before joining the result on newlines. Splitting the
+    two sides differently would pair a form feed's halves with the wrong
+    quoted lines.
+
     A line is incomplete when any box on it is, so `[x] … [ ] …` cannot hide
     the open half behind the ticked one.
     """
     return Counter(
         description(raw_line)
-        for raw_line, quoted_line in zip(raw.splitlines(), quoted.split("\n"))
+        for raw_line, quoted_line in zip(raw.splitlines(), quote(raw).split("\n"))
         if "[ ]" in quoted_line
     )
 
 
-def new_incomplete(
-    live_raw: str, live_quoted: str, copy_raw: str, copy_quoted: str
-) -> Counter[str]:
+def new_incomplete(live: str, copy: str, quote: Callable[[str], str]) -> Counter[str]:
     """The incomplete tasks in the live list that the copy does not account for.
+
+    `quote` is `_evidence.quoted_out`. It is applied here to each text, so the
+    raw and quoted forms of one list cannot come from two different texts.
 
     Matched by count, so two incomplete tasks sharing a description where the
     copy held one leave one new. A task ticked in the copy and incomplete now
     is new too: the copy held it ticked, not incomplete.
     """
-    return _incomplete(live_raw, live_quoted) - _incomplete(copy_raw, copy_quoted)
+    return _incomplete(live, quote) - _incomplete(copy, quote)

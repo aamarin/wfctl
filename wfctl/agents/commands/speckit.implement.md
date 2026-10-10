@@ -50,9 +50,8 @@ passed on the current tree. A run restarted after that tick would move on and
 never come back for the pass. With one box still open, a restart returns to
 `/speckit.implement`. `wfctl step complete implement` at step 9b is no later
 point, because the completion record it writes is a second way of saying the
-same thing. Before 9c, so that
-`wfctl verify` judges the tree the pass left rather than the one it started
-from.
+same thing. Before 9c, so that `wfctl verify` judges the tree the pass left
+rather than the one it started from.
 
 If step 9c fails and the fix changes production code, run the pass again over
 what the fix changed rather than the whole diff, then run `wfctl verify`
@@ -86,9 +85,15 @@ by hand has no copy, and it closes the step only once every box is ticked. As
 a result, work done outside this skill and left unticked would read as
 unfinished.
 
-Run it after the last box is ticked and the refactor pass above is done, and
-before step 9c. The copy accepts every task still incomplete in it as
-finished, so a copy taken earlier would accept work that was never done.
+Run it once the last task's work is done and the refactor pass above has run,
+whether or not every box is ticked, and before step 9c. The copy accepts every
+task still incomplete in it as finished, so a copy taken earlier would accept
+work that was never done.
+
+A story reopened by a re-run of `/speckit.tasks` can show every task as new
+work, since that skill writes every box unticked. Before redoing a task the
+copy held ticked, check whether its work is already in the tree, and tick it
+if it is.
 
 If the command refuses, stop and report its message. Writing the file by hand
 is not a fallback. A refusal means the record would say something false: there

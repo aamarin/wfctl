@@ -612,9 +612,7 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
             copy = None
         if copy is None:
             return done < total
-        return bool(
-            _completion.new_incomplete(tasks_text, quoted_out(tasks_text), copy, quoted_out(copy))
-        )
+        return bool(_completion.new_incomplete(tasks_text, copy, quoted_out))
     if total:
         return done < total
     # No box anywhere. An absent file is not this function's question — the

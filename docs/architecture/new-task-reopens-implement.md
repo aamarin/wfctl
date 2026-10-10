@@ -198,7 +198,10 @@ revisiting.
 
 A re-run of `/speckit.tasks` that rewords tasks reopens the `implement` step,
 even when the work behind them was done outside the skill. The agent then
-checks that work again. This costs time but never hides open work.
+checks that work again. This costs time but never hides open work. An ordinary
+re-run costs more than a reworded one: `/speckit.tasks` writes every box
+unticked, so every task the copy held ticked reads as new work, and the agent
+checks all of it rather than only the task that was added.
 
 A reopened story goes to `/speckit.decompose` first when its `decompose` step
 is not done, and `implement` follows once it is. That is the case for a feature
