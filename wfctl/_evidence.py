@@ -1067,20 +1067,57 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     return Fact(name, "unmet" if waiting else "met", named)
 
 
+def fact_records_committed(repo_root: Path) -> Fact:
+    """Are this checkout's records the ones a new worktree would load? Owner: git.
+
+    A record accepted in the main checkout and left uncommitted reached nobody
+    else for a week, because every worktree branched from the last commit loaded
+    the old copy (#180). `/start-session` printed the file daily, and the line was
+    read past. As a fact it reaches `wfctl status` and the JSON payload that
+    `/start-session` reads, through the same path as the three before it.
+
+    It reports and does not refuse. An uncommitted record is the normal state
+    while a branch is still writing one, so refusing on it would stop design work
+    to report something nobody did wrong.
+
+    Scoped to the working tree, unlike the fact above. "Architecture accepted"
+    asks what this branch decided, and the edit that caused #180 sat in a
+    checkout whose branch had decided nothing.
+    """
+    from wfctl import _arch
+    from wfctl._paths import is_in_tree, uncommitted_records
+
+    name = "records committed"
+    arch = arch_root(repo_root)
+    if not is_in_tree(arch, repo_root):
+        return Fact(name, "n/a", "records are kept outside this repository")
+
+    pending = uncommitted_records(repo_root, arch)
+    if pending is None:
+        return Fact(name, "unmet", "git cannot say whether records are committed")
+    if pending:
+        return Fact(name, "unmet", f"{len(pending)} uncommitted: " + ", ".join(pending))
+    if not _arch.load_records(arch):
+        return Fact(name, "n/a", "no records in this repository")
+    return Fact(name, "met", "all committed")
+
+
 def facts(
     ev: Evidence | None, repo_root: Path, verification: str | None,
 ) -> tuple[Fact, ...]:
-    """The three, in the fixed order a consumer may index rather than search.
+    """The four, in the fixed order a consumer may index rather than search.
 
     The order runs from what the branch produced outward to what a human has
-    ruled on. There were four until #384: the fourth read the outward-action
-    grant, which was removed because wfctl never owned "may this command run"
-    — the host's permission layer does, and refuses before wfctl's process
-    exists (`wfctl-records-outward-actions-and-never-gates-them`). Fixed and
+    ruled on, and then to whether that ruling has landed. A fourth fact once read
+    the outward-action grant, and #384 removed it because wfctl never owned "may
+    this command run". The host's permission layer does, and refuses before
+    wfctl's process exists (`wfctl-records-outward-actions-and-never-gates-them`).
+    `records committed` took the slot in #180, appended rather than inserted so
+    that a consumer indexing the first three still reads the same facts. Fixed and
     never filtered: a consumer reading a short list learns nothing, where one
     reading no `facts` key at all learns that this wfctl predates the question.
 
-    Three calls, three owners, and none of them is passed another's answer. That
+    Four calls, four owners, and none of them is passed another's answer. That
     is the constraint `readiness-is-not-a-step-state` exists to hold, and this
     signature is where a future fact would have to break it visibly.
     """
@@ -1088,6 +1125,7 @@ def facts(
         fact_artifacts_written(ev),
         fact_definition_of_done(repo_root, verification),
         fact_architecture_accepted(repo_root),
+        fact_records_committed(repo_root),
     )
 
 

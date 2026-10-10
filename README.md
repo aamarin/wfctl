@@ -57,6 +57,7 @@ implement    ○
 artifacts written     ○  missing spec.md, plan.md, tasks.md
 definition of done    ●  passed at 40eb0a2
 architecture accepted ○  mirror-supersedes-the-wrapper (proposed)
+records committed     ○  1 uncommitted: mirror-supersedes-the-wrapper.md
 next: /speckit.brainstorm
 ```
 

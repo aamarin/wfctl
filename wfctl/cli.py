@@ -105,7 +105,7 @@ _FACT_GLYPH: dict[str, tuple[str, str]] = {
     "n/a":   ("–", "dim"),
 }
 
-# The width of the longest of the three fact names, `architecture accepted`.
+# The width of the longest fact name, `architecture accepted`.
 # A constant because the literal would otherwise sit inline in a loop that reads
 # as a column, where a name longer than the reserved width shifts every row and
 # nothing says what the number was for.
@@ -804,7 +804,7 @@ def status_cmd(
                 _print_warning_remedy(pass_warning)
 
     # Between the step table and `next:`, and printed in every state including
-    # the one where all three are met. Rendering it only when something is unmet
+    # the one where every fact is met. Rendering it only when something is unmet
     # would make its *absence* carry meaning, which a reader cannot tell from a
     # wfctl too old to know the question.
     #

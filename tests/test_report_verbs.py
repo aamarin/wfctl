@@ -231,4 +231,4 @@ def test_the_status_payload_carries_no_grant_keys(
     payload = _payload()
     assert "notify" not in payload
     assert "notify_source" not in payload
-    assert len(payload["facts"]) == 3
+    assert len(payload["facts"]) == 4

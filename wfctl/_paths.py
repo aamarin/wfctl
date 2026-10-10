@@ -646,6 +646,52 @@ def records_on_this_branch(
     return sorted(slugs)
 
 
+def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:
+    """The record files under `arch` that differ from HEAD, or None when git fails.
+
+    Modified, staged, deleted, untracked, and ignored all count, because none of
+    them has landed. A worktree branched from the last commit loads the committed
+    copy of every record, so an edit left in this checkout is a decision those
+    worktrees never see (#180). `--ignored` is what reaches the last case, since
+    `load_records` reads an ignored record from disk and `git status` alone never
+    lists it.
+
+    Only direct children of `arch`, which is what `load_records` reads. Every
+    subdirectory holds something other than a top-level record, whether a scan, a
+    level-3 design note, or a claim, and leaving one uncommitted mid-session is
+    normal work. `non_record_subtrees` alone would let `design/` through, since
+    that list keeps level-3 records for a different caller.
+
+    `-uall` for `records_on_this_branch`'s reason. Without it git reports the
+    first record in a new directory as the directory, which names no file.
+    """
+    r = subprocess.run(
+        ["git", "status", "--porcelain", "-z", "-uall", "--ignored", "--", str(arch)],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return None
+    # `-z` because git quotes a path holding a space or a non-ASCII character in
+    # line mode, and a quoted name ends in `.md"` and silently fails the suffix
+    # test. Each entry is a two-letter code, a space, and a path relative to the
+    # repository root. A rename or copy carries its old path as the next field,
+    # with no code. A rename keeps both names, because a record renamed into
+    # `design/` or away from `.md` leaves only the old name passing the filter
+    # below. A copy's source is untouched, so it is skipped.
+    fields = iter(r.stdout.split("\0"))
+    paths = []
+    for field in fields:
+        if not field:
+            continue
+        paths.append(repo_root / field[3:])
+        if field[0] in "RC" or field[1] in "RC":
+            old = next(fields, "")
+            if old and "R" in field[:2]:
+                paths.append(repo_root / old)
+    resolved = arch.resolve()
+    return sorted(p.name for p in paths if p.suffix == ".md" and p.parent.resolve() == resolved)
+
+
 def is_in_tree(root: Path, repo_root: Path) -> bool:
     """Would a file under `root` be committed with the code in `repo_root`?
 
