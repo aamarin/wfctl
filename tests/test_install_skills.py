@@ -788,6 +788,21 @@ def test_a_file_backup_already_on_disk_is_not_overwritten(agent_dir: Path) -> No
     assert earlier.read_text() == "# the first original\n"
 
 
+def test_a_dangling_link_at_the_backup_path_counts_as_taken(tmp_path: Path) -> None:
+    """`exists()` follows a link and reports a dangling one as free.
+
+    Taking that answer would copy the backup through the link to wherever it
+    points, outside `.wf-skills-backup/`, so a link of any kind marks the
+    name as taken.
+    """
+    from wfctl.cli import _free_backup_path
+
+    backup = tmp_path / "test-skill"
+    backup.symlink_to(tmp_path / "nowhere")
+
+    assert _free_backup_path(backup) == tmp_path / "test-skill.2"
+
+
 def test_uninstall_with_nothing_installed_is_a_noop(agent_dir: Path) -> None:
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert result.exit_code == 0

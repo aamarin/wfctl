@@ -55,4 +55,6 @@ the skill files themselves:
   freshly installed, and restores anything overwritten to its original
   content. State for this lives in `.wf-skills-manifest.json` and
   `.wf-skills-backup/` at the repo root, cleaned up once nothing references
-  them.
+  them. An earlier backup kept beside a newer one of the same path, such as
+  `test-skill` beside `test-skill.2`, is never cleaned up, and the install
+  that made the second copy says so.

@@ -3103,6 +3103,7 @@ def _free_backup_path(backup: Path) -> Path:
         candidate = backup.with_name(f"{backup.name}.{n}")
     return candidate
 
+
 # What `--tracker github` installs. The scripts are not optional extras: the
 # config's `start`/`stop` and `create` verbs invoke them by path, so the set
 # travels together or those verbs are declared and broken.
@@ -4899,14 +4900,15 @@ def install_skills_cmd(
         if rel_dest in prior_items:
             backup_rel = prior_items[rel_dest].get("backup")
         elif dest.exists():
-            backup_dest = _free_backup_path(repo_root / _BACKUP_DIR / rel_dest)
+            default_backup = repo_root / _BACKUP_DIR / rel_dest
+            backup_dest = _free_backup_path(default_backup)
             backup_dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.is_dir():
                 shutil.copytree(dest, backup_dest)
             else:
                 shutil.copy2(dest, backup_dest)
             backup_rel = str(backup_dest.relative_to(repo_root))
-            if backup_rel != str(Path(_BACKUP_DIR) / rel_dest):
+            if backup_dest != default_backup:
                 second_backups.append((rel_dest, backup_rel))
             new_backups += 1
             backup_layers.add(layer)
@@ -5163,10 +5165,14 @@ def install_skills_cmd(
             f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
+    # The earlier copy has no record after this run, so nothing will restore or
+    # remove it. This line is the only place it is named.
     for backed_up, second in second_backups:
         console.print(
             f"[yellow]ℹ[/yellow] {_BACKUP_DIR}/{backed_up} already held an earlier "
-            f"backup, which was kept. {backed_up} was backed up to {second}",
+            f"backup, which was kept. {backed_up} was backed up to {second}, and "
+            "uninstall-skills restores that copy. The earlier one stays where it "
+            "is, and no command will restore or remove it.",
             soft_wrap=True,
         )
 
