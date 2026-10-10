@@ -2175,9 +2175,10 @@ def step_complete_cmd(
     write_atomic(record, _completion.render(tasks_text, date.today()))
 
     done, total = task_tally(tasks_text)
+    plural = "" if total == 1 else "s"
     console.print(
         "[green]✓[/green] Recorded implement complete, with a copy of tasks.md "
-        f"({total} tasks, {total - done} incomplete)"
+        f"({total} task{plural}, {total - done} incomplete)"
     )
 
 

@@ -1059,6 +1059,7 @@ def test_step_complete_runs_once_the_story_reads_complete(
     code, output = _complete("implement")
 
     assert code == 0, output
+    assert "(1 task, 0 incomplete)" in output
     assert (storyctl_dir.spec_dir / _completion.RECORD).is_file()
 
 
