@@ -95,10 +95,11 @@ work, since that skill writes every box unticked. Before redoing a task the
 copy held ticked, check whether its work is already in the tree, and tick it
 if it is.
 
-A story whose completion record holds no copy, which is every record written
-before wfctl took one, reopens on any incomplete task, and `wfctl status`
-says so beside `implement`. Most of these stories shipped with work done
-outside the skill. Check each incomplete task against the tree before redoing
+A story whose completion record holds no copy reopens on any incomplete task,
+and `wfctl status` says so beside `implement`. Every record written before
+wfctl took a copy is one of these, and so is a record written by hand or one
+wfctl cannot read. Most of these stories shipped with work done outside the
+skill. Check each incomplete task against the tree before redoing
 it, tick the ones whose work is there, and run `wfctl step complete implement`
 once the rest are done.
 
