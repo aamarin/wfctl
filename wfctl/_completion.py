@@ -163,7 +163,10 @@ def new_incomplete(live: str, copy: str, quote: Callable[[str], str]) -> Counter
 
     Matched by count, so two incomplete tasks sharing a description where the
     copy held one leave one new. A task ticked in the copy and incomplete now
-    is new too: the copy held it ticked, not incomplete.
+    is new too: the copy held it ticked, not incomplete. The exception is an
+    edit that also ticks another task with the same description, which leaves
+    both counts as the copy had them. Without IDs to match on, that edit reads
+    the same as one that changed nothing.
 
     An incomplete task in the copy stops accounting for one in the live list
     once a task with its description is ticked since. Without that, one edit

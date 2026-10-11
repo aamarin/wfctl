@@ -68,7 +68,9 @@ moment.
 
 Each time wfctl reports status, it compares the current `tasks.md` against
 that copy. An incomplete task that was not incomplete in the copy is new work.
-When wfctl finds one, it reopens the `implement` step and gives
+A task ticked since the copy was taken uses up one incomplete task with its
+description in the copy, so a new task that repeats the description of one
+just ticked is new work too. When wfctl finds new work, it reopens the `implement` step and gives
 `/speckit.implement` as the next step, whether or not a definition of done is
 configured.
 
@@ -130,7 +132,7 @@ flowchart TD
   subgraph wfctl["wfctl, every time it reports"]
     exists{"completion record<br/>with a copy?"}
     boxes{"any incomplete task<br/>in tasks.md now?"}
-    cmp{"an incomplete task in tasks.md now<br/>that was not incomplete in the copy?"}
+    cmp{"an incomplete task in tasks.md now<br/>that was not incomplete in the copy,<br/>or that repeats one ticked since?"}
     open["implement ▶<br/>next: /speckit.implement"]
     held["implement ▶, not automatic<br/>names wfctl step complete implement"]
     closed["tasks read finished<br/>definition of done, if configured, decides"]
@@ -176,11 +178,12 @@ since its incomplete tasks may be work that was done outside the skill.
   rejected because a re-run of `/speckit.tasks` renumbers tasks in execution
   order, so a new task can take an old task's ID and be read as old work. That
   failure hides new work. Matching by description hides a new task only when
-  it replaces a deleted incomplete task with the same description, word for
-  word, and otherwise it can only reopen the step when it did not need to. A
-  task ticked since the copy was taken uses up one incomplete task with its
-  description in the copy, so a new task that repeats the description of one
-  just ticked still reads as new.
+  the same edit also deletes or unticks another task with the same
+  description, word for word. For example, an edit that deletes T001 "Update
+  docs", ticks T002 "Update docs", and adds T003 "Update docs" leaves one
+  ticked and one incomplete task with that description, as the copy had, so
+  T003 does not reopen the step. In every other case, matching by description
+  can only reopen the step when it did not need to.
 
 ## Consequences
 
@@ -240,3 +243,6 @@ uses, the general answer #502 is working toward should be able to absorb it.
 - 2026-10-09  proposed    — #264. A story that gained a task after the
   `implement` step finished still read as finished, and with no definition of
   done configured it was reported complete.
+- 2026-10-11  amended     — #579. A new task that repeats the description of
+  a task ticked in the same edit reads as new work, and a record with no copy
+  reopens the step without routing to it automatically.
