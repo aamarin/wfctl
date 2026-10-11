@@ -4258,7 +4258,8 @@ def _ensure_gitignored(repo_root: Path, line: str) -> bool:
 
     Returns whether it wrote. `spec-root` announces the edit, since `.gitignore`
     is tracked and `repo_root` may not be where the user is standing;
-    `install-skills` counts the Falses to report how many it skipped.
+    `install-skills` counts the Falses to report how many it skipped. A path
+    below a symlinked directory also returns False, with no pattern behind it.
     """
     import subprocess as sp
 
@@ -5158,12 +5159,13 @@ def install_skills_cmd(
 
     # A count, not a list: `git check-ignore -v <path>` already attributes each
     # skip to a file, line, and pattern, and a second listing here would drift.
-    # A path below a symlink is skipped too, but no pattern covers it, so
-    # counting it would report a `.gitignore` match that does not exist.
+    # `_ensure_gitignored` also declines a path below a symlink, but no pattern
+    # covers that path, so counting it would report a `.gitignore` match that
+    # does not exist.
     skipped = sum(
         not _ensure_gitignored(repo_root, rel)
+        and not _below_a_link(repo_root, repo_root / rel)
         for rel in (_MANIFEST_PATH, f"{_BACKUP_DIR}/", *gitignore_targets)
-        if not _below_a_link(repo_root, repo_root / rel)
     )
     if skipped:
         console.print(
