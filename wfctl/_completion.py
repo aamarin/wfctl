@@ -127,8 +127,9 @@ def description(raw_line: str) -> str:
     return " ".join(f"{raw_line[: box.start()]} {rest[tags.end() :]}".split())
 
 
-def _incomplete(raw: str, quote: Callable[[str], str]) -> Counter[str]:
-    """The incomplete tasks in a task list, counted by description.
+def _counted(raw: str, quote: Callable[[str], str]) -> tuple[Counter[str], Counter[str]]:
+    """The incomplete tasks and the ticked tasks in a task list, each counted
+    by description.
 
     Which lines are tasks is decided on the quoted-out text, so a task shown in
     a code example is not counted (FR-009), and each description is taken from
@@ -141,13 +142,17 @@ def _incomplete(raw: str, quote: Callable[[str], str]) -> Counter[str]:
     quoted lines.
 
     A line is incomplete when any box on it is, so `[x] … [ ] …` cannot hide
-    the open half behind the ticked one.
+    the open half behind the ticked one. A line is ticked when it has a box
+    and none of its boxes is open.
     """
-    return Counter(
-        description(raw_line)
-        for raw_line, quoted_line in zip(raw.splitlines(), quote(raw).split("\n"))
-        if "[ ]" in quoted_line
-    )
+    incomplete: Counter[str] = Counter()
+    ticked: Counter[str] = Counter()
+    for raw_line, quoted_line in zip(raw.splitlines(), quote(raw).split("\n")):
+        if "[ ]" in quoted_line:
+            incomplete[description(raw_line)] += 1
+        elif _BOX.search(quoted_line):
+            ticked[description(raw_line)] += 1
+    return incomplete, ticked
 
 
 def new_incomplete(live: str, copy: str, quote: Callable[[str], str]) -> Counter[str]:
@@ -159,5 +164,14 @@ def new_incomplete(live: str, copy: str, quote: Callable[[str], str]) -> Counter
     Matched by count, so two incomplete tasks sharing a description where the
     copy held one leave one new. A task ticked in the copy and incomplete now
     is new too: the copy held it ticked, not incomplete.
+
+    An incomplete task in the copy stops accounting for one in the live list
+    once a task with its description is ticked since. Without that, one edit
+    that ticks T002 "Update docs" and adds T003 "Update docs" leaves the
+    incomplete count for that description unchanged, and T003 hides behind the
+    task it was written after.
     """
-    return _incomplete(live, quote) - _incomplete(copy, quote)
+    live_incomplete, live_ticked = _counted(live, quote)
+    copy_incomplete, copy_ticked = _counted(copy, quote)
+    accounted = copy_incomplete - (live_ticked - copy_ticked)
+    return live_incomplete - accounted

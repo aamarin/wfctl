@@ -253,6 +253,21 @@ def test_only_the_task_added_since_completion_is_new_work() -> None:
     assert _incomplete(live, copy) == Counter({"- Added later": 1})
 
 
+def test_a_new_task_that_repeats_a_task_ticked_in_the_same_edit_still_reads_as_new(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """One edit ticks T002 and adds T003 with the same description. Counting
+    incomplete tasks alone saw one "Update docs" open before and one after, so
+    T003 hid behind T002 and the story read finished with open work. Ticking
+    T002 uses up the copy's incomplete entry, so T003 is new."""
+    copy = "- [x] T001 Build it\n- [ ] T002 Update docs\n"
+    live = "- [x] T001 Build it\n- [x] T002 Update docs\n- [ ] T003 Update docs\n"
+    feature = _feature(spec_tree, live, **_record(copy))
+
+    assert _incomplete(live, copy) == Counter({"- Update docs": 1})
+    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+
+
 def test_a_new_task_that_takes_an_old_tasks_id_still_reads_as_new(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:

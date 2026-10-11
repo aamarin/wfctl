@@ -172,8 +172,12 @@ whether an edit mattered; it only checks which incomplete tasks exist.
   reworded task would then keep its place and not reopen the step. It was
   rejected because a re-run of `/speckit.tasks` renumbers tasks in execution
   order, so a new task can take an old task's ID and be read as old work. That
-  failure hides new work, while matching by description can only reopen the
-  step when it did not need to.
+  failure hides new work. Matching by description hides a new task only when
+  it replaces a deleted incomplete task with the same description, word for
+  word, and otherwise it can only reopen the step when it did not need to. A
+  task ticked since the copy was taken uses up one incomplete task with its
+  description in the copy, so a new task that repeats the description of one
+  just ticked still reads as new.
 
 ## Consequences
 
