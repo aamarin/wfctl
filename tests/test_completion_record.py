@@ -392,10 +392,21 @@ def test_a_record_with_no_copy_and_an_incomplete_task_leaves_implement_current(
 ) -> None:
     """FR-007 and Story 4 #1. A one-line record cannot say whether the task
     was open when the step finished or was added since, so it is read as
-    added since, which is the direction that cannot hide work."""
+    added since, which is the direction that cannot hide work.
+
+    Not automatically, though. Most records like this belong to a story that
+    shipped before the copy existed, with tasks done outside the skill and
+    left unticked. Routed with `auto: true`, an unattended run re-entered
+    implementation on that story with nothing saying why, so the step names
+    the record and the command that closes it again."""
     feature = _feature(spec_tree, _FINISHED, **_record(None))
 
-    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.current, report.next_command, report.auto) == (
+        "implement", "/speckit.implement", False,
+    )
+    reason = _step(feature, tmp_path, "implement").reason
+    assert reason is not None and "wfctl step complete implement" in reason
 
 
 def test_a_record_with_no_copy_over_a_fully_ticked_list_reads_finished(

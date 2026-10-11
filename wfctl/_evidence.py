@@ -256,6 +256,9 @@ class Evidence:
     # skipped. Defaulted and last so an `Evidence` built by hand in a test keeps
     # compiling.
     agent_dir: Path | None = None
+    # `_TasksOpen.uncopied`: the tasks read open only because the completion
+    # record holds no copy. Defaulted for the same reason as `agent_dir`.
+    uncopied_record: bool = False
 
 
 def _file_exists(path: Path) -> bool:
@@ -562,7 +565,16 @@ def task_tally(tasks_text: str) -> tuple[int, int]:
     return done, done + len(re.findall(r"\[ \]", text))
 
 
-def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
+class _TasksOpen(NamedTuple):
+    open: bool
+    # The tasks read open only because a completion record with no copy cannot
+    # vouch for the incomplete ones. `implement` names that case, since it is
+    # mostly a story that shipped before the copy existed, and an automatic
+    # re-run of `/speckit.implement` there redoes finished work unattended.
+    uncopied: bool = False
+
+
+def _tasks_open(tasks_text: str, spec_dir: Path) -> _TasksOpen:
     """Whether the tasks are still open, by the two routes `implement` reads as
     finished: every box ticked, or the completion record that says so over one
     left open.
@@ -591,8 +603,9 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     tasks after the story gained one, and nothing ever removed it. A record
     with no copy, which is every one written before the copy existed, says
     nothing about which tasks it covered, so it closes the tasks only when
-    every box is ticked. Neither reading consults a modification time: a
-    restore from `specs-trunk` gives every file the same one.
+    every box is ticked, and says so in `uncopied`. Neither reading consults a
+    modification time: a restore from `specs-trunk` gives every file the same
+    one.
 
     Takes the text rather than reading it, so a caller that already holds it
     decides from one read. The walk reads `tasks.md` for its own tally, and a
@@ -605,20 +618,20 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
         if not total:
             # A list with no task has nothing to reopen, under either shape of
             # record. `tasks` reads `skipped` over the same pair.
-            return False
+            return _TasksOpen(False)
         try:
             copy = _completion.copy_of(record.read_text())
         except (OSError, UnicodeDecodeError):
             copy = None
         if copy is None:
-            return done < total
-        return bool(_completion.new_incomplete(tasks_text, copy, quoted_out))
+            return _TasksOpen(done < total, uncopied=done < total)
+        return _TasksOpen(bool(_completion.new_incomplete(tasks_text, copy, quoted_out)))
     if total:
-        return done < total
+        return _TasksOpen(done < total)
     # No box anywhere. An absent file is not this function's question — the
     # readers that care read `tasks_text` and report `pending` before asking —
     # so the remaining case is the file that exists and holds no task.
-    return bool(tasks_text)
+    return _TasksOpen(bool(tasks_text))
 
 
 # The Issue Grouping Map, and the `|---|---|` line markdown puts under every
@@ -877,7 +890,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #   tasks       2. `tasks.md` is non-empty and holds at least one checkbox (#308).
 #               Never 3: what a task says is not read, and neither is whether it
 #               is ticked — a file of open boxes finishes this step. `skipped`
-#               where the implementation sentinel stands over a file with no box.
+#               where the completion record stands over a file with no box.
 #   analyze     1. `checklists/analysis-report.md` is non-empty.
 #   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
 #               and where a tracker is configured and it carries an Issue Grouping
@@ -1183,6 +1196,7 @@ def build_evidence(
     plan_text = quoted_out(plan_raw)
 
     done, total = task_tally(tasks_text)
+    tasks_open = _tasks_open(tasks_text, spec_dir)
     return Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
@@ -1194,11 +1208,12 @@ def build_evidence(
         # literal `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix
         has_markers="[NEEDS CLARIFICATION" in spec_text,
         tasks_text=tasks_text,
-        tasks_open=_tasks_open(tasks_text, spec_dir),
+        tasks_open=tasks_open.open,
         tasks_done=done,
         tasks_total=total,
         verification=verification_block(repo_root),
         agent_dir=agent_dir,
+        uncopied_record=tasks_open.uncopied,
     )
 
 
@@ -1592,6 +1607,12 @@ def decompose(ev: Evidence) -> Assessment:
     return Assessment("in_progress" if ev.tasks_open else "done", reason)
 
 
+_UNCOPIED_RECORD = (
+    "completion record holds no copy of tasks.md — check the work is in the tree, "
+    "then run `wfctl step complete implement`"
+)
+
+
 def implement(ev: Evidence) -> Assessment:
     """The tasks read closed, and a repo-declared verification passed on this tree.
 
@@ -1611,6 +1632,12 @@ def implement(ev: Evidence) -> Assessment:
     tally = f"{ev.tasks_done}/{ev.tasks_total} done" if ev.tasks_total else None
 
     if ev.tasks_open:
+        if ev.uncopied_record:
+            # A reason, so `next_step_content` routes here with `auto: false`.
+            # The incomplete tasks may be work done outside the skill on a
+            # story that shipped, and only someone checking the tree can tell.
+            reason = _UNCOPIED_RECORD
+            return Assessment("in_progress", reason, f"{tally}  {reason}" if tally else reason)
         return Assessment("in_progress", None, tally)
     # Tasks read complete. Before #69 that was the whole check, and both routes
     # to it are written by the agent doing the work. A configured definition of

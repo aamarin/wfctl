@@ -132,6 +132,7 @@ flowchart TD
     boxes{"any incomplete task<br/>in tasks.md now?"}
     cmp{"an incomplete task in tasks.md now<br/>that was not incomplete in the copy?"}
     open["implement ▶<br/>next: /speckit.implement"]
+    held["implement ▶, not automatic<br/>names wfctl step complete implement"]
     closed["tasks read finished<br/>definition of done, if configured, decides"]
   end
   work --> finish
@@ -141,7 +142,7 @@ flowchart TD
   exists -- "no copy inside" --> boxes
   cmp -- "open work" --> open
   cmp -- "nothing new" --> closed
-  boxes -- "open work" --> open
+  boxes -- "open work" --> held
   boxes -- "none incomplete" --> closed
 ```
 
@@ -150,7 +151,9 @@ agent and the completion command run once, when the `implement` step
 finishes. The wfctl group runs on every `wfctl status` and `wfctl next`,
 whether or not anyone has edited `tasks.md` since. If nobody has, the
 comparison finds no new task and nothing changes. wfctl never asks anyone
-whether an edit mattered; it only checks which incomplete tasks exist.
+whether an edit mattered; it only checks which incomplete tasks exist. A
+record with no copy reopens the step without routing to it automatically,
+since its incomplete tasks may be work that was done outside the skill.
 
 ## Considered
 
@@ -199,6 +202,12 @@ finished with unticked boxes before this change will therefore reopen the next
 time wfctl reads it. A story whose task list holds no tasks stays finished. We accept that cost while
 Andre is wfctl's only user. If wfctl gains a second user, this decision needs
 revisiting.
+
+A story reopened this way is not sent back to `/speckit.implement`
+automatically. Most of these stories shipped with work done outside the skill,
+so an unattended run would redo finished work. `wfctl status` says the
+completion record holds no copy and names `wfctl step complete implement`, and
+`wfctl next` waits for a person or an attended agent to check the tree first.
 
 A re-run of `/speckit.tasks` that rewords tasks reopens the `implement` step,
 even when the work behind them was done outside the skill. The agent then
