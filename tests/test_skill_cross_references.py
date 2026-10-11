@@ -327,6 +327,20 @@ def test_implement_allows_the_commands_the_refactor_pass_needs() -> None:
         assert f"Bash({needed}*)" in allowed, needed
 
 
+def test_implement_writes_its_completion_record_through_wfctl() -> None:
+    """FR-011 (#264). The completion record carries a copy of `tasks.md`, and
+    only `wfctl step complete implement` writes one. An agent following the
+    derived skill's step 9b writes the one-line record by hand, which no longer
+    closes an open box, so the wrapper has to name the command. It has to be in
+    `allowed-tools` too, or an unattended run is refused at the step that
+    finishes the story."""
+    text = (_AGENTS / "commands" / "speckit.implement.md").read_text()
+    front = text.split("---")[1]
+    allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
+    assert "Bash(wfctl step complete*)" in allowed
+    assert "wfctl step complete implement" in text
+
+
 def test_the_design_record_skill_asks_git_whether_the_record_landed() -> None:
     """A record nobody can open is the failure the format exists to prevent, and
     it is invisible: the file is on disk, the session reports success, and the
