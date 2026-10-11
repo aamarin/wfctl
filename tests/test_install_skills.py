@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import _GITHUB_TRACKER_FILES, _MIRRORED_SKILLS, _recorded_items, app
+from wfctl.cli import (
+    _GITHUB_TRACKER_FILES,
+    _MIRRORED_SKILLS,
+    _free_backup_path,
+    _recorded_items,
+    app,
+)
 
 runner = CliRunner()
 
@@ -717,6 +723,96 @@ def test_install_backs_up_and_uninstall_restores_pre_existing_file(agent_dir: Pa
     # Original content is back, not just deleted.
     assert (existing_cmd_dir / "test-cmd.md").read_text() == "# my own pre-existing command\n"
     assert not (repo_root / ".wf-skills-backup").exists()
+
+
+def test_a_directory_backup_already_on_disk_is_kept_beside_the_new_one(
+    agent_dir: Path,
+) -> None:
+    """An install crashed when a directory's backup path was already taken.
+
+    A manifest that has lost its layers sends every pre-existing path through
+    the backup step again, onto copies an earlier install left behind.
+    `copytree` refused the existing destination with a FileExistsError, and the
+    install stopped part-way. The earlier copy may be the only original left,
+    and the live directory differs from it, so both copies have to survive.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    live = repo_root / ".agents" / "skills" / "test-skill"
+    live.mkdir(parents=True)
+    (live / "SKILL.md").write_text("# edited since the first backup\n")
+    earlier = repo_root / ".wf-skills-backup" / ".agents" / "skills" / "test-skill"
+    earlier.mkdir(parents=True)
+    (earlier / "SKILL.md").write_text("# the first original\n")
+
+    result = runner.invoke(app, ["install-skills", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert (earlier / "SKILL.md").read_text() == "# the first original\n"
+    second = earlier.with_name("test-skill.2")
+    assert (second / "SKILL.md").read_text() == "# edited since the first backup\n"
+    assert ".wf-skills-backup/.agents/skills/test-skill.2" in result.output
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "base"])
+    assert result.exit_code == 0, result.output
+    assert (live / "SKILL.md").read_text() == "# edited since the first backup\n"
+    assert (earlier / "SKILL.md").read_text() == "# the first original\n"
+
+
+def test_a_file_backup_already_on_disk_is_not_overwritten(agent_dir: Path) -> None:
+    """A file's earlier backup was overwritten without any warning.
+
+    `copy2` replaces an existing destination, so the earlier backup was lost
+    while the run reported success. The manifest also has to record where the
+    second copy actually went, because uninstall restores whatever path the
+    manifest names.
+    """
+    import os
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    live = repo_root / ".claude" / "commands" / "test-cmd.md"
+    live.parent.mkdir(parents=True)
+    live.write_text("# edited since the first backup\n")
+    earlier = repo_root / ".wf-skills-backup" / ".claude" / "commands" / "test-cmd.md"
+    earlier.parent.mkdir(parents=True)
+    earlier.write_text("# the first original\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert earlier.read_text() == "# the first original\n"
+    second = earlier.with_name("test-cmd.md.2")
+    assert second.read_text() == "# edited since the first backup\n"
+    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+    recorded = {i["path"]: i["backup"] for i in manifest["claude"]["items"]}
+    assert recorded[".claude/commands/test-cmd.md"] == (
+        ".wf-skills-backup/.claude/commands/test-cmd.md.2"
+    )
+    # A bare uninstall-skills means `--agent base`, which never restores a
+    # claude-layer backup, so the report has to name the layer.
+    header = next(line for line in result.output.splitlines() if "already had a backup" in line)
+    assert "wfctl uninstall-skills --agent claude" in header
+    assert (
+        ".claude/commands/test-cmd.md → .wf-skills-backup/.claude/commands/test-cmd.md.2"
+        in result.output
+    )
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+    assert live.read_text() == "# edited since the first backup\n"
+    assert earlier.read_text() == "# the first original\n"
+
+
+def test_a_dangling_link_at_the_backup_path_counts_as_taken(tmp_path: Path) -> None:
+    """`exists()` follows a link and reports a dangling one as free.
+
+    Taking that answer would copy the backup through the link to wherever it
+    points, outside `.wf-skills-backup/`, so a link of any kind marks the
+    name as taken.
+    """
+    backup = tmp_path / "test-skill"
+    backup.symlink_to(tmp_path / "nowhere")
+
+    assert _free_backup_path(backup) == tmp_path / "test-skill.2"
 
 
 def test_uninstall_with_nothing_installed_is_a_noop(agent_dir: Path) -> None:

@@ -332,7 +332,11 @@ layer is touched** — uninstalling `claude` leaves `.agents/` intact, because t
 base layer owns it. `--agent` defaults to `base`, mirroring `install-skills`, so
 a bare install and a bare uninstall round-trip. State lives in
 `.wf-skills-manifest.json` and `.wf-skills-backup/` at the repo root — both are
-cleaned up once nothing references them.
+cleaned up once nothing references them. The exception is a path backed up while
+an earlier backup of it is still on disk. The earlier copy is kept, and the new
+one is stored beside it under the next free number, such as
+`software-design-decisions.2`. Uninstall restores the new copy. No record names
+the earlier one, so it stays in `.wf-skills-backup/` until someone removes it.
 
 `wfctl doctor` is the single "am I current?" check — it reports the wfctl tool
 and the installed skills (the hash on record vs the bundle this wfctl ships).
