@@ -56,5 +56,5 @@ the skill files themselves:
   content. State for this lives in `.wf-skills-manifest.json` and
   `.wf-skills-backup/` at the repo root, cleaned up once nothing references
   them. An earlier backup kept beside a newer one of the same path, such as
-  `test-skill` beside `test-skill.2`, is never cleaned up, and the install
-  that made the second copy says so.
+  `software-design-decisions` beside `software-design-decisions.2`, is not
+  cleaned up, and the install that made the second copy lists it.

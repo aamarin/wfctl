@@ -3098,7 +3098,7 @@ def _free_backup_path(backup: Path) -> Path:
     """
     n = 1
     candidate = backup
-    while candidate.exists() or candidate.is_symlink():
+    while os.path.lexists(candidate):
         n += 1
         candidate = backup.with_name(f"{backup.name}.{n}")
     return candidate
@@ -4887,7 +4887,7 @@ def install_skills_cmd(
     count = 0
     new_backups = 0
     backup_layers: set[str] = set()
-    second_backups: list[tuple[str, str]] = []
+    second_backups: list[tuple[str, str, str]] = []
     items: dict[str, list[dict]] = {}
     summary: dict[str, dict[str, int]] = {}
     for layer, kind, rel_dest, dest, item in plan:
@@ -4909,7 +4909,7 @@ def install_skills_cmd(
                 shutil.copy2(dest, backup_dest)
             backup_rel = str(backup_dest.relative_to(repo_root))
             if backup_dest != default_backup:
-                second_backups.append((rel_dest, backup_rel))
+                second_backups.append((layer, rel_dest, backup_rel))
             new_backups += 1
             backup_layers.add(layer)
         else:
@@ -5165,16 +5165,22 @@ def install_skills_cmd(
             f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
-    # The earlier copy has no record after this run, so nothing will restore or
-    # remove it. This line is the only place it is named.
-    for backed_up, second in second_backups:
+    # The earlier copies have no record after this run, and this report is the
+    # only place they are named. One header and one line per path, because a
+    # manifest that lost its records collides on every path it installs.
+    if second_backups:
+        one = len(second_backups) == 1
         console.print(
-            f"[yellow]ℹ[/yellow] {_BACKUP_DIR}/{backed_up} already held an earlier "
-            f"backup, which was kept. {backed_up} was backed up to {second}, and "
-            "uninstall-skills restores that copy. The earlier one stays where it "
-            "is, and no command will restore or remove it.",
+            f"[yellow]ℹ[/yellow] {len(second_backups)} path{'' if one else 's'} "
+            f"already had a backup in {_BACKUP_DIR}/, which was kept. The new "
+            f"cop{'y' if one else 'ies'} went beside {'it' if one else 'them'}, "
+            f"and {_restore_hint(layer for layer, _, _ in second_backups)} "
+            f"restores {'it' if one else 'them'}. No record names the earlier "
+            f"cop{'y' if one else 'ies'}:",
             soft_wrap=True,
         )
+        for _, backed_up, second in second_backups:
+            console.print(f"    {backed_up} → {second}", soft_wrap=True)
 
     if orphans and not prune:
         one = len(orphans) == 1

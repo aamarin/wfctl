@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import _GITHUB_TRACKER_FILES, _MIRRORED_SKILLS, _recorded_items, app
+from wfctl.cli import (
+    _GITHUB_TRACKER_FILES,
+    _MIRRORED_SKILLS,
+    _free_backup_path,
+    _recorded_items,
+    app,
+)
 
 runner = CliRunner()
 
@@ -781,6 +787,14 @@ def test_a_file_backup_already_on_disk_is_not_overwritten(agent_dir: Path) -> No
     assert recorded[".claude/commands/test-cmd.md"] == (
         ".wf-skills-backup/.claude/commands/test-cmd.md.2"
     )
+    # A bare uninstall-skills means `--agent base`, which never restores a
+    # claude-layer backup, so the report has to name the layer.
+    header = next(line for line in result.output.splitlines() if "already had a backup" in line)
+    assert "wfctl uninstall-skills --agent claude" in header
+    assert (
+        ".claude/commands/test-cmd.md → .wf-skills-backup/.claude/commands/test-cmd.md.2"
+        in result.output
+    )
 
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
@@ -795,8 +809,6 @@ def test_a_dangling_link_at_the_backup_path_counts_as_taken(tmp_path: Path) -> N
     points, outside `.wf-skills-backup/`, so a link of any kind marks the
     name as taken.
     """
-    from wfctl.cli import _free_backup_path
-
     backup = tmp_path / "test-skill"
     backup.symlink_to(tmp_path / "nowhere")
 
