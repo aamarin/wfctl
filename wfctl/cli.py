@@ -5170,13 +5170,13 @@ def install_skills_cmd(
     # manifest that lost its records collides on every path it installs.
     if second_backups:
         one = len(second_backups) == 1
+        copies, ones = ("copy was", "one") if one else ("copies were", "ones")
         console.print(
             f"[yellow]ℹ[/yellow] {len(second_backups)} path{'' if one else 's'} "
-            f"already had a backup in {_BACKUP_DIR}/, which was kept. The new "
-            f"cop{'y' if one else 'ies'} went beside {'it' if one else 'them'}, "
-            f"and {_restore_hint(layer for layer, _, _ in second_backups)} "
-            f"restores {'it' if one else 'them'}. No record names the earlier "
-            f"cop{'y' if one else 'ies'}:",
+            f"already had a backup in {_BACKUP_DIR}/. The earlier {copies} kept "
+            f"and the new {ones} went beside {'it' if one else 'them'}. "
+            f"{_restore_hint(layer for layer, _, _ in second_backups)} restores "
+            f"the new {ones}, and no record names the earlier {ones}:",
             soft_wrap=True,
         )
         for _, backed_up, second in second_backups:
