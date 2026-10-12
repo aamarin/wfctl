@@ -170,6 +170,63 @@ def test_an_unwritable_file_keeps_its_receipts_and_install_finishes(
     assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)
 
 
+def _point_receipts_outside(
+    repo_root: Path, tmp_path_factory: pytest.TempPathFactory, form: str
+) -> Path:
+    """Point every receipt at a settings file outside the repo that holds the
+    entries the receipts name, and return that file. `form` says whether the
+    manifest spells the path as an absolute path or as a relative one that
+    climbs out with `..`."""
+    outside = tmp_path_factory.mktemp("outside") / "settings.json"
+    outside.write_text(json.dumps({"tools": {"allowed": list(_LEGACY_ENTRIES)}}) + "\n")
+    rel = str(outside) if form == "absolute" else os.path.relpath(outside, repo_root)
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    for receipt in manifest["bob"]["tools"]:
+        receipt["path"] = rel
+    _manifest_path(repo_root).write_text(json.dumps(manifest, indent=2) + "\n")
+    return outside
+
+
+@pytest.mark.parametrize("form", ["absolute", "traversal"])
+def test_install_leaves_a_receipt_path_outside_the_repo_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, form: str
+) -> None:
+    """The removal joined a receipt's path onto the repo root as written, so a
+    hand-edited or committed manifest could make `install-skills --agent bob`
+    rewrite a JSON file anywhere on disk. Install also runs unattended from
+    `/start-session`, so nobody would see it happen."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    outside = _point_receipts_outside(repo_root, tmp_path_factory, form)
+    before = outside.read_text()
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert outside.read_text() == before
+    assert result.output.count("is recorded as a path outside this repo") == 1
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
+
+
+@pytest.mark.parametrize("form", ["absolute", "traversal"])
+def test_uninstall_leaves_a_receipt_path_outside_the_repo_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, form: str
+) -> None:
+    """Uninstall already refused an outside path for the files it deletes,
+    but still followed one for the settings entries it removes."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    outside = _point_receipts_outside(repo_root, tmp_path_factory, form)
+    before = outside.read_text()
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert outside.read_text() == before
+    assert result.output.count("is recorded as a path outside this repo") == 1
+
+
 def test_agent_claude_leaves_the_bob_receipts_for_the_bob_install(
     agent_dir: Path,
 ) -> None:

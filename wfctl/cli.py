@@ -4040,9 +4040,9 @@ def _unmerge_permissions(
 
 def _unmerge_bob_tool_allows(
     repo_root: Path, records: Iterable[dict]
-) -> tuple[set[str], list[str], list[dict]]:
+) -> tuple[set[str], list[str], list[dict], list[str]]:
     """Remove the `tools.allowed` entries an older wfctl merged into Bob Shell's
-    settings. `(files changed, problems, kept)`.
+    settings. `(files changed, problems, kept, outside)`.
 
     Shaped after `_unmerge_permissions`, minus `declined`: nothing here has a
     "related" form to show for one, so a changed entry is simply not reported
@@ -4053,17 +4053,28 @@ def _unmerge_bob_tool_allows(
     again once the file is fixed. Without them the entries would stay in the
     file with nothing left to say they were wfctl's, and from then on they
     would read as the user's.
+
+    `outside` names the recorded paths that leave the repo. wfctl never records
+    one, so the receipt is dropped rather than kept, since a retry would reach
+    the same file. Install runs this unattended from `/start-session`, which is
+    why a hand-edited or committed manifest must not be able to aim it at a
+    JSON file elsewhere on disk.
     """
     changed: set[str] = set()
     problems: list[str] = []
     kept: list[dict] = []
+    outside: list[str] = []
     for record in records:
         rel, entry = record.get("path"), record.get("entry")
         if not rel or not entry:
             continue
         if not record.get("added", False):
             continue
-        path = repo_root / rel
+        path = _recorded_path(repo_root, rel)
+        if path is None:
+            if rel not in outside:
+                outside.append(rel)
+            continue
         if not path.exists():
             continue
         settings, problem = _read_settings(path)
@@ -4087,7 +4098,7 @@ def _unmerge_bob_tool_allows(
             kept.append(record)
             continue
         changed.add(rel)
-    return changed, problems, kept
+    return changed, problems, kept, outside
 
 
 def _unmerge_hooks(
@@ -4928,8 +4939,8 @@ def install_skills_cmd(
     # layer's manifest entry is replaced below and the receipts saying which
     # entries were wfctl's would go with it. This can go once no bob install
     # still carries `tools` receipts.
-    removed_bob_tools, bob_tools_problems, kept_bob_tools = _unmerge_bob_tool_allows(
-        repo_root, manifest.get(agent, {}).get("tools", [])
+    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_outside = (
+        _unmerge_bob_tool_allows(repo_root, manifest.get(agent, {}).get("tools", []))
     )
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -5208,6 +5219,12 @@ def install_skills_cmd(
             "added are still in it, and the next install tries again",
             soft_wrap=True,
         )
+    for outside_rel in bob_tools_outside:
+        console.print(
+            f"[yellow]⚠[/yellow] {outside_rel} is recorded as a path outside this repo — "
+            "left alone",
+            soft_wrap=True,
+        )
     for removed_rel in sorted(removed_bob_tools):
         # Said, because Bob Shell may start prompting for tool calls this file
         # used to approve. Removing them is right, and it should not happen
@@ -5379,8 +5396,8 @@ def uninstall_skills_cmd(
         repo_root, entry.get("permissions", [])
     )
     # `kept` is for install's retry; the receipts go with the manifest entry.
-    unmerged_bob_tools, bob_tools_problems, _ = _unmerge_bob_tool_allows(
-        repo_root, entry.get("tools", [])
+    unmerged_bob_tools, bob_tools_problems, _, bob_tools_outside = (
+        _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
     for problem in unmerge_problems:
         console.print(
@@ -5398,6 +5415,12 @@ def uninstall_skills_cmd(
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
             "be in this file; the record naming it is being removed either way",
+            soft_wrap=True,
+        )
+    for outside_rel in bob_tools_outside:
+        console.print(
+            f"[yellow]⚠[/yellow] {outside_rel} is recorded as a path outside this repo — "
+            "left alone",
             soft_wrap=True,
         )
 
