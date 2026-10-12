@@ -13,8 +13,10 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+from wfctl import cli
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -81,8 +83,8 @@ def test_agent_bob_leaves_an_existing_settings_file_byte_identical(
 
 
 def test_agent_bob_does_not_create_a_settings_file(agent_dir: Path) -> None:
-    """An empty project file still has to be noticed and reasoned about by
-    whoever opens the repo, and wfctl has nothing to put in it."""
+    """The old merge created `.bob/settings.json` in a repo that had none, and
+    that file then outranked the user's global settings in every session."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
@@ -143,6 +145,29 @@ def test_an_unparseable_file_keeps_its_receipts_for_the_next_install(
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
     assert json.loads(settings_path.read_text()) == {}
+
+
+def test_an_unwritable_file_keeps_its_receipts_and_install_finishes(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The removal runs after the copy loop and before the manifest write. A
+    write error raised from there left the copied files unrecorded, and
+    `/start-session` runs this install unattended."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    before = _settings_path(repo_root).read_text()
+
+    def refuse(path: Path, settings: dict) -> None:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(cli, "_write_settings", refuse)
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("the next install tries again") == 1
+    assert _settings_path(repo_root).read_text() == before
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)
 
 
 def test_agent_claude_leaves_the_bob_receipts_for_the_bob_install(

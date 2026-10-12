@@ -4048,10 +4048,11 @@ def _unmerge_bob_tool_allows(
     "related" form to show for one, so a changed entry is simply not reported
     as removed.
 
-    `kept` holds the receipts for a file that would not parse. Install writes
-    them back to the manifest, so the next run tries again once the file is
-    fixed. Without them the entries would stay in the file with nothing left
-    to say they were wfctl's, and from then on they would read as the user's.
+    `kept` holds the receipts for a file that would not parse or could not be
+    written. Install writes them back to the manifest, so the next run tries
+    again once the file is fixed. Without them the entries would stay in the
+    file with nothing left to say they were wfctl's, and from then on they
+    would read as the user's.
     """
     changed: set[str] = set()
     problems: list[str] = []
@@ -4075,7 +4076,16 @@ def _unmerge_bob_tool_allows(
             continue
         if not _bob_settings.remove_tool_allow(settings, entry):
             continue
-        _write_settings(path, settings)
+        try:
+            _write_settings(path, settings)
+        except OSError as exc:
+            # A read-only file would otherwise raise out of install after the
+            # copy loop and before the manifest write, leaving the copied
+            # files unrecorded.
+            if f"{rel}: {exc}" not in problems:
+                problems.append(f"{rel}: {exc}")
+            kept.append(record)
+            continue
         changed.add(rel)
     return changed, problems, kept
 
@@ -4916,7 +4926,8 @@ def install_skills_cmd(
     # Bob Shell lets the project file override the user's global one. Removed
     # here, on the next install of the layer that recorded them, because the
     # layer's manifest entry is replaced below and the receipts saying which
-    # entries were wfctl's would go with it.
+    # entries were wfctl's would go with it. This can go once no bob install
+    # still carries `tools` receipts.
     removed_bob_tools, bob_tools_problems, kept_bob_tools = _unmerge_bob_tool_allows(
         repo_root, manifest.get(agent, {}).get("tools", [])
     )
@@ -5198,12 +5209,15 @@ def install_skills_cmd(
             soft_wrap=True,
         )
     for removed_rel in sorted(removed_bob_tools):
-        # Said, because Bob Shell starts prompting for tool calls this file used
-        # to approve. Removing them is right, and it should not happen silently.
+        # Said, because Bob Shell may start prompting for tool calls this file
+        # used to approve. Removing them is right, and it should not happen
+        # silently. No claim about which file Bob Shell reads next: entries the
+        # user wrote here still outrank the global file.
         console.print(
             f"[yellow]ℹ[/yellow] Removed the tool approvals an older wfctl added to "
-            f"{escape(removed_rel)}.\n  Bob Shell now uses your global settings for "
-            "those tools, and your own entries in the file were left alone.",
+            f"{escape(removed_rel)}.\n  Your own entries in it were left alone. "
+            "Approvals you want in every repo belong in\n  "
+            "~/.bob/settings/settings.json.",
             soft_wrap=True,
         )
 
