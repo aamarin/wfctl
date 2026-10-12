@@ -15,15 +15,18 @@ draft, and the person cutting the release edits the draft and picks the version.
 ## Context
 
 A release note is a short file committed with a change, at
-`changes/<issue>.md`. It says what an existing user of wfctl will notice once
-the change ships, and it names one of four categories: a behaviour change, an
-addition, a fix, or none. The release notes are what a release publishes, and
-they are built from those files. For example, the change that recorded the
-speckit scripts one file per entry would have committed this:
+`changes/<branch>.md`, so each branch carries its own note. It says what an
+existing user of wfctl will notice once the change ships, and it names one of
+four categories: a behaviour change, an addition, a fix, or none. It can also
+list the issues the change closes. The release notes are what a release
+publishes, and they are built from those files. For example, the change that
+recorded the speckit scripts one file per entry would have committed this as
+`changes/293-mirror-below-recorded-dir.md`:
 
 ```markdown
 ---
 category: behaviour change
+issues: [293]
 ---
 The next `install-skills --prune` deletes the speckit scripts unless the
 project reinstalls once.
@@ -82,8 +85,8 @@ with the time between releases, which is the first problem above.
 
 A change isn't done until it commits its release note. This repository adds a
 check script to the `verify` list in `wfctl.json`, and the script fails when
-the branch has no `changes/<issue>.md` for its issue, or when the file names no
-valid category. Because the check is part of the definition of done, three
+the branch does not add `changes/<branch>.md` under its own name, or when the
+file names no valid category. Because the check is part of the definition of done, three
 existing places refuse a change without a note:
 
 1. `wfctl verify` records a failure, and `wfctl status` reports the definition
@@ -158,7 +161,7 @@ that the context arrives written down instead of reconstructed.
 ```mermaid
 flowchart TB
   subgraph change["a change, on its branch"]
-    author["author commits the release note<br/>changes/&lt;issue&gt;.md"]
+    author["author commits the release note<br/>changes/&lt;branch&gt;.md"]
     type["commit type (fix, feat)"]
   end
   subgraph done["definition of done"]
@@ -221,6 +224,11 @@ notice, and the tag job never publishes GitHub's generated notes.
   because it is the reconstruction this record exists to replace, done later
   with less context, and nothing checks it. The agent that made the change
   writes the release note for the cost of one file.
+- **One shared release notes file that every change edits,** as a
+  hand-maintained `CHANGELOG.md` works. It needs no script to collect the
+  notes. It loses because every open pull request edits the same lines, so
+  each merge conflicts with every other pull request still open. pip, pytest,
+  and CPython moved to one file per change for this reason.
 - **A label per pull request,** as uv and ruff do. A label is easy to add and
   to filter on. It carries the category but not the sentence, so the person
   cutting the release still writes every line. Ruff's own contributing guide
@@ -228,14 +236,28 @@ notice, and the tag job never publishes GitHub's generated notes.
 
 ## Consequences
 
-The release note check runs inside `wfctl verify`, so it has to find the
-branch's issue the way wfctl does and compare the branch against `main`. On
-`main` itself there is no branch to compare, so the check passes there. That is
-what lets the release commit, which deletes the files, pass its own CI.
+The release note check runs inside `wfctl verify`, so it reads the current
+branch's name and compares the branch against `main`. On `main` itself there is
+no branch to compare, so the check passes there. That is what lets the release
+commit, which deletes the files, pass its own CI.
+
+The note is named for the branch, not for an issue or a pull request, for three
+reasons:
+
+1. A pull request can close several issues, and one issue can take several pull
+   requests. When two pull requests work on the same issue, each commits its
+   own note, and the second never edits a note the first already merged.
+2. Every branch has a name, including a branch that names no issue, such as a
+   dependency update. The check has something to look for on every branch.
+3. A pull request's number doesn't exist until it opens, so `wfctl verify`
+   couldn't check a note named for it before then.
+
+A branch name containing `/` becomes `-` in the file name, so every note sits
+directly under `changes/`.
 
 A stacked pull request carries its parent's release note in its diff against
-`main`. The check therefore requires the file named for the branch's own issue,
-not just any file under `changes/`.
+`main`. The check therefore requires the file named for the branch itself, not
+just any file under `changes/`.
 
 The pull request template's "Type of Change" checkboxes ask the same question
 less precisely than the release note's category, and two fields asking one
@@ -269,3 +291,6 @@ place to compare a note's category against the diff.
   moved from the pull request description into a committed file.
 - 2026-10-10  rewritten   — the release note is a file the definition of done
   requires, so wfctl checks it locally as well as in CI.
+- 2026-10-12  revised     — the note is named for the branch rather than the
+  issue, since a pull request can close several issues and one issue can take
+  several pull requests.
