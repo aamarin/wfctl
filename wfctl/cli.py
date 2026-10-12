@@ -4953,9 +4953,8 @@ def install_skills_cmd(
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
-    # An older wfctl merged a starter allow-list into `.bob/settings.json`, and
-    # Bob Shell lets the project file override the user's global one. Removed
-    # here, on the next install of the layer that recorded them, because the
+    # An older wfctl merged a starter allow-list into `.bob/settings.json`,
+    # which Bob Shell 2.0.6 never reads approvals from. Removed here, on the next install of the layer that recorded them, because the
     # layer's manifest entry is replaced below and the receipts saying which
     # entries were wfctl's would go with it. This can go once no bob install
     # still carries `tools` receipts.

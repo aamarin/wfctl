@@ -64,12 +64,12 @@ would have to interpret. Each is an explicit branch keyed on the agent, not an
 entry in the `_AGENT_SKILL_EXTRAS` table, so a second target sharing Claude's
 schema is a change to that function rather than a config edit.
 
-Bob Shell gets no merge. Its project file, `.bob/settings.json`, takes
-precedence over the user's global `~/.bob/settings/settings.json`. As a result,
-any allow-list wfctl merged into a repo replaced the approvals the user had set
-for every repo, and a narrower list meant more prompts rather than fewer. The
-user's global file is where those approvals belong, and wfctl leaves both files
-alone. An install that still carries entries an older wfctl merged has them
+Bob Shell gets no merge. Bob Shell 2.0.6 reads approvals only from the
+`approval` section of the user's global `~/.bob/settings/settings.json`. It
+reads the project's `.bob/settings.json` for hooks and a pinned team, and
+nothing in its bundled code reads `tools.allowed` from either file. As a
+result, the allow-list wfctl merged into a repo approved nothing, and wfctl
+leaves both files alone. An install that still carries entries an older wfctl merged has them
 removed on its next `install-skills --agent bob`, using the manifest's `tools`
 receipts to tell wfctl's entries from the user's.
 
@@ -173,7 +173,9 @@ refuses rather than re-asserting an unmarked entry the consumer has changed.
   entry is matched by exact text, so it cannot carry a marker, and ownership
   goes to the manifest instead. No change to the mode's shape — a second
   agent's schema under the same carve-out, not a new one.
-- 2026-10-12  amended     — merge no longer covers Bob Shell (#554). The project
-  file outranks the user's global settings, so the starter allow-list overrode
-  what the user had approved everywhere else. The next bob install removes the
-  entries an older wfctl added, and leaves the user's own.
+- 2026-10-12  amended     — merge no longer covers Bob Shell (#554). The
+  2026-09-16 amendment was wrong about Bob's mechanism. Bob Shell 2.0.6 has no
+  reader for `tools.allowed` in either settings file, and takes approvals only
+  from `approval` in the user's global file, so the starter allow-list
+  approved nothing. The next bob install removes the entries an older wfctl
+  added, and leaves the user's own.

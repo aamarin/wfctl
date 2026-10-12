@@ -1,9 +1,9 @@
 """`install-skills --agent bob` leaves Bob Shell's `.bob/settings.json` alone,
 and takes back out the tool approvals an older wfctl merged into it.
 
-Bob Shell gives that project file precedence over the user's global
-`~/.bob/settings/settings.json`, so a starter allow-list written into a repo
-replaced whatever the user had approved globally. The removal itself is
+Bob Shell 2.0.6 has no reader for `tools.allowed`, and reads approvals only
+from the user's global `~/.bob/settings/settings.json`, so the starter
+allow-list written into a repo approved nothing. The removal itself is
 unit-tested in `test_bob_settings_merge.py`; this proves the commands that run
 it against a real settings file on a real repo.
 """
@@ -66,8 +66,8 @@ def _record_legacy_install(repo_root: Path, theirs: list[str]) -> None:
 def test_agent_bob_leaves_an_existing_settings_file_byte_identical(
     agent_dir: Path,
 ) -> None:
-    """The project file outranks the user's global one, so anything wfctl
-    wrote here would override what the user approved for every repo."""
+    """The project file holds the user's hooks and pinned team, and wfctl has
+    nothing to add to it, since Bob Shell reads no approvals from it."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
@@ -83,8 +83,8 @@ def test_agent_bob_leaves_an_existing_settings_file_byte_identical(
 
 
 def test_agent_bob_does_not_create_a_settings_file(agent_dir: Path) -> None:
-    """The old merge created `.bob/settings.json` in a repo that had none, and
-    that file then outranked the user's global settings in every session."""
+    """The old merge created `.bob/settings.json` in a repo that had none, to
+    hold an allow-list Bob Shell never read."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output

@@ -1,11 +1,11 @@
 """Remove the tool-approval entries an older wfctl merged into Bob Shell's
 settings file.
 
-wfctl no longer writes `.bob/settings.json`. Bob Shell gives the project file
-precedence over the user's `~/.bob/settings/settings.json`, so a starter
-allow-list written into the project replaced whatever the user had approved
-globally. What remains here is the removal half, for installs that still carry
-those entries:
+wfctl no longer writes `.bob/settings.json`. Bob Shell 2.0.6 has no reader for
+`tools.allowed` in either settings file, and takes approvals only from the
+`approval` section of the user's `~/.bob/settings/settings.json`, so the
+starter allow-list approved nothing. What remains here is the removal half, for
+installs that still carry those entries:
 
     {"tools": {"allowed": ["read_file", "execute_command(git)", ...]}}
 
