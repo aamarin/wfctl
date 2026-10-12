@@ -3217,9 +3217,9 @@ def test_bob_install_strips_disable_model_invocation(
     It stays because a stripper has no evidence it is Claude-specific, not
     because keeping it does anything for Bob today; treating it as Claude-only
     was the wrong call #142 made, not a right one this test should repeat with
-    a different justification. Bob's real approval scoping is `.bob/settings.json`
-    (see the `approval-settings` skill and `test_install_bob_tool_allows.py`,
-    which `install-skills --agent bob` merges into it automatically)."""
+    a different justification. Bob's real approval scoping is `tools.allowed`
+    in its settings files (see the `approval-settings` skill), which wfctl
+    leaves to the user."""
     import os
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])

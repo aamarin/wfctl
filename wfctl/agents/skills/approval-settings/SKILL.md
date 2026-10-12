@@ -16,7 +16,7 @@ Editing Bob Shell approval configuration in `settings.json`.
 
 Project settings take precedence over user settings. Changes take effect on the next Bob Shell session start.
 
-`wfctl install-skills --agent bob` merges a starter allowlist into the project file automatically (`read_file`, `list_files`, `glob`, `grep`, and `execute_command`/`run_shell_command` prefixes for `git` and `uv run`) — it is not something a project has to set up by hand. `allowed-tools:` on a command's own frontmatter does nothing here; that is Claude Code's mechanism, and Bob Shell does not read it.
+Because the project file takes precedence, an allowlist written there replaces the one the user set for every repo. Put approvals the user wants everywhere in the user file, and use the project file only for something this repo needs and others do not. `wfctl install-skills --agent bob` writes neither file. `allowed-tools:` on a command's own frontmatter does nothing here, since that is Claude Code's mechanism and Bob Shell does not read it.
 
 ## Schema
 
