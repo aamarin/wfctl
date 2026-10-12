@@ -2892,9 +2892,9 @@
       "state": "done"
     },
     {
-      "annotation": "1/2 done",
+      "annotation": "1/2 done  completion record holds no copy of tasks.md \u2014 check the work is in the tree, then run `wfctl step complete implement`",
       "name": "implement",
-      "reason": null,
+      "reason": "completion record holds no copy of tasks.md \u2014 check the work is in the tree, then run `wfctl step complete implement`",
       "remedy": null,
       "state": "in_progress"
     }
@@ -2950,9 +2950,9 @@
       "state": "done"
     },
     {
-      "annotation": "1/2 done",
+      "annotation": "1/2 done  completion record holds no copy of tasks.md \u2014 check the work is in the tree, then run `wfctl step complete implement`",
       "name": "implement",
-      "reason": null,
+      "reason": "completion record holds no copy of tasks.md \u2014 check the work is in the tree, then run `wfctl step complete implement`",
       "remedy": null,
       "state": "in_progress"
     }

@@ -232,6 +232,10 @@ def test_a_task_added_after_completion_reopens_implement_without_a_definition_of
     With no definition of done, this tree read `implement` done and the story
     complete beside `1/2 done`, because the record existed. Going back to
     trusting the record by its existence fails this test.
+
+    The route is automatic. Only a record with no copy holds it for a person,
+    and a hold that spread to this case would stop every unattended run at
+    each task added after the step finished.
     """
     feature = _feature(
         spec_tree,
@@ -241,7 +245,10 @@ def test_a_task_added_after_completion_reopens_implement_without_a_definition_of
     step = _step(feature, tmp_path, "implement")
 
     assert (step.state, step.annotation) == ("in_progress", "1/2 done")
-    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.current, report.next_command, report.auto) == (
+        "implement", "/speckit.implement", True,
+    )
 
 
 def test_only_the_task_added_since_completion_is_new_work() -> None:
@@ -251,6 +258,36 @@ def test_only_the_task_added_since_completion_is_new_work() -> None:
     live = copy + "- [ ] T003 Added later\n"
 
     assert _incomplete(live, copy) == Counter({"- Added later": 1})
+
+
+def test_a_new_task_that_repeats_a_task_ticked_in_the_same_edit_still_reads_as_new(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """One edit ticks T002 and adds T003 with the same description. Counting
+    incomplete tasks alone saw one "Update docs" open before and one after, so
+    T003 hid behind T002 and the story read finished with open work. Ticking
+    T002 uses up the copy's incomplete entry, so T003 is new."""
+    copy = "- [x] T001 Build it\n- [ ] T002 Update docs\n"
+    live = "- [x] T001 Build it\n- [x] T002 Update docs\n- [ ] T003 Update docs\n"
+    feature = _feature(spec_tree, live, **_record(copy))
+
+    assert _incomplete(live, copy) == Counter({"- Update docs": 1})
+    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+
+
+def test_a_task_the_copy_already_held_ticked_does_not_use_up_its_incomplete_twin(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Only a task ticked since the copy uses up an incomplete entry. Counting
+    every ticked task instead reads T001, ticked when the step finished, as
+    ticked since, so T002 counts as new and the story reopens on every read
+    with nobody having touched `tasks.md`. No other test holds a ticked and an
+    incomplete task with one description, so nothing else catches that."""
+    tasks = "- [x] T001 Update docs\n- [ ] T002 Update docs\n"
+    feature = _feature(spec_tree, tasks, **_record(tasks))
+
+    assert _incomplete(tasks, tasks) == Counter()
+    assert _states(feature, tmp_path)["implement"] == "done"
 
 
 def test_a_new_task_that_takes_an_old_tasks_id_still_reads_as_new(
@@ -377,10 +414,21 @@ def test_a_record_with_no_copy_and_an_incomplete_task_leaves_implement_current(
 ) -> None:
     """FR-007 and Story 4 #1. A one-line record cannot say whether the task
     was open when the step finished or was added since, so it is read as
-    added since, which is the direction that cannot hide work."""
+    added since, which is the direction that cannot hide work.
+
+    Not automatically, though. Most records like this belong to a story that
+    shipped before the copy existed, with tasks done outside the skill and
+    left unticked. Routed with `auto: true`, an unattended run re-entered
+    implementation on that story with nothing saying why, so the step names
+    the record and the command that closes it again."""
     feature = _feature(spec_tree, _FINISHED, **_record(None))
 
-    assert _position(feature, tmp_path) == ("implement", "/speckit.implement")
+    report = build_report(feature, tmp_path, tmp_path)
+    assert (report.current, report.next_command, report.auto) == (
+        "implement", "/speckit.implement", False,
+    )
+    reason = _step(feature, tmp_path, "implement").reason
+    assert reason is not None and "wfctl step complete implement" in reason
 
 
 def test_a_record_with_no_copy_over_a_fully_ticked_list_reads_finished(

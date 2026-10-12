@@ -2123,11 +2123,12 @@ def step_complete_cmd(
     the implement command runs this where the derived skill's step 9b writes
     the file by hand (`264-the-completion-command-is-a-step-verb`).
 
-    It refuses while a step before `implement` is current. A record written
-    then would copy every task as incomplete, so no task could ever count as
-    new work, and with no definition of done the story would read complete
-    with nothing built. It runs once the story reads complete too, which is
-    where a finish with every box ticked and no definition of done sits.
+    It refuses while a step before `implement` is current, so a record cannot
+    be written before the pipeline routes to implementation. Once `implement`
+    is current it runs whatever the boxes say, since work done outside the
+    skill leaves them unticked. The incomplete count it prints is the agent's
+    check on that. It runs once the story reads complete too, which is where a
+    finish with every box ticked and no definition of done sits.
     """
     from datetime import date
 
