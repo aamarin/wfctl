@@ -317,11 +317,11 @@ def test_every_suppressed_wrapper_still_ships_in_the_bundle() -> None:
     """The wrappers the Claude layer skips are still in the bundle for the layers
     that need them.
 
-    Suppression is per layer and works only because the file still exists —
-    `.bob/commands/` installs it with `_copy_command_for_bob` stripping the key
-    Bob Shell reads as "never execute the body" (#182 tracks that claim's
-    provenance), and bob gets no mirror to fall back on. Delete the wrapper
-    from the bundle and bob has no route left.
+    Suppression is per layer and works only because the file still exists. The
+    base layer's `.agents/commands/` installs it for every agent, and `wfctl
+    check config` reads that directory to decide whether a declared pass's
+    command is installed. Delete the wrapper from the bundle and a pass naming
+    it reads as uninstalled in every repo.
 
     That is not hypothetical: it is what the first version of #170's fix did, and
     it is invisible to every other test here. Deleting five of the seven that
@@ -388,8 +388,8 @@ def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
 
     `description`, `disable-model-invocation`, and `allowed-tools` are the keys
     a pointer may carry — the first two identify the command, and `allowed-tools`
-    scopes auto-approval for Bob Shell (preserved on the bob layer, stripped on
-    Claude). Any other key is content that would be silently dropped on suppression.
+    scopes Claude Code's auto-approval. Any other key is content that would be
+    silently dropped on suppression.
     """
     import wfctl
     from wfctl import _arch
@@ -443,8 +443,8 @@ def test_the_mirror_suppresses_the_wrapper_it_collides_with(
     Shipping both is shipping the tie.
 
     The `.agents/` assertion is the half that keeps this honest. Deleting the
-    wrapper from the bundle passes the first assertion too, and takes bob's only
-    typed route to the skill with it, since bob gets no mirror.
+    wrapper from the bundle passes the first assertion too, and takes the base
+    layer's copy with it, which `wfctl check config` reads.
     """
     import os
     native = bundle / "agents" / "skills" / "native-skill"
@@ -478,34 +478,6 @@ def test_an_unmirrored_wrapper_still_reaches_the_claude_layer(
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0
     assert (repo_root / ".claude" / "commands" / "plain-command.md").exists()
-
-
-def test_bob_keeps_the_wrapper_for_a_mirrored_skill(
-    bundle: Path, agent_dir: Path, declared_mirror: None
-) -> None:
-    """Only the layer that got the mirror drops the wrapper.
-
-    bob gets no `.claude/skills` mirror, so for bob the wrapper is not redundant
-    — it is the route, and the only one a person can type.
-
-    This is the test that fails if someone "simplifies" the suppression by
-    deleting the seven wrappers from the bundle instead. Three reviewers found
-    that regression by reading the diff; nothing in the suite caught it.
-    """
-    import os
-    native = bundle / "agents" / "skills" / "native-skill"
-    native.mkdir(parents=True)
-    (native / "SKILL.md").write_text("---\nname: native-skill\n---\nBody.\n")
-    (bundle / "agents" / "commands" / "native-skill.md").write_text(
-        "---\ndisable-model-invocation: true\n---\nRead the skill.\n"
-    )
-
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
-    assert result.exit_code == 0
-    wrapper = repo_root / ".bob" / "commands" / "native-skill.md"
-    assert wrapper.exists()
-    assert "disable-model-invocation" not in wrapper.read_text()
 
 
 def test_installed_tree_is_never_a_mirror_source(
@@ -639,8 +611,87 @@ def test_install_skills_bob_writes_skills_to_bob_dir(agent_dir: Path) -> None:
     )
     assert result.exit_code == 0
     assert (repo_root / ".bob" / "skills" / "test-skill" / "SKILL.md").exists()
-    assert (repo_root / ".bob" / "commands" / "test-cmd.md").exists()
     assert not (repo_root / ".claude").exists()
+
+
+def test_the_bob_layer_installs_no_commands(agent_dir: Path) -> None:
+    """Bob Shell reads no command directory itself. When it starts, it copies
+    command files from `.bob/`, `.agents/` and `.claude/` into its skills
+    folder, skipping any name that already has a skill. The base layer's
+    `.agents/commands/` already carries every wrapper, so a `.bob/commands/`
+    copy added nothing, and the layer ships skills only (#552). Renaming the
+    dotted wrappers to hyphens, which #552 first asked for, would give each the
+    name of a skill that already exists, and Bob would skip it."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0
+    assert (repo_root / ".bob" / "skills").is_dir()
+    assert not (repo_root / ".bob" / "commands").exists()
+    assert (repo_root / ".agents" / "commands" / "test-cmd.md").exists()
+
+
+def _install_bob_with_commands(*args: str) -> None:
+    """An install from before the bob layer dropped `.bob/commands/`."""
+    from wfctl import cli
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(cli._AGENT_TARGETS, "bob", [
+            ("agents/skills", ".bob/skills"),
+            ("agents/commands", ".bob/commands"),
+        ])
+        result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes", *args])
+    assert result.exit_code == 0
+
+
+def test_prune_clears_the_commands_an_earlier_bob_install_wrote(
+    agent_dir: Path,
+) -> None:
+    """A repo installed before the bob layer dropped its commands still has them
+    on disk and on record. They take the same path as any target wfctl stops
+    shipping: doctor names them and the `--agent bob` prune, and the prune
+    removes them. Without this, every existing Bob install would keep its dead
+    wrappers until someone deleted them by hand.
+
+    Doctor's exit code is asserted because `/start-session` acts on it, and a
+    finding printed under exit 0 is one it never repairs."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _install_bob_with_commands()
+    assert (repo_root / ".bob" / "commands" / "test-cmd.md").exists()
+
+    doctor = runner.invoke(app, ["doctor"])
+    assert doctor.exit_code == 1
+    assert ".bob/commands/test-cmd.md" in doctor.output
+    assert "install-skills --agent bob --prune" in doctor.output
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--prune", "--yes"])
+
+    assert result.exit_code == 0
+    assert not (repo_root / ".bob" / "commands" / "test-cmd.md").exists()
+    recorded = {i["path"] for i in _recorded_items(json.loads(
+        (repo_root / ".wf-skills-manifest.json").read_text()
+    ))}
+    assert not any(p.startswith(".bob/commands/") for p in recorded)
+
+
+def test_doctor_reports_old_bob_commands_from_a_named_source(
+    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+) -> None:
+    """Doctor skips a layer installed with `--from` when it asks which recorded
+    paths an install would still write, because it cannot walk that checkout.
+    A retired directory needs no walk: the target table belongs to the running
+    wfctl, not to the named source. Without this, the repo that develops wfctl
+    is exactly where old Bob commands would go unreported, since its layers are
+    installed from the working copy."""
+    source = _named_source(tmp_path_factory.mktemp("named-source"))
+    _install_bob_with_commands("--from", str(source))
+
+    doctor = runner.invoke(app, ["doctor"])
+
+    assert doctor.exit_code == 1
+    assert ".bob/commands/test-cmd.md" in doctor.output
+    assert f"install-skills --agent bob --from {source} --prune" in doctor.output
 
 
 def test_install_skills_unknown_agent_exits_one(agent_dir: Path) -> None:
@@ -3199,101 +3250,6 @@ def test_every_install_command_a_working_copy_prints_runs_the_working_copy(
     installed = runner.invoke(app, ["install-skills", "--yes"]).output
     assert "uv run wfctl install-skills --agent claude" in installed
     assert "  wfctl install-skills" not in installed
-
-
-# ---------------------------------------------------------------------------
-# Bob agent: Claude-only frontmatter stripping
-# ---------------------------------------------------------------------------
-
-def test_bob_install_strips_disable_model_invocation(
-    agent_dir: Path, bundle: Path
-) -> None:
-    """Commands installed to .bob/commands/ must not contain
-    `disable-model-invocation` — Bob Shell interprets that key literally and
-    skips model invocation, so the skill body never executes.
-
-    `allowed-tools` must survive too, but not because Bob Shell reads it —
-    grepping Bob Shell's own bundled JS turns up zero references to the key.
-    It stays because a stripper has no evidence it is Claude-specific, not
-    because keeping it does anything for Bob today; treating it as Claude-only
-    was the wrong call #142 made, not a right one this test should repeat with
-    a different justification. Bob's real approval scoping is `tools.allowed`
-    in its settings files (see the `approval-settings` skill), which wfctl
-    leaves to the user."""
-    import os
-
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    cmd = bundle / "agents" / "commands" / "test-cmd.md"
-    cmd.write_text(
-        "---\n"
-        "disable-model-invocation: true\n"
-        "allowed-tools: Read Bash(git status*)\n"
-        "description: A command that does something.\n"
-        "---\n"
-        "\nDo the thing.\n"
-    )
-
-    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
-    assert result.exit_code == 0
-
-    installed = (repo_root / ".bob" / "commands" / "test-cmd.md").read_text()
-    assert "disable-model-invocation" not in installed
-    # allowed-tools survives — it was never established as Claude-specific
-    assert "allowed-tools: Read Bash(git status*)" in installed
-    # description must survive
-    assert "description: A command that does something." in installed
-    # body must survive
-    assert "Do the thing." in installed
-
-
-def test_bob_install_drops_frontmatter_block_when_only_claude_keys(
-    agent_dir: Path, bundle: Path
-) -> None:
-    """When every frontmatter key is Claude-only, the block is dropped entirely
-    rather than leaving a bare `---\\n---\\n` stub.
-
-    `disable-model-invocation` is the only key this stripper still has evidence
-    for — Bob Shell reads it and skips model invocation on it. A command with
-    only `disable-model-invocation` gets its block dropped."""
-    import os
-
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    cmd = bundle / "agents" / "commands" / "test-cmd.md"
-    cmd.write_text(
-        "---\n"
-        "disable-model-invocation: true\n"
-        "---\n"
-        "\nDo the thing.\n"
-    )
-
-    runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
-
-    installed = (repo_root / ".bob" / "commands" / "test-cmd.md").read_text()
-    # The frontmatter block must be gone — file must not start with a fence.
-    assert not installed.lstrip().startswith("---")
-    assert "Do the thing." in installed
-
-
-def test_non_bob_install_preserves_claude_frontmatter(
-    agent_dir: Path, bundle: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Claude frontmatter must not be stripped when installing for --agent claude."""
-    import os
-
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    cmd = bundle / "agents" / "commands" / "test-cmd.md"
-    cmd.write_text(
-        "---\n"
-        "disable-model-invocation: true\n"
-        "description: A command.\n"
-        "---\n"
-        "\nDo the thing.\n"
-    )
-
-    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
-
-    installed = (repo_root / ".claude" / "commands" / "test-cmd.md").read_text()
-    assert "disable-model-invocation: true" in installed
 
 
 # --- install-skills --from: the named source (#146) ---------------------------
