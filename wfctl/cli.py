@@ -4042,7 +4042,7 @@ def _unmerge_bob_tool_allows(
     repo_root: Path, records: Iterable[dict]
 ) -> tuple[set[str], list[str], list[dict], list[str]]:
     """Remove the `tools.allowed` entries an older wfctl merged into Bob Shell's
-    settings. `(files changed, problems, kept, outside)`.
+    settings. `(files changed, problems, kept, left alone)`.
 
     Shaped after `_unmerge_permissions`, minus `declined`: nothing here has a
     "related" form to show for one, so a changed entry is simply not reported
@@ -4054,16 +4054,19 @@ def _unmerge_bob_tool_allows(
     file with nothing left to say they were wfctl's, and from then on they
     would read as the user's.
 
-    `outside` names the recorded paths that leave the repo. wfctl never records
-    one, so the receipt is dropped rather than kept, since a retry would reach
-    the same file. Install runs this unattended from `/start-session`, which is
-    why a hand-edited or committed manifest must not be able to aim it at a
-    JSON file elsewhere on disk.
+    `left alone` says which recorded paths were not touched and why: one that
+    leaves the repo, and one that is a symlink or sits below one. Writing
+    through a link edits the file it points at, which can be the user's global
+    settings or another checkout's. wfctl never records the first kind, and
+    the second belongs to whoever made the link, so the receipt is dropped
+    rather than kept, since a retry would reach the same file. Install runs this
+    unattended from `/start-session`, which is why a hand-edited or committed
+    manifest must not be able to aim it at a JSON file elsewhere on disk.
     """
     changed: set[str] = set()
     problems: list[str] = []
     kept: list[dict] = []
-    outside: list[str] = []
+    left_alone: list[str] = []
     for record in records:
         rel, entry = record.get("path"), record.get("entry")
         if not rel or not entry:
@@ -4071,9 +4074,14 @@ def _unmerge_bob_tool_allows(
         if not record.get("added", False):
             continue
         path = _recorded_path(repo_root, rel)
-        if path is None:
-            if rel not in outside:
-                outside.append(rel)
+        if path is None or path.is_symlink() or _below_a_link(repo_root, path):
+            reason = (
+                f"{rel} is recorded as a path outside this repo"
+                if path is None
+                else f"{rel} is a symlink or below one"
+            )
+            if reason not in left_alone:
+                left_alone.append(reason)
             continue
         if not path.exists():
             continue
@@ -4098,7 +4106,7 @@ def _unmerge_bob_tool_allows(
             kept.append(record)
             continue
         changed.add(rel)
-    return changed, problems, kept, outside
+    return changed, problems, kept, left_alone
 
 
 def _unmerge_hooks(
@@ -4939,7 +4947,7 @@ def install_skills_cmd(
     # layer's manifest entry is replaced below and the receipts saying which
     # entries were wfctl's would go with it. This can go once no bob install
     # still carries `tools` receipts.
-    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_outside = (
+    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_left_alone = (
         _unmerge_bob_tool_allows(repo_root, manifest.get(agent, {}).get("tools", []))
     )
 
@@ -4995,7 +5003,11 @@ def install_skills_cmd(
         manifest.setdefault(agent, {})["permissions"] = permissions
 
     # Only the receipts for a file that would not parse, so the next install
-    # tries again once it is fixed.
+    # tries again once it is fixed. Cleared first, because a source with
+    # nothing for this layer leaves its entry unreplaced above, and a spent
+    # receipt left there would later remove an entry the user added back.
+    if agent in manifest:
+        manifest[agent].pop("tools", None)
     if kept_bob_tools:
         manifest.setdefault(agent, {})["tools"] = kept_bob_tools
 
@@ -5219,11 +5231,9 @@ def install_skills_cmd(
             "added are still in it, and the next install tries again",
             soft_wrap=True,
         )
-    for outside_rel in bob_tools_outside:
+    for reason in bob_tools_left_alone:
         console.print(
-            f"[yellow]⚠[/yellow] {escape(outside_rel)} is recorded as a path outside this repo — "
-            "left alone",
-            soft_wrap=True,
+            f"[yellow]⚠[/yellow] {escape(reason)} — left alone", soft_wrap=True
         )
     for removed_rel in sorted(removed_bob_tools):
         # Said, because Bob Shell may start prompting for tool calls this file
@@ -5396,7 +5406,7 @@ def uninstall_skills_cmd(
         repo_root, entry.get("permissions", [])
     )
     # `kept` is for install's retry; the receipts go with the manifest entry.
-    unmerged_bob_tools, bob_tools_problems, _, bob_tools_outside = (
+    unmerged_bob_tools, bob_tools_problems, _, bob_tools_left_alone = (
         _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
     from rich.markup import escape
@@ -5419,11 +5429,9 @@ def uninstall_skills_cmd(
             "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
-    for outside_rel in bob_tools_outside:
+    for reason in bob_tools_left_alone:
         console.print(
-            f"[yellow]⚠[/yellow] {escape(outside_rel)} is recorded as a path outside this repo — "
-            "left alone",
-            soft_wrap=True,
+            f"[yellow]⚠[/yellow] {escape(reason)} — left alone", soft_wrap=True
         )
 
     del manifest[agent]
