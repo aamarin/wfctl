@@ -276,7 +276,7 @@ speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
 |-----------|---------------------------|
 | *(omitted)* / `none` | nothing — the base layer only |
 | `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable. A wrapper whose skill is mirrored is skipped here — both would claim one `/name` — so this layer installs fewer commands than the base one |
-| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
+| `bob` | skills → `.bob/skills/`. No command wrappers: Bob Shell reads no command directory itself. When it starts, it copies the base layer's `.agents/commands/` wrappers into its skills folder and skips any name that already has a skill |
 | `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
 | `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
 
