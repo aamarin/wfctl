@@ -157,8 +157,8 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     """The mirror is the only route on the Claude layer, and the wrapper #373
     added does not change that: `_mirror_supersedes_wrapper` suppresses
     `architecture-design.md` on exactly the layer that mirrors the skill, so
-    what the wrapper bought is a typed route on `.agents/` and bob, not a
-    second route here. The gate names the skill by path; an agent that read
+    what the wrapper bought is a copy under `.agents/`, not a second route
+    here. The gate names the skill by path; an agent that read
     that pointer and reached for `Skill(architecture-design)` instead is
     refused without membership, which is #204's fork one skill over.
 

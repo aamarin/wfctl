@@ -2982,16 +2982,25 @@ _AGENT_TARGETS = {
     "none": [],
     "codex": [],
     "claude": [("agents/commands", ".claude/commands")],
-    "bob": [
-        ("agents/skills", ".bob/skills"),
-        ("agents/commands", ".bob/commands"),
-    ],
+    # Skills only. Bob Shell reads skills from `.bob/skills/` and reads no
+    # command directory itself. When it starts, it copies command files from
+    # `.bob/`, `.agents/` and `.claude/` into its skills folder, skipping any name
+    # that already has a skill. The base layer's `.agents/commands/` already
+    # carries every wrapper, so a `.bob/commands/` copy added nothing (#552).
+    "bob": [("agents/skills", ".bob/skills")],
     # `agents/skills/<name>/SKILL.md` is already the shape Copilot's skills
     # layout expects, so this is a plain copy — no frontmatter transform, no
     # rename. See specs/…/research.md for why the skills layout was chosen over
     # `.github/agents/*.agent.md`, which upstream is deprecating.
     "copilot": [("agents/skills", ".github/skills")],
 }
+
+# Destinations an earlier wfctl installed into and this one no longer does. A
+# path recorded under one is still wfctl's output, so doctor judges it like a
+# path in a planned directory and points at the prune that removes it. Without
+# the entry, doctor skips a recorded path outside every planned directory, and
+# the old files stay on disk with nothing reporting them.
+_RETIRED_DIRS = frozenset({".bob/commands"})
 
 # Agents that are recognised but have no repo-local path to install into. They
 # resolve to an empty layer and print why, rather than erroring: the base layer
@@ -3352,9 +3361,8 @@ _MIRRORED_SKILLS = frozenset({
     #
     # #373 shipped it a wrapper and that ground is untouched: the wrapper is
     # suppressed on precisely the layer this entry is about, so what it bought is
-    # the `.agents/` copy and bob's command directory, neither of which is a
-    # discovery path. A reader weighing this entry reads the fork, not the
-    # wrapper's existence.
+    # the `.agents/` copy, which is not a discovery path. A reader weighing this
+    # entry reads the fork, not the wrapper's existence.
     #
     # It does not reach an agent mid-implementation, and must not be defended on
     # that: the skill's `description` scopes both its triggers to level 2, and
@@ -3369,9 +3377,10 @@ _MIRRORED_SKILLS = frozenset({
     "architecture-decisions",
     # Interactive design skill; its description triggers on "new feature / major
     # change that needs design thinking" — a moment nobody types a command, the
-    # same reason `fanning-out-code-review` is mirrored (#124). Wrapper reaches
-    # bob/copilot layers; mirror is the Claude route (wrapper suppressed there by
-    # _mirror_supersedes_wrapper, as for every other name in this set).
+    # same reason `fanning-out-code-review` is mirrored (#124). The wrapper
+    # installs to `.agents/commands/`; the mirror is the Claude route (wrapper
+    # suppressed there by _mirror_supersedes_wrapper, as for every other name in
+    # this set).
     "brainstorm",
     # `python-pattern-selection`'s case at two levels rather than one:
     # `design-levels` names this skill by path at level 3 and again at level 4,
@@ -3511,62 +3520,6 @@ _MIRRORED_SKILLS = frozenset({
 _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 
 
-# Frontmatter keys known to be Claude-specific and meaningless — or worse,
-# harmful — in Bob Shell. `disable-model-invocation: true` causes Bob Shell to
-# skip model invocation entirely — the skill body never executes. That is the
-# bug where /end-session and other commands do nothing when invoked in Bob
-# Shell.
-#
-# `allowed-tools` was previously listed here too, on the assumption it was
-# Claude-only. It isn't established to be: grepping Bob Shell's own bundled JS
-# for the literal key turns up nothing, which means Bob Shell does not read it
-# for anything, good or bad — it neither breaks on seeing it nor uses it to
-# scope tool approval the way #142 assumed. Absence of evidence that a key is
-# Bob-relevant is not evidence it is Claude-only, so it no longer belongs here.
-# Bob's real auto-approval mechanism is `.bob/settings.json` (the
-# `approval-settings` skill) — `install-skills --agent bob` merges a starter
-# allowlist into it automatically; see `_BOB_APPROVAL_ENTRIES`.
-_CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
-    "disable-model-invocation",
-})
-
-
-def _strip_claude_frontmatter(text: str) -> str:
-    """Remove Claude-only frontmatter keys from a command file's content.
-
-    Drops lines whose key matches _CLAUDE_ONLY_FRONTMATTER_KEYS from the
-    leading YAML block. Drops the block entirely if no keys remain after
-    stripping. Returns text unchanged when there is no front matter or the
-    block has no closing fence.
-    """
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        return text
-    close = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            close = i
-            break
-    if close is None:
-        return text
-    kept = ["---\n"]
-    for line in lines[1:close]:
-        key = line.split(":", 1)[0].strip()
-        if key not in _CLAUDE_ONLY_FRONTMATTER_KEYS:
-            kept.append(line)
-    # Drop the block entirely if nothing remains between the fences.
-    if all(ln.strip() == "---" for ln in kept):
-        return "".join(lines[close + 1:])
-    kept.append(lines[close])
-    kept.extend(lines[close + 1:])
-    return "".join(kept)
-
-
-def _copy_command_for_bob(src: "Path", dest: "Path") -> None:
-    """Copy a command file to a Bob destination, stripping Claude-only frontmatter."""
-    dest.write_text(_strip_claude_frontmatter(src.read_text(encoding="utf-8")), encoding="utf-8")
-
-
 def _claude_native_skill_mirror(
     repo_root: Path, item: Path
 ) -> tuple[str, Path, Path] | None:
@@ -3612,12 +3565,12 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
 
     Suppressed per layer, never from the bundle, and that distinction is the
     whole correctness of this function. The wrapper is one file whose body is
-    "read the sibling skill", and it is still the only typed route for a layer
-    that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
-    `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
-    body". Deleting the wrapper from the bundle instead would leave bob, which
-    gets no mirror, with no typed route to the skill at all: a Claude-shaped
-    argument taking out a layer it never described.
+    "read the sibling skill", and the base layer's `.agents/commands/` still
+    installs it for every agent. `wfctl check config` reads that directory to
+    decide whether a declared pass's command is installed (`_is_installed`), so
+    deleting the wrapper from the bundle would report a pass naming `/brainstorm`
+    as uninstalled in every repo. Deleting it was first rejected for bob, which
+    had no mirror; bob no longer installs commands at all (#552).
 
     Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
     what makes a wrapper redundant is that this agent got the mirror, not its
@@ -5000,8 +4953,6 @@ def install_skills_cmd(
 
         if item.is_dir():
             shutil.copytree(item, dest, dirs_exist_ok=True)
-        elif agent == "bob" and rel_dest.startswith(".bob/commands/"):
-            _copy_command_for_bob(item, dest)
         else:
             shutil.copy2(item, dest)
         count += 1
@@ -6097,8 +6048,8 @@ def _rewrite_status_payload_version(new_version: str) -> bool:
 
 def _is_installed(repo_root: Path) -> Callable[[str], bool]:
     """Whether a declared pass's command ships from a command layer this
-    repository has installed — `.agents/commands`, `.claude/commands`,
-    `.bob/commands` — checked by filesystem existence, the same test `doctor`
+    repository has installed — `.agents/commands`, `.claude/commands` —
+    checked by filesystem existence, the same test `doctor`
     would apply if this were its question (research.md R5). Every layer's
     directory is checked, not only whichever agent this session happens to run
     under: the repository may have several installed, and a command that
@@ -7432,25 +7383,30 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     #
     # Skipped: paths already in `flagged`; paths the reader deleted; layers
     # installed from a `--from` source, whose checkout cannot be walked from here;
-    # and paths outside every planned directory, such as merged settings entries,
-    # which no plan produces and so cannot be judged by one.
+    # and paths outside every planned or retired directory, such as merged
+    # settings entries, which no plan produces and so cannot be judged by one.
     would_install = _installer_destinations(repo_root, manifest)
     # Membership is asked of every layer's plan, not the recorded layer's: a
     # manifest from before the layer split filed `.agents/*` under the agent key,
     # and the installer's own orphan diff is unkeyed for the same reason. The
     # recorded layer is still what names the repair below.
     planned_anywhere = set().union(*would_install.values())
-    planned_dirs = _planned_dirs()
+    planned_dirs = _planned_dirs() | _RETIRED_DIRS
     not_in_bundle: dict[str, str] = {}  # dest_path -> layer
     dropped_trackers: dict[str, str] = {}
     for layer in _layer_keys(manifest):
-        if manifest[layer].get("source"):
-            continue
+        sourced = bool(manifest[layer].get("source"))
         for item in manifest[layer].get("items", ()):
             dest = item["path"]
             if item.get("orphaned") or dest in flagged:
                 continue
             if not (repo_root / dest).exists():
+                continue
+            # A retired directory is retired whatever source the layer came
+            # from, because the target table belongs to the running wfctl and
+            # not to the bundle `--from` names. So the source checkout does not
+            # need walking to judge it.
+            if sourced and str(Path(dest).parent) not in _RETIRED_DIRS:
                 continue
             if str(Path(dest).parent) == _TRACKER_DIR:
                 # Not in any target table: `install_skills_cmd` copies these from
