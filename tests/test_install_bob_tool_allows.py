@@ -227,20 +227,15 @@ def test_uninstall_leaves_a_receipt_path_outside_the_repo_alone(
     assert result.output.count("is recorded as a path outside this repo") == 1
 
 
-@pytest.mark.parametrize("linked", ["file", "directory"])
-def test_install_leaves_a_linked_settings_file_alone(
-    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
-) -> None:
-    """The path check is lexical, so `.bob/settings.json` passed it while the
-    write followed a link to the file it points at. That file can be the
-    user's global settings, or another checkout's, and install edited it
-    unattended without a backup."""
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    _record_legacy_install(repo_root, theirs=[])
+def _link_settings_elsewhere(
+    repo_root: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
+) -> Path:
+    """Move the settings file out of the repo and link it back in, either the
+    file itself or the whole `.bob` directory. Returns the file the link
+    reaches."""
     target_dir = tmp_path_factory.mktemp("elsewhere")
     target = target_dir / "settings.json"
     _settings_path(repo_root).replace(target)
-    before = target.read_text()
     if linked == "file":
         _settings_path(repo_root).symlink_to(target)
     else:
@@ -249,12 +244,70 @@ def test_install_leaves_a_linked_settings_file_alone(
             child.replace(target_dir / child.name)
         bob_dir.rmdir()
         bob_dir.symlink_to(target_dir, target_is_directory=True)
+    return target
+
+
+@pytest.mark.parametrize("linked", ["file", "directory"])
+def test_install_leaves_a_linked_settings_file_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
+) -> None:
+    """The path check is lexical, so `.bob/settings.json` passed it while the
+    write followed a link to the file it points at. That file can be the
+    user's global settings, or another checkout's, and install edited it
+    unattended without a backup.
+
+    The warning names the entries, because an older wfctl did write them
+    through the link and the receipts are dropped here. Without the names,
+    nothing would say which entries in that file were wfctl's."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    target = _link_settings_elsewhere(repo_root, tmp_path_factory, linked)
+    before = target.read_text()
 
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert target.read_text() == before
     assert result.output.count("is a symlink or below one") == 1
+    assert all(entry in result.output for entry in _LEGACY_ENTRIES)
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
+
+
+@pytest.mark.parametrize("linked", ["file", "directory"])
+def test_uninstall_leaves_a_linked_settings_file_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
+) -> None:
+    """Uninstall reaches the same removal as install, through its own caller."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    target = _link_settings_elsewhere(repo_root, tmp_path_factory, linked)
+    before = target.read_text()
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert target.read_text() == before
+    assert result.output.count("is a symlink or below one") == 1
+
+
+def test_a_bracket_in_a_recorded_path_prints_as_written(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The path comes from the manifest, and Rich reads `[red]` in it as a
+    style tag and drops it, so the warning named a path that does not exist."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    outside = tmp_path_factory.mktemp("[red]outside") / "settings.json"
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    for receipt in manifest["bob"]["tools"]:
+        receipt["path"] = str(outside)
+    _manifest_path(repo_root).write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert f"{outside} is recorded as a path outside this repo" in result.output
 
 
 def test_a_source_with_nothing_for_bob_still_clears_the_receipts(

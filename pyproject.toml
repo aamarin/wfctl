@@ -25,7 +25,7 @@ dependencies = [
 dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1", "pyyaml>=6,<7"]
 
 [dependency-groups]
-# The same three tools, reached the way `uv run` reaches things. uv installs a
+# The same tools, reached the way `uv run` reaches things. uv installs a
 # group named exactly `dev` by default — rename it and it is silently ignored —
 # and it never installs an extra, so without this the documented
 # `uv run pytest/ruff/mypy` resolve against PATH on a cold venv: mypy is not

@@ -4054,19 +4054,24 @@ def _unmerge_bob_tool_allows(
     file with nothing left to say they were wfctl's, and from then on they
     would read as the user's.
 
-    `left alone` says which recorded paths were not touched and why: one that
-    leaves the repo, and one that is a symlink or sits below one. Writing
+    `left alone` holds one message per recorded path that was not touched: one
+    that leaves the repo, and one that is a symlink or sits below one. Writing
     through a link edits the file it points at, which can be the user's global
-    settings or another checkout's. wfctl never records the first kind, and
-    the second belongs to whoever made the link, so the receipt is dropped
-    rather than kept, since a retry would reach the same file. Install runs this
-    unattended from `/start-session`, which is why a hand-edited or committed
-    manifest must not be able to aim it at a JSON file elsewhere on disk.
+    settings or another checkout's. Install runs this unattended from
+    `/start-session`, which is why a hand-edited or committed manifest must not
+    be able to aim it at a JSON file elsewhere on disk. The receipt is dropped
+    rather than kept, since a retry would reach the same file.
+
+    wfctl never records a path outside the repo, so nothing it added is there.
+    A link is different: an older wfctl wrote through it, so its entries may
+    still be in the target once the receipts are gone. The message names them,
+    because it is the last place anything says they were wfctl's.
     """
     changed: set[str] = set()
     problems: list[str] = []
     kept: list[dict] = []
-    left_alone: list[str] = []
+    outside: list[str] = []
+    linked: dict[str, list[str]] = {}
     for record in records:
         rel, entry = record.get("path"), record.get("entry")
         if not rel or not entry:
@@ -4074,14 +4079,12 @@ def _unmerge_bob_tool_allows(
         if not record.get("added", False):
             continue
         path = _recorded_path(repo_root, rel)
-        if path is None or path.is_symlink() or _below_a_link(repo_root, path):
-            reason = (
-                f"{rel} is recorded as a path outside this repo"
-                if path is None
-                else f"{rel} is a symlink or below one"
-            )
-            if reason not in left_alone:
-                left_alone.append(reason)
+        if path is None:
+            if rel not in outside:
+                outside.append(rel)
+            continue
+        if path.is_symlink() or _below_a_link(repo_root, path):
+            linked.setdefault(rel, []).append(entry)
             continue
         if not path.exists():
             continue
@@ -4106,6 +4109,15 @@ def _unmerge_bob_tool_allows(
             kept.append(record)
             continue
         changed.add(rel)
+    left_alone = [
+        f"{rel} is recorded as a path outside this repo — left alone"
+        for rel in outside
+    ] + [
+        f"{rel} is a symlink or below one — left alone. The file it points at may "
+        "still hold these tool approvals an older wfctl added, and wfctl no longer "
+        f"tracks them: {', '.join(entries)}"
+        for rel, entries in linked.items()
+    ]
     return changed, problems, kept, left_alone
 
 
@@ -5002,8 +5014,8 @@ def install_skills_cmd(
     if permissions:
         manifest.setdefault(agent, {})["permissions"] = permissions
 
-    # Only the receipts for a file that would not parse, so the next install
-    # tries again once it is fixed. Cleared first, because a source with
+    # Only the receipts for a file that would not parse or could not be
+    # written, so the next install tries again once it is fixed. Cleared first, because a source with
     # nothing for this layer leaves its entry unreplaced above, and a spent
     # receipt left there would later remove an entry the user added back.
     if agent in manifest:
@@ -5227,14 +5239,12 @@ def install_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — the tool approvals an older wfctl "
+            f"[yellow]⚠[/yellow] {escape(problem)} — the tool approvals an older wfctl "
             "added are still in it, and the next install tries again",
             soft_wrap=True,
         )
-    for reason in bob_tools_left_alone:
-        console.print(
-            f"[yellow]⚠[/yellow] {escape(reason)} — left alone", soft_wrap=True
-        )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
     for removed_rel in sorted(removed_bob_tools):
         # Said, because Bob Shell may start prompting for tool calls this file
         # used to approve. Removing them is right, and it should not happen
@@ -5368,20 +5378,22 @@ def uninstall_skills_cmd(
         )
         typer.confirm(f"Remove '{_BASE_LAYER}' anyway?", abort=True)
 
+    from rich.markup import escape
+
     removed = 0
     restored = 0
     for item in entry.get("items", []):
         path = _recorded_path(repo_root, item["path"])
         if path is None:
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is recorded as a path outside "
                 "this repo — left alone",
                 soft_wrap=True,
             )
             continue
         if _below_a_link(repo_root, path):
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is below a symlink — left alone",
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is below a symlink — left alone",
                 soft_wrap=True,
             )
             continue
@@ -5409,7 +5421,6 @@ def uninstall_skills_cmd(
     unmerged_bob_tools, bob_tools_problems, _, bob_tools_left_alone = (
         _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
-    from rich.markup import escape
 
     for problem in unmerge_problems:
         console.print(
@@ -5425,14 +5436,12 @@ def uninstall_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
+            f"[yellow]⚠[/yellow] {escape(problem)} — wfctl's tool-approval entry may still "
             "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
-    for reason in bob_tools_left_alone:
-        console.print(
-            f"[yellow]⚠[/yellow] {escape(reason)} — left alone", soft_wrap=True
-        )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
 
     del manifest[agent]
     _save_manifest(repo_root, manifest)
