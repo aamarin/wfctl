@@ -5221,7 +5221,7 @@ def install_skills_cmd(
         )
     for outside_rel in bob_tools_outside:
         console.print(
-            f"[yellow]⚠[/yellow] {outside_rel} is recorded as a path outside this repo — "
+            f"[yellow]⚠[/yellow] {escape(outside_rel)} is recorded as a path outside this repo — "
             "left alone",
             soft_wrap=True,
         )
@@ -5399,6 +5399,8 @@ def uninstall_skills_cmd(
     unmerged_bob_tools, bob_tools_problems, _, bob_tools_outside = (
         _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
+    from rich.markup import escape
+
     for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
@@ -5419,7 +5421,7 @@ def uninstall_skills_cmd(
         )
     for outside_rel in bob_tools_outside:
         console.print(
-            f"[yellow]⚠[/yellow] {outside_rel} is recorded as a path outside this repo — "
+            f"[yellow]⚠[/yellow] {escape(outside_rel)} is recorded as a path outside this repo — "
             "left alone",
             soft_wrap=True,
         )
@@ -5461,7 +5463,6 @@ def uninstall_skills_cmd(
             "  Your own entries in them were left alone.",
             soft_wrap=True,
         )
-    from rich.markup import escape
 
     for declined_path, rule, related in declined:
         # A rule wfctl installed and someone has since rewritten. Saying nothing
