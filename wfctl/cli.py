@@ -4331,9 +4331,18 @@ def _ensure_gitignored(repo_root: Path, line: str) -> bool:
 
     Returns whether it wrote. `spec-root` announces the edit, since `.gitignore`
     is tracked and `repo_root` may not be where the user is standing;
-    `install-skills` counts the Falses to report how many it skipped.
+    `install-skills` counts the Falses to report how many it skipped. A path
+    below a symlinked directory also returns False, with no pattern behind it.
     """
     import subprocess as sp
+
+    # Git never tracks a path through a symlinked directory, so a line for one
+    # cannot affect it. `check-ignore` exits 128 for such a path, the same code it
+    # uses outside a repo, so the exit code cannot tell the two apart and the
+    # check has to be made on disk. Without it, every install in a worktree that
+    # links `.specify/scripts/bash` in appends the same lines again (#574).
+    if _below_a_link(repo_root, repo_root / line):
+        return False
 
     # ponytail: one process per path, ~7ms each (~600ms per install) against a
     # ~15s clone. Batch via `check-ignore --stdin` over gitignore_targets if #1
@@ -5223,8 +5232,12 @@ def install_skills_cmd(
 
     # A count, not a list: `git check-ignore -v <path>` already attributes each
     # skip to a file, line, and pattern, and a second listing here would drift.
+    # `_ensure_gitignored` also declines a path below a symlink, but no pattern
+    # covers that path, so counting it would report a `.gitignore` match that
+    # does not exist.
     skipped = sum(
         not _ensure_gitignored(repo_root, rel)
+        and not _below_a_link(repo_root, repo_root / rel)
         for rel in (_MANIFEST_PATH, f"{_BACKUP_DIR}/", *gitignore_targets)
     )
     if skipped:

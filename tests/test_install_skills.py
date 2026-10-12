@@ -4379,6 +4379,31 @@ def test_prune_does_not_delete_scripts_through_a_symlinked_folder(
     assert "below a symlink" in result.output
 
 
+def test_install_writes_no_ignore_line_for_a_script_behind_a_symlinked_folder(
+    tmp_path_factory: pytest.TempPathFactory, bundle: Path, agent_dir: Path
+) -> None:
+    """pfms links `bash/` into each worktree, and every install there appended the
+    three script paths to `.gitignore` again (#574). Git refuses to check a path
+    beyond a symlink and exits 128, which wfctl read as "not ignored". The line
+    can never affect git, so each session had to revert `.gitignore` before
+    committing."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _add_runtime_scripts(bundle)
+    elsewhere = tmp_path_factory.mktemp("main-checkout-bash")
+    (repo_root / _SCRIPTS_DIR).parent.mkdir(parents=True)
+    (repo_root / _SCRIPTS_DIR).symlink_to(elsewhere)
+
+    first = _install_claude()
+    after_first = (repo_root / ".gitignore").read_text()
+    _install_claude()
+
+    assert not _script_paths() & set(after_first.splitlines())
+    # Nothing else in a fresh repo is ignored yet, so any count is the scripts
+    # misreported as covered by `.gitignore`.
+    assert "already covered" not in first.output
+    assert (repo_root / ".gitignore").read_text() == after_first
+
+
 def test_doctor_says_nothing_about_a_developer_script_committed_to_git(
     bundle: Path, agent_dir: Path
 ) -> None:
