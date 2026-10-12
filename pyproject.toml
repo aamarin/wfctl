@@ -22,7 +22,7 @@ dependencies = [
 # ruff is pinned to a minor, not floated: its default rule set widens between
 # releases (0.16 added ~40 findings to this repo over 0.15), so an unpinned
 # linter turns someone else's release into a red build on an untouched branch.
-dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1"]
+dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1", "pyyaml>=6,<7"]
 
 [dependency-groups]
 # The same three tools, reached the way `uv run` reaches things. uv installs a
