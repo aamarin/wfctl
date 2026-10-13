@@ -113,3 +113,10 @@ hand-edited.
   proposed record should not find it contradicted by shipped code. Does not
   change this record's status; `_bob_settings.py` and `install-modes.md` are
   where the accepted behavior actually lives.
+- 2026-10-12  noted       — #554 stops the Bob merge, so wfctl no longer adds
+  entries to `.bob/settings.json`. The `tools` receipts still decide which
+  entries an older install added, and the next bob install or uninstall
+  removes those and leaves the rest. Bob Shell 2.0.6 turned out to have no
+  reader for `tools.allowed`, so this second instance never approved anything,
+  and its receipts now serve only that cleanup. Does not change this record's
+  status.
