@@ -61,8 +61,12 @@ of a generated pull request list.
 | I · Whether the choice rules out publishing to PyPI | Clear (none of the three does; finding 8) |
 | J · How established open source projects capture the same judgment | Clear (finding 9) |
 | K · Whether a commit message, enforced by a hook, can carry it | Clear (per pull request, not per commit; finding 10) |
+| L · towncrier, the tool behind finding 9's note files, against the record | Clear (finding 11) |
 
 Rows J and K were added after the first verdict, at the maintainer's request.
+Row L was added on 2026-10-13 for the same reason, after the record was
+proposed. Unlike the three candidates above it, towncrier was installed and
+run.
 They are marked as added rather than folded in, since rows named after the
 fact are the thing naming them beforehand guards against. Finding 9 changed
 the verdict's input side and finding 3's rejection, and both are edited in
@@ -352,6 +356,56 @@ can see a committed file locally, before any pull request exists, and the
 release script reads it from git rather than from GitHub. This is the shape
 pip, pytest, and CPython use. The record is
 `change-carries-release-note.md`.
+
+## Finding 11 — towncrier does most of what the release script would
+
+towncrier is the tool pip and pytest use to collect the note files in finding 9,
+and the first pass of this evaluation did not look at it. Version 26.9.0 was
+installed and run in a throwaway repository, configured with the record's four
+categories in the order behaviour change, addition, fix, and none.
+
+**Measured, what it does:**
+
+1. Its `check` command fails a branch that adds no note, with exit 1. It passes
+   on `main`, on a branch whose only note is in the "none" category, and on a
+   release commit that deletes the notes, since that commit also changes the
+   changelog. It also fails a note whose file name has no valid category, so
+   it validates the category too.
+2. Its `build` command collects the notes into a changelog grouped by category,
+   in the configured order, so behaviour changes come first. It deletes the
+   note files in the same step.
+3. A pull request that closes two issues commits one note per issue with the
+   same text, and the build merges them into one line that links both issues.
+4. A second pull request on the same issue gets its own file. `towncrier create
+   620.fix.md` writes `620.fix.2.md` when the first name is taken, and the
+   build lists both.
+
+**Measured, what it doesn't do:**
+
+1. It doesn't choose the version, bump `pyproject.toml`, or run `uv lock`.
+   `build` takes the version as an argument. A short script still proposes a
+   minor or a patch from which categories have notes, then bumps, relocks, and
+   runs the build.
+2. Its check passes a stacked pull request on its parent's note, since it
+   accepts any note in the diff against `main`. Requiring the branch's own note
+   needs a small check of ours on top.
+3. Its check is skipped when the branch edits the changelog itself, so a pull
+   request that touches `CHANGELOG.md` passes without a note.
+4. A note named for a branch, as the record now says, renders as a broken issue
+   link (`#571-release-automation`). towncrier names notes for an issue, and
+   points 3 and 4 above show it already handles the two cases that led the
+   record to name notes for the branch.
+5. Notes in the "none" category still appear in the changelog, as bare issue
+   links. No setting that drops a category entirely was found in its
+   configuration.
+
+**Concluded:** towncrier replaces the note format, the check, and the
+collection step, which is most of what the record asks this repository to
+build. What stays ours is the version proposal, the bump and relock, and the
+stacked pull request check. It would be a development dependency pinned like
+`ruff`, so it adds nothing to what wfctl installs. Adopting it means changing
+the record back to notes named for an issue, in towncrier's file name format
+(`<issue>.<category>.md`) rather than a category in frontmatter.
 
 ## What this changes in the repo's stated rationale
 
