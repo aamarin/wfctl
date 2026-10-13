@@ -36,7 +36,6 @@ Three install modes, chosen per path rather than per run.
 | managed mirror | `install-skills` | the whole file | rewrites from source, tracked by content hash in `.wf-skills-manifest.json` | yes, `uninstall` |
 | seed-once | `install-config` | nothing, after the write | writes only if absent, then never touches the file again | no |
 | merge | `install-skills --agent claude` | one entry per managed event, plus any entry named below | replaces its own entries, leaves every other byte | yes, `uninstall` |
-| merge | `install-skills --agent bob` | one `tools.allowed` entry per starter approval, unmarked (see below) | adds only what is missing, leaves every other byte | yes, `uninstall` |
 
 A merged entry is recognised by what it runs. Every managed hook's command starts
 `wfctl hook `, so the installer finds its own rows by reading the file rather than
@@ -61,18 +60,18 @@ carve-out rather than this record.
 Merge mode is scoped to the agent layer: the hook and `permissions.deny` schema
 belongs to Claude Code, not to wfctl's base layer, so `_merge_hooks` and
 `_merge_permissions` are claude-only rather than a base-layer path every agent
-would have to interpret. `_merge_bob_tool_allows` is the same shape scoped the
-other way — Bob Shell's `tools.allowed` is Bob's own schema, bob-only for the
-same reason. Each is an explicit branch keyed on the agent, not an entry in the
-`_AGENT_SKILL_EXTRAS` table — two files, one schema each, and a second target
-sharing an agent's schema is a change to that agent's function rather than a
-config edit.
+would have to interpret. Each is an explicit branch keyed on the agent, not an
+entry in the `_AGENT_SKILL_EXTRAS` table, so a second target sharing Claude's
+schema is a change to that function rather than a config edit.
 
-Bob's carve-out mirrors #136's exactly, one agent over: `tools.allowed` is a
-flat list of plain strings, matched by exact text, so an entry cannot carry a
-marker without changing what it approves. Ownership for it lives in the
-manifest — `the-manifest-owns-what-carries-no-marker` — the same as
-`permissions.deny`, just under a sibling `tools` key rather than `permissions`.
+Bob Shell gets no merge. Bob Shell 2.0.6 reads approvals only from the
+`approval` section of the user's global `~/.bob/settings/settings.json`. It
+reads the project's `.bob/settings.json` for hooks and a pinned team, and
+nothing in its bundled code reads `tools.allowed` from either file. As a
+result, the allow-list wfctl merged into a repo approved nothing, and wfctl
+leaves both files alone. An install that still carries entries an older wfctl merged has them
+removed on its next `install-skills --agent bob`, using the manifest's `tools`
+receipts to tell wfctl's entries from the user's.
 
 The hook runs a wfctl subcommand rather than carrying pasted text: `wfctl hook
 <name>` prints the digest of whichever installed skills carry one. The digest
@@ -174,3 +173,9 @@ refuses rather than re-asserting an unmarked entry the consumer has changed.
   entry is matched by exact text, so it cannot carry a marker, and ownership
   goes to the manifest instead. No change to the mode's shape — a second
   agent's schema under the same carve-out, not a new one.
+- 2026-10-12  amended     — merge no longer covers Bob Shell (#554). The
+  2026-09-16 amendment was wrong about Bob's mechanism. Bob Shell 2.0.6 has no
+  reader for `tools.allowed` in either settings file, and takes approvals only
+  from `approval` in the user's global file, so the starter allow-list
+  approved nothing. The next bob install removes the entries an older wfctl
+  added, and leaves the user's own.

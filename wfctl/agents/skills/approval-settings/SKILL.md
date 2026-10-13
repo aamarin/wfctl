@@ -9,14 +9,9 @@ Editing Bob Shell approval configuration in `settings.json`.
 
 ## Files
 
-| Scope | Path |
-|---|---|
-| User (all projects) | `~/.bob/settings/settings.json` |
-| Project (this repo) | `.bob/settings.json` |
+Bob Shell reads approvals from the user's `~/.bob/settings/settings.json`, and they apply in every project. The project's `.bob/settings.json` holds hooks and a pinned team, and Bob Shell does not read approvals from it. Changes take effect on the next Bob Shell session start.
 
-Project settings take precedence over user settings. Changes take effect on the next Bob Shell session start.
-
-`wfctl install-skills --agent bob` merges a starter allowlist into the project file automatically (`read_file`, `list_files`, `glob`, `grep`, and `execute_command`/`run_shell_command` prefixes for `git` and `uv run`) — it is not something a project has to set up by hand. `allowed-tools:` on a command's own frontmatter does nothing here; that is Claude Code's mechanism, and Bob Shell does not read it.
+`wfctl install-skills --agent bob` writes neither file. `allowed-tools:` on a command's own frontmatter does nothing here, since that is Claude Code's mechanism and Bob Shell does not read it.
 
 ## Schema
 
