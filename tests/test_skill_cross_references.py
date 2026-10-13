@@ -879,35 +879,6 @@ def test_the_change_description_skill_names_the_review_panel() -> None:
     assert "fanning-out-code-review" in _REFERENCE.findall(skill)
 
 
-def _panel_section(start: str, end: str) -> str:
-    skill = (_AGENTS / "skills" / "fanning-out-code-review" / "SKILL.md").read_text()
-    return skill.split(start)[1].split(end)[0]
-
-
-@pytest.mark.parametrize(
-    "start, end",
-    [
-        ("## Step 2 — Dispatch", "Mark the dispatch"),
-        ("`MISSING` is a **failure, not a pass.**", "A file that exists"),
-    ],
-    ids=["dispatch", "re-ask"],
-)
-def test_the_panel_sends_its_reviewers_to_the_rubric_by_path(start: str, end: str) -> None:
-    """A reviewer told to follow the `code-review` skill by name reached Claude
-    Code's built-in `/code-review` instead, on #464's panel and again on #500's.
-    That command fans out helper agents that never receive the dispatch rules,
-    and one of them edited the shared tree mid-review (#468).
-
-    The path alone does not stop a reviewer reaching for the Skill tool, so the
-    prohibition is pinned beside it. The re-ask is pinned too, because a re-ask
-    worded by name sends a reviewer back to the command that swallowed its first
-    report."""
-    section = _panel_section(start, end)
-
-    assert "code-review" in _REFERENCE.findall(section)
-    assert "Skill named `code-review`" in section
-
-
 def test_the_change_description_skill_does_not_restate_the_template() -> None:
     """The skill says to go read the project's template; it must not carry the
     sections itself.

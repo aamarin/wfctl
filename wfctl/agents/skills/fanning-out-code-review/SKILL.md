@@ -81,14 +81,15 @@ first reviewer's report is not a second opinion.
 
 Every dispatch instruction carries these four:
 
-- **Read `.agents/skills/code-review/SKILL.md` and follow it. Do not invoke a
-  Skill named `code-review`.** Give the path because a host can ship its own
+- **Read `.agents/skills/code-review/SKILL.md` and follow it.** Do not invoke a
+  Skill named `code-review`. Give the path because a host can ship its own
   command under the same name, and a reviewer that reaches for the Skill tool
   gets the host's command instead of this rubric. Claude Code's built-in
   `/code-review` is a different review. It fans out helper agents that report
-  into your session and never receive the bullets below, and on two panels one
-  of them edited the shared tree. Give the path rather than pasting the rubric,
-  so that each reviewer reads all of it and not your summary of it.
+  into your session and never receive the bullets below, and on two panels an
+  agent running under it edited the shared tree. Give the path rather than
+  pasting the rubric, so that each reviewer reads all of it and not your summary
+  of it.
 - **Say which passes ran and what each covered**, whether or not it found
   anything. `code-review` Step 5 ends a clean report at the over-engineering
   metric and a verdict, which is enough to show a reviewer worked and not enough
@@ -258,8 +259,10 @@ dispatch a replacement under the same id.
 
 A file that exists and carries no verdict takes that same repair, which is why it
 gets no word of its own. The reviewer is back and has said nothing usable; asking
-it again for findings in `code-review`'s format is the whole of the response, and
-a fourth state would only be `MISSING` under another name.
+it again, worded as the re-ask above with the rubric's path, is the whole of the
+response, and a fourth state would only be `MISSING` under another name. A file
+with no verdict is also the likeliest trace of a reviewer that ran the host's
+command, since that command's output carries no verdict line.
 
 `RUNNING` has no repair of its own, which is what makes it safe to read and
 useless to sit on. A reviewer you have decided is not coming back is one you add
