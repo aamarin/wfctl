@@ -128,3 +128,31 @@
 - **PR-024, MINOR, open.** A spec store can be its own checkout sitting inside the code's worktree, and nothing in research R2 rules that out. There, the rule as written stops every removal, even after `stored`. Read as an outcome-only rule instead, a failed push would let removal delete the unpushed commit. The plan covers neither case.
 - **PR-025, MINOR, open.** Two places call `next_step_content`: `build_report`, and the `cli.py` command that writes `next-step.md`. The plan passes `block_action` from the first only, and no test reads `next-step.md`, so the second would keep routing a `store-specs` block to `wfctl verify`.
 - **PR-003 to PR-012, PR-015, PR-018 and PR-019, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence the 19:50Z section gives.
+
+## Review 2026-10-14T23:51Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 51905313e32de76891bfd0e7addbd656ac0acedd, spec.md 68507ea870e0226a517cc6af694c083dd4630d8e, .specify/memory/constitution.md absent, design.md c08921165ed069a8150511b76ededfe5f029282e, docs/architecture/design/store-specs-implement-pass.md 67ebbd9713bc4f7aaf8c69f62c7934979a6b6eee, docs/architecture/design/store-specs-at-removal.md 9a8ab88a08fa68b6f36465310ca2252e355b1718, docs/architecture/design/store-specs-merges-before-push.md d8dacdaa617398f9aae737ad02a355de3b8e1091, docs/architecture/spec-storage-read-from-git.md e95749c063e9aac84c9aa1f23b205c3e4c7e8638, research.md 9d45be6f7405e38e83ae923af49d616c9b359ab5, data-model.md 6ea70cff0e8568cd36ef2e88a3664910f3b8ad0f, contracts/cli.md 1f7430d6d0254e2187ac61f8d151e15748ea8054, quickstart.md d1ff4edccde503ea9a4f869aa532a18d76e431f5, plan-review.plan.md 310c0e01bd67952d7bcf01677357495b4ee635a0 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 17 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/359-push-specs-to-trunk/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-009, PR-019, PR-028) |
+| Requirements and traceability | Outstanding (PR-006, PR-008) |
+| Architecture and boundaries | Outstanding (PR-012, PR-027; PR-023 and PR-025 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-007, PR-010, PR-011, PR-018, PR-024, PR-026; PR-022 fixed) |
+| Security and reliability | Outstanding (PR-003, PR-004, PR-015, PR-024) |
+
+### Findings
+
+- **PR-022, MINOR, fixed.** Fixed by research R8, which now reads the conflicted paths before `git merge --abort` and says why. After the abort, that command prints nothing.
+- **PR-023, MINOR, fixed.** Fixed by research R6, the data model, and a new test, which keep `not_applicable` at exit 0 when `store specs` is run by hand. #40's record at `b3fc797` now says the same.
+- **PR-025, MINOR, fixed.** Fixed by research R15 and the plan, which name both callers of `next_step_content`, `build_report` and `next_cmd`, and by a routing test that reads `next-step.md` as well as `status --json`.
+- **PR-026, MINOR, open.** `wfctl resume` also writes `next-step.md`, and it goes through `build_report`. As a result, the new test can pass while `next_cmd` still drops `block_action`, unless the test says the file it reads is the one `wfctl next` writes.
+- **PR-027, MINOR, open.** Research R6 says #40 exits 1 "only" for a copy-out refusal or a spec store failure, but #40's record never says "only". Its reason for exit 1, that a script can tell the spec files aren't backed up, describes `committed_not_backed_up` exactly, and this plan exits 0 there. So the two records still disagree for a spec store with no upstream branch.
+- **PR-028, MINOR, open.** The sentences added to research R15 leave "Its docstring" pointing at `next_cmd`. The quoted text is in `next_step_content`'s docstring.
+- **PR-003 to PR-012, PR-015, PR-018, PR-019 and PR-024, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence its earlier section gives.
