@@ -31,7 +31,7 @@ None of the worktrees held a real note in an ignored folder.
 ## Direct baseline
 
 The smallest change keeps the state dir's numbered archive for spec files and
-adds an `uncommitted/` folder beside it for untracked files. Ignored files stay
+adds an `unsaved/` folder beside it for untracked files. Ignored files stay
 out of scope. Spec files remain somewhere nobody looks for them, and a
 repository that keeps notes in an ignored folder still loses them.
 
@@ -42,11 +42,11 @@ Each kind of file goes to the place you would look for it:
 1. Spec files inside the worktree are copied to the branch's spec dir,
    resolved from the main checkout, with their original names. The numbered
    archive in the state dir is no longer written.
-2. Untracked files that are not spec files are copied to `uncommitted/` in the
+2. Untracked files that are not spec files are copied to `unsaved/` in the
    branch's state dir, at their original relative paths, so you can copy them
    back.
 3. Ignored folders that the repository lists in `wfctl.json` are copied to the
-   same `uncommitted/` folder, also at their original paths. Every other
+   same `unsaved/` folder, also at their original paths. Every other
    ignored file is left alone and deleted with the worktree.
 
 ## Owns truth
@@ -82,7 +82,7 @@ flowchart LR
     subgraph keep["kept after the removal"]
         direction TB
         SPECDIR["spec dir"]
-        STATE["state dir: uncommitted/"]
+        STATE["state dir: unsaved/"]
     end
     SPEC --> COPY
     UNTRACKED --> COPY
@@ -116,8 +116,14 @@ with the worktree.
 
 ## Consequences
 
-`wfctl check config` reports a listed folder that doesn't exist or isn't
-ignored, the same way it reports a bad `steps` entry.
+`wfctl check config` reports a listed path that points outside the repository,
+the same way it reports a bad `steps` entry. It can't report a listed folder
+that doesn't exist, because a notes folder is usually created inside each
+worktree and is missing from the main checkout.
+
+If the repository has no main checkout, as in a bare layout, there is no spec
+dir outside the worktree to copy spec files into. In that case they are copied
+to `unsaved/` with the rest of the unsaved work.
 
 State dirs written before this change still hold their numbered archives.
 Nothing moves or deletes them.
