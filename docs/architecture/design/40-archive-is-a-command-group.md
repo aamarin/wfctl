@@ -95,7 +95,10 @@ in a spec store doesn't stop it, because the commit or the files stay in the
 spec store on disk, and deleting the worktree can't touch them. In those cases
 the hook prints the store's output as a warning and goes ahead. The copy-out
 outcomes in the default layout do stop it, such as a destination that holds
-different files, because there the worktree holds the only copy. `store specs`
+different files, because there the worktree holds the only copy. For the same
+reason, any result for a spec dir inside the worktree that isn't a finished
+copy-out stops the removal, so a store that skips that spec dir as not its
+concern can't delete the only copy. `store specs`
 run by hand still exits 1 for every one of these outcomes, so a script can tell
 the spec files aren't backed up yet. `archive unsaved` keeps its own refusals
 as they are.
@@ -199,6 +202,8 @@ planned.
 - A test that `archive-specs` runs both jobs, and exits non-zero when
   `archive unsaved` refuses or the store's result says the removal stops.
 - A test that a failed push at removal prints a warning and exits 0.
+- A test that a spec dir inside the worktree, which the store reports as not
+  applicable instead of copying it out, stops the removal.
 - A test that `wfctl --help` doesn't list `archive-specs`, that
   `wfctl hook --help` lists `worktree-remove`, and that `wfctl archive --help`
   lists `unsaved`.
