@@ -99,8 +99,10 @@ different files, because there the worktree holds the only copy. For the same
 reason, any result for a spec dir inside the worktree that isn't a finished
 copy-out stops the removal, so a store that skips that spec dir as not its
 concern can't delete the only copy. `store specs`
-run by hand still exits 1 for every one of these outcomes, so a script can tell
-the spec files aren't backed up yet. `archive unsaved` keeps its own refusals
+run by hand still exits 1 for a copy-out refusal and for a spec-store failure,
+so a script can tell the spec files aren't backed up yet. It exits 0 when it
+reports a spec dir as not applicable, because in that layout no command could
+make it pass. `archive unsaved` keeps its own refusals
 as they are.
 
 The template seeds `wfctl hook worktree-remove` into `pre_remove` as the one
