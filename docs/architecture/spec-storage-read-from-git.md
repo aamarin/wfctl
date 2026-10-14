@@ -54,9 +54,10 @@ asking git, never the agent.
    it is asked, and keeps no record of its own.
 3. Three places read that answer. A pass after `implement` reads done only when
    the spec dir is stored, so an unattended run is handed the store command as
-   its next step. Worktree removal runs the store command and stops the removal
-   when the push fails. A repo-wide check lists every spec dir that is not
-   stored.
+   its next step. Worktree removal runs the store command, and when the push
+   fails it warns and goes ahead, because the commit is already in the spec
+   store outside the worktree. A repo-wide check lists every spec dir that is
+   not stored.
 
 This applies only when the spec root is the top of its own git repository with
 an upstream branch. In every other layout wfctl commits nothing and says
@@ -66,7 +67,9 @@ plainly where the files are:
    says so instead of calling it durable.
 2. A spec root inside the code repository, such as the default `specs/`, is
    never committed, because the commit would land on the feature branch.
-   Removal copies it out before the worktree is deleted, as it does today.
+   At removal the store command copies it out to the main checkout before the
+   worktree is deleted, as removal does today, and says the copy is not backed
+   up.
 3. A spec store with no upstream branch gets the commit, and wfctl reports that
    it is committed but not backed up.
 
@@ -149,10 +152,21 @@ agent.
 
 ## Consequences
 
-Worktree removal stops when the push fails, and the hook prints the manual way
-to remove the worktree. This matches the rule that removal stops when a copy
-the hook makes fails. There is no override, because a failed push should be
-rare and a person should look at it when it happens.
+Worktree removal stops only when it would delete something that could not be
+saved. In the default layout the spec dir is inside the worktree, so a failed
+copy-out stops the removal, because once the worktree is gone that copy is the
+only one. When the spec dir lives in a spec store, removal can't delete it, so
+a failed push prints a warning and the removal goes ahead. The commit stays in
+the spec store on disk, the repo-wide check lists it as not pushed, and the
+next store from any branch pushes it, since a push sends every local commit on
+the spec store's branch. This also means you can remove a worktree while
+GitHub is unreachable.
+
+The push at removal runs from the removal hook in your own shell, not through
+the agent. Your agent's permission layer is the only thing that gates outward
+actions, and it never sees this push. Andre approved pushing at removal with
+that in mind, and the push only ever sends commits to the spec store's own
+branch.
 
 A push sends every local commit on the spec store's branch, not only this
 branch's. If another branch committed its specs and never pushed, its commit
@@ -170,3 +184,4 @@ them.
 ## Log
 
 - 2026-10-14  proposed    — #359: nothing stored a spec dir, and removal called an uncommitted one durable
+- 2026-10-14  revised     — a failed push at removal warns instead of stopping, and the store command takes over the copy-out from `archive specs` (agreed with #40)
