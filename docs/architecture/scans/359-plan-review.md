@@ -72,3 +72,28 @@
 - **PR-017, MINOR, open.** Research R15 routes on any outstanding pass, not on the `store-specs` block. As a result, a `push` block on a finished `implement`, or a pass a repository declares under `implement`, also routes to the pass, which reverses the order the `next_step_content` docstring states. Only the `store-specs` case is tested.
 - **PR-018, MINOR, open.** If the spec dir reaches the remote another way, a rerun reads `already_stored` and records nothing, so the hold stays and routing goes back to `wfctl verify`. Running `wfctl report-action store-specs` still recovers it.
 - **PR-019, MINOR, open.** Technical Context, the `session-state-is-re-derived` gate, and data-model.md say git history is the only thing written. Research R15 also appends an action event to the session log.
+
+## Review 2026-10-14T20:24Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 7bbbaa0ea4dac2c02cec78bb679faeedfbda0181, spec.md 68507ea870e0226a517cc6af694c083dd4630d8e, .specify/memory/constitution.md absent, design.md c08921165ed069a8150511b76ededfe5f029282e, docs/architecture/design/store-specs-implement-pass.md 67ebbd9713bc4f7aaf8c69f62c7934979a6b6eee, docs/architecture/design/store-specs-at-removal.md 9a8ab88a08fa68b6f36465310ca2252e355b1718, docs/architecture/design/store-specs-merges-before-push.md d8dacdaa617398f9aae737ad02a355de3b8e1091, docs/architecture/spec-storage-read-from-git.md e95749c063e9aac84c9aa1f23b205c3e4c7e8638, research.md ea3a2f345c55b8ab0714feeb867982d91dda0a46, data-model.md 348496389782b6211a6e5e85af9f373ddbc3ae6d, contracts/cli.md ccd97adcf06266e68b558fe83114076b9d09682c, quickstart.md d1ff4edccde503ea9a4f869aa532a18d76e431f5, plan-review.plan.md b4713961ce2fa17f49651e18c0cbe16a57851833 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 18 · Fixed since the earlier review: 1
+- Detail: /Users/andremarin/Development/wfctl-specs/359-push-specs-to-trunk/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-009, PR-019, PR-020, PR-021) |
+| Requirements and traceability | Outstanding (PR-006, PR-008, PR-021) |
+| Architecture and boundaries | Outstanding (PR-012, PR-017, PR-020; PR-002 and PR-013 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-007, PR-010, PR-011, PR-014, PR-016, PR-018; PR-001 fixed) |
+| Security and reliability | Outstanding (PR-003, PR-004, PR-015, PR-020; PR-001 and PR-013 fixed) |
+
+### Findings
+
+- **PR-013, MAJOR, fixed.** Fixed by research R6 and the data model's store result, which say removal reads `StoreResult.stops_removal` rather than the exit code. That property is false for every outcome this branch adds, so a failed push, a lock timeout, or a refused merge warns and lets removal go ahead. #40's record at `448301e` says the same, and implementation step 7 keeps the removal tests in either merge order.
+- **PR-020, MINOR, open.** Research R6 and the data model define `stops_removal` in two different ways. R6 says it is true when the spec dir is inside the worktree and was not copied out, while the data model says it is false for every outcome, `not_applicable` included. On this branch the case never reaches removal. Once #40 merges, the hook runs `store specs` in every layout, and if `not_applicable` comes back before #40's copy-out runs, the data model's rule lets removal delete the only copy of the spec dir.
+- **PR-021, MINOR, open.** The `archive-specs` contract says it exits 0 whenever the spec dir is outside the worktree. #40's record makes it exit non-zero when `archive unsaved` refuses, for example on uncommitted edits. As a result, the removal tests the plan moves onto the hook need a clean worktree, and the plan doesn't say so.
+- **PR-003 to PR-012 and PR-014 to PR-019, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence the 19:50Z section gives.
