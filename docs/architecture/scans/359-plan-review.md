@@ -97,3 +97,34 @@
 - **PR-020, MINOR, open.** Research R6 and the data model define `stops_removal` in two different ways. R6 says it is true when the spec dir is inside the worktree and was not copied out, while the data model says it is false for every outcome, `not_applicable` included. On this branch the case never reaches removal. Once #40 merges, the hook runs `store specs` in every layout, and if `not_applicable` comes back before #40's copy-out runs, the data model's rule lets removal delete the only copy of the spec dir.
 - **PR-021, MINOR, open.** The `archive-specs` contract says it exits 0 whenever the spec dir is outside the worktree. #40's record makes it exit non-zero when `archive unsaved` refuses, for example on uncommitted edits. As a result, the removal tests the plan moves onto the hook need a clean worktree, and the plan doesn't say so.
 - **PR-003 to PR-012 and PR-014 to PR-019, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence the 19:50Z section gives.
+
+## Review 2026-10-14T22:11Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 310c0e01bd67952d7bcf01677357495b4ee635a0, spec.md 68507ea870e0226a517cc6af694c083dd4630d8e, .specify/memory/constitution.md absent, design.md c08921165ed069a8150511b76ededfe5f029282e, docs/architecture/design/store-specs-implement-pass.md 67ebbd9713bc4f7aaf8c69f62c7934979a6b6eee, docs/architecture/design/store-specs-at-removal.md 9a8ab88a08fa68b6f36465310ca2252e355b1718, docs/architecture/design/store-specs-merges-before-push.md d8dacdaa617398f9aae737ad02a355de3b8e1091, docs/architecture/spec-storage-read-from-git.md e95749c063e9aac84c9aa1f23b205c3e4c7e8638, research.md c60cec9d68d7bfa7fcf95b4a91302bf8a80987e7, data-model.md 07cf9a543cba5cfc65fa9d50ad662eb75d165b65, contracts/cli.md 1f7430d6d0254e2187ac61f8d151e15748ea8054, quickstart.md d1ff4edccde503ea9a4f869aa532a18d76e431f5, plan-review.plan.md 7bbbaa0ea4dac2c02cec78bb679faeedfbda0181 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 17 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/359-push-specs-to-trunk/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-009, PR-019) |
+| Requirements and traceability | Outstanding (PR-006, PR-008; PR-021 fixed) |
+| Architecture and boundaries | Outstanding (PR-012, PR-023, PR-025; PR-002, PR-013, PR-017 and PR-020 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-007, PR-010, PR-011, PR-018, PR-022; PR-001, PR-014 and PR-016 fixed) |
+| Security and reliability | Outstanding (PR-003, PR-004, PR-015, PR-024; PR-001 fixed) |
+
+### Findings
+
+- **PR-014, MINOR, fixed.** Fixed by research R8 and the plan's store entry, which check for `MERGE_HEAD` before reading `git diff --cached`, so a conflict is never read as staged files. The conflict test now asserts that order.
+- **PR-016, MINOR, fixed.** Fixed by the plan's test list. The owning branch's push now carries the first branch's kept commit, and the first branch's next store is expected to read `already_stored`.
+- **PR-017, MINOR, fixed.** Fixed by research R15, the plan, and the status contract. Only a block filed for the outstanding pass's own action routes to that pass, and any other block routes as it does today. Tests cover both sides.
+- **PR-020, MINOR, fixed.** Fixed by research R6 and the data model, which now define `stops_removal` the same way. It matches #40's record at `2e9f124`, which also stops removal on `not_applicable` for a spec dir inside the worktree.
+- **PR-021, MINOR, fixed.** Fixed by the `archive-specs` contract, which limits its exit rule to the store's half, and by implementation step 7, which starts the moved removal tests from a clean worktree.
+- **PR-022, MINOR, open.** Research R8 runs `git diff --name-only --diff-filter=U` to name the conflicted folders after `git merge --abort`. The reviewer reproduced this with git 2.44.0, and after the abort that command prints nothing, so the conflict output would name no folder.
+- **PR-023, MINOR, open.** #40's record at `2e9f124` says `store specs` run by hand exits 1 for every outcome that stops removal, which now includes `not_applicable` inside the worktree. This plan exits 0 for that outcome in research R6 and R11, the data model, and the contract. The two records agree on `stops_removal` but not on the exit code.
+- **PR-024, MINOR, open.** A spec store can be its own checkout sitting inside the code's worktree, and nothing in research R2 rules that out. There, the rule as written stops every removal, even after `stored`. Read as an outcome-only rule instead, a failed push would let removal delete the unpushed commit. The plan covers neither case.
+- **PR-025, MINOR, open.** Two places call `next_step_content`: `build_report`, and the `cli.py` command that writes `next-step.md`. The plan passes `block_action` from the first only, and no test reads `next-step.md`, so the second would keep routing a `store-specs` block to `wfctl verify`.
+- **PR-003 to PR-012, PR-015, PR-018 and PR-019, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence the 19:50Z section gives.
