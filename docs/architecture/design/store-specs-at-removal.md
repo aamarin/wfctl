@@ -16,11 +16,12 @@ from a `pre_remove` hook in `.workmux.yaml`. Any change that needs a new hook
 line has to be made by hand in every repository that uses wfctl, because the
 config installer can't rewrite a `pre_remove` block that already has entries.
 
-The #40 branch is reshaping that same command at the same time. It splits
-`archive-specs` into `wfctl archive specs`, which copies a spec dir out of a
-worktree before the worktree is deleted, and `wfctl archive unsaved`, which
-saves other files removal would destroy. Andre asked why copying a spec dir out
-and pushing a spec dir needed two commands, and both branches agreed they don't.
+The #40 branch is reshaping that same command at the same time. It adds
+`wfctl archive unsaved`, which saves other files removal would destroy. It first
+planned a second command, `wfctl archive specs`, to copy a spec dir out of a
+worktree before the worktree is deleted. Andre asked why copying a spec dir out
+and pushing a spec dir needed two commands, and both branches agreed they don't,
+so the copy-out moved into `store specs`.
 
 ## Verified
 
@@ -46,23 +47,36 @@ and pushing a spec dir needed two commands, and both branches agreed they don't.
   hook. A repository that wrote its own hook line calling something else gets no
   store at removal. `wfctl check specs` still lists its spec dirs as not stored,
   so this would show up rather than fail silently.
-- #40 lands its `archive` group with `archive-specs` as a hidden name that runs
-  both halves. If it doesn't, this branch keeps `archive-specs` running the store
-  itself, and the decision below still holds.
+- #40 lands `wfctl hook worktree-remove`, with `archive-specs` as its hidden
+  alias, and it runs both halves. If it doesn't, this branch keeps
+  `archive-specs` running the store itself, and the decision below still holds.
 
 ## Direct baseline
 
 Ship `wfctl store specs` as its own command and add a second line to each
 repository's `pre_remove` hook that runs it before `archive-specs`. Removal
 then runs two commands, the existing one unchanged and the new one beside it.
-`archive specs` keeps copying a spec dir out of the worktree, and `store specs`
+`archive-specs` keeps copying a spec dir out of the worktree, and `store specs`
 only commits and pushes.
 
 ## Decision
 
-The command the hook already runs reaches the store. The hidden
-`archive-specs` runs `wfctl store specs` and then `wfctl archive unsaved`, so no
-repository edits its hook.
+The command the hook already runs reaches the store. The hook calls
+`wfctl hook worktree-remove`, which runs `wfctl store specs` and then
+`wfctl archive unsaved`. `archive-specs` becomes its hidden alias, so an existing
+repository's hook keeps working without an edit. A new repository is seeded with
+one `pre_remove` line:
+
+```
+wfctl hook worktree-remove "$WM_WORKTREE_PATH" "$WM_HANDLE"
+```
+
+It sits in the `hook` group beside `user-prompt`, `worktree-guard`, and
+`session-restart`, which work the same way: the config names a stable command,
+and wfctl decides what it runs. As a result, the next job added at removal needs
+no hook edit in any repository, new or old. `store specs` and `archive unsaved`
+stay visible commands, because a person also runs them by hand, for example
+`store specs --overwrite` to get past a spec dir that holds different files.
 
 `store specs` is the one command that answers whether a branch's spec dir is
 somewhere safe, and the layout decides how it does that:
@@ -97,9 +111,10 @@ stable    ┌────────────────────┐    
 ═════ the repository owns its hook, wfctl owns what the command does ═══════════
              │              │                               │
 volatile  ┌──▼──────────┐ ┌─▼────────────┐        ┌─────────▼──────────┐
-          │archive-specs│ │ store specs  │ (new)  │ archive-specs      │
-          │ copy-out    │ │ commit, push │        │ (hidden name)      │
-          └─────────────┘ └──────────────┘        └──┬──────────────┬──┘
+          │archive-specs│ │ store specs  │ (new)  │hook worktree-remove│
+          │ copy-out    │ │ commit, push │        │ archive-specs is   │
+          └─────────────┘ └──────────────┘        │ its hidden alias   │
+                                                  └──┬──────────────┬──┘
                                                      │ calls        │ calls
                                               ┌──────▼───────┐ ┌────▼──────────┐
                                               │ store specs  │ │archive unsaved│
@@ -153,3 +168,6 @@ other's half and has to merge `main` in rather than rebase.
 
 - 2026-10-14  proposed  — #359 level 3: how removal reaches the store, agreed
   with Andre and with the #40 session
+- 2026-10-14  revised  — the hook calls `wfctl hook worktree-remove`, with
+  `archive-specs` as its hidden alias, and `wfctl archive specs` is dropped;
+  approved by Andre in the #40 session
