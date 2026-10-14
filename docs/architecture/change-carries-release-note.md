@@ -14,23 +14,24 @@ draft, and the person cutting the release edits the draft and picks the version.
 
 ## Context
 
-A release note is a short file committed with a change, at
-`changes/<branch>.md`, so each branch carries its own note. It says what an
-existing user of wfctl will notice once the change ships, and it names one of
-four categories: a behaviour change, an addition, a fix, or none. It can also
-list the issues the change closes. The release notes are what a release
-publishes, and they are built from those files. For example, the change that
-recorded the speckit scripts one file per entry would have committed this as
-`changes/293-mirror-below-recorded-dir.md`:
+A release note is a short file committed with a change, under `changes/`. It
+says what an existing user of wfctl will notice once the change ships. Its name
+carries the issue the change closes and one of four categories: a behaviour
+change (`change`), an addition (`addition`), a fix (`fix`), or nothing to notice
+(`none`). The release notes are what a release publishes, and they are built
+from those files. For example, the change that recorded the speckit scripts one
+file per entry would have committed this as `changes/293.change.md`:
 
 ```markdown
----
-category: behaviour change
-issues: [293]
----
-The next `install-skills --prune` deletes the speckit scripts unless the
-project reinstalls once.
+wfctl now records each speckit script as its own file. If your project was
+installed before this release, the next `install-skills --prune` deletes those
+scripts. To avoid that, uninstall the base and claude layers once and install
+them again.
 ```
+
+This is the layout towncrier reads. towncrier is the release notes tool pip and
+pytest use, and `design/571-towncrier-builds-release-notes.md` records why this
+repository uses it rather than a script of its own.
 
 Today a person cuts every release by hand. They read every pull request merged
 since the last tag, decide between a minor and a patch, bump the version, run
@@ -85,8 +86,8 @@ with the time between releases, which is the first problem above.
 
 A change isn't done until it commits its release note. This repository adds a
 check script to the `verify` list in `wfctl.json`, and the script fails when
-the branch does not add `changes/<branch>.md` under its own name, or when the
-file names no valid category. Because the check is part of the definition of done, three
+the branch adds no release note for its own issue, or when a note names a
+category that doesn't exist. Because the check is part of the definition of done, three
 existing places refuse a change without a note:
 
 1. `wfctl verify` records a failure, and `wfctl status` reports the definition
@@ -100,12 +101,13 @@ A change with nothing for a user to notice still commits the file, with the
 category `none`. That keeps a skipped note distinguishable from a change that
 had nothing to say.
 
-When a release is cut, a script in this repository reads every file under
-`changes/` and drafts the release from them. It proposes a minor when any note
-is a behaviour change or an addition, and a patch otherwise. It puts the
-behaviour changes first, bumps the version, runs `uv lock`, and deletes the
-release note files in the same release commit, so `changes/` holds only what
-is unreleased. The person cutting the release edits the draft, confirms the
+When a release is cut, a script in this repository proposes the version from
+the release notes' categories, and towncrier drafts the release notes from the
+files. The script proposes a minor when any note is a behaviour change or an
+addition, and a patch otherwise. The draft puts the behaviour changes first and
+leaves out the notes marked `none`. The script then bumps the version, runs `uv
+lock`, and deletes the release note files in the same release commit, so
+`changes/` holds only what is unreleased. The person cutting the release edits the draft, confirms the
 version, and pushes.
 
 The CI tag job keeps its gate. Nothing is tagged until test, wheel, and lint
@@ -161,7 +163,7 @@ that the context arrives written down instead of reconstructed.
 ```mermaid
 flowchart TB
   subgraph change["a change, on its branch"]
-    author["author commits the release note<br/>changes/&lt;branch&gt;.md"]
+    author["author commits the release note<br/>changes/&lt;issue&gt;.&lt;category&gt;.md"]
     type["commit type (fix, feat)"]
   end
   subgraph done["definition of done"]
@@ -170,7 +172,7 @@ flowchart TB
     ci["CI on the pull request"]
   end
   subgraph cut["cutting a release"]
-    script["release script drafts the release<br/>from the release note files"]
+    script["release script proposes the version,<br/>towncrier drafts the release notes"]
     person["person edits the draft<br/>and confirms the version"]
     commit["release commit: version, uv.lock,<br/>release notes, release note files deleted"]
   end
@@ -241,23 +243,29 @@ branch's name and compares the branch against `main`. On `main` itself there is
 no branch to compare, so the check passes there. That is what lets the release
 commit, which deletes the files, pass its own CI.
 
-The note is named for the branch, not for an issue or a pull request, for three
-reasons:
+The note is named for its issue, since towncrier turns the issue number into a
+link in the release notes. Three cases make naming by issue harder, and each is
+handled like this:
 
-1. A pull request can close several issues, and one issue can take several pull
-   requests. When two pull requests work on the same issue, each commits its
-   own note, and the second never edits a note the first already merged.
-2. Every branch has a name, including a branch that names no issue, such as a
-   dependency update. The check has something to look for on every branch.
-3. A pull request's number doesn't exist until it opens, so `wfctl verify`
-   couldn't check a note named for it before then.
+1. A pull request that closes several issues commits one note per issue. When
+   the notes carry the same sentence, towncrier merges them into one line that
+   links every issue.
+2. A second pull request for an issue that already has a note commits its own,
+   such as `293.change.2.md`, so it never edits a note the first pull request
+   merged. `towncrier create` picks the number.
+3. Work that closes no issue, such as a dependency update, names its note for
+   what it changed, with a leading `+`, such as `+bump-ruff.fix.md`. Its line
+   in the release notes has no link.
 
-A branch name containing `/` becomes `-` in the file name, so every note sits
-directly under `changes/`.
+We didn't name the note for the pull request, because a pull request's number
+doesn't exist until it opens, and `wfctl verify` couldn't check for the note
+before then.
 
 A stacked pull request carries its parent's release note in its diff against
-`main`. The check therefore requires the file named for the branch itself, not
-just any file under `changes/`.
+`main`. The check therefore requires a note for the issue the branch's own name
+starts with, not just any file under `changes/`. A branch whose name starts
+with no issue has to add at least one note. Two stacked branches for the same
+issue still pass on the parent's note, which is rare enough to leave to review.
 
 The pull request template's "Type of Change" checkboxes ask the same question
 less precisely than the release note's category, and two fields asking one
@@ -294,3 +302,7 @@ place to compare a note's category against the diff.
 - 2026-10-12  revised     — the note is named for the branch rather than the
   issue, since a pull request can close several issues and one issue can take
   several pull requests.
+- 2026-10-14  revised     — the note is named for its issue again, in the
+  layout towncrier reads, and towncrier drafts the release notes. Andre chose
+  it after a preview built from 0.23.0's changes. towncrier handles the cases
+  that motivated naming by branch.
