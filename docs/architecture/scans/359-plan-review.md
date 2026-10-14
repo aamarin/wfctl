@@ -32,3 +32,43 @@
 - **PR-010, MINOR, open.** The plan has no rule for which fetch and push failures read "unreachable", "push refused", or "git failed". For example, a credential failure with prompts turned off would read "unreachable".
 - **PR-011, MINOR, open.** After a conflict, the unmerged commit stays, so every branch's next store meets the same conflict. A store killed partway through a merge leaves `MERGE_HEAD` behind, and the next commit fails. The plan names no recovery step for either case.
 - **PR-012, MINOR, open.** `committable` will import `_spec_store`, and no test covers the import cost on that path. The guard runs before every Bash call, so a heavy module-level import in `_spec_store` would slow every call.
+
+## Review 2026-10-14T19:50Z
+
+- Verdict: satisfied
+- Reviewed: plan.md b4713961ce2fa17f49651e18c0cbe16a57851833, spec.md 68507ea870e0226a517cc6af694c083dd4630d8e, .specify/memory/constitution.md absent, design.md c08921165ed069a8150511b76ededfe5f029282e, docs/architecture/design/store-specs-implement-pass.md 67ebbd9713bc4f7aaf8c69f62c7934979a6b6eee, docs/architecture/design/store-specs-at-removal.md 9a8ab88a08fa68b6f36465310ca2252e355b1718, docs/architecture/design/store-specs-merges-before-push.md d8dacdaa617398f9aae737ad02a355de3b8e1091, docs/architecture/spec-storage-read-from-git.md e95749c063e9aac84c9aa1f23b205c3e4c7e8638, research.md dec1c550ba9675426768361825a93c6425dafef2, data-model.md 0950c40bdb5b3fe6a927f3c27a237f531bd578a8, contracts/cli.md ccd97adcf06266e68b558fe83114076b9d09682c, quickstart.md d1ff4edccde503ea9a4f869aa532a18d76e431f5, plan-review.plan.md 252d08ae4f6b5ddac0ef8ec96c56f51e489e59bc (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 16 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/359-push-specs-to-trunk/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-009, PR-019) |
+| Requirements and traceability | Outstanding (PR-006, PR-008) |
+| Architecture and boundaries | Outstanding (PR-013, PR-012, PR-017; PR-002 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-007, PR-010, PR-011, PR-014, PR-016, PR-018) |
+| Security and reliability | Outstanding (PR-003, PR-004, PR-015; PR-001 fixed) |
+
+### Findings
+
+- **PR-013, MAJOR, open.** If #40 merges first, the plan skips its removal step and the archive tests with it, including "a failed push at removal warns and exits 0". #40's record says `wfctl hook worktree-remove` exits non-zero when `store specs` refuses, and research R6 has `store specs` exit 1 on a failed push or a lock timeout. Nothing says which command turns that failure into a warning, so FR-021 and SC-003 are at risk.
+- **PR-001, MAJOR, fixed.** Fixed by research R8, which now says a file staged anywhere blocks the merge, by the new `merge_blocked_staged` outcome that names the folders and a remedy, and by two new tests.
+- **PR-002, MAJOR, fixed.** Fixed by research R15. A store that pushes records the `store-specs` action, which lifts the host block, and a blocked `implement` with an outstanding pass routes to that pass with `auto` false.
+- **PR-003, MINOR, open.** Research R7 and the Constraints line still say the store never prompts. `GIT_TERMINAL_PROMPT=0` doesn't stop SSH prompts, and pfms's spec store pushes over SSH.
+- **PR-004, MINOR, open.** The test suite's autouse fixtures still don't keep a test away from the developer's real spec store.
+- **PR-005, MINOR, open.** Implementation step 6 and research R13 still expect the payload snapshot to gain `store-specs` entries. The snapshot records step rows only, so it won't change.
+- **PR-006, MINOR, open.** The text for a layout with nowhere to push is still hidden by the default `wfctl status`, and the plan doesn't say that this is a choice.
+- **PR-007, MINOR, open.** The contract still says "the next store from any branch pushes it". A branch with nothing new to commit pushes nothing (FR-009).
+- **PR-008, MINOR, open.** Quickstart §6 and the Performance Goals still count two git commands. The layout check adds more calls, and `wfctl status` is never timed without the pass.
+- **PR-009, MINOR, open.** data-model.md and contracts/cli.md still give different text for `committed_not_backed_up`, and the pass's text still says "committed" when nothing was committed.
+- **PR-010, MINOR, open.** There's still no rule for which credential, deleted-branch, or permission failures read `not_pushed`, `push_refused`, or `git_failed`.
+- **PR-011, MINOR, open.** The conflict output still names no remedy, and a store killed partway through a merge leaves `MERGE_HEAD` behind, which blocks every branch.
+- **PR-012, MINOR, open.** No test covers the import cost on the guard's `git commit` path after `owns_branch` moves into `_spec_store`.
+- **PR-014, MINOR, open.** Research R8 doesn't say how a refused merge is told apart from a conflict. After a conflict, `git diff --cached` prints files too, so checking it first would skip `git merge --abort`. Whether `MERGE_HEAD` exists is the test that separates them.
+- **PR-015, MINOR, open.** An untracked file that the upstream adds is a fourth kind of refusal, with nothing staged and a different message from git. It falls through to the "local edits" text, which is plausible here given the 58 untracked spec dirs.
+- **PR-016, MINOR, open.** The new test expects the first branch's next store to merge and push. The owning branch's push already carried that commit, so the next store reads `already_stored`.
+- **PR-017, MINOR, open.** Research R15 routes on any outstanding pass, not on the `store-specs` block. As a result, a `push` block on a finished `implement`, or a pass a repository declares under `implement`, also routes to the pass, which reverses the order the `next_step_content` docstring states. Only the `store-specs` case is tested.
+- **PR-018, MINOR, open.** If the spec dir reaches the remote another way, a rerun reads `already_stored` and records nothing, so the hold stays and routing goes back to `wfctl verify`. Running `wfctl report-action store-specs` still recovers it.
+- **PR-019, MINOR, open.** Technical Context, the `session-state-is-re-derived` gate, and data-model.md say git history is the only thing written. Research R15 also appends an action event to the session log.
