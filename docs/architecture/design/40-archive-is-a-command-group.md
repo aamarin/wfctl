@@ -88,6 +88,18 @@ also runs them by hand:
 `archive unsaved` starts a new `archive` command group, which holds only that
 command for now.
 
+The hook command calls the store as a function and decides from its result,
+not from the exit code of `store specs`. The store's result says whether the
+outcome stops the removal. A failed push, a lock timeout, or a merge conflict
+in a spec store doesn't stop it, because the commit or the files stay in the
+spec store on disk, and deleting the worktree can't touch them. In those cases
+the hook prints the store's output as a warning and goes ahead. The copy-out
+outcomes in the default layout do stop it, such as a destination that holds
+different files, because there the worktree holds the only copy. `store specs`
+run by hand still exits 1 for every one of these outcomes, so a script can tell
+the spec files aren't backed up yet. `archive unsaved` keeps its own refusals
+as they are.
+
 The template seeds `wfctl hook worktree-remove` into `pre_remove` as the one
 call in its block. `archive-specs` becomes a hidden alias for it, so an
 existing repository's hook runs both jobs when wfctl is updated, without
@@ -184,8 +196,9 @@ planned.
 - A test that the seeded template's `pre_remove` calls
   `wfctl hook worktree-remove`, and that `pre_remove_wired` reports it as
   wired.
-- A test that `archive-specs` runs both jobs and exits non-zero when either
-  one refuses.
+- A test that `archive-specs` runs both jobs, and exits non-zero when
+  `archive unsaved` refuses or the store's result says the removal stops.
+- A test that a failed push at removal prints a warning and exits 0.
 - A test that `wfctl --help` doesn't list `archive-specs`, that
   `wfctl hook --help` lists `worktree-remove`, and that `wfctl archive --help`
   lists `unsaved`.
