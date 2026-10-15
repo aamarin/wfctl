@@ -107,12 +107,21 @@ files. The script proposes a minor when any note is a behaviour change or an
 addition, and a patch otherwise. The draft puts the behaviour changes first and
 leaves out the notes marked `none`. The script then bumps the version, runs `uv
 lock`, and deletes the release note files in the same release commit, so
-`changes/` holds only what is unreleased. The person cutting the release edits the draft, confirms the
-version, and pushes.
+`changes/` holds only what is unreleased. The person cutting the release
+confirms the version and edits the draft. The script then commits on a release
+branch and opens a pull request for it, which the person merges once its checks
+pass.
+
+`main` is protected with no bypass, so every change reaches it through a pull
+request whose checks passed, a release included. A bypass would have let the
+release commit go straight to `main`, but GitHub grants a bypass per person,
+and with one person merging it would also have let every red merge through.
 
 The CI tag job keeps its gate. Nothing is tagged until test, wheel, and lint
-pass on the release commit. When the job tags it, it publishes the release
-commit's body as the GitHub release, in place of the list GitHub generates.
+pass on `main` after the release merges. The job then publishes the release
+commit's body as the GitHub release, in place of the list GitHub generates. A
+release commit with an empty body fails the job before anything is tagged,
+rather than publishing GitHub's list in its place.
 
 Release automation is this repository's process, not a feature wfctl ships.
 The check is declared in this repository's `wfctl.json`, and both scripts live
@@ -173,8 +182,8 @@ flowchart TB
   end
   subgraph cut["cutting a release"]
     script["release script proposes the version,<br/>towncrier drafts the release notes"]
-    person["person edits the draft<br/>and confirms the version"]
-    commit["release commit: version, uv.lock,<br/>release notes, release note files deleted"]
+    person["person confirms the version<br/>and edits the draft"]
+    commit["release pull request: version, uv.lock,<br/>release notes, release note files deleted"]
   end
   subgraph main["CI on main"]
     tests["test, wheel, lint"]
@@ -186,16 +195,18 @@ flowchart TB
   verify -- "no" --x change
   ci -- "yes, merged" -.-> script
   script --> person --> commit
-  commit -- "pushed" --> tests --> tag
+  commit -- "checks passed, merged" --> tests --> tag
   type --x script
   generated["GitHub's generated notes"] --x tag
+  push["a push straight to main"] --x main
 ```
 
 Solid arrows are steps in one run. The dotted arrow is read later: the release
 script reads the merged release note files from `main` at release time. The
 crossed-out arrows are the decision. A change without a release note is
 refused, the script never reads the commit type to judge what a user will
-notice, and the tag job never publishes GitHub's generated notes.
+notice, the tag job never publishes GitHub's generated notes, and nothing
+reaches `main` except through a pull request.
 
 ## Considered
 
@@ -240,8 +251,10 @@ notice, and the tag job never publishes GitHub's generated notes.
 
 The release note check runs inside `wfctl verify`, so it reads the current
 branch's name and compares the branch against `main`. On `main` itself there is
-no branch to compare, so the check passes there. That is what lets the release
-commit, which deletes the files, pass its own CI.
+no branch to compare, so the check passes there. A release branch deletes every
+note and adds none, so the check also passes a branch named
+`release/v<version>` whose `pyproject.toml` carries that version. Requiring the
+two to agree keeps the name from working as a way around the check.
 
 The note is named for its issue, since towncrier turns the issue number into a
 link in the release notes. Three cases make naming by issue harder, and each is
@@ -306,3 +319,8 @@ place to compare a note's category against the diff.
   layout towncrier reads, and towncrier drafts the release notes. Andre chose
   it after a preview built from 0.23.0's changes. towncrier handles the cases
   that motivated naming by branch.
+- 2026-10-15  revised     — the release goes through its own pull request, and
+  `main` is protected with no bypass. The tag job fails on an empty release
+  body instead of falling back to GitHub's generated notes. Andre chose
+  protection once failing the job turned out to block only the publish, not
+  the bump landing on `main`. Folds in #599.
