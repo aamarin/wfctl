@@ -271,7 +271,8 @@ def _check_remote(url: str) -> None:
 Outcome = Literal[
     "stored", "already_stored", "not_applicable", "no_spec_dir",
     "committed_not_backed_up", "not_pushed", "push_refused", "conflict",
-    "merge_blocked_staged", "merge_refused", "locked", "git_failed",
+    "merge_blocked_staged", "merge_refused", "merge_in_progress", "locked",
+    "git_failed",
 ]
 
 # The outcomes `store specs` exits 1 for. Every other one either stored the
@@ -280,7 +281,7 @@ Outcome = Literal[
 # would tell a script the store worked when the pipeline says it did not.
 _FAILED: frozenset[Outcome] = frozenset({
     "not_pushed", "push_refused", "conflict", "merge_blocked_staged",
-    "merge_refused", "locked", "git_failed",
+    "merge_refused", "merge_in_progress", "locked", "git_failed",
 })
 
 
@@ -293,6 +294,12 @@ class StoreResult(NamedTuple):
     `folders` names the spec dirs a merge stopped on. `message` is git's own
     text, kept for `git_failed` because no summary of an unknown failure is
     more useful than what git said.
+
+    `paths` are the files a refused merge named, relative to the store's
+    root, and `untracked` says they are new files in the way rather than
+    edited ones, since the two need different remedies (PR-015).
+    `store_branch` is the spec store's own branch, which a layout with no
+    upstream names in place of the upstream it lacks.
 
     `inside_worktree` is kept rather than `stops_removal` itself, so the rule
     lives in one place and the removal command cannot apply a second one.
@@ -307,6 +314,9 @@ class StoreResult(NamedTuple):
     sha: str | None = None
     message: str | None = None
     folders: tuple[str, ...] = ()
+    paths: tuple[str, ...] = ()
+    untracked: bool = False
+    store_branch: str | None = None
 
     @property
     def exit_code(self) -> int:
@@ -423,14 +433,25 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
     def result(
         outcome: Outcome, files: tuple[str, ...] = (),
         sha: str | None = None, message: str | None = None,
+        folders: tuple[str, ...] = (), paths: tuple[str, ...] = (), untracked: bool = False,
     ) -> StoreResult:
-        return StoreResult(outcome, branch, path, inside, found, files, sha, message)
+        return StoreResult(
+            outcome, branch, path, inside, found, files, sha, message, folders, paths, untracked,
+        )
 
     def failed(proc: subprocess.CompletedProcess[str]) -> StoreResult:
         return result("git_failed", message=(proc.stderr or proc.stdout).strip())
 
     if not unstored(found.root, [name]):
         return result("already_stored")
+
+    # A merge some earlier run left unfinished, whether a store killed partway
+    # or a person resolving a conflict by hand. `git commit -- <dir>` refuses
+    # to run during a merge with a message that names neither cause. It is
+    # reported rather than aborted, because aborting would throw away a
+    # resolution a person may be halfway through (PR-011).
+    if _merging(git):
+        return result("merge_in_progress")
 
     added = git("add", "-A", "--", name)
     if added.returncode:
@@ -461,11 +482,7 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
 
     merged = git("merge", "--no-edit", "@{u}")
     if merged.returncode:
-        # Backed out before anything is reported, because a spec store left
-        # mid-merge stops every branch's store until a person aborts it.
-        if git("rev-parse", "-q", "--verify", "MERGE_HEAD").returncode == 0:
-            git("merge", "--abort")
-        return result("git_failed", files, message=(merged.stderr or merged.stdout).strip())
+        return _merge_failure(git, result, files, merged)
 
     _check_remote(_remote_url(git, found.remote, "--push"))
     try:
@@ -482,6 +499,79 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
 
     sha = _read(found.root, "rev-parse", "--short", "HEAD")
     return result("stored", files, sha=sha)
+
+
+def _merging(git: _Git) -> bool:
+    return git("rev-parse", "-q", "--verify", "MERGE_HEAD").returncode == 0
+
+
+# The headers git prints over the files a merge refused to overwrite. Matched
+# up to "would be", so the "removed by merge" form of each is read too.
+_EDITED_HEADER = "Your local changes to the following files would be"
+_UNTRACKED_HEADER = "The following untracked working tree files would be"
+
+
+def _merge_failure(
+    git: _Git, result: Callable[..., StoreResult], files: tuple[str, ...],
+    merged: subprocess.CompletedProcess[str],
+) -> StoreResult:
+    """A merge that did not finish, told apart by kind in research R8's order.
+
+    1. `MERGE_HEAD` exists, so the merge started and stopped on a conflict.
+       The unmerged paths are read before `git merge --abort`, since after it
+       the same command prints nothing.
+    2. No `MERGE_HEAD`, and the index holds staged files. Git refuses any
+       merge that is not a fast-forward while the index differs from `HEAD`,
+       whether or not the upstream touches those files.
+    3. Nothing staged, and git named files in the way, either edited or
+       untracked.
+
+    The `MERGE_HEAD` check comes first because a started merge stages what it
+    merged. Reading the index first would call a conflict staged files, skip
+    the abort, and leave the spec store mid-merge, which stops every branch's
+    store until a person aborts it.
+
+    Anything else is `git_failed` with git's own message.
+    """
+    said = (merged.stderr or merged.stdout).strip()
+    if _merging(git):
+        unmerged = git("diff", "--name-only", "--diff-filter=U", "-z")
+        aborted = git("merge", "--abort")
+        if aborted.returncode:
+            return result("git_failed", files, message=(aborted.stderr or aborted.stdout).strip())
+        return result("conflict", files, folders=_folders(unmerged.stdout))
+    staged = git("diff", "--cached", "--name-only", "-z")
+    if staged.returncode:
+        return result("git_failed", files, message=(staged.stderr or staged.stdout).strip())
+    if staged.stdout.strip("\0"):
+        return result("merge_blocked_staged", files, folders=_folders(staged.stdout))
+    # An edit is reported ahead of an untracked file when git names both. The
+    # next run reports the other, and one remedy per run keeps the output true.
+    edited = _listed_under(said, _EDITED_HEADER)
+    if edited:
+        return result("merge_refused", files, paths=edited)
+    untracked = _listed_under(said, _UNTRACKED_HEADER)
+    if untracked:
+        return result("merge_refused", files, paths=untracked, untracked=True)
+    return result("git_failed", files, message=said)
+
+
+def _folders(nul_separated: str) -> tuple[str, ...]:
+    return tuple(sorted({_folder(p) for p in nul_separated.split("\0") if p}))
+
+
+def _listed_under(said: str, header: str) -> tuple[str, ...]:
+    """The tab-indented file names git prints under `header`."""
+    lines = said.splitlines()
+    for i, line in enumerate(lines):
+        if header in line:
+            names = []
+            for entry in lines[i + 1:]:
+                if not entry.startswith("\t"):
+                    break
+                names.append(entry.strip())
+            return tuple(names)
+    return ()
 
 
 def _local_branch(root: str) -> str:
@@ -574,7 +664,44 @@ def report_lines(result: StoreResult) -> list[str]:
             f"✗ committed {count} files, push refused — {upstream} moved again", *names,
             "    run `wfctl store specs` again to merge and push",
         ]
-    said = (result.message or "git gave no message").splitlines()
+    root = result.layout.root if result.layout else ""
+    folders = ", ".join(f"{f}/" for f in result.folders)
+    # A conflict and an unfinished merge both stop every branch's store, since
+    # each store merges the same upstream into the same checkout. So each says
+    # that, and names the git commands a person runs to clear it (PR-011).
+    if result.outcome == "conflict":
+        return [
+            f"✗ committed {count} files, merge conflicts in {folders}",
+            "    the merge was aborted and your commit is kept",
+            "    every branch's store fails until a person resolves this conflict",
+            f"    to resolve it, run `git merge @{{u}}` in {root}, fix the files, run"
+            " `git commit`, then `wfctl store specs`",
+        ]
+    if result.outcome == "merge_in_progress":
+        return [
+            f"✗ nothing committed, a merge is already in progress in {root}",
+            "    every branch's store fails until that merge is finished or aborted",
+            f"    to finish it, fix the files and run `git commit` in {root},"
+            " or run `git merge --abort` there",
+        ]
+    if result.outcome == "merge_blocked_staged":
+        return [
+            f"✗ committed {count} files, merge blocked by files staged in {folders}",
+            "    run `wfctl store specs` from the branch that owns that folder, or unstage",
+            "    the files, then run `wfctl store specs` again",
+        ]
+    if result.outcome == "merge_refused" and result.untracked:
+        return [
+            f"✗ committed {count} files, merge blocked by untracked files the upstream"
+            f" adds: {', '.join(result.paths)}",
+            "    move those files aside, then run `wfctl store specs` again",
+        ]
+    if result.outcome == "merge_refused":
+        return [
+            f"✗ committed {count} files, merge blocked by local edits to {', '.join(result.paths)}",
+            "    store or discard that edit, then run `wfctl store specs` again",
+        ]
+    said =(result.message or "git gave no message").splitlines()
     rest = [f"    {line}" for line in said[1:] if line.strip()]
     return [f"✗ store failed: {said[0] if said else ''}", *rest]
 

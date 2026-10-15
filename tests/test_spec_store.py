@@ -748,7 +748,7 @@ def test_a_spec_dir_inside_the_worktree_stops_removal_and_still_exits_0_by_hand(
     ("stored", 0), ("already_stored", 0), ("not_applicable", 0), ("no_spec_dir", 0),
     ("committed_not_backed_up", 0), ("not_pushed", 1), ("push_refused", 1),
     ("conflict", 1), ("merge_blocked_staged", 1), ("merge_refused", 1),
-    ("locked", 1), ("git_failed", 1),
+    ("merge_in_progress", 1), ("locked", 1), ("git_failed", 1),
 ])
 def test_each_outcome_carries_the_exit_code_the_data_model_gives_it(
     outcome: _spec_store.Outcome, code: int,
@@ -825,3 +825,186 @@ def test_a_branch_with_no_spec_dir_says_so_and_commits_nothing(
     assert out.splitlines() == [f"ℹ no spec dir for {branch}"]
     assert _git(env.here, "rev-parse", "HEAD") == head
     assert _recorded_actions(state) == []
+
+
+def _move_remote(env: types.SimpleNamespace, folder: str, name: str, text: str) -> None:
+    """Another machine stores `folder/name`, so the remote is one commit ahead."""
+    _write(env.there / folder, name, text=text)
+    _git(env.there, "add", "-A")
+    _git(env.there, "commit", "-m", f"specs({folder}): there")
+    _git(env.there, "push")
+
+
+def test_a_merge_and_push_leaves_another_branchs_edits_and_new_folder_alone(
+    tmp_path: Path,
+) -> None:
+    """SC-005, and the scratch test `store-specs-merges-before-push.md` asks
+    for in the suite. The merge writes into a checkout other branches are
+    using, and an edited `tasks.md` or a folder nobody stored yet is unstored
+    work that only exists there."""
+    env = _store_setup(tmp_path)
+    _move_remote(env, "100", "spec.md", "100 as edited there\n")
+    (env.here / "200" / "tasks.md").write_text("200 with a task ticked off\n")
+    _write(env.here / "400", "spec.md", "notes/one.md", text="400, never stored\n")
+    before = {f: _snapshot(env.here / f) for f in ("200", "400")}
+    status_before = _git(env.here, "status", "--porcelain", "--untracked-files=all", "--", "200", "400")
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    assert len(_git(env.here, "rev-list", "--parents", "-n", "1", "HEAD").split()) == 3
+    assert {f: _snapshot(env.here / f) for f in ("200", "400")} == before
+    assert _git(env.here, "status", "--porcelain", "--untracked-files=all", "--", "200", "400") == status_before
+    assert not any(p.startswith("400/") for p in _remote_files(env.remote))
+    assert _git(env.remote, "show", "specs-trunk:200/tasks.md") == "200 as first stored\n"
+
+
+def test_a_conflict_in_this_folder_is_aborted_and_named_even_though_the_index_lists_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-007 and research R8. A started merge stages what it merged, so a
+    store that read the index first would call this a staged file, skip the
+    abort, and leave the spec store mid-merge, which stops every branch's
+    store. The spy proves the index really does list paths at that moment,
+    so the outcome comes from the `MERGE_HEAD` check and not from luck."""
+    env = _store_setup(tmp_path)
+    _write(env.there / BRANCH, "spec.md", text="as written there\n")
+    _move_remote(env, "100", "spec.md", "100 as edited there\n")
+    _write(env.spec_dir, "spec.md", text="as written here\n")
+    real = subprocess.run
+    staged_mid_merge: list[str] = []
+
+    def look_at_the_index_after_the_merge(args: list[str], *a: object, **kw: object) -> object:
+        out = real(args, *a, **kw)  # type: ignore[call-overload]
+        if args[:1] == ["git"] and args[3:5] == ["merge", "--no-edit"]:
+            staged_mid_merge.extend(_git(env.here, "diff", "--cached", "--name-only").split())
+        return out
+
+    monkeypatch.setattr(subprocess, "run", look_at_the_index_after_the_merge)
+
+    result = _store(env)
+
+    assert staged_mid_merge, "the fixture was meant to leave paths in the index"
+    assert result.outcome == "conflict"
+    assert result.exit_code == 1
+    assert result.folders == (BRANCH,)
+    assert not (env.here / ".git" / "MERGE_HEAD").exists()
+    assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
+    assert _git(env.here, "show", f"HEAD:{BRANCH}/spec.md") == "as written here\n"
+    assert _spec_store.report_lines(result) == [
+        f"✗ committed 1 files, merge conflicts in {BRANCH}/",
+        "    the merge was aborted and your commit is kept",
+        "    every branch's store fails until a person resolves this conflict",
+        f"    to resolve it, run `git merge @{{u}}` in {env.here}, fix the files, run"
+        " `git commit`, then `wfctl store specs`",
+    ]
+
+
+def test_a_file_staged_in_another_folder_blocks_the_merge_until_its_branch_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research R8, kind 2. Git refuses any merge that is not a fast-forward
+    while the index differs from `HEAD`, and FR-001 leaves another branch's
+    staged file in place on purpose. "Local edits" would send a person
+    looking for an unstaged change that is not there, and the remedy has to
+    actually work: the owning branch's store commits the staged file and
+    carries the first branch's kept commit out with its own."""
+    env = _store_setup(tmp_path)
+    _move_remote(env, "100", "spec.md", "100 as edited there\n")
+    (env.here / "200" / "tasks.md").write_text("200 with a task ticked off\n")
+    _git(env.here, "add", "200/tasks.md")
+    _write(env.spec_dir, "spec.md")
+
+    code, out, _ = _cli(monkeypatch, env.here, env.project)
+
+    assert code == 1
+    assert out.splitlines() == [
+        "✗ committed 1 files, merge blocked by files staged in 200/",
+        "    run `wfctl store specs` from the branch that owns that folder, or unstage",
+        "    the files, then run `wfctl store specs` again",
+    ]
+    assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
+    assert not (env.here / ".git" / "MERGE_HEAD").exists()
+
+    owner = _store(env, "200")
+
+    assert owner.outcome == "stored"
+    assert _git(env.here, "diff", "--cached", "--name-only") == ""
+    assert f"{BRANCH}/spec.md" in _remote_files(env.remote)
+    assert _git(env.remote, "show", "specs-trunk:200/tasks.md") == "200 with a task ticked off\n"
+    assert _store(env).outcome == "already_stored"
+
+
+@pytest.mark.parametrize("kind", ["edited", "untracked"])
+def test_a_merge_refused_for_a_file_in_the_way_names_the_file_and_says_why(
+    tmp_path: Path, kind: str,
+) -> None:
+    """Research R8 kind 3, and PR-015. With nothing staged, git refuses a merge
+    that would overwrite a file the upstream changed. An edited file and an
+    untracked one need different remedies, and calling a new file an edit
+    sends a person looking for a change that was never made."""
+    env = _store_setup(tmp_path)
+    if kind == "edited":
+        _move_remote(env, "200", "tasks.md", "200 as edited there\n")
+        (env.here / "200" / "tasks.md").write_text("200 as edited here\n")
+        blocked = "200/tasks.md"
+    else:
+        _move_remote(env, "300", "notes.md", "300 as written there\n")
+        _write(env.here / "300", "notes.md", text="300 as written here\n")
+        blocked = "300/notes.md"
+    before = (env.here / blocked).read_bytes()
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "merge_refused"
+    assert result.exit_code == 1
+    assert (env.here / blocked).read_bytes() == before
+    assert not (env.here / ".git" / "MERGE_HEAD").exists()
+    expected = {
+        "edited": [
+            f"✗ committed 1 files, merge blocked by local edits to {blocked}",
+            "    store or discard that edit, then run `wfctl store specs` again",
+        ],
+        "untracked": [
+            f"✗ committed 1 files, merge blocked by untracked files the upstream adds: {blocked}",
+            "    move those files aside, then run `wfctl store specs` again",
+        ],
+    }
+    assert _spec_store.report_lines(result) == expected[kind]
+
+
+def test_a_merge_already_in_progress_is_reported_and_left_for_the_person(
+    tmp_path: Path,
+) -> None:
+    """PR-011. A store killed mid-merge, or a person partway through resolving
+    a conflict by hand, leaves `MERGE_HEAD`, and `git commit -- <dir>` fails
+    there with a message that names neither cause. The store does not abort
+    it either, since that would throw away a resolution a person is making."""
+    env = _store_setup(tmp_path)
+    (env.here / "100" / "spec.md").write_text("100 as edited here\n")
+    _git(env.here, "commit", "-am", "specs(100): here")
+    _move_remote(env, "100", "spec.md", "100 as edited there\n")
+    _git(env.here, "fetch")
+    merge = subprocess.run(
+        ["git", "-C", str(env.here), "merge", "--no-edit", "@{u}"], capture_output=True, text=True,
+    )
+    assert merge.returncode != 0, "the fixture was meant to conflict in 100/"
+    head = _git(env.here, "rev-parse", "HEAD")
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "merge_in_progress"
+    assert result.exit_code == 1
+    assert _git(env.here, "rev-parse", "HEAD") == head
+    assert (env.here / ".git" / "MERGE_HEAD").exists()
+    assert _spec_store.unstored(env.here, [BRANCH]) == [_spec_store.Unstored(BRANCH, 1, False)]
+    assert _spec_store.report_lines(result) == [
+        f"✗ nothing committed, a merge is already in progress in {env.here}",
+        "    every branch's store fails until that merge is finished or aborted",
+        f"    to finish it, fix the files and run `git commit` in {env.here},"
+        " or run `git merge --abort` there",
+    ]
+
