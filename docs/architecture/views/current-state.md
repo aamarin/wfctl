@@ -27,7 +27,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _guard 764      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
-   │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
+   │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
    │ _completion 150                                              │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
