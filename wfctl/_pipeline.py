@@ -91,12 +91,14 @@ class Step(NamedTuple):
     #100 ruled out, and it would cost `grep`: written this way, searching for a
     reader finds its definition and its row here.
 
-    `sub_steps` defaults to empty so every existing row keeps parsing. Two
+    `sub_steps` defaults to empty so every existing row keeps parsing. Three
     steps carry any today. `brainstorm` splits the two artifacts it already
     produces, which is what earns a pass its own row
     (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
     review, whose report is a second artifact read against the first (#501).
-    The other six steps have exactly one artifact each and nothing to split.
+    `implement` carries the store of the spec dir, which owns no artifact and
+    reads git instead (`store-specs-implement-pass.md`). The other five steps
+    have exactly one artifact each and nothing to split.
     """
 
     command: str
@@ -135,7 +137,16 @@ _STEPS: dict[str, Step] = {
     "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks),
     "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
     "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
-    "implement":  Step("/speckit.implement",  _AUTOMATIC,       _evidence.implement),
+    "implement": Step(
+        "/speckit.implement", _AUTOMATIC, _evidence.implement,
+        # Automatic, so an unattended run stores its own specs before it opens
+        # a pull request. A run whose host refuses the push is held by
+        # `report-block`, and `next_step_content` routes that hold back here
+        # rather than to `wfctl verify` (FR-017, research R15).
+        sub_steps=(
+            SubStep("store-specs", "/store-specs", _AUTOMATIC, _evidence.store_specs),
+        ),
+    ),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
