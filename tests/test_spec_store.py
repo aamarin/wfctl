@@ -1057,3 +1057,59 @@ def test_a_second_store_waits_for_the_first_and_then_stores(tmp_path: Path) -> N
     assert time.monotonic() - started >= 0.3
     assert (env.here / ".git" / "wfctl-store.lock").exists()
     assert "wfctl-store.lock" not in _git(env.here, "status", "--porcelain", "--ignored")
+
+
+def test_a_store_with_no_upstream_commits_and_exits_0_by_hand(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-012, research R6 and PR-029. The commit is all the store can do
+    there, since choosing a remote is the person's call. An exit of 1 would
+    fail every run in that layout with no command that could ever pass, and
+    a second run with nothing new must not claim a commit it did not make."""
+    project = git_repo(tmp_path / "project")
+    store = git_repo(tmp_path / "store")
+    store_branch = _git(store, "symbolic-ref", "--short", "HEAD").strip()
+    _write(store / BRANCH, "spec.md", "plan.md")
+
+    code, out, state = _cli(monkeypatch, store, project)
+
+    assert code == 0
+    assert out.splitlines() == [
+        f"⚠ committed 2 files, not backed up — {store_branch} has no upstream branch",
+    ]
+    assert _git(store, "log", "-1", "--format=%s").strip() == "specs(359): store plan.md and 1 others"
+    assert _spec_store.unstored(store, [BRANCH]) == []
+    assert _recorded_actions(state) == []
+
+    code, out, _ = _cli(monkeypatch, store, project)
+
+    assert code == 0
+    assert out.splitlines() == [
+        f"⚠ nothing new to commit, not backed up — {store_branch} has no upstream branch",
+    ]
+
+
+@pytest.mark.parametrize("kind", ["in_repo", "unmanaged"])
+def test_a_layout_with_nowhere_to_commit_says_where_the_files_are_and_commits_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str,
+) -> None:
+    """FR-011 and FR-013. Inside the code repository a commit would land on
+    the feature branch, and a plain folder has no repository at all, so the
+    store only says where the files are. Both exit 0, for the reason the
+    no-upstream layout does."""
+    project = git_repo(tmp_path / "project")
+    root = project / "specs" if kind == "in_repo" else tmp_path / "notes" / "specs"
+    spec_dir = root / BRANCH
+    _write(spec_dir, "spec.md")
+    head = _git(project, "rev-parse", "HEAD")
+
+    code, out, _ = _cli(monkeypatch, root, project)
+
+    assert code == 0
+    assert out.splitlines() == [{
+        "in_repo": f"ℹ {spec_dir} is inside the code repository — not committed, not backed up",
+        "unmanaged": f"ℹ {spec_dir} is not backed up anywhere",
+    }[kind]]
+    assert _git(project, "rev-parse", "HEAD") == head
+    assert _git(project, "diff", "--cached", "--name-only") == ""
+    assert not (tmp_path / "notes" / ".git").exists()

@@ -1526,8 +1526,10 @@ def plan_review(ev: Evidence) -> Assessment:
 # The `skipped` texts for the three layouts with nowhere to push
 # (`data-model.md §The store-specs pass`). The unmanaged one is followed by the
 # root, since a plain folder is the one layout whose location nothing else says.
+# None of them says "committed", because the pipeline never runs the store in
+# these layouts and the spec dir may hold nothing committed at all (PR-009).
 _STORE_SKIPPED: dict[str, str] = {
-    "store_no_upstream": "no upstream branch; committed, not backed up",
+    "store_no_upstream": "no upstream branch; not backed up",
     "in_repo": "inside the code repository; not backed up",
     "unmanaged": "not backed up anywhere: {root}",
 }

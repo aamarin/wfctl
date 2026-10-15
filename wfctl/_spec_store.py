@@ -397,10 +397,11 @@ def store(
     and push.
 
     The spec root is the spec dir's parent, which is where `resolve_spec_dir`
-    looks for it, and the layout is read from that root on every call. Only a
-    `store` layout is written to. Every other layout returns `not_applicable`,
-    since a commit there would land on the code's branch, on no branch, or in
-    a folder git does not track.
+    looks for it, and the layout is read from that root on every call. A
+    `store` layout is committed in and pushed from, and `store_no_upstream`
+    is committed in and stops there. Every other layout returns
+    `not_applicable`, since a commit there would land on the code's branch,
+    on no branch, or in a folder git does not track.
 
     The steps, in order (research R8, R9):
 
@@ -427,7 +428,7 @@ def store(
     if not os.path.isdir(path):
         return StoreResult("no_spec_dir", branch, path, inside)
     found = layout(os.path.dirname(os.path.abspath(path)), repo_root)
-    if found.kind != "store":
+    if found.kind not in ("store", "store_no_upstream"):
         return StoreResult("not_applicable", branch, path, inside, found)
     try:
         git_dir = _read(found.root, "rev-parse", "--git-dir")
@@ -490,9 +491,12 @@ def _acquire(fd: int, timeout: float) -> bool:
 
 def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
            found: Layout, inside: bool) -> StoreResult:
-    assert found.remote is not None
     git = _Git(found.root)
     name = os.path.basename(os.path.normpath(path))
+    # With no upstream the store commits and stops there, since choosing a
+    # remote to push to is the person's decision and not the store's (FR-012).
+    # Every comparison that would be made with `@{u}` is made with `HEAD`.
+    upstream = found.kind == "store"
 
     def result(
         outcome: Outcome, files: tuple[str, ...] = (),
@@ -501,13 +505,14 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
     ) -> StoreResult:
         return StoreResult(
             outcome, branch, path, inside, found, files, sha, message, folders, paths, untracked,
+            None if upstream else _local_branch(found.root),
         )
 
     def failed(proc: subprocess.CompletedProcess[str]) -> StoreResult:
         return result("git_failed", message=(proc.stderr or proc.stdout).strip())
 
     if not unstored(found.root, [name]):
-        return result("already_stored")
+        return result("already_stored" if upstream else "committed_not_backed_up")
 
     # A merge some earlier run left unfinished, whether a store killed partway
     # or a person resolving a conflict by hand. `git commit -- <dir>` refuses
@@ -522,7 +527,8 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
         return failed(added)
     # `--no-renames` because a rename would print only its new name, and the
     # file it replaced is one the push deletes from the remote.
-    listed = git("diff", "--cached", "--name-only", "--no-renames", "-z", "@{u}", "--", name)
+    against = ["@{u}"] if upstream else []
+    listed = git("diff", "--cached", "--name-only", "--no-renames", "-z", *against, "--", name)
     if listed.returncode:
         return failed(listed)
     files = tuple(p.split("/", 1)[1] for p in listed.stdout.split("\0") if "/" in p)
@@ -531,7 +537,10 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
         committed = git("commit", "-m", _subject(branch, repo_root, files, name), "--", name)
         if committed.returncode:
             return failed(committed)
+    if not upstream:
+        return result("committed_not_backed_up", files)
 
+    assert found.remote is not None
     merge_ref = _read(found.root, "config", "--get", f"branch.{_local_branch(found.root)}.merge")
     if not merge_ref:
         return result("git_failed", files, message="the spec store's branch names no upstream")
@@ -688,10 +697,10 @@ def _subject(branch: str, repo_root: str | os.PathLike[str],
     return f"specs({key}): store {files[0]}{rest}"
 
 
-# What `not_applicable` says for each layout with nowhere to push, after the
-# spec dir's path.
+# What `not_applicable` says for each layout the store does not commit in,
+# after the spec dir's path. `store_no_upstream` is not here, since the store
+# commits there and reports `committed_not_backed_up` instead.
 _NOT_APPLICABLE: dict[LayoutKind, str] = {
-    "store_no_upstream": "is in a spec store with no upstream branch — not backed up",
     "in_repo": "is inside the code repository — not committed, not backed up",
     "unmanaged": "is not backed up anywhere",
 }
@@ -717,7 +726,12 @@ def report_lines(result: StoreResult) -> list[str]:
         return [f"ℹ no spec dir for {result.branch}"]
     if result.outcome == "not_applicable":
         kind = result.layout.kind if result.layout else "unmanaged"
-        return [f"ℹ {result.spec_dir} {_NOT_APPLICABLE[kind]}"]
+        return [f"ℹ {result.spec_dir} {_NOT_APPLICABLE.get(kind, _NOT_APPLICABLE['unmanaged'])}"]
+    if result.outcome == "committed_not_backed_up":
+        # A run with nothing new says so, rather than "committed 0 files",
+        # which reads as a commit that did not happen.
+        done = f"committed {count} files" if count else "nothing new to commit"
+        return [f"⚠ {done}, not backed up — {result.store_branch} has no upstream branch"]
     if result.outcome == "not_pushed":
         return [
             f"⚠ committed {count} files, not pushed — {upstream} is unreachable", *names,

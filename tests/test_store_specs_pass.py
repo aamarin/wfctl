@@ -25,6 +25,30 @@ runner = CliRunner()
 BRANCH = "359-push-specs-to-trunk"
 
 
+def _finished_spec_dir(root: Path) -> Path:
+    """This branch's spec dir under `root`, with every step up to and
+    including `implement` reading done."""
+    spec_dir = root / BRANCH
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "spec.md").write_text(CLEAN_SPEC)
+    (spec_dir / "plan.md").write_text(CLEAN_PLAN)
+    write_plan_review(spec_dir)
+    (spec_dir / "tasks.md").write_text("- [x] T001 done\n")
+    (spec_dir / "checklists").mkdir()
+    (spec_dir / "checklists" / "analysis-report.md").write_text("x\n")
+    return spec_dir
+
+
+def _pin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, spec_root: Path, project: Path) -> Path:
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(spec_root))
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(project))
+    monkeypatch.setenv("WFCTL_BRANCH", BRANCH)
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    return state
+
+
 @pytest.fixture
 def finished(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
     """A feature whose `implement` reads done, with its spec dir in a spec
@@ -36,20 +60,8 @@ def finished(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.SimpleNam
     """
     remote, here, there = _remote_and_clones(tmp_path)
     project = git_repo(tmp_path / "project")
-    spec_dir = here / BRANCH
-    spec_dir.mkdir()
-    (spec_dir / "spec.md").write_text(CLEAN_SPEC)
-    (spec_dir / "plan.md").write_text(CLEAN_PLAN)
-    write_plan_review(spec_dir)
-    (spec_dir / "tasks.md").write_text("- [x] T001 done\n")
-    (spec_dir / "checklists").mkdir()
-    (spec_dir / "checklists" / "analysis-report.md").write_text("x\n")
-    state = tmp_path / "state"
-    state.mkdir()
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(here))
-    monkeypatch.setenv("WFCTL_REPO_ROOT", str(project))
-    monkeypatch.setenv("WFCTL_BRANCH", BRANCH)
-    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    spec_dir = _finished_spec_dir(here)
+    state = _pin(monkeypatch, tmp_path, here, project)
     return types.SimpleNamespace(
         remote=remote, here=here, there=there, project=project, spec_dir=spec_dir,
         state=state,
@@ -246,4 +258,37 @@ def test_a_store_after_the_block_records_the_action_and_lifts_the_hold(
     payload = _payload()
     assert _pass(payload)["state"] == "done"
     assert _implement(payload)["state"] == "done"
+    assert payload["next_command"] is None
+
+
+@pytest.mark.parametrize("kind", ["store_no_upstream", "in_repo", "unmanaged"])
+def test_a_layout_with_nowhere_to_push_reads_skipped_with_no_reason_and_no_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str,
+) -> None:
+    """User Story 5 and research R4. These are layouts a repository chose on
+    purpose, so the pipeline has to finish there. A `skipped` reading with a
+    reason is listed as a warning on every `status`, which would nag about a
+    choice nobody needs to revisit, so the text goes in `display`. The
+    no-upstream text says nothing about a commit, because the pipeline never
+    ran the store there (PR-009)."""
+    project = git_repo(tmp_path / "project")
+    root = {
+        "store_no_upstream": lambda: git_repo(tmp_path / "store"),
+        "in_repo": lambda: project / "specs",
+        "unmanaged": lambda: tmp_path / "notes" / "specs",
+    }[kind]()
+    spec_dir = _finished_spec_dir(root)
+    state = _pin(monkeypatch, tmp_path, root, project)
+    display = {
+        "store_no_upstream": "no upstream branch; not backed up",
+        "in_repo": "inside the code repository; not backed up",
+        "unmanaged": f"not backed up anywhere: {root}",
+    }[kind]
+
+    reading = _evidence.store_specs(_evidence.build_evidence(spec_dir, project, state))
+    payload = _payload()
+
+    assert (reading.state, reading.reason, reading.display) == ("skipped", None, display)
+    assert (_pass(payload)["state"], _pass(payload)["annotation"]) == ("skipped", display)
+    assert [w for w in payload["warnings"] if w["pass"] == "store-specs"] == []
     assert payload["next_command"] is None
