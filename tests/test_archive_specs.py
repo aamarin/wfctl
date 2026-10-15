@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import os
+import types
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from tests.test_spec_store import BRANCH, _git, _remote_files, _store_setup
+from tests.test_spec_store import _store as store_once
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -385,8 +388,13 @@ def test_former_name_is_not_advertised() -> None:
 # below is the one an on/off flag would get wrong.
 
 
-def _durable_story(root: Path, handle: str, *rels: str) -> Path:
-    """A spec dir under an external root, reached via WFCTL_SPEC_DIR."""
+def _outside_story(root: Path, handle: str, *rels: str) -> Path:
+    """A spec dir under an external root, reached via WFCTL_SPEC_DIR.
+
+    A plain folder, so the store reads it as `unmanaged` and only says where
+    the files are. The roots these tests pick never contain "durable", since
+    the output naming the path would otherwise put the word back (FR-022).
+    """
     spec_dir = root / handle
     for rel in rels:
         _write(spec_dir / rel)
@@ -411,8 +419,8 @@ def test_default_layout_archives_exactly_what_it_archives_today(agent_dir: Path)
     ]
 
 
-def test_durable_spec_root_is_not_copied(agent_dir: Path, tmp_path: Path,
-                                          monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_spec_dir_outside_the_worktree_is_not_copied(agent_dir: Path, tmp_path: Path,
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     """Specs outside the worktree are not at risk, so teardown does not copy them.
 
     The legacy design doc *is* inside the worktree and is still rescued — the
@@ -420,9 +428,9 @@ def test_durable_spec_root_is_not_copied(agent_dir: Path, tmp_path: Path,
     """
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     handle = os.environ["WFCTL_BRANCH"]
-    durable = tmp_path.parent / "durable-specs"
-    spec_dir = _durable_story(durable, handle, "design.md", "spec.md", "plan.md")
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    outside = tmp_path.parent / "outside-specs"
+    spec_dir = _outside_story(outside, handle, "design.md", "spec.md", "plan.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
     _write(repo_root / ".agent" / "spec.md", "legacy design\n")
 
     result = runner.invoke(app, ["archive-specs"])
@@ -430,16 +438,17 @@ def test_durable_spec_root_is_not_copied(agent_dir: Path, tmp_path: Path,
 
     arch = _archive_dir(agent_dir)
     assert (arch / "extra" / "legacy-agent-spec.md").is_file(), "at-risk file dropped"
-    assert not (arch / "1-design.md").exists(), "durable spec was copied anyway"
+    assert not (arch / "1-design.md").exists(), "an outside spec was copied anyway"
     assert not (arch / "2-spec.md").exists()
     assert (spec_dir / "spec.md").is_file(), "the live spec must be untouched"
 
     # The mixed case is where both messages earn their place, and where either
-    # alone would mislead: the durable notice explains why almost nothing was
+    # alone would mislead: the store's line explains why almost nothing was
     # copied, the rescue notice explains why an archive exists at all. Neither
     # may suppress the other (#36).
-    assert "spec dir is durable" in result.output
+    assert f"ℹ {spec_dir} is not backed up anywhere" in result.output
     assert "rescued 1 file(s)" in result.output
+    assert "durable" not in result.output.lower()
 
 
 def test_spec_root_resolving_inside_the_worktree_is_still_archived(
@@ -454,7 +463,7 @@ def test_spec_root_resolving_inside_the_worktree_is_still_archived(
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     handle = os.environ["WFCTL_BRANCH"]
     inside = repo_root / "nested-specs"
-    _durable_story(inside, handle, "spec.md", "plan.md")
+    _outside_story(inside, handle, "spec.md", "plan.md")
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(inside))
 
     assert runner.invoke(app, ["archive-specs"]).exit_code == 0
@@ -464,14 +473,14 @@ def test_spec_root_resolving_inside_the_worktree_is_still_archived(
     assert (arch / "4-plan.md").is_file()
 
 
-def test_durable_root_with_nothing_at_risk_writes_no_archive(
+def test_an_outside_root_with_nothing_at_risk_writes_no_archive(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Under the rescue framing, the absence of an archive is the right output."""
     handle = os.environ["WFCTL_BRANCH"]
-    durable = tmp_path.parent / "durable-none"
-    _durable_story(durable, handle, "spec.md", "plan.md")
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    outside = tmp_path.parent / "outside-none"
+    _outside_story(outside, handle, "spec.md", "plan.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
 
     result = runner.invoke(app, ["archive-specs"])
 
@@ -479,19 +488,187 @@ def test_durable_root_with_nothing_at_risk_writes_no_archive(
     assert not _archive_dir(agent_dir).exists(), "copied files that were never at risk"
 
 
-def test_durable_skip_message_names_the_resolved_path(
+def test_removal_names_the_spec_dir_it_leaves_in_place(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without the path the message cannot be told apart from a failed lookup."""
     handle = os.environ["WFCTL_BRANCH"]
-    durable = tmp_path.parent / "durable-msg"
-    spec_dir = _durable_story(durable, handle, "spec.md")
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    outside = tmp_path.parent / "outside-msg"
+    spec_dir = _outside_story(outside, handle, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
 
     out = runner.invoke(app, ["archive-specs"]).output
 
-    assert "durable" in out.lower()
     assert str(spec_dir) in out
+    assert "durable" not in out.lower()
+
+
+# --- Removal runs the store where the spec dir is outside the worktree --------
+#
+# The fixtures are a real spec store with a bare remote, from
+# `test_spec_store.py`, and a code repository beside it. Everything sits under
+# `tmp_path`, and the worktree is passed by path, so the spec store is outside
+# it without leaving the directory the remote guard in `conftest.py` allows.
+
+
+def _removal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+             env: types.SimpleNamespace) -> tuple[int, str]:
+    """`archive-specs` run the way the `pre_remove` hook runs it, with the
+    worktree and handle as arguments and the spec store pinned."""
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(env.here))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    monkeypatch.setenv("WFCTL_BRANCH", BRANCH)
+    result = runner.invoke(app, ["archive-specs", str(env.project), BRANCH])
+    return result.exit_code, result.output
+
+
+def test_removal_stores_what_the_branch_wrote_after_its_last_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-022 and User Story 2. Removal used to call a spec dir outside the
+    worktree durable without asking git, so a review report written after the
+    last store was left uncommitted and the output said it was safe."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir / "spec.md")
+    assert store_once(env).outcome == "stored"
+    _write(env.spec_dir / "reviews" / "panel-1.md")
+
+    code, out = _removal(tmp_path, monkeypatch, env)
+
+    sha = _git(env.here, "rev-parse", "--short", "HEAD").strip()
+    assert code == 0, out
+    assert f"✓ stored 1 files → origin/specs-trunk ({sha})" in out
+    assert f"{BRANCH}/reviews/panel-1.md" in _remote_files(env.remote)
+    assert "durable" not in out.lower()
+
+
+def test_removal_of_a_stored_spec_dir_says_so_and_pushes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User Story 2, scenario 2. Most removals come after `/store-specs` ran,
+    and one that committed or pushed again would add an empty commit to the
+    spec store's history every time a worktree goes."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir / "spec.md")
+    store_once(env)
+    remote_head = _git(env.remote, "rev-parse", "specs-trunk")
+
+    code, out = _removal(tmp_path, monkeypatch, env)
+
+    assert code == 0, out
+    assert "✓ spec dir already stored on origin/specs-trunk" in out
+    assert _git(env.remote, "rev-parse", "specs-trunk") == remote_head
+
+
+def test_a_failed_push_at_removal_warns_and_lets_removal_go_ahead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-021. `store specs` exits 1 here, and the `pre_remove` hook stops a
+    removal on any non-zero exit. The commit stays in the spec store on disk,
+    so stopping the removal would protect nothing and strand the worktree."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir / "spec.md")
+    env.remote.rename(env.remote.with_name("remote-away.git"))
+
+    code, out = _removal(tmp_path, monkeypatch, env)
+
+    assert code == 0, out
+    assert "⚠ committed 1 files, not pushed — origin/specs-trunk is unreachable" in out
+    assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
+
+
+def test_a_merge_refused_at_removal_warns_and_leaves_the_local_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-021. Another branch's unstored edit to a file the remote changed
+    stops the merge, which no retry of this removal can fix. The edit is that
+    branch's work, so the store must leave it exactly as it was."""
+    env = _store_setup(tmp_path)
+    (env.there / "100" / "spec.md").write_text("100 as edited there\n")
+    _git(env.there, "commit", "-am", "specs(100): there")
+    _git(env.there, "push")
+    (env.here / "100" / "spec.md").write_text("100, not stored yet\n")
+    _write(env.spec_dir / "spec.md")
+
+    code, out = _removal(tmp_path, monkeypatch, env)
+
+    assert code == 0, out
+    assert any(line.startswith("✗ ") for line in out.splitlines()), out
+    assert (env.here / "100" / "spec.md").read_text() == "100, not stored yet\n"
+    assert not (env.here / ".git" / "MERGE_HEAD").exists()
+
+
+def test_a_lock_timeout_at_removal_warns_and_lets_removal_go_ahead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-021. Another store holding the lock is the ordinary case when two
+    worktrees are removed together, and the files wait in the spec store for
+    the next store either way. The result is built by hand, since this test
+    is about what removal does with a `locked` outcome and not about the lock."""
+    from wfctl import _spec_store
+
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir / "spec.md")
+    found = _spec_store.layout(env.here, env.project)
+
+    def locked(spec_dir: object, branch: str, repo_root: object) -> _spec_store.StoreResult:
+        return _spec_store.StoreResult("locked", branch, str(spec_dir), False, found)
+
+    monkeypatch.setattr(_spec_store, "store", locked)
+
+    code, out = _removal(tmp_path, monkeypatch, env)
+
+    assert code == 0, out
+    assert locked(env.spec_dir, BRANCH, env.project).exit_code == 1
+    assert out.splitlines()[0].startswith("✗ ")
+
+
+def test_removal_reads_stops_removal_and_not_the_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research R6. `not_applicable` exits 0 and, for a spec dir inside the
+    worktree, still means deleting the worktree deletes the only copy. A
+    removal that read the exit code would go ahead and lose it without an
+    error. On this branch the store runs only for a spec dir outside the
+    worktree, so the result is built by hand."""
+    from wfctl import _spec_store
+
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir / "spec.md")
+
+    def only_copy(spec_dir: object, branch: str, repo_root: object) -> _spec_store.StoreResult:
+        return _spec_store.StoreResult("not_applicable", branch, str(spec_dir), True)
+
+    monkeypatch.setattr(_spec_store, "store", only_copy)
+
+    code, out = _removal(tmp_path, monkeypatch, env)
+
+    assert only_copy(env.spec_dir, BRANCH, env.project).exit_code == 0
+    assert code == 1, out
+    assert "removal aborted" in out
+
+
+def test_a_spec_dir_inside_the_worktree_is_archived_without_a_store(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research R11. The in-worktree copy-out belongs to #40, and leaving this
+    path as it is keeps the second branch's merge to one function. A store
+    run here would find the code repository and must never commit there."""
+    from wfctl import _spec_store
+
+    def no_store(*args: object) -> None:
+        pytest.fail("removal ran the store for a spec dir inside the worktree")
+
+    monkeypatch.setattr(_spec_store, "store", no_store)
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _make_story(repo_root, os.environ["WFCTL_BRANCH"], "spec.md", "plan.md")
+
+    result = runner.invoke(app, ["archive-specs"])
+
+    assert result.exit_code == 0, result.output
+    assert (_archive_dir(agent_dir) / "2-spec.md").is_file()
 
 
 # --- Failure semantics: refuse the removal only when something was lost --------
@@ -673,7 +850,7 @@ def test_unclearable_staging_refuses_rather_than_merging_stale_files(
     assert not (_archive_dir(agent_dir) / "9-tasks.md").exists(), "stale file promoted"
 
 
-def test_durable_skip_is_reported_even_when_something_else_is_archived(
+def test_the_store_line_is_reported_even_when_something_else_is_archived(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The mixed case: an external spec root plus a legacy design doc. The legacy
@@ -681,15 +858,14 @@ def test_durable_skip_is_reported_even_when_something_else_is_archived(
     explanation exactly where it is most needed."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     handle = os.environ["WFCTL_BRANCH"]
-    durable = tmp_path.parent / "durable-mixed"
-    spec_dir = _durable_story(durable, handle, "spec.md")
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    outside = tmp_path.parent / "outside-mixed"
+    spec_dir = _outside_story(outside, handle, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
     _write(repo_root / ".agent" / "spec.md", "legacy design\n")
 
     out = runner.invoke(app, ["archive-specs"]).output
 
-    assert "durable" in out.lower()
-    assert str(spec_dir) in out
+    assert f"ℹ {spec_dir} is not backed up anywhere" in out
     assert "archived" in out, "the at-risk legacy file should still be archived"
 
 
@@ -714,7 +890,7 @@ def test_escape_route_survives_a_path_with_spaces(
     assert parsed == [str(spaced)]
 
 
-def test_durable_message_survives_a_path_containing_markup(
+def test_the_store_line_survives_a_path_containing_markup(
     agent_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`[` is legal in a directory name; rich reads it as a style tag.
@@ -723,9 +899,9 @@ def test_durable_message_survives_a_path_containing_markup(
     than no message at all.
     """
     handle = os.environ["WFCTL_BRANCH"]
-    durable = tmp_path.parent / "durable[bold]root"
-    spec_dir = _durable_story(durable, handle, "spec.md")
-    monkeypatch.setenv("WFCTL_SPEC_DIR", str(durable))
+    outside = tmp_path.parent / "outside[bold]root"
+    spec_dir = _outside_story(outside, handle, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
 
     out = runner.invoke(app, ["archive-specs"]).output
 

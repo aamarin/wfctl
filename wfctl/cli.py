@@ -44,7 +44,7 @@ from wfctl._paths import (
 )
 
 if TYPE_CHECKING:
-    from wfctl import _session
+    from wfctl import _session, _spec_store
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
 
@@ -1435,9 +1435,10 @@ def archive_specs_cmd(
     Wired into workmux's `pre_remove`. `specs/` is gitignored, so a worktree
     holding only design artifacts reads *clean* to git and is removed without
     complaint — while work git can see already stops the removal on its own.
-    This covers exactly the set nothing else can. Artifacts outside the worktree
-    are not at risk and are not copied; the message names the resolved path so
-    the absence of an archive does not read as a failed lookup.
+    This covers exactly the set nothing else can. A spec dir outside the
+    worktree is not at risk and is not copied. It runs the store instead, the
+    same one `wfctl store specs` runs, and prints its lines, which name the
+    resolved path so the absence of an archive does not read as a failed lookup.
 
     Two exit rules, and the split matters:
 
@@ -1447,7 +1448,9 @@ def archive_specs_cmd(
       `workmux remove --force` does *not* bypass the hook, which is why the
       refusal prints the manual route out — completely, since `git worktree
       remove` itself refuses when untracked files are present.
-    * **Zero for everything else**, still via a bare `except`. An unrelated
+    * **Zero for everything else**, a failed store included, since the commit
+      it made or the files it could not commit stay in the spec store on disk.
+      Unexpected errors still go through a bare `except`. An unrelated
       internal failure must not strand a worktree, and nothing was provably lost.
       It catches SystemExit too: `get_repo_root` raises that rather than an
       Exception, so `except Exception` alone would let a non-git checkout exit 1.
@@ -1516,24 +1519,30 @@ def archive_specs_cmd(
             spec_dir=spec_dir,
             state_dir=state_dir,
         )
-        # Reported whether or not anything else was archived. Gating this on an
-        # empty plan hid it in the mixed case — an external spec root *plus* a
-        # legacy `.agent/spec.md` — where the legacy file produces an archive and
-        # the durable directory is skipped silently, which is exactly when the
-        # explanation is most needed.
+        # A spec dir outside the worktree survives the removal, and it still
+        # holds whatever the branch wrote after its last store, such as a review
+        # report. So it is stored here, and the store's own lines say where the
+        # files went. Reported whether or not anything else was archived. Gating
+        # this on an empty plan hid it in the mixed case, an external spec root
+        # plus a legacy `.agent/spec.md`, where the legacy file produces an
+        # archive and the spec dir would be skipped with no word about it.
         if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
-            # escape(): the line carries rich markup for the tick, so a path
-            # containing `[…]` — legal on every platform — would be parsed as a
-            # style tag and silently dropped. This message exists to name a
-            # location; printing a path that is not the real one is worse than
-            # printing none.
-            from rich.markup import escape
+            from wfctl import _spec_store
 
-            console.print(
-                f"[green]✓[/green] spec dir is durable ({escape(str(spec_dir))}) — "
-                "nothing there was at risk, nothing copied",
-                soft_wrap=True,
-            )
+            stored = _spec_store.store(spec_dir, branch, repo_root)
+            _print_store_lines(stored)
+            # `stops_removal` and never the exit code. A failed push exits 1
+            # from `store specs`, and the hook would stop the removal on it,
+            # yet the commit stays in the spec store on disk and the worktree
+            # holds nothing that removal would lose (research R6). The property
+            # is false for every result here today; it is read anyway so that
+            # removal and `store specs` cannot disagree about when to stop if
+            # the store's idea of "inside" ever moves.
+            if stored.stops_removal:
+                raise _ArchiveIncomplete(
+                    sum(1 for p in Path(spec_dir).rglob("*") if p.is_file()),
+                    RuntimeError(f"the store left {spec_dir} as the only copy"),
+                )
         if archive_dir is None:
             if spec_dir is None or _archive.is_inside(repo_root, spec_dir):
                 console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
@@ -1542,8 +1551,8 @@ def archive_specs_cmd(
 
         # Additional to the count above, not a replacement: that line says what
         # was archived, this one says where it came from. Both matter in the
-        # mixed case, where a durable spec dir is skipped and the only reason an
-        # archive exists at all is the superseded directory.
+        # mixed case, where a spec dir outside the worktree is not copied and
+        # the only reason an archive exists at all is the superseded directory.
         #
         # The closing sentence is the shim's end condition, in the output rather
         # than only in the ponytail comment below — otherwise the reader learns
@@ -5892,6 +5901,19 @@ store_app = typer.Typer(
 app.add_typer(store_app, name="store")
 
 
+def _print_store_lines(result: _spec_store.StoreResult) -> None:
+    """What the store printed, shared by `store specs` and removal.
+
+    Unwrapped and without markup, because a line names a path that rich would
+    otherwise break mid-word or read as a style tag, and a person copies the
+    path or the remedy from it.
+    """
+    from wfctl import _spec_store
+
+    for line in _spec_store.report_lines(result):
+        console.print(line, markup=False, highlight=False, soft_wrap=True)
+
+
 @store_app.command("specs")
 def store_specs_cmd() -> None:
     """Commit this branch's spec dir in its spec store and push it.
@@ -5910,10 +5932,7 @@ def store_specs_cmd() -> None:
     # reads that as `no_spec_dir` rather than as a failure.
     spec_dir = found if found is not None else spec_root(repo_root) / branch
     result = _spec_store.store(spec_dir, branch, repo_root)
-    # Unwrapped, because a line names a path that rich would otherwise break
-    # mid-word, and removal prints these same lines for a person to copy from.
-    for line in _spec_store.report_lines(result):
-        console.print(line, markup=False, highlight=False, soft_wrap=True)
+    _print_store_lines(result)
     # `stored` alone, because it is the only outcome that pushed, and the event
     # says an action was taken. Recording it is what lifts a hold the
     # `/store-specs` wrapper filed when the host refused this same command, so
