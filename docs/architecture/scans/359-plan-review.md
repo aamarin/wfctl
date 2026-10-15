@@ -156,3 +156,29 @@
 - **PR-027, MINOR, open.** Research R6 says #40 exits 1 "only" for a copy-out refusal or a spec store failure, but #40's record never says "only". Its reason for exit 1, that a script can tell the spec files aren't backed up, describes `committed_not_backed_up` exactly, and this plan exits 0 there. So the two records still disagree for a spec store with no upstream branch.
 - **PR-028, MINOR, open.** The sentences added to research R15 leave "Its docstring" pointing at `next_cmd`. The quoted text is in `next_step_content`'s docstring.
 - **PR-003 to PR-012, PR-015, PR-018, PR-019 and PR-024, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence its earlier section gives.
+
+## Review 2026-10-15T15:50Z
+
+- Verdict: satisfied
+- Reviewed: plan.md f06707088ad4824e9dbcf339f14614f88f9eb7b0, spec.md 68507ea870e0226a517cc6af694c083dd4630d8e, .specify/memory/constitution.md absent, design.md c08921165ed069a8150511b76ededfe5f029282e, docs/architecture/design/store-specs-implement-pass.md 67ebbd9713bc4f7aaf8c69f62c7934979a6b6eee, docs/architecture/design/store-specs-at-removal.md 9a8ab88a08fa68b6f36465310ca2252e355b1718, docs/architecture/design/store-specs-merges-before-push.md d8dacdaa617398f9aae737ad02a355de3b8e1091, docs/architecture/spec-storage-read-from-git.md e95749c063e9aac84c9aa1f23b205c3e4c7e8638, research.md 5449b17874e96a7aaeb0c0bc7782277ae5b8bbf9, data-model.md 6ea70cff0e8568cd36ef2e88a3664910f3b8ad0f, contracts/cli.md 1f7430d6d0254e2187ac61f8d151e15748ea8054, quickstart.md d1ff4edccde503ea9a4f869aa532a18d76e431f5, plan-review.plan.md 51905313e32de76891bfd0e7addbd656ac0acedd (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 15 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/359-push-specs-to-trunk/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-009, PR-019; PR-028 fixed) |
+| Requirements and traceability | Outstanding (PR-006, PR-008) |
+| Architecture and boundaries | Outstanding (PR-012, PR-029; PR-027 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-007, PR-010, PR-011, PR-018, PR-024, PR-029; PR-026 fixed) |
+| Security and reliability | Outstanding (PR-003, PR-004, PR-015, PR-024) |
+
+### Findings
+
+- **PR-026, MINOR, fixed.** Fixed by the `test_store_specs_pass.py` entry in the plan, which now reads the `next-step.md` that `wfctl next` writes and says why the copy `resume` writes wouldn't exercise `next_cmd`. Research R15 says the same.
+- **PR-027, MINOR, fixed.** Fixed by research R6, which no longer says #40 exits 1 "only" for two cases. It says #40 agrees on `not_applicable`, names no exit code for `committed_not_backed_up`, and that this plan decides exit 0 there, with the reason and a note that #40 has to match.
+- **PR-028, MINOR, fixed.** Fixed by research R15, which now names `next_step_content`'s docstring instead of "Its docstring".
+- **PR-029, MINOR, open.** Research R6 now treats exit 0 for `committed_not_backed_up` as a decision #40 has to match, but no test in the plan runs `store specs` by hand on a spec store with no upstream and checks its exit code. As a result, whichever branch merges second could change it to exit 1 without a test failing. PR-023 was the same kind of split for `not_applicable`, and a test closed that one.
+- **PR-003 to PR-012, PR-015, PR-018, PR-019 and PR-024, MINOR, open.** The revision didn't touch any of them, so each stands on the evidence its earlier section gives. PR-024 is waiting on Andre's design call.
