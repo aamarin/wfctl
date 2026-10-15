@@ -36,8 +36,11 @@ wfctl report-block store-specs --reason "<what your host said>"
 
 That holds `implement`, and the next `wfctl status` names `/store-specs` with
 `auto: false`, so the run stops for a person. A person who then runs
-`wfctl store specs` in their own shell lifts the hold, since a successful store
-records the `store-specs` action itself.
+`wfctl store specs` in their own shell lifts the hold when the store commits or
+pushes something, since a successful store records the `store-specs` action
+itself. If another branch's store already pushed this spec dir, the store
+prints that it was already stored and records nothing, so the hold stays. In
+that case, `wfctl report-action store-specs` lifts it.
 
 Then stop trying, and go to section 4. Do not push another way, such as with
 `git push` or another client. The host is the only gate on a push, and wfctl
