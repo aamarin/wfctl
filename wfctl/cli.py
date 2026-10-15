@@ -1399,6 +1399,81 @@ def state_dir_cmd(
     print(agent_dir)
 
 
+archive_app = typer.Typer(
+    no_args_is_help=True, help="Keep work that a worktree removal would delete."
+)
+app.add_typer(archive_app, name="archive")
+
+
+def _print_removal_stop(
+    worktree: Path,
+    branch: str,
+    groups: list[tuple[str, list[str]]],
+    keep_route: str | None = None,
+) -> None:
+    """Print why a removal stopped, every finding at once, then the way through.
+
+    All findings go in one block because a person who fixes the first and reruns
+    to meet the second has been walked through the same refusal twice.
+
+    Paths and routes are printed with `markup=False` and `soft_wrap=True`. A `[`
+    is legal in a path and rich would read it as a style tag and drop it, and a
+    route wrapped at the terminal width can't be pasted (research R13).
+    """
+    console.print("[red]✗[/red] removal stopped — this worktree holds work saved nowhere else")
+    for title, lines in groups:
+        console.print(f"  {title}", markup=False, soft_wrap=True)
+        for line in lines:
+            console.print(f"    {line}", markup=False, soft_wrap=True)
+    console.print()
+
+    import shlex
+
+    # `git worktree remove` refuses on untracked files without `--force`, so the
+    # route carries it. It doesn't close the tmux window workmux would have, and
+    # saying so keeps a leftover window from reading as a failed removal.
+    keep_label = "Keep the worktree's spec files:"
+    label_width = len(keep_label)
+    if keep_route:
+        console.print(f"  {keep_label} {keep_route}", markup=False, soft_wrap=True)
+    route = (
+        f"git worktree remove --force {shlex.quote(str(worktree))}"
+        f" && git branch -D {shlex.quote(branch)}"
+    )
+    console.print(f"  {'Remove anyway:':<{label_width}} {route}", markup=False, soft_wrap=True)
+    console.print(
+        f"  {'':<{label_width}} (leaves the tmux window workmux would have closed)",
+        markup=False, soft_wrap=True,
+    )
+
+
+@archive_app.command("unsaved")
+def archive_unsaved_cmd(
+    worktree: str = typer.Argument(
+        None, help="Worktree to check. Defaults to $WM_WORKTREE_PATH, then the current repo."
+    ),
+) -> None:
+    """Stop a removal that would lose work, and save the untracked files it would delete.
+
+    Refuses when the worktree has uncommitted edits or commits that are on no
+    remote and not merged into trunk. Otherwise copies untracked files, and the
+    folders `wfctl.json` lists under `save_on_remove`, to `unsaved/` in the
+    branch's state dir.
+    """
+    import os
+
+    from rich.markup import escape
+
+    root = worktree or os.environ.get("WM_WORKTREE_PATH")
+    repo_root = Path(root).resolve() if root else get_repo_root()
+    if not repo_root.is_dir():
+        console.print(
+            f"[yellow]⚠[/yellow] no worktree at '{escape(str(repo_root))}' — nothing checked",
+            soft_wrap=True,
+        )
+        return
+
+
 # Two names, one function. `archive-story` is a compatibility shim, hidden so it
 # is not advertised as a second supported spelling: `.workmux.yaml` is repo-local,
 # so copies predating the rename persist indefinitely, and a failing `pre_remove`

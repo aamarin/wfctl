@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import datetime
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Spec-dir-relative source -> archived name, in the order the pipeline produces
@@ -98,6 +99,39 @@ class ArchiveIncomplete(Exception):
     def __init__(self, at_risk: int, cause: BaseException) -> None:
         super().__init__(str(cause))
         self.at_risk = at_risk
+
+
+@dataclass
+class UnsavedCheck:
+    """What `archive unsaved` found in a worktree before it copied anything.
+
+    Only `edits` and `unmerged` refuse a removal. `warnings` records each check
+    git couldn't answer, and each unusable `save_on_remove` entry, and never
+    refuses.
+    """
+
+    edits: list[str] = field(default_factory=list)
+    unmerged: list[str] = field(default_factory=list)
+    trunk: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    untracked: list[str] = field(default_factory=list)
+    folders: list[str] = field(default_factory=list)
+
+    @property
+    def refuses(self) -> bool:
+        return bool(self.edits or self.unmerged)
+
+
+@dataclass
+class SavedResult:
+    """The copy in `unsaved/`: where it landed, and every file in it, sorted."""
+
+    dest: Path
+    files: list[str]
+
+
+class SaveFailed(Exception):
+    """Copying into `unsaved/` failed, and the worktree still holds the only copy."""
 
 
 def _utc_now() -> datetime.datetime:
