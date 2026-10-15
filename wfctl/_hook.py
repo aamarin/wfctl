@@ -15,7 +15,9 @@ So this module holds the decision's whole runtime and imports `json`,
 `subprocess`, `sys` and `wfctl._guard` — the last of which costs only `re`.
 `wfctl/_entry.py` is what reaches it without loading the CLI. A command already
 headed for a refusal also imports `wfctl._paths`, to find the spec and state
-roots, and that path is rare enough to leave out of the measurement above.
+roots, and one of those that runs git imports `wfctl._spec_store`, to ask
+whether the spec root takes commits. That path is rare enough to leave out of
+the measurement above.
 
 What none of this reaches is 27.1 ms of interpreter startup, which is the floor
 for a hook spawned per Bash call and is not worth another pass.
@@ -93,70 +95,39 @@ def committable(
     """The shared roots, and folders in them, where a commit lands on a branch of
     the store's own.
 
-    Asked of git rather than read from the path, because git picks the
-    repository from files inside the root. A root qualifies when it belongs to
-    another repository than `here`, or when it has a branch checked out that no
-    other worktree of this project has. A plain `<main>/specs` fails, since git
-    there finds the main checkout and its branch, and so does a store whose
-    `.git` was replaced to point at the main checkout's. So does a spec root
-    one level inside a store worktree, which reads exactly like `<main>/specs`
-    or a folder in a peer: the root has to be the top of its checkout.
+    Whether a root qualifies is `_spec_store.owns_branch`, the same rule the
+    store applies before it commits on its own, so the guard never refuses a
+    hand commit in a folder where the store commits, or the other way round. A
+    spec root one level inside a store worktree passes that rule and is still
+    not a store, since it reads exactly like `<main>/specs` or a folder in a
+    peer: the root has to be the top of its checkout, and that is checked here
+    for the folders a commit names.
 
     A commit is often run from a feature's own folder, `<root>/129`, since that
     is the path `feature-paths` prints. Each of `targets` below a qualifying
     root is returned as well when git names that root as its top level. One
     that is a repository of its own names itself, and is left out.
 
+    `_spec_store` is imported here rather than at the top because most guard
+    calls never reach this function, and a module imported at the top is paid
+    for on every Bash call.
+
     This reads the hook's environment, so a `GIT_DIR` exported only in the
     agent's shell is not seen, the same limit `shared_roots` states.
     """
     import os
-    import subprocess
 
-    def git(cwd: str, *args: str) -> str | None:
-        try:
-            out = subprocess.run(
-                ["git", "-C", cwd, *args], capture_output=True, text=True, check=True
-            )
-        except (OSError, subprocess.CalledProcessError):
-            return None
-        return out.stdout.strip()
+    from wfctl import _spec_store
 
-    def common_dir(cwd: str) -> str | None:
-        found = git(cwd, "rev-parse", "--git-common-dir")
-        return os.path.realpath(os.path.join(cwd, found)) if found else None
-
-    roots = [r for r in shared if r and os.path.isdir(r)]
-    ours = common_dir(here)
-    if not roots or ours is None:
-        return []
-    # Each porcelain block names one worktree and, unless it is detached, the
-    # branch it has checked out.
-    checked_out: list[tuple[str, str]] = []
-    for block in (git(here, "worktree", "list", "--porcelain") or "").split("\n\n"):
-        fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
-        if "worktree" in fields and "branch" in fields:
-            checked_out.append((os.path.realpath(fields["worktree"]), fields["branch"]))
-    found: list[str] = []
-    for root in roots:
-        real = os.path.realpath(root)
-        theirs = common_dir(root)
-        if theirs is None:
-            continue
-        if theirs != ours:
-            found.append(root)
-            continue
-        branch = git(root, "symbolic-ref", "-q", "HEAD")
-        taken = {b for path, b in checked_out if path != real}
-        if branch and branch not in taken:
-            found.append(root)
+    found = [
+        r for r in shared if r and os.path.isdir(r) and _spec_store.owns_branch(r, here)
+    ]
     qualified = {os.path.realpath(r) for r in found}
     folders: list[str] = []
     for target in dict.fromkeys(os.path.realpath(t) for t in targets or []):
         if not any(target.startswith(r + "/") for r in qualified):
             continue
-        top = git(target, "rev-parse", "--show-toplevel")
-        if top and os.path.realpath(top) in qualified:
+        if _spec_store.top_level(target) in qualified:
             folders.append(target)
     return found + folders
 
