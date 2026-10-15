@@ -44,7 +44,7 @@ from wfctl._paths import (
 )
 
 if TYPE_CHECKING:
-    from wfctl import _session, _spec_store
+    from wfctl import _session
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
 
@@ -1530,7 +1530,7 @@ def archive_specs_cmd(
             from wfctl import _spec_store
 
             stored = _spec_store.store(spec_dir, branch, repo_root)
-            _print_store_lines(stored)
+            _print_plain(_spec_store.report_lines(stored))
             # `stops_removal` and never the exit code. A failed push exits 1
             # from `store specs`, and the hook would stop the removal on it,
             # yet the commit stays in the spec store on disk and the worktree
@@ -5903,16 +5903,14 @@ store_app = typer.Typer(
 app.add_typer(store_app, name="store")
 
 
-def _print_store_lines(result: _spec_store.StoreResult) -> None:
-    """What the store printed, shared by `store specs` and removal.
+def _print_plain(lines: Iterable[str]) -> None:
+    """Print the spec store's lines for `store specs`, `check specs` and removal.
 
     Unwrapped and without markup, because a line names a path that rich would
     otherwise break mid-word or read as a style tag, and a person copies the
     path or the remedy from it.
     """
-    from wfctl import _spec_store
-
-    for line in _spec_store.report_lines(result):
+    for line in lines:
         console.print(line, markup=False, highlight=False, soft_wrap=True)
 
 
@@ -5934,7 +5932,7 @@ def store_specs_cmd() -> None:
     # reads that as `no_spec_dir` rather than as a failure.
     spec_dir = found if found is not None else spec_root(repo_root) / branch
     result = _spec_store.store(spec_dir, branch, repo_root)
-    _print_store_lines(result)
+    _print_plain(_spec_store.report_lines(result))
     # `stored` alone, because it is the only outcome that pushed, and the event
     # says an action was taken. Recording it is what lifts a hold the
     # `/store-specs` wrapper filed when the host refused this same command, so
@@ -6221,10 +6219,7 @@ def check_specs_cmd() -> None:
         try:
             spec_dirs = _spec_store.unstored(root, ["."])
         except subprocess.CalledProcessError as e:
-            console.print(
-                f"✗ git could not read {root}: {(e.stderr or '').strip()}",
-                markup=False, highlight=False, soft_wrap=True,
-            )
+            _print_plain([f"✗ git could not read {root}: {(e.stderr or '').strip()}"])
             raise typer.Exit(1)
         # Asked of `resolve_spec_dir` rather than matched on folder names,
         # because a branch's slug can differ from its spec dir's after the
@@ -6235,8 +6230,7 @@ def check_specs_cmd() -> None:
             owned = resolve_spec_dir(branch, repo_root)
             if owned is not None:
                 in_progress.add(owned.name)
-    for line in _spec_store.check_lines(found, spec_dirs, in_progress):
-        console.print(line, markup=False, highlight=False, soft_wrap=True)
+    _print_plain(_spec_store.check_lines(found, spec_dirs, in_progress))
     if any(d.name not in in_progress for d in spec_dirs):
         raise typer.Exit(1)
 

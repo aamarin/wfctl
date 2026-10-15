@@ -166,7 +166,7 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     top = top_level(root) if os.path.isdir(root) else None
     if top is None:
         return Layout("unmanaged", root)
-    branch = _read(root, "symbolic-ref", "-q", "--short", "HEAD")
+    branch = _local_branch(root)
     if branch and top == os.path.realpath(root) and owns_branch(root, repo):
         upstream = _read(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
         remote = _read(root, "config", "--get", f"branch.{branch}.remote")
@@ -509,7 +509,7 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
         )
 
     def failed(proc: subprocess.CompletedProcess[str]) -> StoreResult:
-        return result("git_failed", message=(proc.stderr or proc.stdout).strip())
+        return result("git_failed", message=_said(proc))
 
     if not unstored(found.root, [name]):
         return result("already_stored" if upstream else "committed_not_backed_up")
@@ -578,6 +578,13 @@ def _merging(git: _Git) -> bool:
     return git("rev-parse", "-q", "--verify", "MERGE_HEAD").returncode == 0
 
 
+def _said(proc: subprocess.CompletedProcess[str]) -> str:
+    """What git printed about a failed call. Its error goes to stderr, but a
+    few commands, such as `merge` stopping on a conflict, print the reason to
+    stdout and leave stderr empty."""
+    return (proc.stderr or proc.stdout).strip()
+
+
 # The headers git prints over the files a merge refused to overwrite. Matched
 # up to "would be", so the "removed by merge" form of each is read too.
 _EDITED_HEADER = "Your local changes to the following files would be"
@@ -606,16 +613,16 @@ def _merge_failure(
 
     Anything else is `git_failed` with git's own message.
     """
-    said = (merged.stderr or merged.stdout).strip()
+    said = _said(merged)
     if _merging(git):
         unmerged = git("diff", "--name-only", "--diff-filter=U", "-z")
         aborted = git("merge", "--abort")
         if aborted.returncode:
-            return result("git_failed", files, message=(aborted.stderr or aborted.stdout).strip())
+            return result("git_failed", files, message=_said(aborted))
         return result("conflict", files, folders=_folders(unmerged.stdout))
     staged = git("diff", "--cached", "--name-only", "-z")
     if staged.returncode:
-        return result("git_failed", files, message=(staged.stderr or staged.stdout).strip())
+        return result("git_failed", files, message=_said(staged))
     if staged.stdout.strip("\0"):
         return result("merge_blocked_staged", files, folders=_folders(staged.stdout))
     # An edit is reported ahead of an untracked file when git names both. The
@@ -668,7 +675,7 @@ def _network_failure(
     proc: subprocess.CompletedProcess[str],
 ) -> StoreResult:
     """A failed fetch or push, read as unreachable only when git said so."""
-    said = (proc.stderr or proc.stdout).strip()
+    said = _said(proc)
     if not any(mark in said for mark in _REFUSED_ACCESS) and any(
         mark in said for mark in _UNREACHABLE
     ):
@@ -781,7 +788,7 @@ def report_lines(result: StoreResult) -> list[str]:
         ]
     if result.outcome == "locked":
         return [f"✗ another store is running in {root}"]
-    said =(result.message or "git gave no message").splitlines()
+    said = (result.message or "git gave no message").splitlines()
     rest = [f"    {line}" for line in said[1:] if line.strip()]
     return [f"✗ store failed: {said[0] if said else ''}", *rest]
 
