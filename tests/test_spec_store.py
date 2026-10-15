@@ -7,9 +7,12 @@ to a shared checkout, and a stub would only repeat the claim back.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
+import threading
+import time
 import types
 from pathlib import Path
 
@@ -1008,3 +1011,49 @@ def test_a_merge_already_in_progress_is_reported_and_left_for_the_person(
         " or run `git merge --abort` there",
     ]
 
+
+def _hold_the_lock(env: types.SimpleNamespace) -> int:
+    """The lock as another store holds it. flock locks belong to an open file
+    description, so a second `open` in this process contends like another
+    process would."""
+    fd = os.open(env.here / ".git" / "wfctl-store.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fd
+
+
+def test_a_second_store_gives_up_after_the_timeout_and_commits_nothing(tmp_path: Path) -> None:
+    """FR-027. Two removals finishing together would otherwise interleave in
+    one index, and a store waiting forever would hang the removal hook."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    head = _git(env.here, "rev-parse", "HEAD")
+    fd = _hold_the_lock(env)
+    try:
+        started = time.monotonic()
+        result = _spec_store.store(env.spec_dir, BRANCH, env.project, lock_timeout=0.5)
+        waited = time.monotonic() - started
+    finally:
+        os.close(fd)
+
+    assert result.outcome == "locked"
+    assert result.exit_code == 1
+    assert waited >= 0.5
+    assert _git(env.here, "rev-parse", "HEAD") == head
+    assert _spec_store.report_lines(result) == [f"✗ another store is running in {env.here}"]
+
+
+def test_a_second_store_waits_for_the_first_and_then_stores(tmp_path: Path) -> None:
+    """Research R5. The other half of the timeout: a store that gave up at
+    once would fail every time two worktrees are removed together."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    fd = _hold_the_lock(env)
+    threading.Timer(0.3, os.close, [fd]).start()
+
+    started = time.monotonic()
+    result = _spec_store.store(env.spec_dir, BRANCH, env.project, lock_timeout=5)
+
+    assert result.outcome == "stored"
+    assert time.monotonic() - started >= 0.3
+    assert (env.here / ".git" / "wfctl-store.lock").exists()
+    assert "wfctl-store.lock" not in _git(env.here, "status", "--porcelain", "--ignored")

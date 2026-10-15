@@ -16,9 +16,12 @@ an import here of `typer`, `rich` or `wfctl.cli` would put back the 47 ms that
 
 from __future__ import annotations
 
+import fcntl
 import os
 import subprocess
-from collections.abc import Callable, Collection, Iterable
+import time
+from collections.abc import Callable, Collection, Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -341,6 +344,11 @@ class StoreResult(NamedTuple):
 # store sends it (research R7).
 _NETWORK_TIMEOUT = 60
 
+# How long a store waits for another one to finish, and how often it asks
+# (FR-027, research R5).
+_LOCK_TIMEOUT = 10.0
+_LOCK_POLL = 0.2
+
 # What git and ssh print when they could not reach the remote at all. Checked
 # after `_REFUSED_ACCESS`, because ssh ends an authentication failure with the
 # same "Could not read from remote repository" it prints for a dead host, and
@@ -383,6 +391,7 @@ class _Git:
 
 def store(
     spec_dir: str | os.PathLike[str], branch: str, repo_root: str | os.PathLike[str],
+    *, lock_timeout: float = _LOCK_TIMEOUT,
 ) -> StoreResult:
     """Commit this branch's spec dir in its spec store, merge the upstream,
     and push.
@@ -407,6 +416,11 @@ def store(
 
     The upstream branch is read from git config and never named here, so the
     store pushes wherever the spec store tracks.
+
+    All three steps run under `_lock`, so a second store waits for this one
+    instead of committing between its merge and its push (FR-027).
+    `lock_timeout` is there for the tests, which would otherwise wait the
+    full 10 seconds to see a store give up.
     """
     path = os.fspath(spec_dir)
     inside = Path(path).resolve().is_relative_to(Path(os.fspath(repo_root)).resolve())
@@ -416,12 +430,62 @@ def store(
     if found.kind != "store":
         return StoreResult("not_applicable", branch, path, inside, found)
     try:
-        return _store(path, branch, repo_root, found, inside)
+        git_dir = _read(found.root, "rev-parse", "--git-dir")
+        if not git_dir:
+            return StoreResult(
+                "git_failed", branch, path, inside, found,
+                message="git could not name the spec store's git directory",
+            )
+        # `--git-dir` prints `.git` relative to the root in a clone of its
+        # own, and an absolute path in a worktree. The join handles both.
+        with _lock(os.path.join(found.root, git_dir), lock_timeout) as held:
+            if not held:
+                return StoreResult("locked", branch, path, inside, found)
+            return _store(path, branch, repo_root, found, inside)
     except (OSError, subprocess.CalledProcessError) as e:
         said = e.stderr if isinstance(e, subprocess.CalledProcessError) else None
         return StoreResult(
             "git_failed", branch, path, inside, found, message=(said or str(e)).strip(),
         )
+
+
+@contextmanager
+def _lock(git_dir: str, timeout: float = _LOCK_TIMEOUT) -> Iterator[bool]:
+    """Hold `wfctl-store.lock` in the spec store's git directory, or give up
+    after `timeout` seconds. Yields whether the lock is held.
+
+    `fcntl.flock` rather than a file created with `O_EXCL`, because the OS
+    drops a flock when the process exits, a killed removal hook included, so
+    no dead store leaves behind a lock a person has to delete (research R5).
+    The file sits in the git directory so it never shows up as untracked in
+    the store, and in a worktree that directory is the worktree's own, which
+    is where the index two stores would fight over lives.
+
+    The file is left in place afterwards. Removing it would race a second
+    store that has already opened it and is waiting on the lock: that store
+    would then hold a lock on a file nobody else can find.
+    """
+    fd = os.open(os.path.join(git_dir, "wfctl-store.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        yield _acquire(fd, timeout)
+    finally:
+        # Closing the descriptor is what releases the lock.
+        os.close(fd)
+
+
+def _acquire(fd: int, timeout: float) -> bool:
+    """Non-blocking attempts every `_LOCK_POLL` seconds, rather than one
+    blocking call, because a blocking `flock` takes no timeout and a removal
+    hook must not hang on a store that never finishes."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_LOCK_POLL)
 
 
 def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
@@ -701,6 +765,8 @@ def report_lines(result: StoreResult) -> list[str]:
             f"✗ committed {count} files, merge blocked by local edits to {', '.join(result.paths)}",
             "    store or discard that edit, then run `wfctl store specs` again",
         ]
+    if result.outcome == "locked":
+        return [f"✗ another store is running in {root}"]
     said =(result.message or "git gave no message").splitlines()
     rest = [f"    {line}" for line in said[1:] if line.strip()]
     return [f"✗ store failed: {said[0] if said else ''}", *rest]
