@@ -539,7 +539,7 @@ def test_removal_stores_what_the_branch_wrote_after_its_last_store(
 
     sha = _git(env.here, "rev-parse", "--short", "HEAD").strip()
     assert code == 0, out
-    assert f"✓ stored 1 files → origin/specs-trunk ({sha})" in out
+    assert f"✓ stored 1 file → origin/specs-trunk ({sha})" in out
     assert f"{BRANCH}/reviews/panel-1.md" in _remote_files(env.remote)
     assert "durable" not in out.lower()
 
@@ -575,7 +575,7 @@ def test_a_failed_push_at_removal_warns_and_lets_removal_go_ahead(
     code, out = _removal(tmp_path, monkeypatch, env)
 
     assert code == 0, out
-    assert "⚠ committed 1 files, not pushed — origin/specs-trunk is unreachable" in out
+    assert "⚠ committed 1 file, not pushed — origin/specs-trunk is unreachable" in out
     assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
 
 

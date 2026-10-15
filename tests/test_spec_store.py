@@ -805,7 +805,7 @@ def test_a_refused_push_exits_1_and_records_no_action(
 
     assert code == 1
     assert out.splitlines() == [
-        "✗ committed 1 files, push refused — origin/specs-trunk moved again",
+        "✗ committed 1 file, push refused — origin/specs-trunk moved again",
         "    spec.md",
         "    run `wfctl store specs` again to merge and push",
     ]
@@ -896,7 +896,7 @@ def test_a_conflict_in_this_folder_is_aborted_and_named_even_though_the_index_li
     assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
     assert _git(env.here, "show", f"HEAD:{BRANCH}/spec.md") == "as written here\n"
     assert _spec_store.report_lines(result) == [
-        f"✗ committed 1 files, merge conflicts in {BRANCH}/",
+        f"✗ committed 1 file, merge conflicts in {BRANCH}/",
         "    the merge was aborted and your commit is kept",
         "    every branch's store fails until a person resolves this conflict",
         f"    to resolve it, run `git merge @{{u}}` in {env.here}, fix the files, run"
@@ -923,7 +923,7 @@ def test_a_file_staged_in_another_folder_blocks_the_merge_until_its_branch_store
 
     assert code == 1
     assert out.splitlines() == [
-        "✗ committed 1 files, merge blocked by files staged in 200/",
+        "✗ committed 1 file, merge blocked by files staged in 200/",
         "    run `wfctl store specs` from the branch that owns that folder, or unstage",
         "    the files, then run `wfctl store specs` again",
     ]
@@ -967,11 +967,11 @@ def test_a_merge_refused_for_a_file_in_the_way_names_the_file_and_says_why(
     assert not (env.here / ".git" / "MERGE_HEAD").exists()
     expected = {
         "edited": [
-            f"✗ committed 1 files, merge blocked by local edits to {blocked}",
+            f"✗ committed 1 file, merge blocked by local edits to {blocked}",
             "    store or discard that edit, then run `wfctl store specs` again",
         ],
         "untracked": [
-            f"✗ committed 1 files, merge blocked by untracked files the upstream adds: {blocked}",
+            f"✗ committed 1 file, merge blocked by untracked files the upstream adds: {blocked}",
             "    move those files aside, then run `wfctl store specs` again",
         ],
     }
@@ -1077,7 +1077,7 @@ def test_a_store_with_no_upstream_commits_and_exits_0_by_hand(
     assert out.splitlines() == [
         f"⚠ committed 2 files, not backed up — {store_branch} has no upstream branch",
     ]
-    assert _git(store, "log", "-1", "--format=%s").strip() == "specs(359): store plan.md and 1 others"
+    assert _git(store, "log", "-1", "--format=%s").strip() == "specs(359): store plan.md and 1 other"
     assert _spec_store.unstored(store, [BRANCH]) == []
     assert _recorded_actions(state) == []
 

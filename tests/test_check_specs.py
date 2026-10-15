@@ -70,7 +70,7 @@ def test_unstored_spec_dirs_split_by_whether_a_worktree_resolves_to_them(
         "    188-check-rework-loop      uncommitted: 2 files",
         "    552-bob-command-rename     committed, not pushed",
         "",
-        "In progress (1 spec dirs, still have a worktree):",
+        "In progress (1 spec dir, still have a worktree):",
         "    359-push-specs-to-trunk    uncommitted: 3 files",
     ]
 
@@ -90,8 +90,8 @@ def test_a_spec_dir_with_a_worktree_alone_exits_0_under_in_progress(
     assert out.splitlines() == [
         "✓ every spec dir without a worktree is stored",
         "",
-        "In progress (1 spec dirs, still have a worktree):",
-        "    359-push-specs-to-trunk    uncommitted: 1 files",
+        "In progress (1 spec dir, still have a worktree):",
+        "    359-push-specs-to-trunk    uncommitted: 1 file",
     ]
 
 
@@ -108,7 +108,7 @@ def test_a_spec_dir_resolved_by_issue_key_is_in_progress(
     code, out = _check(monkeypatch, here, project)
 
     assert code == 0, out
-    assert "    359-push-specs-to-trunk    uncommitted: 1 files" in out.splitlines()
+    assert "    359-push-specs-to-trunk    uncommitted: 1 file" in out.splitlines()
 
 
 def test_a_prunable_worktree_does_not_keep_its_spec_dir_in_progress(
@@ -125,8 +125,8 @@ def test_a_prunable_worktree_does_not_keep_its_spec_dir_in_progress(
 
     assert code == 1, out
     assert out.splitlines() == [
-        "✗ 1 spec dirs not stored",
-        "    470-capability-modeling    uncommitted: 1 files",
+        "✗ 1 spec dir not stored",
+        "    470-capability-modeling    uncommitted: 1 file",
     ]
 
 
@@ -156,7 +156,7 @@ def test_the_in_progress_block_is_left_out_when_it_is_empty(
 
     assert code == 1, out
     assert "In progress" not in out
-    assert out.splitlines()[-1] == "    188-check-rework-loop    uncommitted: 1 files"
+    assert out.splitlines()[-1] == "    188-check-rework-loop    uncommitted: 1 file"
 
 
 @pytest.mark.parametrize("kind, sentence", [
@@ -225,3 +225,25 @@ def test_the_check_group_help_names_the_spec_store() -> None:
     assert result.exit_code == 0
     assert "Check a repository's configuration and its spec store." in result.output
     assert "specs" in result.output
+
+
+def test_git_missing_from_path_is_a_one_line_failure_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pass reader caught `OSError` from the first draft, and `check specs`
+    caught only a failed git command, so a machine with no git on PATH got a
+    traceback from the one command meant to report what was left behind."""
+    here, project = _setup(tmp_path)
+    from wfctl import _spec_store
+
+    def no_git(*_: object, **__: object) -> list[_spec_store.Unstored]:
+        raise FileNotFoundError("[Errno 2] No such file or directory: 'git'")
+
+    monkeypatch.setattr(_spec_store, "unstored", no_git)
+
+    code, out = _check(monkeypatch, here, project)
+
+    assert code == 1
+    assert out.splitlines() == [
+        f"✗ git could not read {here}: [Errno 2] No such file or directory: 'git'"
+    ]

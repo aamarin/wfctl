@@ -243,6 +243,12 @@ def _folder(path: str) -> str:
     return path.split("/", 1)[0]
 
 
+def _count(n: int, noun: str) -> str:
+    """`1 file`, `2 files`. Every count the store, the pass and `check specs`
+    print goes through here, so a store of one file never reads "1 files"."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def describe(spec_dir: Unstored) -> str:
     """The text one unstored spec dir renders as, shared by the pass, `check
     specs`, and removal.
@@ -251,7 +257,7 @@ def describe(spec_dir: Unstored) -> str:
     thing that has to happen, and the push carries the older commit with it.
     """
     if spec_dir.uncommitted:
-        return f"uncommitted: {spec_dir.uncommitted} files"
+        return f"uncommitted: {_count(spec_dir.uncommitted, 'file')}"
     return "committed, not pushed"
 
 
@@ -700,7 +706,7 @@ def _subject(branch: str, repo_root: str | os.PathLike[str],
         key = branch
     if not files:
         return f"specs({key}): store {name}"
-    rest = f" and {len(files) - 1} others" if len(files) > 1 else ""
+    rest = f" and {_count(len(files) - 1, 'other')}" if len(files) > 1 else ""
     return f"specs({key}): store {files[0]}{rest}"
 
 
@@ -726,7 +732,7 @@ def report_lines(result: StoreResult) -> list[str]:
     count = len(result.files)
     names = [f"    {', '.join(result.files)}"] if result.files else []
     if result.outcome == "stored":
-        return [f"✓ stored {count} files → {upstream} ({result.sha})", *names]
+        return [f"✓ stored {_count(count, 'file')} → {upstream} ({result.sha})", *names]
     if result.outcome == "already_stored":
         return [f"✓ spec dir already stored on {upstream}"]
     if result.outcome == "no_spec_dir":
@@ -737,16 +743,16 @@ def report_lines(result: StoreResult) -> list[str]:
     if result.outcome == "committed_not_backed_up":
         # A run with nothing new says so, rather than "committed 0 files",
         # which reads as a commit that did not happen.
-        done = f"committed {count} files" if count else "nothing new to commit"
+        done = f"committed {_count(count, 'file')}" if count else "nothing new to commit"
         return [f"⚠ {done}, not backed up — {result.store_branch} has no upstream branch"]
     if result.outcome == "not_pushed":
         return [
-            f"⚠ committed {count} files, not pushed — {upstream} is unreachable", *names,
+            f"⚠ committed {_count(count, 'file')}, not pushed — {upstream} is unreachable", *names,
             "    the next `wfctl store specs` with files to push sends it",
         ]
     if result.outcome == "push_refused":
         return [
-            f"✗ committed {count} files, push refused — {upstream} moved again", *names,
+            f"✗ committed {_count(count, 'file')}, push refused — {upstream} moved again", *names,
             "    run `wfctl store specs` again to merge and push",
         ]
     root = result.layout.root if result.layout else ""
@@ -756,7 +762,7 @@ def report_lines(result: StoreResult) -> list[str]:
     # that, and names the git commands a person runs to clear it (PR-011).
     if result.outcome == "conflict":
         return [
-            f"✗ committed {count} files, merge conflicts in {folders}",
+            f"✗ committed {_count(count, 'file')}, merge conflicts in {folders}",
             "    the merge was aborted and your commit is kept",
             "    every branch's store fails until a person resolves this conflict",
             f"    to resolve it, run `git merge @{{u}}` in {root}, fix the files, run"
@@ -771,19 +777,19 @@ def report_lines(result: StoreResult) -> list[str]:
         ]
     if result.outcome == "merge_blocked_staged":
         return [
-            f"✗ committed {count} files, merge blocked by files staged in {folders}",
+            f"✗ committed {_count(count, 'file')}, merge blocked by files staged in {folders}",
             "    run `wfctl store specs` from the branch that owns that folder, or unstage",
             "    the files, then run `wfctl store specs` again",
         ]
     if result.outcome == "merge_refused" and result.untracked:
         return [
-            f"✗ committed {count} files, merge blocked by untracked files the upstream"
+            f"✗ committed {_count(count, 'file')}, merge blocked by untracked files the upstream"
             f" adds: {', '.join(result.paths)}",
             "    move those files aside, then run `wfctl store specs` again",
         ]
     if result.outcome == "merge_refused":
         return [
-            f"✗ committed {count} files, merge blocked by local edits to {', '.join(result.paths)}",
+            f"✗ committed {_count(count, 'file')}, merge blocked by local edits to {', '.join(result.paths)}",
             "    store or discard that edit, then run `wfctl store specs` again",
         ]
     if result.outcome == "locked":
@@ -828,11 +834,11 @@ def check_lines(
         return f"    {spec_dir.name.ljust(width)}{describe(spec_dir)}"
 
     if left:
-        lines = [f"✗ {len(left)} spec dirs not stored", *map(row, left)]
+        lines = [f"✗ {_count(len(left), 'spec dir')} not stored", *map(row, left)]
     elif held:
         lines = ["✓ every spec dir without a worktree is stored"]
     else:
         return ["✓ every spec dir is stored"]
     if held:
-        lines += ["", f"In progress ({len(held)} spec dirs, still have a worktree):", *map(row, held)]
+        lines += ["", f"In progress ({_count(len(held), 'spec dir')}, still have a worktree):", *map(row, held)]
     return lines

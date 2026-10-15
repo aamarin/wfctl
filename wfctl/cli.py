@@ -6218,8 +6218,9 @@ def check_specs_cmd() -> None:
         # and the check still runs offline (FR-016).
         try:
             spec_dirs = _spec_store.unstored(root, ["."])
-        except subprocess.CalledProcessError as e:
-            _print_plain([f"✗ git could not read {root}: {(e.stderr or '').strip()}"])
+        except (OSError, subprocess.CalledProcessError) as e:
+            said = getattr(e, "stderr", None) or str(e)
+            _print_plain([f"✗ git could not read {root}: {said.strip()}"])
             raise typer.Exit(1)
         # Asked of `resolve_spec_dir` rather than matched on folder names,
         # because a branch's slug can differ from its spec dir's after the
