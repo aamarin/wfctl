@@ -130,7 +130,7 @@ def owns_branch(root: str, here: str) -> bool:
     return branch not in taken
 
 
-LayoutKind = Literal["store", "store_no_upstream", "in_repo", "unmanaged"]
+LayoutKind = Literal["store", "store_no_upstream", "detached", "in_repo", "unmanaged"]
 
 
 class Layout(NamedTuple):
@@ -158,7 +158,13 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
        first kind did not hold. The default `<repo>/specs` is this, and so is
        a worktree of the code repository with a branch some other worktree
        already has checked out.
-    3. `unmanaged`: anything else. A plain folder, a folder that does not
+    3. `detached`: the root is the top of its own checkout and has no branch
+       checked out, as during an interrupted rebase or after
+       `git checkout <sha>`. It is a spec store in a broken state rather than
+       a layout anyone chose, so the store fails there and the pass holds.
+       A commit there would sit on no branch, so nothing would push it and
+       the next checkout would leave it reachable only from the reflog.
+    4. `unmanaged`: anything else. A plain folder, a folder that does not
        exist yet, and a folder nested inside some other repository, where a
        commit would land on that repository's branch.
 
@@ -166,17 +172,19 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     one level inside a spec store passes `owns_branch` and is still not a
     store: a commit from there takes in the whole store, not this root.
 
-    A repository of its own with a detached HEAD passes `owns_branch` and is
-    still `unmanaged` here. A commit there sits on no branch, so nothing
-    pushes it and the next checkout leaves it reachable only from the reflog.
-    The guard lets a person commit there by hand, and the store does not.
+    Raises when git fails for any reason other than the root being in no
+    repository, such as git missing from PATH or a `safe.directory` refusal.
+    Read as `unmanaged`, those let the pass read `skipped`, and an unattended
+    run then finished `implement` with nothing stored.
     """
     root = os.fspath(spec_root)
     repo = os.fspath(repo_root)
-    top = top_level(root) if os.path.isdir(root) else None
+    top = _checkout_top(root) if os.path.isdir(root) else None
     if top is None:
         return Layout("unmanaged", root)
     branch = _local_branch(root)
+    if not branch and top == os.path.realpath(root):
+        return Layout("detached", root)
     if branch and top == os.path.realpath(root) and owns_branch(root, repo):
         upstream = _read(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
         remote = _read(root, "config", "--get", f"branch.{branch}.remote")
@@ -187,6 +195,29 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     if theirs is not None and theirs == _common_dir(repo):
         return Layout("in_repo", root)
     return Layout("unmanaged", root)
+
+
+def _checkout_top(path: str) -> str | None:
+    """The top of the checkout git finds from `path`, resolved, or None when
+    `path` is in no repository. Raises on every other failure.
+
+    `top_level` answers None for both, which suits the guard, and `layout`
+    has to tell them apart. Git's message is read in the C locale, since a
+    translated one would turn every plain folder into a failure.
+    """
+    proc = subprocess.run(
+        ["git", "-C", path, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+        env={**_quiet_env(), "LC_ALL": "C"},
+    )
+    if proc.returncode == 0:
+        return os.path.realpath(proc.stdout.strip())
+    if "not a git repository" in proc.stderr:
+        return None
+    raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
+
+
+# What the store, the pass and `check specs` say about a `detached` spec store.
+DETACHED = "the spec store has no branch checked out"
 
 
 class Unstored(NamedTuple):
@@ -415,9 +446,11 @@ def store(
     The spec root is the spec dir's parent, which is where `resolve_spec_dir`
     looks for it, and the layout is read from that root on every call. A
     `store` layout is committed in and pushed from, and `store_no_upstream`
-    is committed in and stops there. Every other layout returns
-    `not_applicable`, since a commit there would land on the code's branch,
-    on no branch, or in a folder git does not track.
+    is committed in and stops there. A `detached` store fails with
+    `git_failed`, since a commit there would land on no branch and a person
+    has to check one out first. Every other layout returns `not_applicable`,
+    since a commit there would land on the code's branch or in a folder git
+    does not track.
 
     The steps, in order (research R8, R9):
 
@@ -443,7 +476,16 @@ def store(
     inside = Path(path).resolve().is_relative_to(Path(os.fspath(repo_root)).resolve())
     if not os.path.isdir(path):
         return StoreResult("no_spec_dir", branch, path, inside)
-    found = layout(os.path.dirname(os.path.abspath(path)), repo_root)
+    try:
+        found = layout(os.path.dirname(os.path.abspath(path)), repo_root)
+    except (OSError, subprocess.CalledProcessError) as e:
+        return StoreResult("git_failed", branch, path, inside, message=_error_text(e))
+    if found.kind == "detached":
+        return StoreResult(
+            "git_failed", branch, path, inside, found,
+            message=f"{DETACHED}\ncheck out its branch in {found.root}, then run"
+            " `wfctl store specs` again",
+        )
     if found.kind not in ("store", "store_no_upstream"):
         return StoreResult("not_applicable", branch, path, inside, found)
     try:
@@ -460,10 +502,12 @@ def store(
                 return StoreResult("locked", branch, path, inside, found)
             return _store(path, branch, repo_root, found, inside)
     except (OSError, subprocess.CalledProcessError) as e:
-        said = e.stderr if isinstance(e, subprocess.CalledProcessError) else None
-        return StoreResult(
-            "git_failed", branch, path, inside, found, message=(said or str(e)).strip(),
-        )
+        return StoreResult("git_failed", branch, path, inside, found, message=_error_text(e))
+
+
+def _error_text(e: OSError | subprocess.CalledProcessError) -> str:
+    said = e.stderr if isinstance(e, subprocess.CalledProcessError) else None
+    return (said or str(e)).strip()
 
 
 @contextmanager
@@ -839,6 +883,8 @@ def check_lines(
     One column width covers both groups, so the descriptions line up across
     the blank line between them.
     """
+    if found.kind == "detached":
+        return [f"✗ {DETACHED} in {found.root}", "    check out its branch there"]
     if found.kind != "store":
         return [f"ℹ spec root {found.root} {_ROOT_LAYOUT[found.kind]} — nothing there can be pushed"]
     left = [d for d in spec_dirs if d.name not in in_progress]

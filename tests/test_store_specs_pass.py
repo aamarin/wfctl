@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, git_repo, write_plan_review
 from tests.test_spec_store import _git, _remote_and_clones
-from wfctl import _evidence
+from wfctl import _evidence, _spec_store
 from wfctl._session import record_blocked, standing_blocks
 from wfctl.cli import app
 
@@ -292,3 +292,28 @@ def test_a_layout_with_nowhere_to_push_reads_skipped_with_no_reason_and_no_warni
     assert (_pass(payload)["state"], _pass(payload)["annotation"]) == ("skipped", display)
     assert [w for w in payload["warnings"] if w["pass"] == "store-specs"] == []
     assert payload["next_command"] is None
+
+
+@pytest.mark.parametrize("cause", ["detached", "git_fails"])
+def test_a_store_git_cannot_use_holds_implement_instead_of_reading_skipped(
+    finished: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, cause: str,
+) -> None:
+    """A detached spec store read as a layout chosen on purpose, and so did one
+    git could not read at all. Either way the pass read `skipped`, which does
+    not hold `implement`, and an unattended run finished with nothing stored."""
+    if cause == "detached":
+        _git(finished.here, "checkout", "--detach")
+        display = "the spec store has no branch checked out"
+    else:
+        def refused(*_: object, **__: object) -> str:
+            raise subprocess.CalledProcessError(128, ["git"], "", "fatal: detected dubious ownership")
+
+        monkeypatch.setattr(_spec_store, "_checkout_top", refused)
+        display = "git could not read the spec store"
+
+    reading = _evidence.store_specs(_evidence_for(finished))
+    payload = _payload()
+
+    assert (reading.state, reading.reason, reading.display) == ("in_progress", None, display)
+    assert _pass(payload)["state"] == "in_progress"
+    assert payload["next_command"] == "/store-specs"

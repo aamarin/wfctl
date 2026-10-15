@@ -199,15 +199,61 @@ def test_a_store_branch_with_no_upstream_is_store_no_upstream(tmp_path: Path) ->
     )
 
 
-def test_a_clone_of_its_own_with_a_detached_head_is_unmanaged(tmp_path: Path) -> None:
-    """The guard lets a person commit there, and the first draft of `layout`
-    read it as `store_no_upstream`, so the store would have committed onto no
-    branch. Nothing pushes such a commit, and the next checkout strands it."""
-    _, here, _ = _remote_and_clones(tmp_path)
-    _git(here, "checkout", "--detach")
-    project = git_repo(tmp_path / "project")
+@pytest.mark.parametrize("shape", ["clone", "worktree"])
+def test_a_spec_store_with_a_detached_head_is_detached(tmp_path: Path, shape: str) -> None:
+    """The first draft of `layout` read a detached clone as
+    `store_no_upstream`, so the store would have committed onto no branch.
+    The second read it as `unmanaged`, and a detached worktree of the code
+    repository as `in_repo`, so the store said "inside the code repository"
+    about a folder outside it and the pass read `skipped`."""
+    if shape == "clone":
+        _, store, _ = _remote_and_clones(tmp_path)
+        project = git_repo(tmp_path / "project")
+    else:
+        project, _ = _project_with_remote(tmp_path)
+        store = _worktree(project, tmp_path / "project-specs", "-b", "specs-trunk",
+                          start="origin/specs-trunk")
+    _git(store, "checkout", "--detach")
 
-    assert _spec_store.layout(here, project).kind == "unmanaged"
+    assert _spec_store.layout(store, project) == _spec_store.Layout("detached", str(store))
+
+
+def test_a_detached_spec_store_fails_the_store_and_commits_nothing(tmp_path: Path) -> None:
+    """A commit there sits on no branch, so nothing pushes it. Exit 0 with
+    "not backed up" told a script there was nothing to do, when a person
+    only has to check the branch out again."""
+    env = _store_setup(tmp_path)
+    _git(env.here, "checkout", "--detach")
+    head = _git(env.here, "rev-parse", "HEAD")
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "git_failed"
+    assert result.exit_code == 1
+    assert _git(env.here, "rev-parse", "HEAD") == head
+    assert _spec_store.report_lines(result) == [
+        "✗ store failed: the spec store has no branch checked out",
+        f"    check out its branch in {env.here}, then run `wfctl store specs` again",
+    ]
+
+
+def test_git_missing_from_path_raises_rather_than_reading_unmanaged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`unmanaged` is a layout a repository chooses, and the pass reads it
+    `skipped`. A machine with no git read that way finished `implement` with
+    nothing stored and no word about why."""
+    _, here, _ = _remote_and_clones(tmp_path)
+    project = git_repo(tmp_path / "project")
+    monkeypatch.setenv("PATH", str(tmp_path / "no-git-here"))
+
+    with pytest.raises(OSError):
+        _spec_store.layout(here, project)
+    result = _spec_store.store(here / "100", BRANCH, project)
+
+    assert result.outcome == "git_failed"
+    assert "git" in (result.message or "")
 
 
 def test_the_default_specs_folder_is_in_repo(tmp_path: Path) -> None:

@@ -1560,10 +1560,16 @@ def store_specs(ev: Evidence) -> Assessment:
 
     The spec root is the spec dir's parent, which is where `resolve_spec_dir`
     found it. A git failure reads `in_progress`, so the pass routes to the
-    store, which then says what git said. The one answer a broken read must
-    never give is `done`.
+    store, which then says what git said, and so does a `detached` store. The
+    one answer a broken read must never give is `done`, and `skipped` is no
+    better, since it does not hold `implement` either.
     """
-    found = _spec_store.layout(ev.spec_dir.parent, ev.repo_root)
+    try:
+        found = _spec_store.layout(ev.spec_dir.parent, ev.repo_root)
+    except (OSError, subprocess.CalledProcessError):
+        return Assessment("in_progress", None, "git could not read the spec store")
+    if found.kind == "detached":
+        return Assessment("in_progress", None, _spec_store.DETACHED)
     if found.kind != "store":
         return Assessment("skipped", None, _STORE_SKIPPED[found.kind].format(root=found.root))
     try:

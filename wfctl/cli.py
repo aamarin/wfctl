@@ -6208,29 +6208,32 @@ def check_specs_cmd() -> None:
 
     repo_root = get_repo_root()
     root = spec_root(repo_root)
-    found = _spec_store.layout(root, repo_root)
     spec_dirs: list[_spec_store.Unstored] = []
     in_progress: set[str] = set()
-    if found.kind == "store":
+    try:
+        found = _spec_store.layout(root, repo_root)
         # The whole root in one call, so the cost is two git calls however many
         # spec dirs there are. Both read git's local copy of the remote branch
         # and never fetch, so the answer is as fresh as the last store or fetch,
         # and the check still runs offline (FR-016).
-        try:
+        if found.kind == "store":
             spec_dirs = _spec_store.unstored(root, ["."])
-        except (OSError, subprocess.CalledProcessError) as e:
-            said = getattr(e, "stderr", None) or str(e)
-            _print_plain([f"✗ git could not read {root}: {said.strip()}"])
-            raise typer.Exit(1)
-        # Asked of `resolve_spec_dir` rather than matched on folder names,
-        # because a branch's slug can differ from its spec dir's after the
-        # issue key, and an epic's sub-issues resolve through `delivery.md`
-        # (research R10). `worktree_branches` already drops prunable entries,
-        # so a worktree deleted by hand does not keep its spec dir here.
-        for branch in worktree_branches(repo_root) if spec_dirs else []:
-            owned = resolve_spec_dir(branch, repo_root)
-            if owned is not None:
-                in_progress.add(owned.name)
+    except (OSError, subprocess.CalledProcessError) as e:
+        said = getattr(e, "stderr", None) or str(e)
+        _print_plain([f"✗ git could not read {root}: {said.strip()}"])
+        raise typer.Exit(1)
+    if found.kind == "detached":
+        _print_plain(_spec_store.check_lines(found, [], set()))
+        raise typer.Exit(1)
+    # Asked of `resolve_spec_dir` rather than matched on folder names,
+    # because a branch's slug can differ from its spec dir's after the
+    # issue key, and an epic's sub-issues resolve through `delivery.md`
+    # (research R10). `worktree_branches` already drops prunable entries,
+    # so a worktree deleted by hand does not keep its spec dir here.
+    for branch in worktree_branches(repo_root) if spec_dirs else []:
+        owned = resolve_spec_dir(branch, repo_root)
+        if owned is not None:
+            in_progress.add(owned.name)
     _print_plain(_spec_store.check_lines(found, spec_dirs, in_progress))
     if any(d.name not in in_progress for d in spec_dirs):
         raise typer.Exit(1)

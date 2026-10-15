@@ -227,23 +227,44 @@ def test_the_check_group_help_names_the_spec_store() -> None:
     assert "specs" in result.output
 
 
-def test_git_missing_from_path_is_a_one_line_failure_not_a_traceback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("reader", ["_checkout_top", "unstored"])
+def test_a_failed_git_read_is_a_one_line_failure_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str,
 ) -> None:
     """The pass reader caught `OSError` from the first draft, and `check specs`
-    caught only a failed git command, so a machine with no git on PATH got a
-    traceback from the one command meant to report what was left behind."""
+    caught only a failed git command, so a git that could not run gave a
+    traceback from the one command meant to report what was left behind. The
+    layout read can fail the same way, since it raises rather than reading a
+    broken store as unmanaged."""
     here, project = _setup(tmp_path)
     from wfctl import _spec_store
 
     def no_git(*_: object, **__: object) -> list[_spec_store.Unstored]:
         raise FileNotFoundError("[Errno 2] No such file or directory: 'git'")
 
-    monkeypatch.setattr(_spec_store, "unstored", no_git)
+    monkeypatch.setattr(_spec_store, reader, no_git)
 
     code, out = _check(monkeypatch, here, project)
 
     assert code == 1
     assert out.splitlines() == [
         f"✗ git could not read {here}: [Errno 2] No such file or directory: 'git'"
+    ]
+
+
+def test_a_detached_spec_store_exits_1_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A detached store was read as a plain folder, so this command printed
+    "nothing there can be pushed" and exited 0 over a store that only needs
+    its branch checked out again."""
+    here, project = _setup(tmp_path)
+    _git(here, "checkout", "--detach")
+
+    code, out = _check(monkeypatch, here, project)
+
+    assert code == 1
+    assert out.splitlines() == [
+        f"✗ the spec store has no branch checked out in {here}",
+        "    check out its branch there",
     ]
