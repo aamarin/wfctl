@@ -5877,6 +5877,46 @@ check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own 
 app.add_typer(check_app, name="check")
 
 
+store_app = typer.Typer(
+    no_args_is_help=True, help="Store what this branch wrote outside the code repository.",
+)
+# A group for the reason `check` is one: #402's `<noun> <verb>` shape. The noun
+# is the action and the object follows, so a later `store` of something other
+# than specs has a place to go without a new top-level verb.
+app.add_typer(store_app, name="store")
+
+
+@store_app.command("specs")
+def store_specs_cmd() -> None:
+    """Commit this branch's spec dir in its spec store and push it.
+
+    Reads the branch and spec dir the way `wfctl feature-paths` does, and
+    stores only that one folder. Exits 1 when the spec dir is not backed up
+    afterwards, and 0 when it is, or when its layout has nowhere to push.
+    """
+    from wfctl import _spec_store
+    from wfctl._session import record_outward_action
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    found = resolve_spec_dir(branch, repo_root)
+    # The same fallback `feature-paths` makes. A branch with no spec dir of its
+    # own, `main` included, names a folder that does not exist, and the store
+    # reads that as `no_spec_dir` rather than as a failure.
+    spec_dir = found if found is not None else spec_root(repo_root) / branch
+    result = _spec_store.store(spec_dir, branch, repo_root)
+    # Unwrapped, because a line names a path that rich would otherwise break
+    # mid-word, and removal prints these same lines for a person to copy from.
+    for line in _spec_store.report_lines(result):
+        console.print(line, markup=False, highlight=False, soft_wrap=True)
+    # `stored` alone, because it is the only outcome that pushed, and the event
+    # says an action was taken. Recording it is what lifts a hold the
+    # `/store-specs` wrapper filed when the host refused this same command, so
+    # a person who runs it in their own shell needs nothing more (research R15).
+    if result.outcome == "stored":
+        record_outward_action(agent_dir, branch, "store-specs")
+    raise typer.Exit(result.exit_code)
+
+
 contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape contract.")
 app.add_typer(contract_app, name="contract")
 

@@ -7,7 +7,10 @@ to a shared checkout, and a stub would only repeat the claim back.
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -355,3 +358,470 @@ def test_a_staged_rename_counts_in_both_folders(tmp_path: Path) -> None:
         _spec_store.Unstored("100", 1, False),
         _spec_store.Unstored("200", 1, False),
     ]
+
+
+BRANCH = "359-push-specs-to-trunk"
+
+
+def _store_setup(tmp_path: Path) -> types.SimpleNamespace:
+    """A spec store with an upstream, a code repository beside it, and an
+    empty spec dir for `BRANCH` in the store.
+
+    The store is `here` from `_remote_and_clones`, a clone of its own, so it
+    reads `store` against the code repository. `there` is the second machine,
+    which the tests use to move the remote.
+    """
+    remote, here, there = _remote_and_clones(tmp_path)
+    project = git_repo(tmp_path / "project")
+    spec_dir = here / BRANCH
+    spec_dir.mkdir()
+    return types.SimpleNamespace(
+        remote=remote, here=here, there=there, project=project, spec_dir=spec_dir,
+    )
+
+
+def _write(folder: Path, *names: str, text: str = "x\n") -> None:
+    for name in names:
+        path = folder / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+
+def _store(env: types.SimpleNamespace, branch: str = BRANCH) -> _spec_store.StoreResult:
+    folder = env.here / branch
+    return _spec_store.store(folder, branch, env.project)
+
+
+def _remote_files(remote: Path) -> set[str]:
+    return set(_git(remote, "ls-tree", "-r", "--name-only", "specs-trunk").split())
+
+
+def _move_remote_away(env: types.SimpleNamespace) -> Path:
+    away = env.remote.with_name("remote-away.git")
+    env.remote.rename(away)
+    return away
+
+
+def test_the_commit_holds_only_this_folder_and_another_staged_path_stays_staged(
+    tmp_path: Path,
+) -> None:
+    """FR-001. The spec store is shared, and another branch may have staged a
+    file there. A plain `git commit` would carry that file into this branch's
+    commit, and a store that reset the index would throw the staging away."""
+    env = _store_setup(tmp_path)
+    (env.here / "200" / "tasks.md").write_text("200 with a task ticked off\n")
+    _git(env.here, "add", "200/tasks.md")
+    _write(env.spec_dir, "spec.md", "plan.md")
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    committed = _git(env.here, "show", "--name-only", "--format=", "HEAD").split()
+    assert committed == [f"{BRANCH}/plan.md", f"{BRANCH}/spec.md"]
+    assert _git(env.here, "diff", "--cached", "--name-only").split() == ["200/tasks.md"]
+
+
+def test_a_moved_remote_is_merged_and_pushed(tmp_path: Path) -> None:
+    """`store-specs-merges-before-push.md`: the remote moves every time another
+    machine stores, so a store that stopped on a moved remote would stop on
+    the ordinary case."""
+    env = _store_setup(tmp_path)
+    (env.there / "100" / "spec.md").write_text("100 as edited there\n")
+    _git(env.there, "commit", "-am", "specs(100): there")
+    _git(env.there, "push")
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    assert f"{BRANCH}/spec.md" in _remote_files(env.remote)
+    assert _git(env.remote, "show", "specs-trunk:100/spec.md") == "100 as edited there\n"
+    parents = _git(env.here, "rev-list", "--parents", "-n", "1", "HEAD").split()
+    assert len(parents) == 3, "the store merges rather than rebasing"
+
+
+def test_a_deleted_file_is_committed_as_a_deletion(tmp_path: Path) -> None:
+    """`git commit -- <dir>` builds its commit from the paths it is given, and
+    a file already gone from the working tree is one a careless pathspec
+    leaves behind on the remote."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md", "notes.md")
+    assert _store(env).outcome == "stored"
+    (env.spec_dir / "notes.md").unlink()
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    assert result.files == ("notes.md",)
+    assert f"{BRANCH}/notes.md" not in _remote_files(env.remote)
+    assert f"{BRANCH}/spec.md" in _remote_files(env.remote)
+
+
+def test_an_already_stored_spec_dir_creates_no_commit(tmp_path: Path) -> None:
+    """FR-009. The pass names `/store-specs` once per finished `implement`, and
+    a store that committed an empty change each time would fill the spec
+    store's history with commits that say nothing."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    _store(env)
+    head = _git(env.here, "rev-parse", "HEAD")
+
+    result = _store(env)
+
+    assert result.outcome == "already_stored"
+    assert _git(env.here, "rev-parse", "HEAD") == head
+
+
+@pytest.mark.parametrize("names, subject", [
+    (("spec.md",), "specs(359): store spec.md"),
+    (("spec.md", "plan.md", "tasks.md"), "specs(359): store plan.md and 2 others"),
+])
+def test_the_subject_names_the_issue_and_the_files(
+    tmp_path: Path, names: tuple[str, ...], subject: str,
+) -> None:
+    """FR-002. The existing commits on the spec branch start `specs(<issue>):`,
+    and `git log --oneline` is how a person finds which branch stored what."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, *names)
+
+    _store(env)
+
+    assert _git(env.here, "log", "-1", "--format=%s").strip() == subject
+
+
+def test_the_count_takes_in_files_from_an_earlier_unpushed_commit(tmp_path: Path) -> None:
+    """Research R9. "Stored 3 files" has to mean the three files that just
+    reached the remote, and two of them were committed by a store that could
+    not push."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md", "plan.md")
+    away = _move_remote_away(env)
+    assert _store(env).outcome == "not_pushed"
+    away.rename(env.remote)
+    _write(env.spec_dir, "tasks.md")
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    assert result.files == ("plan.md", "spec.md", "tasks.md")
+
+
+def _cli(monkeypatch: pytest.MonkeyPatch, spec_root: Path, project: Path,
+         branch: str = BRANCH) -> tuple[int, str, Path]:
+    """`wfctl store specs` run the way a session runs it, with every root
+    pinned so nothing resolves the developer's own spec store."""
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    state = project.parent / "state"
+    state.mkdir(exist_ok=True)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(spec_root))
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(project))
+    monkeypatch.setenv("WFCTL_BRANCH", branch)
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    result = CliRunner().invoke(app, ["store", "specs"])
+    return result.exit_code, result.output, state
+
+
+def _recorded_actions(state: Path) -> list[str]:
+    events = state / "events.jsonl"
+    if not events.exists():
+        return []
+    return [
+        e["action"] for e in map(json.loads, events.read_text().splitlines())
+        if e.get("event") == "notify-action"
+    ]
+
+
+def test_the_success_output_is_two_lines_counting_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-008 and `contracts/cli.md`. The noun is asserted rather than "specs"
+    being absent, because the same line names `origin/specs-trunk`, and the
+    first draft counted "specs" where it meant files."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md", "plan.md")
+
+    code, out, state = _cli(monkeypatch, env.here, env.project)
+
+    sha = _git(env.here, "rev-parse", "--short", "HEAD").strip()
+    assert code == 0
+    assert out.splitlines() == [
+        f"✓ stored 2 files → origin/specs-trunk ({sha})",
+        "    plan.md, spec.md",
+    ]
+    assert _recorded_actions(state) == ["store-specs"]
+
+
+def test_an_unreachable_remote_keeps_the_commit_and_reads_not_pushed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-006 and PR-007. The files are committed, so nothing is lost, and the
+    spec dir is still not backed up, which is why this exits 1. The remedy
+    line has to hold for a branch with nothing new to store, which pushes
+    nothing, so it names the next store with files to push."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md", "plan.md")
+    _move_remote_away(env)
+
+    code, out, state = _cli(monkeypatch, env.here, env.project)
+
+    assert code == 1
+    assert out.splitlines() == [
+        "⚠ committed 2 files, not pushed — origin/specs-trunk is unreachable",
+        "    plan.md, spec.md",
+        "    the next `wfctl store specs` with files to push sends it",
+    ]
+    assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
+    assert _spec_store.unstored(env.here, [BRANCH]) == [_spec_store.Unstored(BRANCH, 0, True)]
+    assert _recorded_actions(state) == []
+
+
+def test_the_next_store_from_another_branch_pushes_both_commits(tmp_path: Path) -> None:
+    """`store-specs-merges-before-push.md`, decision 1. A push sends every
+    local commit on the branch, so the commit an offline store left behind
+    goes out with the next branch's."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    away = _move_remote_away(env)
+    assert _store(env).outcome == "not_pushed"
+    away.rename(env.remote)
+    _write(env.here / "360-other", "spec.md")
+
+    result = _store(env, "360-other")
+
+    assert result.outcome == "stored"
+    assert result.files == ("spec.md",)
+    assert {f"{BRANCH}/spec.md", "360-other/spec.md"} <= _remote_files(env.remote)
+    assert _spec_store.unstored(env.here, ["."]) == []
+
+
+def test_a_push_refused_after_the_merge_keeps_the_merge_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decision 3. The remote can move again between the merge and the push.
+    The merge commit is the work the next run builds on, and a store that
+    reset it would have to merge the same changes twice."""
+    env = _store_setup(tmp_path)
+    (env.there / "100" / "spec.md").write_text("100, first move\n")
+    _git(env.there, "commit", "-am", "specs(100): first move")
+    _git(env.there, "push")
+    _write(env.spec_dir, "spec.md")
+
+    real = subprocess.run
+    moved = []
+
+    def move_before_the_push(args: list[str], *a: object, **kw: object) -> object:
+        if not moved and args[:1] == ["git"] and "push" in args and str(env.here) in args:
+            moved.append(True)
+            (env.there / "100" / "spec.md").write_text("100, second move\n")
+            real(["git", "-C", str(env.there), "commit", "-qam", "second"], check=True, capture_output=True)
+            real(["git", "-C", str(env.there), "push", "-q"], check=True, capture_output=True)
+        return real(args, *a, **kw)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(subprocess, "run", move_before_the_push)
+
+    result = _store(env)
+
+    assert result.outcome == "push_refused"
+    assert result.exit_code == 1
+    parents = _git(env.here, "rev-list", "--parents", "-n", "1", "HEAD").split()
+    assert len(parents) == 3, "the merge commit is kept"
+    assert not (env.here / ".git" / "MERGE_HEAD").exists()
+
+
+def test_an_authentication_failure_reads_git_failed_with_gits_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR-010. "Unreachable" sends a person to check their network, and a
+    rejected key is not fixed by waiting. The `ssh` here is a stand-in on
+    `PATH` that refuses the way GitHub refuses a key it does not know."""
+    env = _store_setup(tmp_path)
+    url = "ssh://git@example.invalid/specs.git"
+    _git(env.here, "remote", "set-url", "origin", url)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "ssh"
+    fake.write_text("#!/bin/sh\necho 'git@example.invalid: Permission denied (publickey).' >&2\nexit 255\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+
+    def only_the_stand_in(seen: str) -> None:
+        assert seen == url
+
+    monkeypatch.setattr(_spec_store, "_check_remote", only_the_stand_in)
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "git_failed"
+    assert result.exit_code == 1
+    assert result.message is not None
+    assert "Permission denied (publickey)" in result.message
+    lines = _spec_store.report_lines(result)
+    assert lines[0].startswith("✗ store failed: ")
+    assert not any("unreachable" in line for line in lines)
+
+
+def test_every_git_call_runs_without_a_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR-003 and research R7. The store runs from a removal hook and from an
+    unattended pass, where nobody is at the terminal, and a credential prompt
+    there hangs with no output. Fetch and push also carry a timeout, since a
+    dead network hangs the same way."""
+    env = _store_setup(tmp_path)
+    (env.there / "100" / "spec.md").write_text("100 as edited there\n")
+    _git(env.there, "commit", "-am", "specs(100): there")
+    _git(env.there, "push")
+    _write(env.spec_dir, "spec.md")
+
+    real = subprocess.run
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def record(args: list[str], *a: object, **kw: object) -> object:
+        if args[:1] == ["git"]:
+            calls.append((list(args), kw))
+        return real(args, *a, **kw)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(subprocess, "run", record)
+
+    assert _store(env).outcome == "stored"
+
+    verbs = {args[3] for args, _ in calls}
+    assert {"add", "commit", "fetch", "merge", "push"} <= verbs
+    for args, kw in calls:
+        env_ = kw.get("env")
+        assert isinstance(env_, dict), args
+        assert env_.get("GIT_TERMINAL_PROMPT") == "0", args
+        assert "-o BatchMode=yes" in env_.get("GIT_SSH_COMMAND", ""), args
+        if args[3] in ("fetch", "push"):
+            assert kw.get("timeout") == 60, args
+
+
+def test_a_spec_dir_outside_the_worktree_never_stops_removal(tmp_path: Path) -> None:
+    """Research R6. A spec dir in a spec store survives the worktree's
+    removal whatever the store did, so every outcome there, a failed push
+    included, has to let removal go ahead."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    away = _move_remote_away(env)
+    not_pushed = _store(env)
+    away.rename(env.remote)
+    stored = _store(env)
+    already = _store(env)
+
+    assert [r.outcome for r in (not_pushed, stored, already)] == [
+        "not_pushed", "stored", "already_stored",
+    ]
+    assert not any(r.stops_removal for r in (not_pushed, stored, already))
+
+
+def test_a_spec_dir_inside_the_worktree_stops_removal_and_still_exits_0_by_hand(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research R6. Inside the worktree, deleting the worktree deletes the only
+    copy, so `not_applicable` there has to stop removal. Run by hand, the
+    store has nothing it can do in that layout, and an exit of 1 would fail
+    every run in every repository on the default layout."""
+    project = git_repo(tmp_path / "project")
+    spec_dir = project / "specs" / BRANCH
+    _write(spec_dir, "spec.md")
+
+    result = _spec_store.store(spec_dir, BRANCH, project)
+    code, out, state = _cli(monkeypatch, project / "specs", project)
+
+    assert result.outcome == "not_applicable"
+    assert result.stops_removal is True
+    assert result.exit_code == 0
+    assert code == 0
+    assert out.startswith(f"ℹ {spec_dir} is inside the code repository")
+    assert _git(project, "log", "--format=%s").splitlines() == ["init"]
+    assert _recorded_actions(state) == []
+
+
+@pytest.mark.parametrize("outcome, code", [
+    ("stored", 0), ("already_stored", 0), ("not_applicable", 0), ("no_spec_dir", 0),
+    ("committed_not_backed_up", 0), ("not_pushed", 1), ("push_refused", 1),
+    ("conflict", 1), ("merge_blocked_staged", 1), ("merge_refused", 1),
+    ("locked", 1), ("git_failed", 1),
+])
+def test_each_outcome_carries_the_exit_code_the_data_model_gives_it(
+    outcome: _spec_store.Outcome, code: int,
+) -> None:
+    """`data-model.md §Store result`. The pass reads `in_progress` in every
+    exit-1 case, so a 0 there would tell a script the store worked when the
+    pipeline says it did not (research R6)."""
+    result = _spec_store.StoreResult(outcome, BRANCH, "/specs/x", False)
+
+    assert result.exit_code == code
+
+
+def test_already_stored_exits_0_and_records_no_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research R15. The action event says a push happened, and the log is the
+    only record a restarted session reads, so a store that pushed nothing
+    must not write one."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    _store(env)
+
+    code, out, state = _cli(monkeypatch, env.here, env.project)
+
+    assert code == 0
+    assert out.splitlines() == ["✓ spec dir already stored on origin/specs-trunk"]
+    assert _recorded_actions(state) == []
+
+
+def test_a_refused_push_exits_1_and_records_no_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI half of `push_refused`: the exact lines, the exit code, and no
+    action recorded for a push that did not land."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    real = subprocess.run
+    moved = []
+
+    def move_before_the_push(args: list[str], *a: object, **kw: object) -> object:
+        if not moved and args[:1] == ["git"] and "push" in args and str(env.here) in args:
+            moved.append(True)
+            (env.there / "100" / "spec.md").write_text("100 moved\n")
+            real(["git", "-C", str(env.there), "commit", "-qam", "moved"], check=True, capture_output=True)
+            real(["git", "-C", str(env.there), "push", "-q"], check=True, capture_output=True)
+        return real(args, *a, **kw)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(subprocess, "run", move_before_the_push)
+
+    code, out, state = _cli(monkeypatch, env.here, env.project)
+
+    assert code == 1
+    assert out.splitlines() == [
+        "✗ committed 1 files, push refused — origin/specs-trunk moved again",
+        "    spec.md",
+        "    run `wfctl store specs` again to merge and push",
+    ]
+    assert _recorded_actions(state) == []
+
+
+@pytest.mark.parametrize("branch", ["361-never-specified", "main"])
+def test_a_branch_with_no_spec_dir_says_so_and_commits_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, branch: str,
+) -> None:
+    """Spec §Edge Cases. The removal hook runs on every worktree, including
+    one that never wrote a spec, and `main` has no spec dir at all. Neither
+    is a failure, and neither may commit."""
+    env = _store_setup(tmp_path)
+    head = _git(env.here, "rev-parse", "HEAD")
+
+    code, out, state = _cli(monkeypatch, env.here, env.project, branch)
+
+    assert code == 0
+    assert out.splitlines() == [f"ℹ no spec dir for {branch}"]
+    assert _git(env.here, "rev-parse", "HEAD") == head
+    assert _recorded_actions(state) == []
