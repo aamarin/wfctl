@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -577,3 +577,48 @@ def report_lines(result: StoreResult) -> list[str]:
     said = (result.message or "git gave no message").splitlines()
     rest = [f"    {line}" for line in said[1:] if line.strip()]
     return [f"✗ store failed: {said[0] if said else ''}", *rest]
+
+
+# What `check specs` says a spec root is, for each layout with nowhere to push.
+# It names the root rather than one spec dir, so it says what the root is and
+# leaves out the "not backed up" that `_NOT_APPLICABLE` says about one folder.
+_ROOT_LAYOUT: dict[LayoutKind, str] = {
+    "store_no_upstream": "is in a spec store with no upstream branch",
+    "in_repo": "is inside the code repository",
+    "unmanaged": "is not in a spec store",
+}
+
+
+def check_lines(
+    found: Layout, spec_dirs: list[Unstored], in_progress: Collection[str],
+) -> list[str]:
+    """What `check specs` prints, one string per line, as `contracts/cli.md`
+    gives it.
+
+    `spec_dirs` is every unstored spec dir under the root, and `in_progress`
+    names the ones some worktree of the code repository resolves to. Those are
+    listed apart because their branch can still store them, and the command
+    exits 1 only for the rest. Kept beside `report_lines` so the two commands'
+    wording lives in one place, and plain text for the same reason.
+
+    One column width covers both groups, so the descriptions line up across
+    the blank line between them.
+    """
+    if found.kind != "store":
+        return [f"ℹ spec root {found.root} {_ROOT_LAYOUT[found.kind]} — nothing there can be pushed"]
+    left = [d for d in spec_dirs if d.name not in in_progress]
+    held = [d for d in spec_dirs if d.name in in_progress]
+    width = max((len(d.name) for d in spec_dirs), default=0) + 4
+
+    def row(spec_dir: Unstored) -> str:
+        return f"    {spec_dir.name.ljust(width)}{describe(spec_dir)}"
+
+    if left:
+        lines = [f"✗ {len(left)} spec dirs not stored", *map(row, left)]
+    elif held:
+        lines = ["✓ every spec dir without a worktree is stored"]
+    else:
+        return ["✓ every spec dir is stored"]
+    if held:
+        lines += ["", f"In progress ({len(held)} spec dirs, still have a worktree):", *map(row, held)]
+    return lines

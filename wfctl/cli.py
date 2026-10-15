@@ -5880,7 +5880,9 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
-check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own configuration.")
+check_app = typer.Typer(
+    no_args_is_help=True, help="Check a repository's configuration and its spec store.",
+)
 # A new group rather than a peer of `tracker-check`/`check-body`'s existing
 # hyphenated shape: #402 proposes `check <thing>` — noun group plus verb for
 # anything with an object — and is open, so the direction is where the argument
@@ -6190,6 +6192,53 @@ def check_config_cmd() -> None:
             f"[green]✓[/green] {_declared.CONFIG_PATH}: trunk {escape(name)}, "
             f"read as {escape(_paths.trunk_branch(repo_root) or name)}"
         )
+
+
+@check_app.command("specs")
+def check_specs_cmd() -> None:
+    """List every spec dir in the spec store that is not stored.
+
+    Spec dirs a worktree of this repository resolves to are listed apart,
+    under "In progress", because their branch can still store them. Exits 1
+    only when some other spec dir is not stored, and 0 in a layout with
+    nowhere to push. Reads no network.
+    """
+    import subprocess
+
+    from wfctl import _spec_store
+    from wfctl._paths import worktree_branches
+
+    repo_root = get_repo_root()
+    root = spec_root(repo_root)
+    found = _spec_store.layout(root, repo_root)
+    spec_dirs: list[_spec_store.Unstored] = []
+    in_progress: set[str] = set()
+    if found.kind == "store":
+        # The whole root in one call, so the cost is two git calls however many
+        # spec dirs there are. Both read git's local copy of the remote branch
+        # and never fetch, so the answer is as fresh as the last store or fetch,
+        # and the check still runs offline (FR-016).
+        try:
+            spec_dirs = _spec_store.unstored(root, ["."])
+        except subprocess.CalledProcessError as e:
+            console.print(
+                f"✗ git could not read {root}: {(e.stderr or '').strip()}",
+                markup=False, highlight=False, soft_wrap=True,
+            )
+            raise typer.Exit(1)
+        # Asked of `resolve_spec_dir` rather than matched on folder names,
+        # because a branch's slug can differ from its spec dir's after the
+        # issue key, and an epic's sub-issues resolve through `delivery.md`
+        # (research R10). `worktree_branches` already drops prunable entries,
+        # so a worktree deleted by hand does not keep its spec dir here.
+        for branch in worktree_branches(repo_root) if spec_dirs else []:
+            owned = resolve_spec_dir(branch, repo_root)
+            if owned is not None:
+                in_progress.add(owned.name)
+    for line in _spec_store.check_lines(found, spec_dirs, in_progress):
+        console.print(line, markup=False, highlight=False, soft_wrap=True)
+    if any(d.name not in in_progress for d in spec_dirs):
+        raise typer.Exit(1)
 
 
 def _verification_finding() -> list[str]:
