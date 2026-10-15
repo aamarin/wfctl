@@ -109,3 +109,50 @@
   skip an empty `git rm`, name the towncrier invocation, clear the CI variables
   in tests, confirm the release commit's version with `tomllib`, allow merge
   commits only, and settle the prompt order and editor exit.
+
+## Review 2026-10-15T16:11Z
+
+- Verdict: satisfied
+- Reviewed: plan.md ddc76c17967f250d0d4c177a2b0a2625cf9b89d1, spec.md 738eb0621931bebe3ae55df908a0b4e9e6782162, .specify/memory/constitution.md absent, design.md 68832bf405fbe2471adc03f621b75bd21ba491d8, docs/architecture/change-carries-release-note.md a6639f9c4e0ef6d32a025627a0588bf233360759, docs/architecture/design/571-towncrier-builds-release-notes.md 95807a531a9fda579d0bd27199c98ce60de20737, research.md ee5294ee8b5898783b682e945e1b77e1d3a31965, data-model.md 68161af43203fc8eacd503de8546da62b1d1b0c5, quickstart.md c13b1013394ce9e040230843627a574fda2d6506, contracts/check-release-note.md e926253856385be12d60099c7c310d17c1170fa7, contracts/release-script.md 823581eea53f1dc86afbcb5bb047305ad62d0ad9, contracts/tag-job.md aa263d8ca77aaac38b4038671556d92f0c4fc6f5, checklists/requirements.md 37a6a5ce0798ad3e653a03b8fa785d1ce5f4ead5, tests/test_install_config.py 0281ffaa4b3ef803a73f1524c9a0271b26aac47d, tests/test_shape.py 03b350995d6ec85773b0ae5cac37290b571011dd, tests/conftest.py ab0a68e5a72288cdf034f54a415fbbc547c8d725, .github/workflows/ci.yml 51235f6139dda5761a8e3926b459e68b8ac4e205, .github/pull_request_template.md 3ee00e4a2b3a566b3a13b0de2e3f7c36e87851da, pyproject.toml 0529147d3b9406b2c56277e4570a6556440d949f, wfctl.json cd10684006bd8b3c52967743cd4e6e5a63a1a00e, wfctl/_verify.py de7930cbba4cc9d9056a21009d5d0c2f70b8f270, plan-review.plan.md 2b629c7d579c5b7a62ea4cdbbfd69f15f47fd914 (base)
+- Review type: re-review (the earlier plan copy matched the earlier report's plan.md row; the six changed inputs were re-read in full)
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 6 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/571-release-automation/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Outstanding (PR-014, PR-017; PR-013 fixed) |
+| Architecture and boundaries | Outstanding (PR-018) |
+| Adversarial implementation and verification | Outstanding (PR-012, PR-016; PR-010 and PR-011 fixed) |
+| Security and reliability | Outstanding (PR-015) |
+
+### Findings
+
+- **PR-012, MINOR, open.** The read-back `rules/branches/main` doesn't return
+  bypass actors, so it can't show administrators are included, and
+  `contracts/tag-job.md` implies it can.
+- **PR-014, MINOR, open.** `design.md` still says the script stops when only
+  `none` notes exist, which FR-014 and User Story 2 scenario 8 narrowed, and
+  still lists the "Type of Change" question that clarify settled.
+- **PR-015, MINOR, open.** The rollback's `git reset --hard` would also discard
+  a tracked edit made after the clean-tree check, including during the editor
+  session, so the contract's "only what the script wrote" overstates it.
+  Reproduced in a scratch repository.
+- **PR-016, MINOR, open.** `contracts/release-script.md` steps 2 to 5 never
+  stage `pyproject.toml` or `uv.lock`, so followed literally the commit holds
+  only the note deletions.
+- **PR-017, MINOR, open.** With `gh pr create --fill`, a stub that records
+  arguments can't observe the description that User Story 2's Independent Test
+  asks to check.
+- **PR-018, MINOR, open.** The pull request description is a second, editable
+  copy of the release text. An edit to it never reaches the release, and
+  nothing says to amend the commit instead.
+- **PR-010, BLOCKER, fixed.** `contracts/tag-job.md` and `research.md §8` add
+  `--no-merges`. Reproduced against a merge commit shaped like GitHub's, where
+  the lookup finds the release commit and both checks pass.
+- **PR-011, MINOR, fixed.** The rollback resets before switching, and the retry
+  uses `gh pr create --fill`, which needs no draft file.
+- **PR-013, MINOR, fixed.** `design.md §Behaviour` matches the contracts, and
+  `plan.md` lists the `tests/test_shape.py` comment.
