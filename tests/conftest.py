@@ -100,6 +100,45 @@ def _tool_version_is_not_under_test(
     monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: False)
 
 
+@pytest.fixture(autouse=True)
+def _spec_store_reaches_only_the_tests_own_remote(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Make any store refuse a remote that is not a local path under the test's
+    `tmp_path`.
+
+    The store pushes. A test that forgets to set `WFCTL_SPEC_DIR` resolves the
+    spec root the way a session would, through the main checkout's manifest,
+    and in this repository that is the developer's real spec store with
+    `origin/specs-trunk` behind it. Its fixture commits would land there, and
+    nothing in the test's own result would show it.
+
+    The refusal is `pytest.fail`, which raises a `BaseException`, so a store
+    that turns every `Exception` from git into a `git_failed` result cannot
+    swallow it and carry on to the push.
+
+    `tmp_path` is asked for only when a store calls in, so the many tests that
+    never store do not each create a directory for this. Tests that exercise
+    `_check_remote` itself carry `real_remote`, the same way `real_version_check`
+    steps aside from the version stub above.
+    """
+    if "real_remote" in request.keywords:
+        return
+
+    def refuse_unless_local(url: str) -> None:
+        tmp = os.path.realpath(request.getfixturevalue("tmp_path"))
+        path = url.removeprefix("file://")
+        if os.path.isabs(path) and os.path.realpath(path).startswith(tmp + os.sep):
+            return
+        pytest.fail(
+            f"a spec store in this test tried to reach {url}, which is not under "
+            f"the test's tmp_path ({tmp}). Point WFCTL_SPEC_DIR at a fixture store, "
+            "or mark the test real_remote."
+        )
+
+    monkeypatch.setattr("wfctl._spec_store._check_remote", refuse_unless_local)
+
+
 # A release, shaped like the payload `uv tool install` wrote on a real machine.
 RELEASE_ORIGIN = '{"url":"https://github.com/aamarin/wfctl.git","vcs_info":{"vcs":"git","commit_id":"4ca1604f3172d5f1ecd0221a2ca6d8d6fb231e22"}}'
 
