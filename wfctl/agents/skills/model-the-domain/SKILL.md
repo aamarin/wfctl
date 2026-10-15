@@ -1,6 +1,6 @@
 ---
 name: model-the-domain
-description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a core or supporting capability's complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
+description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a core or supporting capability''s complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
 ---
 
 # Model the domain

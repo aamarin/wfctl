@@ -39,9 +39,15 @@ crossing several actors past a wait. A mermaid flowchart for
 `data-flow` or `component` — one subgraph per side, phases down the page, an
 edge only where something actually crosses, and the refusals too: an `--x`
 edge for what the owning side never accepts from the other, because that edge
-is the decision. Use a solid edge (`-->`) for a synchronous call and a dotted
+is the decision. Put the refused claim on that edge as its label, running from
+one subgraph to the other (`agent -- "this edit was harmless" --x wfctl`), and
+never as a node inside the side that would make it. Mermaid lays out every node
+in a subgraph as a peer of the others, so a node for a claim reads as one more
+step that side takes. Use a solid edge (`-->`) for a synchronous call and a dotted
 edge (`-.->`) for anything read later, such as a file on disk or a payload a
-renderer polls. A mermaid `stateDiagram-v2` for `state`, and a mermaid
+renderer polls. A drawing that reads a file draws the branch where the file is
+missing, or holds no part the decision reads, whenever that branch ends
+somewhere different. A mermaid `stateDiagram-v2` for `state`, and a mermaid
 `sequenceDiagram` for `sequence`, with a row for the step that fails (an `alt`,
 `opt`, `break` or `critical` block, or a lost message `-x`). When the
 drawing uses an edge style or a shape the record does not explain in prose, add

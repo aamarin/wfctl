@@ -1828,7 +1828,10 @@ def arch_none_cmd(
 
 step_app = typer.Typer(
     no_args_is_help=True,
-    help="Declare a pipeline pass inapplicable, or sign off the plan without a review.",
+    help=(
+        "Declare a pipeline pass inapplicable, sign off the plan without a review, or "
+        "record implement complete."
+    ),
 )
 app.add_typer(step_app, name="step")
 
@@ -2106,6 +2109,77 @@ def step_sign_off_cmd(
     _, fired = _apply_review_cap(agent_dir, repo_root, branch, spec_dir, report, None)
     if fired is not None:
         console.print(_revocation_line(fired), soft_wrap=True)
+
+
+@step_app.command("complete")
+def step_complete_cmd(
+    step: str = typer.Argument(..., help="The step to record complete. Only implement."),
+) -> None:
+    """Record the implement step complete, with a copy of tasks.md (#264).
+
+    The copy is what lets a task added later reopen the step, and it is only
+    worth anything if it is taken when the step finishes, since previous
+    versions of `tasks.md` are not preserved. So wfctl writes the record, and
+    the implement command runs this where the derived skill's step 9b writes
+    the file by hand (`264-the-completion-command-is-a-step-verb`).
+
+    It refuses while a step before `implement` is current, so a record cannot
+    be written before the pipeline routes to implementation. Once `implement`
+    is current it runs whatever the boxes say, since work done outside the
+    skill leaves them unticked. The incomplete count it prints is the agent's
+    check on that. It runs once the story reads complete too, which is where a
+    finish with every box ticked and no definition of done sits.
+    """
+    from datetime import date
+
+    from rich.markup import escape
+
+    from wfctl import _completion
+    from wfctl._evidence import task_tally
+    from wfctl._io import write_atomic
+    from wfctl._pipeline import build_report
+
+    if step != "implement":
+        console.print(f"[red]✗[/red] step complete records only implement, not {escape(step)}")
+        raise typer.Exit(1)
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    if spec_dir is None:
+        console.print(
+            "[red]✗[/red] No feature directory for this branch, so there is no tasks.md to record"
+        )
+        raise typer.Exit(1)
+    tasks_md = spec_dir / "tasks.md"
+    if not tasks_md.is_file():
+        console.print(
+            f"[red]✗[/red] No tasks.md in {escape(str(spec_dir))}, so there is nothing to record",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    # The one inference every view renders, and it writes nothing, so asking
+    # it from a writer has no side effect. `None` is the story complete.
+    current = build_report(spec_dir, repo_root, agent_dir, _caller_identity()).current
+    if current not in ("implement", None):
+        console.print(
+            f"[red]✗[/red] implement is not reached yet: {current} is the current step"
+        )
+        raise typer.Exit(1)
+
+    # One read for the copy and the tally, so the counts printed are the counts
+    # of the copy written, even while an agent is still editing the file.
+    tasks_text = tasks_md.read_text()
+    record = spec_dir / _completion.RECORD
+    record.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(record, _completion.render(tasks_text, date.today()))
+
+    done, total = task_tally(tasks_text)
+    plural = "" if total == 1 else "s"
+    console.print(
+        "[green]✓[/green] Recorded implement complete, with a copy of tasks.md "
+        f"({total} task{plural}, {total - done} incomplete)"
+    )
 
 
 # Keyed by kind rather than paired positionally with `_arch.DIAGRAM_KINDS`: a
@@ -2908,16 +2982,25 @@ _AGENT_TARGETS = {
     "none": [],
     "codex": [],
     "claude": [("agents/commands", ".claude/commands")],
-    "bob": [
-        ("agents/skills", ".bob/skills"),
-        ("agents/commands", ".bob/commands"),
-    ],
+    # Skills only. Bob Shell reads skills from `.bob/skills/` and reads no
+    # command directory itself. When it starts, it copies command files from
+    # `.bob/`, `.agents/` and `.claude/` into its skills folder, skipping any name
+    # that already has a skill. The base layer's `.agents/commands/` already
+    # carries every wrapper, so a `.bob/commands/` copy added nothing (#552).
+    "bob": [("agents/skills", ".bob/skills")],
     # `agents/skills/<name>/SKILL.md` is already the shape Copilot's skills
     # layout expects, so this is a plain copy — no frontmatter transform, no
     # rename. See specs/…/research.md for why the skills layout was chosen over
     # `.github/agents/*.agent.md`, which upstream is deprecating.
     "copilot": [("agents/skills", ".github/skills")],
 }
+
+# Destinations an earlier wfctl installed into and this one no longer does. A
+# path recorded under one is still wfctl's output, so doctor judges it like a
+# path in a planned directory and points at the prune that removes it. Without
+# the entry, doctor skips a recorded path outside every planned directory, and
+# the old files stay on disk with nothing reporting them.
+_RETIRED_DIRS = frozenset({".bob/commands"})
 
 # Agents that are recognised but have no repo-local path to install into. They
 # resolve to an empty layer and print why, rather than erroring: the base layer
@@ -3048,29 +3131,6 @@ _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
 
-# Bob Shell's own approval-scoping file — see the `approval-settings` skill for
-# its schema. Not `.claude/settings.json`'s: `allowed-tools` on a command's
-# frontmatter, the mechanism Claude Code reads, has no reader in Bob Shell at
-# all (grepping Bob Shell's own bundled JS for the literal key turns up
-# nothing) — #405 shipped believing it did, and this is the actual mechanism.
-BOB_SETTINGS_PATH = ".bob/settings.json"
-
-# Starter entries for a bundle whose own commands run `git` and `uv run wfctl`.
-# Read-only tools first — the lowest-risk approvals — then the two command
-# prefixes this bundle's own commands actually invoke; a project wanting more
-# extends this file by hand afterward, same as any consumer edit `doctor`
-# already treats as theirs.
-_BOB_APPROVAL_ENTRIES = (
-    "read_file",
-    "list_files",
-    "glob",
-    "grep",
-    "execute_command(git)",
-    "execute_command(uv run)",
-    "run_shell_command(git)",
-    "run_shell_command(uv run)",
-)
-
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
 # something different and "the managed hook is gone" names none of them — and
 # two wfctl features sharing one event, as `Stop` did until #476, would lose
@@ -3086,6 +3146,23 @@ _HOOK_GONE = {
 assert {_settings.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} == set(_HOOK_GONE)
 
 _BACKUP_DIR = ".wf-skills-backup"
+
+
+def _free_backup_path(backup: Path) -> Path:
+    """The first of `backup`, `backup.2`, `backup.3`, ... that nothing occupies.
+
+    A path is backed up again when the manifest has lost its record of an
+    earlier install while that install's backups are still on disk. The earlier
+    copy may be the only original left, so it is never overwritten, and the
+    new copy goes beside it under the next free number.
+    """
+    n = 1
+    candidate = backup
+    while os.path.lexists(candidate):
+        n += 1
+        candidate = backup.with_name(f"{backup.name}.{n}")
+    return candidate
+
 
 # What `--tracker github` installs. The scripts are not optional extras: the
 # config's `start`/`stop` and `create` verbs invoke them by path, so the set
@@ -3261,9 +3338,8 @@ _MIRRORED_SKILLS = frozenset({
     #
     # #373 shipped it a wrapper and that ground is untouched: the wrapper is
     # suppressed on precisely the layer this entry is about, so what it bought is
-    # the `.agents/` copy and bob's command directory, neither of which is a
-    # discovery path. A reader weighing this entry reads the fork, not the
-    # wrapper's existence.
+    # the `.agents/` copy, which is not a discovery path. A reader weighing this
+    # entry reads the fork, not the wrapper's existence.
     #
     # It does not reach an agent mid-implementation, and must not be defended on
     # that: the skill's `description` scopes both its triggers to level 2, and
@@ -3278,9 +3354,10 @@ _MIRRORED_SKILLS = frozenset({
     "architecture-decisions",
     # Interactive design skill; its description triggers on "new feature / major
     # change that needs design thinking" — a moment nobody types a command, the
-    # same reason `fanning-out-code-review` is mirrored (#124). Wrapper reaches
-    # bob/copilot layers; mirror is the Claude route (wrapper suppressed there by
-    # _mirror_supersedes_wrapper, as for every other name in this set).
+    # same reason `fanning-out-code-review` is mirrored (#124). The wrapper
+    # installs to `.agents/commands/`; the mirror is the Claude route (wrapper
+    # suppressed there by _mirror_supersedes_wrapper, as for every other name in
+    # this set).
     "brainstorm",
     # `python-pattern-selection`'s case at two levels rather than one:
     # `design-levels` names this skill by path at level 3 and again at level 4,
@@ -3420,62 +3497,6 @@ _MIRRORED_SKILLS = frozenset({
 _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 
 
-# Frontmatter keys known to be Claude-specific and meaningless — or worse,
-# harmful — in Bob Shell. `disable-model-invocation: true` causes Bob Shell to
-# skip model invocation entirely — the skill body never executes. That is the
-# bug where /end-session and other commands do nothing when invoked in Bob
-# Shell.
-#
-# `allowed-tools` was previously listed here too, on the assumption it was
-# Claude-only. It isn't established to be: grepping Bob Shell's own bundled JS
-# for the literal key turns up nothing, which means Bob Shell does not read it
-# for anything, good or bad — it neither breaks on seeing it nor uses it to
-# scope tool approval the way #142 assumed. Absence of evidence that a key is
-# Bob-relevant is not evidence it is Claude-only, so it no longer belongs here.
-# Bob's real auto-approval mechanism is `.bob/settings.json` (the
-# `approval-settings` skill) — `install-skills --agent bob` merges a starter
-# allowlist into it automatically; see `_BOB_APPROVAL_ENTRIES`.
-_CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
-    "disable-model-invocation",
-})
-
-
-def _strip_claude_frontmatter(text: str) -> str:
-    """Remove Claude-only frontmatter keys from a command file's content.
-
-    Drops lines whose key matches _CLAUDE_ONLY_FRONTMATTER_KEYS from the
-    leading YAML block. Drops the block entirely if no keys remain after
-    stripping. Returns text unchanged when there is no front matter or the
-    block has no closing fence.
-    """
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        return text
-    close = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            close = i
-            break
-    if close is None:
-        return text
-    kept = ["---\n"]
-    for line in lines[1:close]:
-        key = line.split(":", 1)[0].strip()
-        if key not in _CLAUDE_ONLY_FRONTMATTER_KEYS:
-            kept.append(line)
-    # Drop the block entirely if nothing remains between the fences.
-    if all(ln.strip() == "---" for ln in kept):
-        return "".join(lines[close + 1:])
-    kept.append(lines[close])
-    kept.extend(lines[close + 1:])
-    return "".join(kept)
-
-
-def _copy_command_for_bob(src: "Path", dest: "Path") -> None:
-    """Copy a command file to a Bob destination, stripping Claude-only frontmatter."""
-    dest.write_text(_strip_claude_frontmatter(src.read_text(encoding="utf-8")), encoding="utf-8")
-
-
 def _claude_native_skill_mirror(
     repo_root: Path, item: Path
 ) -> tuple[str, Path, Path] | None:
@@ -3521,12 +3542,12 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
 
     Suppressed per layer, never from the bundle, and that distinction is the
     whole correctness of this function. The wrapper is one file whose body is
-    "read the sibling skill", and it is still the only typed route for a layer
-    that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
-    `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
-    body". Deleting the wrapper from the bundle instead would leave bob, which
-    gets no mirror, with no typed route to the skill at all: a Claude-shaped
-    argument taking out a layer it never described.
+    "read the sibling skill", and the base layer's `.agents/commands/` still
+    installs it for every agent. `wfctl check config` reads that directory to
+    decide whether a declared pass's command is installed (`_is_installed`), so
+    deleting the wrapper from the bundle would report a pass naming `/brainstorm`
+    as uninstalled in every repo. Deleting it was first rejected for bob, which
+    had no mirror; bob no longer installs commands at all (#552).
 
     Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
     what makes a wrapper redundant is that this agent got the mirror, not its
@@ -3971,120 +3992,87 @@ def _unmerge_permissions(
     return changed, declined, problems
 
 
-def _managed_bob_tool_allows(agent: str) -> list[tuple[str, str]]:
-    """`(settings path, entry)` for every `tools.allowed` entry `agent` manages.
-
-    Bob-only, for the reason the permission rules are Claude-only: `tools` is
-    Bob Shell's schema, and the base layer is agent-agnostic. A list rather
-    than a constant because install, uninstall and `doctor` all have to agree
-    on the set, and a second copy of it is the drift this collapses.
-    """
-    return (
-        [(BOB_SETTINGS_PATH, entry) for entry in _BOB_APPROVAL_ENTRIES]
-        if agent == "bob"
-        else []
-    )
-
-
-def _bob_tool_allow_drift(
-    repo_root: Path, agent: str, manifest: dict
-) -> tuple[str, str, bool] | None:
-    """The first managed entry a receipt claims and the file no longer carries.
-
-    `(path, entry, added)`, where `added` is the receipt's own answer to who
-    put the entry there — shaped after `_permission_drift`, minus `related`:
-    a plain allow-list has no verb to match a hand-edited form against, so
-    there is nothing honest to show beyond the entry that went missing.
-
-    None when there is nothing to stop for, including every case wfctl cannot
-    be sure about — same posture as `_permission_drift`.
-    """
-    for rel, entry in _managed_bob_tool_allows(agent):
-        receipts = [
-            record
-            for layer in _layer_keys(manifest)
-            for record in manifest[layer].get("tools", [])
-            if record.get("path") == rel and record.get("entry") == entry
-        ]
-        if not receipts:
-            continue
-        path = repo_root / rel
-        if not path.exists():
-            continue
-        settings, _ = _read_settings(path)
-        if settings is None or _bob_settings.tool_allow_present(settings, entry):
-            continue
-        return (rel, entry, bool(receipts[0].get("added", False)))
-    return None
-
-
-def _merge_bob_tool_allows(
-    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
-) -> tuple[list[dict], list[str], list[str]]:
-    """Install `agent`'s managed `tools.allowed` entries. `(records, written,
-    problems)` — shaped after `_merge_permissions`."""
-    records: list[dict] = []
-    written: list[str] = []
-    problems: list[str] = []
-    for rel, entry in _managed_bob_tool_allows(agent):
-        path = repo_root / rel
-        keep = prior.get((rel, entry))
-        settings, problem = _read_settings(path)
-        if settings is None:
-            problems.append(f"{rel}: {problem}")
-            records.extend([keep] if keep else [])
-            continue
-        try:
-            added = _bob_settings.merge_tool_allow(settings, entry)
-        except ValueError as exc:
-            problems.append(f"{rel}: {exc}")
-            records.extend([keep] if keep else [])
-            continue
-        if added:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _write_settings(path, settings)
-            except OSError as exc:
-                problems.append(f"{rel}: {exc}")
-                records.extend([keep] if keep else [])
-                continue
-            if rel not in written:
-                written.append(rel)
-        records.append({
-            "path": rel,
-            "entry": entry,
-            "added": added or bool(keep and keep.get("added", False)),
-        })
-    return records, written, problems
-
-
 def _unmerge_bob_tool_allows(
     repo_root: Path, records: Iterable[dict]
-) -> tuple[set[str], list[str]]:
-    """Remove the managed `tools.allowed` entries `records` describes.
-    `(files changed, problems)` — shaped after `_unmerge_permissions`, minus
-    `declined`: nothing here has a "related" form to show for one, so a
-    changed entry is simply not reported as removed."""
+) -> tuple[set[str], list[str], list[dict], list[str]]:
+    """Remove the `tools.allowed` entries an older wfctl merged into Bob Shell's
+    settings. `(files changed, problems, kept, left alone)`.
+
+    Shaped after `_unmerge_permissions`, minus `declined`: nothing here has a
+    "related" form to show for one, so a changed entry is simply not reported
+    as removed.
+
+    `kept` holds the receipts for a file that would not parse or could not be
+    written. Install writes them back to the manifest, so the next run tries
+    again once the file is fixed. Without them the entries would stay in the
+    file with nothing left to say they were wfctl's, and from then on they
+    would read as the user's.
+
+    `left alone` holds one message per recorded path that was not touched: one
+    that leaves the repo, and one that is a symlink or sits below one. Writing
+    through a link edits the file it points at, which can be the user's global
+    settings or another checkout's. Install runs this unattended from
+    `/start-session`, which is why a hand-edited or committed manifest must not
+    be able to aim it at a JSON file elsewhere on disk. The receipt is dropped
+    rather than kept, since a retry would reach the same file.
+
+    wfctl never records a path outside the repo, so nothing it added is there.
+    A link is different: an older wfctl wrote through it, so its entries may
+    still be in the target once the receipts are gone. The message names them,
+    because it is the last place anything says they were wfctl's.
+    """
     changed: set[str] = set()
     problems: list[str] = []
+    kept: list[dict] = []
+    outside: list[str] = []
+    linked: dict[str, list[str]] = {}
     for record in records:
         rel, entry = record.get("path"), record.get("entry")
         if not rel or not entry:
             continue
         if not record.get("added", False):
             continue
-        path = repo_root / rel
+        path = _recorded_path(repo_root, rel)
+        if path is None:
+            if rel not in outside:
+                outside.append(rel)
+            continue
+        if path.is_symlink() or _below_a_link(repo_root, path):
+            linked.setdefault(rel, []).append(entry)
+            continue
         if not path.exists():
             continue
         settings, problem = _read_settings(path)
         if settings is None:
-            problems.append(f"{rel}: {problem}")
+            # One line per file, not per entry: every receipt for an
+            # unparseable file fails the same way.
+            if f"{rel}: {problem}" not in problems:
+                problems.append(f"{rel}: {problem}")
+            kept.append(record)
             continue
         if not _bob_settings.remove_tool_allow(settings, entry):
             continue
-        _write_settings(path, settings)
+        try:
+            _write_settings(path, settings)
+        except OSError as exc:
+            # A read-only file would otherwise raise out of install after the
+            # copy loop and before the manifest write, leaving the copied
+            # files unrecorded.
+            if f"{rel}: {exc}" not in problems:
+                problems.append(f"{rel}: {exc}")
+            kept.append(record)
+            continue
         changed.add(rel)
-    return changed, problems
+    left_alone = [
+        f"{rel} is recorded as a path outside this repo — left alone"
+        for rel in outside
+    ] + [
+        f"{rel} is a symlink or below one — left alone. The file it points at may "
+        "still hold these tool approvals an older wfctl added, and wfctl no longer "
+        f"tracks them: {', '.join(entries)}"
+        for rel, entries in linked.items()
+    ]
+    return changed, problems, kept, left_alone
 
 
 def _unmerge_hooks(
@@ -4241,9 +4229,18 @@ def _ensure_gitignored(repo_root: Path, line: str) -> bool:
 
     Returns whether it wrote. `spec-root` announces the edit, since `.gitignore`
     is tracked and `repo_root` may not be where the user is standing;
-    `install-skills` counts the Falses to report how many it skipped.
+    `install-skills` counts the Falses to report how many it skipped. A path
+    below a symlinked directory also returns False, with no pattern behind it.
     """
     import subprocess as sp
+
+    # Git never tracks a path through a symlinked directory, so a line for one
+    # cannot affect it. `check-ignore` exits 128 for such a path, the same code it
+    # uses outside a repo, so the exit code cannot tell the two apart and the
+    # check has to be made on disk. Without it, every install in a worktree that
+    # links `.specify/scripts/bash` in appends the same lines again (#574).
+    if _below_a_link(repo_root, repo_root / line):
+        return False
 
     # ponytail: one process per path, ~7ms each (~600ms per install) against a
     # ~15s clone. Batch via `check-ignore --stdin` over gitignore_targets if #1
@@ -4553,33 +4550,6 @@ def install_skills_cmd(
         )
         raise typer.Exit(1)
 
-    bob_drift = None if force else _bob_tool_allow_drift(repo_root, agent, manifest)
-    if bob_drift is not None:
-        drifted_path, entry, was_wfctls = bob_drift
-        whose = (
-            "which wfctl installed"
-            if was_wfctls
-            else "which wfctl recorded as already yours"
-        )
-        console.print(
-            f"[red]✗[/red] {escape(drifted_path)} no longer carries "
-            f"[cyan]{escape(entry)}[/cyan], {whose}.",
-            soft_wrap=True,
-        )
-        console.print(
-            "  Nothing was installed. Removing that entry is your call to make, so "
-            "wfctl will not\n  put it back without being told to:\n"
-            f"    keep your version   — restore [cyan]{escape(entry)}[/cyan] "
-            "by hand, or leave it out and\n"
-            "                          expect this on every install, including the "
-            "one\n                          `/start-session` runs unattended\n"
-            f"    take wfctl's        — {escape(forced)}\n"
-            "                          which records the entry as wfctl's, so a "
-            "later uninstall\n                          removes it",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
-
     # `--from` is one-shot, so a bare install silently discards it. Said before
     # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
     # a stale mirror unattended with `--yes`, which makes that the one place the
@@ -4870,6 +4840,7 @@ def install_skills_cmd(
     count = 0
     new_backups = 0
     backup_layers: set[str] = set()
+    second_backups: list[tuple[str, str, str]] = []
     items: dict[str, list[dict]] = {}
     summary: dict[str, dict[str, int]] = {}
     for layer, kind, rel_dest, dest, item in plan:
@@ -4882,13 +4853,16 @@ def install_skills_cmd(
         if rel_dest in prior_items:
             backup_rel = prior_items[rel_dest].get("backup")
         elif dest.exists():
-            backup_dest = repo_root / _BACKUP_DIR / rel_dest
+            default_backup = repo_root / _BACKUP_DIR / rel_dest
+            backup_dest = _free_backup_path(default_backup)
             backup_dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.is_dir():
                 shutil.copytree(dest, backup_dest)
             else:
                 shutil.copy2(dest, backup_dest)
-            backup_rel = str(Path(_BACKUP_DIR) / rel_dest)
+            backup_rel = str(backup_dest.relative_to(repo_root))
+            if backup_dest != default_backup:
+                second_backups.append((layer, rel_dest, backup_rel))
             new_backups += 1
             backup_layers.add(layer)
         else:
@@ -4896,8 +4870,6 @@ def install_skills_cmd(
 
         if item.is_dir():
             shutil.copytree(item, dest, dirs_exist_ok=True)
-        elif agent == "bob" and rel_dest.startswith(".bob/commands/"):
-            _copy_command_for_bob(item, dest)
         else:
             shutil.copy2(item, dest)
         count += 1
@@ -4933,15 +4905,14 @@ def install_skills_cmd(
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
-    prior_bob_tools = {
-        (r["path"], r["entry"]): r
-        for key in _layer_keys(manifest)
-        for r in manifest[key].get("tools", [])
-    }
-    bob_tools, bob_tools_written, bob_tools_problems = _merge_bob_tool_allows(
-        repo_root, agent, prior_bob_tools
+    # An older wfctl merged a starter allow-list into `.bob/settings.json`,
+    # which Bob Shell 2.0.6 never reads approvals from. Removed here, on the next install of the layer that recorded them, because the
+    # layer's manifest entry is replaced below and the receipts saying which
+    # entries were wfctl's would go with it. This can go once no bob install
+    # still carries `tools` receipts.
+    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_left_alone = (
+        _unmerge_bob_tool_allows(repo_root, manifest.get(agent, {}).get("tools", []))
     )
-    merge_written.extend(rel for rel in bob_tools_written if rel not in merge_written)
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
@@ -4994,10 +4965,14 @@ def install_skills_cmd(
     if permissions:
         manifest.setdefault(agent, {})["permissions"] = permissions
 
-    # A sibling of `permissions` for the same reason, one schema over: Bob
-    # Shell's `tools.allowed` rather than Claude Code's `permissions.deny`.
-    if bob_tools:
-        manifest.setdefault(agent, {})["tools"] = bob_tools
+    # Only the receipts for a file that would not parse or could not be
+    # written, so the next install tries again once it is fixed. Cleared first, because a source with
+    # nothing for this layer leaves its entry unreplaced above, and a spent
+    # receipt left there would later remove an entry the user added back.
+    if agent in manifest:
+        manifest[agent].pop("tools", None)
+    if kept_bob_tools:
+        manifest.setdefault(agent, {})["tools"] = kept_bob_tools
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -5129,8 +5104,12 @@ def install_skills_cmd(
 
     # A count, not a list: `git check-ignore -v <path>` already attributes each
     # skip to a file, line, and pattern, and a second listing here would drift.
+    # `_ensure_gitignored` also declines a path below a symlink, but no pattern
+    # covers that path, so counting it would report a `.gitignore` match that
+    # does not exist.
     skipped = sum(
         not _ensure_gitignored(repo_root, rel)
+        and not _below_a_link(repo_root, repo_root / rel)
         for rel in (_MANIFEST_PATH, f"{_BACKUP_DIR}/", *gitignore_targets)
     )
     if skipped:
@@ -5144,6 +5123,22 @@ def install_skills_cmd(
             f"[yellow]ℹ[/yellow] Backed up {new_backups} pre-existing file(s) to "
             f"{_BACKUP_DIR}/ — restored by {_restore_hint(backup_layers)}"
         )
+    # The earlier copies have no record after this run, and this report is the
+    # only place they are named. One header and one line per path, because a
+    # manifest that lost its records collides on every path it installs.
+    if second_backups:
+        one = len(second_backups) == 1
+        copies, ones = ("copy was", "one") if one else ("copies were", "ones")
+        console.print(
+            f"[yellow]ℹ[/yellow] {len(second_backups)} path{'' if one else 's'} "
+            f"already had a backup in {_BACKUP_DIR}/. The earlier {copies} kept "
+            f"and the new {ones} went beside {'it' if one else 'them'}. "
+            f"{_restore_hint(layer for layer, _, _ in second_backups)} restores "
+            f"the new {ones}, and no record names the earlier {ones}:",
+            soft_wrap=True,
+        )
+        for _, backed_up, second in second_backups:
+            console.print(f"    {backed_up} → {second}", soft_wrap=True)
 
     if orphans and not prune:
         one = len(orphans) == 1
@@ -5195,8 +5190,22 @@ def install_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — the managed tool-approval entry was "
-            "not added",
+            f"[yellow]⚠[/yellow] {escape(problem)} — the tool approvals an older wfctl "
+            "added are still in it, and the next install tries again",
+            soft_wrap=True,
+        )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
+    for removed_rel in sorted(removed_bob_tools):
+        # Said, because Bob Shell may start prompting for tool calls this file
+        # used to approve. Removing them is right, and it should not happen
+        # silently. No claim about which file Bob Shell reads next: entries the
+        # user wrote here still outrank the global file.
+        console.print(
+            f"[yellow]ℹ[/yellow] Removed the tool approvals an older wfctl added to "
+            f"{escape(removed_rel)}.\n  Your own entries in it were left alone. "
+            "Approvals you want in every repo belong in\n  "
+            "~/.bob/settings/settings.json.",
             soft_wrap=True,
         )
 
@@ -5320,20 +5329,22 @@ def uninstall_skills_cmd(
         )
         typer.confirm(f"Remove '{_BASE_LAYER}' anyway?", abort=True)
 
+    from rich.markup import escape
+
     removed = 0
     restored = 0
     for item in entry.get("items", []):
         path = _recorded_path(repo_root, item["path"])
         if path is None:
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is recorded as a path outside "
                 "this repo — left alone",
                 soft_wrap=True,
             )
             continue
         if _below_a_link(repo_root, path):
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is below a symlink — left alone",
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is below a symlink — left alone",
                 soft_wrap=True,
             )
             continue
@@ -5357,9 +5368,11 @@ def uninstall_skills_cmd(
     unmerged_perms, declined, perm_problems = _unmerge_permissions(
         repo_root, entry.get("permissions", [])
     )
-    unmerged_bob_tools, bob_tools_problems = _unmerge_bob_tool_allows(
-        repo_root, entry.get("tools", [])
+    # `kept` is for install's retry; the receipts go with the manifest entry.
+    unmerged_bob_tools, bob_tools_problems, _, bob_tools_left_alone = (
+        _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
+
     for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
@@ -5374,10 +5387,12 @@ def uninstall_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
+            f"[yellow]⚠[/yellow] {escape(problem)} — wfctl's tool-approval entry may still "
             "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
 
     del manifest[agent]
     _save_manifest(repo_root, manifest)
@@ -5416,7 +5431,6 @@ def uninstall_skills_cmd(
             "  Your own entries in them were left alone.",
             soft_wrap=True,
         )
-    from rich.markup import escape
 
     for declined_path, rule, related in declined:
         # A rule wfctl installed and someone has since rewritten. Saying nothing
@@ -5973,8 +5987,8 @@ def _rewrite_status_payload_version(new_version: str) -> bool:
 
 def _is_installed(repo_root: Path) -> Callable[[str], bool]:
     """Whether a declared pass's command ships from a command layer this
-    repository has installed — `.agents/commands`, `.claude/commands`,
-    `.bob/commands` — checked by filesystem existence, the same test `doctor`
+    repository has installed — `.agents/commands`, `.claude/commands` —
+    checked by filesystem existence, the same test `doctor`
     would apply if this were its question (research.md R5). Every layer's
     directory is checked, not only whichever agent this session happens to run
     under: the repository may have several installed, and a command that
@@ -7107,34 +7121,6 @@ def _recorded_from(manifest: dict, layer: str) -> str:
     return f" --from {escape(shlex.quote(source))}" if source else ""
 
 
-def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
-    """Say when a managed `tools.allowed` entry this repo recorded is no longer
-    there. Shaped after `_check_managed_permissions`: a warning, not a failure
-    — a missing entry narrows Bob Shell's auto-approval, which still leaves a
-    working install, and a repo may have decided it wants the extra prompt."""
-    from rich.markup import escape
-
-    for layer in _layer_keys(manifest):
-        for record in manifest[layer].get("tools", []):
-            rel, entry = record.get("path"), record.get("entry")
-            if not record.get("added", False) or not rel or not entry:
-                continue
-            settings, _ = _read_settings(repo_root / rel)
-            if settings is None or _bob_settings.tool_allow_present(settings, entry):
-                continue
-            console.print(
-                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(entry)}[/cyan] is gone "
-                f"from {escape(rel)}\n  Bob Shell will prompt for approval on "
-                "matching tool calls without it",
-                soft_wrap=True,
-            )
-            console.print(
-                f"    restore: {escape(_runner(repo_root))} install-skills"
-                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
-                soft_wrap=True,
-            )
-
-
 def _report_hook_drift(
     settings: dict, layer: str, rel: str, event: str, expected: str, runner: str
 ) -> bool:
@@ -7308,25 +7294,30 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     #
     # Skipped: paths already in `flagged`; paths the reader deleted; layers
     # installed from a `--from` source, whose checkout cannot be walked from here;
-    # and paths outside every planned directory, such as merged settings entries,
-    # which no plan produces and so cannot be judged by one.
+    # and paths outside every planned or retired directory, such as merged
+    # settings entries, which no plan produces and so cannot be judged by one.
     would_install = _installer_destinations(repo_root, manifest)
     # Membership is asked of every layer's plan, not the recorded layer's: a
     # manifest from before the layer split filed `.agents/*` under the agent key,
     # and the installer's own orphan diff is unkeyed for the same reason. The
     # recorded layer is still what names the repair below.
     planned_anywhere = set().union(*would_install.values())
-    planned_dirs = _planned_dirs()
+    planned_dirs = _planned_dirs() | _RETIRED_DIRS
     not_in_bundle: dict[str, str] = {}  # dest_path -> layer
     dropped_trackers: dict[str, str] = {}
     for layer in _layer_keys(manifest):
-        if manifest[layer].get("source"):
-            continue
+        sourced = bool(manifest[layer].get("source"))
         for item in manifest[layer].get("items", ()):
             dest = item["path"]
             if item.get("orphaned") or dest in flagged:
                 continue
             if not (repo_root / dest).exists():
+                continue
+            # A retired directory is retired whatever source the layer came
+            # from, because the target table belongs to the running wfctl and
+            # not to the bundle `--from` names. So the source checkout does not
+            # need walking to judge it.
+            if sourced and str(Path(dest).parent) not in _RETIRED_DIRS:
                 continue
             if str(Path(dest).parent) == _TRACKER_DIR:
                 # Not in any target table: `install_skills_cmd` copies these from
@@ -7545,7 +7536,6 @@ def doctor_cmd() -> None:
     # avoids: it would make a repo's deliberate removal of one permission rule
     # fail every `doctor` run, and `/start-session` and CI both read the code.
     _check_managed_permissions(repo_root, manifest)
-    _check_managed_bob_tool_allows(repo_root, manifest)
 
     # Used only by the recorded-source branch below, which prints a path into a
     # shell-shaped line.

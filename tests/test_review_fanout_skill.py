@@ -15,6 +15,8 @@ import subprocess
 from importlib.resources import files
 from pathlib import Path
 
+import pytest
+
 _AGENTS = Path(str(files("wfctl"))) / "agents"
 _SKILL = _AGENTS / "skills" / "fanning-out-code-review" / "SKILL.md"
 
@@ -474,3 +476,34 @@ def test_the_dispatch_list_requires_the_coverage_the_clean_row_reproduces() -> N
 
     covering = [b for b in bullets if "which passes ran" in b]
     assert covering, bullets
+
+
+@pytest.mark.parametrize(
+    "start, end",
+    [
+        ("## Step 2 — Dispatch", "Mark the dispatch"),
+        ("`MISSING` is a **failure, not a pass.**", "A file that exists"),
+    ],
+    ids=["dispatch", "re-ask"],
+)
+def test_the_panel_sends_its_reviewers_to_the_rubric_by_path(start: str, end: str) -> None:
+    """A reviewer told to follow the `code-review` skill by name reached Claude
+    Code's built-in `/code-review` instead, on #464's panel and again on #500's.
+    That command fans out helper agents that never receive the dispatch rules,
+    and on both panels an agent running under it edited the shared tree (#468).
+
+    The path alone does not stop a reviewer reaching for the Skill tool, so the
+    prohibition is pinned beside it. The re-ask is pinned too, because a re-ask
+    worded by name sends a reviewer back to the command that swallowed its first
+    report.
+
+    Both anchors are asserted because a reworded end anchor would otherwise run
+    the dispatch section on into the re-ask, which carries the same wording and
+    passes it for a dispatch bullet reverted to the bare name. Whitespace is
+    collapsed so a rewrap of the prose cannot fail an unchanged sentence."""
+    skill = _SKILL.read_text()
+    assert start in skill and end in skill, (start, end)
+    section = " ".join(skill.split(start)[1].split(end)[0].split())
+
+    assert "code-review" in _REFERENCE.findall(section)
+    assert "Skill named `code-review`" in section

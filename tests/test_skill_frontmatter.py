@@ -8,6 +8,8 @@ the real validator is tracked as #60.
 
 from pathlib import Path
 
+import yaml
+
 import wfctl
 from wfctl import _arch
 
@@ -22,6 +24,7 @@ ALLOWED_KEYS = {
 # `bundle` fixture repoints that at a fixture tree, and this test is about the
 # skills wfctl actually ships.
 SKILLS_ROOT = Path(wfctl.__file__).parent / "agents" / "skills"
+AGENTS_ROOT = SKILLS_ROOT.parent
 
 
 def test_every_shipped_skill_declares_only_spec_keys() -> None:
@@ -46,5 +49,41 @@ def test_every_shipped_skill_declares_only_spec_keys() -> None:
         extra = sorted(set(_arch._frontmatter(skill_md.read_text())) - ALLOWED_KEYS)
         if extra:
             offenders[skill_dir.name] = extra
+
+    assert offenders == {}
+
+
+def test_every_shipped_frontmatter_parses_as_yaml() -> None:
+    """A skill or command whose frontmatter is not valid YAML still installs,
+    and Claude Code then loads it without its description. `model-the-domain`
+    shipped that way, with an apostrophe inside a single-quoted description,
+    and was listed only as "Model the domain", so nothing could select it.
+
+    `_arch._frontmatter` reads keys line by line and never parses a value, so
+    the test above passes on a file like that. This one parses each block with
+    a real YAML reader. The reader is a dev dependency only, because wfctl
+    itself never parses this YAML.
+
+    Every block has to parse, record templates included. Only a skill or a
+    command needs a description, since those are the files an agent loads by
+    it.
+    """
+    offenders = {}
+    for md in sorted(AGENTS_ROOT.rglob("*.md")):
+        text = md.read_text()
+        if not text.startswith("---\n"):
+            continue
+        block = text[len("---\n"):].split("\n---\n", 1)[0]
+        rel = md.relative_to(AGENTS_ROOT)
+        try:
+            parsed = yaml.safe_load(block)
+        except yaml.YAMLError as exc:
+            offenders[str(rel)] = str(exc).splitlines()[0]
+            continue
+        loaded_by_description = md.name == "SKILL.md" or rel.parts[0] == "commands"
+        if loaded_by_description and not (
+            isinstance(parsed, dict) and isinstance(parsed.get("description"), str)
+        ):
+            offenders[str(rel)] = "no description string"
 
     assert offenders == {}

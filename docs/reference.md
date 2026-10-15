@@ -276,7 +276,7 @@ speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
 |-----------|---------------------------|
 | *(omitted)* / `none` | nothing — the base layer only |
 | `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable. A wrapper whose skill is mirrored is skipped here — both would claim one `/name` — so this layer installs fewer commands than the base one |
-| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
+| `bob` | skills → `.bob/skills/`. No command wrappers: Bob Shell reads no command directory itself. When it starts, it copies the base layer's `.agents/commands/` wrappers into its skills folder and skips any name that already has a skill |
 | `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
 | `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
 
@@ -332,7 +332,11 @@ layer is touched** — uninstalling `claude` leaves `.agents/` intact, because t
 base layer owns it. `--agent` defaults to `base`, mirroring `install-skills`, so
 a bare install and a bare uninstall round-trip. State lives in
 `.wf-skills-manifest.json` and `.wf-skills-backup/` at the repo root — both are
-cleaned up once nothing references them.
+cleaned up once nothing references them. The exception is a path backed up while
+an earlier backup of it is still on disk. The earlier copy is kept, and the new
+one is stored beside it under the next free number, such as
+`software-design-decisions.2`. Uninstall restores the new copy. No record names
+the earlier one, so it stays in `.wf-skills-backup/` until someone removes it.
 
 `wfctl doctor` is the single "am I current?" check — it reports the wfctl tool
 and the installed skills (the hash on record vs the bundle this wfctl ships).

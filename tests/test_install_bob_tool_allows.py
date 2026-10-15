@@ -1,10 +1,11 @@
-"""Filesystem round-trip for Bob Shell's `tools.allowed` merge, through the
-CLI. Sibling to `test_install_hook_merge.py` (Claude's `permissions.deny`),
-scoped to the load-bearing cases rather than its full breadth: the schema and
-the merge/unmerge/drift functions are unit-tested in
-`test_bob_settings_merge.py`; this proves the commands that call them — install
-writes only on change, uninstall restores what it didn't own, doctor reports
-drift — against a real settings file on a real repo.
+"""`install-skills --agent bob` leaves Bob Shell's `.bob/settings.json` alone,
+and takes back out the tool approvals an older wfctl merged into it.
+
+Bob Shell 2.0.6 has no reader for `tools.allowed`, and reads approvals only
+from the user's global `~/.bob/settings/settings.json`, so the starter
+allow-list written into a repo approved nothing. The removal itself is
+unit-tested in `test_bob_settings_merge.py`; this proves the commands that run
+it against a real settings file on a real repo.
 """
 from __future__ import annotations
 
@@ -15,172 +16,348 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl.cli import _BOB_APPROVAL_ENTRIES, app
+from wfctl import cli
+from wfctl.cli import app
 
 runner = CliRunner()
+
+# What the older install merged, as its receipts recorded it.
+_LEGACY_ENTRIES = (
+    "read_file",
+    "list_files",
+    "glob",
+    "grep",
+    "execute_command(git)",
+    "execute_command(uv run)",
+    "run_shell_command(git)",
+    "run_shell_command(uv run)",
+)
 
 
 def _settings_path(repo_root: Path) -> Path:
     return repo_root / ".bob" / "settings.json"
 
 
-def _manifest(repo_root: Path) -> dict:
-    return json.loads((repo_root / ".wf-skills-manifest.json").read_text())
+def _manifest_path(repo_root: Path) -> Path:
+    return repo_root / ".wf-skills-manifest.json"
 
 
-def _tools(repo_root: Path) -> list[dict]:
-    return _manifest(repo_root)["bob"].get("tools", [])
+def _record_legacy_install(repo_root: Path, theirs: list[str]) -> None:
+    """Leave the repo as an older wfctl's bob install did: the starter entries
+    merged into the settings file beside `theirs`, and a receipt for each in
+    the manifest. An entry already in `theirs` is recorded as not wfctl's, the
+    way the older install recorded it."""
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+    assert result.exit_code == 0, result.output
+
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    allowed = list(theirs) + [e for e in _LEGACY_ENTRIES if e not in theirs]
+    settings_path.write_text(json.dumps({"tools": {"allowed": allowed}}, indent=2) + "\n")
+
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    manifest["bob"]["tools"] = [
+        {"path": ".bob/settings.json", "entry": e, "added": e not in theirs}
+        for e in _LEGACY_ENTRIES
+    ]
+    _manifest_path(repo_root).write_text(json.dumps(manifest, indent=2) + "\n")
 
 
-def test_install_merges_the_starter_entries_and_keeps_what_was_there(
+def test_agent_bob_leaves_an_existing_settings_file_byte_identical(
     agent_dir: Path,
 ) -> None:
-    """The acceptance criterion for the whole mode: everything the consumer
-    had is where they left it, and wfctl added only its own entries."""
+    """The project file holds the user's hooks and pinned team, and wfctl has
+    nothing to add to it, since Bob Shell reads no approvals from it."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
-    settings_path.write_text(
-        json.dumps({"tools": {"allowed": ["execute_command(npm test)"]}}, indent=2) + "\n"
-    )
+    original = '{"tools": {"allowed": ["execute_command(npm test)"]}}\n'
+    settings_path.write_text(original)
 
-    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
 
-    after = json.loads(settings_path.read_text())["tools"]["allowed"]
-    assert "execute_command(npm test)" in after
-    for entry in _BOB_APPROVAL_ENTRIES:
-        assert entry in after
+    assert settings_path.read_text() == original
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
 
 
-def test_install_is_idempotent(agent_dir: Path) -> None:
-    """A second install must not duplicate what the first one added."""
+def test_agent_bob_does_not_create_a_settings_file(agent_dir: Path) -> None:
+    """The old merge created `.bob/settings.json` in a repo that had none, to
+    hold an allow-list Bob Shell never read."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-
-    after = json.loads(_settings_path(repo_root).read_text())["tools"]["allowed"]
-    assert after.count(_BOB_APPROVAL_ENTRIES[0]) == 1
-
-
-def test_agent_claude_never_touches_bob_settings(agent_dir: Path) -> None:
-    """`.bob/settings.json` is Bob's schema; installing Claude's layer must not
-    create or edit a file that belongs to an agent that was not asked for."""
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
     assert not _settings_path(repo_root).exists()
 
 
-def test_a_receipt_of_theirs_is_recorded_as_not_wfctls(agent_dir: Path) -> None:
-    """An entry the repo already had is indistinguishable from one wfctl
-    installed, so the only moment authorship is observable is the install that
-    first looks."""
+def test_reinstall_removes_what_an_older_install_added_and_keeps_the_rest(
+    agent_dir: Path,
+) -> None:
+    """Stopping the merge alone would leave every repo installed before it
+    still overriding the user's global approvals. The receipts say which
+    entries were wfctl's, and an entry the repo already had stays."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    settings_path = _settings_path(repo_root)
-    settings_path.parent.mkdir(parents=True)
-    entry = _BOB_APPROVAL_ENTRIES[0]
-    settings_path.write_text(json.dumps({"tools": {"allowed": [entry]}}, indent=2) + "\n")
+    _record_legacy_install(repo_root, theirs=["execute_command(npm test)", "grep"])
 
-    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
-    record = next(r for r in _tools(repo_root) if r["entry"] == entry)
-    assert record["added"] is False
+
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert after == {"tools": {"allowed": ["execute_command(npm test)", "grep"]}}
+    assert "Removed the tool approvals an older wfctl added" in result.output
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
 
 
-def test_uninstall_leaves_an_entry_the_repo_wrote_themselves(agent_dir: Path) -> None:
-    """Losing an approval the repo wrote, to an uninstall that believed it was
-    cleaning up after itself, is the failure the receipt exists to prevent."""
+def test_a_second_reinstall_says_nothing_about_tool_approvals(agent_dir: Path) -> None:
+    """The removal runs once. Announcing it on every later install would
+    describe a change that did not happen."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    settings_path = _settings_path(repo_root)
-    settings_path.parent.mkdir(parents=True)
-    entry = _BOB_APPROVAL_ENTRIES[0]
-    settings_path.write_text(json.dumps({"tools": {"allowed": [entry]}}, indent=2) + "\n")
+    _record_legacy_install(repo_root, theirs=[])
+    runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
 
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
-    assert entry in json.loads(settings_path.read_text())["tools"]["allowed"]
+    assert "tool approvals" not in result.output
 
 
-def test_uninstall_removes_every_entry_wfctl_added(agent_dir: Path) -> None:
-    """The other half: a receipt that never licensed a removal would leave
-    wfctl's own entries with nothing left to explain why."""
+def test_an_unparseable_file_keeps_its_receipts_for_the_next_install(
+    agent_dir: Path,
+) -> None:
+    """Dropping the receipts with the file unreadable would leave wfctl's
+    entries in it with nothing to say they were wfctl's, and from then on
+    they would read as the user's."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
     settings_path = _settings_path(repo_root)
-    settings_path.parent.mkdir(parents=True)
-    settings_path.write_text(
-        json.dumps({"tools": {"allowed": ["execute_command(npm test)"]}}, indent=2) + "\n"
-    )
+    good = settings_path.read_text()
+    settings_path.write_text(good.rstrip() + ",\n")
 
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
-    after = json.loads(settings_path.read_text())
-    assert after == {"tools": {"allowed": ["execute_command(npm test)"]}}
+    assert "the next install tries again" in result.output
+    assert result.output.count("the next install tries again") == 1
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)
 
-
-def test_install_refuses_over_an_entry_the_repo_removed(agent_dir: Path) -> None:
-    """Re-adding it silently makes 'you may remove this' theatre; stepping
-    over it silently hides a decision someone made."""
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-    settings_path = _settings_path(repo_root)
-    settings_path.write_text(json.dumps({}, indent=2) + "\n")
-
-    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
-    assert result.exit_code == 1, result.output
-    assert _BOB_APPROVAL_ENTRIES[0] in result.output
-    assert "--force" in result.output
+    settings_path.write_text(good)
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+    assert result.exit_code == 0, result.output
     assert json.loads(settings_path.read_text()) == {}
 
 
-def test_force_restores_a_removed_entry(agent_dir: Path) -> None:
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-    settings_path = _settings_path(repo_root)
-    settings_path.write_text(json.dumps({}, indent=2) + "\n")
-
-    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--force"])
-    assert result.exit_code == 0, result.output
-    after = json.loads(settings_path.read_text())["tools"]["allowed"]
-    for entry in _BOB_APPROVAL_ENTRIES:
-        assert entry in after
-
-
-def test_doctor_warns_when_a_managed_entry_is_gone(agent_dir: Path) -> None:
-    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    runner.invoke(app, ["install-skills", "--agent", "bob"])
-    settings_path = _settings_path(repo_root)
-    settings_path.write_text(json.dumps({}, indent=2) + "\n")
-
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0, result.output
-    assert _BOB_APPROVAL_ENTRIES[0] in result.output
-    assert "Bob Shell will prompt for approval" in result.output
-
-
-def test_the_refusal_and_doctor_keep_the_source_the_run_was_given(
-    tmp_path_factory: pytest.TempPathFactory, agent_dir: Path
+def test_an_unwritable_file_keeps_its_receipts_and_install_finishes(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`--from` is one-shot, so a forced line without it installs the running
-    bundle over the one the reader named, and succeeds. Both lines a reader
-    meets here, the refusal and then doctor's restore, have to carry it."""
+    """The removal runs after the copy loop and before the manifest write. A
+    write error raised from there left the copied files unrecorded, and
+    `/start-session` runs this install unattended."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
-    source = tmp_path_factory.mktemp("named source")
-    (source / "agents" / "skills" / "test-skill").mkdir(parents=True)
-    (source / "agents" / "skills" / "test-skill" / "SKILL.md").write_text("# s\n")
-    (source / "agents" / "commands").mkdir(parents=True)
-    (source / "agents" / "commands" / "test-cmd.md").write_text("# c\n")
-    args = ["install-skills", "--agent", "bob", "--from", str(source), "--yes"]
-    result = runner.invoke(app, args)
+    _record_legacy_install(repo_root, theirs=[])
+    before = _settings_path(repo_root).read_text()
+
+    def refuse(path: Path, settings: dict) -> None:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(cli, "_write_settings", refuse)
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
     assert result.exit_code == 0, result.output
-    _settings_path(repo_root).write_text(json.dumps({}, indent=2) + "\n")
-    forced = f"--agent bob --from '{source}' --force"
+    assert result.output.count("the next install tries again") == 1
+    assert _settings_path(repo_root).read_text() == before
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)
 
-    refusal = runner.invoke(app, args)
-    doctor = runner.invoke(app, ["doctor"])
 
-    assert refusal.exit_code == 1, refusal.output
-    assert forced in refusal.output
-    assert forced in doctor.output
+def _point_receipts_outside(
+    repo_root: Path, tmp_path_factory: pytest.TempPathFactory, form: str
+) -> Path:
+    """Point every receipt at a settings file outside the repo that holds the
+    entries the receipts name, and return that file. `form` says whether the
+    manifest spells the path as an absolute path or as a relative one that
+    climbs out with `..`."""
+    outside = tmp_path_factory.mktemp("outside") / "settings.json"
+    outside.write_text(json.dumps({"tools": {"allowed": list(_LEGACY_ENTRIES)}}) + "\n")
+    rel = str(outside) if form == "absolute" else os.path.relpath(outside, repo_root)
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    for receipt in manifest["bob"]["tools"]:
+        receipt["path"] = rel
+    _manifest_path(repo_root).write_text(json.dumps(manifest, indent=2) + "\n")
+    return outside
+
+
+@pytest.mark.parametrize("form", ["absolute", "traversal"])
+def test_install_leaves_a_receipt_path_outside_the_repo_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, form: str
+) -> None:
+    """The removal joined a receipt's path onto the repo root as written, so a
+    hand-edited or committed manifest could make `install-skills --agent bob`
+    rewrite a JSON file anywhere on disk. Install also runs unattended from
+    `/start-session`, so nobody would see it happen."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    outside = _point_receipts_outside(repo_root, tmp_path_factory, form)
+    before = outside.read_text()
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert outside.read_text() == before
+    assert result.output.count("is recorded as a path outside this repo") == 1
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
+
+
+@pytest.mark.parametrize("form", ["absolute", "traversal"])
+def test_uninstall_leaves_a_receipt_path_outside_the_repo_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, form: str
+) -> None:
+    """Uninstall already refused an outside path for the files it deletes,
+    but still followed one for the settings entries it removes."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    outside = _point_receipts_outside(repo_root, tmp_path_factory, form)
+    before = outside.read_text()
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert outside.read_text() == before
+    assert result.output.count("is recorded as a path outside this repo") == 1
+
+
+def _link_settings_elsewhere(
+    repo_root: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
+) -> Path:
+    """Move the settings file out of the repo and link it back in, either the
+    file itself or the whole `.bob` directory. Returns the file the link
+    reaches."""
+    target_dir = tmp_path_factory.mktemp("elsewhere")
+    target = target_dir / "settings.json"
+    _settings_path(repo_root).replace(target)
+    if linked == "file":
+        _settings_path(repo_root).symlink_to(target)
+    else:
+        bob_dir = _settings_path(repo_root).parent
+        for child in bob_dir.iterdir():
+            child.replace(target_dir / child.name)
+        bob_dir.rmdir()
+        bob_dir.symlink_to(target_dir, target_is_directory=True)
+    return target
+
+
+@pytest.mark.parametrize("linked", ["file", "directory"])
+def test_install_leaves_a_linked_settings_file_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
+) -> None:
+    """The path check is lexical, so `.bob/settings.json` passed it while the
+    write followed a link to the file it points at. That file can be the
+    user's global settings, or another checkout's, and install edited it
+    unattended without a backup.
+
+    The warning names the entries, because an older wfctl did write them
+    through the link and the receipts are dropped here. Without the names,
+    nothing would say which entries in that file were wfctl's."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    target = _link_settings_elsewhere(repo_root, tmp_path_factory, linked)
+    before = target.read_text()
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert target.read_text() == before
+    assert result.output.count("is a symlink or below one") == 1
+    assert all(entry in result.output for entry in _LEGACY_ENTRIES)
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
+
+
+@pytest.mark.parametrize("linked", ["file", "directory"])
+def test_uninstall_leaves_a_linked_settings_file_alone(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory, linked: str
+) -> None:
+    """Uninstall reaches the same removal as install, through its own caller."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    target = _link_settings_elsewhere(repo_root, tmp_path_factory, linked)
+    before = target.read_text()
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert target.read_text() == before
+    assert result.output.count("is a symlink or below one") == 1
+
+
+def test_a_bracket_in_a_recorded_path_prints_as_written(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The path comes from the manifest, and Rich reads `[red]` in it as a
+    style tag and drops it, so the warning named a path that does not exist."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    outside = tmp_path_factory.mktemp("[red]outside") / "settings.json"
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    for receipt in manifest["bob"]["tools"]:
+        receipt["path"] = str(outside)
+    _manifest_path(repo_root).write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert f"{outside} is recorded as a path outside this repo" in result.output
+
+
+def test_a_source_with_nothing_for_bob_still_clears_the_receipts(
+    agent_dir: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """A source holding only the `specify` tree gives the bob layer no items,
+    so install never replaces that layer's manifest entry. The receipts then
+    outlived the removal, and an entry the user added back later was removed
+    on the next install as if it were still wfctl's."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    source = tmp_path_factory.mktemp("specify-only")
+    template = source / "specify" / "templates" / "spec-template.md"
+    template.parent.mkdir(parents=True)
+    template.write_text("# spec\n")
+
+    result = runner.invoke(
+        app, ["install-skills", "--agent", "bob", "--from", str(source), "--yes"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(_settings_path(repo_root).read_text()) == {}
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert "tools" not in manifest["bob"]
+
+
+def test_agent_claude_leaves_the_bob_receipts_for_the_bob_install(
+    agent_dir: Path,
+) -> None:
+    """A claude install does not rewrite the bob layer's manifest entry, so it
+    has no reason to touch the file those receipts describe."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=[])
+    before = _settings_path(repo_root).read_text()
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    assert result.exit_code == 0, result.output
+
+    assert _settings_path(repo_root).read_text() == before
+    manifest = json.loads(_manifest_path(repo_root).read_text())
+    assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)
+
+
+def test_uninstall_removes_what_an_older_install_added(agent_dir: Path) -> None:
+    """A repo can go straight from the older install to an uninstall, and the
+    receipts are deleted with the manifest entry either way."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    _record_legacy_install(repo_root, theirs=["execute_command(npm test)"])
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "bob", "--yes"])
+    assert result.exit_code == 0, result.output
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert after == {"tools": {"allowed": ["execute_command(npm test)"]}}

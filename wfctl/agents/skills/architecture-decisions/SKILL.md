@@ -99,6 +99,15 @@ record whose drawing has none of them, and `wfctl doctor` warns about one while
 it is still proposed. Which step counts as the failing one is still the
 author's call; the refusal asks only that one is drawn.
 
+A `data-flow` drawing that reads a file carries the branch where the file is
+missing, or holds no part the decision reads, when that branch ends somewhere
+different. It is the data-flow version of a sequence's failing row. The drawing
+still reads correctly without it, which is why it gets left out, and files
+written before the decision are usually the ones that take it. Nothing checks
+for it. The first drawing for the decision that a new task reopens `implement`
+left out a completion record with no copy, which covers every record written
+before that decision.
+
 `state` and `sequence` are told apart by what moves. A `state` drawing follows
 one thing through its states; a `sequence` drawing follows a request across
 several actors, and the question it answers is what each actor holds when the

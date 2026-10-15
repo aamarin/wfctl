@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import types
+from datetime import date
 
 from typer.testing import CliRunner
 
 from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, structured, write_plan_review
+from wfctl import _completion
 from wfctl._pipeline import _current_step_name, infer_pipeline
 from wfctl._pipeline import _infer_steps as _infer_pipeline
 from wfctl.cli import app
@@ -316,15 +318,18 @@ class TestInferPipeline:
         assert steps[7].state == "in_progress"
 
     def test_implement_done_when_sentinel_present(self, storyctl_dir: NS) -> None:
+        """Work done outside the skill leaves `t2` unticked. The record's copy
+        holds `t2` incomplete too, which is what says the record accepted it
+        as finished; a record with no copy no longer can (#264)."""
         storyctl_dir.make_spec_artifact("brainstorm")
         storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
         storyctl_dir.make_spec_artifact("plan")
         storyctl_dir.make_spec_artifact("tasks", content="- [x] t1\n- [ ] t2\n")
         storyctl_dir.make_spec_artifact("analyze")
         storyctl_dir.make_spec_artifact("decompose")
-        sentinel = storyctl_dir.spec_dir / "checklists" / "implement-complete.md"
+        sentinel = storyctl_dir.spec_dir / _completion.RECORD
         sentinel.parent.mkdir(parents=True, exist_ok=True)
-        sentinel.write_text("Implementation complete: 2026-07-08\n")
+        sentinel.write_text(_completion.render("- [x] t1\n- [ ] t2\n", date(2026, 7, 8)))
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[7].state == "done"
 
