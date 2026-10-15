@@ -3146,29 +3146,6 @@ _HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
 
-# Bob Shell's own approval-scoping file — see the `approval-settings` skill for
-# its schema. Not `.claude/settings.json`'s: `allowed-tools` on a command's
-# frontmatter, the mechanism Claude Code reads, has no reader in Bob Shell at
-# all (grepping Bob Shell's own bundled JS for the literal key turns up
-# nothing) — #405 shipped believing it did, and this is the actual mechanism.
-BOB_SETTINGS_PATH = ".bob/settings.json"
-
-# Starter entries for a bundle whose own commands run `git` and `uv run wfctl`.
-# Read-only tools first — the lowest-risk approvals — then the two command
-# prefixes this bundle's own commands actually invoke; a project wanting more
-# extends this file by hand afterward, same as any consumer edit `doctor`
-# already treats as theirs.
-_BOB_APPROVAL_ENTRIES = (
-    "read_file",
-    "list_files",
-    "glob",
-    "grep",
-    "execute_command(git)",
-    "execute_command(uv run)",
-    "run_shell_command(git)",
-    "run_shell_command(uv run)",
-)
-
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
 # something different and "the managed hook is gone" names none of them — and
 # two wfctl features sharing one event, as `Stop` did until #476, would lose
@@ -4030,120 +4007,87 @@ def _unmerge_permissions(
     return changed, declined, problems
 
 
-def _managed_bob_tool_allows(agent: str) -> list[tuple[str, str]]:
-    """`(settings path, entry)` for every `tools.allowed` entry `agent` manages.
-
-    Bob-only, for the reason the permission rules are Claude-only: `tools` is
-    Bob Shell's schema, and the base layer is agent-agnostic. A list rather
-    than a constant because install, uninstall and `doctor` all have to agree
-    on the set, and a second copy of it is the drift this collapses.
-    """
-    return (
-        [(BOB_SETTINGS_PATH, entry) for entry in _BOB_APPROVAL_ENTRIES]
-        if agent == "bob"
-        else []
-    )
-
-
-def _bob_tool_allow_drift(
-    repo_root: Path, agent: str, manifest: dict
-) -> tuple[str, str, bool] | None:
-    """The first managed entry a receipt claims and the file no longer carries.
-
-    `(path, entry, added)`, where `added` is the receipt's own answer to who
-    put the entry there — shaped after `_permission_drift`, minus `related`:
-    a plain allow-list has no verb to match a hand-edited form against, so
-    there is nothing honest to show beyond the entry that went missing.
-
-    None when there is nothing to stop for, including every case wfctl cannot
-    be sure about — same posture as `_permission_drift`.
-    """
-    for rel, entry in _managed_bob_tool_allows(agent):
-        receipts = [
-            record
-            for layer in _layer_keys(manifest)
-            for record in manifest[layer].get("tools", [])
-            if record.get("path") == rel and record.get("entry") == entry
-        ]
-        if not receipts:
-            continue
-        path = repo_root / rel
-        if not path.exists():
-            continue
-        settings, _ = _read_settings(path)
-        if settings is None or _bob_settings.tool_allow_present(settings, entry):
-            continue
-        return (rel, entry, bool(receipts[0].get("added", False)))
-    return None
-
-
-def _merge_bob_tool_allows(
-    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
-) -> tuple[list[dict], list[str], list[str]]:
-    """Install `agent`'s managed `tools.allowed` entries. `(records, written,
-    problems)` — shaped after `_merge_permissions`."""
-    records: list[dict] = []
-    written: list[str] = []
-    problems: list[str] = []
-    for rel, entry in _managed_bob_tool_allows(agent):
-        path = repo_root / rel
-        keep = prior.get((rel, entry))
-        settings, problem = _read_settings(path)
-        if settings is None:
-            problems.append(f"{rel}: {problem}")
-            records.extend([keep] if keep else [])
-            continue
-        try:
-            added = _bob_settings.merge_tool_allow(settings, entry)
-        except ValueError as exc:
-            problems.append(f"{rel}: {exc}")
-            records.extend([keep] if keep else [])
-            continue
-        if added:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _write_settings(path, settings)
-            except OSError as exc:
-                problems.append(f"{rel}: {exc}")
-                records.extend([keep] if keep else [])
-                continue
-            if rel not in written:
-                written.append(rel)
-        records.append({
-            "path": rel,
-            "entry": entry,
-            "added": added or bool(keep and keep.get("added", False)),
-        })
-    return records, written, problems
-
-
 def _unmerge_bob_tool_allows(
     repo_root: Path, records: Iterable[dict]
-) -> tuple[set[str], list[str]]:
-    """Remove the managed `tools.allowed` entries `records` describes.
-    `(files changed, problems)` — shaped after `_unmerge_permissions`, minus
-    `declined`: nothing here has a "related" form to show for one, so a
-    changed entry is simply not reported as removed."""
+) -> tuple[set[str], list[str], list[dict], list[str]]:
+    """Remove the `tools.allowed` entries an older wfctl merged into Bob Shell's
+    settings. `(files changed, problems, kept, left alone)`.
+
+    Shaped after `_unmerge_permissions`, minus `declined`: nothing here has a
+    "related" form to show for one, so a changed entry is simply not reported
+    as removed.
+
+    `kept` holds the receipts for a file that would not parse or could not be
+    written. Install writes them back to the manifest, so the next run tries
+    again once the file is fixed. Without them the entries would stay in the
+    file with nothing left to say they were wfctl's, and from then on they
+    would read as the user's.
+
+    `left alone` holds one message per recorded path that was not touched: one
+    that leaves the repo, and one that is a symlink or sits below one. Writing
+    through a link edits the file it points at, which can be the user's global
+    settings or another checkout's. Install runs this unattended from
+    `/start-session`, which is why a hand-edited or committed manifest must not
+    be able to aim it at a JSON file elsewhere on disk. The receipt is dropped
+    rather than kept, since a retry would reach the same file.
+
+    wfctl never records a path outside the repo, so nothing it added is there.
+    A link is different: an older wfctl wrote through it, so its entries may
+    still be in the target once the receipts are gone. The message names them,
+    because it is the last place anything says they were wfctl's.
+    """
     changed: set[str] = set()
     problems: list[str] = []
+    kept: list[dict] = []
+    outside: list[str] = []
+    linked: dict[str, list[str]] = {}
     for record in records:
         rel, entry = record.get("path"), record.get("entry")
         if not rel or not entry:
             continue
         if not record.get("added", False):
             continue
-        path = repo_root / rel
+        path = _recorded_path(repo_root, rel)
+        if path is None:
+            if rel not in outside:
+                outside.append(rel)
+            continue
+        if path.is_symlink() or _below_a_link(repo_root, path):
+            linked.setdefault(rel, []).append(entry)
+            continue
         if not path.exists():
             continue
         settings, problem = _read_settings(path)
         if settings is None:
-            problems.append(f"{rel}: {problem}")
+            # One line per file, not per entry: every receipt for an
+            # unparseable file fails the same way.
+            if f"{rel}: {problem}" not in problems:
+                problems.append(f"{rel}: {problem}")
+            kept.append(record)
             continue
         if not _bob_settings.remove_tool_allow(settings, entry):
             continue
-        _write_settings(path, settings)
+        try:
+            _write_settings(path, settings)
+        except OSError as exc:
+            # A read-only file would otherwise raise out of install after the
+            # copy loop and before the manifest write, leaving the copied
+            # files unrecorded.
+            if f"{rel}: {exc}" not in problems:
+                problems.append(f"{rel}: {exc}")
+            kept.append(record)
+            continue
         changed.add(rel)
-    return changed, problems
+    left_alone = [
+        f"{rel} is recorded as a path outside this repo — left alone"
+        for rel in outside
+    ] + [
+        f"{rel} is a symlink or below one — left alone. The file it points at may "
+        "still hold these tool approvals an older wfctl added, and wfctl no longer "
+        f"tracks them: {', '.join(entries)}"
+        for rel, entries in linked.items()
+    ]
+    return changed, problems, kept, left_alone
 
 
 def _unmerge_hooks(
@@ -4621,33 +4565,6 @@ def install_skills_cmd(
         )
         raise typer.Exit(1)
 
-    bob_drift = None if force else _bob_tool_allow_drift(repo_root, agent, manifest)
-    if bob_drift is not None:
-        drifted_path, entry, was_wfctls = bob_drift
-        whose = (
-            "which wfctl installed"
-            if was_wfctls
-            else "which wfctl recorded as already yours"
-        )
-        console.print(
-            f"[red]✗[/red] {escape(drifted_path)} no longer carries "
-            f"[cyan]{escape(entry)}[/cyan], {whose}.",
-            soft_wrap=True,
-        )
-        console.print(
-            "  Nothing was installed. Removing that entry is your call to make, so "
-            "wfctl will not\n  put it back without being told to:\n"
-            f"    keep your version   — restore [cyan]{escape(entry)}[/cyan] "
-            "by hand, or leave it out and\n"
-            "                          expect this on every install, including the "
-            "one\n                          `/start-session` runs unattended\n"
-            f"    take wfctl's        — {escape(forced)}\n"
-            "                          which records the entry as wfctl's, so a "
-            "later uninstall\n                          removes it",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
-
     # `--from` is one-shot, so a bare install silently discards it. Said before
     # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
     # a stale mirror unattended with `--yes`, which makes that the one place the
@@ -5003,15 +4920,14 @@ def install_skills_cmd(
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
-    prior_bob_tools = {
-        (r["path"], r["entry"]): r
-        for key in _layer_keys(manifest)
-        for r in manifest[key].get("tools", [])
-    }
-    bob_tools, bob_tools_written, bob_tools_problems = _merge_bob_tool_allows(
-        repo_root, agent, prior_bob_tools
+    # An older wfctl merged a starter allow-list into `.bob/settings.json`,
+    # which Bob Shell 2.0.6 never reads approvals from. Removed here, on the next install of the layer that recorded them, because the
+    # layer's manifest entry is replaced below and the receipts saying which
+    # entries were wfctl's would go with it. This can go once no bob install
+    # still carries `tools` receipts.
+    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_left_alone = (
+        _unmerge_bob_tool_allows(repo_root, manifest.get(agent, {}).get("tools", []))
     )
-    merge_written.extend(rel for rel in bob_tools_written if rel not in merge_written)
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
@@ -5064,10 +4980,14 @@ def install_skills_cmd(
     if permissions:
         manifest.setdefault(agent, {})["permissions"] = permissions
 
-    # A sibling of `permissions` for the same reason, one schema over: Bob
-    # Shell's `tools.allowed` rather than Claude Code's `permissions.deny`.
-    if bob_tools:
-        manifest.setdefault(agent, {})["tools"] = bob_tools
+    # Only the receipts for a file that would not parse or could not be
+    # written, so the next install tries again once it is fixed. Cleared first, because a source with
+    # nothing for this layer leaves its entry unreplaced above, and a spent
+    # receipt left there would later remove an entry the user added back.
+    if agent in manifest:
+        manifest[agent].pop("tools", None)
+    if kept_bob_tools:
+        manifest.setdefault(agent, {})["tools"] = kept_bob_tools
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -5285,8 +5205,22 @@ def install_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — the managed tool-approval entry was "
-            "not added",
+            f"[yellow]⚠[/yellow] {escape(problem)} — the tool approvals an older wfctl "
+            "added are still in it, and the next install tries again",
+            soft_wrap=True,
+        )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
+    for removed_rel in sorted(removed_bob_tools):
+        # Said, because Bob Shell may start prompting for tool calls this file
+        # used to approve. Removing them is right, and it should not happen
+        # silently. No claim about which file Bob Shell reads next: entries the
+        # user wrote here still outrank the global file.
+        console.print(
+            f"[yellow]ℹ[/yellow] Removed the tool approvals an older wfctl added to "
+            f"{escape(removed_rel)}.\n  Your own entries in it were left alone. "
+            "Approvals you want in every repo belong in\n  "
+            "~/.bob/settings/settings.json.",
             soft_wrap=True,
         )
 
@@ -5410,20 +5344,22 @@ def uninstall_skills_cmd(
         )
         typer.confirm(f"Remove '{_BASE_LAYER}' anyway?", abort=True)
 
+    from rich.markup import escape
+
     removed = 0
     restored = 0
     for item in entry.get("items", []):
         path = _recorded_path(repo_root, item["path"])
         if path is None:
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is recorded as a path outside "
                 "this repo — left alone",
                 soft_wrap=True,
             )
             continue
         if _below_a_link(repo_root, path):
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is below a symlink — left alone",
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is below a symlink — left alone",
                 soft_wrap=True,
             )
             continue
@@ -5447,9 +5383,11 @@ def uninstall_skills_cmd(
     unmerged_perms, declined, perm_problems = _unmerge_permissions(
         repo_root, entry.get("permissions", [])
     )
-    unmerged_bob_tools, bob_tools_problems = _unmerge_bob_tool_allows(
-        repo_root, entry.get("tools", [])
+    # `kept` is for install's retry; the receipts go with the manifest entry.
+    unmerged_bob_tools, bob_tools_problems, _, bob_tools_left_alone = (
+        _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
+
     for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
@@ -5464,10 +5402,12 @@ def uninstall_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
+            f"[yellow]⚠[/yellow] {escape(problem)} — wfctl's tool-approval entry may still "
             "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
 
     del manifest[agent]
     _save_manifest(repo_root, manifest)
@@ -5506,7 +5446,6 @@ def uninstall_skills_cmd(
             "  Your own entries in them were left alone.",
             soft_wrap=True,
         )
-    from rich.markup import escape
 
     for declined_path, rule, related in declined:
         # A rule wfctl installed and someone has since rewritten. Saying nothing
@@ -7294,34 +7233,6 @@ def _recorded_from(manifest: dict, layer: str) -> str:
     return f" --from {escape(shlex.quote(source))}" if source else ""
 
 
-def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
-    """Say when a managed `tools.allowed` entry this repo recorded is no longer
-    there. Shaped after `_check_managed_permissions`: a warning, not a failure
-    — a missing entry narrows Bob Shell's auto-approval, which still leaves a
-    working install, and a repo may have decided it wants the extra prompt."""
-    from rich.markup import escape
-
-    for layer in _layer_keys(manifest):
-        for record in manifest[layer].get("tools", []):
-            rel, entry = record.get("path"), record.get("entry")
-            if not record.get("added", False) or not rel or not entry:
-                continue
-            settings, _ = _read_settings(repo_root / rel)
-            if settings is None or _bob_settings.tool_allow_present(settings, entry):
-                continue
-            console.print(
-                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(entry)}[/cyan] is gone "
-                f"from {escape(rel)}\n  Bob Shell will prompt for approval on "
-                "matching tool calls without it",
-                soft_wrap=True,
-            )
-            console.print(
-                f"    restore: {escape(_runner(repo_root))} install-skills"
-                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
-                soft_wrap=True,
-            )
-
-
 def _report_hook_drift(
     settings: dict, layer: str, rel: str, event: str, expected: str, runner: str
 ) -> bool:
@@ -7737,7 +7648,6 @@ def doctor_cmd() -> None:
     # avoids: it would make a repo's deliberate removal of one permission rule
     # fail every `doctor` run, and `/start-session` and CI both read the code.
     _check_managed_permissions(repo_root, manifest)
-    _check_managed_bob_tool_allows(repo_root, manifest)
 
     # Used only by the recorded-source branch below, which prints a path into a
     # shell-shaped line.
