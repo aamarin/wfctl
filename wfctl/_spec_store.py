@@ -123,19 +123,22 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
 
     The top-of-checkout test is separate from `owns_branch` because a folder
     one level inside a spec store passes `owns_branch` and is still not a
-    store: a commit from there takes in the whole store, not this root. A
-    detached HEAD in a repository of its own still passes `owns_branch`, and
-    reads `store_no_upstream` here, since a detached HEAD has no upstream.
+    store: a commit from there takes in the whole store, not this root.
+
+    A repository of its own with a detached HEAD passes `owns_branch` and is
+    still `unmanaged` here. A commit there sits on no branch, so nothing
+    pushes it and the next checkout leaves it reachable only from the reflog.
+    The guard lets a person commit there by hand, and the store does not.
     """
     root = os.fspath(spec_root)
     repo = os.fspath(repo_root)
     top = top_level(root) if os.path.isdir(root) else None
     if top is None:
         return Layout("unmanaged", root)
-    if top == os.path.realpath(root) and owns_branch(root, repo):
+    branch = _read(root, "symbolic-ref", "-q", "--short", "HEAD")
+    if branch and top == os.path.realpath(root) and owns_branch(root, repo):
         upstream = _read(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-        branch = _read(root, "symbolic-ref", "-q", "--short", "HEAD")
-        remote = _read(root, "config", "--get", f"branch.{branch}.remote") if branch else None
+        remote = _read(root, "config", "--get", f"branch.{branch}.remote")
         if upstream and remote:
             return Layout("store", root, remote, upstream)
         return Layout("store_no_upstream", root)

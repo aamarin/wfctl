@@ -193,6 +193,17 @@ def test_a_store_branch_with_no_upstream_is_store_no_upstream(tmp_path: Path) ->
     )
 
 
+def test_a_clone_of_its_own_with_a_detached_head_is_unmanaged(tmp_path: Path) -> None:
+    """The guard lets a person commit there, and the first draft of `layout`
+    read it as `store_no_upstream`, so the store would have committed onto no
+    branch. Nothing pushes such a commit, and the next checkout strands it."""
+    _, here, _ = _remote_and_clones(tmp_path)
+    _git(here, "checkout", "--detach")
+    project = git_repo(tmp_path / "project")
+
+    assert _spec_store.layout(here, project).kind == "unmanaged"
+
+
 def test_the_default_specs_folder_is_in_repo(tmp_path: Path) -> None:
     """`<repo>/specs` is the default spec root. A commit there lands on the
     feature branch, so the store must never make one."""
