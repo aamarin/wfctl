@@ -16,7 +16,6 @@ an import here of `typer`, `rich` or `wfctl.cli` would put back the 47 ms that
 
 from __future__ import annotations
 
-import fcntl
 import os
 import subprocess
 import time
@@ -249,6 +248,11 @@ def unstored(
     A rename counts once in each folder it touches, because a commit of either
     folder alone takes in only that folder's half.
 
+    A file at the top of the root, such as the store's own `.gitignore`, is
+    no spec dir and is left out. `store specs` commits one branch's folder and
+    never such a file, so listing it would fail `check specs` with nothing
+    wfctl could do to clear it.
+
     Without an upstream there is nothing to compare commits against, so no
     spec dir reads as unpushed, and only uncommitted files are reported. A
     pushed state that no command could ever reach would leave `check specs`
@@ -267,13 +271,13 @@ def unstored(
     for entry in fields:
         if not entry:
             continue
-        touched = {_folder(entry[3:])}
+        touched = {entry[3:]}
         if "R" in entry[:2] or "C" in entry[:2]:
-            touched.add(_folder(next(fields, "")))
-        for name in touched - {""}:
+            touched.add(next(fields, ""))
+        for name in {_folder(p) for p in touched if "/" in p}:
             counts[name] = counts.get(name, 0) + 1
     log = _read(top, "log", "-z", "--format=", "--name-only", "@{u}..HEAD", "--", *specs)
-    unpushed = {_folder(p) for p in (log or "").split("\0") if p}
+    unpushed = {_folder(p) for p in (log or "").split("\0") if "/" in p}
     return [
         Unstored(name, counts.get(name, 0), name in unpushed)
         for name in sorted(counts.keys() | unpushed)
@@ -538,6 +542,11 @@ def _acquire(fd: int, timeout: float) -> bool:
     """Non-blocking attempts every `_LOCK_POLL` seconds, rather than one
     blocking call, because a blocking `flock` takes no timeout and a removal
     hook must not hang on a store that never finishes."""
+    # Imported here because `fcntl` is POSIX only, and the guard and the
+    # pass import this module on every command. At module scope it would stop
+    # every `wfctl` command from loading where the store itself can't run.
+    import fcntl
+
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -564,8 +573,9 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
         folders: tuple[str, ...] = (), paths: tuple[str, ...] = (), untracked: bool = False,
     ) -> StoreResult:
         return StoreResult(
-            outcome, branch, path, inside, found, files, sha, message, folders, paths, untracked,
-            None if upstream else _local_branch(found.root),
+            outcome, branch, path, inside, found, files=files, sha=sha, message=message,
+            folders=folders, paths=paths, untracked=untracked,
+            store_branch=None if upstream else _local_branch(found.root),
         )
 
     def failed(proc: subprocess.CompletedProcess[str]) -> StoreResult:
@@ -591,10 +601,17 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
     listed = git("diff", "--cached", "--name-only", "--no-renames", "-z", *against, "--", name)
     if listed.returncode:
         return failed(listed)
-    files = tuple(p.split("/", 1)[1] for p in listed.stdout.split("\0") if "/" in p)
+    files = _in_folder(listed.stdout)
 
-    if git("diff", "--cached", "--quiet", "--", name).returncode:
-        committed = git("commit", "-m", _subject(branch, repo_root, files, name), "--", name)
+    # The subject names what this commit holds, which is not `files` when an
+    # earlier commit of this branch's never reached the remote.
+    staged = git("diff", "--cached", "--name-only", "--no-renames", "-z", "--", name)
+    if staged.returncode:
+        return failed(staged)
+    if staged.stdout.strip("\0"):
+        committed = git(
+            "commit", "-m", _subject(branch, repo_root, _in_folder(staged.stdout), name), "--", name,
+        )
         if committed.returncode:
             return failed(committed)
     if not upstream:
@@ -637,6 +654,12 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
 
     sha = _read(found.root, "rev-parse", "--short", "HEAD")
     return result("stored", files, sha=sha)
+
+
+def _in_folder(nul_separated: str) -> tuple[str, ...]:
+    """Paths git printed relative to the store's root, made relative to the
+    spec dir they sit in."""
+    return tuple(p.split("/", 1)[1] for p in nul_separated.split("\0") if "/" in p)
 
 
 def _merging(git: _Git) -> bool:

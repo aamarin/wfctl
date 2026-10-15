@@ -396,6 +396,20 @@ def test_a_store_with_no_upstream_reports_only_uncommitted_files(tmp_path: Path)
     assert _spec_store.unstored(store, ["."]) == [_spec_store.Unstored("200", 1, False)]
 
 
+def test_a_file_at_the_top_of_the_store_is_not_a_spec_dir(tmp_path: Path) -> None:
+    """The real store tracks a `.gitignore` at its top. An edit to it was
+    listed as a spec dir named `.gitignore`, which failed `check specs` with
+    nothing `store specs` would ever commit to clear it."""
+    _, here, _ = _remote_and_clones(tmp_path)
+    (here / ".gitignore").write_text("*.tmp\n")
+    _git(here, "add", ".gitignore")
+    _git(here, "commit", "-m", "ignore temp files")
+    (here / "README.md").write_text("specs\n")
+    (here / "200" / "tasks.md").write_text("200 edited\n")
+
+    assert _spec_store.unstored(here, ["."]) == [_spec_store.Unstored("200", 1, False)]
+
+
 def test_a_staged_rename_counts_in_both_folders(tmp_path: Path) -> None:
     """`-z` prints a rename as two paths, the new one first. Reading only the
     first would miss that the old folder lost a file, and that folder's store
@@ -553,6 +567,9 @@ def test_the_count_takes_in_files_from_an_earlier_unpushed_commit(tmp_path: Path
 
     assert result.outcome == "stored"
     assert result.files == ("plan.md", "spec.md", "tasks.md")
+    # The subject names this commit's one file. Built from the count's list,
+    # it read "store plan.md and 2 others" over a commit holding only tasks.md.
+    assert _git(env.here, "log", "-1", "--format=%s").strip() == "specs(359): store tasks.md"
 
 
 def _cli(monkeypatch: pytest.MonkeyPatch, spec_root: Path, project: Path,
