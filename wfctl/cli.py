@@ -905,7 +905,7 @@ def next_cmd() -> None:
     # artifacts say, and this is the file an agent actually acts on — `status`
     # showing the hold while `next` sends the agent to re-run the refused step
     # is the disagreement FR-016's asymmetry depends on not existing.
-    steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
+    steps, by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
     # After the hold, for `build_report`'s reason: a step a host block holds has
     # not passed, and this file must list what `status --json` lists.
@@ -933,9 +933,15 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
+    # The block's action, for the one block that routes to a pass rather than
+    # past it (research R15). Passed here as `build_report` passes it, or
+    # `status` would name `/store-specs` while this file, the one an agent acts
+    # on, still said `wfctl verify`.
+    block = by_step.get(step_name)
     command, auto = next_step_content(
         step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
         outstanding=outstanding, auto_approve=granted,
+        block_action=block.action if block is not None else None,
     )
 
     # Shared with `build_report`, which applies it to the same step's `reason`

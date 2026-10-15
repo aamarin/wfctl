@@ -1,4 +1,4 @@
-"""The `store-specs` pass under `implement`.
+"""The `store-specs` pass under `implement`, and how a host block on it routes.
 
 Every fixture here builds a real spec store under `tmp_path`: a bare remote,
 a clone of it as the spec root, and a code repository beside it. The pass
@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, git_repo, write_plan_review
 from tests.test_spec_store import _git, _remote_and_clones
 from wfctl import _evidence
+from wfctl._session import record_blocked, standing_blocks
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -67,6 +68,12 @@ def _implement(payload: dict) -> dict:
 
 def _pass(payload: dict) -> dict:
     return next(s for s in _implement(payload)["sub_steps"] if s["name"] == "store-specs")
+
+
+def _next_step_file(state: Path) -> str:
+    result = runner.invoke(app, ["next"])
+    assert result.exit_code == 0, result.output
+    return (state / "next-step.md").read_text()
 
 
 def _commit_spec_dir(finished: types.SimpleNamespace) -> None:
@@ -163,3 +170,80 @@ def test_a_claim_that_the_pass_does_not_apply_wins_over_the_reader(
     assert _pass(payload)["claimed"] == "a throwaway spike"
     assert payload["next_command"] is None
 
+
+def test_a_host_block_on_store_specs_routes_to_the_pass_and_not_to_verify(
+    finished: types.SimpleNamespace,
+) -> None:
+    """Research R15. Verification has already passed by the time this pass is
+    outstanding, so sending the reader to `wfctl verify` would show a green
+    verdict and leave the hold in place. `next-step.md` is read from the copy
+    `wfctl next` writes, because `resume` writes its copy from `build_report`
+    and would pass whether or not `next` routes the same way."""
+    blocked = runner.invoke(
+        app, ["report-block", "store-specs", "--reason", "host classifier: git push"],
+    )
+    assert blocked.exit_code == 0, blocked.output
+
+    payload = _payload()
+
+    assert payload["next_command"] == "/store-specs"
+    assert payload["auto"] is False
+    assert _next_step_file(finished.state).startswith("Next step: /store-specs\nauto: false\n")
+
+
+@pytest.mark.parametrize("action", ["push", "issue-close"])
+def test_a_block_for_another_action_still_routes_to_verify(
+    finished: types.SimpleNamespace, action: str,
+) -> None:
+    """The exception is for a block filed under the outstanding pass's own
+    name. A block for anything else means what it meant before this pass
+    existed, whatever the pass underneath happens to read."""
+    record_blocked(finished.state, BRANCH, action, "refused", "implement")
+
+    payload = _payload()
+
+    assert _pass(payload)["state"] == "in_progress"
+    assert payload["next_command"] == "wfctl verify"
+    assert payload["auto"] is False
+    assert _next_step_file(finished.state).startswith("Next step: wfctl verify\n")
+
+
+def test_a_block_for_a_declared_manual_pass_returns_its_qualified_name(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The rule keys on the outstanding pass's name, not on `store-specs`, so
+    a repository's own pass gets the same answer. A manual pass has no
+    command to route to, so the answer is the name a manual pass already
+    gets without a block. `specs/` here is inside the code repository, so
+    `store-specs` reads `skipped` and the declared pass is the outstanding one."""
+    storyctl_dir.stage_upstream_of("tasks")
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"steps": {"implement": [
+        {"name": "sign-off", "manual": True, "evidence": "sign-off.md"},
+    ]}}))
+    record_blocked(storyctl_dir.agent_dir, "418-storyctl", "sign-off", "refused", "implement")
+
+    payload = _payload()
+
+    assert payload["next_command"] == "implement.sign-off"
+    assert payload["auto"] is False
+    assert _next_step_file(storyctl_dir.agent_dir).startswith(
+        "Next step: implement.sign-off\nauto: false\n"
+    )
+
+
+def test_a_store_after_the_block_records_the_action_and_lifts_the_hold(
+    finished: types.SimpleNamespace,
+) -> None:
+    """Research R15. A person who runs `wfctl store specs` in their own shell
+    after the host refused it has done what the block asked for, and should
+    not need a second command to say so."""
+    runner.invoke(app, ["report-block", "store-specs", "--reason", "refused"])
+
+    stored = runner.invoke(app, ["store", "specs"])
+
+    assert stored.exit_code == 0, stored.output
+    assert standing_blocks(finished.state, BRANCH) == []
+    payload = _payload()
+    assert _pass(payload)["state"] == "done"
+    assert _implement(payload)["state"] == "done"
+    assert payload["next_command"] is None
