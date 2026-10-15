@@ -43,11 +43,21 @@ def _quiet_env(ssh_command: str | None = None) -> dict[str, str]:
     fail for a reason that has nothing to do with the store. The store passes
     `core.sshCommand` in, read from the spec store, and the reads pass
     nothing, since they never reach a remote.
+
+    `GIT_OPTIONAL_LOCKS=0` stops `git status` from rewriting the index. By
+    default it refreshes the index under `index.lock`, and the pass runs it
+    on every `wfctl status` from any worktree past `implement`. When a store's
+    `git add` or `git commit` runs at the same moment, git refuses it because
+    the lock file exists, and the store fails for no real reason. `_lock`
+    does not help here, because it keeps two stores apart and not a store and
+    a reader. The setting only drops locks git can do without, so the store's
+    own writes still take theirs.
     """
     base = os.environ.get("GIT_SSH_COMMAND") or ssh_command or "ssh"
     return {
         **os.environ,
         "GIT_TERMINAL_PROMPT": "0",
+        "GIT_OPTIONAL_LOCKS": "0",
         "GIT_SSH_COMMAND": f"{base} -o BatchMode=yes",
     }
 
@@ -559,7 +569,12 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
     if fetched.returncode:
         return _network_failure(result, files, fetched)
 
-    merged = git("merge", "--no-edit", "@{u}")
+    # The flags are spelled out because a merge takes its defaults from the
+    # spec store's git config. With `merge.autoStash` set, git stashes another
+    # branch's edits and pops them back as conflict markers, and the store
+    # still reports success. With `merge.ff=only`, every store fails once the
+    # two branches have diverged.
+    merged = git("merge", "--no-edit", "--no-autostash", "--ff", "@{u}")
     if merged.returncode:
         return _merge_failure(git, result, files, merged)
 

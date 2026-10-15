@@ -978,6 +978,59 @@ def test_a_merge_refused_for_a_file_in_the_way_names_the_file_and_says_why(
     assert _spec_store.report_lines(result) == expected[kind]
 
 
+def test_merge_autostash_in_the_store_config_does_not_stash_another_branchs_edit(
+    tmp_path: Path,
+) -> None:
+    """FR-004 and SC-005. With `merge.autoStash` set, a plain `git merge`
+    stashed the other branch's edit, popped it back as conflict markers, and
+    the store still printed ✓. Every later store then failed at `git commit`
+    on the unmerged file, with nothing saying why."""
+    env = _store_setup(tmp_path)
+    _git(env.here, "config", "merge.autoStash", "true")
+    _move_remote(env, "200", "tasks.md", "200 as edited there\n")
+    (env.here / "200" / "tasks.md").write_text("200 as edited here\n")
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "merge_refused"
+    assert (env.here / "200" / "tasks.md").read_text() == "200 as edited here\n"
+    assert _git(env.here, "stash", "list") == ""
+    assert _git(env.here, "diff", "--name-only", "--diff-filter=U") == ""
+
+
+def test_merge_ff_only_in_the_store_config_still_merges_a_moved_remote(tmp_path: Path) -> None:
+    """With `merge.ff=only` set, every store failed with git's hint about
+    diverging branches as soon as another machine had stored anything."""
+    env = _store_setup(tmp_path)
+    _git(env.here, "config", "merge.ff", "only")
+    _move_remote(env, "100", "spec.md", "100 as edited there\n")
+    _write(env.spec_dir, "spec.md")
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    assert f"{BRANCH}/spec.md" in _remote_files(env.remote)
+
+
+def test_reading_the_store_leaves_its_index_alone(tmp_path: Path) -> None:
+    """A plain `git status` refreshes the index under `index.lock`, and the
+    pass runs one on every `wfctl status`. A store whose `git add` landed in
+    that window failed with "index.lock: File exists", which at removal left
+    the branch's last files uncommitted."""
+    _, here, _ = _remote_and_clones(tmp_path)
+    tracked = here / "100" / "spec.md"
+    later = time.time() + 5
+    os.utime(tracked, (later, later))
+    index = here / ".git" / "index"
+    before = index.stat().st_mtime_ns
+
+    _spec_store.unstored(here, ["."])
+    _spec_store.layout(here, git_repo(tmp_path / "project"))
+
+    assert index.stat().st_mtime_ns == before
+
+
 def test_a_merge_already_in_progress_is_reported_and_left_for_the_person(
     tmp_path: Path,
 ) -> None:
