@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from wfctl.cli import _print_removal_stop, app
 
@@ -131,3 +131,72 @@ def test_removal_stop_prints_paths_with_brackets_and_spaces_intact(
     assert (
         "git worktree remove --force '/tmp/my wt [x]' && git branch -D 40-feature" in out
     )
+
+
+def _unsaved(worktree: Path) -> Result:
+    return runner.invoke(app, ["archive", "unsaved", str(worktree)])
+
+
+def test_unstaged_edit_stops_removal_and_names_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An edit to a tracked file exists nowhere else, so removal has to stop (FR-009).
+
+    The output has to name the file and print the manual route, since the route
+    is the only way through and there is no override (FR-014).
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    (repo.worktree / "README.md").write_text("changed\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert "removal stopped" in result.output
+    assert "README.md" in result.output
+    assert "git worktree remove --force" in result.output
+    assert "git branch -D 40-feature" in result.output
+    assert repo.worktree.is_dir()
+
+
+def test_staged_edit_stops_removal_and_names_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A staged edit is as unsaved as an unstaged one.
+
+    `git status` without `--porcelain` can hide this behind a different heading,
+    and a check that only diffed the working tree would let it through.
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    (repo.worktree / "README.md").write_text("staged\n")
+    _git(repo.worktree, "add", "README.md")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert "README.md" in result.output
+    assert repo.worktree.is_dir()
+
+
+def test_failing_git_status_warns_and_lets_removal_go_ahead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A check git can't answer warns by name and passes, so a worktree is never stuck on it.
+
+    Without this an unrelated git error would strand every worktree, which is why
+    the hook keeps its rule that only a refusal it can name stops a removal
+    (FR-013, research R4). A corrupt index is the failure that `git status`
+    reports and `git rev-list` doesn't.
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    git_dir = Path(_git(repo.worktree, "rev-parse", "--absolute-git-dir").strip())
+    (git_dir / "index").write_bytes(b"not an index")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "⚠" in result.output
+    assert "uncommitted edits" in result.output
+    assert "removal goes ahead" in result.output
