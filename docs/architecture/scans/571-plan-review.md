@@ -156,3 +156,48 @@
   uses `gh pr create --fill`, which needs no draft file.
 - **PR-013, MINOR, fixed.** `design.md §Behaviour` matches the contracts, and
   `plan.md` lists the `tests/test_shape.py` comment.
+
+## Review 2026-10-16T17:54Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 9bf20cbebc542c98a5b97b3794a890e60fc954b4, spec.md 47b26330ea926fcf2134a58c56957bfa58227e51, .specify/memory/constitution.md absent, design.md 1065767e733aafd03ad89a1c8c73d62f2c58e5e7, docs/architecture/change-carries-release-note.md 419e739406b88b4464317bdbb59b6ab354d9e8dd, docs/architecture/design/571-towncrier-builds-release-notes.md ffc38879d9fa993f87ea60048dc03f5a26ec8f66, research.md 4ca95fc46e15a7a21f264d8c7d8b0993ee39d873, data-model.md 68161af43203fc8eacd503de8546da62b1d1b0c5, quickstart.md 51babb8a75481b09b637476183c6b2a5d529a8b7, contracts/check-release-note.md cf1f4159814175f43f2c836b3cf4b9bc720a4121, contracts/release-script.md a51784706881e1fae355a98da35be57d19ed0039, contracts/tag-job.md 7eb6a965e935d3c18cd2d63864fcf4142567da52, checklists/requirements.md 37a6a5ce0798ad3e653a03b8fa785d1ce5f4ead5, tests/test_install_config.py 0281ffaa4b3ef803a73f1524c9a0271b26aac47d, tests/test_shape.py 03b350995d6ec85773b0ae5cac37290b571011dd, tests/conftest.py ab0a68e5a72288cdf034f54a415fbbc547c8d725, .github/workflows/ci.yml 51235f6139dda5761a8e3926b459e68b8ac4e205, .github/pull_request_template.md 3ee00e4a2b3a566b3a13b0de2e3f7c36e87851da, pyproject.toml cf085a4ca57e179aa23e278d3ef3b7546a170e17, wfctl.json cd10684006bd8b3c52967743cd4e6e5a63a1a00e, wfctl/_verify.py de7930cbba4cc9d9056a21009d5d0c2f70b8f270, plan-review.plan.md ddc76c17967f250d0d4c177a2b0a2625cf9b89d1 (base)
+- Review type: re-review (the earlier plan copy matched the earlier report's plan.md row; every input changed since that review was re-read in full)
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 6
+- Detail: /Users/andremarin/Development/wfctl-specs/571-release-automation/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Outstanding (PR-020; PR-014 and PR-017 fixed) |
+| Architecture and boundaries | Resolved (PR-018 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-019; PR-012 and PR-016 fixed) |
+| Security and reliability | Outstanding (PR-019; PR-015 fixed) |
+
+### Findings
+
+- **PR-019, MINOR, open.** The rollback's `git restore` names `changes/` even
+  when step 4 was skipped because `changes/` held no file. Reproduced in a
+  scratch repository: git refuses the unmatched pathspec, exits 1 and restores
+  nothing, so a failure at step 2, 3 or 5 leaves the version bump on `main`.
+- **PR-020, MINOR, open.** `design.md §Behaviour` and `data-model.md §Release
+  pull request` don't carry the release branch's "higher than `main`'s"
+  condition, and the release script's "Nothing to release" example says 9
+  merges where the plan and git give 7.
+- **PR-012, MINOR, fixed.** The read-back is four commands, and the second and
+  third find the ruleset and print its bypass list. The contract, quickstart,
+  and plan step 8 agree.
+- **PR-014, MINOR, fixed.** `design.md` requires every merge since the last tag
+  to have added a note before the script stops, and lists the template
+  question as settled.
+- **PR-015, MINOR, fixed.** The rollback is `git restore --staged --worktree
+  --source=HEAD -- pyproject.toml uv.lock changes/`, which leaves an edit to any
+  other file alone.
+- **PR-016, MINOR, fixed.** Release script step 5 stages `pyproject.toml` and
+  `uv.lock` before the commit.
+- **PR-017, MINOR, fixed.** The spec's Independent Test and `research.md §10`
+  check for `--fill` on a one-commit branch whose body is the draft.
+- **PR-018, MINOR, fixed.** The contract's section on where the release text
+  lives, and the script's closing lines, say to amend the commit and
+  force-push rather than edit the pull request description.
