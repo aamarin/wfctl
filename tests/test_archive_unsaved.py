@@ -6,6 +6,7 @@ about it.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
+from wfctl import _archive
 from wfctl.cli import _print_removal_stop, app
 
 runner = CliRunner()
@@ -186,13 +188,19 @@ def test_failing_git_status_warns_and_lets_removal_go_ahead(
 
     Without this an unrelated git error would strand every worktree, which is why
     the hook keeps its rule that only a refusal it can name stops a removal
-    (FR-013, research R4). A corrupt index is the failure that `git status`
-    reports and `git rev-list` doesn't.
+    (FR-013, research R4). Only `git status` is made to fail. A corrupt index
+    would fail the untracked listing too, and that one stops the removal.
     """
     monkeypatch.setenv("NO_COLOR", "1")
     repo = make_repo(tmp_path)
-    git_dir = Path(_git(repo.worktree, "rev-parse", "--absolute-git-dir").strip())
-    (git_dir / "index").write_bytes(b"not an index")
+    real_git = _archive._git
+
+    def failing_status(worktree: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        if args[0] == "status":
+            return subprocess.CompletedProcess(args, 128, "", "fatal: boom\n")
+        return real_git(worktree, *args)
+
+    monkeypatch.setattr(_archive, "_git", failing_status)
 
     result = _unsaved(repo.worktree)
 
@@ -319,3 +327,201 @@ def test_missing_trunk_warns_by_name_and_passes(
     assert result.exit_code == 0, result.output
     assert "couldn't check for unmerged commits" in result.output
     assert "no trunk branch found" in result.output
+
+
+@pytest.fixture
+def state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The branch's state dir, pointed outside the worktree being removed."""
+    d = tmp_path / "state"
+    d.mkdir()
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(d))
+    monkeypatch.setenv("NO_COLOR", "1")
+    return d
+
+
+def test_untracked_files_are_saved_at_their_relative_path_byte_for_byte(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The point of `unsaved/` is a plain copy back, so layout and bytes both have to survive (SC-002)."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "src").mkdir()
+    (repo.worktree / "src" / "new_module.py").write_bytes(b"print('hi')\n\x00\xff")
+    (repo.worktree / "notes.md").write_text("notes\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "saved 2 files" in result.output
+    assert (state_dir / "unsaved" / "src" / "new_module.py").read_bytes() == b"print('hi')\n\x00\xff"
+    assert (state_dir / "unsaved" / "notes.md").read_text() == "notes\n"
+
+
+def test_nested_repository_is_saved_whole_with_its_git_dir(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A clone inside the worktree is history as well as files, and the history is the part that can't be rebuilt (FR-019a)."""
+    repo = make_repo(tmp_path)
+    nested = repo.worktree / "ref-clone"
+    nested.mkdir()
+    _git(nested, "init", "-b", "main")
+    (nested / "a.txt").write_text("a\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert (state_dir / "unsaved" / "ref-clone" / "a.txt").read_text() == "a\n"
+    assert (state_dir / "unsaved" / "ref-clone" / ".git" / "HEAD").is_file()
+
+
+def test_symlink_is_saved_as_a_link_with_the_same_target(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Following a link would copy whatever it points at, which may be outside the worktree (FR-019)."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "real").mkdir()
+    (repo.worktree / "real" / "f.txt").write_text("f\n")
+    (repo.worktree / "to-dir").symlink_to("real", target_is_directory=True)
+    (repo.worktree / "to-file").symlink_to("../elsewhere.txt")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    saved = state_dir / "unsaved"
+    assert (saved / "to-dir").is_symlink()
+    assert os.readlink(saved / "to-dir") == "real"
+    assert os.readlink(saved / "to-file") == "../elsewhere.txt"
+
+
+def test_spec_dir_is_never_saved_even_when_git_does_not_ignore_it(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Spec files have their own destination, so saving them here would copy them twice (FR-018)."""
+    repo = make_repo(tmp_path)
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "no unsaved files to keep" in result.output
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_an_earlier_save_is_moved_aside_under_a_timestamp(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A second removal of the same branch must not destroy the first save (FR-020)."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "a.txt").write_text("first\n")
+    assert _unsaved(repo.worktree).exit_code == 0
+    (repo.worktree / "a.txt").write_text("second\n")
+
+    assert _unsaved(repo.worktree).exit_code == 0
+
+    assert (state_dir / "unsaved" / "a.txt").read_text() == "second\n"
+    aside = [p for p in state_dir.glob("unsaved-*") if p.is_dir()]
+    assert len(aside) == 1
+    assert (aside[0] / "a.txt").read_text() == "first\n"
+
+
+def test_failed_copy_raises_and_leaves_no_unsaved_or_staging_folder(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A half-written `unsaved/` under the canonical name reads as a complete save (FR-021)."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "a.txt").write_text("a\n")
+    found = _archive.check(repo.worktree, None)
+
+    def no_space(src: object, dst: object) -> None:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(_archive.shutil, "copy2", no_space)
+
+    with pytest.raises(_archive.SaveFailed, match="No space left on device"):
+        _archive.save(found, state_dir, [])
+
+    assert not (state_dir / "unsaved").exists()
+    assert not (state_dir / "unsaved.staging").exists()
+
+
+def test_failed_copy_stops_the_removal_and_prints_the_route(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worktree holds the only copy, so a save that failed has to stop the removal (FR-023)."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "a.txt").write_text("a\n")
+
+    def no_space(src: object, dst: object) -> None:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(_archive.shutil, "copy2", no_space)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert "couldn't save unsaved files (No space left on device)" in result.output
+    assert "nothing lost" in result.output
+    assert "git worktree remove --force" in result.output
+
+
+def test_nothing_to_save_creates_no_folder(tmp_path: Path, state_dir: Path) -> None:
+    """An empty `unsaved/` would read as a save that found nothing it could name (FR-022)."""
+    repo = make_repo(tmp_path)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "no unsaved files to keep" in result.output
+    assert not (state_dir / "unsaved").exists()
+    assert not (state_dir / "unsaved.staging").exists()
+
+
+def test_output_prints_twenty_paths_then_how_many_more(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The count is the files saved and the list is capped so a nested clone can't flood the terminal (FR-023)."""
+    repo = make_repo(tmp_path)
+    for i in range(25):
+        (repo.worktree / f"f{i:02}.txt").write_text("x\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "saved 25 files" in result.output
+    assert "    f19.txt" in result.output
+    assert "    f20.txt" not in result.output
+    assert "    and 5 more" in result.output
+
+
+def test_untracked_file_and_uncommitted_edit_refuses_and_copies_nothing(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A refused removal leaves nothing half-copied, since the person will fix the edit and run it again (spec US2 scenario 5)."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "README.md").write_text("changed\n")
+    (repo.worktree / "new.txt").write_text("new\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_failed_untracked_listing_stops_the_removal(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """If git can't list untracked files, going ahead would delete every one of them (#600 item 5).
+
+    A corrupt index fails the listing for real. The removal stops, which is
+    stricter than the edit check, because that one fails open on a lost edit and
+    this one would lose files outright.
+    """
+    repo = make_repo(tmp_path)
+    git_dir = Path(_git(repo.worktree, "rev-parse", "--absolute-git-dir").strip())
+    (git_dir / "index").write_bytes(b"not an index")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert "couldn't list untracked files" in result.output

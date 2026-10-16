@@ -1427,12 +1427,20 @@ def _print_removal_stop(
         for line in lines:
             console.print(f"    {line}", markup=False, soft_wrap=True)
     console.print()
+    _print_manual_route(worktree, branch, keep_route)
 
+
+def _print_manual_route(
+    worktree: Path, branch: str, keep_route: str | None = None, note: bool = True
+) -> None:
+    """Print the way through a stopped removal: the commands a person runs by hand.
+
+    `git worktree remove` refuses on untracked files without `--force`, so the
+    route carries it. It doesn't close the tmux window workmux would have, and
+    saying so keeps a leftover window from reading as a failed removal.
+    """
     import shlex
 
-    # `git worktree remove` refuses on untracked files without `--force`, so the
-    # route carries it. It doesn't close the tmux window workmux would have, and
-    # saying so keeps a leftover window from reading as a failed removal.
     keep_label = "Keep the worktree's spec files:"
     label_width = len(keep_label)
     if keep_route:
@@ -1442,10 +1450,11 @@ def _print_removal_stop(
         f" && git branch -D {shlex.quote(branch)}"
     )
     console.print(f"  {'Remove anyway:':<{label_width}} {route}", markup=False, soft_wrap=True)
-    console.print(
-        f"  {'':<{label_width}} (leaves the tmux window workmux would have closed)",
-        markup=False, soft_wrap=True,
-    )
+    if note:
+        console.print(
+            f"  {'':<{label_width}} (leaves the tmux window workmux would have closed)",
+            markup=False, soft_wrap=True,
+        )
 
 
 @archive_app.command("unsaved")
@@ -1480,18 +1489,42 @@ def archive_unsaved_cmd(
     found = _archive.check(repo_root, resolve_spec_dir(branch, repo_root))
     for warning in found.warnings:
         console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
-    if not found.refuses:
-        return
+    if found.refuses:
+        groups: list[tuple[str, list[str]]] = []
+        if found.edits:
+            groups.append(("uncommitted edits:", found.edits))
+        if found.unmerged:
+            groups.append(
+                (f"commits on no remote that aren't merged into {found.trunk}:", found.unmerged)
+            )
+        if found.listing_error:
+            groups.append(("couldn't list untracked files:", [found.listing_error]))
+        _print_removal_stop(repo_root, branch, groups)
+        raise typer.Exit(1)
 
-    groups: list[tuple[str, list[str]]] = []
-    if found.edits:
-        groups.append(("uncommitted edits:", found.edits))
-    if found.unmerged:
-        groups.append(
-            (f"commits on no remote that aren't merged into {found.trunk}:", found.unmerged)
+    try:
+        saved = _archive.save(found, resolve_agent_dir(repo_root, branch), [])
+    except _archive.SaveFailed as exc:
+        console.print(
+            f"[red]✗[/red] couldn't save unsaved files ({escape(str(exc))}) — "
+            "removal stopped, nothing lost",
+            soft_wrap=True,
         )
-    _print_removal_stop(repo_root, branch, groups)
-    raise typer.Exit(1)
+        _print_manual_route(repo_root, branch, note=False)
+        raise typer.Exit(1) from exc
+    if saved is None:
+        console.print("ℹ no unsaved files to keep")
+        return
+    console.print(
+        f"[green]✓[/green] saved {len(saved.files)} "
+        f"{'file' if len(saved.files) == 1 else 'files'} → {escape(str(saved.dest))}",
+        soft_wrap=True,
+    )
+    shown = 20
+    for rel in saved.files[:shown]:
+        console.print(f"    {rel}", markup=False, soft_wrap=True)
+    if len(saved.files) > shown:
+        console.print(f"    and {len(saved.files) - shown} more")
 
 
 # Two names, one function. `archive-story` is a compatibility shim, hidden so it

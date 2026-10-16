@@ -48,6 +48,7 @@ finding nothing.
 from __future__ import annotations
 
 import datetime
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -108,21 +109,27 @@ class ArchiveIncomplete(Exception):
 class UnsavedCheck:
     """What `archive unsaved` found in a worktree before it copied anything.
 
-    Only `edits` and `unmerged` refuse a removal. `warnings` records each check
-    git couldn't answer, and each unusable `save_on_remove` entry, and never
-    refuses.
+    Only `edits`, `unmerged` and `listing_error` refuse a removal. `warnings`
+    records each check git couldn't answer, and each unusable `save_on_remove`
+    entry, and never refuses.
+
+    `listing_error` is the one check that fails closed. When git can't list
+    untracked files, going ahead would delete every one of them, and a stopped
+    removal costs one manual step (#600 item 5).
     """
 
+    worktree: Path
     edits: list[str] = field(default_factory=list)
     unmerged: list[str] = field(default_factory=list)
     trunk: str | None = None
     warnings: list[str] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
     folders: list[str] = field(default_factory=list)
+    listing_error: str | None = None
 
     @property
     def refuses(self) -> bool:
-        return bool(self.edits or self.unmerged)
+        return bool(self.edits or self.unmerged or self.listing_error)
 
 
 @dataclass
@@ -243,16 +250,151 @@ def _unmerged_commits(worktree: Path, found: UnsavedCheck) -> None:
         found.unmerged = commits
 
 
+def _under(rel: str, folder: Path) -> bool:
+    """Is the listed path `rel` the folder `folder` or inside it?"""
+    path = Path(rel.rstrip("/"))
+    return path == folder or folder in path.parents
+
+
+def _untracked_files(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) -> None:
+    """Fill `untracked` with every untracked file that isn't ignored.
+
+    A nested repository is listed once, as its folder with a trailing `/`, since
+    git doesn't descend into it. Anything under the spec dir is dropped: it has
+    its own destination, and a repository that doesn't ignore `specs/` would
+    otherwise save it twice (FR-018).
+    """
+    done = _git(worktree, "ls-files", "--others", "--exclude-standard", "-z")
+    if done.returncode != 0:
+        found.listing_error = _reason(done)
+        return
+    listed = [entry for entry in done.stdout.split("\0") if entry]
+    if spec_dir is not None and is_inside(worktree, spec_dir):
+        spec_rel = spec_dir.resolve().relative_to(worktree.resolve())
+        listed = [entry for entry in listed if not _under(entry, spec_rel)]
+    found.untracked = listed
+
+
 def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
     """Everything `archive unsaved` finds in a worktree before it copies anything.
 
     A check git can't answer adds a warning and never a refusal, so an unrelated
-    git error can't leave a worktree stuck (FR-013).
+    git error can't leave a worktree stuck (FR-013). The untracked listing is the
+    exception, for the reason `UnsavedCheck` gives.
     """
-    found = UnsavedCheck()
+    found = UnsavedCheck(worktree=worktree)
     _uncommitted_edits(worktree, found)
     _unmerged_commits(worktree, found)
+    _untracked_files(worktree, spec_dir, found)
     return found
+
+
+def _staging_files(staging: Path) -> list[str]:
+    """Every file and symlink under `staging`, relative and sorted.
+
+    A link to a folder counts as the link and is never walked into, so the count
+    is what `save` wrote and not what the link points at.
+    """
+    found: list[str] = []
+    for root, dirs, files in os.walk(staging):
+        base = Path(root)
+        for name in list(dirs):
+            if (base / name).is_symlink():
+                dirs.remove(name)
+                files.append(name)
+        found.extend(str((base / name).relative_to(staging)) for name in files)
+    return sorted(found)
+
+
+def _copy_into(worktree: Path, staging: Path, files: list[Path], folders: list[Path]) -> None:
+    for rel in files:
+        src, dest = worktree / rel, staging / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_symlink():
+            os.symlink(os.readlink(src), dest)
+        else:
+            shutil.copy2(src, dest)
+    for rel in folders:
+        # `symlinks=True` keeps a link inside the folder as a link. The folder may
+        # be a nested repository, and its own history has to come across as it is.
+        shutil.copytree(worktree / rel, staging / rel, symlinks=True)
+
+
+def _relative(worktree: Path, path: Path) -> Path:
+    return path.resolve().relative_to(worktree.resolve()) if path.is_absolute() else path
+
+
+def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult | None:
+    """Copy what a removal would delete into `state_dir/unsaved`, or return None.
+
+    Returns None when nothing needs saving, and creates no folder in that case.
+    `extra` holds folders beyond the check's own, such as the spec dir in a layout
+    with no main checkout.
+
+    A folder and a file inside it can both be on the list, for instance a
+    `save_on_remove` folder that git doesn't ignore. The folder copy already
+    holds the file, and copying both makes `copytree` raise on the existing
+    destination and stops every removal in that repository. So any path under a
+    listed folder is dropped, and so is a folder under another listed folder
+    (#600 item 6).
+    """
+    worktree = check.worktree
+    folder_candidates = (
+        [Path(entry.rstrip("/")) for entry in check.untracked if entry.endswith("/")]
+        + [Path(entry.rstrip("/")) for entry in check.folders]
+        + [_relative(worktree, path) for path in extra]
+    )
+    folders = sorted(
+        {f for f in folder_candidates if not any(o != f and o in f.parents for o in folder_candidates)}
+    )
+    files = [
+        Path(entry)
+        for entry in check.untracked
+        if not entry.endswith("/") and not any(_under(entry, f) for f in folders)
+    ]
+    if not files and not folders:
+        return None
+
+    dest = state_dir / "unsaved"
+    staging = state_dir / "unsaved.staging"
+
+    # The copy goes into staging and is renamed into place only when it is
+    # complete. Writing into `unsaved/` directly meant a mid-copy failure left a
+    # partial under the canonical name, and the retry then moved that partial
+    # aside, where nothing told it apart from a real earlier save. Copy and
+    # rename are both inside the `try`: a rename that fails must refuse the
+    # removal too, or the worktree is deleted with nothing promoted.
+    try:
+        # Cleared first, and not with `ignore_errors`: a staging folder we can't
+        # remove holds stale files the copy would merge into this run and
+        # promote as files this run never copied. Failing here blocks the
+        # removal, which is the right answer.
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True)
+        _copy_into(worktree, staging, files, folders)
+        saved = _staging_files(staging)
+
+        # An earlier save moves aside rather than being deleted, so a second
+        # removal never destroys the first. Microseconds in the stamp, since
+        # renaming onto a non-empty folder raises and a same-second rerun would
+        # otherwise fail outright.
+        if dest.exists():
+            stamp = _utc_now().strftime("%Y%m%dT%H%M%S%fZ")
+            dest.rename(dest.with_name(f"{dest.name}-{stamp}"))
+        staging.rename(dest)
+    except Exception as exc:
+        # Best effort, in its own `try`: this runs while another exception is in
+        # flight, and anything raised here would replace `SaveFailed` and let the
+        # removal go ahead. Cleanup must not be able to undo the refusal. A
+        # residue is cleared by the un-ignored rmtree at the top of the next run.
+        try:
+            shutil.rmtree(staging, ignore_errors=True)
+        except Exception:  # noqa: BLE001 — the refusal outranks cleanup
+            pass
+        raise SaveFailed(str(exc)) from exc
+
+    return SavedResult(dest=dest, files=saved)
 
 
 def _describe(worktree: Path, path: Path) -> str:
