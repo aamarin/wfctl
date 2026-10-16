@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import types
 from pathlib import Path
 
 import pytest
@@ -1316,3 +1317,51 @@ def test_is_main_checkout_is_false_in_a_bare_layout_worktree(tmp_path: Path) -> 
 
     assert main_checkout(worktree) is None
     assert is_main_checkout(worktree) is False
+
+
+def _check_config(repo: Path, save_on_remove: object) -> tuple[int, str]:
+    import json
+
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    (repo / "wfctl.json").write_text(json.dumps({"save_on_remove": save_on_remove}))
+    result = CliRunner().invoke(app, ["check", "config"])
+    return result.exit_code, result.output
+
+
+@pytest.mark.parametrize(
+    ("entries", "finding"),
+    [
+        (["/abs/notes"], "'save_on_remove' entry '/abs/notes' is an absolute path"),
+        (["../elsewhere"], "'save_on_remove' entry '../elsewhere' resolves outside the repository"),
+        ([5], "'save_on_remove' entry 5 must be a non-empty folder path"),
+        ([""], "'save_on_remove' entry '' must be a non-empty folder path"),
+        ("notes/", "'save_on_remove' must be a list of folders"),
+    ],
+)
+def test_check_config_reports_an_unusable_save_on_remove(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    entries: object,
+    finding: str,
+) -> None:
+    """A skipped entry that nobody hears about looks, to its author, like one wfctl never read (FR-034)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    code, output = _check_config(storyctl_dir.repo_root, entries)
+
+    assert code == 1, output
+    assert finding in output
+
+
+def test_check_config_does_not_report_a_save_on_remove_folder_that_is_missing(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Most worktrees have no `research/` yet, and that's the expected state (FR-034)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    code, output = _check_config(storyctl_dir.repo_root, ["research/"])
+
+    assert code == 0, output

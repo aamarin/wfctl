@@ -48,6 +48,7 @@ finding nothing.
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import shutil
 import subprocess
@@ -250,6 +251,57 @@ def _unmerged_commits(worktree: Path, found: UnsavedCheck) -> None:
         found.unmerged = commits
 
 
+# Spelled out rather than imported, for the reason `_paths` gives for `wfctl.json`.
+_CONFIG_PATH = "wfctl.json"
+SAVE_KEY = "save_on_remove"
+
+
+def declared_folders(repo_root: Path) -> tuple[list[str], list[str]]:
+    """Return (the folders `wfctl.json` lists under `save_on_remove`, problems).
+
+    Same shape as `_paths.declared_trunk`. An entry that can't be used comes back
+    as a problem and is left out of the folders, so removal skips it with a
+    warning and `check config` reports it. A folder that doesn't exist is
+    neither: most worktrees have no `research/` yet, and that is the expected
+    state (FR-016, FR-034).
+
+    A file that won't parse is "none declared" here, since `doctor` and
+    `check config` already report it and this runs inside a removal.
+    """
+    path = repo_root / _CONFIG_PATH
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return [], []
+    if not isinstance(data, dict) or SAVE_KEY not in data:
+        return [], []
+    entries = data[SAVE_KEY]
+    if not isinstance(entries, list):
+        return [], [f"'{SAVE_KEY}' must be a list of folders, such as [\"notes/\"]"]
+
+    folders: list[str] = []
+    problems: list[str] = []
+    root = repo_root.resolve()
+    for entry in entries:
+        if not isinstance(entry, str) or not entry.strip():
+            problems.append(f"'{SAVE_KEY}' entry {entry!r} must be a non-empty folder path")
+        elif Path(entry).is_absolute():
+            problems.append(
+                f"'{SAVE_KEY}' entry '{entry}' is an absolute path; "
+                "use a path relative to the repository"
+            )
+        elif (resolved := (root / entry).resolve()) == root:
+            problems.append(
+                f"'{SAVE_KEY}' entry '{entry}' is the repository itself; "
+                "list a folder inside it"
+            )
+        elif root not in resolved.parents:
+            problems.append(f"'{SAVE_KEY}' entry '{entry}' resolves outside the repository")
+        else:
+            folders.append(entry)
+    return folders, problems
+
+
 def _under(rel: str, folder: Path) -> bool:
     """Is the listed path `rel` the folder `folder` or inside it?"""
     path = Path(rel.rstrip("/"))
@@ -275,6 +327,33 @@ def _untracked_files(worktree: Path, spec_dir: Path | None, found: UnsavedCheck)
     found.untracked = listed
 
 
+def _listed_folders(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) -> None:
+    """Fill `folders` from the worktree's own `wfctl.json`, which is committed.
+
+    A listed folder that holds the spec dir, or is inside it, is skipped with a
+    warning. Spec files have their own destination, and listing `specs/` would
+    save them twice (FR-018).
+    """
+    listed, problems = declared_folders(worktree)
+    found.warnings += [f"wfctl.json: {problem} — skipped" for problem in problems]
+    spec_rel = (
+        spec_dir.resolve().relative_to(worktree.resolve())
+        if spec_dir is not None and is_inside(worktree, spec_dir)
+        else None
+    )
+    for entry in listed:
+        folder = Path(entry.rstrip("/"))
+        if spec_rel is not None and (
+            folder == spec_rel or folder in spec_rel.parents or spec_rel in folder.parents
+        ):
+            found.warnings.append(
+                f"wfctl.json: '{SAVE_KEY}' entry '{entry}' holds the spec dir, "
+                "which is saved separately — skipped"
+            )
+        elif (worktree / folder).is_dir():
+            found.folders.append(entry)
+
+
 def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
     """Everything `archive unsaved` finds in a worktree before it copies anything.
 
@@ -286,6 +365,7 @@ def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
     _uncommitted_edits(worktree, found)
     _unmerged_commits(worktree, found)
     _untracked_files(worktree, spec_dir, found)
+    _listed_folders(worktree, spec_dir, found)
     return found
 
 

@@ -525,3 +525,107 @@ def test_failed_untracked_listing_stops_the_removal(
 
     assert result.exit_code == 1, result.output
     assert "couldn't list untracked files" in result.output
+
+
+def _declare_save_on_remove(repo: Repo, entries: object) -> None:
+    """Commit a `wfctl.json` and a `.gitignore`, and push, so the tree is clean and safe.
+
+    Both files have to be committed or the removal would save them as untracked
+    files, and the commit has to be on a remote or the unmerged-commit check
+    would stop the removal before any folder is copied.
+    """
+    import json
+
+    (repo.worktree / "wfctl.json").write_text(json.dumps({"save_on_remove": entries}))
+    (repo.worktree / ".gitignore").write_text("notes/\nresearch/\n.venv/\nspecs/\n")
+    _git(repo.worktree, "add", "wfctl.json", ".gitignore")
+    _git(repo.worktree, "commit", "-m", "chore: declare save_on_remove")
+    _git(repo.worktree, "push", "origin", repo.branch)
+
+
+def test_a_listed_ignored_folder_is_saved_and_an_unlisted_one_is_not(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Ignored folders are opt-in, since `.venv/` and `node_modules/` would swamp the save (FR-016, SC-003)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/"])
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "idea.md").write_text("idea\n")
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "lib.py").write_text("junk\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert (state_dir / "unsaved" / "notes" / "idea.md").read_text() == "idea\n"
+    assert not (state_dir / "unsaved" / ".venv").exists()
+
+
+def test_a_listed_folder_that_does_not_exist_is_skipped_without_a_warning(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Most worktrees have no `research/`, and a warning on every one would be noise (FR-016)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["research/"])
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "⚠" not in result.output
+    assert "no unsaved files to keep" in result.output
+
+
+def test_an_entry_outside_the_repository_is_skipped_with_a_warning(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A folder outside the repository isn't deleted by the removal, so skipping it loses nothing (FR-017)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["../elsewhere"])
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "x.txt").write_text("x\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "'../elsewhere'" in result.output
+    assert "outside the repository" in result.output
+    assert "skipped" in result.output
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_listed_folder_git_does_not_ignore_is_saved_once(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The same file is on the untracked list and inside the folder, and copying both makes `copytree` raise.
+
+    That would stop every removal in the repository (#600 item 6). The folder copy
+    already holds the file, so the file list drops it.
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["docs-draft/"])
+    (repo.worktree / "docs-draft").mkdir()
+    (repo.worktree / "docs-draft" / "a.md").write_text("a\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "saved 1 file" in result.output
+    assert (state_dir / "unsaved" / "docs-draft" / "a.md").read_text() == "a\n"
+
+
+def test_listing_a_folder_that_holds_the_spec_dir_warns_and_saves_no_spec_files(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Spec files have their own destination, so listing `specs/` would save them twice (FR-018)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["specs/"])
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "'specs/'" in result.output
+    assert "spec dir" in result.output
+    assert not (state_dir / "unsaved").exists()
