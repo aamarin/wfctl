@@ -88,3 +88,54 @@
   release is cut, which this feature keeps as a push straight to `main`. It
   also means choosing whether test, wheel, and lint become required too, which
   is a larger call than #571. Both are in #599's scope.
+
+## Session 2026-10-15
+
+- Verdict: satisfied
+- Scanned: spec.md
+- Asked: 2 · Answered: 2 · Outstanding: 0 · Deferred: 0
+- Detail: /Users/andremarin/Development/wfctl-specs/571-release-automation/spec.md § Clarifications
+
+The first plan review raised both questions, and this session reopened the
+2026-10-14 answer on protecting `main`. The answers below replace it.
+
+### Coverage
+
+| Category | Status |
+| --- | --- |
+| Functional Scope & Behavior | Clear |
+| Domain & Data Model | Clear |
+| Interaction & UX Flow | Resolved |
+| Non-Functional Quality Attributes | Clear |
+| Integration & External Dependencies | Clear |
+| Edge Cases & Failure Handling | Resolved |
+| Constraints & Tradeoffs | Resolved |
+| Terminology & Consistency | Clear |
+| Completion Signals | Clear |
+| Misc / Placeholders | Clear |
+
+### Findings
+
+- **Edge Cases & Failure Handling** — the plan had the tag job fall back to
+  GitHub's generated notes when the release commit's body was empty. That
+  publishes the list this feature exists to replace, and nobody sees it happen.
+  Q: What does the tag job do when the release commit's body is empty? → A: It
+  fails before it tags anything, so no tag and no release are published, and it
+  never falls back to the generated notes (FR-016, User Story 3 scenario 4).
+  Basis: Andre chose A.
+  Decided against **fall back to the generated notes**: the release goes out
+  with the notes nobody wrote, which is the failure the feature removes.
+- **Constraints & Tradeoffs** — failing the tag job blocks only the publish.
+  With `main` unprotected, the version bump still lands on `main`, and the
+  release is half done until someone repairs it by hand.
+  Q: Should `main` require the checks before a pull request merges? → A: Yes.
+  `main` is protected with no bypass, Andre included, so a release reaches
+  `main` through its own pull request like any other change (FR-004, FR-013,
+  FR-020, User Story 5). #599 is folded into this feature.
+  Basis: Andre chose A. This replaces the 2026-10-14 answer above.
+  Decided against **no protection, as decided on 2026-10-14**: a red pull
+  request and a release with no notes can both reach `main`, and only Andre's
+  attention stops them.
+  Decided against **protection with a bypass for the release push**: GitHub
+  grants a bypass to a person rather than to a kind of push, and agents merge
+  with Andre's login, so the bypass would cover every red merge as well.

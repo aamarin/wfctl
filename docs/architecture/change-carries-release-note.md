@@ -85,10 +85,17 @@ with the time between releases, which is the first problem above.
 ## Decision
 
 A change isn't done until it commits its release note. This repository adds a
-check script to the `verify` list in `wfctl.json`, and the script fails when
-the branch adds no release note for its own issue, or when a note names a
-category that doesn't exist. Because the check is part of the definition of done, three
-existing places refuse a change without a note:
+check script to the `verify` list in `wfctl.json`, and the script fails a branch
+in four cases:
+
+1. The branch adds no release note for its own issue.
+2. A note names a category that doesn't exist.
+3. A file under `changes/` has a name that is neither note form.
+4. A note the branch adds is empty, or still holds towncrier's placeholder
+   text, "Add your info here".
+
+Because the check is part of the definition of done, three existing places
+refuse a change without a note:
 
 1. `wfctl verify` records a failure, and `wfctl status` reports the definition
    of done as unmet.
@@ -114,8 +121,12 @@ pass.
 
 `main` is protected with no bypass, so every change reaches it through a pull
 request whose checks passed, a release included. A bypass would have let the
-release commit go straight to `main`, but GitHub grants a bypass per person,
-and with one person merging it would also have let every red merge through.
+release commit go straight to `main`, but GitHub grants a bypass to a person
+rather than to a kind of push. Andre is the only person who merges, and agents
+merge with his login, so the bypass would also have let every red merge
+through. The protection is a ruleset committed to this repository, and Andre
+applies it after this record's change merges, since a required check that no
+pull request reports yet would block every merge.
 
 The CI tag job keeps its gate. Nothing is tagged until test, wheel, and lint
 pass on `main` after the release merges. The job then publishes the release
@@ -166,6 +177,13 @@ about the whole set. The script proposes both from the release note files, and
 the person confirms them. That keeps the reason the tag job already gives for
 a human version call, which is that the call needs context. What changes is
 that the context arrives written down instead of reconstructed.
+
+The ruleset on `main` owns "may this change reach `main`?".
+
+Andre can't answer that by watching CI. He is the only person who merges, and
+agents merge with his login, so a rule that depends on him noticing a red run
+refuses nothing when he doesn't. The ruleset reads the required checks and
+refuses the merge itself, for him as for anyone else.
 
 ## Boundary
 
@@ -246,6 +264,19 @@ reaches `main` except through a pull request.
   to filter on. It carries the category but not the sentence, so the person
   cutting the release still writes every line. Ruff's own contributing guide
   says labels are often missing.
+- **Protect `main`, with a bypass for the release push.** The release would stay
+  a push straight to `main`, with no release pull request to merge. We didn't
+  choose this because GitHub grants a bypass to a person rather than to a kind
+  of push. The bypass that lets Andre push the release also lets him, and every
+  agent using his login, merge a red pull request, so the protection would
+  refuse nobody.
+- **A workflow opens the release pull request,** as release-please does. The
+  release would need no script run on Andre's machine. We didn't choose this
+  because a pull request opened with the workflow's own token starts no CI run,
+  so the required checks never report and the pull request can't merge. Working
+  around that needs a personal token or a GitHub App, which this repository
+  doesn't have. The release script opens the pull request as Andre, so CI runs
+  on it like any other.
 
 ## Consequences
 
@@ -253,8 +284,12 @@ The release note check runs inside `wfctl verify`, so it reads the current
 branch's name and compares the branch against `main`. On `main` itself there is
 no branch to compare, so the check passes there. A release branch deletes every
 note and adds none, so the check also passes a branch named
-`release/v<version>` whose `pyproject.toml` carries that version. Requiring the
-two to agree keeps the name from working as a way around the check.
+`release/v<version>`, but only when `pyproject.toml` carries that version and
+the version is higher than the one on `main`. The name alone isn't enough,
+because anyone can name a branch `release/v0.23.0`. Matching the name to the
+version isn't enough either, because a branch that leaves the version
+unchanged matches its own name. Only a release raises the version, so
+requiring a higher one keeps the name from working as a way around the check.
 
 The note is named for its issue, since towncrier turns the issue number into a
 link in the release notes. Three cases make naming by issue harder, and each is
@@ -282,9 +317,9 @@ issue still pass on the parent's note, which is rare enough to leave to review.
 
 The pull request template's "Type of Change" checkboxes ask the same question
 less precisely than the release note's category, and two fields asking one
-question will disagree. Whether the checkboxes go or stay is left to the
-implementation, and it should decide before the first release that reads the
-release note files.
+question will disagree. This repository's own template therefore loses them.
+The template wfctl ships to other projects keeps them, because those projects
+have no release notes to replace them.
 
 Changes merged before the check exists have no release note. The first release
 after it still needs those read by hand, and the release script should list
@@ -324,3 +359,8 @@ place to compare a note's category against the diff.
   body instead of falling back to GitHub's generated notes. Andre chose
   protection once failing the job turned out to block only the publish, not
   the bump landing on `main`. Folds in #599.
+- 2026-10-16  revised     — a release branch passes the check only when its
+  version is higher than `main`'s, since a branch that left the version alone
+  matched its own name. The Decision lists every case the check fails, the
+  ruleset gains an Owns truth entry and two Considered entries, and the "Type
+  of Change" checkboxes are settled as clarify decided.

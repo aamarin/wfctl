@@ -7,6 +7,21 @@ coverage rows are this evaluation's own, taken from the issue's Scope list and
 its three costs before the tools were compared. The subject count in row A was
 run before this file was written.
 
+This scan records what the evaluation found at the time, and three of its
+conclusions were overturned by later decisions. Read
+`change-carries-release-note` for the process as decided:
+
+1. The release note is a file committed under `changes/`, not a section of the
+   pull request description. The record moved it on 2026-10-10, so `wfctl
+   verify` can check it before a pull request exists.
+2. The release goes through its own pull request, and `main` is protected with
+   no bypass. Finding 6 and the closing section describe a release pushed
+   straight to `main` with the tag job's gate unchanged, which the record
+   replaced on 2026-10-15.
+3. The Scope line says no candidate was installed. That holds for the three
+   candidates the issue names. towncrier, added as row L on 2026-10-13, was
+   installed and run.
+
 ## Session 2026-10-10
 
 - Verdict: **satisfied**
