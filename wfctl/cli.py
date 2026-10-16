@@ -13,13 +13,6 @@ import typer
 from rich.console import Console
 
 from wfctl import _bob_settings, _bundle, _provenance, _settings, _tracker
-# Module scope, unlike the rest of `_archive`, which `archive-specs` imports
-# lazily inside its `try` so an import error cannot strand a worktree. An
-# `except` clause resolves its class before the handler runs, so this name has to
-# exist by then. Safe to hoist: `_archive` imports only the standard library and
-# `_paths`, which this module already imports, so there is no import here that
-# can fail on its own.
-from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
@@ -45,7 +38,9 @@ from wfctl._paths import (
 )
 
 if TYPE_CHECKING:
+    from wfctl import _archive as _archive_mod
     from wfctl import _session
+    from wfctl import _spec_store as _spec_store_mod
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
 
@@ -1502,8 +1497,23 @@ def archive_unsaved_cmd(
         _print_removal_stop(repo_root, branch, groups)
         raise typer.Exit(1)
 
+    _save_unsaved(repo_root, branch, found, [])
+
+
+def _save_unsaved(
+    repo_root: Path, branch: str, found: "_archive_mod.UnsavedCheck", extra: list[Path]
+) -> None:
+    """Copy what `found` lists into `unsaved/` and report it, or stop the removal.
+
+    Shared by `archive unsaved` and the removal hook so the two print the same
+    lines and stop the same way.
+    """
+    from rich.markup import escape
+
+    from wfctl import _archive
+
     try:
-        saved = _archive.save(found, resolve_agent_dir(repo_root, branch), [])
+        saved = _archive.save(found, resolve_agent_dir(repo_root, branch), extra)
     except _archive.SaveFailed as exc:
         console.print(
             f"[red]✗[/red] couldn't save unsaved files ({escape(str(exc))}) — "
@@ -1556,196 +1566,142 @@ def store_specs_cmd(
     raise typer.Exit(result.exit_code)
 
 
-# Two names, one function. `archive-story` is a compatibility shim, hidden so it
-# is not advertised as a second supported spelling: `.workmux.yaml` is repo-local,
-# so copies predating the rename persist indefinitely, and a failing `pre_remove`
-# hook now aborts the removal. Without the alias those repos would hit an unknown
-# command, exit non-zero, and find their worktrees unremovable — a worse failure
-# than the silent loss this command exists to prevent.
-# ponytail: transition-only. Delete once the notice below has stopped appearing
-# during teardowns on every machine — that silence is the end condition, and it
-# is why the notice exists at all. #36 removed the doctor check that used to
-# report this, because it only fired where someone happened to run doctor; this
-# fires where the hook actually runs. Delete the alias and the notice together.
-_FORMER_ARCHIVE_COMMAND = "archive-story"
+# `archive-specs` and `archive-story` are what `.workmux.yaml` files written before
+# `wfctl hook worktree-remove` existed still call. The file is repo-local, so those
+# copies persist indefinitely, and a failing `pre_remove` hook aborts the removal.
+# Without the aliases those repositories would hit an unknown command and find
+# their worktrees unremovable. Both are hidden so neither reads as a supported
+# spelling, and `archive-story` says so when it runs.
+# ponytail: transition-only. Delete the aliases and the notice together once the
+# notice has stopped appearing during teardowns on every machine. That silence is
+# the end condition, and it is why the notice exists.
+_FORMER_REMOVE_COMMAND = "archive-story"
 
 
-@app.command("archive-specs")
-@app.command(_FORMER_ARCHIVE_COMMAND, hidden=True)
-def archive_specs_cmd(
+def _remove_stop_groups(
+    found: "_archive_mod.UnsavedCheck", dry_store: "_spec_store_mod.StoreResult", branch: str
+) -> list[tuple[str, list[str]]]:
+    """Every reason the removal stops, in the order the stop block prints them."""
+    groups: list[tuple[str, list[str]]] = []
+    if found.edits:
+        groups.append(("uncommitted edits:", found.edits))
+    if found.unmerged:
+        groups.append(
+            (f"commits on no remote that aren't merged into {found.trunk}:", found.unmerged)
+        )
+    if found.listing_error:
+        groups.append(("couldn't list untracked files:", [found.listing_error]))
+    if dry_store.stops_removal:
+        title = dry_store.lines[0].removeprefix("✗ ")
+        if dry_store.outcome == "differs":
+            # Drop the hint line and the indent the store adds for its own output.
+            body = [row.removeprefix("    ") for row in dry_store.lines[1:-1]]
+            groups.append((title.replace(f" for {branch}", "") + ":", body))
+        else:
+            groups.append((title, []))
+    return groups
+
+
+@app.command("archive-specs", hidden=True)
+@app.command(_FORMER_REMOVE_COMMAND, hidden=True)
+def worktree_remove_cmd(
     ctx: typer.Context,
     worktree: str = typer.Argument(
-        None, help="Worktree to archive. Defaults to $WM_WORKTREE_PATH, then the current repo."
+        None, help="Worktree being removed. Defaults to $WM_WORKTREE_PATH, then the current repo."
     ),
     handle: str = typer.Argument(
-        None, help="Story handle. Defaults to $WM_HANDLE, then the branch."
+        None, help="Worktree handle. Defaults to $WM_HANDLE, then the branch."
     ),
 ) -> None:
-    """Rescue a story's speckit artifacts before its worktree is deleted.
+    """Keep what a worktree removal would delete, or stop the removal.
 
-    Wired into workmux's `pre_remove`. `specs/` is gitignored, so a worktree
-    holding only design artifacts reads *clean* to git and is removed without
-    complaint — while work git can see already stops the removal on its own.
-    This covers exactly the set nothing else can. Artifacts outside the worktree
-    are not at risk and are not copied; the message names the resolved path so
-    the absence of an archive does not read as a failed lookup.
+    Wired into workmux's `pre_remove`. Runs every check first and writes nothing
+    until none of them refuses: uncommitted edits, commits on no remote that a merge
+    into trunk would change, and spec files in the main checkout that differ from
+    the worktree's. Then it copies the spec files out and saves the untracked files
+    to `unsaved/`.
 
-    Two exit rules, and the split matters:
-
-    * **Non-zero only when at-risk artifacts existed and copying them failed**
-      (`ArchiveIncomplete`). A failing `pre_remove` hook aborts the removal, so
-      this refuses the teardown rather than reporting the loss afterwards.
-      `workmux remove --force` does *not* bypass the hook, which is why the
-      refusal prints the manual route out — completely, since `git worktree
-      remove` itself refuses when untracked files are present.
-    * **Zero for everything else**, still via a bare `except`. An unrelated
-      internal failure must not strand a worktree, and nothing was provably lost.
-      It catches SystemExit too: `get_repo_root` raises that rather than an
-      Exception, so `except Exception` alone would let a non-git checkout exit 1.
-
-    This replaces an earlier "never exits non-zero" contract. That guarantee, in
-    combination with `|| true` in the hook, meant a failed archive was silent and
-    the worktree was destroyed anyway — the exact failure this command exists to
-    prevent, delivered by its own error handling.
-
-    Named `archive-specs` since #27, because it archives the spec dir and one
-    superseded path and nothing else. `archive-story` survives as a hidden alias:
-    `.workmux.yaml` is repo-local, and with the hook now able to abort a removal,
-    an unknown command name would make those repos' worktrees unremovable.
+    Exits 1 only to stop the removal, since a failing `pre_remove` hook is what
+    aborts it. Any other failure warns and exits 0, so a bug here can't strand a
+    worktree. The `except` catches SystemExit as well, because `get_repo_root`
+    raises that rather than an Exception.
     """
     try:
         # Inside the `try` on purpose: an import that raises here would exit
-        # non-zero and strand the worktree, which is exactly what this command
-        # promises not to do. Do not hoist these to module scope or above it.
+        # non-zero and strand the worktree.
         import os
-        import subprocess as sp
+        import shlex
 
-        from wfctl import _archive
+        from rich.markup import escape
 
-        # First, before any work that can return early: a repo whose hook still
-        # names the alias should hear about it even on the teardowns that archive
-        # nothing, since re-seeding the hook is the fix either way.
-        #
-        # Third line as in the rescue notice below — the end condition belongs in
-        # the output, not only in the ponytail comment above.
-        if ctx.info_name == _FORMER_ARCHIVE_COMMAND:
+        from wfctl import _archive, _spec_store
+
+        if ctx.info_name == _FORMER_REMOVE_COMMAND:
             console.print(
-                f"[yellow]⚠[/yellow] invoked as `{_FORMER_ARCHIVE_COMMAND}`; renamed "
-                "to `archive-specs`.\n"
-                "  Re-seed the hook: wfctl install-config\n"
-                "  The alias is retired once this line stops appearing."
+                f"[yellow]⚠[/yellow] invoked as `{_FORMER_REMOVE_COMMAND}`; the removal hook "
+                "is now `wfctl hook worktree-remove`.\n"
+                "  Edit pre_remove in .workmux.yaml to call it.\n"
+                "  The alias is retired once this line stops appearing.",
+                soft_wrap=True,
             )
 
         root = worktree or os.environ.get("WM_WORKTREE_PATH")
         repo_root = Path(root).resolve() if root else get_repo_root()
         if not repo_root.is_dir():
-            console.print(f"[yellow]⚠[/yellow] no worktree at '{repo_root}' — nothing archived")
+            console.print(
+                f"[yellow]⚠[/yellow] no worktree at '{escape(str(repo_root))}' — nothing checked",
+                soft_wrap=True,
+            )
             return
 
         branch = resolve_branch(repo_root)
         story = handle or os.environ.get("WM_HANDLE") or branch
-        # `story` keys the spec lookup: an explicit handle wins, because the
-        # caller knows which story is being torn down better than HEAD does.
-        # Only fall back to `branch` when it differs. When it does not, the
-        # second call is a duplicate lookup, free of any new answer.
+        # An explicit handle wins, because the caller knows which worktree is being
+        # removed better than HEAD does.
         spec_dir = resolve_spec_dir(story, repo_root)
         if spec_dir is None and story != branch:
             spec_dir = resolve_spec_dir(branch, repo_root)
-        state_dir = resolve_agent_dir(repo_root, branch)
 
-        rev = sp.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=repo_root, capture_output=True, text=True,
-        )
-        commit = rev.stdout.strip() if rev.returncode == 0 else "unknown"
-
-        archive_dir, mapped, rescued = _archive.archive(
-            repo_root,
-            handle=story,
-            branch=branch,
-            commit=commit,
-            spec_dir=spec_dir,
-            state_dir=state_dir,
-        )
-        # Reported whether or not anything else was archived. Gating this on an
-        # empty plan hid it in the mixed case — an external spec root *plus* a
-        # legacy `.agent/spec.md` — where the legacy file produces an archive and
-        # the durable directory is skipped silently, which is exactly when the
-        # explanation is most needed.
-        if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
-            # escape(): the line carries rich markup for the tick, so a path
-            # containing `[…]` — legal on every platform — would be parsed as a
-            # style tag and silently dropped. This message exists to name a
-            # location; printing a path that is not the real one is worse than
-            # printing none.
-            from rich.markup import escape
-
+        found = _archive.check(repo_root, spec_dir)
+        for warning in found.warnings:
+            console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
+        planned = _spec_store.store(spec_dir, branch, repo_root, dry_run=True)
+        groups = _remove_stop_groups(found, planned, branch)
+        if groups:
             console.print(
-                f"[green]✓[/green] spec dir is durable ({escape(str(spec_dir))}) — "
-                "nothing there was at risk, nothing copied",
-                soft_wrap=True,
+                "[red]✗[/red] removal stopped — this worktree holds work saved nowhere else"
             )
-        if archive_dir is None:
-            if spec_dir is None or _archive.is_inside(repo_root, spec_dir):
-                console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
-            return
-        console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
+            for title, lines in groups:
+                console.print(f"  {title}", markup=False, soft_wrap=True)
+                for line in lines:
+                    console.print(f"    {line}", markup=False, soft_wrap=True)
+            console.print()
+            keep = None
+            if planned.outcome == "differs":
+                keep = f"cd {shlex.quote(str(repo_root))} && wfctl store specs --overwrite"
+            _print_manual_route(repo_root, branch, keep)
+            raise typer.Exit(1)
 
-        # Additional to the count above, not a replacement: that line says what
-        # was archived, this one says where it came from. Both matter in the
-        # mixed case, where a durable spec dir is skipped and the only reason an
-        # archive exists at all is the superseded directory.
-        #
-        # The closing sentence is the shim's end condition, in the output rather
-        # than only in the ponytail comment below — otherwise the reader learns
-        # the path is going away but not that the silence is the signal.
-        if rescued:
-            console.print(
-                f"[yellow]⚠[/yellow] rescued {rescued} file(s) from legacy `.agent/` — "
-                "a superseded path\n"
-                "  kept only to rescue them. Nothing else reads it.\n"
-                "  The read is retired once this line stops appearing."
-            )
-    except _ArchiveIncomplete as e:
-        # The one path that exits non-zero. `pre_remove` failing aborts the
-        # removal, so this refuses the teardown rather than reporting the loss
-        # after it happened. `workmux remove --force` does NOT bypass the hook,
-        # which is why the manual route is spelled out rather than implied — and
-        # spelled out completely: `git worktree remove` refuses when untracked
-        # files are present, and bypassing workmux skips its tmux cleanup.
-        console.print(
-            f"[red]✗[/red] {e.at_risk} spec file(s) could not be archived — "
-            "removal aborted, nothing lost."
-        )
-        # These lines are meant to be pasted into a shell, so every interpolated
-        # value is quoted: a worktree path containing a space otherwise produces a
-        # command that fails, and a branch or path carrying shell metacharacters
-        # produces one that does something else entirely.
-        #
-        # markup=False with them: a path may legitimately contain `[`, which rich
-        # would read as a style tag and swallow. soft_wrap for the same reason as
-        # above — rich wraps at the terminal width and would break mid-path, and a
-        # route that cannot be pasted is no better than one not printed.
-        import shlex
+        stored = _spec_store.store(spec_dir, branch, repo_root)
+        for line in stored.lines:
+            console.print(line, markup=False, soft_wrap=True)
+        if stored.stops_removal:
+            console.print()
+            _print_manual_route(repo_root, branch)
+            raise typer.Exit(1)
 
-        console.print(f"  Cause: {e}", soft_wrap=True, markup=False)
-        console.print("")
-        console.print(
-            f"  Retry:         workmux remove {shlex.quote(story)}",
-            soft_wrap=True, markup=False,
-        )
-        console.print(
-            f"  Remove anyway: git worktree remove {shlex.quote(str(repo_root))}"
-            f" && git branch -D {shlex.quote(branch)}",
-            soft_wrap=True, markup=False,
-        )
-        console.print(
-            "                 (add --force to the first if the worktree has untracked\n"
-            "                  files; leaves the tmux window workmux would have closed)"
-        )
-        raise typer.Exit(1) from e
+        extra = [spec_dir] if stored.outcome == "to_unsaved" and spec_dir else []
+        _save_unsaved(repo_root, branch, found, extra)
+    except typer.Exit:
+        raise
     except (Exception, SystemExit) as e:  # noqa: BLE001 — see the docstring
-        console.print(f"[yellow]⚠[/yellow] archive failed ({e}) — continuing so teardown is not blocked")
+        from rich.markup import escape
+
+        console.print(
+            f"[yellow]⚠[/yellow] worktree-remove failed ({escape(str(e))}) — "
+            "continuing so the removal is not blocked",
+            soft_wrap=True,
+        )
 
 
 @app.command("feature-paths")
@@ -6335,11 +6291,12 @@ def check_body_cmd(
 
 hook_app = typer.Typer(
     no_args_is_help=True,
-    help="Run an agent hook. Not for interactive use — this is what a "
-    "`settings.json` hook entry invokes, so the rule stays versioned with wfctl "
-    "instead of pasted into one developer's config.",
+    help="Run a hook. Not for interactive use — this is what an agent's "
+    "`settings.json` entry or workmux's `.workmux.yaml` invokes, so the rule stays "
+    "versioned with wfctl instead of pasted into one developer's config.",
 )
 app.add_typer(hook_app, name="hook")
+hook_app.command("worktree-remove")(worktree_remove_cmd)
 
 
 @hook_app.command(_USER_PROMPT)
@@ -6593,7 +6550,7 @@ def _check_wfctl_version() -> bool:
 
 
 def _archive_destination(repo_root: Path) -> str:
-    """Where `archive-specs` would write, for display only — creates nothing.
+    """Where the removal hook would save unsaved files, for display only — creates nothing.
 
     `resolve_agent_dir` would answer this but also mkdirs, and a health check that
     creates directories while reporting on them is a check with side effects.
@@ -6602,9 +6559,9 @@ def _archive_destination(repo_root: Path) -> str:
 
     override = os.environ.get("WFCTL_STATE_DIR")
     if override:
-        return f"{override}/archive/"
+        return f"{override}/unsaved/"
     xdg = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / "archive"
+    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / "unsaved"
     try:
         return f"~/{path.relative_to(Path.home())}/"
     except ValueError:
@@ -6695,13 +6652,13 @@ def _check_workmux_hook(repo_root: Path) -> bool:
 
     console.print(
         "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
-        "`wfctl archive-specs` — removing a\n"
-        "  worktree will discard its specs, plan, and tasks."
+        "`wfctl hook worktree-remove` — removing a\n"
+        "  worktree will discard its untracked files and spec files."
     )
     # soft_wrap: rich would otherwise wrap this at the terminal width and could
     # split the path itself, which both reads badly and breaks assertions on it.
     console.print(
-        f"  Archives would be written to: {_archive_destination(repo_root)}",
+        f"  Unsaved files would be written to: {_archive_destination(repo_root)}",
         soft_wrap=True,
     )
 
@@ -6713,7 +6670,7 @@ def _check_workmux_hook(repo_root: Path) -> bool:
         # wrapped line pastes broken.
         console.print(
             "  pre_remove holds custom steps — add this entry to it yourself:\n"
-            f"{_workmux.ARCHIVE_HOOK}",
+            f"{_workmux.REMOVE_HOOK}",
             soft_wrap=True,
         )
         return True

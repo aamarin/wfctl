@@ -170,8 +170,8 @@ def test_not_applicable_inside_the_worktree_still_stops_the_removal() -> None:
     assert result.exit_code == 0
 
 
-def test_a_layout_with_no_main_checkout_sends_the_spec_dir_to_unsaved(tmp_path: Path) -> None:
-    """Without a main checkout the spec files travel with the unsaved work and the removal goes ahead (FR-032)."""
+def make_bare_worktree(tmp_path: Path, branch: str = "40-feature") -> Path:
+    """A linked worktree of a bare repository, which has no main checkout."""
     bare = tmp_path / "project.git"
     subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)], check=True, capture_output=True)
     for key, val in (("user.email", "t@t.com"), ("user.name", "T")):
@@ -187,8 +187,14 @@ def test_a_layout_with_no_main_checkout_sends_the_spec_dir_to_unsaved(tmp_path: 
     subprocess.run(["git", "update-ref", "refs/heads/main", commit], cwd=bare, check=True)
     worktree = tmp_path / "wt"
     subprocess.run(
-        ["git", "worktree", "add", "-b", "40-feature", str(worktree)], cwd=bare, check=True, capture_output=True
+        ["git", "worktree", "add", "-b", branch, str(worktree)], cwd=bare, check=True, capture_output=True
     )
+    return worktree
+
+
+def test_a_layout_with_no_main_checkout_sends_the_spec_dir_to_unsaved(tmp_path: Path) -> None:
+    """Without a main checkout the spec files travel with the unsaved work and the removal goes ahead (FR-032)."""
+    worktree = make_bare_worktree(tmp_path)
     spec_dir = worktree / "specs" / "40-feature"
     spec_dir.mkdir(parents=True)
 

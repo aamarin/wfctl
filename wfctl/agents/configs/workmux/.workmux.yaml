@@ -82,18 +82,27 @@ post_create:
 #     sed -i '' "s|^PORT=.*|PORT=${ISSUE}|" "$WM_WORKTREE_PATH/.env"
 #     exit 0
 
-# Archive the story's planning artifacts before the worktree is deleted. They are
-# gitignored, so the worktree is the only place they exist — `wfctl archive-specs`
-# copies them into wfctl's per-branch state dir, numbered in pipeline order with a
-# generated index. A forensic snapshot to read later, not a restorable tree.
+# Keep what the removal would delete, or stop it. `wfctl hook worktree-remove`
+# refuses when the worktree has uncommitted edits, commits that are on no remote and
+# not merged into trunk, or spec files that differ from the main checkout's copies,
+# and it prints the commands to run by hand. When nothing stops it, it copies the
+# spec files into the main checkout and the untracked files into wfctl's per-branch
+# state dir under `unsaved/`.
 #
-# `command -v` guards a checkout without wfctl on PATH: a teardown hook must never
-# be the thing that stops a worktree from being removed.
+# No `|| true`. The hook exits 1 to stop a removal, and `|| true` would turn every
+# stop into a removal. It exits 0 on any other failure, so a bug in it can't strand a
+# worktree. The `command -v` branch proceeds when wfctl is not on PATH, since
+# blocking there would strand every worktree on a machine that never had the tool.
 #
 # This replaces workmux's default `pre_remove`, which auto-detects Node.js
 # projects and fast-deletes node_modules. Add that back here if you need it.
 pre_remove:
-  - command -v wfctl >/dev/null && wfctl archive-specs "$WM_WORKTREE_PATH" "$WM_HANDLE" || true
+  - |
+    if command -v wfctl >/dev/null; then
+      wfctl hook worktree-remove "$WM_WORKTREE_PATH" "$WM_HANDLE"
+    else
+      echo "⚠ wfctl not on PATH — unsaved work in $WM_WORKTREE_PATH was not saved"
+    fi
 
   # The counterpart to `issue start`: a branch abandoned rather than merged would
   # otherwise leave its issue reading in-progress forever. The verb writes only
