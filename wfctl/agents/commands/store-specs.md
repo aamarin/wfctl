@@ -58,6 +58,10 @@ failing to push.
 Exit 0 means the spec dir is stored, was already stored, or sits in a layout
 with nowhere to push. In the last case the output says where the files are.
 
+Any of those can end with an `ℹ` line naming files the spec store's ignore rules
+left out. They were never stored and never will be, and it is not a failure.
+Include the line when you report.
+
 ## 4. Hand back
 
 Invoke `speckit-orchestrate` once the store has run, or once the refusal is

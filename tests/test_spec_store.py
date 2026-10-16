@@ -573,6 +573,49 @@ def test_an_already_stored_spec_dir_creates_no_commit(tmp_path: Path) -> None:
     assert _git(env.here, "rev-parse", "HEAD") == head
 
 
+def _ignore_logs(env: types.SimpleNamespace) -> None:
+    (env.here / ".gitignore").write_text("*.log\n")
+    _git(env.here, "add", ".gitignore")
+    _git(env.here, "commit", "-m", "ignore logs")
+
+
+def test_a_file_the_store_ignores_is_named_and_never_pushed(tmp_path: Path) -> None:
+    """An ignore rule matching a file in the spec dir leaves it out of `git add`
+    and out of `git status`, so the store printed "stored" for the dir with
+    nothing to say that one file stayed behind. The file is still not pushed,
+    since an ignore rule is the store owner's choice; the store says so."""
+    env = _store_setup(tmp_path)
+    _ignore_logs(env)
+    _write(env.spec_dir, "spec.md", "notes.log")
+
+    result = _store(env)
+
+    assert result.outcome == "stored"
+    assert result.ignored == ("notes.log",)
+    assert f"{BRANCH}/notes.log" not in _remote_files(env.remote)
+    assert _spec_store.report_lines(result)[-1] == (
+        "ℹ 1 file not stored, ignored by the store's rules: notes.log"
+    )
+
+
+def test_a_spec_dir_holding_only_ignored_files_is_already_stored_and_says_so(
+    tmp_path: Path,
+) -> None:
+    """The case that read as complete: nothing to commit, so `already_stored`,
+    for a dir whose only file was never stored."""
+    env = _store_setup(tmp_path)
+    _ignore_logs(env)
+    _write(env.spec_dir, "notes.log")
+
+    result = _store(env)
+
+    assert result.outcome == "already_stored"
+    assert result.exit_code == 0
+    assert _spec_store.report_lines(result)[1:] == [
+        "ℹ 1 file not stored, ignored by the store's rules: notes.log",
+    ]
+
+
 @pytest.mark.parametrize("names, subject", [
     (("spec.md",), "specs(359): store spec.md"),
     (("spec.md", "plan.md", "tasks.md"), "specs(359): store plan.md and 2 others"),
