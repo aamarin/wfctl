@@ -156,7 +156,7 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     2. `in_repo`: git, run in the root, finds the code repository, and the
        first kind did not hold. The default `<repo>/specs` is this, and so is
        a worktree of the code repository with a branch some other worktree
-       already has checked out.
+       already has checked out, and so is the code checkout itself.
     3. `detached`: the root is the top of its own checkout and has no branch
        checked out, as during an interrupted rebase or after
        `git checkout <sha>`. It is a spec store in a broken state rather than
@@ -181,6 +181,12 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     top = _checkout_top(root) if os.path.isdir(root) else None
     if top is None:
         return Layout("unmanaged", root)
+    # `owns_branch` leaves the root's own worktree out of the branches already
+    # taken, so the code checkout named as the root would read as a worktree
+    # holding a branch nobody else has, and the store would commit onto the
+    # code's branch. It has to be turned away before that rule runs.
+    if top == top_level(repo):
+        return Layout("in_repo", root)
     branch = _local_branch(root)
     if not branch and top == os.path.realpath(root):
         return Layout("detached", root)

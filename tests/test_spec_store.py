@@ -276,6 +276,16 @@ def test_a_worktree_on_the_codes_own_branch_is_in_repo(tmp_path: Path) -> None:
     assert _spec_store.layout(store, project).kind == "in_repo"
 
 
+def test_the_code_checkout_itself_is_in_repo(tmp_path: Path) -> None:
+    """`"spec_root": "."` names the code checkout. `owns_branch` leaves the
+    root's own worktree out of the branches already taken, so the checkout's
+    branch looked unique to it and the store committed the feature directory
+    onto the code branch and pushed it."""
+    project = git_repo(tmp_path / "project")
+
+    assert _spec_store.layout(project, project).kind == "in_repo"
+
+
 def test_a_folder_one_level_inside_a_store_is_not_a_store(tmp_path: Path) -> None:
     """It passes `owns_branch`, since git there finds the store's branch, and a
     commit from it would still take in the whole store. FR-010's
