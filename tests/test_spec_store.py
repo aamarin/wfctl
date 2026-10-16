@@ -279,11 +279,39 @@ def test_a_worktree_on_the_codes_own_branch_is_in_repo(tmp_path: Path) -> None:
 def test_the_code_checkout_itself_is_in_repo(tmp_path: Path) -> None:
     """`"spec_root": "."` names the code checkout. `owns_branch` leaves the
     root's own worktree out of the branches already taken, so the checkout's
-    branch looked unique to it and the store committed the feature directory
-    onto the code branch and pushed it."""
+    branch looked unique to it and `layout` read it as a store. What the store
+    then did is pinned by the linked-worktree store test below."""
     project = git_repo(tmp_path / "project")
 
     assert _spec_store.layout(project, project).kind == "in_repo"
+
+
+def test_the_main_checkout_named_from_a_linked_worktree_is_in_repo(tmp_path: Path) -> None:
+    """A relative `spec_root` is anchored to the manifest that declares it, and
+    `install-skills` records it in the main checkout's. So from a feature
+    worktree `"."` names the main checkout, not the worktree the store runs
+    in. The check against the caller's own top missed it, `main` was held by
+    no other worktree, and the store committed onto `main` and pushed it."""
+    project = git_repo(tmp_path / "project")
+    feature = _worktree(project, tmp_path / "project-42", "-b", "42-feature")
+
+    assert _spec_store.layout(project, feature).kind == "in_repo"
+
+
+def test_a_store_from_a_linked_worktree_never_commits_on_the_main_checkout(
+    tmp_path: Path,
+) -> None:
+    """The outcome the two tests above exist for: with the main checkout as the
+    spec root, nothing is committed and the code's branch does not move."""
+    project = git_repo(tmp_path / "project")
+    feature = _worktree(project, tmp_path / "project-42", "-b", "42-feature")
+    _write(project / "42-feature", "spec.md")
+    head = _git(project, "rev-parse", "HEAD")
+
+    result = _spec_store.store(project / "42-feature", "42-feature", feature)
+
+    assert result.outcome == "not_applicable"
+    assert _git(project, "rev-parse", "HEAD") == head
 
 
 def test_a_folder_one_level_inside_a_store_is_not_a_store(tmp_path: Path) -> None:

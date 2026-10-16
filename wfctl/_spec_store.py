@@ -156,9 +156,13 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     2. `in_repo`: git, run in the root, finds the code repository, and the
        first kind did not hold. The default `<repo>/specs` is this, and so is
        a worktree of the code repository with a branch some other worktree
-       already has checked out, and so is the code checkout itself.
-    3. `detached`: the root is the top of its own checkout and has no branch
-       checked out, as during an interrupted rebase or after
+       already has checked out, and so is the checkout the caller stands in
+       and the project's main checkout, whatever branch either has. A
+       sibling feature worktree is not covered: git cannot tell it from a
+       spec store that is a worktree of the code repository.
+    3. `detached`: the root is the top of its own checkout, not a code
+       checkout, and has no branch checked out, as during an interrupted
+       rebase or after
        `git checkout <sha>`. It is a spec store in a broken state rather than
        a layout anyone chose, so the store fails there and the pass holds.
        A commit there would sit on no branch, so nothing would push it and
@@ -182,10 +186,14 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     if top is None:
         return Layout("unmanaged", root)
     # `owns_branch` leaves the root's own worktree out of the branches already
-    # taken, so the code checkout named as the root would read as a worktree
+    # taken, so a code checkout named as the root would read as a worktree
     # holding a branch nobody else has, and the store would commit onto the
-    # code's branch. It has to be turned away before that rule runs.
-    if top == top_level(repo):
+    # code's branch. It has to be turned away before that rule runs. There are
+    # two such checkouts: this one, and the main one, which is where a
+    # relative `spec_root` lands from a feature worktree, since it is anchored
+    # to the manifest that declared it and `install-skills` writes that in
+    # the main checkout.
+    if top in (top_level(repo), _main_worktree(repo)):
         return Layout("in_repo", root)
     branch = _local_branch(root)
     if not branch and top == os.path.realpath(root):
@@ -200,6 +208,19 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     if theirs is not None and theirs == _common_dir(repo):
         return Layout("in_repo", root)
     return Layout("unmanaged", root)
+
+
+def _main_worktree(path: str) -> str | None:
+    """The main checkout of the project `path` is in, resolved, or None.
+
+    Git lists the main worktree first. It is read here rather than through
+    `_paths.main_checkout` because that one runs git without `_quiet_env`, and
+    every git call in this module carries it so that none can prompt or take
+    the index lock (`test_every_git_call_runs_without_a_prompt` pins it).
+    """
+    listed = _read(path, "worktree", "list", "--porcelain")
+    first = (listed or "").split("\n", 1)[0]
+    return os.path.realpath(first[len("worktree "):]) if first.startswith("worktree ") else None
 
 
 def _checkout_top(path: str) -> str | None:
