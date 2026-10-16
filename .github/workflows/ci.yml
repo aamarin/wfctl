@@ -168,11 +168,15 @@ jobs:
       - name: Check the branch commits its release note
         run: python3 .github/scripts/check_release_note.py
 
-  # The bump stays human — it belongs in the PR that makes the change, where the
-  # major/minor/patch call has context. Only the tag is automated, because the
-  # tag is the half that keeps getting dropped: `doctor` and `uv tool install`
-  # both resolve releases by tag, so an untagged bump reports the stale build as
-  # current (#55).
+  # Publishes the release that a merged release pull request describes. The
+  # version call is a person's: Andre confirms it, and the release notes, in
+  # `.github/scripts/release.py` before the pull request exists, where the
+  # major/minor/patch decision has the notes in front of it. This job only
+  # turns that commit into a tag and a GitHub release, because the tag is the
+  # half that keeps getting dropped: `doctor` and `uv tool install` both resolve
+  # releases by tag, so an untagged bump reports the stale build as current
+  # (#55). The release text is that commit's body and nothing else, so editing
+  # the pull request's description on GitHub changes nothing here.
   tag:
     # Not a convenience ordering. A tag is what every machine upgrades to, so
     # tagging a red commit publishes the breakage rather than reporting it.
@@ -191,6 +195,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          fail() { echo "::error::$1"; exit 1; }
+
           # `tomllib`, not a grep for `^version =`: a version key in any section
           # above [project] wins that grep, and "9.9.9" is a perfectly valid tag
           # name — so the wrong release ships silently rather than failing. Also
@@ -203,7 +209,36 @@ jobs:
           # is never retried — the next run sees the tag, exits 0, and the release
           # stays missing. That is the failure this job exists to stop.
           # `refs/tags/` explicitly: a branch sharing the name is not a release.
-          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+          tagged=false
+          git rev-parse -q --verify "refs/tags/v$v" >/dev/null && tagged=true
+          released=false
+          gh release view "v$v" >/dev/null 2>&1 && released=true
+          if $tagged && $released; then
+            echo "v$v already released"
+            exit 0
+          fi
+
+          # Everything is checked before anything is tagged. The tag is what
+          # every machine upgrades to, so a tag with no release is a half-
+          # published release, and a failure here leaves neither.
+          #
+          # `--no-merges` is load-bearing. This repository's merge commits carry
+          # the pull request's title in their body, so the merge of the release
+          # pull request also contains this subject. Without the flag the lookup
+          # returns that merge, fails the subject check, and stops every release.
+          rel=$(git log -1 --no-merges --format=%H --fixed-strings --grep "chore(release): cut $v" HEAD)
+          [ -n "$rel" ] || fail "no commit with the subject chore(release): cut $v"
+          [ "$(git log -1 --format=%s "$rel")" = "chore(release): cut $v" ] \
+            || fail "the commit found for $v has a different subject"
+          # The commit's own version, read the same way as above: the subject
+          # alone would also match a later commit that quotes it.
+          at=$(git show "$rel:pyproject.toml" | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read())["project"]["version"])')
+          [ "$at" = "$v" ] || fail "the commit found for $v carries version $at"
+          git log -1 --format=%b "$rel" > "$RUNNER_TEMP/notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" \
+            || fail "the release commit for $v has no release notes in its body"
+
+          if $tagged; then
             echo "v$v already tagged"
           else
             git config user.name "github-actions[bot]"
@@ -212,7 +247,7 @@ jobs:
             git push origin "v$v"
           fi
 
-          # The message stays bare and the summary lives in the release, built
-          # from the merged PRs. Deriving it from commit subjects was the other
-          # option and this repo's subjects are not consistently conventional.
-          gh release view "v$v" >/dev/null 2>&1 || gh release create "v$v" --generate-notes
+          # The tag stays bare and the notes are the release commit's body, which
+          # Andre confirmed in his editor. GitHub's own generated list of pull
+          # request titles is deliberately not used: nobody read it.
+          $released || gh release create "v$v" --notes-file "$RUNNER_TEMP/notes.md"
