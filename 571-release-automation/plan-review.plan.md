@@ -113,13 +113,15 @@ of an empty body follow the level 2 record as revised on 2026-10-15
   before the script reports nothing to release, and User Story 2 gained
   scenario 8. Every merge since v0.23.0 predates the check, so the first
   release after this feature would otherwise report nothing to release over
-  nine merges. `design.md` already says a merge with no note is never read as
+  seven merged pull requests, counted on 2026-10-16. `design.md` already says a merge with no note is never read as
   `none`, and the spec now agrees.
 - After the first plan review, clarify's 2026-10-15 session reversed the answer
   on branch protection. `main` is protected with no bypass, so the release goes
   through its own pull request (FR-013, FR-020, User Stories 2 and 5), and #599
   is folded in. The check passes a release branch whose version matches its
-  name (FR-004, User Story 1 scenario 9). The tag job fails before tagging on an
+  name and is higher than `main`'s (FR-004, User Story 1 scenario 9). The
+  higher-version condition was added on 2026-10-16, after review found that a
+  branch named for the current version matched its own name. The tag job fails before tagging on an
   empty release body and never publishes GitHub's generated notes (FR-016, User
   Story 3 scenario 4). The level 2 record was revised the same day.
 - User Story 2 now names the version prompt before the draft, which is the
@@ -203,8 +205,9 @@ whoever reviews this, the file is renamed `571.addition.md` before merge.
 7. `.github/rulesets/main.json`.
 8. AGENTS.md, this repository's pull request template, the drift test, and the
    comment above `_TEMPLATE` in `tests/test_shape.py`, which says the two
-   templates are byte-identical. The shipped template is left as it is. AGENTS.md's Releasing section gives the
-   two commands that protect `main` and the two that read the protection back.
+   templates are byte-identical. The shipped template is left as it is.
+   AGENTS.md's Releasing section gives the two commands that protect `main` and
+   the four that read the protection back, as `contracts/tag-job.md` lists them.
 
 Steps 2 and 5 are independent once step 1 lands.
 
@@ -226,6 +229,15 @@ no pull request reports yet would block every merge, this one included.
   that never reports blocks every merge into `main`. Reading the ruleset back
   and merging the next pull request is the test, and removing the ruleset is
   the way back.
+- A pull request merged after the release script runs and before the release
+  pull request merges lands in that release with no line in its notes. The
+  ruleset doesn't require branches to be up to date, so nothing stops it. Its
+  note is still under `changes/`, so it appears in the next release instead,
+  and a merge with no note in that window is listed in neither. The window is
+  as long as the release pull request stays open, so merge it promptly.
+- Pull requests already open when the ruleset is applied have no
+  `release-note` result from their last CI run, so each is blocked until it is
+  pushed again or its checks are re-run.
 - towncrier's file name format is assumed stable within the pin. A change
   shows up as a failing test at the next `uv lock --upgrade`, not in a release.
 

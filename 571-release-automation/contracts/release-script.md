@@ -74,8 +74,11 @@ again before Andre merges it.
    when `changes/` holds no file, which is the case after a release that
    deleted every note and no merge since.
 5. `git add pyproject.toml uv.lock`, then `git commit --cleanup=verbatim -F
-   <draft>` commits with the subject `chore(release): cut <version>` and the
-   edited draft as the body. The note deletions are already staged by step 4.
+   <message>`. The script writes the message file itself: the subject
+   `chore(release): cut <version>`, a blank line, and then the edited draft as
+   the body. git takes the subject from the file's first line, so passing the
+   draft alone would make its first heading the subject. The note deletions
+   are already staged by step 4.
 6. `git push -u origin release/v<version>`.
 7. `gh pr create --base main --head release/v<version> --fill` opens the pull
    request. The branch holds one commit, so `--fill` takes the title from its

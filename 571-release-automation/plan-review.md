@@ -7,66 +7,64 @@ Review type: re-review
 
 | Artifact | Content identity | Role |
 | --- | --- | --- |
-| plan.md | ddc76c17967f250d0d4c177a2b0a2625cf9b89d1 | technical strategy |
-| spec.md | 738eb0621931bebe3ae55df908a0b4e9e6782162 | requirements |
+| plan.md | 9bf20cbebc542c98a5b97b3794a890e60fc954b4 | technical strategy |
+| spec.md | 47b26330ea926fcf2134a58c56957bfa58227e51 | requirements |
 | .specify/memory/constitution.md | absent | constitution |
-| design.md | 68832bf405fbe2471adc03f621b75bd21ba491d8 | design-record index |
-| docs/architecture/change-carries-release-note.md | a6639f9c4e0ef6d32a025627a0588bf233360759 | design record |
-| docs/architecture/design/571-towncrier-builds-release-notes.md | 95807a531a9fda579d0bd27199c98ce60de20737 | design record |
-| research.md | ee5294ee8b5898783b682e945e1b77e1d3a31965 | planning evidence |
+| design.md | 1065767e733aafd03ad89a1c8c73d62f2c58e5e7 | design-record index |
+| docs/architecture/change-carries-release-note.md | 419e739406b88b4464317bdbb59b6ab354d9e8dd | design record |
+| docs/architecture/design/571-towncrier-builds-release-notes.md | ffc38879d9fa993f87ea60048dc03f5a26ec8f66 | design record |
+| research.md | 4ca95fc46e15a7a21f264d8c7d8b0993ee39d873 | planning evidence |
 | data-model.md | 68161af43203fc8eacd503de8546da62b1d1b0c5 | planning evidence |
-| quickstart.md | c13b1013394ce9e040230843627a574fda2d6506 | planning evidence |
-| contracts/check-release-note.md | e926253856385be12d60099c7c310d17c1170fa7 | planning evidence |
-| contracts/release-script.md | 823581eea53f1dc86afbcb5bb047305ad62d0ad9 | planning evidence |
-| contracts/tag-job.md | aa263d8ca77aaac38b4038671556d92f0c4fc6f5 | planning evidence |
+| quickstart.md | 51babb8a75481b09b637476183c6b2a5d529a8b7 | planning evidence |
+| contracts/check-release-note.md | cf1f4159814175f43f2c836b3cf4b9bc720a4121 | planning evidence |
+| contracts/release-script.md | a51784706881e1fae355a98da35be57d19ed0039 | planning evidence |
+| contracts/tag-job.md | 7eb6a965e935d3c18cd2d63864fcf4142567da52 | planning evidence |
 | checklists/requirements.md | 37a6a5ce0798ad3e653a03b8fa785d1ce5f4ead5 | requirements-quality checklist |
 | tests/test_install_config.py | 0281ffaa4b3ef803a73f1524c9a0271b26aac47d | existing code |
 | tests/test_shape.py | 03b350995d6ec85773b0ae5cac37290b571011dd | existing code |
 | tests/conftest.py | ab0a68e5a72288cdf034f54a415fbbc547c8d725 | existing code |
 | .github/workflows/ci.yml | 51235f6139dda5761a8e3926b459e68b8ac4e205 | existing code |
 | .github/pull_request_template.md | 3ee00e4a2b3a566b3a13b0de2e3f7c36e87851da | existing code |
-| pyproject.toml | 0529147d3b9406b2c56277e4570a6556440d949f | existing code |
+| pyproject.toml | cf085a4ca57e179aa23e278d3ef3b7546a170e17 | existing code |
 | wfctl.json | cd10684006bd8b3c52967743cd4e6e5a63a1a00e | existing code |
 | wfctl/_verify.py | de7930cbba4cc9d9056a21009d5d0c2f70b8f270 | existing code |
-| plan-review.plan.md | 2b629c7d579c5b7a62ea4cdbbfd69f15f47fd914 | base of this re-review |
+| plan-review.plan.md | ddc76c17967f250d0d4c177a2b0a2625cf9b89d1 | base of this re-review |
 
 ## Review scope
 
 - Re-review: the earlier report exists, and the plan copy's identity equals its
   `plan.md` row.
-- Changed in `plan.md` since the earlier report: `§Project Structure` adds
-  `tests/test_shape.py`, and `§Implementation order` step 8 names the
-  `_TEMPLATE` comment and "the two that read the protection back". Reviewed
-  together with `§Risks`, which names the read-back as the test of the ruleset,
-  and `§Ownership`, whose release-text row the new `--fill` step touches.
+- Changed in `plan.md` since the earlier report: `§Changes from the spec`
+  (seven merged pull requests, and the higher-version condition on a release
+  branch), `§Implementation order` step 8 (four read-back commands), and
+  `§Risks` (two new entries: a merge between the script and the release merge,
+  and pull requests open when the ruleset is applied). Reviewed together with
+  `§Ownership`, `§Constraints`, and `spec.md §FR-004`, `§FR-020`, and User
+  Story 1 scenario 9, which the changed text refers to.
 - Inputs that changed since the earlier report, each re-read in full with the
-  whole plan reviewed against it: `design.md`, `research.md`, `quickstart.md`,
-  `contracts/release-script.md`, and `contracts/tag-job.md`. These were also
-  named as changed by the invoking command, together with `plan.md`.
-- Unchanged since the earlier report, compared by identity: `spec.md`, both
-  design records, `data-model.md`, `contracts/check-release-note.md`, the
-  checklist, and every existing-code row. `spec.md`, `data-model.md`, and
-  `contracts/check-release-note.md` were read again for this review, and so were
-  the tag job in `ci.yml` and the `_TEMPLATE` comment in `tests/test_shape.py`.
-  The checklist, the two design records, `tests/conftest.py`,
-  `wfctl/_verify.py`, and the other existing-code rows were compared by
-  identity only.
+  whole plan reviewed against it: `spec.md`, `design.md`, `research.md`,
+  `quickstart.md`, `contracts/check-release-note.md`,
+  `contracts/release-script.md`, `contracts/tag-job.md`, and both design
+  records. The invoking command named all of these as changed.
+- Also changed by identity: `pyproject.toml`. It picked up the commits merged
+  from `main` after the earlier review. `[project].version` is still 0.23.0 and
+  the `dev` extra still has no towncrier, so no claim in the plan moves.
+- Unchanged by identity: `data-model.md`, the checklist, and every other
+  existing-code row. `data-model.md` was read again for this review.
 - Lenses: requirements and traceability, architecture and boundaries,
   adversarial implementation and verification.
 - Conditional lenses: security and reliability applied. The feature protects
   `main` with no bypass for anyone, the tag job publishes a public release and a
-  tag that every machine upgrades to, and the release script's failure path now
-  runs `git reset --hard`.
+  tag every machine upgrades to, and the release script's failure path restores
+  tracked files.
 - Constitution: the repository has none at `.specify/memory/constitution.md`.
   The plan's gates come from the accepted records and AGENTS.md.
-- Claims checked by running them, in a scratch repository: the tag job's lookup
-  with `--no-merges` against a merge commit shaped like GitHub's, the release
-  script's rollback after steps 1 to 4, the same rollback with a tracked file
-  edited after the preconditions passed, and the contract's steps 2 to 5 typed
-  as written. `gh pr create --fill` was checked by reading `initDefaultTitleBody`
-  and `Client.Commits` in the source of gh v2.91.0, the version installed here.
-  A read-only `gh api repos/astral-sh/ruff/rules/branches/main` showed what the
-  new read-back command returns.
+- Claims checked by running them, in a scratch repository: the rollback's
+  `git restore --staged --worktree --source=HEAD -- pyproject.toml uv.lock
+  changes/` once with a tracked note under `changes/` and once with none.
+  Checked against the repository: `git log --merges --format=%s
+  v0.23.0..origin/main` lists seven `Merge pull request` subjects, which matches
+  the plan's count.
 - Reviewers: the four lenses above, run in sequence by one agent with no part in
   writing the artifacts.
 
@@ -74,31 +72,28 @@ Review type: re-review
 
 BLOCKER: 0
 MAJOR: 0
-MINOR: 6
+MINOR: 2
 
-No BLOCKER findings identified in this review. PR-010, PR-011, and PR-013 are
-fixed, so every finding the earlier report left open is now fixed except
-PR-012, which is narrowed.
+No BLOCKER findings identified in this review. Six findings the earlier report
+left open are now fixed: PR-012, PR-014, PR-015, PR-016, PR-017, and PR-018.
 
-The tag job's lookup now skips merge commits, and the scratch run finds the
-release commit, passes the subject and version checks, and reads the body. The
-release script's rollback now resets before it switches, and the scratch run
-leaves `main` clean. The retry command for the pull request no longer needs the
-draft file, and gh's source confirms that `--fill` takes the description from a
-single commit's body.
+The ruleset read-back now shows the bypass list through two further commands,
+`design.md` agrees with the spec on the first release and on the settled
+template question, the release commit stages the version bump and the lock file,
+the test the plan describes asserts `--fill` and a one-commit branch, and the
+script's closing lines say how to change the release text. The release branch
+rule in the check, the contract, the research, the records, and the spec now
+agree: the version must match the name and be higher than `main`'s. The ruleset's
+`allowed_merge_methods` and the release commit message file carry through the
+plan, the tag job contract, and the data model.
 
-The six MINOR findings are bounded and force no architectural choice:
+Two MINOR findings stand:
 
-1. PR-012: the new read-back still can't show the bypass list.
-2. PR-014: two sentences in `design.md` that the spec now contradicts.
-3. PR-015: the rollback's `git reset --hard` discards any tracked edit made
-   while the editor was open, which the contract says can't happen.
-4. PR-016: the contract's commit step doesn't stage the version bump and the
-   lock file.
-5. PR-017: the test the plan describes can't observe the pull request's
-   description.
-6. PR-018: nothing says how Andre changes the wording once the pull request is
-   open, and an edit to its description on GitHub never reaches the release.
+1. PR-019: the rollback's `git restore` names `changes/` even when step 4 was
+   skipped, and git then restores nothing at all.
+2. PR-020: `design.md` and `data-model.md` still describe the release branch rule
+   without the higher-version condition, and the release script contract's
+   example counts nine merges where the plan counts seven.
 
 ## Findings
 
@@ -112,7 +107,7 @@ The six MINOR findings are bounded and force no architectural choice:
     `.github/pull_request_template.md` with the "Type of Change" section taken
     out of both copies, and a second test asserts the shipped copy still
     carries that section.
-  - `plan.md §Implementation order` step 8 names the drift test and now the
+  - `plan.md §Implementation order` step 8 names the drift test and the
     `tests/test_shape.py` comment too.
 - Finding: The plan says how the test changes and what it still guards.
 - Why it matters: The definition of done stays reachable without dropping the
@@ -161,7 +156,8 @@ The six MINOR findings are bounded and force no architectural choice:
     skipped when `changes/` holds no file.
 - Finding: Both halves are specified and tested.
 - Why it matters: towncrier's placeholder line can't reach a release page.
-- Suggested response: Fixed by the research, the contract, and the plan.
+- Suggested response: Fixed by the research, the contract, and the plan. PR-019
+  is a consequence of that skip.
 - Corroborated by: adversarial implementation and verification
 
 ### PR-005: The towncrier title line the script drops depends on how towncrier is invoked, and the plan doesn't name the invocation
@@ -212,9 +208,11 @@ The six MINOR findings are bounded and force no architectural choice:
 - Status: fixed
 - Evidence:
   - `spec.md §Assumptions`, `§FR-020`, and `research.md §7` and `§11`: the
-    repository allows merge commits only once this feature merges.
-- Finding: The assumption is stated and enforced by a setting.
-- Why it matters: A squash merge can't go unlisted once the setting is applied.
+    repository allows merge commits only once this feature merges. The ruleset
+    now carries `allowed_merge_methods: ["merge"]` in the committed file, so the
+    refusal is in the ruleset and not only in a repository setting.
+- Finding: The assumption is stated and enforced by a rule a review can read.
+- Why it matters: A squash merge can't go unlisted once the ruleset is applied.
 - Suggested response: Fixed by FR-020.
 - Corroborated by: requirements and traceability
 
@@ -239,22 +237,17 @@ The six MINOR findings are bounded and force no architectural choice:
 - Category: Requirement / Plan Mismatch
 - Status: fixed
 - Evidence:
-  - `contracts/tag-job.md`: the lookup is now `git log -1 --no-merges
-    --format=%H --fixed-strings --grep "chore(release): cut $v" HEAD`, and a
-    paragraph says why `--no-merges` is load-bearing. `research.md §8` says the
+  - `contracts/tag-job.md` and `research.md §8`: the lookup is `git log -1
+    --no-merges --format=%H --fixed-strings --grep "chore(release): cut $v"
+    HEAD`, and the contract says why `--no-merges` is load-bearing.
+  - Reproduced in the earlier review in a scratch repository: the lookup
+    returns the release commit, not the merge, and `%b` returns the draft.
+  - Unchanged by this round of edits: the lookup line in both artifacts is the
     same.
-  - Reproduced in a scratch repository: a release branch with one commit,
-    merged with the subject `Merge pull request #600 from
-    aamarin/release/v0.24.0` and the body `chore(release): cut 0.24.0`. The
-    lookup returns the release commit, the subject check passes, `tomllib`
-    reads `0.24.0` at that commit, and `%b` returns the draft.
-  - `.github/workflows/ci.yml`: the tag job checks out with `fetch-depth: 0`,
-    so the release commit is in the history the lookup walks.
-- Finding: The happy path of User Story 3 now reaches the tag.
+- Finding: The happy path of User Story 3 reaches the tag.
 - Why it matters: Each release no longer lands its version bump on `main`
   without a tag.
-- Suggested response: Fixed by the contract and the research. A residual case
-  is under Assumptions challenged.
+- Suggested response: Fixed. A residual case is under Assumptions challenged.
 - Corroborated by: adversarial implementation and verification, security and
   reliability
 
@@ -264,53 +257,39 @@ The six MINOR findings are bounded and force no architectural choice:
 - Category: Risk / Failure Mode
 - Status: fixed
 - Evidence:
-  - `contracts/release-script.md §After both prompts`: when a step from 1 to 5
-    fails, the script runs `git reset --hard` on the release branch, then
-    switches back to `main` and deletes the branch.
-  - Reproduced in a scratch repository: after the version bump, a changed lock
-    file, and a staged note deletion, the reset, switch, and `git branch -D`
-    leave `git status --porcelain` empty and `main` as the only branch.
-  - Step 7 is now `gh pr create --base main --head release/v<version>
-    --fill`, and the retry prints that same command, which needs no draft file.
-  - gh v2.91.0, `pkg/cmd/pr/create/create.go` `initDefaultTitleBody`: when
-    `Commits(BaseTrackingBranch, head)` returns one commit, the title is its
-    subject and the body is its body. `git/client.go` `Commits` runs `git log
-    --pretty=format:%H%x00%s%x00%b%x00 --cherry <origin/main>...<head>`, so
-    the body arrives whole, and `--cherry` keeps only the head side's commits
-    even if `origin/main` moves before a retry.
+  - `contracts/release-script.md §After both prompts`: the rollback restores
+    before it switches back to `main`, and step 7 is `gh pr create --base main
+    --head release/v<version> --fill`, which needs no draft file.
+  - gh v2.91.0 source, read in the earlier review: with one commit over the
+    base, `--fill` takes the title from its subject and the body from its body.
 - Finding: The rollback restores the tree, and the retry command is complete.
+  The restore's pathspec has its own gap, PR-019.
 - Why it matters: A failure partway through no longer leaves the bump on `main`.
-- Suggested response: Fixed. The reset's own reach is PR-015.
+- Suggested response: Fixed.
 - Corroborated by: adversarial implementation and verification
 
 ### PR-012: The read-back command can't show the bypass list, and the contract says it can
 
 - Priority: MINOR
 - Category: Verification Gap
-- Status: open
+- Status: fixed
 - Evidence:
-  - `spec.md §User Story 5` Independent Test: confirm the required checks,
-    that administrators are included, and that the repository allows merge
-    commits only.
-  - `contracts/tag-job.md` and `quickstart.md §Protecting main`: the read-back
-    is now `gh api repos/{owner}/{repo}/rules/branches/main` and a `--jq` of
-    the three merge settings. The contract adds: "The plain `rulesets` listing
-    isn't enough, since it names each ruleset without its rules or bypass
-    actors."
-  - `gh api repos/astral-sh/ruff/rules/branches/main` returns each rule's
-    `type`, `parameters`, `ruleset_source`, and `ruleset_id`. It carries no
-    `bypass_actors` field, and it lists only rules in force, so it doesn't say
-    whether a ruleset is active or in evaluate mode either.
-- Finding: The required checks and the merge setting are now readable, which
-  answers two thirds of the earlier finding. The third, that nobody can
-  bypass, is still invisible to both commands. The contract's sentence implies
-  the replacement shows the bypass actors, and it doesn't.
-- Why it matters: A ruleset applied with a bypass entry, for example after a
-  later `PUT` from an edited file, passes the documented read-back. That is
-  the one setting FR-020 exists to keep out.
-- Suggested response: Add `gh api repos/{owner}/{repo}/rulesets/<id> --jq
-  '{enforcement, bypass_actors}'`, taking the id from the `ruleset_id` the first
-  command prints, and correct the contract's sentence.
+  - `contracts/tag-job.md §Contract: .github/rulesets/main.json`: the read-back
+    is now four commands. The second finds the ruleset id with `--jq '.[] |
+    select(.name == "main") | .id'` and the third prints `rulesets/<id> --jq
+    '.bypass_actors'`.
+  - The contract's prose now says the second and third show the bypass list is
+    `[]`, and that neither the plain `rulesets` listing nor
+    `rules/branches/main` returns it. The earlier sentence implying the first
+    command showed it is gone.
+  - `quickstart.md §Protecting main` lists the same four, and `plan.md
+    §Implementation order` step 8 says "the four that read the protection back,
+    as `contracts/tag-job.md` lists them".
+- Finding: The bypass list is readable, and the plan, quickstart, and contract
+  agree on which commands read it.
+- Why it matters: A ruleset applied with a bypass entry no longer passes the
+  documented read-back.
+- Suggested response: Fixed.
 - Corroborated by: adversarial implementation and verification
 
 ### PR-013: Prose the change makes false is not in the plan's file list
@@ -319,153 +298,167 @@ The six MINOR findings are bounded and force no architectural choice:
 - Category: Requirement / Plan Mismatch
 - Status: fixed
 - Evidence:
-  - `design.md §Behaviour` now says the check passes a `release/v<version>`
-    branch whose version matches, asks for the version before the draft, shows
-    `##` category headings with no title, and gives `towncrier create` with
-    `--content`.
-  - `plan.md §Project Structure` and `§Implementation order` step 8 now list
-    the comment above `_TEMPLATE` in `tests/test_shape.py`, which reads "the
-    two are held byte-identical by `test_install_config`".
-- Finding: Every string the earlier finding cited now matches the contracts,
-  and the test comment is in the plan.
+  - `design.md §Behaviour` matches the contracts for the version prompt, the
+    category headings, and `towncrier create` with `--content`.
+  - `plan.md §Project Structure` and `§Implementation order` step 8 list the
+    comment above `_TEMPLATE` in `tests/test_shape.py`.
+- Finding: Every string the earlier finding cited matches, and the test comment
+  is in the plan.
 - Why it matters: Whoever copies strings into AGENTS.md copies working ones.
-- Suggested response: Fixed. Two other sentences in `design.md` are PR-014.
+- Suggested response: Fixed. PR-020 is a newer case of the same kind.
 - Corroborated by: requirements and traceability
 
 ### PR-014: Two sentences in `design.md` still describe behaviour the spec has since changed
 
 - Priority: MINOR
 - Category: Requirement / Plan Mismatch
-- Status: open
+- Status: fixed
 - Evidence:
-  - `design.md §Behaviour`: "When `changes/` holds only `none` notes, or
-    nothing, the script says so and stops". `spec.md §FR-014` and User Story 2
-    scenario 8 say that with no notes and a merge that added none, the script
-    lists the merges, proposes a patch, and opens the draft.
-    `contracts/release-script.md §Nothing to release` agrees with the spec.
-  - `design.md §Open Questions`: "Whether the PR template's 'Type of Change'
-    checkboxes are removed or kept beside the note's category. This has to be
-    settled". `spec.md §Clarifications` 2026-10-14 settled it, and `§FR-018`
-    and the plan carry the answer.
-- Finding: Both sentences predate the spec's answers. The first is the case the
-  first release after this feature will hit, since every merge since v0.23.0
-  predates the check.
-- Why it matters: The contract and the spec agree, so an implementer is not
-  misled. A reader who takes `design.md` as the summary, such as whoever writes
-  AGENTS.md's Releasing section, would describe the first release wrongly.
-- Suggested response: Add "and every merge since the last tag added a note" to
-  the first sentence, and move the open question under the settled one.
+  - `design.md §Behaviour` now reads "When `changes/` holds only `none` notes,
+    or nothing, and every merge since the last tag added a note, the script says
+    so and stops", followed by "A merge with no note keeps it going instead,
+    with an empty draft for Andre to write". That is `spec.md §FR-014` and
+    `contracts/release-script.md §Nothing to release`.
+  - `design.md §Open Questions` now carries the template question as settled on
+    2026-10-14, beside the 2026-10-15 pull request answer.
+- Finding: Both sentences agree with the spec.
+- Why it matters: Whoever writes AGENTS.md's Releasing section from `design.md`
+  describes the first release correctly.
+- Suggested response: Fixed.
 - Corroborated by: requirements and traceability
 
 ### PR-015: The rollback's `git reset --hard` discards any tracked edit made after the preconditions passed
 
 - Priority: MINOR
 - Category: Risk / Failure Mode
-- Status: open
+- Status: fixed
 - Evidence:
-  - `contracts/release-script.md §After both prompts`: "The preconditions
-    required a clean tree, so the reset discards only what the script itself
-    wrote."
-  - `contracts/release-script.md §Preconditions` and `§Prompts`: the clean-tree
-    check runs at the start, and the version prompt and the editor session come
-    after it. The editor works on a temporary file outside the repository, and
-    the contract doesn't check the tree again before step 1.
-  - Reproduced in a scratch repository: a line appended to the tracked
-    `uv.lock` after the clean check, followed by the step 1 to 4 rollback,
-    leaves `uv.lock` as it was committed, and the appended line is gone.
-- Finding: The sentence holds only if nothing writes to a tracked file between
-  the clean check and a failure in steps 1 to 5. That window includes an
-  editor session of any length, in the checkout Andre releases from.
-- Why it matters: A hand edit in that window is lost with no message, and git
-  has no record of it to restore. It needs a coincidence to happen, which is
-  why this is MINOR.
-- Suggested response: Check the tree is clean again just before step 1, or
-  restore only the paths the script writes, with `git restore --staged
-  --worktree pyproject.toml uv.lock changes/`. Then the sentence can stay as
-  written.
+  - `contracts/release-script.md §After both prompts`: the rollback is now `git
+    restore --staged --worktree --source=HEAD -- pyproject.toml uv.lock
+    changes/`, and the contract says it names its paths rather than running
+    `git reset --hard` because the editor session sits between the clean-tree
+    check and the commit.
+  - Run in a scratch repository with a tracked note: the restore exits 0 and
+    `git status --porcelain` is empty.
+- Finding: The rollback restores only the paths the script wrote, so an edit to
+  another tracked file survives. The pathspec has a gap of its own, PR-019.
+- Why it matters: A hand edit made while the editor is open is no longer lost.
+- Suggested response: Fixed.
 - Corroborated by: security and reliability
 
 ### PR-016: The contract's commit step doesn't stage the version bump or the lock file
 
 - Priority: MINOR
 - Category: Missing Information
-- Status: open
+- Status: fixed
 - Evidence:
-  - `contracts/release-script.md §After both prompts`: step 2 sets the version
-    line, step 3 runs `uv lock`, step 4 runs `git rm`, and step 5 runs `git
-    commit --cleanup=verbatim -F <draft>`. No step runs `git add` and step 5
-    has no `-a`.
-  - Reproduced in a scratch repository: those four steps as written make a
-    commit holding only the note deletions, and leave ` M pyproject.toml` and
-    ` M uv.lock` in the tree.
-  - `spec.md §FR-012` and `data-model.md §Release commit`: the commit carries
-    the new version and the relocked `uv.lock`.
-- Finding: An implementer who follows the contract literally makes a release
-  commit without the bump.
-- Why it matters: The test the spec describes for User Story 2 checks the
-  pushed branch's `pyproject.toml` and `uv.lock`, so it would catch this, and
-  the tag job's `tomllib` check would refuse the commit. It is bounded, and the
-  fix is one line in the contract.
-- Suggested response: Add `git add pyproject.toml uv.lock` to step 4 or 5.
+  - `contracts/release-script.md §After both prompts` step 5: "`git add
+    pyproject.toml uv.lock`, then `git commit --cleanup=verbatim -F
+    <message>`", and "The note deletions are already staged by step 4."
+  - `spec.md §FR-012` and `data-model.md §Release commit` list the same parts.
+- Finding: Followed as written, the commit holds the bump, the lock file, and
+  the deletions.
+- Why it matters: The release commit now carries what the tag job's `tomllib`
+  check reads.
+- Suggested response: Fixed.
 - Corroborated by: adversarial implementation and verification
 
 ### PR-017: The test the plan describes can't observe the pull request's description
 
 - Priority: MINOR
 - Category: Verification Gap
-- Status: open
+- Status: fixed
 - Evidence:
-  - `spec.md §User Story 2` Independent Test: "Check that the pull request it
-    asked for carries the same draft as its description." `spec.md §FR-013`:
-    the pull request's description is the confirmed draft.
-  - `research.md §10`: tests replace `gh pr create` with a stub that records
-    its arguments.
-  - `contracts/release-script.md` step 7: the arguments are now `--base main
-    --head release/v<version> --fill`, so the draft is not among them.
-- Finding: Under the new step, the description comes from gh, not from the
-  script. A stub that records arguments sees `--fill` and nothing else, so the
-  check the spec names can't be written as described. What makes the
-  description equal the draft is gh's one-commit rule, which this review
-  confirmed from gh's source but which no test in the plan exercises.
-- Why it matters: A second commit on the release branch, for example a
-  fix-up, would make gh title the pull request after the branch and list
-  commit subjects as the description, and no test would notice.
-- Suggested response: State in `plan.md §Implementation order` step 5 what the
-  test asserts in place of the description: that the pushed branch holds
-  exactly one commit over `origin/main`, whose body equals the draft, and that
-  the stub received `--fill`. Name gh's one-commit behaviour as the assumption
-  that makes this enough.
+  - `spec.md §User Story 2` Independent Test now says to check that the script
+    asked for the pull request with `--fill` on a branch holding only the
+    release commit.
+  - `research.md §10`: "the tests assert `--fill` and a branch holding one
+    commit whose body is the draft", and names gh 2.91.0's source as the reason
+    that is enough.
+- Finding: The test that can be written is the one the spec and the research
+  now name, and the gh assumption is stated.
+- Why it matters: A second commit on the release branch is now something a test
+  would notice.
+- Suggested response: Fixed.
 - Corroborated by: adversarial implementation and verification
 
 ### PR-018: Nothing says how Andre changes the wording once the release pull request is open
 
 - Priority: MINOR
 - Category: Boundary / Ownership Concern
+- Status: fixed
+- Evidence:
+  - `contracts/release-script.md §The release text lives in the commit`: the
+    description is a copy made once by `--fill`, the tag job publishes the
+    commit's body, a change after the pull request opens is an amend and a
+    force-push of `release/v<version>`, and the script's closing lines say so.
+  - `data-model.md §Release pull request` still says the description is the
+    commit's body, which agrees.
+- Finding: The way to change the wording is stated, and the script prints it at
+  the moment it is needed. `plan.md §Implementation order` step 8 does not name
+  it for AGENTS.md, but the closing line covers the case the finding was about.
+- Why it matters: The natural mistake, editing the description on GitHub, is
+  warned against where Andre sees it.
+- Suggested response: Fixed.
+- Corroborated by: architecture and boundaries
+
+### PR-019: The rollback's `git restore` fails outright when `changes/` holds no tracked file, and then restores nothing
+
+- Priority: MINOR
+- Category: Risk / Failure Mode
 - Status: open
 - Evidence:
-  - `contracts/release-script.md §Prompts`: "The draft is not the last gate:
-    the pull request it becomes is read again before Andre merges it."
-  - `plan.md §Ownership`: what the GitHub release says is the release commit's
-    body, read by the tag job. `data-model.md §Release pull request`: the
-    description is a copy of that body.
-  - `spec.md §User Story 3` scenario 1: "a release pull request with an edited
-    body merges", and the release equals the release commit's body.
-  - `design.md §Not Doing` leaves out a `CHANGELOG.md` because "a second copy
-    edited separately would drift from it".
-- Finding: The pull request's description is a second copy of the release
-  text, and GitHub lets Andre edit it directly. An edit there never reaches the
-  release, since the tag job reads the commit. The plan names reading the pull
-  request as a gate, and says nothing about how a wording change found there
-  is made, which is to amend the release commit and force-push the release
-  branch. Neither the plan nor step 8's AGENTS.md text names that.
-- Why it matters: The likely mistake is the natural one, editing the
-  description on GitHub, and it publishes the old wording with no error. It is
-  fixable afterwards by editing the GitHub release, which is why this is MINOR.
-- Suggested response: Have step 8's AGENTS.md text say that the commit body is
-  the release text, and that a wording change after the pull request opens is
-  an amend and a force-push of `release/v<version>`. Nothing protects that
-  branch, so the push is allowed.
-- Corroborated by: architecture and boundaries
+  - `contracts/release-script.md §After both prompts` step 4: "The step is
+    skipped when `changes/` holds no file." The rollback below it always names
+    `changes/` in its pathspec.
+  - Reproduced in a scratch repository: with no tracked file under `changes/`,
+    `git restore --staged --worktree --source=HEAD -- pyproject.toml uv.lock
+    changes/` prints `error: pathspec 'changes/' did not match any file(s) known
+    to git`, exits 1, and leaves ` M pyproject.toml` and ` M uv.lock` in place.
+    With a tracked note it exits 0 and the tree is clean.
+- Finding: git checks every pathspec before it restores any, so one that matches
+  nothing fails the whole command. In the case step 4 describes as skipped, a
+  failure in steps 2, 3, or 5 leaves the version bump and the lock change in the
+  tree, and the switch to `main` then carries them onto `main`.
+- Why it matters: This is the state PR-011 closed, reopened for a narrower case.
+  It needs a release where `changes/` holds no tracked file, which means every
+  merge since the tag came with no note. After the first release that can't
+  happen once `main` is protected, so it is MINOR.
+- Suggested response: Name `changes/` in the restore only when step 4 ran, or
+  restore with `git restore --staged --worktree --source=HEAD -- pyproject.toml
+  uv.lock` and then `git checkout HEAD -- changes/` guarded by the same
+  condition. Say so in the contract, and add a test that fails step 3 with
+  `changes/` empty.
+- Corroborated by: security and reliability
+
+### PR-020: `design.md` and `data-model.md` still describe the release branch rule without the higher-version condition, and an example count disagrees with the plan
+
+- Priority: MINOR
+- Category: Requirement / Plan Mismatch
+- Status: open
+- Evidence:
+  - `design.md §Behaviour`: the check "also passes a `release/v<version>` branch
+    whose `pyproject.toml` carries that version". `spec.md §FR-004`,
+    `contracts/check-release-note.md`, and both records say the version must
+    also be higher than `main`'s.
+  - `data-model.md §Release pull request`, checks row: "`release-note` passes
+    because the branch's name matches its version". The same condition is
+    missing there, and the case it was added for is a branch named for the
+    current version.
+  - `contracts/release-script.md §Nothing to release` example: "9 merges with
+    no release note", while `plan.md §Changes from the spec` counts seven
+    merged pull requests on 2026-10-16, which `git log --merges
+    v0.23.0..origin/main` confirms. The example's list also ends in "..." after
+    seven numbers.
+- Finding: Two summaries lag the 2026-10-16 revision, and one illustrative
+  number disagrees with the plan.
+- Why it matters: Whoever writes AGENTS.md's Releasing section from `design.md`
+  or the data model would say a branch named for its version needs no note,
+  which is the hole the revision closed. The contracts and the spec agree, so an
+  implementer is not misled.
+- Suggested response: Add "and higher than `main`'s" to both sentences, and make
+  the example's count and list agree with the plan or mark it as illustrative.
+- Corroborated by: requirements and traceability
 
 ## Requirement-to-plan trace
 
@@ -475,7 +468,7 @@ The six MINOR findings are bounded and force no architectural choice:
 | FR-002 | contracts/check-release-note.md §Messages | covered |
 | FR-003 | data-model.md §Release note, contracts/check-release-note.md | covered |
 | FR-003a | contracts/check-release-note.md §Messages | covered |
-| FR-004 | research.md §3, contracts/check-release-note.md | covered |
+| FR-004 | research.md §3, contracts/check-release-note.md, plan.md §Changes from the spec | covered; PR-020 in design.md and data-model.md only |
 | FR-005 | research.md §4, contracts/check-release-note.md §Category list | covered |
 | FR-006 | research.md §2, contracts/tag-job.md §release-note job | covered |
 | FR-007 | contracts/check-release-note.md §Messages | covered |
@@ -483,59 +476,56 @@ The six MINOR findings are bounded and force no architectural choice:
 | FR-009 | research.md §7, data-model.md §Merge | covered |
 | FR-010 | research.md §4 and §5, data-model.md §Category | covered |
 | FR-011 | contracts/release-script.md §Prompts | covered |
-| FR-012 | contracts/release-script.md §After both prompts | covered; PR-016 |
-| FR-013 | research.md §11, contracts/release-script.md §After both prompts | covered; PR-017, PR-018 |
-| FR-014 | contracts/release-script.md §Nothing to release | covered; PR-014 in design.md only |
+| FR-012 | contracts/release-script.md §After both prompts step 5 | covered |
+| FR-013 | research.md §11, contracts/release-script.md §After both prompts | covered |
+| FR-014 | contracts/release-script.md §Nothing to release | covered |
 | FR-015 | contracts/release-script.md §Abort | covered |
 | FR-016 | research.md §8, contracts/tag-job.md | covered |
 | FR-017 | research.md §9 | covered |
 | FR-018 | plan.md §Project Structure, §Implementation order step 8 | covered |
 | FR-019 | plan.md §Project Structure (`changes/571.none.md`) | covered |
-| FR-020 | research.md §11, contracts/tag-job.md §ruleset, quickstart.md | covered; PR-012 |
+| FR-020 | research.md §11, contracts/tag-job.md §ruleset, quickstart.md, plan.md step 8 | covered |
 | SC-001 | research.md §7, §11 | covered; see Assumptions challenged |
 | SC-002 | quickstart.md §Cutting a release | covered |
 | SC-003 | contracts/release-script.md step 3; `lint` is a required check | covered |
-| SC-004 | contracts/tag-job.md | covered; PR-018 |
+| SC-004 | contracts/tag-job.md | covered |
 | SC-005 | plan.md §Constraints, §Structure Decision | covered |
 | US1 scenarios 1 - 6, 8, 9 | plan.md §Implementation order step 2 | covered |
 | US1 scenario 7 | plan.md §Risks | read in review, per spec §Validation Strategy |
-| US2 scenarios 1 - 10 | plan.md §Implementation order step 5 | covered; PR-015, PR-016, PR-017 |
+| US2 scenarios 1 - 10 | plan.md §Implementation order step 5 | covered; PR-019 |
 | US3 scenarios 1 - 4 | contracts/tag-job.md, plan.md §Risks | covered; confirmed on the first release, per spec |
 | US4 scenarios 1 - 3 | plan.md §Project Structure, §Implementation order step 8 | covered |
-| US5 scenarios 1 - 3 | contracts/tag-job.md §ruleset, quickstart.md | covered; PR-012 |
+| US5 scenarios 1 - 3 | contracts/tag-job.md §ruleset, quickstart.md | covered |
 
 ## Assumptions challenged
 
 - The lookup's newest match is the release commit. With `--no-merges` that
   holds for the merge that releases. It fails on a later run when the release
   is still missing and a newer non-merge commit mentions `chore(release): cut
-  $v` in its message, for example a fix that refers to the release. The scratch
-  repository showed the lookup returning such a commit, and the subject check
-  then failing the job. The failure is loud, needs the release to have failed
+  $v` in its message. The failure is loud, needs the release to have failed
   once already, and is fixed by publishing by hand, so it is listed here rather
-  than filed. Picking the newest commit whose subject equals the expected one,
-  from `git log --no-merges --format='%H%x00%s'`, would close it.
+  than filed. Carried from the earlier review.
+- A branch named `release/vX.Y.Z` that raises the version needs no note, so a
+  change that is not a release could skip the note by bumping the version. The
+  tag job would then find no release commit for that version and fail before
+  tagging, so the cost is one hand-published release. The higher-version rule
+  narrows what the earlier rule allowed, and one maintainer makes this unlikely.
 - `gh pr create --fill` takes the description from a single commit's body.
-  Verified from gh v2.91.0's source, as PR-011 records. The contract doesn't
-  state a minimum gh version, and the behaviour has been in gh for several
-  years.
-- Step 1 can fail only for a reason other than an existing branch, since the
-  version prompt already refused one. The rollback then has no branch to
-  delete, and an implementer has to delete only a branch the script created.
-  The contract doesn't say so, and a careful implementation does it anyway.
-- The ruleset's required check names match what GitHub reports. Carried from
-  the earlier review, which read them from the head of #596.
-- The ruleset JSON is a valid request body, and an empty `bypass_actors`
-  includes repository administrators. Carried from the earlier review. Not
-  applied, and PR-012 is why the read-back can't confirm the second half.
+  Verified from gh v2.91.0's source in the earlier review, and now named as the
+  assumption in `research.md §10`. The contract states no minimum gh version.
+- The ruleset's required check names match what GitHub reports, and
+  `allowed_merge_methods` is accepted in a `pull_request` rule. The second was
+  read from GitHub's REST documentation per `research.md §11` and not applied.
+  The read-back commands are what confirm both.
 - Pull requests open when the ruleset is applied need a new push before they
-  can merge, since their runs predate the `release-note` job. Carried from the
-  earlier review. The plan doesn't mention it, and it is small with one
-  maintainer.
+  can merge. Now stated in `plan.md §Risks` and the ruleset contract, so no
+  longer an open gap.
 - `spec.md §SC-001` says every pull request merged after protection carries a
   note "because GitHub refuses the merge otherwise". The ruleset covers `main`
   only, so a stacked child can still merge red into its parent's branch. Carried
   from the earlier review.
+- The new risk entry on a merge between the script and the release merge matches
+  the spec's edge case and the ruleset's lack of an up-to-date requirement.
 
 ## Reviewer disagreement
 
@@ -545,12 +535,13 @@ The six MINOR findings are bounded and force no architectural choice:
 
 - `contracts/tag-job.md` says in its own text why `--no-merges` is
   load-bearing, so a later edit that drops it has to delete the reason first.
-- `contracts/release-script.md §After both prompts` says why the reset comes
-  before the switch, and why steps 6 and 7 leave the branch in place.
-- Step 7's `--fill` removes the last dependency on the temporary draft file
-  after the commit exists, so every printed retry command is complete.
-- `research.md §11` sends the release through its own pull request rather than
-  granting a bypass, and records why.
+- `contracts/release-script.md` says why the restore comes before the switch,
+  why it names its paths, and why steps 6 and 7 leave the branch in place.
+- The ruleset contract says where "merge commits only" is held in two places and
+  what each one does, so a reader knows which one refuses and which one hides a
+  button.
+- `research.md §3` and the check's record text give the reason a release branch
+  needs a higher version, not only the rule.
 - `contracts/tag-job.md` runs every check before it creates the tag, so a
   failure leaves no half-published release.
 

@@ -95,12 +95,14 @@ merged change carries a note, the line is absent.
 
 When `changes/` holds only `none` notes, or nothing, and every merge since the
 last tag added a note, the script says so and stops, because there is nothing
-for a user to notice. A merge with no note keeps it going, with an empty draft
-for Andre to write:
+for a user to notice:
 
 ```
 Nothing to release: 3 changes merged since v0.23.0, all marked none.
 ```
+
+A merge with no note keeps it going instead, with an empty draft for Andre to
+write.
 
 ### Someone reading the GitHub release
 

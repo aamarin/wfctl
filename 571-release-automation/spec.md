@@ -88,9 +88,11 @@ failure and `wfctl status` shows the definition of done as unmet. Adding
    info here", which is what `towncrier create` writes without `--content`,
    **When** the check runs, **Then** it fails and names the file as unwritten.
    An empty or whitespace-only note fails the same way.
-9. **Given** branch `release/v0.24.0` deletes every note and sets the version
-   to 0.24.0, **When** the check runs, **Then** it passes. The same branch with
-   the version set to 0.23.1 fails, naming both versions.
+9. **Given** `main` carries version 0.23.0 and branch `release/v0.24.0` deletes
+   every note and sets the version to 0.24.0, **When** the check runs, **Then**
+   it passes. The same branch with the version set to 0.23.1 fails, naming both
+   versions. A branch named `release/v0.23.0` that leaves the version at 0.23.0
+   fails too, saying the version isn't higher than `main`'s.
 
 ---
 
@@ -244,8 +246,9 @@ allows merge commits only.
 - A second pull request for an issue that already has a merged note commits its
   own, such as `changes/571.change.2.md`, and the draft lists both.
 - The release pull request deletes every note. Its check passes because a
-  branch named `release/v<version>` whose `pyproject.toml` carries that version
-  needs no note. A release branch whose name and version disagree fails.
+  branch named `release/v<version>` whose `pyproject.toml` carries that version,
+  higher than `main`'s, needs no note. A release branch whose name and version
+  disagree fails, and so does one named for the version `main` already carries.
 - Two stacked branches for the same issue pass on the parent's note. This case
   is left to review rather than the check.
 - A worktree with no local `main` and no `origin/main` to compare against. The
@@ -285,8 +288,9 @@ allows merge commits only.
   empty, whitespace only, or towncrier's placeholder text "Add your info here",
   and MUST name the file in its message.
 - **FR-004**: The check MUST pass on `main`, and on a branch named
-  `release/v<X.Y.Z>` whose `pyproject.toml` version is `X.Y.Z`. It MUST fail a
-  release branch whose name and version disagree.
+  `release/v<X.Y.Z>` whose `pyproject.toml` version is `X.Y.Z` and higher than
+  the version on `main`. It MUST fail a release branch whose name and version
+  disagree, or whose version isn't higher than `main`'s.
 - **FR-005**: The check MUST read the list of categories from the same
   configuration the release notes are built from, so the two lists can't
   disagree.

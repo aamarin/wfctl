@@ -82,7 +82,8 @@ ruleset requires, so renaming the job means editing
         "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
-        "required_review_thread_resolution": false } },
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["merge"] } },
     { "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": false,
@@ -117,6 +118,16 @@ second and third find the ruleset and show its bypass list is `[]`, which is
 what includes administrators; neither the plain `rulesets` listing nor
 `rules/branches/main` returns it. The last shows merge commits as the only
 method.
+
+Merge commits only is held in two places. The ruleset's `allowed_merge_methods`
+is what refuses a squash or rebase merge into `main`, and it lives in the
+committed file, so a review can see it. The repository setting only hides the
+squash and rebase buttons, so nobody picks a method the ruleset will refuse.
+
+The ruleset goes on while pull requests are still open, such as stacked
+children opened before this feature merged. Their last CI run had no
+`release-note` job, so each one is blocked until it is pushed again or its
+checks are re-run.
 
 A later edit to the file is applied with `-X PUT
 repos/{owner}/{repo}/rulesets/<id>`. Nothing checks that the applied ruleset

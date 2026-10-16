@@ -21,12 +21,13 @@ It takes no arguments and runs from the repository root, which is where
 | `[[tool.towncrier.type]]` in `pyproject.toml` | the category list |
 | `[tool.towncrier].directory` | the notes folder, `changes` |
 | `[project].version` in `pyproject.toml` at `HEAD` | whether a `release/v<X.Y.Z>` branch carries its own version |
+| `[project].version` in `pyproject.toml` at the base | whether that version is higher than `main`'s |
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | the branch passes, it is `main`, or it is a release branch whose version matches its name |
+| 0 | the branch passes, it is `main`, or it is a release branch whose version matches its name and is higher than the base's |
 | 1 | a finding, printed to stdout |
 
 ## Messages
@@ -86,21 +87,31 @@ On `main`:
 ✓ on main, nothing to check
 ```
 
-On a release branch whose version matches its name:
+On a release branch whose version matches its name and is higher than the
+base's:
 
 ```
 ✓ release branch for 0.24.0, no note needed
 ```
 
-On a release branch whose version doesn't:
+On a release branch whose version doesn't match its name:
 
 ```
 ✗ release/v0.24.0 carries version 0.23.1 in pyproject.toml
   a release branch needs no note only when its version matches its name
 ```
 
+On a release branch whose version matches its name but isn't higher than the
+base's:
+
+```
+✗ release/v0.23.0 carries version 0.23.0, and main already carries 0.23.0
+  a release branch needs no note only when it raises the version
+```
+
 A branch is a release branch when its whole name matches `release/v<X.Y.Z>`.
-Any other branch, `release/` prefix or not, follows the rules above.
+Any other branch, `release/` prefix or not, follows the rules above. The
+versions are compared as three integers, so 0.10.0 is higher than 0.9.0.
 
 A pass:
 

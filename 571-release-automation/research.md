@@ -44,17 +44,20 @@ was left open.
   notes are
   `git diff --name-only --no-renames --diff-filter=A <base> HEAD -- changes/`.
   A branch named `release/v<X.Y.Z>` passes with no note when `pyproject.toml`
-  at `HEAD`, read with `tomllib`, carries version `X.Y.Z`, and fails naming
-  both versions when it doesn't.
+  at `HEAD`, read with `tomllib`, carries version `X.Y.Z`, and `X.Y.Z` is
+  higher than the version in `pyproject.toml` at the base. It fails naming both
+  versions when either condition doesn't hold.
 - Rationale: in a pull request run, `actions/checkout` checks out a detached
   merge commit, so only `GITHUB_HEAD_REF` carries the branch name. Diffing from
   the merge base means a branch that merged `main` in is judged on its own
   changes only. A stacked branch's diff from `main` includes its parent's note,
   so it still needs one for its own issue, as User Story 1 scenario 4 requires.
   `--no-renames` makes a renamed note count as added. A release branch deletes
-  every note and adds none, so it needs its own rule, and tying the name to the
-  version keeps `release/` from being a prefix any branch can use to skip the
-  note. An empty `GITHUB_HEAD_REF` counts as unset, because GitHub sets it to
+  every note and adds none, so it needs its own rule. Tying the name to the
+  version alone isn't enough, because a branch named for the current version
+  that leaves the version alone matches its own name. Requiring the version to
+  be higher than the base's keeps `release/` from being a prefix any branch can
+  use to skip the note, since only a release raises the version. An empty `GITHUB_HEAD_REF` counts as unset, because GitHub sets it to
   the empty string on push runs.
 - Alternatives considered: diffing against the pull request's base branch,
   which for a stacked pull request is the parent and would let the check differ
@@ -206,11 +209,14 @@ was left open.
   `.github/rulesets/main.json` and applied with `gh api -X POST
   repos/{owner}/{repo}/rulesets --input .github/rulesets/main.json`. It targets
   `refs/heads/main`, has no bypass actors, and carries four rules: `deletion`,
-  `non_fast_forward`, `pull_request` with zero required approvals, and
-  `required_status_checks` with `test (3.11)`, `test (3.13)`, `wheel`, `lint`,
-  and `release-note`. Merge commits only is a repository setting, applied with
-  `gh api -X PATCH repos/{owner}/{repo} -F allow_squash_merge=false -F
-  allow_rebase_merge=false`. AGENTS.md gives both commands, and Andre runs them
+  `non_fast_forward`, `pull_request` with zero required approvals and
+  `allowed_merge_methods` set to `["merge"]`, and `required_status_checks`
+  with `test (3.11)`, `test (3.13)`, `wheel`, `lint`, and `release-note`. The
+  ruleset is what refuses a squash or rebase merge. The repository setting,
+  applied with `gh api -X PATCH repos/{owner}/{repo} -F
+  allow_squash_merge=false -F allow_rebase_merge=false`, hides those buttons
+  so nobody picks a method the ruleset refuses. `allowed_merge_methods` was
+  read from GitHub's REST documentation for rulesets on 2026-10-16. AGENTS.md gives both commands, and Andre runs them
   once this feature has merged.
 - Rationale: with no bypass, a push straight to `main` is refused for Andre
   too, so the release has to arrive as a pull request. Zero approvals, because
