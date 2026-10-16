@@ -573,19 +573,24 @@ def test_an_already_stored_spec_dir_creates_no_commit(tmp_path: Path) -> None:
     assert _git(env.here, "rev-parse", "HEAD") == head
 
 
-def _ignore_logs(env: types.SimpleNamespace) -> None:
-    (env.here / ".gitignore").write_text("*.log\n")
-    _git(env.here, "add", ".gitignore")
-    _git(env.here, "commit", "-m", "ignore logs")
+def _exclude_logs_here(env: types.SimpleNamespace) -> None:
+    """A rule only this clone has, as `.git/info/exclude` and a global excludes
+    file are. No other machine's store reads it."""
+    exclude = env.here / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(exist_ok=True)
+    exclude.write_text("*.log\n")
 
 
-def test_a_file_the_store_ignores_is_named_and_never_pushed(tmp_path: Path) -> None:
-    """An ignore rule matching a file in the spec dir leaves it out of `git add`
-    and out of `git status`, so the store printed "stored" for the dir with
-    nothing to say that one file stayed behind. The file is still not pushed,
-    since an ignore rule is the store owner's choice; the store says so."""
+NOTE = "ℹ {} not stored, ignored by this machine's git excludes: {}"
+
+
+def test_a_file_this_machines_excludes_hide_is_named_and_never_pushed(tmp_path: Path) -> None:
+    """A personal rule leaves a file out of `git add` and out of `git status`,
+    so the store printed "stored" for the dir with nothing to say that one file
+    stayed behind, and another machine's store would have kept it. The file is
+    still not pushed, since the rule is the person's own; the store says so."""
     env = _store_setup(tmp_path)
-    _ignore_logs(env)
+    _exclude_logs_here(env)
     _write(env.spec_dir, "spec.md", "notes.log")
 
     result = _store(env)
@@ -593,27 +598,67 @@ def test_a_file_the_store_ignores_is_named_and_never_pushed(tmp_path: Path) -> N
     assert result.outcome == "stored"
     assert result.ignored == ("notes.log",)
     assert f"{BRANCH}/notes.log" not in _remote_files(env.remote)
-    assert _spec_store.report_lines(result)[-1] == (
-        "ℹ 1 file not stored, ignored by the store's rules: notes.log"
-    )
+    assert _spec_store.report_lines(result)[-1] == NOTE.format("1 file", "notes.log")
 
 
-def test_a_spec_dir_holding_only_ignored_files_is_already_stored_and_says_so(
+def test_a_spec_dir_holding_only_hidden_files_is_already_stored_and_says_so(
     tmp_path: Path,
 ) -> None:
     """The case that read as complete: nothing to commit, so `already_stored`,
     for a dir whose only file was never stored."""
     env = _store_setup(tmp_path)
-    _ignore_logs(env)
+    _exclude_logs_here(env)
     _write(env.spec_dir, "notes.log")
 
     result = _store(env)
 
     assert result.outcome == "already_stored"
     assert result.exit_code == 0
-    assert _spec_store.report_lines(result)[1:] == [
-        "ℹ 1 file not stored, ignored by the store's rules: notes.log",
-    ]
+    assert _spec_store.report_lines(result)[1:] == [NOTE.format("1 file", "notes.log")]
+
+
+def test_a_file_the_stores_committed_gitignore_hides_is_not_named(tmp_path: Path) -> None:
+    """The real store's `.gitignore` lists `.DS_Store`, and 15 of its spec dirs
+    hold one. Every store of those would end with a line about a rule the
+    store's owners wrote and share, which teaches the reader to skip the line
+    that matters."""
+    env = _store_setup(tmp_path)
+    (env.here / ".gitignore").write_text("*.log\n")
+    _git(env.here, "add", ".gitignore")
+    _git(env.here, "commit", "-m", "ignore logs")
+    _write(env.spec_dir, "spec.md", "notes.log")
+
+    result = _store(env)
+
+    assert result.ignored == ()
+    assert not any(line.startswith("ℹ") for line in _spec_store.report_lines(result))
+
+
+def test_a_long_list_of_hidden_files_is_cut_the_way_the_subject_is(tmp_path: Path) -> None:
+    """An ignored `.venv` or `node_modules` lists every file under it, and the
+    wrapper asks for the output word for word."""
+    env = _store_setup(tmp_path)
+    _exclude_logs_here(env)
+    _write(env.spec_dir, "spec.md", *(f"{n}.log" for n in "abcdefg"))
+
+    result = _store(env)
+
+    assert _spec_store.report_lines(result)[-1] == NOTE.format(
+        "7 files", "a.log, b.log, c.log, d.log, e.log and 2 others",
+    )
+
+
+def test_the_note_ends_a_failed_outcome_too() -> None:
+    """The note is added after the outcome's own lines, so a failure keeps its
+    remedy and gains the note."""
+    result = _spec_store.StoreResult(
+        "push_refused", BRANCH, "spec", False, ignored=("notes.log",),
+    )
+
+    lines = _spec_store.report_lines(result)
+
+    assert lines[0].startswith("✗ committed")
+    assert lines[-1] == NOTE.format("1 file", "notes.log")
 
 
 @pytest.mark.parametrize("names, subject", [

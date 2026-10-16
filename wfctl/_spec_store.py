@@ -382,11 +382,15 @@ class StoreResult(NamedTuple):
     `store_branch` is the spec store's own branch, which a layout with no
     upstream names in place of the upstream it lacks.
 
-    `ignored` are files in the spec dir that an ignore rule of the store's
-    keeps out of `git add` and `git status`, relative to the spec dir. They are
-    never stored, since a rule is the store owner's choice and failing on one
-    would leave `check specs` red with nothing wfctl could do, so the result
-    names them instead of reading as if the dir were whole.
+    `ignored` are files in the spec dir that a rule personal to this machine,
+    `.git/info/exclude` or the global excludes file, keeps out of `git add` and
+    `git status`, relative to the spec dir. Another machine's store would keep
+    them, so a result that says nothing reads as a whole dir when it is not.
+    A rule in a `.gitignore` the store commits is left out: its owners wrote
+    it and every clone shares it, and the real store's lists `.DS_Store`, which
+    would end most stores with a line the reader learns to skip. None of them
+    fail the store or `check specs`, since a rule is someone's choice and
+    wfctl could not clear it.
 
     `inside_worktree` is kept rather than `stops_removal` itself, so the rule
     lives in one place and the removal command cannot apply a second one.
@@ -600,11 +604,7 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
     # remote to push to is the person's decision and not the store's (FR-012).
     # Every comparison that would be made with `@{u}` is made with `HEAD`.
     upstream = found.kind == "store"
-    # `-z` for the same reason `unstored` uses it. A failed call reads as none,
-    # since this only adds a line to the output and must not fail a store.
-    ignored = _in_folder(_read(
-        found.root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", name,
-    ) or "")
+    ignored = _hidden_here(found.root, name)
 
     def result(
         outcome: Outcome, files: tuple[str, ...] = (),
@@ -693,6 +693,20 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
 
     sha = _read(found.root, "rev-parse", "--short", "HEAD")
     return result("stored", files, sha=sha)
+
+
+def _hidden_here(root: str, name: str) -> tuple[str, ...]:
+    """Files under `name` that only a rule personal to this machine hides.
+
+    Every ignored file, less those a committed `.gitignore` also hides. `-z`
+    for the same reason `unstored` uses it. A failed call reads as none, since
+    this only adds a line to the output and must not fail a store.
+    """
+    def listed(*rules: str) -> set[str]:
+        out = _read(root, "ls-files", "-z", "--others", "--ignored", *rules, "--", name)
+        return set(_in_folder(out or ""))
+
+    return tuple(sorted(listed("--exclude-standard") - listed("--exclude-per-directory=.gitignore")))
 
 
 def _in_folder(nul_separated: str) -> tuple[str, ...]:
@@ -847,13 +861,18 @@ def report_lines(result: StoreResult) -> list[str]:
     Plain text with no console markup, because removal prints the same lines
     as a warning and has to show exactly what `store specs` would. A line
     after the first that names files is indented four spaces, and so is the
-    remedy line under it. Files an ignore rule kept out get one line of their
-    own last, whatever the outcome, so no result reads as a whole dir.
+    remedy line under it. Files only this machine's excludes hid get one line of
+    their own last, not indented and whatever the outcome, so no result reads as
+    a whole dir. It lists the first five, as the commit subject does.
     """
     lines = _outcome_lines(result)
     if result.ignored:
-        listed = ", ".join(result.ignored)
-        lines.append(f"ℹ {_count(len(result.ignored), 'file')} not stored, ignored by the store's rules: {listed}")
+        shown, more = result.ignored[:5], len(result.ignored) - 5
+        listed = ", ".join(shown) + (f" and {_count(more, 'other')}" if more > 0 else "")
+        lines.append(
+            f"ℹ {_count(len(result.ignored), 'file')} not stored,"
+            f" ignored by this machine's git excludes: {listed}"
+        )
     return lines
 
 

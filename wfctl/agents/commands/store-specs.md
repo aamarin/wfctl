@@ -58,9 +58,9 @@ failing to push.
 Exit 0 means the spec dir is stored, was already stored, or sits in a layout
 with nowhere to push. In the last case the output says where the files are.
 
-Any of those can end with an `ℹ` line naming files the spec store's ignore rules
-left out. They were never stored and never will be, and it is not a failure.
-Include the line when you report.
+Any outcome can end with an `ℹ` line naming files that only this machine's git
+excludes hide. They were not stored, and another machine's store would store
+them. It is not a failure.
 
 ## 4. Hand back
 
