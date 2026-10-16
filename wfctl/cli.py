@@ -1527,6 +1527,35 @@ def archive_unsaved_cmd(
         console.print(f"    and {len(saved.files) - shown} more")
 
 
+store_app = typer.Typer(
+    no_args_is_help=True, help="Keep a branch's spec files where a removal won't delete them."
+)
+app.add_typer(store_app, name="store")
+
+
+@store_app.command("specs")
+def store_specs_cmd(
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="Replace differing files with the worktree's copies."
+    ),
+) -> None:
+    """Copy this worktree's spec files to the main checkout's spec dir.
+
+    Stops with exit 1 when the main checkout already holds a different copy of a
+    file, and shows the difference. `--overwrite` replaces those files.
+    """
+    from wfctl import _spec_store
+
+    repo_root = get_repo_root()
+    branch = resolve_branch(repo_root)
+    result = _spec_store.store(
+        resolve_spec_dir(branch, repo_root), branch, repo_root, overwrite=overwrite
+    )
+    for line in result.lines:
+        console.print(line, markup=False, soft_wrap=True)
+    raise typer.Exit(result.exit_code)
+
+
 # Two names, one function. `archive-story` is a compatibility shim, hidden so it
 # is not advertised as a second supported spelling: `.workmux.yaml` is repo-local,
 # so copies predating the rename persist indefinitely, and a failing `pre_remove`
