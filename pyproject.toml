@@ -22,7 +22,12 @@ dependencies = [
 # ruff is pinned to a minor, not floated: its default rule set widens between
 # releases (0.16 added ~40 findings to this repo over 0.15), so an unpinned
 # linter turns someone else's release into a red build on an untouched branch.
-dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1", "pyyaml>=6,<7"]
+#
+# towncrier is pinned to a year, not a minor like ruff. It uses calendar
+# versions, so a minor pin would expire within a month. The range is short
+# enough that its note file name format, which the release note check parses,
+# gets re-checked at the next `uv lock --upgrade`.
+dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1", "pyyaml>=6,<7", "towncrier>=26.9,<27"]
 
 [dependency-groups]
 # The same tools, reached the way `uv run` reaches things. uv installs a
@@ -57,6 +62,36 @@ markers = [
     "runs_mypy: shells out to mypy, so it costs seconds rather than milliseconds",
     "builds_wheel: shells out to a real `python -m build`, so it costs seconds rather than milliseconds",
 ]
+
+# The release notes live in `changes/`, one file per change. The release script
+# runs `towncrier build --draft`, which writes nothing, so the file named by
+# `filename` is never created; it only selects the markdown template. This
+# table is also the one list of categories: the release note check reads the
+# `[[tool.towncrier.type]]` directories from here instead of keeping its own.
+[tool.towncrier]
+directory = "changes"
+filename = "CHANGELOG.md"
+issue_format = "#{issue}"
+
+[[tool.towncrier.type]]
+directory = "change"
+name = "Behaviour changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "addition"
+name = "Additions"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fix"
+name = "Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "none"
+name = "Nothing to notice"
+showcontent = true
 
 [tool.ruff.lint]
 # Explicit rather than inherited, for the same reason the version is pinned.
