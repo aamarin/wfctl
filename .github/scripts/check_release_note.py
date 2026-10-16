@@ -116,31 +116,17 @@ def check_release_branch(branch: str, base: str) -> list[str]:
     return []
 
 
-def main() -> int:
-    branch = branch_name()
-    if branch == "main":
-        print("✓ on main, nothing to check")
-        return 0
+def inspect_added_notes(
+    base: str, directory: str, categories: list[str], listed: str
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Every file this branch added under the notes folder, as findings and notes.
 
-    base = merge_base()
-    if base is None:
-        print("✗ can't find main to compare this branch against\n"
-              "  run git fetch origin main, then check again")
-        return 1
-
-    if RELEASE_BRANCH.match(branch):
-        findings = check_release_branch(branch, base)
-        if findings:
-            print("\n".join(findings))
-            return 1
-        print(f"✓ release branch for {branch.removeprefix('release/v')}, no note needed")
-        return 0
-
-    directory, categories = towncrier_settings()
-    listed = ", ".join(categories[:-1]) + f", or {categories[-1]}"
-    findings = []
+    A file with a note's name counts as a note for its issue even when its
+    category or content is wrong, so one mistake produces one finding instead of
+    also reporting the issue as having no note.
+    """
+    findings: list[str] = []
     notes: list[tuple[str, str]] = []  # (path, issue)
-
     for path in added_files(base, directory):
         name = path.removeprefix(directory + "/")
         match = NOTE_NAME.match(name) if "/" not in name else None
@@ -165,6 +151,32 @@ def main() -> int:
                 f"✗ {path} has no release note written in it\n"
                 f'  replace "{PLACEHOLDER}" with what a user of wfctl will notice'
             )
+    return findings, notes
+
+
+def main() -> int:
+    branch = branch_name()
+    if branch == "main":
+        print("✓ on main, nothing to check")
+        return 0
+
+    base = merge_base()
+    if base is None:
+        print("✗ can't find main to compare this branch against\n"
+              "  run git fetch origin main, then check again")
+        return 1
+
+    if RELEASE_BRANCH.match(branch):
+        findings = check_release_branch(branch, base)
+        if findings:
+            print("\n".join(findings))
+            return 1
+        print(f"✓ release branch for {branch.removeprefix('release/v')}, no note needed")
+        return 0
+
+    directory, categories = towncrier_settings()
+    listed = ", ".join(categories[:-1]) + f", or {categories[-1]}"
+    findings, notes = inspect_added_notes(base, directory, categories, listed)
 
     issue_match = BRANCH_ISSUE.match(branch)
     if issue_match:

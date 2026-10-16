@@ -174,10 +174,12 @@ def build_draft(version: str, directory: str, notes: dict[str, list[str]]) -> st
     # towncrier says "What is seen below is what would be written." on stderr,
     # so stdout is the draft alone. Splitting on the line stays in case a later
     # version moves it onto stdout.
-    lines = done.stdout.partition(DRAFT_MARKER)[2 if DRAFT_MARKER in done.stdout else 0].splitlines()
+    drafted = done.stdout
+    if DRAFT_MARKER in drafted:
+        drafted = drafted.partition(DRAFT_MARKER)[2]
     kept: list[str] = []
     dropped_title = False
-    for line in lines:
+    for line in drafted.splitlines():
         if not dropped_title and line.startswith("# "):
             dropped_title = True
             continue

@@ -97,7 +97,47 @@ def repo(tmp_path: Path) -> Path:
     return path
 
 
-Release = Callable[..., tuple[int, str]]
+class Release:
+    """One run of the script from `repo`, with the stubs' records kept to read.
+
+    Calling it returns the exit code and what the script printed. `lock_record`
+    and `pr_record` hold what the stub commands were given, and `saw` holds what
+    the draft contained when the editor opened it.
+    """
+
+    def __init__(
+        self,
+        repo: Path,
+        stubs: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self.repo, self.stubs = repo, stubs
+        self.monkeypatch, self.capsys = monkeypatch, capsys
+        self.lock_record = stubs / "lock.txt"
+        self.pr_record = stubs / "pr.txt"
+        self.saw = stubs / "saw.txt"
+
+    def __call__(
+        self,
+        answers: list[str] | None = None,
+        editor: str = "keep",
+        lock: str = "ok",
+        pr: str = "ok",
+        ask: Callable[[str], str] | None = None,
+    ) -> tuple[int, str]:
+        queue = iter([""] if answers is None else answers)
+        self.monkeypatch.setenv(
+            "GIT_EDITOR",
+            f"{shlex.quote(sys.executable)} {self.stubs / 'editor.py'} {editor} {self.saw}",
+        )
+        self.monkeypatch.chdir(self.repo)
+        code = load_release().main(
+            lock_command=[sys.executable, str(self.stubs / "lock.py"), str(self.lock_record), lock],
+            pr_command=[sys.executable, str(self.stubs / "pr.py"), str(self.pr_record), pr],
+            ask=ask or (lambda prompt: next(queue)),
+        )
+        return code, self.capsys.readouterr().out
 
 
 @pytest.fixture
@@ -107,38 +147,11 @@ def release(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> Release:
-    """Run the script from `repo` with stubs, returning its exit code and output.
-
-    The stubs' records are left on the function for the test to read.
-    """
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     for name, body in (("lock.py", LOCK_STUB), ("pr.py", PR_STUB), ("editor.py", EDITOR_STUB)):
         (stubs / name).write_text(body)
-
-    def go(
-        answers: list[str] | None = None,
-        editor: str = "keep",
-        lock: str = "ok",
-        pr: str = "ok",
-        ask: Callable[[str], str] | None = None,
-    ) -> tuple[int, str]:
-        queue = iter([""] if answers is None else answers)
-        go.lock_record = stubs / "lock.txt"  # type: ignore[attr-defined]
-        go.pr_record = stubs / "pr.txt"  # type: ignore[attr-defined]
-        go.saw = stubs / "saw.txt"  # type: ignore[attr-defined]
-        monkeypatch.setenv(
-            "GIT_EDITOR", f"{shlex.quote(sys.executable)} {stubs / 'editor.py'} {editor} {go.saw}"  # type: ignore[attr-defined]
-        )
-        monkeypatch.chdir(repo)
-        code = load_release().main(
-            lock_command=[sys.executable, str(stubs / "lock.py"), str(go.lock_record), lock],  # type: ignore[attr-defined]
-            pr_command=[sys.executable, str(stubs / "pr.py"), str(go.pr_record), pr],  # type: ignore[attr-defined]
-            ask=ask or (lambda prompt: next(queue)),
-        )
-        return code, capsys.readouterr().out
-
-    return go
+    return Release(repo, stubs, monkeypatch, capsys)
 
 
 def nothing_changed(repo: Path) -> None:
@@ -301,7 +314,7 @@ def test_no_notes_with_unnoted_merges_still_proposes_a_patch_and_opens_an_empty_
     assert "Proposed version: 0.23.1 (patch: no notes yet, and 2 merges with no release note to read first)" in out
     assert "Merged with no release note: #1, #2" in out
     assert "No significant changes." not in out
-    assert release.saw.read_text() == ""  # type: ignore[attr-defined]
+    assert release.saw.read_text() == ""
     assert git(repo, "log", "-1", "--format=%b", "origin/release/v0.23.1") == "Written by hand."
 
 
@@ -464,7 +477,7 @@ def test_the_pushed_branch_holds_one_commit_that_carries_the_release(
     assert 'version = "0.24.0"' in git(repo, "show", f"{branch}:pyproject.toml")
     assert "# relocked" in git(repo, "show", f"{branch}:uv.lock")
     assert git(repo, "ls-tree", "-r", "--name-only", branch, "--", "changes") == ""
-    assert release.pr_record.read_text() == "--base main --head release/v0.24.0 --fill"  # type: ignore[attr-defined]
+    assert release.pr_record.read_text() == "--base main --head release/v0.24.0 --fill"
     assert "Release pull request opened: https://example.test/pull/7." in out
     assert "amend the commit on release/v0.24.0 and force-push it" in out
     assert "doesn't change the release" in out
@@ -480,7 +493,7 @@ def test_the_commit_body_equals_the_draft_when_the_editor_changes_nothing(
 
     release()
 
-    drafted = release.saw.read_text().strip()  # type: ignore[attr-defined]
+    drafted = release.saw.read_text().strip()
     assert git(repo, "log", "-1", "--format=%b", "origin/release/v0.24.0") == drafted
 
 
