@@ -43,11 +43,14 @@ records and AGENTS.md, as the plan's own gates do.
   because the plan already says who answers it and when.
 - **C · Underspecification, LOW**: `tests/test_ruleset.py` was in the tasks
   and missing from the plan's file list.
-  → Fixed: `plan.md` §Source Code lists it.
+  → Fixed: the Notes in `tasks.md` say the plan doesn't list the file and why
+  it is added. Decided against adding it to `plan.md`, because any edit there
+  makes the plan review stale, and a second review over one line of a file list
+  is out of proportion.
 - **F · Inconsistency, LOW**: T036's verification step could be read as the
   changed test failing.
   → Fixed: it now says the test as it stands on `main` fails after T037.
 
 ### Filing
 
-Nothing was filed, since every finding was fixed in `tasks.md` or `plan.md`.
+Nothing was filed, since every finding was fixed in `tasks.md`.
