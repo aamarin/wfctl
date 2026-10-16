@@ -1267,3 +1267,52 @@ def test_the_three_copies_of_the_config_filename_agree() -> None:
     from wfctl import _declared, _paths, _verify
 
     assert _paths._CONFIG_PATH == _verify.CONFIG_PATH == _declared.CONFIG_PATH
+
+
+def test_is_main_checkout_is_true_in_the_main_checkout_and_false_in_a_linked_worktree(
+    tmp_path: Path,
+) -> None:
+    """The store tells "running in the main checkout" from "no main checkout" with this.
+
+    `main_checkout` answers None for both, so it can't separate the two layouts
+    that need different outcomes: nothing to copy in one, and spec files saved to
+    `unsaved/` in the other.
+    """
+    import subprocess
+
+    from tests.conftest import git_repo
+
+    from wfctl._paths import is_main_checkout
+
+    main = git_repo(tmp_path / "main")
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-b", "feature", str(worktree)],
+        check=True, capture_output=True,
+    )
+
+    assert is_main_checkout(main) is True
+    assert is_main_checkout(worktree) is False
+
+
+def test_is_main_checkout_is_false_in_a_bare_layout_worktree(tmp_path: Path) -> None:
+    """A worktree of a bare repository has no main checkout, and isn't one."""
+    import subprocess
+
+    from tests.conftest import git_repo
+
+    from wfctl._paths import is_main_checkout, main_checkout
+
+    source = git_repo(tmp_path / "source")
+    bare = tmp_path / "project.git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(source), str(bare)], check=True, capture_output=True
+    )
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "-C", str(bare), "worktree", "add", "-b", "feature", str(worktree)],
+        check=True, capture_output=True,
+    )
+
+    assert main_checkout(worktree) is None
+    assert is_main_checkout(worktree) is False
