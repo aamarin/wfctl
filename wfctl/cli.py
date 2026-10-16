@@ -16,8 +16,9 @@ from wfctl import _bob_settings, _bundle, _provenance, _settings, _tracker
 # Module scope, unlike the rest of `_archive`, which `archive-specs` imports
 # lazily inside its `try` so an import error cannot strand a worktree. An
 # `except` clause resolves its class before the handler runs, so this name has to
-# exist by then. Safe to hoist: `_archive` imports only datetime, shutil and
-# pathlib, so there is no import here that can fail on its own.
+# exist by then. Safe to hoist: `_archive` imports only the standard library and
+# `_paths`, which this module already imports, so there is no import here that
+# can fail on its own.
 from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
@@ -1464,6 +1465,8 @@ def archive_unsaved_cmd(
 
     from rich.markup import escape
 
+    from wfctl import _archive
+
     root = worktree or os.environ.get("WM_WORKTREE_PATH")
     repo_root = Path(root).resolve() if root else get_repo_root()
     if not repo_root.is_dir():
@@ -1472,6 +1475,23 @@ def archive_unsaved_cmd(
             soft_wrap=True,
         )
         return
+
+    branch = resolve_branch(repo_root)
+    found = _archive.check(repo_root, resolve_spec_dir(branch, repo_root))
+    for warning in found.warnings:
+        console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
+    if not found.refuses:
+        return
+
+    groups: list[tuple[str, list[str]]] = []
+    if found.edits:
+        groups.append(("uncommitted edits:", found.edits))
+    if found.unmerged:
+        groups.append(
+            (f"commits on no remote that aren't merged into {found.trunk}:", found.unmerged)
+        )
+    _print_removal_stop(repo_root, branch, groups)
+    raise typer.Exit(1)
 
 
 # Two names, one function. `archive-story` is a compatibility shim, hidden so it

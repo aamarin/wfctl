@@ -49,8 +49,11 @@ from __future__ import annotations
 
 import datetime
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from wfctl._paths import trunk_branch
 
 # Spec-dir-relative source -> archived name, in the order the pipeline produces
 # them. Order is the point: this list *is* the numbering, so a plain iteration
@@ -154,6 +157,102 @@ def is_inside(worktree: Path, path: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _git(worktree: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=worktree, capture_output=True, text=True
+    )
+
+
+def _reason(done: subprocess.CompletedProcess[str]) -> str:
+    """The first line git printed to explain a failure, for a warning to carry."""
+    lines = (done.stderr or done.stdout).strip().splitlines()
+    return lines[0] if lines else f"git exited {done.returncode}"
+
+
+def _unanswered(check: str, reason: str) -> str:
+    return f"couldn't check for {check} ({reason}) — removal goes ahead"
+
+
+def _uncommitted_edits(worktree: Path, found: UnsavedCheck) -> None:
+    """Fill `edits` from `git status`, with untracked files left out on purpose.
+
+    Untracked files are saved, not refused, so listing them here would stop a
+    removal that `unsaved/` can handle. `-z` keeps a path with a space or a
+    newline in it whole. A rename or copy entry is followed by a second entry
+    holding the old path, and that one is not an edit of its own.
+    """
+    done = _git(worktree, "status", "--porcelain=v1", "-z", "--untracked-files=no")
+    if done.returncode != 0:
+        found.warnings.append(_unanswered("uncommitted edits", _reason(done)))
+        return
+    entries = done.stdout.split("\0")
+    skip_next = False
+    for entry in entries:
+        if skip_next:
+            skip_next = False
+            continue
+        if len(entry) < 4:
+            continue
+        found.edits.append(entry[3:])
+        skip_next = "R" in entry[:2] or "C" in entry[:2]
+
+
+def _unmerged_commits(worktree: Path, found: UnsavedCheck) -> None:
+    """Fill `unmerged` with the commits that exist nowhere but this worktree.
+
+    Three questions in order, and the first one keeps the common case fast. A
+    commit on any remote branch survives the removal, so it never needs a stop.
+    For the commits that are left, asking whether trunk holds them by hash
+    stops every removal after a squash merge, since a squash commit shares a
+    hash with none of the commits it replaced. So the check merges the branch
+    into trunk in memory and asks whether that changes trunk's tree. A clean
+    merge into an identical tree means trunk already holds the work, however it
+    got there.
+
+    The cost is a branch squash-merged and then followed by a change to the same
+    lines on trunk. That merge conflicts, git can't tell the work is already
+    there, and the removal stops (SC-004, accepted on #600 item 2).
+    """
+    local = _git(worktree, "log", "--format=%h %s", "HEAD", "--not", "--remotes")
+    if local.returncode != 0:
+        found.warnings.append(_unanswered("unmerged commits", _reason(local)))
+        return
+    commits = [line for line in local.stdout.splitlines() if line]
+    if not commits:
+        return
+
+    found.trunk = trunk_branch(worktree)
+    if found.trunk is None:
+        found.warnings.append(_unanswered("unmerged commits", "no trunk branch found"))
+        return
+
+    merged = _git(worktree, "merge-tree", "--write-tree", found.trunk, "HEAD")
+    if merged.returncode == 1:
+        found.unmerged = commits
+        return
+    if merged.returncode != 0:
+        found.warnings.append(_unanswered("unmerged commits", _reason(merged)))
+        return
+    trunk_tree = _git(worktree, "rev-parse", f"{found.trunk}^{{tree}}")
+    if trunk_tree.returncode != 0:
+        found.warnings.append(_unanswered("unmerged commits", _reason(trunk_tree)))
+        return
+    if merged.stdout.split("\n", 1)[0].strip() != trunk_tree.stdout.strip():
+        found.unmerged = commits
+
+
+def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
+    """Everything `archive unsaved` finds in a worktree before it copies anything.
+
+    A check git can't answer adds a warning and never a refusal, so an unrelated
+    git error can't leave a worktree stuck (FR-013).
+    """
+    found = UnsavedCheck()
+    _uncommitted_edits(worktree, found)
+    _unmerged_commits(worktree, found)
+    return found
 
 
 def _describe(worktree: Path, path: Path) -> str:

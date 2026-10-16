@@ -200,3 +200,122 @@ def test_failing_git_status_warns_and_lets_removal_go_ahead(
     assert "⚠" in result.output
     assert "uncommitted edits" in result.output
     assert "removal goes ahead" in result.output
+
+
+def _commit(cwd: Path, name: str, text: str, message: str) -> None:
+    (cwd / name).write_text(text)
+    _git(cwd, "add", name)
+    _git(cwd, "commit", "-m", message)
+
+
+def test_unpushed_unmerged_commit_stops_removal_and_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A commit on no remote that trunk doesn't hold exists nowhere else (FR-010).
+
+    The output names it as `<short sha> <subject>`, so the person can tell which
+    commit to push or merge before they go the manual route.
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    _commit(repo.worktree, "new.txt", "new\n", "feat: only here")
+    short = _git(repo.worktree, "rev-parse", "--short", "HEAD").strip()
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert f"{short} feat: only here" in result.output
+    assert repo.worktree.is_dir()
+
+
+def test_pushed_commit_that_is_not_merged_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A commit on a remote survives the removal, so it doesn't need a stop.
+
+    Without the remote scope, every branch with an open pull request would be
+    stopped for work that is already safe (research R3, step 1).
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    _commit(repo.worktree, "new.txt", "new\n", "feat: pushed")
+    _git(repo.worktree, "push", "origin", repo.branch)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_squash_merged_branch_with_deleted_remote_branch_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a squash merge the branch's own commits are on no remote and trunk has none of them.
+
+    A squash commit has a different hash from every commit it replaced, so a check
+    on hashes stops every removal in a repository that squash merges. The merge
+    check asks whether merging would change trunk instead (SC-004).
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    _commit(repo.worktree, "new.txt", "new\n", "feat: the work")
+    _commit(repo.main, "new.txt", "new\n", "feat: the work (#1)")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_squash_merged_branch_stops_when_trunk_later_changed_the_same_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The known limit of the merge check, pinned so it stays a decision and not a surprise.
+
+    Once trunk edits the lines the squash brought in, merging the branch again
+    conflicts, and git can't tell the work is already there. The removal stops and
+    the manual route is the way through (SC-004, accepted on #600 item 2).
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    _commit(repo.worktree, "new.txt", "new\n", "feat: the work")
+    _commit(repo.main, "new.txt", "new\n", "feat: the work (#1)")
+    _commit(repo.main, "new.txt", "newer\n", "fix: later change")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert "feat: the work" in result.output
+
+
+def test_branch_that_would_conflict_with_trunk_stops_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A conflict is a refusal, since the branch holds changes trunk doesn't (FR-011)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    _commit(repo.worktree, "README.md", "branch\n", "feat: branch side")
+    _commit(repo.main, "README.md", "trunk\n", "feat: trunk side")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 1, result.output
+    assert "feat: branch side" in result.output
+
+
+def test_missing_trunk_warns_by_name_and_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no trunk to merge against the check can't answer, so it says so and passes (FR-013).
+
+    Renaming `main` leaves no `main`, `master`, `dev`, or `origin/HEAD` for
+    `trunk_branch` to find.
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = make_repo(tmp_path)
+    _git(repo.main, "branch", "-m", "main", "elsewhere")
+    _commit(repo.worktree, "new.txt", "new\n", "feat: only here")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "couldn't check for unmerged commits" in result.output
+    assert "no trunk branch found" in result.output
