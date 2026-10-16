@@ -147,6 +147,27 @@ jobs:
       - name: Typecheck
         run: uv run mypy
 
+  # Pull requests only: on main there is no branch to hold a note, so it could
+  # only pass. Not in the tag job's `needs` for the same reason.
+  #
+  # The job name is one of the five checks `.github/rulesets/main.json`
+  # requires, so renaming it means editing that file and applying it again. A
+  # required check whose name never reports blocks every merge into main.
+  release-note:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # The full history, because the default checkout has no origin/main for
+      # the check to find where this branch left it.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The runner's own Python, with no `uv sync`: the check uses the standard
+      # library only, and 3.11+ is preinstalled, which is what `tomllib` needs.
+      - name: Check the branch commits its release note
+        run: python3 .github/scripts/check_release_note.py
+
   # The bump stays human — it belongs in the PR that makes the change, where the
   # major/minor/patch call has context. Only the tag is automated, because the
   # tag is the half that keeps getting dropped: `doctor` and `uv tool install`
