@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # towncrier drafts the release notes, and a check of ours requires each branch's own note
@@ -188,3 +188,6 @@ the working tree unchanged.
   copy without the `none` notes, rather than deleting them first, so stopping
   at a prompt leaves the tree unchanged. The baseline uses the note names the
   level 2 record decided, and the check's cases match the spec.
+- 2026-10-16  accepted  — Andre accepted this record and the release note
+  record together, after asking why this one needed to be written down.
+  https://claude.ai/code/session_015KEzSZpKaNcMg8JKUkDsD9

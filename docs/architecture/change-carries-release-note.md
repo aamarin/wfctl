@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -364,3 +364,6 @@ place to compare a note's category against the diff.
   matched its own name. The Decision lists every case the check fails, the
   ruleset gains an Owns truth entry and two Considered entries, and the "Type
   of Change" checkboxes are settled as clarify decided.
+- 2026-10-16  accepted    — Andre accepted this record and the towncrier
+  record together, after asking where the notes are kept and when the release
+  deletes them. https://claude.ai/code/session_015KEzSZpKaNcMg8JKUkDsD9
