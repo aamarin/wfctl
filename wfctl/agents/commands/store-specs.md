@@ -1,6 +1,6 @@
 ---
 description: Store this branch's spec dir in its spec store and push it, by running `wfctl store specs` and reporting what it printed.
-allowed-tools: Bash(wfctl store specs*) Bash(wfctl report-block*)
+allowed-tools: Bash(wfctl report-block*)
 ---
 
 ## User Input
