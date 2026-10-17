@@ -69,6 +69,14 @@ exit code from it (research R6).
 Every outcome after the first line that names files prints them on the next
 line, indented, as FR-008 asks for `stored`.
 
+The result also carries `ignored`: files under the spec dir that only a rule
+personal to this machine hides, meaning `.git/info/exclude` or the global
+excludes file. A rule in a `.gitignore` the store commits is left out, because
+its owners wrote it and every clone shares it. When `ignored` is not empty, any
+outcome ends with one unindented line, `ℹ N files not stored, ignored by this
+machine's git excludes: <first five> and M others`. It changes no outcome and no
+exit code, and `check specs` does not read it.
+
 `conflict` and `merge_in_progress` each print a remedy that names the git
 commands to run in the spec store, and say that every branch's store fails
 until it is done (`contracts/cli.md`). `merge_in_progress` is found before the

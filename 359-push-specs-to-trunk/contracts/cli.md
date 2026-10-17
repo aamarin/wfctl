@@ -112,6 +112,13 @@ $ wfctl store specs            # a plain folder
 **Exit codes**: 0 when the spec dir is stored, already stored, or the layout has
 nowhere to push. 1 for every `✗` line and for "not pushed" (research R6).
 
+**Hidden files**: whatever the outcome, the output can end with
+`ℹ 1 file not stored, ignored by this machine's git excludes: notes.log`. It
+names files that only `.git/info/exclude` or the global excludes file hides,
+so a result is not read as a whole spec dir when another machine's store would
+have kept them. Files a committed `.gitignore` hides are not named. The line
+changes no exit code.
+
 **Never**: rebases, stashes, force-pushes, names `specs-trunk` in its own code,
 or stages a path outside this branch's spec dir (FR-001, FR-004, FR-005).
 
