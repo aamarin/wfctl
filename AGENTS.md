@@ -48,8 +48,9 @@ branch" (`pyproject.toml`). `uv run` is what applies the pin.
 
 ## Definition of done
 
-All three commands above green. That is the whole bar for a code change, and CI
-runs exactly these on 3.11 and 3.13.
+All three commands above green, and the branch committing its release note (see
+Releasing). That is the whole bar for a code change. CI runs the three commands
+on 3.11 and 3.13, and runs the release note check as its own `release-note` job.
 
 Then `uv run wfctl doctor` — it reports drift between what wfctl installed in this
 repo and what it now ships. Exit 1 means a finding that still stands.
@@ -278,16 +279,73 @@ overwrite would lose all but the last.
 
 ## Releasing
 
-**Bumping `version` in `pyproject.toml` on `main` ships a release.** CI tags the
-commit and creates the GitHub release when the version key changes, gated behind
-test, wheel and lint. Do not bump it as part of an unrelated change.
+**Every change commits a release note, and a release is cut from those notes.**
+The note is a file under `changes/` named for the issue and a category, such as
+`changes/571.change.md`. `wfctl verify` and the `release-note` CI job both fail a
+branch that adds none for its own issue. Create one with:
+
+```bash
+uv run towncrier create 571.change.md --content "What a user of wfctl will notice."
+```
+
+Pick the category by what an existing user notices once the change ships.
+`change` is for something they rely on that behaves differently, `addition` for
+something new, `fix` for something broken that now works, and `none` for a change
+they would not notice. A branch with no issue in its name uses
+`changes/+<what-changed>.<category>.md`. The categories are the
+`[[tool.towncrier.type]]` tables in `pyproject.toml`, and that table is the one
+list the check and the release script both read.
+
+**Bumping `version` in `pyproject.toml` on `main` ships a release,** and only a
+release pull request does it. From an up-to-date `main`, run:
+
+```bash
+uv run python .github/scripts/release.py
+```
+
+The script proposes a version from the notes, lists any merged pull request that
+came with no note, and opens the draft in your editor. It then commits the
+version bump, the relocked `uv.lock`, and the removal of the notes as one commit
+on `release/v<version>`, pushes that branch, and opens a pull request. It never
+pushes `main` and never merges.
+
+Merge that pull request as a merge commit once its checks pass. CI tags the
+merge and publishes the release commit's body as the GitHub release. To change
+the release text after the pull request is open, amend the commit on
+`release/v<version>` with `git commit --amend --cleanup=verbatim` and force-push
+that branch. Without `--cleanup=verbatim`, git's default cleanup deletes every
+line starting with `#`, which removes each heading from the release text.
+Editing the pull request's
+description changes nothing, because the tag job reads the commit.
 
 `doctor` and `uv tool install` both resolve releases by tag, so an untagged bump
-would report a stale build as current — which is why the tag job exists (#55).
+would report a stale build as current, which is why the tag job exists (#55). It
+checks the release commit's subject, version, and body before it tags anything,
+so a failure leaves neither a tag nor a release.
 
-Run `uv lock` in the same commit as the bump. The lock records this package's own
-version, and the lint job fails on a lock that no longer matches `pyproject.toml`,
-so a bump without it goes red before it can merge.
+**`main` is protected by a ruleset committed as `.github/rulesets/main.json`.**
+It has no bypass, so a push straight to `main` is refused for everyone, and it
+requires `test (3.11)`, `test (3.13)`, `wheel`, `lint`, and `release-note` to pass
+and merge commits to be the only merge method. The release script finds merged
+pull requests that came with no note through their merge commits, so a squash or
+rebase merge would hide them. The ruleset is applied by hand, not by CI. Apply it
+once, then read it back, because nothing checks that what GitHub holds still
+matches the file:
+
+```bash
+gh api -X POST repos/{owner}/{repo}/rulesets --input .github/rulesets/main.json
+gh api -X PATCH repos/{owner}/{repo} -F allow_squash_merge=false -F allow_rebase_merge=false
+gh api repos/{owner}/{repo}/rules/branches/main
+gh api repos/{owner}/{repo}/rulesets --jq '.[] | select(.name == "main") | .id'
+gh api repos/{owner}/{repo}/rulesets/<id> --jq '.bypass_actors'
+gh api repos/{owner}/{repo} --jq '{merge: .allow_merge_commit, squash: .allow_squash_merge, rebase: .allow_rebase_merge}'
+```
+
+The first two apply it. The last four read it back: the rules in force with their
+five checks, an empty bypass list, and merge commits as the only method. A later
+edit to the file is applied with `-X PUT repos/{owner}/{repo}/rulesets/<id>`.
+Renaming a CI job that the ruleset requires means editing the file and applying it
+again, since a required check that never reports blocks every merge.
 
 ## Safety
 
@@ -333,3 +391,6 @@ reasoning that is not visible in the diff — why this shape, what was rejected.
 Not every change needs the spec pipeline. `design-levels` excludes "bug fixes,
 copy edits and other trivial changes that introduce no new state" — a change that
 draws no new boundary does not need one drawn for it.
+
+Every change commits a release note under `changes/`, whatever its size. See
+Releasing for the file name and the categories.

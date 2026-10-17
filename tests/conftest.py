@@ -71,6 +71,43 @@ def git_repo(path: Path) -> Path:
     return path
 
 
+def init_release_repo(path: Path, version: str) -> Path:
+    """A repository on `main` at `version`, with a bare `origin` it has pushed to.
+
+    Both release tests need the same starting point: the check diffs from
+    `origin/main`, and the release script pushes a branch to `origin`. The
+    `[tool.towncrier]` table is copied out of this repository's own
+    `pyproject.toml` rather than written out again, because a second copy of the
+    category list is the drift that keeping one list was meant to prevent.
+
+    `-b main` is explicit since CI sets `init.defaultBranch master`, and a test
+    that leaned on the default would pass here and fail there.
+    """
+    origin = path.parent / f"{path.name}-origin.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)],
+                   check=True, capture_output=True)
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True)
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        subprocess.run(["git", "-C", str(path), "config", key, val],
+                       check=True, capture_output=True)
+
+    real = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+    towncrier = real[real.index("[tool.towncrier]"):real.index("[tool.ruff.lint]")]
+    (path / "pyproject.toml").write_text(
+        f'[project]\nname = "wfctl"\nversion = "{version}"\n\n{towncrier}'
+    )
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True)
+
+    git("add", "pyproject.toml")
+    git("commit", "-m", "init")
+    git("remote", "add", "origin", str(origin))
+    git("push", "-u", "origin", "main")
+    return path
+
+
 @pytest.fixture(autouse=True)
 def _tool_version_is_not_under_test(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch

@@ -19,8 +19,9 @@ from wfctl.cli import app
 runner = CliRunner()
 
 # The shipped template, read through the package rather than the repo root: what
-# a consuming project installs is the copy under question, and the two are held
-# byte-identical by `test_install_config`.
+# a consuming project installs is the copy under question. This repository's own
+# copy differs from it by the "Type of Change" section, which `test_install_config`
+# compares around.
 _TEMPLATE = (
     Path(__file__).resolve().parent.parent
     / "wfctl/agents/configs/github/.github/pull_request_template.md"
