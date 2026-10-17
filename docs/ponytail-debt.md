@@ -24,25 +24,24 @@ three of the six here already were.
 | Where | Simplified | Ceiling | Upgrade trigger |
 |---|---|---|---|
 | `cli.status_cmd` | names the arch records and checks nothing | a line someone has to read, not a rule | move it into `check-body`, which already reads a PR description before `gh pr create` sees it |
-| `cli._FORMER_ARCHIVE_COMMAND` | `archive-story` kept as a hidden alias | transition-only | the alias notice stops appearing during teardowns on every machine |
+| `cli._FORMER_REMOVE_COMMAND` | `archive-story` and `archive-specs` kept as hidden aliases of `hook worktree-remove` | transition-only | the alias notice stops appearing during teardowns on every machine |
 | `cli._AGENT_SKILL_EXTRAS` | a dispatch table with one entry | one entry | a second agent needs a mirror |
 | `cli._ensure_gitignored` | one `git check-ignore` process per path | ~7 ms each, ~600 ms per install, against a ~15 s clone | #1 lands and the clone stops dominating; batch via `check-ignore --stdin` |
 | `cli._last_exchange` | reads the whole transcript file | a few megabytes, once per turn | that stops being true; seek to the tail |
 | `_paths.main_checkout` | recognises only a `.git` common dir | the standard non-bare layout, and nothing else | a bare or separate-gitdir layout needs one — then `--is-bare-repository` plus an explicit setting, never a looser check |
 | `_paths.spec_root` | never checks the root exists, never creates it | a caller that needs it present must say so | nothing: adding the check back rebuilds the bug it was removed for |
 | `_shape._LONG_WORDS` | a flat count of 250 | a threshold tuned on twenty replies from #208, not a measurement | it starts firing on replies that earned their length |
-| `_archive._plan` | `.agent/` rescue read | transition-only | the rescue notice stops appearing during teardowns on every machine |
 
-9 markers, 0 with no trigger.
+8 markers, 0 with no trigger.
 
-The two transition-only markers are one end condition, not two: #52 shipped the
-alias and the rescue with a shared trigger and says to delete them together.
+The alias is the one transition-only marker. The `.agent/` rescue that shared its
+trigger was deleted with the numbered archive in #40.
 
-Three markers are also audit findings — `_FORMER_ARCHIVE_COMMAND` and
-`_archive._plan` are findings 5 and 6, `_AGENT_SKILL_EXTRAS` is finding 10.
+Two markers are also audit findings. `_FORMER_REMOVE_COMMAND` is finding 5 and
+`_AGENT_SKILL_EXTRAS` is finding 10.
 Appearing in both ledgers is what it looks like when the source carries its own
 argument: the next audit reads the comment instead of re-deriving the finding
-against it. The remaining nine findings have no such anchor and live only in the
+against it. The remaining ten findings have no such anchor and live only in the
 table below.
 
 ## Audit findings
@@ -56,8 +55,8 @@ two held, one answered in the source.
 | 2 | delete | 298 lines. `speckit-specify` reads `spec-template.md` itself; only `check-prerequisites.sh` and `setup-plan.sh` are ever called | nothing | `wfctl/specify/scripts/bash/create-new-feature.sh` | **applied** |
 | 3 | delete | 112 lines, the one file in that tree wfctl owns. `vendor-upstream-skills.md` says it describes `/speckit.decompose`; neither the wrapper nor `speckit-delivery-plan/SKILL.md` names it | nothing | `wfctl/specify/templates/github-issue-template.md` | **applied** |
 | 4 | delete | 28 lines, read only by finding 1 | goes with it | `wfctl/specify/templates/agent-file-template.md` | **applied** |
-| 5 | delete | the `archive-story` alias, its notice, and `pre_remove_wired`'s allowance for it | nothing | `wfctl/cli.py:595,656` · `wfctl/_workmux.py:59,233` | **held** |
-| 6 | delete | the `.agent/` rescue: `_LEGACY_DEST_PREFIX`, the `legacy_dir` walk, the rescue count | nothing | `wfctl/_archive.py:80,211-225` | **held** |
+| 5 | delete | the `archive-story` and `archive-specs` aliases, the `archive-story` notice, and `pre_remove_wired`'s allowance for both | nothing | `wfctl/cli.py:1578,1639` · `wfctl/_workmux.py:60,239` | **held** |
+| 6 | delete | the `.agent/` rescue: `_LEGACY_DEST_PREFIX`, the `legacy_dir` walk, the rescue count | nothing | removed with the numbered archive in `wfctl/_archive.py` (#40) | **applied** |
 | 7 | shrink | three fence walkers with three shapes (40 + 24 + 22 lines) | one walker yielding `(lineno, line, inside)`; each caller keeps its own filter | `wfctl/_shape.py:135` · `wfctl/_body.py:169` · `wfctl/_arch.py:338` | **applied** |
 | 8 | shrink | the same 20-line mkstemp/replace/unlink body twice | one `write_atomic(path, text, newline=None)`; the two JSON callers pass `json.dumps(data, indent=2)` | `wfctl/_io.py:11,29` | **applied** |
 | 9 | delete | `load_agentconfig` — zero callers in `wfctl/`, zero in `tests/` | nothing | `wfctl/_io.py:58` | **applied** |
@@ -67,13 +66,13 @@ two held, one answered in the source.
 
 net: -1440 lines proposed, -1256 applied.
 
-**5 and 6 are held because their end condition is not met, and it is checkable
-rather than remembered.** #52 kept the `archive-story` alias and the `.agent/`
-rescue with one trigger: silence during teardowns on every machine. The
-condition is that no `.workmux.yaml` anywhere still names the retired command:
+**5 is held because its end condition is not met, and it is checkable rather than
+remembered.** #52 kept the `archive-story` alias with one trigger: silence during
+teardowns on every machine. The condition is that no `.workmux.yaml` anywhere
+still names a retired command:
 
 ```bash
-find <where your checkouts live> -name .workmux.yaml -exec grep -l archive-story {} +
+find <where your checkouts live> -name .workmux.yaml -exec grep -lE 'archive-(story|specs)' {} +
 ```
 
 `find`, not `**`. Bash leaves `globstar` off by default, so `~/**/.workmux.yaml`
@@ -86,7 +85,7 @@ A non-empty result means a teardown of one of those worktrees would invoke a
 command that no longer exists, get a non-zero exit swallowed by the hook's
 `|| true`, and remove the worktree having archived nothing — the spec loss #52
 kept the alias for. When it comes back empty, re-seed with `wfctl install-config`
-if needed, then cut 5 and 6 together.
+if needed, then cut 5.
 
 That grep was non-empty when this was written. Which repositories is not
 recorded here: it is a fact about one developer's disk on one day, and a reader
