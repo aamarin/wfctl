@@ -76,7 +76,7 @@ def merge_pr(repo: Path, number: int, branch: str, notes: dict[str, str] | None 
     """Merge a branch into `main` the way GitHub does, and push `main`."""
     git(repo, "checkout", "-b", branch, "main")
     for name, text in (notes or {}).items():
-        (repo / "changes").mkdir(exist_ok=True)
+        (repo / "changes" / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / "changes" / name).write_text(text)
     (repo / f"{branch}.txt").write_text(branch)
     git(repo, "add", "-A")
@@ -368,6 +368,22 @@ def test_a_dirty_tree_refuses_and_changes_nothing(repo: Path, release: Release) 
     assert git(repo, "branch", "--list", "release/*") == ""
 
 
+@pytest.mark.parametrize("name", ["README.md", "1.bug.md", "sub/1.fix.md"])
+def test_a_file_that_is_not_a_note_stops_the_release_and_is_named(
+    repo: Path, release: Release, name: str
+) -> None:
+    """The release commit removes the whole notes folder, so a file the draft
+    never read would be deleted with no sign it was there."""
+    merge_pr(repo, 1, "one", {"1.fix.md": "A bug is fixed.\n"})
+    merge_pr(repo, 2, "two", {name: "Something.\n"})
+
+    code, out = release()
+
+    assert code == 1
+    assert f"changes/{name}" in out
+    assert git(repo, "branch", "--list", "release/*") == ""
+
+
 def test_a_main_behind_origin_refuses_and_changes_nothing(
     repo: Path, release: Release
 ) -> None:
@@ -479,7 +495,7 @@ def test_the_pushed_branch_holds_one_commit_that_carries_the_release(
     assert git(repo, "ls-tree", "-r", "--name-only", branch, "--", "changes") == ""
     assert release.pr_record.read_text() == "--base main --head release/v0.24.0 --fill"
     assert "Release pull request opened: https://example.test/pull/7." in out
-    assert "amend the commit on release/v0.24.0 and force-push it" in out
+    assert "amend the commit on release/v0.24.0 with --cleanup=verbatim and force-push it" in out
     assert "doesn't change the release" in out
     assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "main"
     assert git(repo, "rev-parse", "origin/main") == main_before

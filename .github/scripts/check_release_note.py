@@ -46,7 +46,7 @@ def branch_name() -> str:
     name = done.stdout.strip()
     if done.returncode == 0 and name and name != "HEAD":
         return name
-    return os.environ.get("GITHUB_REF_NAME", "")
+    return ""
 
 
 def merge_base() -> str | None:
@@ -97,10 +97,42 @@ def added_files(base: str, directory: str) -> list[str]:
     return [line for line in done.stdout.splitlines() if line]
 
 
-def check_release_branch(branch: str, base: str) -> list[str]:
-    match = RELEASE_BRANCH.match(branch)
-    assert match is not None
-    named = tuple(int(p) for p in match.groups())
+def uncommitted_notes(directory: str, issue: str | None) -> list[str]:
+    """Notes sitting in the working tree that no commit carries yet.
+
+    `wfctl verify` runs on a dirty tree, and the check judges commits only, so a
+    note that was just created reads as missing. Naming the file tells the
+    author to commit it, where "add a note" would send them to create a second.
+    With no issue, any note counts.
+    """
+    done = git("status", "--porcelain", "--untracked-files=all", "--", directory)
+    found: list[str] = []
+    for line in done.stdout.splitlines():
+        path = line[3:]
+        match = NOTE_NAME.match(path.removeprefix(directory + "/"))
+        if match and (issue is None or match["issue"] == issue):
+            found.append(path)
+    return found
+
+
+def no_note_finding(
+    where: str, directory: str, issue: str | None, pattern: str, example: str, listed: str
+) -> str:
+    pending = uncommitted_notes(directory, issue)
+    if pending:
+        return (
+            f"✗ no committed release note {where}\n"
+            f"  {', '.join(pending)} isn't committed yet, so git add it and commit"
+        )
+    return (
+        f"✗ no release note {where}\n"
+        f"  add {directory}/{pattern}, where the category is {listed}\n"
+        f'  for example: uv run towncrier create {example} --content "What a user of wfctl will notice."'
+    )
+
+
+def check_release_branch(branch: str, base: str, groups: tuple[str, ...]) -> list[str]:
+    named = tuple(int(p) for p in groups)
     carried = version_at("HEAD")
     if carried != named:
         return [
@@ -146,7 +178,7 @@ def inspect_added_notes(
         text = git("show", f"HEAD:{path}").stdout
         if not text.strip():
             findings.append(f"✗ {path} has no release note written in it\n  the file is empty")
-        elif PLACEHOLDER in text:
+        elif text.strip() == PLACEHOLDER:
             findings.append(
                 f"✗ {path} has no release note written in it\n"
                 f'  replace "{PLACEHOLDER}" with what a user of wfctl will notice'
@@ -166,8 +198,9 @@ def main() -> int:
               "  run git fetch origin main, then check again")
         return 1
 
-    if RELEASE_BRANCH.match(branch):
-        findings = check_release_branch(branch, base)
+    release_match = RELEASE_BRANCH.match(branch)
+    if release_match:
+        findings = check_release_branch(branch, base, release_match.groups())
         if findings:
             print("\n".join(findings))
             return 1
@@ -184,18 +217,17 @@ def main() -> int:
         found = [path for path, noted in notes if noted == issue]
         if not found:
             findings.append(
-                f"✗ no release note for #{issue}\n"
-                f"  add {directory}/{issue}.<category>.md, where the category is {listed}\n"
-                f'  for example: uv run towncrier create {issue}.{categories[0]}.md --content "What a user of wfctl will notice."'
+                no_note_finding(f"for #{issue}", directory, issue, f"{issue}.<category>.md",
+                                f"{issue}.{categories[0]}.md", listed)
             )
         label = f"release note for #{issue}"
     else:
         found = [path for path, _ in notes]
         if not found:
+            example = f'+<what-changed>.{"fix" if "fix" in categories else categories[0]}.md'
             findings.append(
-                "✗ no release note on this branch\n"
-                f"  add {directory}/+<what-changed>.<category>.md, where the category is {listed}\n"
-                f'  for example: uv run towncrier create +<what-changed>.{"fix" if "fix" in categories else categories[0]}.md --content "What a user of wfctl will notice."'
+                no_note_finding("on this branch", directory, None, "+<what-changed>.<category>.md",
+                                example, listed)
             )
         label = "release note"
 

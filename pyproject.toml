@@ -24,9 +24,9 @@ dependencies = [
 # linter turns someone else's release into a red build on an untouched branch.
 #
 # towncrier is pinned to a year, not a minor like ruff. It uses calendar
-# versions, so a minor pin would expire within a month. The range is short
-# enough that its note file name format, which the release note check parses,
-# gets re-checked at the next `uv lock --upgrade`.
+# versions, so its first number is the year and the upper bound holds back the
+# next year's release, which is the one that could change the note file name
+# format that the release note check parses.
 dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1", "pyyaml>=6,<7", "towncrier>=26.9,<27"]
 
 [dependency-groups]

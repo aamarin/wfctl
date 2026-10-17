@@ -48,8 +48,9 @@ branch" (`pyproject.toml`). `uv run` is what applies the pin.
 
 ## Definition of done
 
-All three commands above green. That is the whole bar for a code change, and CI
-runs exactly these on 3.11 and 3.13.
+All three commands above green, and the branch committing its release note (see
+Releasing). That is the whole bar for a code change. CI runs the three commands
+on 3.11 and 3.13, and runs the release note check as its own `release-note` job.
 
 Then `uv run wfctl doctor` — it reports drift between what wfctl installed in this
 repo and what it now ships. Exit 1 means a finding that still stands.
@@ -311,7 +312,10 @@ pushes `main` and never merges.
 Merge that pull request as a merge commit once its checks pass. CI tags the
 merge and publishes the release commit's body as the GitHub release. To change
 the release text after the pull request is open, amend the commit on
-`release/v<version>` and force-push that branch. Editing the pull request's
+`release/v<version>` with `git commit --amend --cleanup=verbatim` and force-push
+that branch. Without `--cleanup=verbatim`, git's default cleanup deletes every
+line starting with `#`, which removes each heading from the release text.
+Editing the pull request's
 description changes nothing, because the tag job reads the commit.
 
 `doctor` and `uv tool install` both resolve releases by tag, so an untagged bump

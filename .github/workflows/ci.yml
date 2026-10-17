@@ -169,7 +169,7 @@ jobs:
         run: python3 .github/scripts/check_release_note.py
 
   # Publishes the release that a merged release pull request describes. The
-  # version call is a person's: Andre confirms it, and the release notes, in
+  # version call is a person's: they confirm it, and the release notes, in
   # `.github/scripts/release.py` before the pull request exists, where the
   # major/minor/patch decision has the notes in front of it. This job only
   # turns that commit into a tag and a GitHub release, because the tag is the
@@ -248,6 +248,6 @@ jobs:
           fi
 
           # The tag stays bare and the notes are the release commit's body, which
-          # Andre confirmed in his editor. GitHub's own generated list of pull
+          # the person cutting the release confirmed in their editor. GitHub's own generated list of pull
           # request titles is deliberately not used: nobody read it.
           $released || gh release create "v$v" --notes-file "$RUNNER_TEMP/notes.md"

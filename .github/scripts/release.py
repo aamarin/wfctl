@@ -27,17 +27,23 @@ import tomllib
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+# The check script decides what a note's name looks like and which categories
+# exist, and this script reads the same answer instead of keeping a second copy.
+# A copy that fell behind would leave a note the check accepts out of the draft,
+# and the release commit would then delete it. Running this file directly puts
+# its folder on the path already; the tests load it by file path and do not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_release_note import NOTE_NAME, towncrier_settings  # noqa: E402
+
 # The one fact this script holds about the categories. Which ones exist, and in
 # what order the draft prints them, is towncrier's table in pyproject.toml.
 MINOR_CATEGORIES = ("change", "addition")
 # How a category reads in the proposal's reason. A category added to the table
 # later falls back to its directory name.
-LABELS = {"change": "behaviour change", "addition": "addition", "fix": "fix"}
+LABELS = {"change": "behaviour change", "addition": "addition"}
 
-NOTE_NAME = re.compile(r"^(?:\d+|\+[^.]+)\.(?P<category>[^.]+?)(?:\.\d+)?\.md$")
 MERGE_SUBJECT = re.compile(r"^Merge pull request #(?P<number>\d+) from \S+")
 VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
-DRAFT_MARKER = "What is seen below is what would be written."
 NO_CHANGES = "No significant changes."
 
 
@@ -89,10 +95,6 @@ def last_tag() -> str:
     return tags[0] if tags else ""
 
 
-def towncrier_table() -> dict:
-    return tomllib.loads(Path("pyproject.toml").read_text()).get("tool", {}).get("towncrier", {})
-
-
 def current_version() -> tuple[int, int, int]:
     text = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
     parsed = version_tuple(text)
@@ -100,13 +102,26 @@ def current_version() -> tuple[int, int, int]:
     return parsed
 
 
-def notes_by_category(directory: str) -> dict[str, list[str]]:
+def notes_by_category(
+    directory: str, categories: list[str]
+) -> tuple[dict[str, list[str]], list[str]]:
+    """The notes under `directory` by category, and the files that aren't notes.
+
+    A file with a note's name but a category towncrier doesn't list counts as
+    not a note, since towncrier would skip it when drafting. The release commit
+    removes the whole folder, so anything left out here has to stop the release
+    instead of being deleted without a trace.
+    """
     found: dict[str, list[str]] = {}
+    stray: list[str] = []
     for path in git("ls-files", directory).stdout.splitlines():
-        match = NOTE_NAME.match(path.removeprefix(directory + "/"))
-        if match:
+        name = path.removeprefix(directory + "/")
+        match = NOTE_NAME.match(name) if "/" not in name else None
+        if match and match["category"] in categories:
             found.setdefault(match["category"], []).append(path)
-    return found
+        else:
+            stray.append(path)
+    return found, stray
 
 
 def merges_since(tag: str, directory: str) -> tuple[int, list[int]]:
@@ -137,7 +152,7 @@ def propose(
     notes: dict[str, list[str]], unnoted: list[int]
 ) -> tuple[tuple[int, int, int], str]:
     major, minor, patch = current_version()
-    counts = {c: len(notes.get(c, [])) for c in notes if c != "none"}
+    counts = {c: len(notes[c]) for c in notes if c != "none"}
     if any(counts.get(c) for c in MINOR_CATEGORIES):
         parts = [plural(counts[c], LABELS.get(c, c)) for c in MINOR_CATEGORIES if counts.get(c)]
         kind, version = "minor", (major, minor + 1, 0)
@@ -154,8 +169,8 @@ def build_draft(version: str, directory: str, notes: dict[str, list[str]]) -> st
     """The release notes towncrier would write, without writing anything.
 
     The `none` notes are left out by building from a copy of the notes folder
-    in a temporary directory, so the working tree stays untouched until Andre
-    confirms. Towncrier needs the folder inside a base directory, which `--dir`
+    in a temporary directory, so the working tree stays untouched until the
+    version is confirmed. Towncrier needs the folder inside a base directory, which `--dir`
     names, and the config is read from the repository's own pyproject.toml.
     """
     with tempfile.TemporaryDirectory() as tmp:
@@ -172,14 +187,10 @@ def build_draft(version: str, directory: str, notes: dict[str, list[str]]) -> st
     if done.returncode != 0:
         raise Abort(f"towncrier couldn't build the draft:\n{done.stderr.strip()}")
     # towncrier says "What is seen below is what would be written." on stderr,
-    # so stdout is the draft alone. Splitting on the line stays in case a later
-    # version moves it onto stdout.
-    drafted = done.stdout
-    if DRAFT_MARKER in drafted:
-        drafted = drafted.partition(DRAFT_MARKER)[2]
+    # so stdout is the draft alone.
     kept: list[str] = []
     dropped_title = False
-    for line in drafted.splitlines():
+    for line in done.stdout.splitlines():
         if not dropped_title and line.startswith("# "):
             dropped_title = True
             continue
@@ -257,8 +268,15 @@ def main(
         return refuse(failure)
 
     tag = last_tag()
-    directory = towncrier_table().get("directory", "changes")
-    notes = notes_by_category(directory)
+    directory, categories = towncrier_settings()
+    notes, stray = notes_by_category(directory, categories)
+    if stray:
+        listing = "\n".join(f"  {path}" for path in stray)
+        return refuse(
+            f"these files under {directory}/ aren't release notes, and the release commit would delete them:\n"
+            f"{listing}\n"
+            f"  rename each to <issue>.<category>.md with a category from pyproject.toml, or remove it"
+        )
     total, unnoted = merges_since(tag, directory)
 
     releasable = [c for c in notes if c != "none"]
@@ -376,7 +394,7 @@ def cut_release(
 
     git("switch", "main")
     print(f"Release pull request opened: {opened.stdout.strip()}. Merge it once its checks pass.")
-    print(f"To change the release notes, amend the commit on {branch} and force-push it.")
+    print(f"To change the release notes, amend the commit on {branch} with --cleanup=verbatim and force-push it.")
     print("Editing the pull request's description doesn't change the release.")
     return 0
 

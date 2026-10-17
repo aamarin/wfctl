@@ -20,14 +20,13 @@ SCRIPT = Path(__file__).resolve().parent.parent / ".github" / "scripts" / "check
 
 @pytest.fixture(autouse=True)
 def _ci_branch_variables_are_not_ours(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GitHub sets both variables for every step of a pull request run.
+    """GitHub sets this variable for every step of a pull request run.
 
     That includes this suite's own step, so without clearing them every test
     here would read the pull request's branch name instead of the name of its
     scratch repository's branch, and pass or fail on CI for the wrong reason.
     """
     monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
-    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
 
 
 def load_check() -> ModuleType:
@@ -217,6 +216,33 @@ def test_a_note_still_holding_towncrier_placeholder_text_is_unwritten(
     assert 'replace "Add your info here" with what a user of wfctl will notice' in out
 
 
+def test_a_note_that_quotes_the_placeholder_in_a_sentence_is_a_note(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A note about towncrier's own template has to be able to name its text."""
+    start_branch(repo, "571-x", {"571.change.md": 'The template no longer says "Add your info here".\n'})
+
+    code, _ = run_check(repo, monkeypatch, capsys)
+
+    assert code == 0
+
+
+def test_a_note_created_but_not_committed_is_named_instead_of_asked_for_again(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`wfctl verify` runs on a dirty tree. Telling the author to add a note that
+    is already on disk sends them to create a second, named `571.change.1.md`."""
+    start_branch(repo, "571-x")
+    (repo / "changes").mkdir(exist_ok=True)
+    (repo / "changes" / "571.change.md").write_text("Something.\n")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "changes/571.change.md isn't committed yet" in out
+    assert "add changes/571" not in out
+
+
 @pytest.mark.parametrize("content", ["", "  \n\n"])
 def test_an_empty_or_whitespace_note_says_the_file_is_empty(
     repo: Path,
@@ -375,19 +401,6 @@ def test_an_empty_github_head_ref_counts_as_unset(
 
     assert code == 0
     assert "#571" in out
-
-
-def test_the_branch_name_falls_back_to_github_ref_name_when_head_is_detached(
-    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    start_branch(repo, "scratch", {"580.fix.md": "Something.\n"})
-    git(repo, "checkout", "--detach")
-    monkeypatch.setenv("GITHUB_REF_NAME", "580-thing")
-
-    code, out = run_check(repo, monkeypatch, capsys)
-
-    assert code == 0
-    assert "#580" in out
 
 
 def test_no_main_to_compare_against_is_a_finding_not_a_crash(
