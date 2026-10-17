@@ -12,6 +12,7 @@ nothing is written for a removal that is about to be refused.
 from __future__ import annotations
 
 import difflib
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,15 +54,23 @@ def _diff(source_file: Path, dest_file: Path, rel: str) -> str:
 def plan(source: Path, dest: Path) -> CopyPlan:
     """Compare every file under `source` with the file at the same path under `dest`.
 
-    Byte for byte, with no git involved. Symlinks are skipped: `is_file()` follows
-    them, so a link pointing outside the spec dir would copy its target's content
-    in.
+    Byte for byte, with no git involved. A symlink is compared and copied as a link
+    and never followed: following one would copy its target's content in, which
+    could be a large folder or a file outside the spec dir (FR-019). Two links are
+    the same when they point at the same text.
     """
     result = CopyPlan(source=source, dest=dest)
-    for src in sorted(p for p in source.rglob("*") if p.is_file() and not p.is_symlink()):
+    for src in sorted(p for p in source.rglob("*") if p.is_symlink() or p.is_file()):
         rel = src.relative_to(source).as_posix()
         target = dest / rel
-        if not target.is_file():
+        if src.is_symlink():
+            if not os.path.lexists(target):
+                result.missing.append(rel)
+            elif target.is_symlink() and os.readlink(src) == os.readlink(target):
+                result.same.append(rel)
+            else:
+                result.different[rel] = f"symlink differs: the worktree's points to {os.readlink(src)}"
+        elif not target.is_file():
             result.missing.append(rel)
         elif src.read_bytes() == target.read_bytes():
             result.same.append(rel)
@@ -82,6 +91,12 @@ def apply(copy_plan: CopyPlan, overwrite: bool) -> None:
     if overwrite:
         wanted += list(copy_plan.different)
     for rel in wanted:
+        source = copy_plan.source / rel
         target = copy_plan.dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(copy_plan.source / rel, target)
+        if source.is_symlink():
+            if os.path.lexists(target):
+                target.unlink()
+            os.symlink(os.readlink(source), target)
+        else:
+            shutil.copy2(source, target)

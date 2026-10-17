@@ -131,3 +131,48 @@ def test_a_copy_that_raises_propagates_so_the_store_can_stop_the_removal(
 
     with pytest.raises(OSError, match="No space left on device"):
         _copy_out.apply(_copy_out.plan(source, dest), overwrite=False)
+
+
+def test_a_symlink_is_copied_as_a_link_and_never_followed(dirs: tuple[Path, Path]) -> None:
+    """The plan skipped links, so a link in the spec dir was neither copied nor reported (FR-019).
+
+    The link points outside the spec dir. Copying what it points at would bring
+    unrelated content in, so the copy has to be the link itself.
+    """
+    source, dest = dirs
+    _write(source / "spec.md", "s\n")
+    outside = _write(source.parent / "outside.txt", "not a spec file\n")
+    (source / "notes").symlink_to(outside)
+    (source / "gone").symlink_to("does-not-exist")
+
+    result = _copy_out.plan(source, dest)
+    _copy_out.apply(result, overwrite=False)
+
+    assert result.missing == ["gone", "notes", "spec.md"]
+    assert (dest / "notes").is_symlink()
+    assert (dest / "notes").readlink() == outside
+    assert (dest / "gone").is_symlink()
+    assert not (dest / "notes").parent.joinpath("outside.txt").exists()
+
+
+def test_a_link_to_the_same_place_is_the_same_and_a_different_one_is_not(
+    dirs: tuple[Path, Path],
+) -> None:
+    """A differing link stops the removal like a differing file, and overwrite replaces it."""
+    source, dest = dirs
+    _write(source / "spec.md", "s\n")
+    dest.mkdir(parents=True)
+    (source / "same").symlink_to("target-a")
+    (dest / "same").symlink_to("target-a")
+    (source / "moved").symlink_to("target-b")
+    (dest / "moved").symlink_to("target-a")
+
+    result = _copy_out.plan(source, dest)
+
+    assert "same" in result.same
+    assert list(result.different) == ["moved"]
+    assert "target-b" in result.different["moved"]
+
+    _copy_out.apply(result, overwrite=True)
+
+    assert (dest / "moved").readlink() == Path("target-b")
