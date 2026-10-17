@@ -147,11 +147,36 @@ jobs:
       - name: Typecheck
         run: uv run mypy
 
-  # The bump stays human — it belongs in the PR that makes the change, where the
-  # major/minor/patch call has context. Only the tag is automated, because the
-  # tag is the half that keeps getting dropped: `doctor` and `uv tool install`
-  # both resolve releases by tag, so an untagged bump reports the stale build as
-  # current (#55).
+  # Pull requests only: on main there is no branch to hold a note, so it could
+  # only pass. Not in the tag job's `needs` for the same reason.
+  #
+  # The job name is one of the five checks `.github/rulesets/main.json`
+  # requires, so renaming it means editing that file and applying it again. A
+  # required check whose name never reports blocks every merge into main.
+  release-note:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # The full history, because the default checkout has no origin/main for
+      # the check to find where this branch left it.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The runner's own Python, with no `uv sync`: the check uses the standard
+      # library only, and 3.11+ is preinstalled, which is what `tomllib` needs.
+      - name: Check the branch commits its release note
+        run: python3 .github/scripts/check_release_note.py
+
+  # Publishes the release that a merged release pull request describes. The
+  # version call is a person's: they confirm it, and the release notes, in
+  # `.github/scripts/release.py` before the pull request exists, where the
+  # major/minor/patch decision has the notes in front of it. This job only
+  # turns that commit into a tag and a GitHub release, because the tag is the
+  # half that keeps getting dropped: `doctor` and `uv tool install` both resolve
+  # releases by tag, so an untagged bump reports the stale build as current
+  # (#55). The release text is that commit's body and nothing else, so editing
+  # the pull request's description on GitHub changes nothing here.
   tag:
     # Not a convenience ordering. A tag is what every machine upgrades to, so
     # tagging a red commit publishes the breakage rather than reporting it.
@@ -166,32 +191,10 @@ jobs:
           # Tags are the state this job reads; the default shallow fetch has none.
           fetch-depth: 0
 
+      # The runner's own Python, with no `uv sync`: the script uses the standard
+      # library only. The logic lives in a script so that tests/test_tag_release.py
+      # can run it against a scratch repository.
       - name: Tag the version if it is new
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # `tomllib`, not a grep for `^version =`: a version key in any section
-          # above [project] wins that grep, and "9.9.9" is a perfectly valid tag
-          # name — so the wrong release ships silently rather than failing. Also
-          # handles the single-quoted form, which TOML allows and `cut -d'"'`
-          # returns whole. Python 3.11+ is preinstalled; this needs no setup step.
-          v=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
-
-          # Each half is keyed on its own existence rather than both on the tag.
-          # Sharing one key means a `gh release create` that fails after the push
-          # is never retried — the next run sees the tag, exits 0, and the release
-          # stays missing. That is the failure this job exists to stop.
-          # `refs/tags/` explicitly: a branch sharing the name is not a release.
-          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
-            echo "v$v already tagged"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a "v$v" -m "v$v"
-            git push origin "v$v"
-          fi
-
-          # The message stays bare and the summary lives in the release, built
-          # from the merged PRs. Deriving it from commit subjects was the other
-          # option and this repo's subjects are not consistently conventional.
-          gh release view "v$v" >/dev/null 2>&1 || gh release create "v$v" --generate-notes
+        run: python3 .github/scripts/tag_release.py

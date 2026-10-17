@@ -70,17 +70,6 @@ owner, so pick from it rather than restating it here.
 
 ---
 
-## Type of Change
-<!-- Check the box that applies. Put an 'x' in the box like this: [x] -->
-
-- [ ] Bug fix (non-breaking change that fixes an issue)
-- [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to change)
-- [ ] Documentation update
-- [ ] Code refactor/cleanup
-- [ ] Performance improvement
-- [ ] Testing improvements
-
 ## Issue Links
 <!--
 Use GitHub closing keywords for every issue this PR fully resolves. They
