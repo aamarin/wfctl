@@ -83,7 +83,17 @@ def store(
         )
 
     dest = _paths.spec_root(main) / spec_dir.name
-    plan = _copy_out.plan(spec_dir, dest)
+    # Comparing reads every spec file, so it can fail the way a copy can. Left to
+    # propagate, the hook's catch-all would let the removal go ahead (FR-028).
+    try:
+        plan = _copy_out.plan(spec_dir, dest)
+    except OSError as exc:
+        return StoreResult(
+            "copy_failed",
+            spec_dir,
+            True,
+            [f"✗ couldn't compare spec files with {dest} ({exc})"],
+        )
 
     if plan.different and not overwrite:
         lines = [f"✗ {dest} holds different spec files for {branch}"]

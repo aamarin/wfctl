@@ -137,6 +137,29 @@ def test_a_failed_copy_stops_the_removal(
     assert "disk full" in result.lines[0]
 
 
+def test_a_spec_file_that_cannot_be_read_stops_the_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Comparing the files reads every one, and an error there escaped to the hook's catch-all.
+
+    The catch-all lets the removal go ahead, so an unreadable spec file meant the
+    only copy was deleted unchecked (FR-028).
+    """
+    repo = make_repo(tmp_path)
+    spec_dir = _spec(repo, **{"spec.md": "s\n"})
+
+    def unreadable(*_args: object) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("wfctl._copy_out.plan", unreadable)
+
+    result = _spec_store.store(spec_dir, repo.branch, repo.worktree)
+
+    assert result.outcome == "copy_failed"
+    assert result.stops_removal
+    assert "permission denied" in result.lines[0]
+
+
 def test_the_main_checkout_has_nothing_to_copy(tmp_path: Path) -> None:
     """Run in the main checkout the spec dir is already home, and the answer must not stop anything."""
     repo = make_repo(tmp_path)

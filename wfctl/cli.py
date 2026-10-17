@@ -1512,9 +1512,12 @@ def _save_unsaved(
 
     from wfctl import _archive
 
+    # The state dir is made inside the `try` too: an error creating it would
+    # otherwise reach the hook's catch-all, which lets the removal go ahead with
+    # the untracked files unsaved.
     try:
         saved = _archive.save(found, resolve_agent_dir(repo_root, branch), extra)
-    except _archive.SaveFailed as exc:
+    except (_archive.SaveFailed, OSError) as exc:
         console.print(
             f"[red]✗[/red] couldn't save unsaved files ({escape(str(exc))}) — "
             "removal stopped, nothing lost",

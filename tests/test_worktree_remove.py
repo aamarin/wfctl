@@ -153,6 +153,29 @@ def test_an_unexpected_error_warns_and_lets_the_removal_go_on(
     assert "worktree-remove failed (disk on fire) — continuing so the removal is not blocked" in out
 
 
+def test_a_state_dir_that_cannot_be_created_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Creating the state dir ran outside the save's `try`, so a failure there fell into the catch-all.
+
+    The catch-all exits 0, which let the removal delete untracked files that had
+    not been saved.
+    """
+    repo = make_repo(tmp_path)
+    (repo.worktree / "notes.md").write_text("notes\n")
+
+    def unwritable(*_a: object, **_k: object) -> Path:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr("wfctl.cli.resolve_agent_dir", unwritable)
+
+    code, out = _remove(repo)
+
+    assert code == 1, out
+    assert "couldn't save unsaved files (read-only file system)" in out
+    assert "continuing so the removal is not blocked" not in out
+
+
 def test_a_non_git_checkout_still_exits_zero(
     state_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
