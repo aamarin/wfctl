@@ -70,8 +70,12 @@ def plan(source: Path, dest: Path) -> CopyPlan:
                 result.same.append(rel)
             else:
                 result.different[rel] = f"symlink differs: the worktree's points to {os.readlink(src)}"
-        elif not target.is_file():
+        elif not os.path.lexists(target):
             result.missing.append(rel)
+        elif target.is_symlink() or not target.is_file():
+            # Copying onto a link would write through it to wherever it points, and
+            # onto a folder would put the file inside it.
+            result.different[rel] = "the main checkout has a link or a folder at this path"
         elif src.read_bytes() == target.read_bytes():
             result.same.append(rel)
         else:
@@ -94,9 +98,11 @@ def apply(copy_plan: CopyPlan, overwrite: bool) -> None:
         source = copy_plan.source / rel
         target = copy_plan.dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_dir() and not target.is_symlink():
+            raise IsADirectoryError(f"{target} is a folder, not a file")
+        if target.is_symlink():
+            target.unlink()
         if source.is_symlink():
-            if os.path.lexists(target):
-                target.unlink()
             os.symlink(os.readlink(source), target)
         else:
             shutil.copy2(source, target)

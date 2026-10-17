@@ -139,7 +139,16 @@ def _unmerged_commits(worktree: Path, found: UnsavedCheck) -> None:
     lines on trunk. That merge conflicts, git can't tell the work is already
     there, and the removal stops (SC-004, accepted on #600 item 2).
     """
-    local = _git(worktree, "log", "--format=%h %s", "HEAD", "--not", "--remotes")
+    # Another local branch holds a commit as safely as a remote does, since removing
+    # this worktree deletes only its own branch. That is what keeps trunk's history
+    # out of the list in a repository with no remote, and what lets `workmux merge`
+    # (which merges into local trunk before it removes) through. The pattern is a
+    # bare name: git ignores `--exclude` given a full `refs/heads/` path here.
+    own = _git(worktree, "symbolic-ref", "--short", "-q", "HEAD").stdout.strip()
+    local = _git(
+        worktree, "log", "--format=%h %s", "HEAD", "--not", "--remotes",
+        *([f"--exclude={own}"] if own else []), "--branches",
+    )
     if local.returncode != 0:
         found.warnings.append(_unanswered("unmerged commits", _reason(local)))
         return
@@ -152,7 +161,13 @@ def _unmerged_commits(worktree: Path, found: UnsavedCheck) -> None:
         found.warnings.append(_unanswered("unmerged commits", "no trunk branch found"))
         return
 
-    merged = _git(worktree, "merge-tree", "--write-tree", found.trunk, "HEAD")
+    # Unrelated histories (an orphan branch) are refused by default, which would
+    # read as "can't answer" and let the removal go ahead. Allowing them lets the
+    # tree comparison below say the work isn't in trunk.
+    merged = _git(
+        worktree, "merge-tree", "--write-tree", "--allow-unrelated-histories",
+        found.trunk, "HEAD",
+    )
     if merged.returncode == 1:
         found.unmerged = commits
         return

@@ -176,6 +176,46 @@ def test_a_state_dir_that_cannot_be_created_stops_the_removal(
     assert "continuing so the removal is not blocked" not in out
 
 
+def test_a_manifest_that_will_not_parse_does_not_skip_the_checks(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Looking up the spec dir reads the manifest, and it raised before any check ran.
+
+    The catch-all exits 0, so a worktree with an uncommitted edit was removed
+    unchecked because of a lookup the checks don't need.
+    """
+    repo = make_repo(tmp_path)
+    (repo.worktree / ".wf-skills-manifest.json").write_text("{not json")
+    (repo.worktree / "README.md").write_text("edited, never committed\n")
+
+    code, out = _remove(repo)
+
+    assert code == 1, out
+    assert "couldn't find the spec dir" in out
+    assert "uncommitted edits:" in out
+    assert "README.md" in out
+
+
+def test_a_comparison_that_fails_is_listed_beside_the_refusals_already_found(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception from the dry-run store reached the catch-all and threw the refusals away."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "README.md").write_text("edited, never committed\n")
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("cannot compare")
+
+    monkeypatch.setattr("wfctl._spec_store.store", boom)
+
+    code, out = _remove(repo)
+
+    assert code == 1, out
+    assert "uncommitted edits:" in out
+    assert "couldn't compare spec files:" in out
+    assert "cannot compare" in out
+
+
 def test_a_non_git_checkout_still_exits_zero(
     state_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

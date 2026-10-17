@@ -176,3 +176,49 @@ def test_a_link_to_the_same_place_is_the_same_and_a_different_one_is_not(
     _copy_out.apply(result, overwrite=True)
 
     assert (dest / "moved").readlink() == Path("target-b")
+
+
+def test_a_link_in_the_destination_is_replaced_and_never_written_through(
+    dirs: tuple[Path, Path],
+) -> None:
+    """Copying onto a destination link followed it, so `--overwrite` rewrote a file outside the spec dir.
+
+    A link that points nowhere used to read as "missing" and the copy then created
+    the file at the link's target, with or without `--overwrite`.
+    """
+    source, dest = dirs
+    _write(source / "spec.md", "worktree\n")
+    _write(source / "plan.md", "worktree plan\n")
+    outside = _write(dest.parent / "outside.txt", "keep me\n")
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "spec.md").symlink_to(outside)
+    (dest / "plan.md").symlink_to(dest.parent / "nowhere.txt")
+
+    result = _copy_out.plan(source, dest)
+
+    assert sorted(result.different) == ["plan.md", "spec.md"]
+    _copy_out.apply(result, overwrite=False)
+    assert not (dest.parent / "nowhere.txt").exists()
+
+    _copy_out.apply(result, overwrite=True)
+
+    assert not (dest / "spec.md").is_symlink()
+    assert (dest / "spec.md").read_text() == "worktree\n"
+    assert outside.read_text() == "keep me\n"
+    assert not (dest.parent / "nowhere.txt").exists()
+
+
+def test_a_folder_in_the_destination_is_a_difference_and_never_filled(
+    dirs: tuple[Path, Path],
+) -> None:
+    """A folder at the file's name used to take the file inside it, and the run still said "copied"."""
+    source, dest = dirs
+    _write(source / "tasks.md", "t\n")
+    (dest / "tasks.md").mkdir(parents=True)
+
+    result = _copy_out.plan(source, dest)
+
+    assert list(result.different) == ["tasks.md"]
+    with pytest.raises(OSError):
+        _copy_out.apply(result, overwrite=True)
+    assert not (dest / "tasks.md" / "tasks.md").exists()

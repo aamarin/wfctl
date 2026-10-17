@@ -629,3 +629,53 @@ def test_listing_a_folder_that_holds_the_spec_dir_warns_and_saves_no_spec_files(
     assert "'specs/'" in result.output
     assert "spec dir" in result.output
     assert not (state_dir / "unsaved").exists()
+
+
+def test_an_orphan_branch_with_a_local_only_commit_stops_the_removal(tmp_path: Path) -> None:
+    """The merge check refuses unrelated histories, and that refusal read as "can't answer".
+
+    The removal then went ahead and the commit, which exists nowhere else, was lost.
+    """
+    repo = make_repo(tmp_path)
+    _git(repo.worktree, "checkout", "--orphan", "40-orphan")
+    _git(repo.worktree, "rm", "-rfq", ".")
+    _commit(repo.worktree, "only-here.txt", "x\n", "add only-here.txt")
+
+    found = _archive.check(repo.worktree, None)
+
+    assert len(found.unmerged) == 1
+    assert "add only-here.txt" in found.unmerged[0]
+    assert not found.warnings
+
+
+def test_the_stop_names_only_the_branch_s_commits_when_there_is_no_remote(tmp_path: Path) -> None:
+    """`--not --remotes` removes nothing without a remote, so the list was trunk's whole history."""
+    repo = make_repo(tmp_path)
+    _git(repo.main, "remote", "remove", "origin")
+    _commit(repo.main, "trunk-1.txt", "x\n", "add trunk-1.txt")
+    _commit(repo.main, "trunk-2.txt", "x\n", "add trunk-2.txt")
+    _git(repo.worktree, "merge", "-q", "main")
+    _commit(repo.worktree, "feature.txt", "x\n", "add feature.txt")
+
+    found = _archive.check(repo.worktree, None)
+
+    assert [line.split(" ", 1)[1] for line in found.unmerged] == ["add feature.txt"]
+
+
+def test_a_branch_merged_into_local_trunk_is_not_stopped_before_trunk_is_pushed(
+    tmp_path: Path,
+) -> None:
+    """`workmux merge` merges into local trunk and then removes, before anything is pushed.
+
+    Trunk resolves to origin/main, which does not have the merge yet, so the merge
+    check saw a change and stopped a removal that loses nothing.
+    """
+    repo = make_repo(tmp_path)
+    # A clone has origin/HEAD, which makes origin/main the trunk the check merges against.
+    _git(repo.main, "remote", "set-head", "origin", "main")
+    _commit(repo.worktree, "feature.txt", "x\n", "add feature.txt")
+    _git(repo.main, "merge", "-q", "--no-ff", repo.branch)
+
+    found = _archive.check(repo.worktree, None)
+
+    assert found.unmerged == []

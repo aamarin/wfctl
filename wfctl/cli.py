@@ -1582,7 +1582,9 @@ _FORMER_REMOVE_COMMAND = "archive-story"
 
 
 def _remove_stop_groups(
-    found: "_archive_mod.UnsavedCheck", dry_store: "_spec_store_mod.StoreResult", branch: str
+    found: "_archive_mod.UnsavedCheck",
+    dry_store: "_spec_store_mod.StoreResult | None",
+    branch: str,
 ) -> list[tuple[str, list[str]]]:
     """Every reason the removal stops, in the order the stop block prints them."""
     groups: list[tuple[str, list[str]]] = []
@@ -1594,7 +1596,7 @@ def _remove_stop_groups(
         )
     if found.listing_error:
         groups.append(("couldn't list untracked files:", [found.listing_error]))
-    if dry_store.stops_removal:
+    if dry_store is not None and dry_store.stops_removal:
         title = dry_store.lines[0].removeprefix("✗ ")
         if dry_store.outcome == "differs":
             # Drop the hint line and the indent the store adds for its own output.
@@ -1661,15 +1663,35 @@ def worktree_remove_cmd(
         story = handle or os.environ.get("WM_HANDLE") or branch
         # An explicit handle wins, because the caller knows which worktree is being
         # removed better than HEAD does.
-        spec_dir = resolve_spec_dir(story, repo_root)
-        if spec_dir is None and story != branch:
-            spec_dir = resolve_spec_dir(branch, repo_root)
+        # The lookup reads the manifest, which raises on one that won't parse. That
+        # must not skip the checks below: they don't need the spec dir, and a
+        # worktree with an uncommitted edit would then be removed unchecked.
+        try:
+            spec_dir = resolve_spec_dir(story, repo_root)
+            if spec_dir is None and story != branch:
+                spec_dir = resolve_spec_dir(branch, repo_root)
+        except (OSError, ValueError) as exc:
+            spec_dir = None
+            console.print(
+                f"[yellow]⚠[/yellow] couldn't find the spec dir ({escape(str(exc))}) — "
+                "its spec files were not checked",
+                soft_wrap=True,
+            )
 
         found = _archive.check(repo_root, spec_dir)
         for warning in found.warnings:
             console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
-        planned = _spec_store.store(spec_dir, branch, repo_root, dry_run=True)
+        # A failed comparison is a stop reason of its own. Letting it reach the
+        # catch-all would throw away the refusals `found` already holds.
+        planned: "_spec_store.StoreResult | None" = None
+        compare_error = None
+        try:
+            planned = _spec_store.store(spec_dir, branch, repo_root, dry_run=True)
+        except Exception as exc:  # noqa: BLE001
+            compare_error = str(exc)
         groups = _remove_stop_groups(found, planned, branch)
+        if compare_error is not None:
+            groups.append(("couldn't compare spec files:", [compare_error]))
         if groups:
             console.print(
                 "[red]✗[/red] removal stopped — this worktree holds work saved nowhere else"
@@ -1680,7 +1702,7 @@ def worktree_remove_cmd(
                     console.print(f"    {line}", markup=False, soft_wrap=True)
             console.print()
             keep = None
-            if planned.outcome == "differs":
+            if planned is not None and planned.outcome == "differs":
                 keep = f"cd {shlex.quote(str(repo_root))} && wfctl store specs --overwrite"
             _print_manual_route(repo_root, branch, keep)
             raise typer.Exit(1)
