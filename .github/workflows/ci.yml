@@ -191,63 +191,10 @@ jobs:
           # Tags are the state this job reads; the default shallow fetch has none.
           fetch-depth: 0
 
+      # The runner's own Python, with no `uv sync`: the script uses the standard
+      # library only. The logic lives in a script so that tests/test_tag_release.py
+      # can run it against a scratch repository.
       - name: Tag the version if it is new
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          fail() { echo "::error::$1"; exit 1; }
-
-          # `tomllib`, not a grep for `^version =`: a version key in any section
-          # above [project] wins that grep, and "9.9.9" is a perfectly valid tag
-          # name — so the wrong release ships silently rather than failing. Also
-          # handles the single-quoted form, which TOML allows and `cut -d'"'`
-          # returns whole. Python 3.11+ is preinstalled; this needs no setup step.
-          v=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
-
-          # Each half is keyed on its own existence rather than both on the tag.
-          # Sharing one key means a `gh release create` that fails after the push
-          # is never retried — the next run sees the tag, exits 0, and the release
-          # stays missing. That is the failure this job exists to stop.
-          # `refs/tags/` explicitly: a branch sharing the name is not a release.
-          tagged=false
-          git rev-parse -q --verify "refs/tags/v$v" >/dev/null && tagged=true
-          released=false
-          gh release view "v$v" >/dev/null 2>&1 && released=true
-          if $tagged && $released; then
-            echo "v$v already released"
-            exit 0
-          fi
-
-          # Everything is checked before anything is tagged. The tag is what
-          # every machine upgrades to, so a tag with no release is a half-
-          # published release, and a failure here leaves neither.
-          #
-          # `--no-merges` is load-bearing. This repository's merge commits carry
-          # the pull request's title in their body, so the merge of the release
-          # pull request also contains this subject. Without the flag the lookup
-          # returns that merge, fails the subject check, and stops every release.
-          rel=$(git log -1 --no-merges --format=%H --fixed-strings --grep "chore(release): cut $v" HEAD)
-          [ -n "$rel" ] || fail "no commit with the subject chore(release): cut $v"
-          [ "$(git log -1 --format=%s "$rel")" = "chore(release): cut $v" ] \
-            || fail "the commit found for $v has a different subject"
-          # The commit's own version, read the same way as above: the subject
-          # alone would also match a later commit that quotes it.
-          at=$(git show "$rel:pyproject.toml" | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read())["project"]["version"])')
-          [ "$at" = "$v" ] || fail "the commit found for $v carries version $at"
-          git log -1 --format=%b "$rel" > "$RUNNER_TEMP/notes.md"
-          grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" \
-            || fail "the release commit for $v has no release notes in its body"
-
-          if $tagged; then
-            echo "v$v already tagged"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a "v$v" -m "v$v"
-            git push origin "v$v"
-          fi
-
-          # The tag stays bare and the notes are the release commit's body, which
-          # the person cutting the release confirmed in their editor. GitHub's own generated list of pull
-          # request titles is deliberately not used: nobody read it.
-          $released || gh release create "v$v" --notes-file "$RUNNER_TEMP/notes.md"
+        run: python3 .github/scripts/tag_release.py
