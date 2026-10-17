@@ -303,9 +303,31 @@ same close as the hook; nothing here can tell the two apart, and it does not try
    common case.
 
    **Report only.** Do not stage, commit, push, or delete anything in the spec
-   root, and do not offer to. Someone who wants their specs committed will commit
-   them; what they cannot do is notice that a directory they never open has
-   uncommitted work in it.
+   root yourself, and do not offer to. The user can store or commit the files
+   when they want to. What they can't do is notice that a directory they never
+   open has uncommitted work in it, which is why the report line matters.
+
+   When the spec root is a spec store with an upstream branch, the report line
+   also names `wfctl store specs` as the way to store the files, and says not to
+   `git add` or `git commit` them there by hand. A hand commit in the store can
+   take in other branches' spec dirs, while `wfctl store specs` commits only
+   this branch's folder and then pushes it. To tell whether the spec root has an
+   upstream branch, run this, which prints the branch, such as
+   `origin/specs-trunk`, or fails when there is none:
+
+   ```bash
+   git -C <SPEC_ROOT> rev-parse --abbrev-ref --symbolic-full-name @{u}
+   ```
+
+   For example, the line for a spec store with an upstream reads:
+
+   ```text
+   3 uncommitted files in /Users/you/project-specs. Store them with
+   `wfctl store specs`, not by hand with `git add` or `git commit`.
+   ```
+
+   In any other layout, the line names `SPEC_ROOT` and the count, and nothing
+   more.
 
    Any *working tree* other than this one qualifies, including a sibling worktree
    on an orphan branch — it shares an object store but has its own toplevel.

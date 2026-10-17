@@ -15,7 +15,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
-   │   └─► _hook 233                                    2 out · 2 in   │
+   │   └─► _hook 233                                    3 out · 2 in   │
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
@@ -28,7 +28,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
-   │ _completion 150                                              │      ┊
+   │ _completion 150  _spec_store 928                             │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -48,7 +48,8 @@ when this drawing stops matching it. See **Staleness** below.
 importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` imports `_guard` directly. It imports `_paths` only
 when a command is about to be refused, to find the spec root and the state
-root. Neither import pulls in `cli`, which is what lets the guard run without
+root, and `_spec_store` only when that command also runs git, to ask whether
+the spec root takes commits. None of these imports pulls in `cli`, which is what lets the guard run without
 it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
@@ -242,7 +243,8 @@ none either, beyond deciding which fields of a payload it trusts. It also hands
 `_guard` the spec root and the state root so the guard can exempt them, and it
 asks `_paths` where both are rather than deciding that itself. Which folders in
 the spec root take commits is a fact about the filesystem, so `_hook` asks git
-and `_guard` decides what the answer allows.
+through `_spec_store.owns_branch`, the same rule the store applies before it
+commits, and `_guard` decides what the answer allows.
 
 #371 added a second fast-path argv beside the guard's: `hook session-restart`
 runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is
@@ -306,7 +308,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review _completion
+domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review _completion _spec_store
 resolution  _paths _manifest _provenance
 mechanism   _io _md
 ```

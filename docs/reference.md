@@ -189,7 +189,9 @@ it and only the implementation ships.
 | `next` | Write next actionable step to `next-step.md` (automation shortcut) |
 | `verify` | Run this repository's definition of done and record the outcome |
 | `end` | End the current session and write summary scaffold |
-| `archive-specs` | Rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
+| `archive-specs` | Store or rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
+| `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push |
+| `check specs` | List every spec dir in the spec store that is not stored; exits 1 when one has no worktree left |
 | `log` | Print color-coded event timeline for the current session |
 | `state-dir` | Print the active XDG state directory path (`--branch` for another's) |
 | `feature-paths` | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
