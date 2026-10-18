@@ -86,6 +86,6 @@ body fails the job before anything is tagged.
 | branch | `release/v<version>`, into `main` |
 | title | the release commit's subject |
 | description | the release commit's body |
-| checks | the five the ruleset requires; `release-note` passes because the branch's name matches its version |
+| checks | the five the ruleset requires; `release-note` passes because the branch's name matches its version and that version is higher than `main`'s |
 
 It is merged as a merge commit, and the tag lands on that merge.

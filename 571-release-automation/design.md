@@ -58,7 +58,7 @@ update, gets this one:
 
 On `main` the check passes, since there is no branch to compare against. It
 also passes a `release/v<version>` branch whose `pyproject.toml` carries that
-version, which is what lets the release pull request, which deletes the notes,
+version, when that version is also higher than `main`'s, which is what lets the release pull request, which deletes the notes,
 pass its own CI.
 
 ### Andre cutting a release

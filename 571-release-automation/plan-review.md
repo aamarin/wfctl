@@ -406,7 +406,7 @@ Two MINOR findings stand:
 
 - Priority: MINOR
 - Category: Risk / Failure Mode
-- Status: open
+- Status: fixed in 6c67500
 - Evidence:
   - `contracts/release-script.md §After both prompts` step 4: "The step is
     skipped when `changes/` holds no file." The rollback below it always names
@@ -435,7 +435,7 @@ Two MINOR findings stand:
 
 - Priority: MINOR
 - Category: Requirement / Plan Mismatch
-- Status: open
+- Status: fixed in the feature folder on 2026-10-16
 - Evidence:
   - `design.md §Behaviour`: the check "also passes a `release/v<version>` branch
     whose `pyproject.toml` carries that version". `spec.md §FR-004`,

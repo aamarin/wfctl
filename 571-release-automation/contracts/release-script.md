@@ -90,13 +90,20 @@ again before Andre merges it.
 
 It never pushes `main` and never merges. When a step from 1 to 5 fails, the
 script restores exactly the paths it wrote, with `git restore --staged
---worktree --source=HEAD -- pyproject.toml uv.lock changes/`, then switches
-back to `main`, deletes the release branch, and exits 1 naming the step. The
-restore comes first because the version bump, the relock, and the staged note
-deletions are uncommitted at that point, and a plain switch would carry them
-onto `main`. It names its paths rather than running `git reset --hard`, because
-the editor session sits between the clean-tree check and the commit, and a
-tracked file Andre edited in another window then would be lost to a reset.
+--worktree --source=HEAD -- pyproject.toml uv.lock`, then switches back to
+`main`, deletes the release branch, and exits 1 naming the step. The restore
+comes first because the version bump, the relock, and the staged note deletions
+are uncommitted at that point, and a plain switch would carry them onto `main`.
+It names its paths rather than running `git reset --hard`, because the editor
+session sits between the clean-tree check and the commit, and a tracked file
+Andre edited in another window then would be lost to a reset.
+
+`changes/` is added to that restore only when step 4 ran. Git checks every
+pathspec before it restores any, so one that matches nothing fails the whole
+command with `pathspec 'changes/' did not match any file(s) known to git`, and
+the version bump and the lock change would then stay in the tree and go onto
+`main` with the switch. Step 4 is skipped exactly when `changes/` holds no
+tracked file, which is also when that pathspec matches nothing.
 
 When step 6 or 7 fails, the commit already exists, so the script leaves the
 branch in place, switches back to `main`, and exits 1 printing the command that
@@ -135,8 +142,8 @@ carries on even with no other notes, proposes a patch from the notes it has, and
 says the proposal leaves them out:
 
 ```
-Proposed version: 0.23.1 (patch: no notes yet, and 9 merges with no release note to read first)
-Merged with no release note: #570, #573, #577, #581, #589, #592, #596, ...
+Proposed version: 0.23.1 (patch: no notes yet, and 7 merges with no release note to read first)
+Merged with no release note: #570, #573, #577, #581, #589, #592, #596
 ```
 
 With no notes to build from, towncrier prints `No significant changes.`, and
