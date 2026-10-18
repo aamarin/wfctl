@@ -291,8 +291,27 @@ def test_install_skills_elsewhere_in_the_file_is_not_wired() -> None:
 
 def test_wired_when_a_real_line_invokes_archive_story() -> None:
     assert _workmux.pre_remove_wired(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
+
+
+def test_a_hook_that_ends_in_or_true_is_not_wired() -> None:
+    """`|| true` turns the hook's stop into a success, so workmux removes the worktree anyway.
+
+    Repos seeded before the rename carry exactly this line, and doctor reported
+    them as protected.
+    """
+    for swallow in ("|| true", "|| :"):
+        text = f'pre_remove:\n  - wfctl archive-specs "$X" {swallow}\n'
+        assert not _workmux.pre_remove_wired(text), swallow
+        assert _workmux.pre_remove_masked(text), swallow
+
+
+def test_the_seeded_hook_is_not_masked() -> None:
+    """The `|| true` on the `issue stop` line beside it does not count."""
+    text = _workmux.WIRED_PRE_REMOVE + '  - cd "$X" && wfctl issue stop || true\n'
+    assert _workmux.pre_remove_wired(text)
+    assert not _workmux.pre_remove_masked(text)
 
 
 def test_empty_list_is_not_wired() -> None:
@@ -320,7 +339,7 @@ def test_wired_hook_is_found_when_other_keys_follow() -> None:
     """Block detection must not stop at the key line or run past its end."""
     assert _workmux.pre_remove_wired(
         "pre_remove:\n"
-        "  - command -v wfctl && wfctl archive-story \"$X\" || true\n"
+        "  - command -v wfctl && wfctl archive-story \"$X\"\n"
         "\n"
         "files: {}\n"
     )
@@ -387,7 +406,7 @@ def test_pre_remove_wired_still_accepts_the_former_name() -> None:
     """A repo wired before the rename IS wired — the alias keeps working. Reporting
     it as unwired would offer to add a second hook beside the one already there."""
     assert _workmux.pre_remove_wired(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
 
 

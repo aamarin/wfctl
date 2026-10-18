@@ -6675,6 +6675,16 @@ def _check_workmux_hook(repo_root: Path) -> bool:
     if _workmux.pre_remove_wired(text):
         return False
 
+    if _workmux.pre_remove_masked(text):
+        # Not the unwired case below: there is no hook to add, and offering to
+        # wire a second one beside the first would leave the `|| true` in place.
+        console.print(
+            "[yellow]⚠[/yellow] .workmux.yaml: pre_remove ends the removal hook in "
+            "`|| true`, so a removal that would lose work\n"
+            "  goes ahead anyway. Delete the `|| true` from that line."
+        )
+        return True
+
     console.print(
         "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
         "`wfctl hook worktree-remove` — removing a\n"

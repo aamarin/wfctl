@@ -244,7 +244,7 @@ def test_doctor_ignores_a_hook_naming_the_former_command(
     repo_root = agent_dir.parent
     _seed_workmux(
         repo_root,
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n',
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n',
     )
 
     result = _doctor(monkeypatch, interactive=False)
@@ -375,7 +375,7 @@ def test_doctor_treats_either_command_name_identically(
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     (repo_root / ".workmux.yaml").write_text(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
     former = runner.invoke(app, ["doctor"])
 
@@ -409,6 +409,22 @@ def test_unwired_warning_names_the_current_command(
     assert "wfctl hook worktree-remove" in out
     assert "`wfctl archive-story`" not in out
     assert "`wfctl archive-specs`" not in out
+
+
+def test_doctor_says_when_pre_remove_swallows_the_stop(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hook ending in `|| true` is reported, with the one change that fixes it."""
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-specs "$X" || true\n'
+    )
+
+    result = _doctor(monkeypatch, interactive=False)
+
+    assert result.exit_code == 1
+    assert "`|| true`" in result.output
+    assert "Wire it now" not in result.output
 
 
 # --- wfctl arch context -------------------------------------------------------

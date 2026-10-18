@@ -53,7 +53,9 @@ _WINDOW_PREFIX_LINE = re.compile(r"^\s*#?\s*window_prefix:")
 _WORKTREE_DIR_LINE = re.compile(
     r"""^worktree_dir:[ \t]*(?:'((?:[^']|'')*)'|"([^"\\]*)"|([^\s#'"]\S*))"""
 )
-_EMPTY_PRE_REMOVE_LINE = re.compile(r"^pre_remove:\s*\[\]\s*$")
+# `|| true` or `|| :` after the hook command, which discards its exit code.
+_MASKED = re.compile(r"\|\|\s*(?:true|:)(?=\s|;|$)")
+_EMPTY_PRE_REMOVE_LINE =re.compile(r"^pre_remove:\s*\[\]\s*$")
 
 # The hook is `wfctl hook worktree-remove`. Both earlier names still dispatch as
 # hidden aliases, so a `.workmux.yaml` written under either is still wired.
@@ -236,10 +238,30 @@ def pre_remove_wired(text: str) -> bool:
     add a second hook beside the one already there. Which name it uses is not this
     function's business; the command itself says so when the hook runs.
     """
-    names = (_COMMAND, *_FORMER_COMMANDS)
     return any(
-        name in ln for ln in _live_lines(text, "pre_remove:") for name in names
+        not _MASKED.search(ln) for ln in _hook_lines(text)
     )
+
+
+def pre_remove_masked(text: str) -> bool:
+    """Does a `pre_remove` line call the removal hook and then ignore its exit code?
+
+    The hook exits 1 to stop a removal that would lose work, and `|| true` turns
+    that into a success, so workmux removes the worktree anyway. Repos seeded
+    before the rename carry exactly this line. They are not wired, but they are
+    not the same as an empty `pre_remove` either: the fix is deleting four
+    characters, not adding a hook.
+    """
+    return any(_MASKED.search(ln) for ln in _hook_lines(text))
+
+
+def _hook_lines(text: str) -> list[str]:
+    names = (_COMMAND, *_FORMER_COMMANDS)
+    return [
+        ln
+        for ln in _live_lines(text, "pre_remove:")
+        if any(name in ln for name in names)
+    ]
 
 
 def post_create_wired(text: str) -> bool:
