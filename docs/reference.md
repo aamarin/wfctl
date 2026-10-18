@@ -189,8 +189,8 @@ it and only the implementation ships.
 | `next` | Write next actionable step to `next-step.md` (automation shortcut) |
 | `verify` | Run this repository's definition of done and record the outcome |
 | `end` | End the current session and write summary scaffold |
-| `archive-specs` | Store or rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
-| `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push |
+| `archive unsaved` | Stop a removal that would lose uncommitted edits or unmerged commits, and save the untracked files and the folders `save_on_remove` lists to `unsaved/` in the state dir |
+| `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push. A spec dir inside the worktree is copied to the main checkout's spec dir instead; `--overwrite` replaces files that differ |
 | `check specs` | List every spec dir in the spec store that is not stored; exits 1 when one has no worktree left |
 | `log` | Print color-coded event timeline for the current session |
 | `state-dir` | Print the active XDG state directory path (`--branch` for another's) |
@@ -209,7 +209,7 @@ it and only the implementation ships.
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check` | Validate a `.agents/trackers/<name>.json` tracker config |
-| `hook` | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`, `session-restart`) — not for interactive use |
+| `hook` | Run a hook from an agent's `settings.json` or workmux's `.workmux.yaml` (`worktree-guard`, `user-prompt`, `session-restart`, `worktree-remove`); not for interactive use. `worktree-remove` is what `pre_remove` calls: it runs the checks, `store specs` and `archive unsaved`, and stops the removal when work would be lost |
 | `check-body` | Check a PR description's drawings, and whether the definition of done has passed |
 | `doctor` | Check the installed skills against the ones this wfctl ships |
 

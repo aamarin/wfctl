@@ -122,7 +122,7 @@ def test_doctor_warns_when_pre_remove_is_not_wired(
     _seed_workmux(repo_root)
     result = _doctor(monkeypatch, interactive=False)
     assert "pre_remove does not call" in result.output
-    assert "discard its specs" in result.output
+    assert "discard its untracked files and spec files" in result.output
 
 
 def test_doctor_non_interactive_changes_nothing(
@@ -146,7 +146,7 @@ def test_doctor_non_interactive_names_how_to_reach_the_fix(
     assert "from a terminal" in result.output
 
 
-def test_doctor_states_the_archive_destination_before_asking(
+def test_doctor_states_where_unsaved_files_would_go_before_asking(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Consent to a change whose entire value is a destination the developer
@@ -154,8 +154,8 @@ def test_doctor_states_the_archive_destination_before_asking(
     repo_root = agent_dir.parent
     _seed_workmux(repo_root)
     result = _doctor(monkeypatch, interactive=False)
-    assert "Archives would be written to:" in result.output
-    assert "/archive/" in result.output
+    assert "Unsaved files would be written to:" in result.output
+    assert "/unsaved/" in result.output
 
 
 def test_doctor_fails_over_an_unwired_hook_with_no_terminal(
@@ -244,7 +244,7 @@ def test_doctor_ignores_a_hook_naming_the_former_command(
     repo_root = agent_dir.parent
     _seed_workmux(
         repo_root,
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n',
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n',
     )
 
     result = _doctor(monkeypatch, interactive=False)
@@ -304,7 +304,7 @@ def test_doctor_refuses_a_customized_pre_remove(
     result = _doctor(monkeypatch, interactive=True, answer="y\n")
     assert wf.read_text() == custom, "a hook we don't understand is never rewritten"
     assert "yourself" in result.output
-    assert _workmux.ARCHIVE_HOOK in result.output
+    assert _workmux.REMOVE_HOOK in result.output
 
 
 def test_doctor_silent_when_no_workmux_config(
@@ -375,7 +375,7 @@ def test_doctor_treats_either_command_name_identically(
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     (repo_root / ".workmux.yaml").write_text(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
     former = runner.invoke(app, ["doctor"])
 
@@ -406,8 +406,25 @@ def test_unwired_warning_names_the_current_command(
 
     out = _doctor(monkeypatch, interactive=False).output
 
-    assert "archive-specs" in out
+    assert "wfctl hook worktree-remove" in out
     assert "`wfctl archive-story`" not in out
+    assert "`wfctl archive-specs`" not in out
+
+
+def test_doctor_says_when_pre_remove_swallows_the_stop(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hook ending in `|| true` is reported, with the one change that fixes it."""
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-specs "$X" || true\n'
+    )
+
+    result = _doctor(monkeypatch, interactive=False)
+
+    assert result.exit_code == 1
+    assert "`|| true`" in result.output
+    assert "Wire it now" not in result.output
 
 
 # --- wfctl arch context -------------------------------------------------------

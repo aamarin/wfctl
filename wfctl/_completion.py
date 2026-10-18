@@ -29,8 +29,7 @@ from wfctl import _md
 
 RECORD = Path("checklists") / "implement-complete.md"
 """Relative to the feature directory. Named once for the two readers in
-`_evidence` and the writer in `cli`. `_archive._SPEC_MAP` keeps its own
-string, since that table is plain paths, so a rename has to touch it too."""
+`_evidence` and the writer in `cli`."""
 
 _HEADING = "## Tasks at completion"
 

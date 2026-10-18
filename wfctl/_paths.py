@@ -359,6 +359,26 @@ def main_checkout(repo_root: Path) -> Path | None:
     return None if parent == repo_root.resolve() else parent
 
 
+def is_main_checkout(repo_root: Path) -> bool:
+    """Is `repo_root` the project's own checkout, and not a linked worktree?
+
+    `main_checkout` answers None for both the main checkout and a layout with no
+    main checkout at all, so it can't tell them apart. A removal needs the
+    difference: run in the main checkout there is nothing to copy out, and in a
+    bare layout the spec files have to be saved with the rest.
+
+    In a linked worktree `.git` is a file, and the common dir is somewhere else.
+    In the main checkout the common dir is its own `.git`.
+    """
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if common.returncode != 0 or not common.stdout.strip():
+        return False
+    return (repo_root / common.stdout.strip()).resolve() == (repo_root / ".git").resolve()
+
+
 def _root_declaration(repo_root: Path, key: str) -> tuple[Path, Path] | None:
     """`(root, declaring dir)` for the nearest manifest declaring `key`.
 
