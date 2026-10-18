@@ -172,8 +172,8 @@ def test_trees_match_the_grafted_directories_in_manifest_in() -> None:
 def test_the_bundled_teardown_hook_names_the_current_command() -> None:
     """The seeded `pre_remove` must not hand out the pre-rename command name.
 
-    `archive-story` is a hidden alias kept so repos seeded before the rename keep
-    archiving. Shipping it in the template inverts that: every newly seeded repo
+    `archive-story` and `archive-specs` are hidden aliases kept so repos seeded
+    before the rename keep working. Shipping it in the template inverts that: every newly seeded repo
     is *born* needing the alias, so the alias can never be retired and the notice
     that reports it never goes quiet. That is the condition issue #36 exists to
     make reachable.
@@ -197,7 +197,8 @@ def test_the_bundled_teardown_hook_names_the_current_command() -> None:
     text = template.read_text()
 
     assert "archive-story" not in text, "the bundled hook still seeds the retired command name"
-    assert "wfctl archive-specs" in text, "the bundled hook must invoke the archive command"
+    assert "wfctl archive-specs" not in text, "the bundled hook still seeds the former command name"
+    assert "wfctl hook worktree-remove" in text, "the bundled hook must invoke the removal hook"
 
 
 def test_resolve_root_accepts_the_package_directory_itself(tmp_path: Path) -> None:

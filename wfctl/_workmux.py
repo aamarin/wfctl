@@ -53,35 +53,39 @@ _WINDOW_PREFIX_LINE = re.compile(r"^\s*#?\s*window_prefix:")
 _WORKTREE_DIR_LINE = re.compile(
     r"""^worktree_dir:[ \t]*(?:'((?:[^']|'')*)'|"([^"\\]*)"|([^\s#'"]\S*))"""
 )
-_EMPTY_PRE_REMOVE_LINE = re.compile(r"^pre_remove:\s*\[\]\s*$")
+# `|| true` or `|| :` after the hook command, which discards its exit code.
+_MASKED = re.compile(r"\|\|\s*(?:true|:)(?=\s|;|$)")
+_EMPTY_PRE_REMOVE_LINE =re.compile(r"^pre_remove:\s*\[\]\s*$")
 
-# The command was renamed in #27; `archive-story` survives as a hidden alias.
-_FORMER_COMMAND = "archive-story"
-_COMMAND = "archive-specs"
+# The hook is `wfctl hook worktree-remove`. Both earlier names still dispatch as
+# hidden aliases, so a `.workmux.yaml` written under either is still wired.
+_COMMAND = "worktree-remove"
+_FORMER_COMMANDS = ("archive-specs", "archive-story")
 
 # A block scalar (`- |`), and that is load-bearing rather than stylistic. YAML
 # folds a multi-line *plain* scalar's break into a space, which would turn `else`
 # into an argument instead of a keyword. That form passes `bash -n`, then invokes
-# wfctl with four junk arguments — non-zero, and a non-zero pre_remove aborts the
-# removal, so every teardown in the repo would be refused — while the missing-wfctl
-# branch silently never fires.
+# wfctl with four junk arguments. That is non-zero, and a non-zero pre_remove aborts
+# the removal, so every teardown in the repo would be refused, while the
+# missing-wfctl branch silently never fires.
 #
-# No `|| true`: a failed archive must abort the removal. `archive-specs` exits
-# non-zero only when at-risk artifacts were lost, so an unrelated internal failure
-# still cannot strand a worktree. The wfctl-absent branch proceeds deliberately —
-# blocking there would strand every worktree on a machine that never had the tool.
-ARCHIVE_HOOK = (
+# No `|| true`: the hook exits 1 to stop a removal that would lose work, and `|| true`
+# would turn every stop into a removal. The command exits 0 on any other failure, so
+# a bug in it still can't strand a worktree. The wfctl-absent branch proceeds
+# deliberately, since blocking there would strand every worktree on a machine that
+# never had the tool.
+REMOVE_HOOK = (
     "  - |\n"
     "    if command -v wfctl >/dev/null; then\n"
-    f'      wfctl {_COMMAND} "$WM_WORKTREE_PATH" "$WM_HANDLE"\n'
+    f'      wfctl hook {_COMMAND} "$WM_WORKTREE_PATH" "$WM_HANDLE"\n'
     "    else\n"
-    '      echo "⚠ wfctl not on PATH — specs in $WM_WORKTREE_PATH not archived"\n'
+    '      echo "⚠ wfctl not on PATH — unsaved work in $WM_WORKTREE_PATH was not saved"\n'
     "    fi\n"
 )
 
 # Kept identical to wfctl's own reviewed config so template and reference cannot
 # drift — the divergence this feature exists to close.
-WIRED_PRE_REMOVE = f"pre_remove:\n{ARCHIVE_HOOK}"
+WIRED_PRE_REMOVE = f"pre_remove:\n{REMOVE_HOOK}"
 
 _COMMENTED_AGENT = (
     "# agent: claude   # per-developer; set here or in "
@@ -227,18 +231,37 @@ def _live_lines(text: str, key: str) -> list[str]:
 
 
 def pre_remove_wired(text: str) -> bool:
-    """Does the `pre_remove` hook archive at all — under either name?
+    """Does the `pre_remove` hook call the removal hook, under any of its names?
 
-    Both count. A repo wired before the rename is genuinely protected, because
-    `archive-story` still dispatches; reporting it as unwired would offer to add
-    a second hook beside the one already there. Which of the two names it uses is
-    not this function's business — the archive command itself reports that, at
-    the moment the hook actually runs.
+    All three count. A repo wired under an earlier name is genuinely protected,
+    because the alias still dispatches, and reporting it as unwired would offer to
+    add a second hook beside the one already there. Which name it uses is not this
+    function's business; the command itself says so when the hook runs.
     """
     return any(
-        _COMMAND in ln or _FORMER_COMMAND in ln
-        for ln in _live_lines(text, "pre_remove:")
+        not _MASKED.search(ln) for ln in _hook_lines(text)
     )
+
+
+def pre_remove_masked(text: str) -> bool:
+    """Does a `pre_remove` line call the removal hook and then ignore its exit code?
+
+    The hook exits 1 to stop a removal that would lose work, and `|| true` turns
+    that into a success, so workmux removes the worktree anyway. Repos seeded
+    before the rename carry exactly this line. They are not wired, but they are
+    not the same as an empty `pre_remove` either: the fix is deleting four
+    characters, not adding a hook.
+    """
+    return any(_MASKED.search(ln) for ln in _hook_lines(text))
+
+
+def _hook_lines(text: str) -> list[str]:
+    names = (_COMMAND, *_FORMER_COMMANDS)
+    return [
+        ln
+        for ln in _live_lines(text, "pre_remove:")
+        if any(name in ln for name in names)
+    ]
 
 
 def post_create_wired(text: str) -> bool:
