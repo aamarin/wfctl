@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -185,3 +185,4 @@ them.
 
 - 2026-10-14  proposed    — #359: nothing stored a spec dir, and removal called an uncommitted one durable
 - 2026-10-14  revised     — a failed push at removal warns instead of stopping, and the store command takes over the copy-out from `archive specs` (agreed with #40)
+- 2026-10-18  accepted    — Andre accepted it in the #359 session on 2026-10-18, after a plain summary of the decision, while getting PR #601 ready to merge
