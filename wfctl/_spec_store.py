@@ -83,6 +83,16 @@ def store(
         )
 
     dest = _paths.spec_root(main) / spec_dir.name
+    # WFCTL_SPEC_DIR is process-global, so it can name a root inside the worktree
+    # being removed. The destination is then the spec dir itself, the comparison
+    # finds every file already copied, and the removal deletes the only copy.
+    if _is_inside(dest, repo_root):
+        return StoreResult(
+            "to_unsaved",
+            spec_dir,
+            True,
+            [f"ℹ {dest} is inside the worktree — spec files are saved with the unsaved work"],
+        )
     # Comparing reads every spec file, so it can fail the way a copy can. Left to
     # propagate, the hook's catch-all would let the removal go ahead (FR-028).
     try:

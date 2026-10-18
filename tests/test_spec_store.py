@@ -270,3 +270,21 @@ def test_store_specs_command_exits_1_on_a_difference_until_overwrite(
     assert "holds different spec files" in stopped.output
     assert replaced.exit_code == 0, replaced.output
     assert (_dest(repo) / "spec.md").read_text() == "mine\n"
+
+
+def test_a_spec_root_override_inside_the_worktree_sends_the_spec_dir_to_unsaved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`WFCTL_SPEC_DIR` pointing into the worktree made the destination the spec dir itself.
+
+    The comparison then found every file already copied, the hook let the removal
+    go ahead, and the worktree's only copy of the specs was deleted with it.
+    """
+    repo = make_repo(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(repo.worktree / "specs"))
+    spec_dir = _spec(repo, **{"spec.md": "s\n"})
+
+    result = _spec_store.store(spec_dir, repo.branch, repo.worktree)
+
+    assert result.outcome == "to_unsaved"
+    assert not result.stops_removal
