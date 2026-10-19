@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import re
 import shlex
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from wfctl import _completion, _md, _plan_review, _tracker
+from wfctl import _completion, _md, _plan_review, _spec_store, _tracker
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
@@ -1520,6 +1521,64 @@ def plan_review(ev: Evidence) -> Assessment:
     if recorded.open_blockers > 0:
         return Assessment("in_progress", None, f"{recorded.open_blockers} BLOCKER findings open")
     return Assessment("done")
+
+
+# The `skipped` texts for the three layouts with nowhere to push
+# (`data-model.md §The store-specs pass`). The unmanaged one is followed by the
+# root, since a plain folder is the one layout whose location nothing else says.
+# None of them says "committed", because the pipeline never runs the store in
+# these layouts and the spec dir may hold nothing committed at all (PR-009).
+_STORE_SKIPPED: dict[str, str] = {
+    "store_no_upstream": "no upstream branch; not backed up",
+    "in_repo": "inside the code repository; not backed up",
+    "unmanaged": "not backed up anywhere: {root}",
+}
+
+
+def store_specs(ev: Evidence) -> Assessment:
+    """Whether this branch's spec dir is stored. `implement`'s one built-in
+    pass (FR-017, `store-specs-implement-pass.md`).
+
+    The spec dir is stored when nothing under it is uncommitted and every
+    commit touching it is on the upstream, both read from git with no fetch
+    (FR-016). `@{u}` is git's local copy of the remote branch, which a push
+    from the store updates, so a spec dir the store just pushed reads `done`
+    without the network.
+
+    Every reading puts its text in `display` and leaves `reason` empty, for
+    the reason `plan_review` gives. The roll-up copies a pass's reason onto
+    its step, and a held `implement` with no open task routes to
+    `wfctl verify`, which shows a green verdict and stores nothing. With no
+    reason, the pass itself routes, and the next command is `/store-specs`
+    (research R4).
+
+    A layout with nowhere to push reads `skipped`, and its `display` text is
+    the reason `store-specs-implement-pass.md` asks for, saying where the
+    files are. It is not a `reason` either, since a `skipped` reading with
+    one is listed as a warning on every `status`, and these layouts are ones
+    a repository chose on purpose.
+
+    The spec root is the spec dir's parent, which is where `resolve_spec_dir`
+    found it. A git failure reads `in_progress`, so the pass routes to the
+    store, which then says what git said, and so does a `detached` store. The
+    one answer a broken read must never give is `done`, and `skipped` is no
+    better, since it does not hold `implement` either.
+    """
+    try:
+        found = _spec_store.layout(ev.spec_dir.parent, ev.repo_root)
+    except (OSError, subprocess.CalledProcessError):
+        return Assessment("in_progress", None, "git could not read the spec store")
+    if found.kind == "detached":
+        return Assessment("in_progress", None, _spec_store.DETACHED)
+    if found.kind != "store":
+        return Assessment("skipped", None, _STORE_SKIPPED[found.kind].format(root=found.root))
+    try:
+        left = _spec_store.unstored(found.root, [ev.spec_dir.name])
+    except (OSError, subprocess.CalledProcessError):
+        return Assessment("in_progress", None, "git could not read the spec store")
+    if not left:
+        return Assessment("done")
+    return Assessment("in_progress", None, _spec_store.describe(left[0]))
 
 
 def tasks(ev: Evidence) -> Assessment:

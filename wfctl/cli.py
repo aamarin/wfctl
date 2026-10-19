@@ -40,7 +40,7 @@ from wfctl._paths import (
 if TYPE_CHECKING:
     from wfctl import _archive as _archive_mod
     from wfctl import _session
-    from wfctl import _spec_store as _spec_store_mod
+    from wfctl import _spec_copy as _spec_copy_mod
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
 
@@ -901,7 +901,7 @@ def next_cmd() -> None:
     # artifacts say, and this is the file an agent actually acts on — `status`
     # showing the hold while `next` sends the agent to re-run the refused step
     # is the disagreement FR-016's asymmetry depends on not existing.
-    steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
+    steps, by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
     # After the hold, for `build_report`'s reason: a step a host block holds has
     # not passed, and this file must list what `status --json` lists.
@@ -929,9 +929,15 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
+    # The block's action, for the one block that routes to a pass rather than
+    # past it (research R15). Passed here as `build_report` passes it, or
+    # `status` would name `/store-specs` while this file, the one an agent acts
+    # on, still said `wfctl verify`.
+    block = by_step.get(step_name)
     command, auto = next_step_content(
         step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
         outstanding=outstanding, auto_approve=granted,
+        block_action=block.action if block is not None else None,
     )
 
     # Shared with `build_report`, which applies it to the same step's `reason`
@@ -1540,34 +1546,6 @@ def _save_unsaved(
         console.print(f"    and {len(saved.files) - shown} more")
 
 
-store_app = typer.Typer(
-    no_args_is_help=True, help="Keep a branch's spec files where a removal won't delete them."
-)
-app.add_typer(store_app, name="store")
-
-
-@store_app.command("specs")
-def store_specs_cmd(
-    overwrite: bool = typer.Option(
-        False, "--overwrite", help="Replace differing files with the worktree's copies."
-    ),
-) -> None:
-    """Copy this worktree's spec files to the main checkout's spec dir.
-
-    Stops with exit 1 when the main checkout already holds a different copy of a
-    file, and shows the difference. `--overwrite` replaces those files.
-    """
-    from wfctl import _spec_store
-
-    repo_root = get_repo_root()
-    branch = resolve_branch(repo_root)
-    result = _spec_store.store(
-        resolve_spec_dir(branch, repo_root), branch, repo_root, overwrite=overwrite
-    )
-    for line in result.lines:
-        console.print(line, markup=False, soft_wrap=True)
-    raise typer.Exit(result.exit_code)
-
 
 # `archive-specs` and `archive-story` are what `.workmux.yaml` files written before
 # `wfctl hook worktree-remove` existed still call. The file is repo-local, so those
@@ -1583,7 +1561,7 @@ _FORMER_REMOVE_COMMAND = "archive-story"
 
 def _remove_stop_groups(
     found: "_archive_mod.UnsavedCheck",
-    dry_store: "_spec_store_mod.StoreResult | None",
+    planned: "_spec_copy_mod.CopyResult | None",
     branch: str,
 ) -> list[tuple[str, list[str]]]:
     """Every reason the removal stops, in the order the stop block prints them."""
@@ -1596,11 +1574,11 @@ def _remove_stop_groups(
         )
     if found.listing_error:
         groups.append(("couldn't list untracked files:", [found.listing_error]))
-    if dry_store is not None and dry_store.stops_removal:
-        title = dry_store.lines[0].removeprefix("✗ ")
-        if dry_store.outcome == "differs":
-            # Drop the hint line and the indent the store adds for its own output.
-            body = [row.removeprefix("    ") for row in dry_store.lines[1:-1]]
+    if planned is not None and planned.stops_removal:
+        title = planned.lines[0].removeprefix("✗ ")
+        if planned.outcome == "differs":
+            # Drop the hint line and the indent the copy-out adds for its own output.
+            body = [row.removeprefix("    ") for row in planned.lines[1:-1]]
             groups.append((title.replace(f" for {branch}", "") + ":", body))
         else:
             groups.append((title, []))
@@ -1626,6 +1604,11 @@ def worktree_remove_cmd(
     the worktree's. Then it copies the spec files out and saves the untracked files
     to `unsaved/`.
 
+    A spec dir outside the worktree is committed and pushed in its spec store
+    instead of copied. This push runs in your own shell, where no agent
+    permission layer sees it. A failed push warns and lets the removal go ahead,
+    since the commit stays in the spec store on disk.
+
     Exits 1 only to stop the removal, since a failing `pre_remove` hook is what
     aborts it. Any other failure warns and exits 0, so a bug here can't strand a
     worktree. The `except` catches SystemExit as well, because `get_repo_root`
@@ -1639,7 +1622,7 @@ def worktree_remove_cmd(
 
         from rich.markup import escape
 
-        from wfctl import _archive, _spec_store
+        from wfctl import _archive, _spec_copy, _spec_store
 
         if ctx.info_name == _FORMER_REMOVE_COMMAND:
             console.print(
@@ -1683,10 +1666,10 @@ def worktree_remove_cmd(
             console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
         # A failed comparison is a stop reason of its own. Letting it reach the
         # catch-all would throw away the refusals `found` already holds.
-        planned: "_spec_store.StoreResult | None" = None
+        planned: "_spec_copy.CopyResult | None" = None
         compare_error = None
         try:
-            planned = _spec_store.store(spec_dir, branch, repo_root, dry_run=True)
+            planned = _spec_copy.copy_out(spec_dir, branch, repo_root, dry_run=True)
         except Exception as exc:  # noqa: BLE001
             compare_error = str(exc)
         groups = _remove_stop_groups(found, planned, branch)
@@ -1707,15 +1690,41 @@ def worktree_remove_cmd(
             _print_manual_route(repo_root, branch, keep)
             raise typer.Exit(1)
 
-        stored = _spec_store.store(spec_dir, branch, repo_root)
-        for line in stored.lines:
-            console.print(line, markup=False, soft_wrap=True)
-        if stored.stops_removal:
+        copied = _spec_copy.copy_out(spec_dir, branch, repo_root)
+        stops = copied.stops_removal
+        if spec_dir is not None and copied.outcome == "not_applicable":
+            # A spec dir outside the worktree survives the removal, but it still
+            # holds whatever the branch wrote after its last store, such as a
+            # review report. So it is committed and pushed here, and the store's
+            # own lines say where the files went. A failed push warns and lets the
+            # removal go ahead, since the commit stays in the spec store on disk.
+            # The hook reads `stops_removal` and never the exit code, which is 1
+            # for that failed push (research R6).
+            #
+            # The store runs git and the network before `_save_unsaved`, so an
+            # exception it does not catch would reach the catch-all and skip the
+            # save, and workmux would then delete the untracked files. The spec
+            # dir survives the removal either way, so a store that raises warns
+            # and the save still runs.
+            try:
+                stored = _spec_store.store(spec_dir, branch, repo_root)
+            except Exception as exc:  # noqa: BLE001
+                console.print(
+                    f"[yellow]⚠[/yellow] couldn't store {escape(str(spec_dir))} "
+                    f"({escape(str(exc))}) — its files are still there",
+                    soft_wrap=True,
+                )
+            else:
+                _print_plain(_spec_store.report_lines(stored))
+                stops = stored.stops_removal
+        else:
+            _print_plain(copied.lines)
+        if stops:
             console.print()
             _print_manual_route(repo_root, branch)
             raise typer.Exit(1)
 
-        extra = [spec_dir] if stored.outcome == "to_unsaved" and spec_dir else []
+        extra = [spec_dir] if copied.outcome == "to_unsaved" and spec_dir else []
         _save_unsaved(repo_root, branch, found, extra)
     except typer.Exit:
         raise
@@ -5942,7 +5951,9 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
-check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own configuration.")
+check_app = typer.Typer(
+    no_args_is_help=True, help="Check a repository's configuration and its spec store.",
+)
 # A new group rather than a peer of `tracker-check`/`check-body`'s existing
 # hyphenated shape: #402 proposes `check <thing>` — noun group plus verb for
 # anything with an object — and is open, so the direction is where the argument
@@ -5952,6 +5963,86 @@ check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own 
 # a drive-by on a surface this feature does not otherwise touch, and it is
 # #402's to do either way.
 app.add_typer(check_app, name="check")
+
+
+store_app = typer.Typer(
+    no_args_is_help=True,
+    help="Keep what a branch wrote where a worktree removal won't delete it.",
+)
+# A group for the reason `check` is one: #402's `<noun> <verb>` shape. The noun
+# is the action and the object follows, so a later `store` of something other
+# than specs has a place to go without a new top-level verb.
+app.add_typer(store_app, name="store")
+
+
+def _print_plain(lines: Iterable[str]) -> None:
+    """Print the spec store's lines for `store specs`, `check specs` and removal.
+
+    Unwrapped and without markup, because a line names a path that rich would
+    otherwise break mid-word or read as a style tag, and a person copies the
+    path or the remedy from it.
+    """
+    for line in lines:
+        console.print(line, markup=False, highlight=False, soft_wrap=True)
+
+
+@store_app.command("specs")
+def store_specs_cmd(
+    overwrite: bool = typer.Option(
+        False, "--overwrite",
+        help="Replace differing files in the main checkout with the worktree's copies. "
+        "Applies only to a spec dir copied out of the worktree.",
+    ),
+) -> None:
+    """Commit this branch's spec dir in its spec store and push it, or copy it
+    out of the worktree when it lives inside one.
+
+    Reads the branch and spec dir the way `wfctl feature-paths` does, and
+    stores only that one folder. A spec dir inside the worktree that is not in a
+    spec store of its own can't be committed without landing on the code's
+    branch, so it is copied to the main checkout's spec dir instead, and
+    `--overwrite` replaces files there that differ. `--overwrite` does nothing
+    on the commit-and-push path.
+
+    Exits 1 when the spec dir is not backed up or copied afterwards, and 0 when
+    it is, or when its layout has nowhere to push. A worktree with no main
+    checkout to copy to also exits 0, because the removal hook saves its spec
+    files with the unsaved work.
+    """
+    from wfctl import _spec_copy, _spec_store
+    from wfctl._session import record_outward_action
+
+    import subprocess
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    found = resolve_spec_dir(branch, repo_root)
+    if found is not None and _spec_copy.inside_worktree(found, repo_root):
+        # Git is asked before the path decides. A spec store checked out inside
+        # the worktree is still a spec store, and copying its folder out would
+        # leave it uncommitted, so the `/store-specs` pass would ask for this
+        # command again. Only a spec dir git can't commit in is copied out. A
+        # layout git can't read goes to the store, which reports git's error.
+        try:
+            kind = _spec_store.layout(found.parent, repo_root).kind
+        except (OSError, subprocess.CalledProcessError):
+            kind = None
+        if kind in ("in_repo", "unmanaged"):
+            copied = _spec_copy.copy_out(found, branch, repo_root, overwrite=overwrite)
+            _print_plain(copied.lines)
+            raise typer.Exit(copied.exit_code)
+    # The same fallback `feature-paths` makes. A branch with no spec dir of its
+    # own, `main` included, names a folder that does not exist, and the store
+    # reads that as `no_spec_dir` rather than as a failure.
+    spec_dir = found if found is not None else spec_root(repo_root) / branch
+    result = _spec_store.store(spec_dir, branch, repo_root)
+    _print_plain(_spec_store.report_lines(result))
+    # `stored` alone, because it is the only outcome that pushed, and the event
+    # says an action was taken. Recording it is what lifts a hold the
+    # `/store-specs` wrapper filed when the host refused this same command, so
+    # a person who runs it in their own shell needs nothing more (research R15).
+    if result.outcome == "stored":
+        record_outward_action(agent_dir, branch, "store-specs")
+    raise typer.Exit(result.exit_code)
 
 
 contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape contract.")
@@ -6205,6 +6296,53 @@ def check_config_cmd() -> None:
             f"[green]✓[/green] {_declared.CONFIG_PATH}: trunk {escape(name)}, "
             f"read as {escape(_paths.trunk_branch(repo_root) or name)}"
         )
+
+
+@check_app.command("specs")
+def check_specs_cmd() -> None:
+    """List every spec dir in the spec store that is not stored.
+
+    Spec dirs a worktree of this repository resolves to are listed apart,
+    under "In progress", because their branch can still store them. Exits 1
+    only when some other spec dir is not stored, and 0 in a layout with
+    nowhere to push. Reads no network.
+    """
+    import subprocess
+
+    from wfctl import _spec_store
+    from wfctl._paths import worktree_branches
+
+    repo_root = get_repo_root()
+    root = spec_root(repo_root)
+    spec_dirs: list[_spec_store.Unstored] = []
+    in_progress: set[str] = set()
+    try:
+        found = _spec_store.layout(root, repo_root)
+        # The whole root in one call, so the cost is two git calls however many
+        # spec dirs there are. Both read git's local copy of the remote branch
+        # and never fetch, so the answer is as fresh as the last store or fetch,
+        # and the check still runs offline (FR-016).
+        if found.kind == "store":
+            spec_dirs = _spec_store.unstored(root, ["."])
+    except (OSError, subprocess.CalledProcessError) as e:
+        said = getattr(e, "stderr", None) or str(e)
+        _print_plain([f"✗ git could not read {root}: {said.strip()}"])
+        raise typer.Exit(1)
+    if found.kind == "detached":
+        _print_plain(_spec_store.check_lines(found, [], set()))
+        raise typer.Exit(1)
+    # Asked of `resolve_spec_dir` rather than matched on folder names,
+    # because a branch's slug can differ from its spec dir's after the
+    # issue key, and an epic's sub-issues resolve through `delivery.md`
+    # (research R10). `worktree_branches` already drops prunable entries,
+    # so a worktree deleted by hand does not keep its spec dir here.
+    for branch in worktree_branches(repo_root) if spec_dirs else []:
+        owned = resolve_spec_dir(branch, repo_root)
+        if owned is not None:
+            in_progress.add(owned.name)
+    _print_plain(_spec_store.check_lines(found, spec_dirs, in_progress))
+    if any(d.name not in in_progress for d in spec_dirs):
+        raise typer.Exit(1)
 
 
 def _verification_finding() -> list[str]:

@@ -37,12 +37,13 @@ def test_a_repository_that_declares_nothing_renders_byte_identically(
     indented row, blank line, or header of its own.
 
     Since #501 that premise is "nothing beyond the built-in passes" rather than
-    "nothing at all". `plan` carries the plan review as a built-in pass, and a
-    built-in pass is not a declaration: every repository gets it with no
-    `wfctl.json`, so it draws the same row before and after the empty file is
-    written. It is the one indented row here, because `brainstorm`'s two passes
-    are hidden while that step reads `skipped`. Any other indented row is one
-    this repository never asked for.
+    "nothing at all". `plan` carries the plan review as a built-in pass, and
+    `implement` carries the store of the spec dir (#359). A built-in pass is
+    not a declaration: every repository gets it with no `wfctl.json`, so it
+    draws the same row before and after the empty file is written. Those two
+    are the indented rows here, because `brainstorm`'s two passes are hidden
+    while that step reads `skipped`. Any other indented row is one this
+    repository never asked for.
     """
     storyctl_dir.make_spec_artifact("specify", content="# Spec\nsomething\n")
 
@@ -52,7 +53,7 @@ def test_a_repository_that_declares_nothing_renders_byte_identically(
 
     assert before == after
     indented = [line for line in after.splitlines() if line.startswith("  ")]
-    assert indented == ["  plan-review   ○"], (
+    assert indented == ["  plan-review   ○", "  store-specs   ○"], (
         f"an indented row appeared with nothing declared: {indented!r}"
     )
 

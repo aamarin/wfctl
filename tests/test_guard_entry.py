@@ -137,6 +137,33 @@ def test_the_refusal_path_never_imports_typer_or_rich() -> None:
     assert result.stdout.strip() == "[] True"
 
 
+def test_the_commit_path_never_imports_typer_or_rich() -> None:
+    """A refused command that runs git reaches `committable`, which imports
+    `_spec_store`, and neither test above goes that far.
+
+    `_spec_store` also holds the store, the one part of wfctl that pushes, and
+    the CLI that prints its results is a natural thing for it to import. One
+    such import at its top would put #135's cost on every commit an agent runs.
+    The spec root is stubbed to this checkout so `owns_branch` runs real git.
+    """
+    payload = json.dumps(
+        {"cwd": "/r/a", "tool_input": {"command": "rm -rf /r/b/build && git commit -m x"}}
+    )
+    result = _run(
+        "import sys\n"
+        "import wfctl._hook as hook\n"
+        "hook.worktree_roots = lambda cwd: ('/r/a', ['/r', '/r/a', '/r/b'])\n"
+        f"hook.shared_roots = lambda here: [{str(REPO)!r}, None]\n"
+        f"print(hook.worktree_guard({payload!r}), file=sys.stderr)\n"
+        "loaded = {m for m in ('typer', 'rich', 'wfctl.cli') if m in sys.modules}\n"
+        "print(sorted(loaded), 'wfctl._spec_store' in sys.modules)\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.strip().endswith("2"), result.stderr
+    assert result.stdout.strip() == "[] True"
+
+
 def test_a_flag_on_the_subcommand_falls_through_to_typer() -> None:
     """`hook worktree-guard --help` must reach typer, not the fast path.
 

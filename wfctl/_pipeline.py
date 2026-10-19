@@ -91,12 +91,14 @@ class Step(NamedTuple):
     #100 ruled out, and it would cost `grep`: written this way, searching for a
     reader finds its definition and its row here.
 
-    `sub_steps` defaults to empty so every existing row keeps parsing. Two
+    `sub_steps` defaults to empty so every existing row keeps parsing. Three
     steps carry any today. `brainstorm` splits the two artifacts it already
     produces, which is what earns a pass its own row
     (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
     review, whose report is a second artifact read against the first (#501).
-    The other six steps have exactly one artifact each and nothing to split.
+    `implement` carries the store of the spec dir, which owns no artifact and
+    reads git instead (`store-specs-implement-pass.md`). The other five steps
+    have exactly one artifact each and nothing to split.
     """
 
     command: str
@@ -135,7 +137,16 @@ _STEPS: dict[str, Step] = {
     "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks),
     "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
     "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
-    "implement":  Step("/speckit.implement",  _AUTOMATIC,       _evidence.implement),
+    "implement": Step(
+        "/speckit.implement", _AUTOMATIC, _evidence.implement,
+        # Automatic, so an unattended run stores its own specs before it opens
+        # a pull request. A run whose host refuses the push is held by
+        # `report-block`, and `next_step_content` routes that hold back here
+        # rather than to `wfctl verify` (FR-017, research R15).
+        sub_steps=(
+            SubStep("store-specs", "/store-specs", _AUTOMATIC, _evidence.store_specs),
+        ),
+    ),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
@@ -829,6 +840,7 @@ def next_step_content(
     tasks_open: bool = False,
     outstanding: _PipelineSubStep | None = None,
     auto_approve: bool = False,
+    block_action: str | None = None,
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
@@ -839,6 +851,19 @@ def next_step_content(
     Checked after `blocked`: a host block on the *step* is filed against the
     step name (`_apply_block_hold`), never against one of its passes, and it
     means the same thing regardless of what a pass underneath happens to read.
+
+    One block is the exception: a block whose action is the outstanding pass's
+    own name, which `block_action` carries from the caller's `by_step`. When
+    the host refuses `/store-specs`, its wrapper files
+    `wfctl report-block store-specs`, and that holds `implement`. A held
+    `implement` with no open task routes to `wfctl verify` below, but a pass
+    reads `in_progress` only once its step's own reading is `done`, so
+    verification has already passed. `wfctl verify` would show a green verdict
+    and leave the hold standing, while the pass is what is missing (research
+    R15). So that block routes to the pass, with `auto=False` like every
+    blocked step, and as the qualified name when the pass is manual. A block
+    filed for any other action, such as `push` on a finished `implement`,
+    routes exactly as it did before.
 
     A manual pass (`command is None`) returns the qualified pass name and
     `auto=False` always — nothing here ships the command that would run it.
@@ -888,6 +913,10 @@ def next_step_content(
     recomputed — one read of the evidence, held by the caller already.
     """
     if blocked and step in _STEPS:
+        if outstanding is not None and block_action == outstanding.name:
+            if outstanding.command is None:
+                return f"{step}.{outstanding.name}", False
+            return outstanding.command, False
         # `implement` routes to what produces its evidence, unless tasks are
         # still open — then re-entering implement is where the work is. Every
         # other blocked step routes to itself, because re-entering it is where
@@ -1155,9 +1184,11 @@ def build_report(
     outstanding = _outstanding_pass(next((s for s in raw if s.name == name), None))
     if outstanding is not None:
         outstanding.is_current = True
+    block = by_step.get(name)
     command, auto = next_step_content(
         name, blocked, tasks_open=bool(ev and ev.tasks_open),
         outstanding=outstanding, auto_approve=granted,
+        block_action=block.action if block is not None else None,
     )
     # After the routing call above, for the reason `manual_pass_reason` gives.
     # Written onto the step rather than kept beside the payload: `resume` and
@@ -1221,7 +1252,7 @@ def build_report(
         session_holder=holder,
         auto_approve=granted,
         facts=_evidence.facts(ev, repo_root, verification),
-        attention=_derive_attention(name, by_step.get(name), outstanding, stall),
+        attention=_derive_attention(name, block, outstanding, stall),
         # From `raw` after the hold, like everything else here: a step a host
         # block holds has not passed, so its reason is not a warning.
         warnings=collect_warnings(raw),

@@ -6,13 +6,16 @@ comes from what git reports.
 from __future__ import annotations
 
 import shlex
+import types
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from tests.test_archive_unsaved import Repo, make_repo
-from tests.test_spec_store import make_bare_worktree
+from tests.test_spec_copy import make_bare_worktree
+from tests.test_spec_store import BRANCH, _git, _remote_files, _store_setup, _write
+from tests.test_spec_store import _store as store_once
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -199,14 +202,14 @@ def test_a_manifest_that_will_not_parse_does_not_skip_the_checks(
 def test_a_comparison_that_fails_is_listed_beside_the_refusals_already_found(
     tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An exception from the dry-run store reached the catch-all and threw the refusals away."""
+    """An exception from the dry-run copy-out reached the catch-all and threw the refusals away."""
     repo = make_repo(tmp_path)
     (repo.worktree / "README.md").write_text("edited, never committed\n")
 
     def boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("cannot compare")
 
-    monkeypatch.setattr("wfctl._spec_store.store", boom)
+    monkeypatch.setattr("wfctl._spec_copy.copy_out", boom)
 
     code, out = _remove(repo)
 
@@ -304,3 +307,235 @@ def test_neither_former_name_is_listed_but_the_hook_group_lists_worktree_remove(
     assert "archive-specs" not in top
     assert "archive-story" not in top
     assert "worktree-remove" in hook
+
+
+# --- Removal stores a spec dir that lives outside the worktree ----------------
+#
+# The fixtures are a real spec store with a bare remote, from
+# `test_spec_store.py`, and a code repository beside it. Everything sits under
+# `tmp_path`, and the worktree is passed by path, so the spec store is outside
+# it without leaving the directory the remote guard in `conftest.py` allows.
+
+
+def _removal(monkeypatch: pytest.MonkeyPatch, env: types.SimpleNamespace) -> tuple[int, str]:
+    """The removal hook run the way `pre_remove` runs it, with the worktree and
+    handle as arguments and the spec store pinned."""
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(env.here))
+    monkeypatch.setenv("WFCTL_BRANCH", BRANCH)
+    result = runner.invoke(app, ["hook", "worktree-remove", str(env.project), BRANCH])
+    return result.exit_code, result.output
+
+
+def test_removal_stores_what_the_branch_wrote_after_its_last_store(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-022 and User Story 2. Removal used to call a spec dir outside the
+    worktree durable without asking git, so a review report written after the
+    last store was left uncommitted and the output said it was safe."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    assert store_once(env).outcome == "stored"
+    _write(env.spec_dir, "reviews/panel-1.md")
+
+    code, out = _removal(monkeypatch, env)
+
+    sha = _git(env.here, "rev-parse", "--short", "HEAD").strip()
+    assert code == 0, out
+    assert f"✓ stored 1 file → origin/specs-trunk ({sha})" in out
+    assert f"{BRANCH}/reviews/panel-1.md" in _remote_files(env.remote)
+    assert "durable" not in out.lower()
+
+
+def test_removal_of_a_stored_spec_dir_says_so_and_pushes_nothing(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User Story 2, scenario 2. Most removals come after `/store-specs` ran,
+    and one that committed or pushed again would add an empty commit to the
+    spec store's history every time a worktree goes."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    store_once(env)
+    remote_head = _git(env.remote, "rev-parse", "specs-trunk")
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert "✓ spec dir already stored on origin/specs-trunk" in out
+    assert _git(env.remote, "rev-parse", "specs-trunk") == remote_head
+
+
+def test_a_failed_push_at_removal_warns_and_lets_removal_go_ahead(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-021. `store specs` exits 1 here, and the `pre_remove` hook stops a
+    removal on any non-zero exit. The commit stays in the spec store on disk,
+    so stopping the removal would protect nothing and strand the worktree."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    env.remote.rename(env.remote.with_name("remote-away.git"))
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert "⚠ committed 1 file, not pushed — origin/specs-trunk is unreachable" in out
+    assert _git(env.here, "log", "-1", "--format=%s").startswith("specs(359):")
+
+
+def test_a_merge_refused_at_removal_warns_and_leaves_the_local_edit(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-021. Another branch's unstored edit to a file the remote changed
+    stops the merge, which no retry of this removal can fix. The edit is that
+    branch's work, so the store must leave it exactly as it was."""
+    env = _store_setup(tmp_path)
+    (env.there / "100" / "spec.md").write_text("100 as edited there\n")
+    _git(env.there, "commit", "-am", "specs(100): there")
+    _git(env.there, "push")
+    (env.here / "100" / "spec.md").write_text("100, not stored yet\n")
+    _write(env.spec_dir, "spec.md")
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert any(line.startswith("✗ ") for line in out.splitlines()), out
+    assert (env.here / "100" / "spec.md").read_text() == "100, not stored yet\n"
+    assert not (env.here / ".git" / "MERGE_HEAD").exists()
+
+
+def test_a_lock_timeout_at_removal_warns_and_lets_removal_go_ahead(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-021. Another store holding the lock is the ordinary case when two
+    worktrees are removed together, and the files wait in the spec store for
+    the next store either way. The result is built by hand, since this test
+    is about what removal does with a `locked` outcome and not about the lock."""
+    from wfctl import _spec_store
+
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    found = _spec_store.layout(env.here, env.project)
+
+    def locked(spec_dir: object, branch: str, repo_root: object) -> _spec_store.StoreResult:
+        return _spec_store.StoreResult("locked", branch, str(spec_dir), False, found)
+
+    monkeypatch.setattr(_spec_store, "store", locked)
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert locked(env.spec_dir, BRANCH, env.project).exit_code == 1
+    assert any(line.startswith("✗ ") for line in out.splitlines()), out
+
+
+def test_a_stored_spec_dir_still_leaves_the_untracked_files_saved(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The store and the save of untracked files both run on one removal. A
+    later edit that moved the save under the copy-out branch would leave a
+    spec store user's untracked files to be deleted with the worktree."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    (env.project / "notes.md").write_text("notes\n")
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert "✓ stored 1 file → origin/specs-trunk" in out
+    assert (state_dir / "unsaved" / "notes.md").read_text() == "notes\n"
+    assert not (state_dir / "unsaved" / "specs").exists()
+
+
+def test_a_store_that_raises_still_saves_the_untracked_files(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The store runs git and the network before the save. An exception it
+    does not catch, such as a decode error on a file name, reached the hook's
+    catch-all, which exits 0 without saving, and workmux then deleted the
+    untracked files."""
+    from wfctl import _spec_store
+
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    (env.project / "notes.md").write_text("notes\n")
+
+    def raises(spec_dir: object, branch: str, repo_root: object) -> _spec_store.StoreResult:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(_spec_store, "store", raises)
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert f"⚠ couldn't store {env.spec_dir}" in out
+    assert (state_dir / "unsaved" / "notes.md").read_text() == "notes\n"
+
+
+def test_a_removal_run_in_the_main_checkout_goes_ahead(tmp_path: Path, state_dir: Path) -> None:
+    """The main checkout is never removed, so its own spec dir is safe. The
+    copy-out and the store once disagreed about it, and the hook stopped with
+    a route ending in `git branch -D main`."""
+    repo = make_repo(tmp_path)
+    _spec(repo.main, **{"spec.md": "s\n"})
+
+    result = runner.invoke(app, ["hook", "worktree-remove", str(repo.main), repo.branch])
+
+    assert result.exit_code == 0, result.output
+    assert "git worktree remove" not in result.output
+
+
+def test_the_spec_dir_line_survives_a_path_containing_markup(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`[` is legal in a directory name, and rich reads it as a style tag. The
+    line exists to name a location, so a silently truncated path is worse
+    than no line at all."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside[bold]root"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert str(spec_dir) in out, "the path was mangled by markup parsing"
+
+
+def test_a_plain_folder_outside_the_worktree_is_named_and_never_called_durable(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-022. A spec root that is no git repository survives the removal but
+    is backed up nowhere. Removal used to call it durable, and without the path
+    the line can't be told apart from a failed lookup."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert f"ℹ {spec_dir} is not backed up anywhere" in out
+    assert "durable" not in out.lower()
+
+
+def test_a_spec_dir_inside_the_worktree_is_copied_out_and_never_committed(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research R11. A spec dir inside the worktree is #40's copy-out. A commit
+    there would find the code repository and land on the code's branch, so the
+    spec store must never run for it."""
+    from wfctl import _spec_store
+
+    def no_store(*args: object) -> None:
+        pytest.fail("removal ran the store for a spec dir inside the worktree")
+
+    monkeypatch.setattr(_spec_store, "store", no_store)
+    repo = make_repo(tmp_path)
+    _spec(repo.worktree, **{"spec.md": "s\n"})
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert (repo.main / "specs" / "40-feature" / "spec.md").read_text() == "s\n"

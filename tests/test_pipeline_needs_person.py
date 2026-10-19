@@ -209,4 +209,5 @@ def test_the_payload_says_which_passes_need_a_person(
     }
     assert flags == {
         "architecture": False, "design-doc": False, "plan-review": False, "walk": True,
+        "store-specs": False,
     }
