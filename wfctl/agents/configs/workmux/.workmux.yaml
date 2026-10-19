@@ -87,7 +87,9 @@ post_create:
 # not merged into trunk, or spec files that differ from the main checkout's copies,
 # and it prints the commands to run by hand. When nothing stops it, it copies the
 # spec files into the main checkout and the untracked files into wfctl's per-branch
-# state dir under `unsaved/`.
+# state dir under `unsaved/`. A spec dir outside the worktree is committed and
+# pushed in its spec store instead, and a failed push warns without stopping the
+# removal.
 #
 # No `|| true`. The hook exits 1 to stop a removal, and `|| true` would turn every
 # stop into a removal. It exits 0 on any other failure, so a bug in it can't strand a

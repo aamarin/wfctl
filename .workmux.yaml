@@ -108,7 +108,9 @@ pre_remove:
   # has uncommitted edits, commits on no remote that aren't merged into trunk, or
   # spec files that differ from the main checkout's copies. Otherwise it copies the
   # spec files into the main checkout and the untracked files into wfctl's
-  # per-branch state dir under `unsaved/`.
+  # per-branch state dir under `unsaved/`. A spec dir outside the worktree, as in
+  # this repository, is committed and pushed in its spec store instead, and a
+  # failed push warns without stopping the removal.
   #
   # No `|| true`. A failing pre_remove hook aborts the removal, and that is the
   # point: the hook exits 1 only to stop a removal that would lose work, and exits 0

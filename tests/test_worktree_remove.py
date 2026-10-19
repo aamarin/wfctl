@@ -317,8 +317,7 @@ def test_neither_former_name_is_listed_but_the_hook_group_lists_worktree_remove(
 # it without leaving the directory the remote guard in `conftest.py` allows.
 
 
-def _removal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-             env: types.SimpleNamespace) -> tuple[int, str]:
+def _removal(monkeypatch: pytest.MonkeyPatch, env: types.SimpleNamespace) -> tuple[int, str]:
     """The removal hook run the way `pre_remove` runs it, with the worktree and
     handle as arguments and the spec store pinned."""
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(env.here))
@@ -338,7 +337,7 @@ def test_removal_stores_what_the_branch_wrote_after_its_last_store(
     assert store_once(env).outcome == "stored"
     _write(env.spec_dir, "reviews/panel-1.md")
 
-    code, out = _removal(tmp_path, monkeypatch, env)
+    code, out = _removal(monkeypatch, env)
 
     sha = _git(env.here, "rev-parse", "--short", "HEAD").strip()
     assert code == 0, out
@@ -358,7 +357,7 @@ def test_removal_of_a_stored_spec_dir_says_so_and_pushes_nothing(
     store_once(env)
     remote_head = _git(env.remote, "rev-parse", "specs-trunk")
 
-    code, out = _removal(tmp_path, monkeypatch, env)
+    code, out = _removal(monkeypatch, env)
 
     assert code == 0, out
     assert "✓ spec dir already stored on origin/specs-trunk" in out
@@ -375,7 +374,7 @@ def test_a_failed_push_at_removal_warns_and_lets_removal_go_ahead(
     _write(env.spec_dir, "spec.md")
     env.remote.rename(env.remote.with_name("remote-away.git"))
 
-    code, out = _removal(tmp_path, monkeypatch, env)
+    code, out = _removal(monkeypatch, env)
 
     assert code == 0, out
     assert "⚠ committed 1 file, not pushed — origin/specs-trunk is unreachable" in out
@@ -395,7 +394,7 @@ def test_a_merge_refused_at_removal_warns_and_leaves_the_local_edit(
     (env.here / "100" / "spec.md").write_text("100, not stored yet\n")
     _write(env.spec_dir, "spec.md")
 
-    code, out = _removal(tmp_path, monkeypatch, env)
+    code, out = _removal(monkeypatch, env)
 
     assert code == 0, out
     assert any(line.startswith("✗ ") for line in out.splitlines()), out
@@ -421,36 +420,85 @@ def test_a_lock_timeout_at_removal_warns_and_lets_removal_go_ahead(
 
     monkeypatch.setattr(_spec_store, "store", locked)
 
-    code, out = _removal(tmp_path, monkeypatch, env)
+    code, out = _removal(monkeypatch, env)
 
     assert code == 0, out
     assert locked(env.spec_dir, BRANCH, env.project).exit_code == 1
     assert any(line.startswith("✗ ") for line in out.splitlines()), out
 
 
-def test_removal_reads_stops_removal_and_not_the_exit_code(
+def test_a_stored_spec_dir_still_leaves_the_untracked_files_saved(
     tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Research R6. `not_applicable` exits 0 and, for a spec dir inside the
-    worktree, still means deleting the worktree deletes the only copy. A
-    removal that read the exit code would go ahead and lose it without an
-    error. The store only runs for a spec dir outside the worktree, so the
-    result is built by hand."""
+    """The store and the save of untracked files both run on one removal. A
+    later edit that moved the save under the copy-out branch would leave a
+    spec store user's untracked files to be deleted with the worktree."""
+    env = _store_setup(tmp_path)
+    _write(env.spec_dir, "spec.md")
+    (env.project / "notes.md").write_text("notes\n")
+
+    code, out = _removal(monkeypatch, env)
+
+    assert code == 0, out
+    assert "✓ stored 1 file → origin/specs-trunk" in out
+    assert (state_dir / "unsaved" / "notes.md").read_text() == "notes\n"
+    assert not (state_dir / "unsaved" / "specs").exists()
+
+
+def test_a_store_that_raises_still_saves_the_untracked_files(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The store runs git and the network before the save. An exception it
+    does not catch, such as a decode error on a file name, reached the hook's
+    catch-all, which exits 0 without saving, and workmux then deleted the
+    untracked files."""
     from wfctl import _spec_store
 
     env = _store_setup(tmp_path)
     _write(env.spec_dir, "spec.md")
+    (env.project / "notes.md").write_text("notes\n")
 
-    def only_copy(spec_dir: object, branch: str, repo_root: object) -> _spec_store.StoreResult:
-        return _spec_store.StoreResult("not_applicable", branch, str(spec_dir), True)
+    def raises(spec_dir: object, branch: str, repo_root: object) -> _spec_store.StoreResult:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
 
-    monkeypatch.setattr(_spec_store, "store", only_copy)
+    monkeypatch.setattr(_spec_store, "store", raises)
 
-    code, out = _removal(tmp_path, monkeypatch, env)
+    code, out = _removal(monkeypatch, env)
 
-    assert only_copy(env.spec_dir, BRANCH, env.project).exit_code == 0
-    assert code == 1, out
-    assert "git worktree remove" in out
+    assert code == 0, out
+    assert f"⚠ couldn't store {env.spec_dir}" in out
+    assert (state_dir / "unsaved" / "notes.md").read_text() == "notes\n"
+
+
+def test_a_removal_run_in_the_main_checkout_goes_ahead(tmp_path: Path, state_dir: Path) -> None:
+    """The main checkout is never removed, so its own spec dir is safe. The
+    copy-out and the store once disagreed about it, and the hook stopped with
+    a route ending in `git branch -D main`."""
+    repo = make_repo(tmp_path)
+    _spec(repo.main, **{"spec.md": "s\n"})
+
+    result = runner.invoke(app, ["hook", "worktree-remove", str(repo.main), repo.branch])
+
+    assert result.exit_code == 0, result.output
+    assert "git worktree remove" not in result.output
+
+
+def test_the_spec_dir_line_survives_a_path_containing_markup(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`[` is legal in a directory name, and rich reads it as a style tag. The
+    line exists to name a location, so a silently truncated path is worse
+    than no line at all."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside[bold]root"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert str(spec_dir) in out, "the path was mangled by markup parsing"
 
 
 def test_a_plain_folder_outside_the_worktree_is_named_and_never_called_durable(

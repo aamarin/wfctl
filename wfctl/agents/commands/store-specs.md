@@ -58,6 +58,13 @@ failing to push.
 Exit 0 means the spec dir is stored, was already stored, or sits in a layout
 with nowhere to push. In the last case the output says where the files are.
 
+A spec dir inside the worktree, such as the default `specs/`, is copied to the
+main checkout instead, since a commit there would land on the code's branch.
+Exit 1 then means the main checkout already holds different spec files for this
+branch, or the copy failed. The output lists the files that differ. Report it
+and leave the choice to a person, because `wfctl store specs --overwrite`
+replaces the main checkout's copies.
+
 Any outcome can end with an `ℹ` line naming files that only this machine's git
 excludes hide. They were not stored, and another machine's store would store
 them. It is not a failure.

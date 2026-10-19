@@ -2,11 +2,12 @@
 
 This is the half of `wfctl store specs` for a spec dir inside the worktree, which
 git can't commit without landing on the code's branch. A spec dir outside it is
-committed and pushed by `_spec_store` instead, and `store specs` and the removal
-hook pick between the two on where the spec dir is.
+committed and pushed by `_spec_store` instead. The removal hook picks between
+the two on where the spec dir is. `store specs` also asks git first, so a spec
+store checked out inside the worktree is committed rather than copied.
 
-This file holds the result type and the dispatch. Comparing and copying are done
-by `_copy_out`.
+This file holds the result type and the copy-out's outcomes. Comparing and
+copying are done by `_copy_out`.
 """
 from __future__ import annotations
 

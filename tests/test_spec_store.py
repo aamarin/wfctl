@@ -913,13 +913,31 @@ def test_a_spec_dir_outside_the_worktree_never_stops_removal(tmp_path: Path) -> 
     assert not any(r.stops_removal for r in (not_pushed, stored, already))
 
 
-def test_a_spec_dir_inside_the_worktree_stops_removal_and_still_exits_0_by_hand(
+def test_a_spec_dir_inside_a_worktree_stops_removal_and_still_exits_0(tmp_path: Path) -> None:
+    """Research R6. Inside a worktree, deleting the worktree deletes the only
+    copy, so `not_applicable` there has to stop removal. The store has
+    nothing it can do in that layout, and an exit of 1 would fail every run in
+    every repository on the default layout."""
+    project = git_repo(tmp_path / "project")
+    worktree = tmp_path / "wt"
+    _git(project, "worktree", "add", "-b", BRANCH, str(worktree))
+    spec_dir = worktree / "specs" / BRANCH
+    _write(spec_dir, "spec.md")
+
+    result = _spec_store.store(spec_dir, BRANCH, worktree)
+
+    assert result.outcome == "not_applicable"
+    assert result.stops_removal is True
+    assert result.exit_code == 0
+
+
+def test_the_main_checkouts_own_spec_dir_never_stops_removal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Research R6. Inside the worktree, deleting the worktree deletes the only
-    copy, so `not_applicable` there has to stop removal. Run by hand, the
-    store has nothing it can do in that layout, and an exit of 1 would fail
-    every run in every repository on the default layout."""
+    """The main checkout is never removed, so its spec dir is not inside a
+    worktree being removed. The store once judged that by path alone while
+    the copy-out left the main checkout out, so a removal run in the main
+    checkout stopped and printed a route ending in `git branch -D main`."""
     project = git_repo(tmp_path / "project")
     spec_dir = project / "specs" / BRANCH
     _write(spec_dir, "spec.md")
@@ -928,12 +946,32 @@ def test_a_spec_dir_inside_the_worktree_stops_removal_and_still_exits_0_by_hand(
     code, out, state = _cli(monkeypatch, project / "specs", project)
 
     assert result.outcome == "not_applicable"
-    assert result.stops_removal is True
-    assert result.exit_code == 0
+    assert result.stops_removal is False
     assert code == 0
     assert out.startswith(f"ℹ {spec_dir} is inside the code repository")
     assert _git(project, "log", "--format=%s").splitlines() == ["init"]
     assert _recorded_actions(state) == []
+
+
+def test_a_spec_store_checked_out_inside_the_worktree_is_committed_and_not_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """wfctl asks git whether a spec dir is in a spec store, and the path
+    alone does not decide it. Copying this one out to the main checkout would
+    leave it uncommitted, and the `/store-specs` pass would then ask for
+    `store specs` again until the stall count stopped the run."""
+    remote, _, _ = _remote_and_clones(tmp_path / "store")
+    project = git_repo(tmp_path / "project")
+    worktree = tmp_path / "wt"
+    _git(project, "worktree", "add", "-b", BRANCH, str(worktree))
+    store_root = _clone(remote, worktree / "specstore")
+    _write(store_root / BRANCH, "spec.md")
+
+    code, out, _ = _cli(monkeypatch, store_root, worktree)
+
+    assert code == 0, out
+    assert f"{BRANCH}/spec.md" in _remote_files(remote)
+    assert not (project / "specs").exists()
 
 
 @pytest.mark.parametrize("outcome, code", [

@@ -393,7 +393,9 @@ class StoreResult(NamedTuple):
     wfctl could not clear it.
 
     `inside_worktree` is kept rather than `stops_removal` itself, so the rule
-    lives in one place and the removal command cannot apply a second one.
+    lives in one place and the removal command cannot apply a second one. It
+    is `_spec_copy.inside_worktree`'s answer, which leaves the main checkout
+    out, since the main checkout is never removed.
     """
 
     outcome: Outcome
@@ -514,8 +516,16 @@ def store(
     `lock_timeout` is there for the tests, which would otherwise wait the
     full 10 seconds to see a store give up.
     """
+    # The copy-out's rule, not a second one. The removal hook sends a spec dir
+    # here only after the copy-out calls it not inside, so a rule that called
+    # the main checkout's own spec dir inside would stop a removal that the
+    # copy-out had already let through. Imported here rather than at the top
+    # because the worktree guard imports this module before every Bash call,
+    # and the module docstring explains why that has to stay cheap.
+    from wfctl._spec_copy import inside_worktree
+
     path = os.fspath(spec_dir)
-    inside = Path(path).resolve().is_relative_to(Path(os.fspath(repo_root)).resolve())
+    inside = inside_worktree(Path(path), Path(os.fspath(repo_root)))
     if not os.path.isdir(path):
         return StoreResult("no_spec_dir", branch, path, inside)
     try:
