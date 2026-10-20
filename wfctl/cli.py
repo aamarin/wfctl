@@ -1585,6 +1585,62 @@ def _remove_stop_groups(
     return groups
 
 
+def _plain_spec_dir_backup(
+    spec_dir: Path, repo_root: Path, branch: str
+) -> tuple[str, list[Path], bool]:
+    """The line removal prints for a spec dir in a plain folder, what it saves,
+    and whether the removal stops.
+
+    The folder survives the removal, but no other copy of it exists, so it is
+    saved into `unsaved/` with the untracked files. The copy keeps the folder's
+    structure, so you can copy it back as it is. The path is made absolute
+    first, because `WFCTL_SPEC_DIR` is used as written, and `save` reads a
+    relative path as one inside the worktree.
+
+    A spec dir that overlaps the state dir is not copied, because a state dir
+    under the spec dir would be copied into itself. One under `unsaved.staging/`
+    or `unsaved/` also stops the removal. The save clears the first and moves
+    the second aside before it copies, and it still runs for the worktree's
+    untracked files, so leaving the spec dir out of it would not keep the spec
+    dir from being deleted or moved.
+    """
+    from wfctl import _archive
+
+    source = spec_dir.absolute()
+    # Any error here falls back to copying. The save then meets the same path
+    # inside the `try` that turns a failure into a stopped removal, whereas an
+    # error raised here would reach the hook's catch-all and let the removal go
+    # ahead with nothing saved. `resolve()` raises RuntimeError on a symlink
+    # loop before Python 3.13, and OSError from then on.
+    try:
+        state = resolve_agent_dir(repo_root, branch, create=False)
+        overlaps = _archive.is_inside(state, source) or _archive.is_inside(source, state)
+        in_save = any(
+            _archive.is_inside(state / name, source) for name in ("unsaved", "unsaved.staging")
+        )
+    except (OSError, RuntimeError):
+        overlaps = in_save = False
+    if in_save:
+        return (
+            f"✗ {spec_dir} is inside the folder wfctl saves into, and saving the"
+            " worktree's files would delete or move it — removal stopped",
+            [],
+            True,
+        )
+    if overlaps:
+        return (
+            f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved"
+            f" because it overlaps the state dir {state}",
+            [],
+            False,
+        )
+    return (
+        f"ℹ {spec_dir} is not in a spec store — copying it with the unsaved work",
+        [source],
+        False,
+    )
+
+
 @app.command("archive-specs", hidden=True)
 @app.command(_FORMER_REMOVE_COMMAND, hidden=True)
 def worktree_remove_cmd(
@@ -1607,7 +1663,9 @@ def worktree_remove_cmd(
     A spec dir outside the worktree is committed and pushed in its spec store
     instead of copied. This push runs in your own shell, where no agent
     permission layer sees it. A failed push warns and lets the removal go ahead,
-    since the commit stays in the spec store on disk.
+    since the commit stays in the spec store on disk. A spec dir in a plain folder
+    that git does not track has no store to commit in, so it is copied into
+    `unsaved/` with the untracked files, and a failed copy stops the removal.
 
     Exits 1 only to stop the removal, since a failing `pre_remove` hook is what
     aborts it. Any other failure warns and exits 0, so a bug here can't strand a
@@ -1692,6 +1750,7 @@ def worktree_remove_cmd(
 
         copied = _spec_copy.copy_out(spec_dir, branch, repo_root)
         stops = copied.stops_removal
+        extra = [spec_dir] if copied.outcome == "to_unsaved" and spec_dir else []
         if spec_dir is not None and copied.outcome == "not_applicable":
             # A spec dir outside the worktree survives the removal, but it still
             # holds whatever the branch wrote after its last store, such as a
@@ -1715,8 +1774,15 @@ def worktree_remove_cmd(
                     soft_wrap=True,
                 )
             else:
-                _print_plain(_spec_store.report_lines(stored))
+                lines = _spec_store.report_lines(stored)
                 stops = stored.stops_removal
+                if stored.layout is not None and stored.layout.kind == "unmanaged":
+                    # The backup's line replaces "is not backed up anywhere",
+                    # which is the first line `report_lines` gives this layout.
+                    note, extra, in_save = _plain_spec_dir_backup(spec_dir, repo_root, branch)
+                    lines = [note, *lines[1:]]
+                    stops = stops or in_save
+                _print_plain(lines)
         else:
             _print_plain(copied.lines)
         if stops:
@@ -1724,7 +1790,6 @@ def worktree_remove_cmd(
             _print_manual_route(repo_root, branch)
             raise typer.Exit(1)
 
-        extra = [spec_dir] if copied.outcome == "to_unsaved" and spec_dir else []
         _save_unsaved(repo_root, branch, found, extra)
     except typer.Exit:
         raise
