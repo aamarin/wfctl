@@ -1336,9 +1336,9 @@ def _check_config(repo: Path, save_on_remove: object) -> tuple[int, str]:
     [
         (["/abs/notes"], "'save_on_remove' entry '/abs/notes' is an absolute path"),
         (["../elsewhere"], "'save_on_remove' entry '../elsewhere' resolves outside the repository"),
-        ([5], "'save_on_remove' entry 5 must be a non-empty folder path"),
-        ([""], "'save_on_remove' entry '' must be a non-empty folder path"),
-        ("notes/", "'save_on_remove' must be a list of folders"),
+        ([5], "'save_on_remove' entry 5 must be a non-empty path"),
+        ([""], "'save_on_remove' entry '' must be a non-empty path"),
+        ("notes/", "'save_on_remove' must be a list of files or folders"),
     ],
 )
 def test_check_config_reports_an_unusable_save_on_remove(

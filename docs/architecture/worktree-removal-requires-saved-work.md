@@ -45,7 +45,7 @@ is printed.
 ## Decision
 
 The remove hook stops a removal that would delete work saved nowhere else, even
-when you pass `--force`. It stops the removal in three cases:
+when you pass `--force`. It stops the removal in four cases:
 
 1. A tracked file has uncommitted edits, whether they are staged or not.
 2. The branch has commits that are not on any remote branch, and merging the
@@ -54,11 +54,19 @@ when you pass `--force`. It stops the removal in three cases:
    `removal-copy-destinations` record describes what the hook copies and where
    each kind of file goes.
 
+4. git can't list the worktree's untracked files.
+
 In every other case, the hook makes its copies and lets the removal go ahead.
 The hook stops a removal only when it finds work that would be lost. If git
-can't answer one of the checks above, the hook prints a warning and lets the
-removal go ahead. This keeps the existing rule that an unrelated error never
-leaves a worktree stuck.
+can't answer the edit check or the commit check, the hook prints a warning and
+lets the removal go ahead. This keeps the existing rule that an unrelated error
+never leaves a worktree stuck.
+
+A failed listing of untracked files is the one exception. The hook saves
+untracked files rather than stopping for them, so it needs the list to copy
+them. Without the list, it has no way to know whether they are saved, and going
+ahead would delete every one of them. Stopping costs you one manual step, which
+is the route the hook prints.
 
 ## Owns truth
 
@@ -98,7 +106,8 @@ sequenceDiagram
     wm->>hook: run pre_remove
     hook->>git: uncommitted edits to tracked files?
     hook->>git: commits on no remote, and not merged?
-    alt either one found
+    hook->>git: list untracked files
+    alt an edit or a commit found, or the list failed
         hook--xwm: stop the removal, print the manual route
         wm-->>you: worktree kept
     else none found
@@ -154,3 +163,6 @@ changing the default branch and stops the removal.
 - 2026-10-13  proposed    — #40 extends the remove hook from spec files to all
   work a removal would delete, and stops the removal for tracked edits instead
   of saving them
+- 2026-10-19  amended     — #613 stops the removal when git can't list the
+  untracked files, rather than warning and going ahead. This overrides FR-013
+  in the #40 spec for that one check

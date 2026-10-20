@@ -2,8 +2,8 @@
 
 `check` looks for work that exists nowhere else: uncommitted edits, commits on no
 remote that a merge into trunk would change, and untracked files. `save` copies
-the untracked files and the folders `wfctl.json` lists under `save_on_remove`
-into `unsaved/` in the branch's state dir.
+the untracked files and the files and folders `wfctl.json` lists under
+`save_on_remove` into `unsaved/` in the branch's state dir.
 
 Spec files are the store's job (`_spec_store`), and the removal hook runs all
 three. The predicate for what a removal destroys is containment (`is_inside`),
@@ -33,6 +33,11 @@ class UnsavedCheck:
     `listing_error` is the one check that fails closed. When git can't list
     untracked files, going ahead would delete every one of them, and a stopped
     removal costs one manual step (#600 item 5).
+
+    `listed_files` and `folders` are the `save_on_remove` entries that exist,
+    split by kind, since a folder is copied whole and a file is not. `excluded`
+    holds the spec dir when a listed folder contains it, so the folder's copy
+    leaves out what the spec store already saves.
     """
 
     worktree: Path
@@ -41,7 +46,9 @@ class UnsavedCheck:
     trunk: str | None = None
     warnings: list[str] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
+    listed_files: list[str] = field(default_factory=list)
     folders: list[str] = field(default_factory=list)
+    excluded: list[str] = field(default_factory=list)
     listing_error: str | None = None
 
     @property
@@ -55,6 +62,23 @@ class SavedResult:
 
     dest: Path
     files: list[str]
+
+    @property
+    def shown(self) -> list[str]:
+        """`files` with each nested repository's `.git` folder as one entry.
+
+        The removal prints the first 20, and a nested clone's object store sorts
+        among them as hundreds of files nobody needs to read, which pushes the
+        person's own files off the list (#612). The count still says every file.
+        """
+        entries: list[str] = []
+        for rel in self.files:
+            parts = Path(rel).parts
+            if ".git" in parts[:-1]:
+                rel = Path(*parts[: parts.index(".git") + 1]).as_posix() + "/"
+            if not entries or entries[-1] != rel:
+                entries.append(rel)
+        return entries
 
 
 class SaveFailed(Exception):
@@ -187,14 +211,16 @@ _CONFIG_PATH = "wfctl.json"
 SAVE_KEY = "save_on_remove"
 
 
-def declared_folders(repo_root: Path) -> tuple[list[str], list[str]]:
-    """Return (the folders `wfctl.json` lists under `save_on_remove`, problems).
+def declared_paths(repo_root: Path) -> tuple[list[str], list[str]]:
+    """Return (the paths `wfctl.json` lists under `save_on_remove`, problems).
 
-    Same shape as `_paths.declared_trunk`. An entry that can't be used comes back
-    as a problem and is left out of the folders, so removal skips it with a
-    warning and `check config` reports it. A folder that doesn't exist is
-    neither: most worktrees have no `research/` yet, and that is the expected
-    state (FR-016, FR-034).
+    Same shape as `_paths.declared_trunk`. An entry is a file or a folder, and
+    which one is read from the worktree at removal, since the main checkout
+    that `check config` runs in may not hold it. An entry that can't be used
+    comes back as a problem and is left out, so removal skips it with a warning
+    and `check config` reports it. A path that doesn't exist is neither: most
+    worktrees have no `research/` yet, and that is the expected state (FR-016,
+    FR-034).
 
     A file that won't parse is "none declared" here, since `doctor` and
     `check config` already report it and this runs inside a removal.
@@ -208,14 +234,14 @@ def declared_folders(repo_root: Path) -> tuple[list[str], list[str]]:
         return [], []
     entries = data[SAVE_KEY]
     if not isinstance(entries, list):
-        return [], [f"'{SAVE_KEY}' must be a list of folders, such as [\"notes/\"]"]
+        return [], [f"'{SAVE_KEY}' must be a list of files or folders, such as [\"notes/\"]"]
 
-    folders: list[str] = []
+    paths: list[str] = []
     problems: list[str] = []
     root = repo_root.resolve()
     for entry in entries:
         if not isinstance(entry, str) or not entry.strip():
-            problems.append(f"'{SAVE_KEY}' entry {entry!r} must be a non-empty folder path")
+            problems.append(f"'{SAVE_KEY}' entry {entry!r} must be a non-empty path")
         elif Path(entry).is_absolute():
             problems.append(
                 f"'{SAVE_KEY}' entry '{entry}' is an absolute path; "
@@ -224,13 +250,13 @@ def declared_folders(repo_root: Path) -> tuple[list[str], list[str]]:
         elif (resolved := (root / entry).resolve()) == root:
             problems.append(
                 f"'{SAVE_KEY}' entry '{entry}' is the repository itself; "
-                "list a folder inside it"
+                "list a file or folder inside it"
             )
         elif root not in resolved.parents:
             problems.append(f"'{SAVE_KEY}' entry '{entry}' resolves outside the repository")
         else:
-            folders.append(entry)
-    return folders, problems
+            paths.append(entry)
+    return paths, problems
 
 
 def _under(rel: str, folder: Path) -> bool:
@@ -258,14 +284,20 @@ def _untracked_files(worktree: Path, spec_dir: Path | None, found: UnsavedCheck)
     found.untracked = listed
 
 
-def _listed_folders(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) -> None:
-    """Fill `folders` from the worktree's own `wfctl.json`, which is committed.
+def _listed_paths(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) -> None:
+    """Fill `listed_files` and `folders` from the worktree's own `wfctl.json`,
+    which is committed.
 
-    A listed folder that holds the spec dir, or is inside it, is skipped with a
-    warning. Spec files have their own destination, and listing `specs/` would
-    save them twice (FR-018).
+    Spec files have their own destination, so they are never saved here twice
+    (FR-018). An entry that is the spec dir, or inside it, is skipped with a
+    warning, because the spec dir's own copy already holds it. An entry that
+    holds the spec dir, such as `specs/`, is saved without it. Skipping the whole
+    folder would delete everything else in it with the worktree (#611).
+
+    A symlink is a file here even when it points at a folder, so it is saved as
+    the link it is and its target is never copied in.
     """
-    listed, problems = declared_folders(worktree)
+    listed, problems = declared_paths(worktree)
     found.warnings += [f"wfctl.json: {problem} — skipped" for problem in problems]
     spec_rel = (
         spec_dir.resolve().relative_to(worktree.resolve())
@@ -273,16 +305,19 @@ def _listed_folders(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) 
         else None
     )
     for entry in listed:
-        folder = Path(entry.rstrip("/"))
-        if spec_rel is not None and (
-            folder == spec_rel or folder in spec_rel.parents or spec_rel in folder.parents
-        ):
+        rel = Path(entry.rstrip("/"))
+        path = worktree / rel
+        if spec_rel is not None and (rel == spec_rel or spec_rel in rel.parents):
             found.warnings.append(
-                f"wfctl.json: '{SAVE_KEY}' entry '{entry}' holds the spec dir, "
+                f"wfctl.json: '{SAVE_KEY}' entry '{entry}' is inside the spec dir, "
                 "which is saved separately — skipped"
             )
-        elif (worktree / folder).is_dir():
+        elif path.is_symlink() or path.is_file():
+            found.listed_files.append(rel.as_posix())
+        elif path.is_dir():
             found.folders.append(entry)
+            if spec_rel is not None and rel in spec_rel.parents:
+                found.excluded.append(spec_rel.as_posix())
 
 
 def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
@@ -296,7 +331,7 @@ def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
     _uncommitted_edits(worktree, found)
     _unmerged_commits(worktree, found)
     _untracked_files(worktree, spec_dir, found)
-    _listed_folders(worktree, spec_dir, found)
+    _listed_paths(worktree, spec_dir, found)
     return found
 
 
@@ -317,7 +352,14 @@ def _staging_files(staging: Path) -> list[str]:
     return sorted(found)
 
 
-def _copy_into(worktree: Path, staging: Path, files: list[Path], folders: list[Path]) -> None:
+def _copy_into(
+    worktree: Path, staging: Path, files: list[Path], folders: list[Path], excluded: list[Path]
+) -> None:
+    skip = {worktree / rel for rel in excluded}
+
+    def ignore(folder: str, names: list[str]) -> set[str]:
+        return {name for name in names if Path(folder) / name in skip}
+
     for rel in files:
         src, dest = worktree / rel, staging / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -328,7 +370,7 @@ def _copy_into(worktree: Path, staging: Path, files: list[Path], folders: list[P
     for rel in folders:
         # `symlinks=True` keeps a link inside the folder as a link. The folder may
         # be a nested repository, and its own history has to come across as it is.
-        shutil.copytree(worktree / rel, staging / rel, symlinks=True)
+        shutil.copytree(worktree / rel, staging / rel, symlinks=True, ignore=ignore)
 
 
 def _relative(worktree: Path, path: Path) -> Path:
@@ -348,21 +390,25 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
     destination and stops every removal in that repository. So any path under a
     listed folder is dropped, and so is a folder under another listed folder
     (#600 item 6).
+
+    A folder in `extra` is never excluded. In a layout with no main checkout the
+    spec dir is in `extra`, and a listed `specs/` dropping it as nested and
+    then leaving it out of its own copy would save it nowhere.
     """
     worktree = check.worktree
+    extra_rel = [_relative(worktree, path) for path in extra]
+    excluded = [Path(rel) for rel in check.excluded if Path(rel) not in extra_rel]
     folder_candidates = (
         [Path(entry.rstrip("/")) for entry in check.untracked if entry.endswith("/")]
         + [Path(entry.rstrip("/")) for entry in check.folders]
-        + [_relative(worktree, path) for path in extra]
+        + extra_rel
     )
     folders = sorted(
         {f for f in folder_candidates if not any(o != f and o in f.parents for o in folder_candidates)}
     )
-    files = [
-        Path(entry)
-        for entry in check.untracked
-        if not entry.endswith("/") and not any(_under(entry, f) for f in folders)
-    ]
+    file_candidates = [entry for entry in check.untracked if not entry.endswith("/")]
+    file_candidates += [entry for entry in check.listed_files if entry not in file_candidates]
+    files = [Path(entry) for entry in file_candidates if not any(_under(entry, f) for f in folders)]
     if not files and not folders:
         return None
 
@@ -383,8 +429,14 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
         if staging.exists():
             shutil.rmtree(staging)
         staging.mkdir(parents=True)
-        _copy_into(worktree, staging, files, folders)
+        _copy_into(worktree, staging, files, folders, excluded)
         saved = _staging_files(staging)
+        # A listed folder can hold no file once the spec dir is left out of it,
+        # or none at all. Promoting that copy would move an earlier save aside
+        # for a folder of empty directories.
+        if not saved:
+            shutil.rmtree(staging)
+            return None
 
         # An earlier save moves aside rather than being deleted, so a second
         # removal never destroys the first. Microseconds in the stamp, since

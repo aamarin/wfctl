@@ -494,6 +494,32 @@ def test_output_prints_twenty_paths_then_how_many_more(
     assert "    and 5 more" in result.output
 
 
+def test_a_nested_repository_s_git_folder_is_one_line_of_the_twenty(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A clone's object store sorts ahead of the person's own files and filled the list (#612).
+
+    The count still says every file saved, since the history is saved too.
+    """
+    repo = make_repo(tmp_path)
+    nested = repo.worktree / "a-clone"
+    nested.mkdir()
+    _git(nested, "init", "-b", "main")
+    (nested / "a.txt").write_text("a\n")
+    (repo.worktree / "notes.md").write_text("notes\n")
+
+    result = _unsaved(repo.worktree)
+
+    saved = sum(len(files) for _, _, files in os.walk(state_dir / "unsaved"))
+    assert result.exit_code == 0, result.output
+    assert f"saved {saved} files" in result.output
+    assert "    a-clone/.git/\n" in result.output
+    assert "    a-clone/.git/HEAD" not in result.output
+    assert "    a-clone/a.txt" in result.output
+    assert "    notes.md" in result.output
+    assert "more" not in result.output
+
+
 def test_untracked_file_and_uncommitted_edit_refuses_and_copies_nothing(
     tmp_path: Path, state_dir: Path
 ) -> None:
@@ -613,10 +639,33 @@ def test_a_listed_folder_git_does_not_ignore_is_saved_once(
     assert (state_dir / "unsaved" / "docs-draft" / "a.md").read_text() == "a\n"
 
 
-def test_listing_a_folder_that_holds_the_spec_dir_warns_and_saves_no_spec_files(
+def test_a_listed_folder_that_holds_the_spec_dir_is_saved_without_it(
     tmp_path: Path, state_dir: Path
 ) -> None:
-    """Spec files have their own destination, so listing `specs/` would save them twice (FR-018)."""
+    """Skipping `specs/` whole deleted everything else in it with the worktree (#611).
+
+    The spec dir has its own destination, so the copy leaves it out rather than
+    saving it twice (FR-018).
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["specs/"])
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+    (repo.worktree / "specs" / "scratch.md").write_text("scratch\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "⚠" not in result.output
+    assert (state_dir / "unsaved" / "specs" / "scratch.md").read_text() == "scratch\n"
+    assert not (state_dir / "unsaved" / "specs" / repo.branch).exists()
+
+
+def test_a_listed_folder_holding_only_the_spec_dir_saves_nothing(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Left without the spec dir, the copy is empty folders, and promoting it would move an earlier save aside."""
     repo = make_repo(tmp_path)
     _declare_save_on_remove(repo, ["specs/"])
     spec = repo.worktree / "specs" / repo.branch
@@ -626,9 +675,57 @@ def test_listing_a_folder_that_holds_the_spec_dir_warns_and_saves_no_spec_files(
     result = _unsaved(repo.worktree)
 
     assert result.exit_code == 0, result.output
-    assert "'specs/'" in result.output
-    assert "spec dir" in result.output
+    assert "no unsaved files to keep" in result.output
     assert not (state_dir / "unsaved").exists()
+    assert not (state_dir / "unsaved.staging").exists()
+
+
+def test_a_listed_path_inside_the_spec_dir_warns_and_is_skipped(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The spec dir's own copy already holds it, so saving it here would save it twice (FR-018)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, [f"specs/{repo.branch}/notes/"])
+    notes = repo.worktree / "specs" / repo.branch / "notes"
+    notes.mkdir(parents=True)
+    (notes / "n.md").write_text("n\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "is inside the spec dir" in result.output
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_listed_file_is_saved(tmp_path: Path, state_dir: Path) -> None:
+    """Only folders were copied, so a listed file was deleted with the worktree and nothing said so (#611)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/todo.md"])
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "todo.md").write_text("todo\n")
+    (repo.worktree / "notes" / "other.md").write_text("other\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "saved 1 file" in result.output
+    assert (state_dir / "unsaved" / "notes" / "todo.md").read_text() == "todo\n"
+    assert not (state_dir / "unsaved" / "notes" / "other.md").exists()
+
+
+def test_a_listed_file_git_does_not_ignore_is_saved_once(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The file is on the untracked list too, and copying it twice would fail on the existing destination."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["todo.md"])
+    (repo.worktree / "todo.md").write_text("todo\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "saved 1 file" in result.output
+    assert (state_dir / "unsaved" / "todo.md").read_text() == "todo\n"
 
 
 def test_an_orphan_branch_with_a_local_only_commit_stops_the_removal(tmp_path: Path) -> None:

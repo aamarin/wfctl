@@ -17,7 +17,7 @@ from pathlib import Path
 from wfctl import _copy_out, _paths
 
 # Outcomes that leave the spec files somewhere that survives the removal.
-_SAFE = frozenset({"copied", "already_copied", "to_unsaved"})
+_SAFE = frozenset({"copied", "already_copied", "empty", "to_unsaved"})
 
 
 @dataclass
@@ -27,12 +27,18 @@ class CopyResult:
     `stops_removal` is a property here and not a check in the hook, so that
     `wfctl store specs` run by hand and the removal hook read the same answer
     (FR-029).
+
+    `dest` and `different` are what a `differs` outcome found, kept as fields so
+    the removal hook's stop block is built from them and not by editing `lines`,
+    which would tie it to the wording `store specs` prints (#610).
     """
 
     outcome: str
     spec_dir: Path | None
     inside: bool
     lines: list[str] = field(default_factory=list)
+    dest: Path | None = None
+    different: dict[str, str] = field(default_factory=dict)
 
     @property
     def stops_removal(self) -> bool:
@@ -55,6 +61,19 @@ def inside_worktree(spec_dir: Path, repo_root: Path) -> bool:
     pick between copying the spec dir out and committing it in its spec store.
     """
     return _is_inside(spec_dir, repo_root) and not _paths.is_main_checkout(repo_root)
+
+
+def difference_rows(different: dict[str, str]) -> list[str]:
+    """Each differing file's path, then its diff indented two spaces under it.
+
+    Unindented at the left, because `store specs` and the removal hook each nest
+    the block at their own depth.
+    """
+    rows: list[str] = []
+    for rel, diff in different.items():
+        rows.append(rel)
+        rows.extend(f"  {row}" for row in diff.splitlines())
+    return rows
 
 
 def _count(n: int) -> str:
@@ -120,14 +139,19 @@ def copy_out(
         )
 
     if plan.different and not overwrite:
-        lines = [f"✗ {dest} holds different spec files for {branch}"]
-        for rel, diff in plan.different.items():
-            lines.append(f"    {rel}")
-            lines.extend(f"      {row}" for row in diff.splitlines())
-        lines.append(
-            "  run `wfctl store specs --overwrite` to replace them with the worktree's copies"
+        lines = [
+            f"✗ {dest} holds different spec files for {branch}",
+            *(f"    {row}" for row in difference_rows(plan.different)),
+            "  run `wfctl store specs --overwrite` to replace them with the worktree's copies",
+        ]
+        return CopyResult("differs", spec_dir, True, lines, dest, plan.different)
+
+    # Told apart from `already_copied`, which an empty spec dir also reaches with
+    # nothing written: saying "already" there claims a copy nobody made (#612).
+    if not (plan.missing or plan.same or plan.different):
+        return CopyResult(
+            "empty", spec_dir, True, [f"ℹ spec dir {spec_dir} is empty, nothing to copy"]
         )
-        return CopyResult("differs", spec_dir, True, lines)
 
     written = len(plan.missing) + (len(plan.different) if overwrite else 0)
     if written == 0:
