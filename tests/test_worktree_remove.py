@@ -595,14 +595,163 @@ def test_the_spec_dir_line_survives_a_path_containing_markup(
     assert str(spec_dir) in out, "the path was mangled by markup parsing"
 
 
-def test_a_plain_folder_outside_the_worktree_is_named_and_never_called_durable(
+def test_a_plain_folder_outside_the_worktree_is_copied_whole_into_the_state_dir(
     tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """FR-022. A spec root that is no git repository survives the removal but
-    is backed up nowhere. Removal used to call it durable, and without the path
-    the line can't be told apart from a failed lookup."""
+    """#56. A spec root that is no git repository survives the removal, but no
+    other copy of it exists. The copy keeps the folder's structure so it can be
+    copied back, and the line names the path so it can't be told apart from a
+    failed lookup (FR-022)."""
     repo = make_repo(tmp_path)
     outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    _write(spec_dir, "checklists/review.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert f"ℹ {spec_dir} is not in a spec store — copying it with the unsaved work" in out
+    assert "not backed up anywhere" not in out
+    assert "durable" not in out.lower()
+    saved = state_dir / "unsaved" / repo.branch
+    assert (saved / "spec.md").read_text() == (spec_dir / "spec.md").read_text()
+    assert (saved / "checklists" / "review.md").is_file()
+    assert (spec_dir / "spec.md").is_file(), "the copy must leave the original where it was"
+
+
+def test_a_plain_folder_that_cannot_be_copied_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#56. The copy is a local step, so a failure means something is wrong on
+    this machine. It also shares one save with the untracked files, which the
+    removal would delete, so letting it go ahead loses them too."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    (repo.worktree / "notes.md").write_text("notes\n")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+    (spec_dir / "spec.md").chmod(0)
+    try:
+        code, out = _remove(repo)
+    finally:
+        (spec_dir / "spec.md").chmod(0o644)
+
+    assert code == 1, out
+    assert "couldn't save unsaved files" in out and "removal stopped" in out
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_relative_spec_root_is_copied_into_unsaved_and_nowhere_else(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WFCTL_SPEC_DIR` is used as written, so `../specs` gives a relative spec
+    dir. The save read it as a path inside the worktree and copied it beside
+    `unsaved/`, where the next removal of the branch failed on the folder it
+    left behind."""
+    repo = make_repo(tmp_path)
+    spec_dir = tmp_path / "outside-specs" / repo.branch
+    _write(spec_dir, "spec.md")
+    monkeypatch.chdir(repo.worktree)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", "../outside-specs")
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert (state_dir / "unsaved" / repo.branch / "spec.md").is_file()
+    assert not (state_dir / "outside-specs").exists()
+
+
+def test_an_unreadable_plain_folder_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`os.walk` skips a folder it can't read, so without a check the folder
+    reads as empty and is left out of the save with nothing said."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+    spec_dir.chmod(0)
+    try:
+        code, out = _remove(repo)
+    finally:
+        spec_dir.chmod(0o755)
+
+    assert code == 1, out
+    assert "removal stopped" in out
+
+
+def test_an_empty_plain_folder_saves_nothing(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An `unsaved/` holding one empty folder reads as a save, and writing it
+    moves the branch's earlier save aside (FR-022)."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    (outside / repo.branch / "checklists").mkdir(parents=True)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert "no unsaved files to keep" in out
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_state_dir_under_a_symlink_loop_still_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Before Python 3.13 `resolve()` raises RuntimeError on a symlink loop.
+    Raised from the overlap check, it reached the hook's catch-all, which let
+    the removal go ahead and delete the untracked files the save never got to."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    _write(outside / repo.branch, "spec.md")
+    (repo.worktree / "notes.md").write_text("notes\n")
+    (tmp_path / "loop-a").symlink_to(tmp_path / "loop-b")
+    (tmp_path / "loop-b").symlink_to(tmp_path / "loop-a")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "loop-a" / "state"))
+
+    code, out = _remove(repo)
+
+    assert code == 1, out
+    assert "removal stopped" in out
+
+
+def test_a_state_dir_inside_the_plain_folder_is_named_and_not_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The copy would land inside the folder it is copying."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.delenv("WM_WORKTREE_PATH", raising=False)
+    monkeypatch.delenv("WM_HANDLE", raising=False)
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    state = spec_dir / "state"
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved" in out
+    assert not (state / "unsaved").exists()
+
+
+def test_a_plain_folder_inside_the_state_dir_is_named_and_not_copied(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#56. The save clears `unsaved.staging/` and moves `unsaved/` aside, so a
+    spec dir under either would be deleted or moved by its own backup. The line
+    says why nothing was copied, so the folder is not mistaken for backed up."""
+    repo = make_repo(tmp_path)
+    outside = state_dir / "specs"
     spec_dir = outside / repo.branch
     _write(spec_dir, "spec.md")
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
@@ -610,8 +759,30 @@ def test_a_plain_folder_outside_the_worktree_is_named_and_never_called_durable(
     code, out = _remove(repo)
 
     assert code == 0, out
-    assert f"ℹ {spec_dir} is not backed up anywhere" in out
-    assert "durable" not in out.lower()
+    assert f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved" in out
+    assert not (state_dir / "unsaved").exists()
+
+
+@pytest.mark.parametrize("folder", ["unsaved", "unsaved.staging"])
+def test_a_plain_folder_inside_the_save_folders_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch, folder: str,
+) -> None:
+    """#56, from review. Leaving the spec dir out of the save was not enough:
+    the worktree's untracked files still run the save, which clears
+    `unsaved.staging/` and moves `unsaved/` aside, taking the spec dir with it
+    while the hook said no copy was saved."""
+    repo = make_repo(tmp_path)
+    outside = state_dir / folder / "specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    (repo.worktree / "notes.md").write_text("notes\n")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 1, out
+    assert f"✗ {spec_dir} is inside the folder wfctl saves into" in out
+    assert (spec_dir / "spec.md").is_file()
 
 
 def test_a_spec_dir_inside_the_worktree_is_copied_out_and_never_committed(

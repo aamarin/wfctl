@@ -465,6 +465,64 @@ def test_failed_copy_stops_the_removal_and_prints_the_route(
     assert "git worktree remove --force" in result.output
 
 
+def test_a_folder_outside_the_worktree_is_saved_whole_under_its_own_name(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A folder outside the worktree has no path relative to it. Passing one used
+    to raise `ValueError` before the save started, which the removal hook's
+    catch-all turned into a removal with nothing saved."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "a.txt").write_text("a\n")
+    outside = tmp_path / "plain-specs" / repo.branch
+    (outside / "checklists").mkdir(parents=True)
+    (outside / "spec.md").write_text("spec\n")
+    (outside / "checklists" / "review.md").write_text("review\n")
+    found = _archive.check(repo.worktree, outside)
+
+    saved = _archive.save(found, state_dir, [outside])
+
+    assert saved is not None
+    assert saved.files == sorted(
+        ["a.txt", f"{repo.branch}/spec.md", f"{repo.branch}/checklists/review.md"]
+    )
+    assert (state_dir / "unsaved" / repo.branch / "checklists" / "review.md").read_text() == "review\n"
+
+
+def test_a_folder_outside_the_worktree_is_saved_when_nothing_else_is(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A clean worktree has nothing of its own to save, and returning None there
+    would skip the spec folder's only copy."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "plain-specs" / repo.branch
+    outside.mkdir(parents=True)
+    (outside / "spec.md").write_text("spec\n")
+
+    saved = _archive.save(_archive.check(repo.worktree, outside), state_dir, [outside])
+
+    assert saved is not None and saved.files == [f"{repo.branch}/spec.md"]
+
+
+def test_an_outside_folder_sharing_a_name_with_worktree_files_stops_the_save(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The folding rule would keep one of the two and drop the other, and the
+    dropped one is then deleted or never backed up. Refusing is the only answer
+    that loses neither."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / repo.branch).mkdir()
+    (repo.worktree / repo.branch / "mine.md").write_text("mine\n")
+    outside = tmp_path / "plain-specs" / repo.branch
+    outside.mkdir(parents=True)
+    (outside / "spec.md").write_text("spec\n")
+    found = _archive.check(repo.worktree, outside)
+
+    with pytest.raises(_archive.SaveFailed, match="would both be saved under"):
+        _archive.save(found, state_dir, [outside])
+
+    assert not (state_dir / "unsaved").exists()
+
+
 def test_nothing_to_save_creates_no_folder(tmp_path: Path, state_dir: Path) -> None:
     """An empty `unsaved/` would read as a save that found nothing it could name (FR-022)."""
     repo = make_repo(tmp_path)

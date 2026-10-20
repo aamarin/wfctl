@@ -89,7 +89,8 @@ post_create:
 # spec files into the main checkout and the untracked files into wfctl's per-branch
 # state dir under `unsaved/`. A spec dir outside the worktree is committed and
 # pushed in its spec store instead, and a failed push warns without stopping the
-# removal.
+# removal. A spec dir in a plain folder that git does not track is copied into
+# `unsaved/` with the untracked files, and a failed copy stops the removal.
 #
 # No `|| true`. The hook exits 1 to stop a removal, and `|| true` would turn every
 # stop into a removal. It exits 0 on any other failure, so a bug in it can't strand a
