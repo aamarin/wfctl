@@ -1587,8 +1587,9 @@ def _remove_stop_groups(
 
 def _plain_spec_dir_backup(
     spec_dir: Path, repo_root: Path, branch: str
-) -> tuple[str, list[Path]]:
-    """The line removal prints for a spec dir in a plain folder, and what it saves.
+) -> tuple[str, list[Path], bool]:
+    """The line removal prints for a spec dir in a plain folder, what it saves,
+    and whether the removal stops.
 
     The folder survives the removal, but no other copy of it exists, so it is
     saved into `unsaved/` with the untracked files. The copy keeps the folder's
@@ -1596,10 +1597,12 @@ def _plain_spec_dir_backup(
     first, because `WFCTL_SPEC_DIR` is used as written, and `save` reads a
     relative path as one inside the worktree.
 
-    A spec dir that overlaps the state dir is not copied. The save clears
-    `unsaved.staging/` and moves an earlier `unsaved/` aside before it copies,
-    so a spec dir under either one would be deleted or moved by its own backup,
-    and a state dir under the spec dir would be copied into itself.
+    A spec dir that overlaps the state dir is not copied, because a state dir
+    under the spec dir would be copied into itself. One under `unsaved.staging/`
+    or `unsaved/` also stops the removal. The save clears the first and moves
+    the second aside before it copies, and it still runs for the worktree's
+    untracked files, so leaving the spec dir out of it would not keep the spec
+    dir from being deleted or moved.
     """
     from wfctl import _archive
 
@@ -1612,15 +1615,30 @@ def _plain_spec_dir_backup(
     try:
         state = resolve_agent_dir(repo_root, branch, create=False)
         overlaps = _archive.is_inside(state, source) or _archive.is_inside(source, state)
+        in_save = any(
+            _archive.is_inside(state / name, source) for name in ("unsaved", "unsaved.staging")
+        )
     except (OSError, RuntimeError):
-        overlaps = False
+        overlaps = in_save = False
+    if in_save:
+        return (
+            f"✗ {spec_dir} is inside the folder wfctl saves into, and saving the"
+            " worktree's files would delete or move it — removal stopped",
+            [],
+            True,
+        )
     if overlaps:
         return (
             f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved"
             f" because it overlaps the state dir {state}",
             [],
+            False,
         )
-    return f"ℹ {spec_dir} is not in a spec store — copying it with the unsaved work", [source]
+    return (
+        f"ℹ {spec_dir} is not in a spec store — copying it with the unsaved work",
+        [source],
+        False,
+    )
 
 
 @app.command("archive-specs", hidden=True)
@@ -1757,13 +1775,14 @@ def worktree_remove_cmd(
                 )
             else:
                 lines = _spec_store.report_lines(stored)
+                stops = stored.stops_removal
                 if stored.layout is not None and stored.layout.kind == "unmanaged":
                     # The backup's line replaces "is not backed up anywhere",
                     # which is the first line `report_lines` gives this layout.
-                    note, extra = _plain_spec_dir_backup(spec_dir, repo_root, branch)
+                    note, extra, in_save = _plain_spec_dir_backup(spec_dir, repo_root, branch)
                     lines = [note, *lines[1:]]
+                    stops = stops or in_save
                 _print_plain(lines)
-                stops = stored.stops_removal
         else:
             _print_plain(copied.lines)
         if stops:

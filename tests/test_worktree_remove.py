@@ -669,6 +669,28 @@ def test_a_plain_folder_inside_the_state_dir_is_named_and_not_copied(
     assert not (state_dir / "unsaved").exists()
 
 
+@pytest.mark.parametrize("folder", ["unsaved", "unsaved.staging"])
+def test_a_plain_folder_inside_the_save_folders_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch, folder: str,
+) -> None:
+    """#56, from review. Leaving the spec dir out of the save was not enough:
+    the worktree's untracked files still run the save, which clears
+    `unsaved.staging/` and moves `unsaved/` aside, taking the spec dir with it
+    while the hook said no copy was saved."""
+    repo = make_repo(tmp_path)
+    outside = state_dir / folder / "specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    (repo.worktree / "notes.md").write_text("notes\n")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 1, out
+    assert f"✗ {spec_dir} is inside the folder wfctl saves into" in out
+    assert (spec_dir / "spec.md").is_file()
+
+
 def test_a_spec_dir_inside_the_worktree_is_copied_out_and_never_committed(
     tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
