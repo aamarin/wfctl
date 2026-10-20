@@ -501,14 +501,62 @@ def test_the_spec_dir_line_survives_a_path_containing_markup(
     assert str(spec_dir) in out, "the path was mangled by markup parsing"
 
 
-def test_a_plain_folder_outside_the_worktree_is_named_and_never_called_durable(
+def test_a_plain_folder_outside_the_worktree_is_copied_whole_into_the_state_dir(
     tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """FR-022. A spec root that is no git repository survives the removal but
-    is backed up nowhere. Removal used to call it durable, and without the path
-    the line can't be told apart from a failed lookup."""
+    """#56. A spec root that is no git repository survives the removal, but no
+    other copy of it exists. The copy keeps the folder's structure so it can be
+    copied back, and the line names the path so it can't be told apart from a
+    failed lookup (FR-022)."""
     repo = make_repo(tmp_path)
     outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    _write(spec_dir, "checklists/review.md")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert f"ℹ {spec_dir} is not in a spec store — a copy is saved with the unsaved work" in out
+    assert "not backed up anywhere" not in out
+    assert "durable" not in out.lower()
+    saved = state_dir / "unsaved" / repo.branch
+    assert (saved / "spec.md").read_text() == (spec_dir / "spec.md").read_text()
+    assert (saved / "checklists" / "review.md").is_file()
+    assert (spec_dir / "spec.md").is_file(), "the copy must leave the original where it was"
+
+
+def test_a_plain_folder_that_cannot_be_copied_stops_the_removal(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#56. The copy is a local step, so a failure means something is wrong on
+    this machine. It also shares one save with the untracked files, which the
+    removal would delete, so letting it go ahead loses them too."""
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-specs"
+    spec_dir = outside / repo.branch
+    _write(spec_dir, "spec.md")
+    (repo.worktree / "notes.md").write_text("notes\n")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
+    (spec_dir / "spec.md").chmod(0)
+    try:
+        code, out = _remove(repo)
+    finally:
+        (spec_dir / "spec.md").chmod(0o644)
+
+    assert code == 1, out
+    assert "couldn't save unsaved files" in out and "removal stopped" in out
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_plain_folder_inside_the_state_dir_is_named_and_not_copied(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#56. A copy into the state dir would land inside its own source. The line
+    says why nothing was copied, so the folder is not mistaken for backed up."""
+    repo = make_repo(tmp_path)
+    outside = state_dir / "specs"
     spec_dir = outside / repo.branch
     _write(spec_dir, "spec.md")
     monkeypatch.setenv("WFCTL_SPEC_DIR", str(outside))
@@ -516,8 +564,8 @@ def test_a_plain_folder_outside_the_worktree_is_named_and_never_called_durable(
     code, out = _remove(repo)
 
     assert code == 0, out
-    assert f"ℹ {spec_dir} is not backed up anywhere" in out
-    assert "durable" not in out.lower()
+    assert f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved" in out
+    assert not (state_dir / "unsaved").exists()
 
 
 def test_a_spec_dir_inside_the_worktree_is_copied_out_and_never_committed(

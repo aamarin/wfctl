@@ -317,7 +317,10 @@ def _staging_files(staging: Path) -> list[str]:
     return sorted(found)
 
 
-def _copy_into(worktree: Path, staging: Path, files: list[Path], folders: list[Path]) -> None:
+def _copy_into(
+    worktree: Path, staging: Path, files: list[Path], folders: list[Path],
+    outside: dict[Path, Path],
+) -> None:
     for rel in files:
         src, dest = worktree / rel, staging / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -325,10 +328,12 @@ def _copy_into(worktree: Path, staging: Path, files: list[Path], folders: list[P
             os.symlink(os.readlink(src), dest)
         else:
             shutil.copy2(src, dest)
+    # `symlinks=True` keeps a link inside the folder as a link. The folder may
+    # be a nested repository, and its own history has to come across as it is.
     for rel in folders:
-        # `symlinks=True` keeps a link inside the folder as a link. The folder may
-        # be a nested repository, and its own history has to come across as it is.
         shutil.copytree(worktree / rel, staging / rel, symlinks=True)
+    for rel, src in outside.items():
+        shutil.copytree(src, staging / rel, symlinks=True)
 
 
 def _relative(worktree: Path, path: Path) -> Path:
@@ -340,7 +345,9 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
 
     Returns None when nothing needs saving, and creates no folder in that case.
     `extra` holds folders beyond the check's own, such as the spec dir in a layout
-    with no main checkout.
+    with no main checkout. One inside the worktree lands at its path in the
+    worktree, as everything else here does. One outside it has no such path, so
+    it lands under its own name, as `unsaved/<name>/`.
 
     A folder and a file inside it can both be on the list, for instance a
     `save_on_remove` folder that git doesn't ignore. The folder copy already
@@ -348,12 +355,19 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
     destination and stops every removal in that repository. So any path under a
     listed folder is dropped, and so is a folder under another listed folder
     (#600 item 6).
+
+    An outside folder is never dropped that way, because the worktree path it
+    would be folded into holds different files. A name it shares with something
+    the worktree saves raises `SaveFailed` instead, so the removal stops rather
+    than keeping one of the two and deleting the other.
     """
     worktree = check.worktree
+    inside = [path for path in extra if not path.is_absolute() or is_inside(worktree, path)]
+    outside = {Path(path.name): path for path in extra if path not in inside}
     folder_candidates = (
         [Path(entry.rstrip("/")) for entry in check.untracked if entry.endswith("/")]
         + [Path(entry.rstrip("/")) for entry in check.folders]
-        + [_relative(worktree, path) for path in extra]
+        + [_relative(worktree, path) for path in inside]
     )
     folders = sorted(
         {f for f in folder_candidates if not any(o != f and o in f.parents for o in folder_candidates)}
@@ -363,7 +377,16 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
         for entry in check.untracked
         if not entry.endswith("/") and not any(_under(entry, f) for f in folders)
     ]
-    if not files and not folders:
+    for name, src in outside.items():
+        clash = next(
+            (p for p in [*folders, *files] if p == name or name in p.parents or p in name.parents),
+            None,
+        )
+        if clash is not None:
+            raise SaveFailed(
+                f"{src} and the worktree's {clash} would both be saved under {name}"
+            )
+    if not files and not folders and not outside:
         return None
 
     dest = state_dir / "unsaved"
@@ -383,7 +406,7 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
         if staging.exists():
             shutil.rmtree(staging)
         staging.mkdir(parents=True)
-        _copy_into(worktree, staging, files, folders)
+        _copy_into(worktree, staging, files, folders, outside)
         saved = _staging_files(staging)
 
         # An earlier save moves aside rather than being deleted, so a second
