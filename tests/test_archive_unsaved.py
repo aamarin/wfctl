@@ -693,7 +693,7 @@ def test_a_listed_path_inside_the_spec_dir_warns_and_is_skipped(
     result = _unsaved(repo.worktree)
 
     assert result.exit_code == 0, result.output
-    assert "is inside the spec dir" in result.output
+    assert "is the spec dir or inside it" in result.output
     assert not (state_dir / "unsaved").exists()
 
 
@@ -713,19 +713,63 @@ def test_a_listed_file_is_saved(tmp_path: Path, state_dir: Path) -> None:
     assert not (state_dir / "unsaved" / "notes" / "other.md").exists()
 
 
-def test_a_listed_file_git_does_not_ignore_is_saved_once(
+def test_a_listed_link_git_does_not_ignore_is_saved_once(
     tmp_path: Path, state_dir: Path
 ) -> None:
-    """The file is on the untracked list too, and copying it twice would fail on the existing destination."""
+    """The link is on the untracked list too, and writing it twice raises and stops every removal.
+
+    A plain file would not show this, since `copy2` overwrites a file without
+    complaint. Only a link fails on the second copy.
+    """
     repo = make_repo(tmp_path)
-    _declare_save_on_remove(repo, ["todo.md"])
-    (repo.worktree / "todo.md").write_text("todo\n")
+    _declare_save_on_remove(repo, ["todo"])
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "todo.md").write_text("todo\n")
+    (repo.worktree / "todo").symlink_to(".venv/todo.md")
 
     result = _unsaved(repo.worktree)
 
     assert result.exit_code == 0, result.output
-    assert "saved 1 file" in result.output
-    assert (state_dir / "unsaved" / "todo.md").read_text() == "todo\n"
+    assert os.readlink(state_dir / "unsaved" / "todo") == ".venv/todo.md"
+
+
+def test_a_listed_link_to_a_folder_saves_what_the_folder_holds(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Saving only the link left it pointing at a folder the removal then deleted.
+
+    A listed entry can't resolve outside the repository, so whatever it points
+    at goes with the worktree, and the folder is the part worth keeping.
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/"])
+    (repo.worktree / ".venv" / "notes").mkdir(parents=True)
+    (repo.worktree / ".venv" / "notes" / "idea.md").write_text("idea\n")
+    (repo.worktree / "notes").symlink_to(".venv/notes")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert (state_dir / "unsaved" / "notes" / "idea.md").read_text() == "idea\n"
+    assert not (state_dir / "unsaved" / "notes").is_symlink()
+
+
+def test_a_listed_link_to_a_file_saves_the_link_and_the_file(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The link alone would point at a file the removal deleted."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/todo.md"])
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "todo.md").write_text("todo\n")
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "todo.md").symlink_to("../.venv/todo.md")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / "notes" / "todo.md") == "../.venv/todo.md"
+    assert (state_dir / "unsaved" / ".venv" / "todo.md").read_text() == "todo\n"
 
 
 def test_an_orphan_branch_with_a_local_only_commit_stops_the_removal(tmp_path: Path) -> None:

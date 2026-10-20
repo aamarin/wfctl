@@ -163,6 +163,31 @@ def test_a_layout_with_no_main_checkout_saves_the_spec_dir_under_unsaved(
     assert (state_dir / "unsaved" / "specs" / "40-feature" / "spec.md").read_text() == "s\n"
 
 
+def test_a_listed_specs_folder_leaves_the_spec_dir_to_the_copy_out(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The spec dir goes to the main checkout, and the rest of `specs/` to `unsaved/` (#611).
+
+    Leaving it out of `unsaved/` is safe only because the copy-out puts it in
+    the main checkout first, so the two halves are asserted together.
+    """
+    repo = make_repo(tmp_path)
+    (repo.worktree / "wfctl.json").write_text('{"save_on_remove": ["specs/"]}')
+    (repo.worktree / ".gitignore").write_text("specs/\n")
+    _git(repo.worktree, "add", "wfctl.json", ".gitignore")
+    _git(repo.worktree, "commit", "-m", "chore: declare save_on_remove")
+    _git(repo.worktree, "push", "origin", repo.branch)
+    _spec(repo.worktree, **{"spec.md": "s\n"})
+    (repo.worktree / "specs" / "scratch.md").write_text("scratch\n")
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert (repo.main / "specs" / "40-feature" / "spec.md").read_text() == "s\n"
+    assert (state_dir / "unsaved" / "specs" / "scratch.md").read_text() == "scratch\n"
+    assert not (state_dir / "unsaved" / "specs" / "40-feature").exists()
+
+
 def test_a_listed_specs_folder_keeps_the_spec_dir_when_there_is_no_main_checkout(
     tmp_path: Path, state_dir: Path
 ) -> None:

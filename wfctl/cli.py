@@ -1539,11 +1539,11 @@ def _save_unsaved(
         f"{'file' if len(saved.files) == 1 else 'files'} → {escape(str(saved.dest))}",
         soft_wrap=True,
     )
-    entries, shown = saved.shown, 20
-    for rel in entries[:shown]:
+    limit = 20
+    for rel in saved.shown[:limit]:
         console.print(f"    {rel}", markup=False, soft_wrap=True)
-    if len(entries) > shown:
-        console.print(f"    and {len(entries) - shown} more")
+    if len(saved.shown) > limit:
+        console.print(f"    and {len(saved.shown) - limit} more")
 
 
 

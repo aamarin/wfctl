@@ -36,8 +36,8 @@ class UnsavedCheck:
 
     `listed_files` and `folders` are the `save_on_remove` entries that exist,
     split by kind, since a folder is copied whole and a file is not. `excluded`
-    holds the spec dir when a listed folder contains it, so the folder's copy
-    leaves out what the spec store already saves.
+    is the spec dir when a listed folder contains it, so the folder's copy leaves
+    out what is already saved on its own.
     """
 
     worktree: Path
@@ -48,7 +48,7 @@ class UnsavedCheck:
     untracked: list[str] = field(default_factory=list)
     listed_files: list[str] = field(default_factory=list)
     folders: list[str] = field(default_factory=list)
-    excluded: list[str] = field(default_factory=list)
+    excluded: str | None = None
     listing_error: str | None = None
 
     @property
@@ -285,17 +285,20 @@ def _untracked_files(worktree: Path, spec_dir: Path | None, found: UnsavedCheck)
 
 
 def _listed_paths(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) -> None:
-    """Fill `listed_files` and `folders` from the worktree's own `wfctl.json`,
-    which is committed.
+    """Fill `listed_files`, `folders` and `excluded` from `wfctl.json`.
 
-    Spec files have their own destination, so they are never saved here twice
-    (FR-018). An entry that is the spec dir, or inside it, is skipped with a
-    warning, because the spec dir's own copy already holds it. An entry that
-    holds the spec dir, such as `specs/`, is saved without it. Skipping the whole
-    folder would delete everything else in it with the worktree (#611).
+    The worktree's own copy is read, which is committed. Spec files have their
+    own destination, so they are never saved here twice (FR-018). An entry that
+    is the spec dir, or inside it, is skipped with a warning, because the spec
+    dir's own copy already holds it. An entry that holds the spec dir, such as
+    `specs/`, is saved without it. Skipping the whole folder would delete
+    everything else in it with the worktree (#611).
 
-    A symlink is a file here even when it points at a folder, so it is saved as
-    the link it is and its target is never copied in.
+    A listed symlink is followed, unlike an untracked one. `declared_paths` has
+    already refused an entry that resolves outside the repository, so its target
+    is inside the worktree and is deleted with it. A link to a folder is copied
+    as the folder. A link to a file is saved as the link, and its target is
+    saved too.
     """
     listed, problems = declared_paths(worktree)
     found.warnings += [f"wfctl.json: {problem} — skipped" for problem in problems]
@@ -304,20 +307,27 @@ def _listed_paths(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) ->
         if spec_dir is not None and is_inside(worktree, spec_dir)
         else None
     )
+    def in_spec_dir(rel: Path) -> bool:
+        return spec_rel is not None and (rel == spec_rel or spec_rel in rel.parents)
+
     for entry in listed:
         rel = Path(entry.rstrip("/"))
         path = worktree / rel
-        if spec_rel is not None and (rel == spec_rel or spec_rel in rel.parents):
+        if in_spec_dir(rel):
             found.warnings.append(
-                f"wfctl.json: '{SAVE_KEY}' entry '{entry}' is inside the spec dir, "
+                f"wfctl.json: '{SAVE_KEY}' entry '{entry}' is the spec dir or inside it, "
                 "which is saved separately — skipped"
             )
-        elif path.is_symlink() or path.is_file():
-            found.listed_files.append(rel.as_posix())
         elif path.is_dir():
             found.folders.append(entry)
             if spec_rel is not None and rel in spec_rel.parents:
-                found.excluded.append(spec_rel.as_posix())
+                found.excluded = spec_rel.as_posix()
+        elif path.is_file() or path.is_symlink():
+            found.listed_files.append(rel.as_posix())
+            if path.is_symlink() and path.is_file():
+                target = path.resolve().relative_to(worktree.resolve())
+                if not in_spec_dir(target):
+                    found.listed_files.append(target.as_posix())
 
 
 def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
@@ -353,12 +363,12 @@ def _staging_files(staging: Path) -> list[str]:
 
 
 def _copy_into(
-    worktree: Path, staging: Path, files: list[Path], folders: list[Path], excluded: list[Path]
+    worktree: Path, staging: Path, files: list[Path], folders: list[Path], excluded: Path | None
 ) -> None:
-    skip = {worktree / rel for rel in excluded}
+    skip = worktree / excluded if excluded is not None else None
 
     def ignore(folder: str, names: list[str]) -> set[str]:
-        return {name for name in names if Path(folder) / name in skip}
+        return {name for name in names if Path(folder) / name == skip}
 
     for rel in files:
         src, dest = worktree / rel, staging / rel
@@ -397,7 +407,11 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
     """
     worktree = check.worktree
     extra_rel = [_relative(worktree, path) for path in extra]
-    excluded = [Path(rel) for rel in check.excluded if Path(rel) not in extra_rel]
+    excluded = (
+        Path(check.excluded)
+        if check.excluded is not None and Path(check.excluded) not in extra_rel
+        else None
+    )
     folder_candidates = (
         [Path(entry.rstrip("/")) for entry in check.untracked if entry.endswith("/")]
         + [Path(entry.rstrip("/")) for entry in check.folders]
@@ -407,7 +421,9 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
         {f for f in folder_candidates if not any(o != f and o in f.parents for o in folder_candidates)}
     )
     file_candidates = [entry for entry in check.untracked if not entry.endswith("/")]
-    file_candidates += [entry for entry in check.listed_files if entry not in file_candidates]
+    file_candidates += [
+        entry for entry in dict.fromkeys(check.listed_files) if entry not in file_candidates
+    ]
     files = [Path(entry) for entry in file_candidates if not any(_under(entry, f) for f in folders)]
     if not files and not folders:
         return None

@@ -53,11 +53,11 @@ when you pass `--force`. It stops the removal in four cases:
 3. A copy that the hook makes before the removal fails. The
    `removal-copy-destinations` record describes what the hook copies and where
    each kind of file goes.
-
 4. git can't list the worktree's untracked files.
 
 In every other case, the hook makes its copies and lets the removal go ahead.
-The hook stops a removal only when it finds work that would be lost. If git
+The hook stops a removal only when it finds work that would be lost, or when it
+can't tell whether the untracked files are saved. If git
 can't answer the edit check or the commit check, the hook prints a warning and
 lets the removal go ahead. This keeps the existing rule that an unrelated error
 never leaves a worktree stuck.
