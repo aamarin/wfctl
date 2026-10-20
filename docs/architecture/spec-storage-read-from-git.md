@@ -63,8 +63,9 @@ This applies only when the spec root is the top of its own git repository with
 an upstream branch. In every other layout wfctl commits nothing and says
 plainly where the files are:
 
-1. A plain folder outside any repository is not backed up anywhere, and removal
-   says so instead of calling it durable.
+1. A plain folder outside any repository has no store to commit in. At removal,
+   wfctl copies the branch's folder into the branch's state dir with the
+   worktree's untracked files, keeping its structure so you can copy it back.
 2. A spec root inside the code repository, such as the default `specs/`, is
    never committed, because the commit would land on the feature branch.
    At removal the store command copies it out to the main checkout before the
@@ -152,10 +153,13 @@ agent.
 
 ## Consequences
 
-Worktree removal stops only when it would delete something that could not be
-saved. In the default layout the spec dir is inside the worktree, so a failed
-copy-out stops the removal, because once the worktree is gone that copy is the
-only one. When the spec dir lives in a spec store, removal can't delete it, so
+Worktree removal stops only when a copy it has to make fails. In the default
+layout the spec dir is inside the worktree, so a failed copy-out stops the
+removal, because once the worktree is gone that copy is the only one. A spec
+dir in a plain folder survives the removal, but no second copy of it exists, so
+removal copies it into the state dir. A failed copy there stops the removal
+too, because the copy is local and its failure means something on this machine
+is wrong. When the spec dir lives in a spec store, removal can't delete it, so
 a failed push prints a warning and the removal goes ahead. The commit stays in
 the spec store on disk, the repo-wide check lists it as not pushed, and the
 next store from any branch pushes it, since a push sends every local commit on
@@ -186,3 +190,4 @@ them.
 - 2026-10-14  proposed    — #359: nothing stored a spec dir, and removal called an uncommitted one durable
 - 2026-10-14  revised     — a failed push at removal warns instead of stopping, and the store command takes over the copy-out from `archive specs` (agreed with #40)
 - 2026-10-18  accepted    — Andre accepted it in the #359 session on 2026-10-18, after a plain summary of the decision, while getting PR #601 ready to merge
+- 2026-10-20  revised     — #56: removal copies a spec dir in a plain folder into the state dir, and a failed copy stops the removal; Andre approved the revision in the #56 session
