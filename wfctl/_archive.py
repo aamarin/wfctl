@@ -2,8 +2,9 @@
 
 `check` looks for work that exists nowhere else: uncommitted edits, commits on no
 remote that a merge into trunk would change, and untracked files. `save` copies
-the untracked files and the folders `wfctl.json` lists under `save_on_remove`
-into `unsaved/` in the branch's state dir.
+the untracked files, the folders `wfctl.json` lists under `save_on_remove`, and
+any folder its caller adds, such as a spec dir that nothing else backs up, into
+`unsaved/` in the branch's state dir.
 
 Spec files are the store's job (`_spec_store`), and the removal hook runs all
 three. The predicate for what a removal destroys is containment (`is_inside`),
@@ -300,6 +301,10 @@ def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:
     return found
 
 
+def _reraise(exc: OSError) -> None:
+    raise exc
+
+
 def _staging_files(staging: Path) -> list[str]:
     """Every file and symlink under `staging`, relative and sorted.
 
@@ -307,7 +312,9 @@ def _staging_files(staging: Path) -> list[str]:
     is what `save` wrote and not what the link points at.
     """
     found: list[str] = []
-    for root, dirs, files in os.walk(staging):
+    # `os.walk` skips a folder it can't read unless told otherwise, and a
+    # source folder that reads as empty here is one `save` leaves out.
+    for root, dirs, files in os.walk(staging, onerror=_reraise):
         base = Path(root)
         for name in list(dirs):
             if (base / name).is_symlink():
@@ -363,7 +370,13 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
     """
     worktree = check.worktree
     inside = [path for path in extra if not path.is_absolute() or is_inside(worktree, path)]
-    outside = {Path(path.name): path for path in extra if path not in inside}
+    # An outside folder with no files in it is left out, since saving it would
+    # write an `unsaved/` that holds nothing and move an earlier save aside.
+    outside = {
+        Path(path.name): path
+        for path in extra
+        if path not in inside and _staging_files(path)
+    }
     folder_candidates = (
         [Path(entry.rstrip("/")) for entry in check.untracked if entry.endswith("/")]
         + [Path(entry.rstrip("/")) for entry in check.folders]
@@ -379,7 +392,7 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
     ]
     for name, src in outside.items():
         clash = next(
-            (p for p in [*folders, *files] if p == name or name in p.parents or p in name.parents),
+            (p for p in [*folders, *files] if p == name or name in p.parents),
             None,
         )
         if clash is not None:

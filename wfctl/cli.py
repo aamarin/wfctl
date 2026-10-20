@@ -1592,24 +1592,35 @@ def _plain_spec_dir_backup(
 
     The folder survives the removal, but no other copy of it exists, so it is
     saved into `unsaved/` with the untracked files. The copy keeps the folder's
-    structure, so you can copy it back as it is.
+    structure, so you can copy it back as it is. The path is made absolute
+    first, because `WFCTL_SPEC_DIR` is used as written, and `save` reads a
+    relative path as one inside the worktree.
 
-    A spec dir that overlaps the state dir is not copied, since the copy would
-    land inside its own source, or the source inside the copy.
+    A spec dir that overlaps the state dir is not copied. The save clears
+    `unsaved.staging/` and moves an earlier `unsaved/` aside before it copies,
+    so a spec dir under either one would be deleted or moved by its own backup,
+    and a state dir under the spec dir would be copied into itself.
     """
     from wfctl import _archive
 
-    # Not created here. `_save_unsaved` creates it inside the `try` that turns a
-    # failure into a stopped removal, and an error here would reach the hook's
-    # catch-all and let the removal go ahead with nothing saved.
-    state = resolve_agent_dir(repo_root, branch, create=False)
-    if _archive.is_inside(state, spec_dir) or _archive.is_inside(spec_dir, state):
+    source = spec_dir.absolute()
+    # Any error here falls back to copying. The save then meets the same path
+    # inside the `try` that turns a failure into a stopped removal, whereas an
+    # error raised here would reach the hook's catch-all and let the removal go
+    # ahead with nothing saved. `resolve()` raises RuntimeError on a symlink
+    # loop before Python 3.13, and OSError from then on.
+    try:
+        state = resolve_agent_dir(repo_root, branch, create=False)
+        overlaps = _archive.is_inside(state, source) or _archive.is_inside(source, state)
+    except (OSError, RuntimeError):
+        overlaps = False
+    if overlaps:
         return (
             f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved"
             f" because it overlaps the state dir {state}",
             [],
         )
-    return f"ℹ {spec_dir} is not in a spec store — a copy is saved with the unsaved work", [spec_dir]
+    return f"ℹ {spec_dir} is not in a spec store — copying it with the unsaved work", [source]
 
 
 @app.command("archive-specs", hidden=True)
@@ -1747,7 +1758,10 @@ def worktree_remove_cmd(
             else:
                 lines = _spec_store.report_lines(stored)
                 if stored.layout is not None and stored.layout.kind == "unmanaged":
-                    lines[0], extra = _plain_spec_dir_backup(spec_dir, repo_root, branch)
+                    # The backup's line replaces "is not backed up anywhere",
+                    # which is the first line `report_lines` gives this layout.
+                    note, extra = _plain_spec_dir_backup(spec_dir, repo_root, branch)
+                    lines = [note, *lines[1:]]
                 _print_plain(lines)
                 stops = stored.stops_removal
         else:
