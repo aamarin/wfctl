@@ -34,9 +34,10 @@ class UnsavedCheck:
     untracked files, going ahead would delete every one of them, and a stopped
     removal costs one manual step (#600 item 5).
 
-    `listed_files` and `folders` are the real paths of the `save_on_remove`
-    entries that exist, and of what a listed link points at, split by kind,
-    since a folder is copied whole and a file is not. `excluded`
+    `listed_files` and `folders` hold the `save_on_remove` entries, each under
+    its parent folder's real path, and what a listed link points at, split by
+    kind, since a folder is copied whole and a file is not. A link is recorded
+    even when its target is missing. `excluded`
     is the spec dir when a listed folder contains it, so the folder's copy leaves
     out what is already saved on its own.
     """
@@ -243,17 +244,31 @@ def declared_paths(repo_root: Path) -> tuple[list[str], list[str]]:
     for entry in entries:
         if not isinstance(entry, str) or not entry.strip():
             problems.append(f"'{SAVE_KEY}' entry {entry!r} must be a non-empty path")
-        elif Path(entry).is_absolute():
+            continue
+        if Path(entry).is_absolute():
             problems.append(
                 f"'{SAVE_KEY}' entry '{entry}' is an absolute path; "
                 "use a path relative to the repository"
             )
-        elif (resolved := (root / entry).resolve()) == root:
+            continue
+        # A link loop raises on 3.11 and not on 3.13. Either way it is a problem
+        # rather than an exception, since an exception here reaches the removal
+        # hook's catch-all and the removal goes ahead with no check at all.
+        try:
+            resolved = (root / entry).resolve()
+            parent = (root / entry).parent.resolve()
+        except (OSError, RuntimeError) as exc:
+            problems.append(f"'{SAVE_KEY}' entry '{entry}' can't be resolved ({exc})")
+            continue
+        if resolved == root:
             problems.append(
                 f"'{SAVE_KEY}' entry '{entry}' is the repository itself; "
                 "list a file or folder inside it"
             )
-        elif root not in resolved.parents:
+        # The parent is checked as well as the entry. `_listed_paths` records an
+        # entry under its parent's real path, and a parent link that leaves the
+        # repository and a link back in would otherwise pass here and raise there.
+        elif root not in resolved.parents or (parent != root and root not in parent.parents):
             problems.append(f"'{SAVE_KEY}' entry '{entry}' resolves outside the repository")
         else:
             paths.append(entry)
@@ -340,7 +355,7 @@ def _listed_paths(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) ->
             found.folders.append(real.as_posix())
             if spec_rel is not None and real in spec_rel.parents:
                 found.excluded = spec_rel.as_posix()
-        else:
+        elif path.is_file():
             found.listed_files.append(real.as_posix())
 
 
