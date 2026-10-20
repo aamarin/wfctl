@@ -34,8 +34,9 @@ class UnsavedCheck:
     untracked files, going ahead would delete every one of them, and a stopped
     removal costs one manual step (#600 item 5).
 
-    `listed_files` and `folders` are the `save_on_remove` entries that exist,
-    split by kind, since a folder is copied whole and a file is not. `excluded`
+    `listed_files` and `folders` are the real paths of the `save_on_remove`
+    entries that exist, and of what a listed link points at, split by kind,
+    since a folder is copied whole and a file is not. `excluded`
     is the spec dir when a listed folder contains it, so the folder's copy leaves
     out what is already saved on its own.
     """
@@ -296,38 +297,51 @@ def _listed_paths(worktree: Path, spec_dir: Path | None, found: UnsavedCheck) ->
 
     A listed symlink is followed, unlike an untracked one. `declared_paths` has
     already refused an entry that resolves outside the repository, so its target
-    is inside the worktree and is deleted with it. A link to a folder is copied
-    as the folder. A link to a file is saved as the link, and its target is
-    saved too.
+    is inside the worktree and is deleted with it. The link is saved as a link,
+    and what it points at is saved at its own path, unless that is in the spec
+    dir.
+
+    Every entry is recorded by its real path, with the links in its parent
+    folders resolved. Recorded as written, `lnk/todo.md` puts the link `lnk` and
+    a folder `lnk/` at one path in the copy, which raises and stops the removal.
+    The spec dir checks read real paths too, or a link to `specs/` would save
+    the spec dir a second time.
     """
     listed, problems = declared_paths(worktree)
     found.warnings += [f"wfctl.json: {problem} — skipped" for problem in problems]
+    root = worktree.resolve()
     spec_rel = (
-        spec_dir.resolve().relative_to(worktree.resolve())
+        spec_dir.resolve().relative_to(root)
         if spec_dir is not None and is_inside(worktree, spec_dir)
         else None
     )
+
     def in_spec_dir(rel: Path) -> bool:
         return spec_rel is not None and (rel == spec_rel or spec_rel in rel.parents)
 
     for entry in listed:
         rel = Path(entry.rstrip("/"))
         path = worktree / rel
-        if in_spec_dir(rel):
+        at = path.parent.resolve().relative_to(root) / rel.name
+        if in_spec_dir(at):
             found.warnings.append(
                 f"wfctl.json: '{SAVE_KEY}' entry '{entry}' is the spec dir or inside it, "
                 "which is saved separately — skipped"
             )
-        elif path.is_dir():
-            found.folders.append(entry)
-            if spec_rel is not None and rel in spec_rel.parents:
+            continue
+        if (root / at).is_symlink():
+            found.listed_files.append(at.as_posix())
+        if not path.exists():
+            continue
+        real = path.resolve().relative_to(root)
+        if in_spec_dir(real):
+            continue
+        if path.is_dir():
+            found.folders.append(real.as_posix())
+            if spec_rel is not None and real in spec_rel.parents:
                 found.excluded = spec_rel.as_posix()
-        elif path.is_file() or path.is_symlink():
-            found.listed_files.append(rel.as_posix())
-            if path.is_symlink() and path.is_file():
-                target = path.resolve().relative_to(worktree.resolve())
-                if not in_spec_dir(target):
-                    found.listed_files.append(target.as_posix())
+        else:
+            found.listed_files.append(real.as_posix())
 
 
 def check(worktree: Path, spec_dir: Path | None) -> UnsavedCheck:

@@ -48,8 +48,9 @@ Each kind of file goes to the place you would look for it:
 3. Ignored files and folders that the repository lists in `wfctl.json` are
    copied to the same `unsaved/` folder, also at their original paths. A listed
    folder that holds the spec dir is copied without it, since the spec dir is
-   already copied on its own. Every other ignored file is left alone and
-   deleted with the worktree.
+   already copied on its own. A listed link is saved as a link, and what it
+   points at is saved at its own path, since it is deleted with the worktree
+   too. Every other ignored file is left alone and deleted with the worktree.
 
 ## Owns truth
 
@@ -59,9 +60,9 @@ state dir holds the rest because it is the only per-branch location that
 survives the removal and belongs to no other tool.
 
 The repository decides which ignored files and folders hold work worth
-keeping, through a list in `wfctl.json`. wfctl shouldn't guess, because generated folders and
-note folders look the same to git, and the measurements above show that a
-guess would copy thousands of generated files. The list lives in `wfctl.json`
+keeping, through a list in `wfctl.json`. wfctl shouldn't guess, because
+generated folders and note folders look the same to git, and the measurements
+above show that a guess would copy thousands of generated files. The list lives in `wfctl.json`
 rather than in an environment variable, because the folders differ from one
 repository to the next. It lives there rather than under `.agents/`, because
 `install-skills` rewrites `.agents/` and a setting kept there would disappear
@@ -140,4 +141,4 @@ document answers it.
   place for untracked files and listed ignored folders
 - 2026-10-19  amended     — #611 saves a listed file as well as a listed
   folder, and saves a listed folder that holds the spec dir without the spec
-  dir instead of skipping it
+  dir instead of skipping it. A listed link is saved with what it points at
