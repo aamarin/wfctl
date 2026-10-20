@@ -189,7 +189,7 @@ it and only the implementation ships.
 | `next` | Write next actionable step to `next-step.md` (automation shortcut) |
 | `verify` | Run this repository's definition of done and record the outcome |
 | `end` | End the current session and write summary scaffold |
-| `archive unsaved` | Stop a removal that would lose uncommitted edits or unmerged commits, and save the untracked files and the folders `save_on_remove` lists to `unsaved/` in the state dir |
+| `archive unsaved` | Stop a removal that would lose uncommitted edits or unmerged commits, and save the untracked files and the files and folders `save_on_remove` lists to `unsaved/` in the state dir |
 | `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push. A spec dir inside the worktree is copied to the main checkout's spec dir instead; `--overwrite` replaces files that differ |
 | `check specs` | List every spec dir in the spec store that is not stored; exits 1 when one has no worktree left |
 | `log` | Print color-coded event timeline for the current session |

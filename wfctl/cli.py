@@ -1468,8 +1468,8 @@ def archive_unsaved_cmd(
 
     Refuses when the worktree has uncommitted edits or commits that are on no
     remote and not merged into trunk. Otherwise copies untracked files, and the
-    folders `wfctl.json` lists under `save_on_remove`, to `unsaved/` in the
-    branch's state dir.
+    files and folders `wfctl.json` lists under `save_on_remove`, to `unsaved/`
+    in the branch's state dir.
     """
     import os
 
@@ -1539,11 +1539,11 @@ def _save_unsaved(
         f"{'file' if len(saved.files) == 1 else 'files'} → {escape(str(saved.dest))}",
         soft_wrap=True,
     )
-    shown = 20
-    for rel in saved.files[:shown]:
+    entries, limit = saved.shown, 20
+    for rel in entries[:limit]:
         console.print(f"    {rel}", markup=False, soft_wrap=True)
-    if len(saved.files) > shown:
-        console.print(f"    and {len(saved.files) - shown} more")
+    if len(entries) > limit:
+        console.print(f"    and {len(entries) - limit} more")
 
 
 
@@ -1562,7 +1562,6 @@ _FORMER_REMOVE_COMMAND = "archive-story"
 def _remove_stop_groups(
     found: "_archive_mod.UnsavedCheck",
     planned: "_spec_copy_mod.CopyResult | None",
-    branch: str,
 ) -> list[tuple[str, list[str]]]:
     """Every reason the removal stops, in the order the stop block prints them."""
     groups: list[tuple[str, list[str]]] = []
@@ -1575,13 +1574,14 @@ def _remove_stop_groups(
     if found.listing_error:
         groups.append(("couldn't list untracked files:", [found.listing_error]))
     if planned is not None and planned.stops_removal:
-        title = planned.lines[0].removeprefix("✗ ")
         if planned.outcome == "differs":
-            # Drop the hint line and the indent the copy-out adds for its own output.
-            body = [row.removeprefix("    ") for row in planned.lines[1:-1]]
-            groups.append((title.replace(f" for {branch}", "") + ":", body))
+            from wfctl._spec_copy import difference_rows
+
+            groups.append(
+                (f"{planned.dest} holds different spec files:", difference_rows(planned.different))
+            )
         else:
-            groups.append((title, []))
+            groups.append((planned.lines[0].removeprefix("✗ "), []))
     return groups
 
 
@@ -1730,7 +1730,7 @@ def worktree_remove_cmd(
             planned = _spec_copy.copy_out(spec_dir, branch, repo_root, dry_run=True)
         except Exception as exc:  # noqa: BLE001
             compare_error = str(exc)
-        groups = _remove_stop_groups(found, planned, branch)
+        groups = _remove_stop_groups(found, planned)
         if compare_error is not None:
             groups.append(("couldn't compare spec files:", [compare_error]))
         if groups:
@@ -6327,7 +6327,7 @@ def check_config_cmd() -> None:
     problems += _paths.declared_trunk_problems(repo_root)
     from wfctl import _archive
 
-    problems += _archive.declared_folders(repo_root)[1]
+    problems += _archive.declared_paths(repo_root)[1]
     if problems:
         console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
         for problem in problems:

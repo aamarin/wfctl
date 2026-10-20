@@ -45,9 +45,14 @@ Each kind of file goes to the place you would look for it:
 2. Untracked files that are not spec files are copied to `unsaved/` in the
    branch's state dir, at their original relative paths, so you can copy them
    back.
-3. Ignored folders that the repository lists in `wfctl.json` are copied to the
-   same `unsaved/` folder, also at their original paths. Every other
-   ignored file is left alone and deleted with the worktree.
+3. Ignored files and folders that the repository lists in `wfctl.json` are
+   copied to the same `unsaved/` folder, at their real paths. A path reached
+   through a linked folder is saved where the folder really is, so `lnk/todo.md`
+   is saved at the path `lnk` points to. A listed folder that holds the spec dir
+   is copied without it, since the spec dir is already copied on its own. A
+   listed link is saved as a link, and what it points at is saved at its own
+   path, since it is deleted with the worktree too. Every other ignored file is
+   left alone and deleted with the worktree.
 
 ## Owns truth
 
@@ -56,12 +61,12 @@ files because every other `wfctl` command already reads them from there. The
 state dir holds the rest because it is the only per-branch location that
 survives the removal and belongs to no other tool.
 
-The repository decides which ignored folders hold work worth keeping, through
-a list in `wfctl.json`. wfctl shouldn't guess, because generated folders and
-note folders look the same to git, and the measurements above show that a
-guess would copy thousands of generated files. The list lives in `wfctl.json`
-rather than in an environment variable, because the folders differ from one
-repository to the next. It lives there rather than under `.agents/`, because
+The repository decides which ignored files and folders hold work worth
+keeping, through a list in `wfctl.json`. wfctl shouldn't guess, because
+generated folders and note folders look the same to git, and the measurements
+above show that a guess would copy thousands of generated files. The list
+lives in `wfctl.json` rather than in an environment variable, because the
+folders differ from one repository to the next. It lives there rather than under `.agents/`, because
 `install-skills` rewrites `.agents/` and a setting kept there would disappear
 without any warning.
 
@@ -73,7 +78,7 @@ flowchart LR
         direction TB
         SPEC["spec files"]
         UNTRACKED["untracked files"]
-        LISTED["ignored folders listed in wfctl.json"]
+        LISTED["ignored files and folders listed in wfctl.json"]
         OTHER["other ignored files"]
     end
     subgraph hook["remove hook (wfctl)"]
@@ -136,3 +141,6 @@ document answers it.
 
 - 2026-10-13  proposed    — #40 moves spec files to the spec dir and adds a
   place for untracked files and listed ignored folders
+- 2026-10-19  amended     — #611 saves a listed file as well as a listed
+  folder, and saves a listed folder that holds the spec dir without the spec
+  dir instead of skipping it. A listed link is saved with what it points at

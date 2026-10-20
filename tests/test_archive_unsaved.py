@@ -552,6 +552,32 @@ def test_output_prints_twenty_paths_then_how_many_more(
     assert "    and 5 more" in result.output
 
 
+def test_a_nested_repository_s_git_folder_is_one_line_of_the_twenty(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A clone's object store sorts ahead of the person's own files and filled the list (#612).
+
+    The count still says every file saved, since the history is saved too.
+    """
+    repo = make_repo(tmp_path)
+    nested = repo.worktree / "a-clone"
+    nested.mkdir()
+    _git(nested, "init", "-b", "main")
+    (nested / "a.txt").write_text("a\n")
+    (repo.worktree / "notes.md").write_text("notes\n")
+
+    result = _unsaved(repo.worktree)
+
+    saved = sum(len(files) for _, _, files in os.walk(state_dir / "unsaved"))
+    assert result.exit_code == 0, result.output
+    assert f"saved {saved} files" in result.output
+    assert "    a-clone/.git/\n" in result.output
+    assert "    a-clone/.git/HEAD" not in result.output
+    assert "    a-clone/a.txt" in result.output
+    assert "    notes.md" in result.output
+    assert "more" not in result.output
+
+
 def test_untracked_file_and_uncommitted_edit_refuses_and_copies_nothing(
     tmp_path: Path, state_dir: Path
 ) -> None:
@@ -585,17 +611,23 @@ def test_failed_untracked_listing_stops_the_removal(
     assert "couldn't list untracked files" in result.output
 
 
-def _declare_save_on_remove(repo: Repo, entries: object) -> None:
+def _declare_save_on_remove(
+    repo: Repo, entries: object, ignore: str = "notes/\nresearch/\n.venv/\nspecs/\n"
+) -> None:
     """Commit a `wfctl.json` and a `.gitignore`, and push, so the tree is clean and safe.
 
     Both files have to be committed or the removal would save them as untracked
     files, and the commit has to be on a remote or the unmerged-commit check
     would stop the removal before any folder is copied.
+
+    A pattern with a trailing `/` matches a folder and never a link to one. A
+    test about a listed link ignores the link by name, or the untracked list
+    saves it and the test passes without the code it is named for.
     """
     import json
 
     (repo.worktree / "wfctl.json").write_text(json.dumps({"save_on_remove": entries}))
-    (repo.worktree / ".gitignore").write_text("notes/\nresearch/\n.venv/\nspecs/\n")
+    (repo.worktree / ".gitignore").write_text(ignore)
     _git(repo.worktree, "add", "wfctl.json", ".gitignore")
     _git(repo.worktree, "commit", "-m", "chore: declare save_on_remove")
     _git(repo.worktree, "push", "origin", repo.branch)
@@ -671,10 +703,33 @@ def test_a_listed_folder_git_does_not_ignore_is_saved_once(
     assert (state_dir / "unsaved" / "docs-draft" / "a.md").read_text() == "a\n"
 
 
-def test_listing_a_folder_that_holds_the_spec_dir_warns_and_saves_no_spec_files(
+def test_a_listed_folder_that_holds_the_spec_dir_is_saved_without_it(
     tmp_path: Path, state_dir: Path
 ) -> None:
-    """Spec files have their own destination, so listing `specs/` would save them twice (FR-018)."""
+    """Skipping `specs/` whole deleted everything else in it with the worktree (#611).
+
+    The spec dir has its own destination, so the copy leaves it out rather than
+    saving it twice (FR-018).
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["specs/"])
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+    (repo.worktree / "specs" / "scratch.md").write_text("scratch\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "⚠" not in result.output
+    assert (state_dir / "unsaved" / "specs" / "scratch.md").read_text() == "scratch\n"
+    assert not (state_dir / "unsaved" / "specs" / repo.branch).exists()
+
+
+def test_a_listed_folder_holding_only_the_spec_dir_saves_nothing(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Left without the spec dir, the copy is empty folders, and promoting it would move an earlier save aside."""
     repo = make_repo(tmp_path)
     _declare_save_on_remove(repo, ["specs/"])
     spec = repo.worktree / "specs" / repo.branch
@@ -684,9 +739,267 @@ def test_listing_a_folder_that_holds_the_spec_dir_warns_and_saves_no_spec_files(
     result = _unsaved(repo.worktree)
 
     assert result.exit_code == 0, result.output
-    assert "'specs/'" in result.output
-    assert "spec dir" in result.output
+    assert "no unsaved files to keep" in result.output
     assert not (state_dir / "unsaved").exists()
+    assert not (state_dir / "unsaved.staging").exists()
+
+
+def test_a_listed_path_inside_the_spec_dir_warns_and_is_skipped(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The spec dir's own copy already holds it, so saving it here would save it twice (FR-018)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, [f"specs/{repo.branch}/notes/"])
+    notes = repo.worktree / "specs" / repo.branch / "notes"
+    notes.mkdir(parents=True)
+    (notes / "n.md").write_text("n\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "is the spec dir or inside it" in result.output
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_listed_file_is_saved(tmp_path: Path, state_dir: Path) -> None:
+    """Only folders were copied, so a listed file was deleted with the worktree and nothing said so (#611)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/todo.md"])
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "todo.md").write_text("todo\n")
+    (repo.worktree / "notes" / "other.md").write_text("other\n")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "saved 1 file" in result.output
+    assert (state_dir / "unsaved" / "notes" / "todo.md").read_text() == "todo\n"
+    assert not (state_dir / "unsaved" / "notes" / "other.md").exists()
+
+
+def test_a_listed_link_git_does_not_ignore_is_saved_once(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The link is on the untracked list too, and writing it twice raises and stops every removal.
+
+    A plain file would not show this, since `copy2` overwrites a file without
+    complaint. Only a link fails on the second copy.
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["todo"])
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "todo.md").write_text("todo\n")
+    (repo.worktree / "todo").symlink_to(".venv/todo.md")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / "todo") == ".venv/todo.md"
+
+
+def test_a_listed_link_to_a_folder_saves_what_the_folder_holds(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Saving only the link left it pointing at a folder the removal then deleted.
+
+    A listed entry can't resolve outside the repository, so whatever it points
+    at goes with the worktree. The folder is saved at its own path, so the
+    saved link still reaches it.
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/"], ignore="notes\n.venv/\nspecs/\n")
+    (repo.worktree / ".venv" / "notes").mkdir(parents=True)
+    (repo.worktree / ".venv" / "notes" / "idea.md").write_text("idea\n")
+    (repo.worktree / "notes").symlink_to(".venv/notes")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / "notes") == ".venv/notes"
+    assert (state_dir / "unsaved" / ".venv" / "notes" / "idea.md").read_text() == "idea\n"
+
+
+def test_a_listed_link_inside_a_listed_folder_saves_what_it_points_at(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The folder's copy keeps the link as a link, and dropping the nested entry lost its target."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/", "notes/link/"])
+    (repo.worktree / ".venv" / "other").mkdir(parents=True)
+    (repo.worktree / ".venv" / "other" / "keep.md").write_text("keep\n")
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "a.md").write_text("a\n")
+    (repo.worktree / "notes" / "link").symlink_to("../.venv/other")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert (state_dir / "unsaved" / ".venv" / "other" / "keep.md").read_text() == "keep\n"
+    assert os.readlink(state_dir / "unsaved" / "notes" / "link") == "../.venv/other"
+
+
+def test_a_listed_file_behind_a_link_to_a_folder_is_saved(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Recorded as written, the untracked link `lnk` and the folder `lnk/` met at one path.
+
+    The copy raised "File exists" and stopped the removal until it was forced.
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["lnk/todo.md"])
+    (repo.worktree / ".venv" / "x").mkdir(parents=True)
+    (repo.worktree / ".venv" / "x" / "todo.md").write_text("todo\n")
+    (repo.worktree / "lnk").symlink_to(".venv/x", target_is_directory=True)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert (state_dir / "unsaved" / ".venv" / "x" / "todo.md").read_text() == "todo\n"
+    assert os.readlink(state_dir / "unsaved" / "lnk") == ".venv/x"
+
+
+def test_a_listed_link_to_the_specs_folder_saves_the_spec_dir_once(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The spec dir check read the link's own name, so the copy through it held the spec dir again (FR-018)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/"], ignore="notes\n.venv/\nspecs/\n")
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+    (repo.worktree / "specs" / "scratch.md").write_text("scratch\n")
+    (repo.worktree / "notes").symlink_to("specs", target_is_directory=True)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert (state_dir / "unsaved" / "specs" / "scratch.md").read_text() == "scratch\n"
+    assert not (state_dir / "unsaved" / "specs" / repo.branch).exists()
+    assert os.readlink(state_dir / "unsaved" / "notes") == "specs"
+
+
+def test_a_listed_link_into_the_spec_dir_saves_only_the_link(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The spec file has its own destination, so copying it here would save it twice (FR-018)."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["todo"], ignore="todo\nspecs/\n")
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+    (repo.worktree / "todo").symlink_to(f"specs/{repo.branch}/spec.md")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / "todo") == f"specs/{repo.branch}/spec.md"
+    assert not (state_dir / "unsaved" / "specs").exists()
+
+
+def test_a_listed_link_behind_a_linked_folder_is_saved_where_it_really_is(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Recorded under its written parent, the link met the untracked link `lnk` at one path and raised "File exists"."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["lnk/inner/"])
+    (repo.worktree / ".venv" / "x").mkdir(parents=True)
+    (repo.worktree / ".venv" / "y").mkdir()
+    (repo.worktree / ".venv" / "y" / "keep.md").write_text("keep\n")
+    (repo.worktree / ".venv" / "x" / "inner").symlink_to("../y", target_is_directory=True)
+    (repo.worktree / "lnk").symlink_to(".venv/x", target_is_directory=True)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / ".venv" / "x" / "inner") == "../y"
+    assert (state_dir / "unsaved" / ".venv" / "y" / "keep.md").read_text() == "keep\n"
+
+
+def test_a_listed_path_into_the_spec_dir_through_a_linked_folder_warns_and_is_skipped(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Checked by its written name, the entry was dropped with no warning, and the user never learned why."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["lnk/spec.md"], ignore="lnk\nspecs/\n")
+    spec = repo.worktree / "specs" / repo.branch
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("spec\n")
+    (repo.worktree / "lnk").symlink_to(f"specs/{repo.branch}", target_is_directory=True)
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert "is the spec dir or inside it" in result.output
+    assert not (state_dir / "unsaved").exists()
+
+
+def test_a_listed_path_whose_parent_leaves_the_repository_is_refused_not_raised(
+    tmp_path: Path,
+) -> None:
+    """The entry resolved back inside, its parent didn't, and the check raised.
+
+    The removal hook's catch-all then let the removal go ahead, and the
+    uncommitted edit the check had already found was deleted with the worktree.
+    """
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["out/back"], ignore=".venv/\nout\n")
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "todo.md").write_text("todo\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "back").symlink_to(repo.worktree / ".venv" / "todo.md")
+    (repo.worktree / "out").symlink_to(elsewhere, target_is_directory=True)
+    (repo.worktree / "README.md").write_text("edited\n")
+
+    found = _archive.check(repo.worktree, None)
+
+    assert found.edits
+    assert any("resolves outside the repository" in w for w in found.warnings)
+
+
+def test_a_listed_link_loop_is_a_warning_not_an_exception(tmp_path: Path) -> None:
+    """On 3.11 resolving a loop raises, and the hook's catch-all let the removal go ahead unchecked."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["loop"], ignore="loop\n")
+    (repo.worktree / "loop").symlink_to("loop")
+    (repo.worktree / "README.md").write_text("edited\n")
+
+    found = _archive.check(repo.worktree, None)
+
+    assert found.edits
+
+
+def test_a_link_listed_twice_is_saved_once(tmp_path: Path, state_dir: Path) -> None:
+    """Two spellings of one ignored link wrote it twice, and the second write raised and stopped the removal."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/todo.md", "./notes/todo.md"])
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "todo.md").write_text("todo\n")
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "todo.md").symlink_to("../.venv/todo.md")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / "notes" / "todo.md") == "../.venv/todo.md"
+
+
+def test_a_listed_link_to_a_file_saves_the_link_and_the_file(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The link alone would point at a file the removal deleted."""
+    repo = make_repo(tmp_path)
+    _declare_save_on_remove(repo, ["notes/todo.md"])
+    (repo.worktree / ".venv").mkdir()
+    (repo.worktree / ".venv" / "todo.md").write_text("todo\n")
+    (repo.worktree / "notes").mkdir()
+    (repo.worktree / "notes" / "todo.md").symlink_to("../.venv/todo.md")
+
+    result = _unsaved(repo.worktree)
+
+    assert result.exit_code == 0, result.output
+    assert os.readlink(state_dir / "unsaved" / "notes" / "todo.md") == "../.venv/todo.md"
+    assert (state_dir / "unsaved" / ".venv" / "todo.md").read_text() == "todo\n"
 
 
 def test_an_orphan_branch_with_a_local_only_commit_stops_the_removal(tmp_path: Path) -> None:

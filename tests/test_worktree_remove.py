@@ -88,6 +88,54 @@ def test_differing_spec_files_and_an_uncommitted_edit_are_both_listed(
     assert not (state_dir / "unsaved").exists()
 
 
+def test_the_stop_block_names_differing_files_whatever_store_specs_prints(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hook once built this block by trimming the lines `store specs` prints.
+
+    Rewording those lines then changed what the hook printed when it stopped a
+    removal, and no test of the hook noticed (#610). The block is now built from
+    the result's fields, so reworded lines must leave it as it was.
+    """
+    from wfctl import _spec_copy
+
+    real = _spec_copy.copy_out
+
+    def reworded(*args: object, **kwargs: object) -> _spec_copy.CopyResult:
+        result = real(*args, **kwargs)  # type: ignore[arg-type]
+        result.lines = ["✗ something else entirely"]
+        return result
+
+    monkeypatch.setattr(_spec_copy, "copy_out", reworded)
+    repo = make_repo(tmp_path)
+    _spec(repo.worktree, **{"spec.md": "mine\n"})
+    dest = repo.main / "specs" / "40-feature"
+    dest.mkdir(parents=True)
+    (dest / "spec.md").write_text("theirs\n")
+
+    code, out = _remove(repo)
+
+    assert code == 1
+    assert f"  {dest} holds different spec files:" in out
+    assert "\n    spec.md\n" in out
+    assert "      -theirs" in out and "      +mine" in out
+    assert "something else entirely" not in out
+
+
+def test_an_empty_spec_dir_is_not_reported_as_already_copied(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """Nothing was copied because there was nothing to copy, and "already" claimed a copy nobody made (#612)."""
+    repo = make_repo(tmp_path)
+    spec_dir = _spec(repo.worktree)
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert f"ℹ spec dir {spec_dir} is empty, nothing to copy" in out
+    assert "already" not in out
+
+
 def test_an_uncommitted_edit_alone_copies_no_spec_files(tmp_path: Path, state_dir: Path) -> None:
     """Copying before the other checks run would leave files behind for a removal that never happened (FR-002)."""
     repo = make_repo(tmp_path)
@@ -113,6 +161,52 @@ def test_a_layout_with_no_main_checkout_saves_the_spec_dir_under_unsaved(
 
     assert code == 0, out
     assert (state_dir / "unsaved" / "specs" / "40-feature" / "spec.md").read_text() == "s\n"
+
+
+def test_a_listed_specs_folder_leaves_the_spec_dir_to_the_copy_out(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """The spec dir goes to the main checkout, and the rest of `specs/` to `unsaved/` (#611).
+
+    Leaving it out of `unsaved/` is safe only because the copy-out puts it in
+    the main checkout first, so the two halves are asserted together.
+    """
+    repo = make_repo(tmp_path)
+    (repo.worktree / "wfctl.json").write_text('{"save_on_remove": ["specs/"]}')
+    (repo.worktree / ".gitignore").write_text("specs/\n")
+    _git(repo.worktree, "add", "wfctl.json", ".gitignore")
+    _git(repo.worktree, "commit", "-m", "chore: declare save_on_remove")
+    _git(repo.worktree, "push", "origin", repo.branch)
+    _spec(repo.worktree, **{"spec.md": "s\n"})
+    (repo.worktree / "specs" / "scratch.md").write_text("scratch\n")
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert (repo.main / "specs" / "40-feature" / "spec.md").read_text() == "s\n"
+    assert (state_dir / "unsaved" / "specs" / "scratch.md").read_text() == "scratch\n"
+    assert not (state_dir / "unsaved" / "specs" / "40-feature").exists()
+
+
+def test_a_listed_specs_folder_keeps_the_spec_dir_when_there_is_no_main_checkout(
+    tmp_path: Path, state_dir: Path
+) -> None:
+    """A listed `specs/` leaves the spec dir out of its copy, since the spec dir is saved separately (#611).
+
+    With no main checkout, that separate save is this same `unsaved/` copy, so
+    leaving it out of both would delete the spec files with the worktree.
+    """
+    worktree = make_bare_worktree(tmp_path)
+    _spec(worktree, **{"spec.md": "s\n"})
+    (worktree / "specs" / "scratch.md").write_text("scratch\n")
+    (worktree / "wfctl.json").write_text('{"save_on_remove": ["specs/"]}')
+    repo = Repo(remote=tmp_path, main=tmp_path, worktree=worktree, branch="40-feature")
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert (state_dir / "unsaved" / "specs" / "40-feature" / "spec.md").read_text() == "s\n"
+    assert (state_dir / "unsaved" / "specs" / "scratch.md").read_text() == "scratch\n"
 
 
 @pytest.mark.parametrize("name", ["archive-specs", "archive-story"])
