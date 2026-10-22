@@ -22,6 +22,7 @@ from typer.testing import CliRunner, Result
 
 from tests.conftest import git_repo
 from wfctl import _guard
+from wfctl._hook import committable
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -989,6 +990,18 @@ def test_the_hook_refuses_a_commit_once_the_store_points_at_the_main_checkout(
     refused = _hook(feature, f"git -C {store} commit -m x")
     assert refused.exit_code == 2
     assert "would not land on a branch of its own" in (refused.stderr or refused.output)
+
+
+def test_the_main_checkout_never_takes_the_stores_commits(tmp_path: Path) -> None:
+    """A spec root of `.` names the main checkout, and `committable` vouched for
+    it and for every folder in it, so a commit there would land on `main`. The
+    hook still refused, but only because `_shareable` drops the main checkout
+    first, and the commit check has to hold without that (#603)."""
+    main, store, feature = _store_layout(tmp_path)
+    (main / "specs").mkdir()
+
+    assert committable(str(feature), [str(main)], [f"{main}/specs"]) == []
+    assert committable(str(feature), [str(store)]) == [str(store)]
 
 
 def test_the_hook_refuses_a_commit_into_a_plain_spec_folder_in_the_main_checkout(

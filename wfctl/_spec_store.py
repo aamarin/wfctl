@@ -95,10 +95,17 @@ def owns_branch(root: str, here: str) -> bool:
 
     Asked of git rather than read from the path, because git picks the
     repository from files inside the root. `root` qualifies when it belongs to
-    another repository than `here`, or when it has a branch checked out that no
-    other worktree of `here`'s project has. A plain `<main>/specs` fails, since
-    git there finds the main checkout and its branch, and so does a store whose
-    `.git` was replaced to point at the main checkout's.
+    another repository than `here`, or when it is not the project's main
+    checkout and has a branch checked out that no other worktree of `here`'s
+    project has. A plain `<main>/specs` fails, since git there finds the main
+    checkout and its branch, and so does a store whose `.git` was replaced to
+    point at the main checkout's.
+
+    The main checkout is refused by name because its branch is the code's
+    whatever it is called, and from a feature worktree no other worktree has
+    it checked out, so the branch test alone passes it. `layout` refused it
+    before asking and the guard did not, so the guard vouched for a commit
+    onto `main` (#603). Refusing it here gives every caller the answer.
 
     False whenever git cannot answer, for `root` or for `here`. The worktree
     guard reads this before it lets an agent commit, and the store reads it
@@ -114,12 +121,14 @@ def owns_branch(root: str, here: str) -> bool:
         return False
     if theirs != ours:
         return True
+    real = os.path.realpath(root)
+    if real == _main_worktree(here):
+        return False
     branch = _read(root, "symbolic-ref", "-q", "HEAD")
     if not branch:
         return False
     # Each porcelain block names one worktree and, unless it is detached, the
     # branch it has checked out.
-    real = os.path.realpath(root)
     taken: set[str] = set()
     for block in (_read(here, "worktree", "list", "--porcelain") or "").split("\n\n"):
         fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
@@ -188,11 +197,13 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     # `owns_branch` leaves the root's own worktree out of the branches already
     # taken, so a code checkout named as the root would read as a worktree
     # holding a branch nobody else has, and the store would commit onto the
-    # code's branch. It has to be turned away before that rule runs. There are
-    # two such checkouts: this one, and the main one, which is where a
-    # relative `spec_root` lands from a feature worktree, since it is anchored
-    # to the manifest that declared it and `install-skills` writes that in
-    # the main checkout.
+    # code's branch. There are two such checkouts: this one, and the main one,
+    # which is where a relative `spec_root` lands from a feature worktree,
+    # since it is anchored to the manifest that declared it and
+    # `install-skills` writes that in the main checkout. `owns_branch` refuses
+    # the main one itself, and both are still turned away here, before the
+    # detached test below, so a code checkout with no branch reads as code
+    # rather than as a broken store.
     if top in (top_level(repo), _main_worktree(repo)):
         return Layout("in_repo", root)
     branch = _local_branch(root)
