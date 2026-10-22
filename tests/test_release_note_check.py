@@ -20,13 +20,14 @@ SCRIPT = Path(__file__).resolve().parent.parent / ".github" / "scripts" / "check
 
 @pytest.fixture(autouse=True)
 def _ci_branch_variables_are_not_ours(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GitHub sets this variable for every step of a pull request run.
+    """GitHub sets these variables for every step of a pull request run.
 
     That includes this suite's own step, so without clearing them every test
-    here would read the pull request's branch name instead of the name of its
-    scratch repository's branch, and pass or fail on CI for the wrong reason.
+    here would read the pull request's branch names instead of its scratch
+    repository's, and pass or fail on CI for the wrong reason.
     """
     monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
+    monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
 
 
 def load_check() -> ModuleType:
@@ -372,6 +373,36 @@ def test_a_branch_that_only_starts_with_release_follows_the_ordinary_rules(
     assert "no release note on this branch" in out
 
 
+
+def test_a_note_whose_name_has_an_accented_letter_is_a_note(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without `-z`, git prints a path with an accented letter in quotes, with
+    the letter as octal escapes, so a correctly named note was reported as
+    neither note form (#604)."""
+    start_branch(repo, "accented-names", {"+café.fix.md": "Accented names are read.\n"})
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 0
+    assert "✓ release note: changes/+café.fix.md" in out
+
+
+def test_an_uncommitted_note_with_an_accented_letter_is_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`git status` quotes the same way, so the uncommitted note went unnamed
+    and the author was told to create one that already exists (#604)."""
+    start_branch(repo, "accented-names")
+    (repo / "changes").mkdir(exist_ok=True)
+    (repo / "changes" / "+café.fix.md").write_text("Accented names are read.\n")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "changes/+café.fix.md isn't committed yet" in out
+
+
 # --- how the check finds its inputs ------------------------------------------
 
 
@@ -456,3 +487,80 @@ def test_a_renamed_note_counts_as_added(
     code, out = run_check(repo, monkeypatch, capsys)
 
     assert code == 0
+
+
+# --- the branch a pull request targets ---------------------------------------
+
+
+def as_pull_request(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, head: str, base: str = "main"
+) -> None:
+    """Leave `repo` the way `actions/checkout` leaves a pull request run.
+
+    The checkout is a detached commit, and GitHub names the two branches in the
+    environment rather than in git.
+    """
+    git(repo, "checkout", "--detach")
+    monkeypatch.setenv("GITHUB_HEAD_REF", head)
+    monkeypatch.setenv("GITHUB_BASE_REF", base)
+
+
+def test_a_fork_pull_request_from_a_branch_named_main_still_needs_a_note(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The head branch's name was all the "on main" shortcut read, so a fork's
+    branch named `main` passed with no note at all (#606)."""
+    start_branch(repo, "fork-work")
+    as_pull_request(repo, monkeypatch, head="main")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "on main, nothing to check" not in out
+    assert "no release note on this branch" in out
+
+
+def test_a_stacked_pull_request_is_judged_on_what_it_adds_to_its_base(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Compared with `main`, a child carries its parent's files, so a mistake
+    in the parent's notes was reported again on every pull request stacked on
+    it (#606)."""
+    start_branch(repo, "571-parent", {"571.change.md": "Parent.\n", "notes.txt": "Stray.\n"})
+    git(repo, "push", "origin", "571-parent")
+    start_branch(repo, "580-child", {"580.fix.md": "Child.\n"})
+    as_pull_request(repo, monkeypatch, head="580-child", base="571-parent")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 0
+    assert "notes.txt" not in out
+    assert "✓ release note for #580: changes/580.fix.md" in out
+
+
+def test_a_pull_request_base_that_cannot_be_found_is_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The base is no longer always `main`, so a message naming `main` would
+    send the author to fetch a branch that was never missing."""
+    start_branch(repo, "580-child", {"580.fix.md": "Child.\n"})
+    as_pull_request(repo, monkeypatch, head="580-child", base="571-parent")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "can't find 571-parent to compare this branch against" in out
+    assert "run git fetch origin 571-parent, then check again" in out
+
+
+def test_an_empty_github_base_ref_counts_as_unset(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """GitHub sets it to the empty string on push runs, and `main` itself still
+    has nothing to check there."""
+    monkeypatch.setenv("GITHUB_BASE_REF", "")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 0
+    assert "on main, nothing to check" in out

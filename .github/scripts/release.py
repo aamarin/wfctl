@@ -114,7 +114,9 @@ def notes_by_category(
     """
     found: dict[str, list[str]] = {}
     stray: list[str] = []
-    for path in git("ls-files", directory).stdout.splitlines():
+    # `-z`, since git otherwise quotes a path with an accented letter, and the
+    # quoted name would read as a stray file and stop the release.
+    for path in filter(None, git("ls-files", "-z", directory).stdout.split("\0")):
         name = path.removeprefix(directory + "/")
         match = NOTE_NAME.match(name) if "/" not in name else None
         if match and match["category"] in categories:
