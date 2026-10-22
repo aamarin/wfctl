@@ -6,6 +6,7 @@ path and run against scratch repositories built by `init_release_repo`.
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import tomllib
 from pathlib import Path
@@ -28,6 +29,8 @@ def _ci_branch_variables_are_not_ours(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
     monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
 
 
 def load_check() -> ModuleType:
@@ -563,3 +566,53 @@ def test_an_empty_github_base_ref_counts_as_unset(
 
     assert code == 0
     assert "on main, nothing to check" in out
+
+
+def pull_request_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, head_repository: str | None
+) -> None:
+    """Write the event file GitHub hands a pull request run in `aamarin/wfctl`.
+
+    `None` leaves no event file, which is what a run outside Actions sees.
+    """
+    monkeypatch.setenv("GITHUB_REPOSITORY", "aamarin/wfctl")
+    if head_repository is None:
+        return
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": head_repository}}}}))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+
+
+def test_a_release_pull_request_from_this_repository_needs_no_note(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The release script pushes its branch here and opens the pull request, so
+    the exemption has to survive the head repository check."""
+    release_branch(repo, "release/v0.24.0", "0.24.0")
+    as_pull_request(repo, monkeypatch, head="release/v0.24.0")
+    pull_request_from(tmp_path, monkeypatch, "aamarin/wfctl")
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 0
+    assert "✓ release branch for 0.24.0, no note needed" in out
+
+
+@pytest.mark.parametrize("head_repository", ["someone/wfctl", None])
+def test_a_release_pull_request_from_a_fork_still_needs_a_note(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], head_repository: str | None,
+) -> None:
+    """A fork names its own branches, so a fork's `release/v0.24.0` that bumped
+    the version skipped the note on its name alone. With no event file to say
+    where the branch lives, the check asks for the note rather than skip it."""
+    release_branch(repo, "release/v0.24.0", "0.24.0")
+    as_pull_request(repo, monkeypatch, head="release/v0.24.0")
+    pull_request_from(tmp_path, monkeypatch, head_repository)
+
+    code, out = run_check(repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "no note needed" not in out
+    assert "no release note on this branch" in out
