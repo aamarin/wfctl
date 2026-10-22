@@ -33,8 +33,12 @@ both try to push the same tag.
   workflow in the same concurrency group will be canceled", and
   `cancel-in-progress: true` is what "also" cancels a running one.
 - The same docs describe `queue: max`, which lets up to 100 runs wait in a
-  group, processed in first-in, first-out order. `queue: max` together with
+  group, processed in first-in, first-out order by when each began waiting,
+  though "ordering is not guaranteed". `queue: max` together with
   `cancel-in-progress: true` is a validation error.
+- The workflow syntax reference describes `queue` in its
+  `jobs.<job_id>.concurrency` section, but its only `queue: max` example is at
+  the workflow level.
 - The docs' own example uses `github.run_id` in the group key as a fallback
   for a run with no head branch.
 - `tag_release.py` finds the release commit with `git log --no-merges --grep`
@@ -68,8 +72,10 @@ Pull request runs still cancel the run they replace. Runs on `main` no longer
 share a group, so none of them waits behind another or is cancelled by one.
 
 The tag job gets a group of its own, `release-tag`, with `queue: max`. Tag jobs
-then run one at a time in the order they were queued, which keeps the ordering
-the old workflow group gave them, and none of them is cancelled while it waits.
+then run one at a time, and none of them is cancelled while it waits. They
+start in the order their tests finish rather than the order the commits
+merged. That is safe because `tag_release.py` finds the release commit by its
+subject, so whichever tag job runs first tags the same commit.
 
 ## Diagram
 
