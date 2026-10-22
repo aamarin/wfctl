@@ -568,19 +568,23 @@ def test_an_empty_github_base_ref_counts_as_unset(
     assert "on main, nothing to check" in out
 
 
+def head_repo(full_name: str) -> dict[str, object]:
+    return {"pull_request": {"head": {"repo": {"full_name": full_name}}}}
+
+
 def pull_request_from(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, head_repository: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, event: dict[str, object] | None
 ) -> None:
     """Write the event file GitHub hands a pull request run in `aamarin/wfctl`.
 
     `None` leaves no event file, which is what a run outside Actions sees.
     """
     monkeypatch.setenv("GITHUB_REPOSITORY", "aamarin/wfctl")
-    if head_repository is None:
+    if event is None:
         return
-    event = tmp_path / "event.json"
-    event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": head_repository}}}}))
-    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    path = tmp_path / "event.json"
+    path.write_text(json.dumps(event))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
 
 
 def test_a_release_pull_request_from_this_repository_needs_no_note(
@@ -591,7 +595,7 @@ def test_a_release_pull_request_from_this_repository_needs_no_note(
     the exemption has to survive the head repository check."""
     release_branch(repo, "release/v0.24.0", "0.24.0")
     as_pull_request(repo, monkeypatch, head="release/v0.24.0")
-    pull_request_from(tmp_path, monkeypatch, "aamarin/wfctl")
+    pull_request_from(tmp_path, monkeypatch, head_repo("aamarin/wfctl"))
 
     code, out = run_check(repo, monkeypatch, capsys)
 
@@ -599,17 +603,23 @@ def test_a_release_pull_request_from_this_repository_needs_no_note(
     assert "✓ release branch for 0.24.0, no note needed" in out
 
 
-@pytest.mark.parametrize("head_repository", ["someone/wfctl", None])
+@pytest.mark.parametrize("event", [
+    head_repo("someone/wfctl"),
+    None,
+    {"pull_request": {"head": {"repo": None}}},
+], ids=["fork", "no-event-file", "deleted-fork"])
 def test_a_release_pull_request_from_a_fork_still_needs_a_note(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str], head_repository: str | None,
+    capsys: pytest.CaptureFixture[str], event: dict[str, object] | None,
 ) -> None:
     """A fork names its own branches, so a fork's `release/v0.24.0` that bumped
     the version skipped the note on its name alone. With no event file to say
-    where the branch lives, the check asks for the note rather than skip it."""
+    where the branch lives, the check asks for the note rather than skip it.
+    GitHub sends a deleted fork's head repository as null, and that has to read
+    as a fork rather than crash the check."""
     release_branch(repo, "release/v0.24.0", "0.24.0")
     as_pull_request(repo, monkeypatch, head="release/v0.24.0")
-    pull_request_from(tmp_path, monkeypatch, head_repository)
+    pull_request_from(tmp_path, monkeypatch, event)
 
     code, out = run_check(repo, monkeypatch, capsys)
 
