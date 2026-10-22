@@ -23,8 +23,8 @@ skill that is only found by matching its description doesn't fire in an
 unattended run. That is why the review panel became a numbered step in
 `opening-a-change`.
 
-`every-change-answers-boundary-question` decides which pass wfctl checks. This
-record decides where the instructions for all four live.
+`every-change-answers-spec-question` decides what the passes record and what
+wfctl checks. This record decides where the instructions for all four live.
 
 ## Verified
 
@@ -70,10 +70,16 @@ implementation names this skill instead:
    change skips Spec Kit, not the passes, and point at `design-passes`.
 3. The project instructions say the same and point at the same skill.
 
+The skill opens by asking whether the change needs a spec, and writes the answer
+as a `Needs-spec:` trailer on the branch's first commit. A yes sends the change
+to the Spec Kit pipeline. A no continues with the four passes.
+
 The skill runs no design method of its own. Each pass calls the skill that
 already does that work: `architecture-design` at level 2, `software-design-decisions`
 at level 3, and `clean-code`, plus `python-pattern-selection` when a pattern name
-comes up, for the refactor.
+comes up, for the refactor. At level 2, a change that works inside an existing
+boundary writes nothing, and the skill says not to run `wfctl arch none` on this
+route.
 
 ## Diagram
 
@@ -134,9 +140,9 @@ change.
 ## Verification
 
 - `uv run wfctl install-skills`, then a real run of `design-passes` on a
-  throwaway branch for a one-line fix. The run should end with a committed
-  `arch none`, a failing test committed before the fix, and either a refactor
-  commit or no change.
+  throwaway branch for a one-line fix. The run should end with a `Needs-spec:`
+  trailer on the first commit, a failing test committed before the fix, no
+  `arch none` file, and either a refactor commit or no change.
 - The skills that currently send a small change straight to implementation
   name `design-passes` instead, which a grep for "straight to implementation"
   confirms.
@@ -145,3 +151,5 @@ change.
 
 - 2026-10-22  proposed  — #628: the four passes need one home that a route
   without Spec Kit reaches before code is written
+- 2026-10-22  proposed  — revised before review: the skill asks whether a spec
+  is needed first, and writes no `arch none` for a change inside a boundary
