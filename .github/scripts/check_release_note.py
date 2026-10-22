@@ -4,8 +4,8 @@
 A release note is a file under `changes/`, named for the issue it belongs to and
 its category: `571.change.md`, or `+bump-ruff.fix.md` for work with no issue.
 This script runs in two places, `wfctl verify` and the `release-note` CI job, and
-both have to reach the same verdict, so it reads everything from git and
-`pyproject.toml` and takes no arguments.
+both have to reach the same verdict, so it reads everything from git,
+`pyproject.toml`, and the variables GitHub sets, and takes no arguments.
 
 Standard library only. CI runs it with the runner's own Python, with no
 `uv sync`, so it can't import towncrier or anything else from the dev extra.
@@ -49,13 +49,33 @@ def branch_name() -> str:
     return ""
 
 
-def merge_base() -> str | None:
-    """Where this branch left `main`, so a merge of `main` into it isn't its work."""
-    for ref in ("origin/main", "main"):
+def pull_request_base() -> str:
+    """The branch a pull request targets, or the empty string outside one.
+
+    GitHub sets `GITHUB_BASE_REF` only on pull request runs, and to the empty
+    string on push runs. The base is read here rather than passed in, so
+    `wfctl verify` and CI still run the same command with no arguments.
+    """
+    return os.environ.get("GITHUB_BASE_REF", "")
+
+
+def merge_base(target: str) -> str | None:
+    """Where this branch left `target`, so a merge of `target` into it isn't its work."""
+    for ref in (f"origin/{target}", target):
         done = git("merge-base", ref, "HEAD")
         if done.returncode == 0 and done.stdout.strip():
             return done.stdout.strip()
     return None
+
+
+def nul_separated(output: str) -> list[str]:
+    """The entries of a git command's `-z` output, with paths as their real names.
+
+    Without `-z`, git quotes a path holding a non-ASCII byte and writes that
+    byte as an octal escape, so a note named with an accented letter would no
+    longer match a note's name.
+    """
+    return [entry for entry in output.split("\0") if entry]
 
 
 def pyproject_at(rev: str) -> dict:
@@ -93,8 +113,9 @@ def added_files(base: str, directory: str) -> list[str]:
     nothing, which is the ordinary state right after a release, since git keeps
     no empty folder.
     """
-    done = git("diff", "--name-only", "--no-renames", "--diff-filter=A", base, "HEAD", "--", directory)
-    return [line for line in done.stdout.splitlines() if line]
+    done = git("diff", "-z", "--name-only", "--no-renames", "--diff-filter=A",
+               base, "HEAD", "--", directory)
+    return nul_separated(done.stdout)
 
 
 def uncommitted_notes(directory: str, issue: str | None) -> list[str]:
@@ -103,12 +124,14 @@ def uncommitted_notes(directory: str, issue: str | None) -> list[str]:
     `wfctl verify` runs on a dirty tree, and the check judges commits only, so a
     note that was just created reads as missing. Naming the file tells the
     author to commit it, where "add a note" would send them to create a second.
-    With no issue, any note counts.
+    With no issue, any note counts. `--no-renames` keeps every entry to one
+    path, since `-z` prints a rename's old path as an entry of its own.
     """
-    done = git("status", "--porcelain", "--untracked-files=all", "--", directory)
+    done = git("status", "--porcelain", "-z", "--no-renames", "--untracked-files=all",
+               "--", directory)
     found: list[str] = []
-    for line in done.stdout.splitlines():
-        path = line[3:]
+    for entry in nul_separated(done.stdout):
+        path = entry[3:]
         match = NOTE_NAME.match(path.removeprefix(directory + "/"))
         if match and (issue is None or match["issue"] == issue):
             found.append(path)
@@ -131,7 +154,9 @@ def no_note_finding(
     )
 
 
-def check_release_branch(branch: str, base: str, groups: tuple[str, ...]) -> list[str]:
+def check_release_branch(
+    branch: str, target: str, base: str, groups: tuple[str, ...]
+) -> list[str]:
     named = tuple(int(p) for p in groups)
     carried = version_at("HEAD")
     if carried != named:
@@ -139,10 +164,10 @@ def check_release_branch(branch: str, base: str, groups: tuple[str, ...]) -> lis
             f"✗ {branch} carries version {dotted(carried)} in pyproject.toml\n"
             "  a release branch needs no note only when its version matches its name"
         ]
-    on_main = version_at(base)
-    if on_main is None or named <= on_main:
+    on_target = version_at(base)
+    if on_target is None or named <= on_target:
         return [
-            f"✗ {branch} carries version {dotted(carried)}, and main already carries {dotted(on_main)}\n"
+            f"✗ {branch} carries version {dotted(carried)}, and {target} already carries {dotted(on_target)}\n"
             "  a release branch needs no note only when it raises the version"
         ]
     return []
@@ -187,20 +212,23 @@ def inspect_added_notes(
 
 
 def main() -> int:
-    branch = branch_name()
-    if branch == "main":
+    # A pull request is never `main` itself, whatever its head branch is called.
+    # A fork's branch can be named `main`, so the shortcut reads the base first.
+    branch, pr_base = branch_name(), pull_request_base()
+    if not pr_base and branch == "main":
         print("✓ on main, nothing to check")
         return 0
 
-    base = merge_base()
+    target = pr_base or "main"
+    base = merge_base(target)
     if base is None:
-        print("✗ can't find main to compare this branch against\n"
-              "  run git fetch origin main, then check again")
+        print(f"✗ can't find {target} to compare this branch against\n"
+              f"  run git fetch origin {target}, then check again")
         return 1
 
     release_match = RELEASE_BRANCH.match(branch)
     if release_match:
-        findings = check_release_branch(branch, base, release_match.groups())
+        findings = check_release_branch(branch, target, base, release_match.groups())
         if findings:
             print("\n".join(findings))
             return 1
