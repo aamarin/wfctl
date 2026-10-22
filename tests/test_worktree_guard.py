@@ -994,14 +994,32 @@ def test_the_hook_refuses_a_commit_once_the_store_points_at_the_main_checkout(
 
 def test_the_main_checkout_never_takes_the_stores_commits(tmp_path: Path) -> None:
     """A spec root of `.` names the main checkout, and `committable` vouched for
-    it and for every folder in it, so a commit there would land on `main`. The
-    hook still refused, but only because `_shareable` drops the main checkout
-    first, and the commit check has to hold without that (#603)."""
+    it and for every folder in it, so a commit there would land on `main`
+    (#603). The hook test below is what that vouching let through."""
     main, store, feature = _store_layout(tmp_path)
     (main / "specs").mkdir()
 
     assert committable(str(feature), [str(main)], [f"{main}/specs"]) == []
     assert committable(str(feature), [str(store)]) == [str(store)]
+
+
+def test_the_hook_refuses_a_commit_into_a_state_dir_in_the_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the spec root at the main checkout, `committable` vouched for every
+    folder in it, and the state dir inside it is a shared root `_shareable`
+    accepts. So a commit vouched for through the spec root was exempted through
+    the state root, and it landed on `main` (#603). A commit in the session's
+    own worktree is still allowed."""
+    main, _, feature = _store_layout(tmp_path)
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(main))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(main / ".state"))
+    (main / ".state").mkdir()
+
+    refused = _hook(feature, f"git -C {main}/.state commit -m x")
+    assert refused.exit_code == 2
+    assert "would not land on a branch of its own" in (refused.stderr or refused.output)
+    assert _hook(feature, f"git -C {feature} commit -m x").exit_code == 0
 
 
 def test_the_hook_refuses_a_commit_into_a_plain_spec_folder_in_the_main_checkout(

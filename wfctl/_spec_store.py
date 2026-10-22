@@ -101,16 +101,18 @@ def owns_branch(root: str, here: str) -> bool:
     checkout and its branch, and so does a store whose `.git` was replaced to
     point at the main checkout's.
 
-    The main checkout is refused by name because its branch is the code's
-    whatever it is called, and from a feature worktree no other worktree has
-    it checked out, so the branch test alone passes it. `layout` refused it
-    before asking and the guard did not, so the guard vouched for a commit
-    onto `main` (#603). Refusing it here gives every caller the answer.
+    The main checkout is refused by its path, because its branch is the
+    code's, whatever it is called. From a feature worktree no other worktree
+    has that branch checked out, so the branch test alone would pass it, and
+    refusing it here rather than in each caller means a caller cannot forget
+    to. The main checkout is the first worktree git lists, so in a bare
+    repository, where that entry is the bare directory, the worktree holding
+    the code's default branch is not covered.
 
-    False whenever git cannot answer, for `root` or for `here`. The worktree
-    guard reads this before it lets an agent commit, and the store reads it
-    before it commits on its own, so an unanswered question has to come out as
-    "not a store" for both.
+    False whenever git cannot answer, for `root` or for `here`, the worktree
+    listing included. The worktree guard reads this before it lets an agent
+    commit, and the store reads it before it commits on its own, so an
+    unanswered question has to come out as "not a store" for both.
 
     This does not check that `root` is the top of its checkout. `top_level`
     is that check, and both callers make it separately.
@@ -121,8 +123,11 @@ def owns_branch(root: str, here: str) -> bool:
         return False
     if theirs != ours:
         return True
+    # A listing that fails would leave `taken` empty below, and every branch
+    # would read as one nobody else has.
     real = os.path.realpath(root)
-    if real == _main_worktree(here):
+    main = _main_worktree(here)
+    if main is None or real == main:
         return False
     branch = _read(root, "symbolic-ref", "-q", "HEAD")
     if not branch:
@@ -201,9 +206,10 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     # which is where a relative `spec_root` lands from a feature worktree,
     # since it is anchored to the manifest that declared it and
     # `install-skills` writes that in the main checkout. `owns_branch` refuses
-    # the main one itself, and both are still turned away here, before the
-    # detached test below, so a code checkout with no branch reads as code
-    # rather than as a broken store.
+    # the main one itself but not this one, so this one has to be turned away
+    # before that rule runs. Both are turned away before the detached test
+    # below, so a code checkout with no branch reads as code rather than as a
+    # broken store.
     if top in (top_level(repo), _main_worktree(repo)):
         return Layout("in_repo", root)
     branch = _local_branch(root)

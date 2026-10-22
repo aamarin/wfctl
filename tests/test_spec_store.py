@@ -311,6 +311,24 @@ def test_the_main_checkout_never_owns_a_branch(tmp_path: Path) -> None:
     assert _spec_store.owns_branch(str(store), str(feature))
 
 
+def test_a_worktree_listing_git_cannot_give_owns_no_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no listing, no branch is taken, so every branch read as one nobody
+    else had and a store answered yes. The guard reads this before it lets a
+    commit through, so an unanswered listing has to answer no."""
+    project = git_repo(tmp_path / "project")
+    feature = _worktree(project, tmp_path / "project-42", "-b", "42-feature")
+    store = _worktree(project, tmp_path / "project-specs", "-b", "specs-trunk")
+    read = _spec_store._read
+    monkeypatch.setattr(
+        _spec_store, "_read",
+        lambda cwd, *args: None if args[:1] == ("worktree",) else read(cwd, *args),
+    )
+
+    assert not _spec_store.owns_branch(str(store), str(feature))
+
+
 def test_a_store_from_a_linked_worktree_never_commits_on_the_main_checkout(
     tmp_path: Path,
 ) -> None:
