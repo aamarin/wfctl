@@ -8,10 +8,13 @@ on:
   # PRs that most need a check are the ones that would not get it.
   pull_request:
 
-# A new push to a PR makes the in-flight run pointless — drop it rather than
-# queue behind it. main is excluded so every merge keeps a run of its own.
+# A new push to a PR makes the in-flight run pointless, so drop it rather than
+# queue behind it. A run on main gets a group of its own instead, because
+# GitHub cancels a waiting run whenever a newer one joins its group, whatever
+# cancel-in-progress says, and that waiting run can be the release merge's.
+# The tag job keeps runs on main in order on its own (`release-tag` below).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -182,6 +185,12 @@ jobs:
     # tagging a red commit publishes the breakage rather than reporting it.
     needs: [test, wheel, lint]
     if: github.ref == 'refs/heads/main'
+    # Runs on main no longer share a group, so two tag jobs could otherwise run
+    # at once and both push the same tag. `queue: max` keeps every waiting tag
+    # job instead of cancelling all but the newest.
+    concurrency:
+      group: release-tag
+      queue: max
     runs-on: ubuntu-latest
     permissions:
       contents: write
