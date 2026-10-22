@@ -73,6 +73,10 @@ Each check runs in its own `try`, so an error in one doesn't skip the other.
 The worktree check allows a command when it can't decide, as it does today. The
 review check refuses one of its commands when it can't read the record, since
 those commands run a few times per branch and a wrong refusal costs one retry.
+A branch with no review history at all is not this case. It means no review has
+run, so the branch is unreviewed and the check refuses it on that ground. The
+record is unreadable only when a file was half-written, which is rare enough
+that the direction costs almost nothing.
 
 ## Diagram
 
@@ -147,4 +151,4 @@ either graph.
 
 - 2026-10-21  proposed  — #622 level 3. Andre asked whether this added a hook on
   every prompt and cost tokens, and approved it once it ran inside the existing
-  guard.
+  guard. He then approved refusing a PR when the record can't be read.
