@@ -373,7 +373,6 @@ def test_a_branch_that_only_starts_with_release_follows_the_ordinary_rules(
     assert "no release note on this branch" in out
 
 
-
 def test_a_note_whose_name_has_an_accented_letter_is_a_note(
     repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -143,8 +143,9 @@ def merges_since(tag: str, directory: str) -> tuple[int, list[int]]:
         if not match:
             continue
         total += 1
-        added = git("diff", "--name-only", "--no-renames", "--diff-filter=A",
-                    f"{sha}^1", sha, "--", directory).stdout.split()
+        diff = git("diff", "-z", "--name-only", "--no-renames", "--diff-filter=A",
+                   f"{sha}^1", sha, "--", directory)
+        added = [path for path in diff.stdout.split("\0") if path]
         if not added:
             unnoted.append(int(match["number"]))
     return total, sorted(unnoted)

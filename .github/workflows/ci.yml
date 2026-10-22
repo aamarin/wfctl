@@ -186,8 +186,11 @@ jobs:
     needs: [test, wheel, lint]
     if: github.ref == 'refs/heads/main'
     # Runs on main no longer share a group, so two tag jobs could otherwise run
-    # at once and both push the same tag. `queue: max` keeps every waiting tag
-    # job instead of cancelling all but the newest.
+    # at once and both push the same tag. This group runs them one at a time,
+    # and `queue: max` keeps every waiting tag job instead of cancelling all but
+    # the newest. They start in the order their tests finish, not the order the
+    # commits merged, which is safe because tag_release.py finds the release
+    # commit by its subject rather than tagging the commit it runs on.
     concurrency:
       group: release-tag
       queue: max
