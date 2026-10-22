@@ -2,26 +2,25 @@
 status: proposed
 ---
 
-# The four passes live in their own skill, which the route to implementation names
+# The four passes live in their own skill, and the route to implementation points to it
 
 ## Context
 
-A change that skips Spec Kit goes straight to implementation, and no skill
-covers that route. Three places currently tell a small change it can skip the
+A change that bypasses Spec Kit goes straight to implementation, and no skill
+covers that route. Right now, three places tell a small change it can skip the
 design passes:
 
 1. The `design-levels` skill says it is not for "bug fixes, copy edits and other
    trivial changes that introduce no new state".
 2. The `architecture-design` skill says those changes "go straight to
    implementation".
-3. The `worktree-handoff` skill says a bug fix or a copy edit doesn't go through
+3. The `worktree-handoff` skill says a bug fix or a copy edit doesn't run through
    the pipeline, and the project instructions repeat it.
 
 Andre asked for the four passes to run on these changes too, before any code is
-written. The passes have to be reached when the agent picks the route, because a
-skill that is only found by matching its description doesn't fire in an
-unattended run. That is why the review panel became a numbered step in
-`opening-a-change`.
+written. The agent has to hit the passes when it picks the route, because a
+description-triggered skill doesn't fire in an unattended run. That's why the
+review panel became a numbered step in `opening-a-change`.
 
 `every-change-answers-spec-question` decides what the passes record and what
 wfctl checks. This record decides where the instructions for all four live.
@@ -41,45 +40,60 @@ wfctl checks. This record decides where the instructions for all four live.
   inside `/speckit.implement`, after the last task.
 - `docs/architecture/a-repo-concern-earns-a-step-hook-or-method.md` says a
   method "belongs inside the skill that performs the work".
+- `docs/architecture/domain/wfctl.md` holds this repo's domain model, and
+  `.agents/skills/model-the-domain/SKILL.md:104` says later questions start from
+  it rather than asking again. `.agents/skills/design-levels/SKILL.md:174` lets
+  level 2 skip its method when a record or spec settles the boundary, and says
+  nothing about reading the domain model first.
 
 ## Assumed
 
-- A handoff's route line is read before code is written. The `start-session`
-  skill reads the handoff first, which supports this. A session started with no
-  handoff would rely on the project instructions alone.
-- #382's short track can name this skill as its design step's command. If #382
-  needs the passes split into separate steps, the skill splits along the four
+- The agent reads a handoff's route line before writing code. The
+  `start-session` skill reads the handoff first, which backs this up. A session
+  that starts without a handoff relies on the project instructions alone.
+- #382's short track can use this skill as the command for its design step. If
+  #382 needs the passes as separate steps, the skill splits along the four
   numbered passes it already has.
 
 ## Direct baseline
 
-Add no skill. Rewrite the three "not for" lines and the project instructions to
-list the four passes, and point the level-2 and level-3 passes at the skills
-that already run them. The test-first and refactor passes would be listed in
-those lines too, since no existing skill covers them outside `/speckit.implement`.
+Don't add a skill. Rewrite the three "not for" lines and the project
+instructions to list the four passes, and point levels 2 and 3 at the skills
+that already run them. Those lines would also list the test-first and refactor
+passes, since no existing skill covers them outside `/speckit.implement`.
 
 ## Decision
 
 A new skill, `design-passes`, holds the four passes in order and says what each
-one leaves behind. Every place that currently sends a small change straight to
-implementation names this skill instead:
+one produces. Every place that currently sends a small change straight to
+implementation points to this skill instead:
 
 1. The route line in `worktree-handoff` names `design-passes` as the route for a
-   change that skips Spec Kit.
+   change that bypasses Spec Kit.
 2. The "not for" lines in `design-levels` and `architecture-design` say a small
-   change skips Spec Kit, not the passes, and point at `design-passes`.
-3. The project instructions say the same and point at the same skill.
+   change skips Spec Kit, not the passes, and point to `design-passes`.
+3. The project instructions say the same and point to the same skill.
 
-The skill opens by asking whether the change needs a spec, and writes the answer
-as a `Needs-spec:` trailer on the branch's first commit. A yes sends the change
-to the Spec Kit pipeline. A no continues with the four passes.
+The skill starts by asking whether the change needs a spec, and records the
+answer as a `Needs-spec:` trailer on the branch's first commit. If it does, the
+change goes through the Spec Kit pipeline. If not, it continues with the four
+passes.
 
-The skill runs no design method of its own. Each pass calls the skill that
-already does that work: `architecture-design` at level 2, `software-design-decisions`
-at level 3, and `clean-code`, plus `python-pattern-selection` when a pattern name
-comes up, for the refactor. At level 2, a change that works inside an existing
-boundary writes nothing, and the skill says not to run `wfctl arch none` on this
-route.
+The skill has no design method of its own. Each pass calls the skill that
+already does that work: `architecture-design` at level 2,
+`software-design-decisions` at level 3, and `clean-code` for the refactor, plus
+`python-pattern-selection` when a pattern name comes up. At level 2, a change
+inside an existing boundary writes nothing, and the skill says not to run
+`wfctl arch none` on this route.
+
+Level 2 starts by reading the accepted records and the domain model in the
+`domain/` folder under the arch root. A small fix is the change least likely to
+check either one. Without this step, it can redraw a boundary the model already
+settled, and nobody notices. If a change shifts what a modeled term means, it
+goes to `model-the-domain` before `architecture-design`, the same order
+`design-levels` already uses. `design-levels` currently skips this step too, so
+it gets the same first step at level 2. That way a change reads the domain
+model on either route.
 
 ## Diagram
 
@@ -103,49 +117,48 @@ volatile  │ handoff route, design-levels, arch-design,│               │ ha
           └───────────────────────────────────────────┘               └──────────────────────────────────┘
 ```
 
-The two graphs differ by one component and by the number of arrows that cross
-the route line. In the baseline, four places each name three skills, which is 12
-arrows. In the decision, four places each name one skill, which is 4 arrows, and
-`design-passes` holds the three that remain. The change this is built to absorb
-is a change to the passes, such as #479 moving the refactor to every task or a
-fifth pass being added. In the baseline, that change edits all four places. In
-the decision, it edits `design-passes` alone.
+The two graphs differ by one component and by how many arrows cross the route
+line. In the baseline, four places each name three skills, for 12 arrows. In
+the decision, four places each name one skill, for 4 arrows, and
+`design-passes` holds the remaining three. This design is meant to handle a
+change to the passes, such as #479 moving the refactor to every task, or adding
+a fifth pass. In the baseline, that change touches all four places. In the
+decision, it touches only `design-passes`.
 
 ## Considered
 
-- **The direct baseline above.** It adds no skill, and it reads well in any one
-  of the four places. We didn't choose it because the four copies drift apart.
-  The "not for trivial changes" line already exists in four skills that say it
-  in four different ways.
+- **The direct baseline above.** It doesn't add a skill, and it reads fine in
+  any one of the four places. We didn't choose it because the four copies drift apart.
+  Four skills already carry the "not for trivial changes" line, each worded
+  differently.
 - **A step in `opening-a-change`, before the review panel.** Andre decided
-  against it. It runs after the code exists, and the passes are worth running
-  only before code. It would also edit the file #622 is redesigning.
-- **A section added to `design-levels`.** It already owns which level a question
-  is answered at. We didn't choose it because its description matches designing
-  "a feature, screen, or schema change", not a bug fix, so it wouldn't fire on
-  the changes this is for. The test-first and refactor passes are also not its
-  subject.
+  against it. It runs after the code is written, and the passes only pay off
+  before that. It would also touch the file #622 is redesigning.
+- **A section added to `design-levels`.** It already decides which level
+  answers each question. We didn't choose it because its description matches
+  designing "a feature, screen, or schema change", not a bug fix, so it
+  wouldn't fire on the changes this is meant for. It also doesn't cover the
+  test-first and refactor passes.
 
 ## Consequences
 
-A change to the passes edits one skill. The cost is one more skill in the tree,
-and four places that have to keep pointing at it. The suite's cross-reference
-test catches a pointer to a skill that doesn't exist, but not a place that stops
-pointing at it.
+Changing the passes means editing one skill. The cost is one more skill in the
+tree, and four places that have to keep pointing to it. The suite's
+cross-reference test catches a pointer to a missing skill, but not a place that
+stops pointing to it.
 
-`design-passes` doesn't touch `opening-a-change`. It ends before the pull request
-opens, so the review panel reviews the refactor along with the rest of the
-change.
+`design-passes` doesn't touch `opening-a-change`. It ends before opening a PR,
+so the review panel covers the refactor with the rest of the change.
 
 ## Verification
 
-- `uv run wfctl install-skills`, then a real run of `design-passes` on a
-  throwaway branch for a one-line fix. The run should end with a `Needs-spec:`
+- Run `uv run wfctl install-skills`, then run `design-passes` for real on a
+  throwaway branch with a one-line fix. The run should end with a `Needs-spec:`
   trailer on the first commit, a failing test committed before the fix, no
-  `arch none` file, and either a refactor commit or no change.
+  `arch none` file, and either a refactor commit or nothing to refactor.
 - The skills that currently send a small change straight to implementation
-  name `design-passes` instead, which a grep for "straight to implementation"
-  confirms.
+  point to `design-passes` instead. Grepping for "straight to implementation"
+  confirms it.
 
 ## Log
 
@@ -153,3 +166,5 @@ change.
   without Spec Kit reaches before code is written
 - 2026-10-22  proposed  — revised before review: the skill asks whether a spec
   is needed first, and writes no `arch none` for a change inside a boundary
+- 2026-10-22  proposed  — revised before review: level 2 reads the accepted
+  records and the domain model before answering the boundary question
