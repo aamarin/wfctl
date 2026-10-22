@@ -5,13 +5,15 @@ A release note is a file under `changes/`, named for the issue it belongs to and
 its category: `571.change.md`, or `+bump-ruff.fix.md` for work with no issue.
 This script runs in two places, `wfctl verify` and the `release-note` CI job, and
 both have to reach the same verdict, so it reads everything from git,
-`pyproject.toml`, and the variables GitHub sets, and takes no arguments.
+`pyproject.toml`, the variables GitHub sets, and the event file one of them
+names, and takes no arguments.
 
 Standard library only. CI runs it with the runner's own Python, with no
 `uv sync`, so it can't import towncrier or anything else from the dev extra.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -57,6 +59,24 @@ def pull_request_base() -> str:
     `wfctl verify` and CI still run the same command with no arguments.
     """
     return os.environ.get("GITHUB_BASE_REF", "")
+
+
+def head_is_this_repository() -> bool:
+    """Whether a pull request's head branch was pushed to this repository.
+
+    A fork names its own branches, so a branch called `release/v0.24.0` says
+    nothing about who made it. GitHub writes the run's event to the file
+    `GITHUB_EVENT_PATH` names, and the head repository's full name is in it. An
+    event that can't be read counts as a fork, so a missing file costs a note
+    rather than letting a branch skip one.
+    """
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    try:
+        event = json.loads(Path(os.environ.get("GITHUB_EVENT_PATH", "")).read_text())
+        head = event["pull_request"]["head"]["repo"]["full_name"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return bool(repository) and head == repository
 
 
 def merge_base(target: str) -> str | None:
@@ -227,7 +247,7 @@ def main() -> int:
         return 1
 
     release_match = RELEASE_BRANCH.match(branch)
-    if release_match:
+    if release_match and (not pr_base or head_is_this_repository()):
         findings = check_release_branch(branch, target, base, release_match.groups())
         if findings:
             print("\n".join(findings))
