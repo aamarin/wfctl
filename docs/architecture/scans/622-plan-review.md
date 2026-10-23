@@ -212,3 +212,38 @@
 - **PR-043, MINOR, open.** New. Pattern 8 refuses more ordinary commands than R6 says, such as `grep "gh pr create\|gh pr merge"`, `rg 'gh pr.*merge'`, and a commit message that quotes `gh "$X" merge 630`. R6 names only the glob cost and no workaround.
 - **PR-044, MINOR, open.** New. A `gh` call made inside a script, such as `.github/scripts/release.py`'s `gh pr create`, is neither refused nor recorded in the spec's Edge Cases, and the artifacts don't say whether the release PR skips the review groups.
 - **PR-045, MINOR, open.** New. R4 keeps `resolve_branch` honoring `WFCTL_BRANCH`, which names the branch without reading `cwd`, while FR-012c says the branch comes from `cwd`.
+
+## Review 2026-10-23T22:59Z
+
+- Verdict: satisfied
+- Reviewed: plan.md f7ee6cd95c7e21eeeb8c8d33d730fa3e768a0224, spec.md 260a5e975e8faffd5af78ac22294da7186a0f925, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md f6d03db7433c10ee6d1f9674f1d3dee9efbff3d3, research.md d976bfdaeb49bcdd5ca3c2fba1e51e0f1e119c72, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md b84161d3a8350869809fb79b6ca5e92967d8ff09, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, wfctl/_guard.py 2b6f0d39f1c0af749d32b0fbd409448fdf5e06f3, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/receiving-code-review/SKILL.md d9dc70c6c98e60b96b9fb591e2079920bd2eec99, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, .github/scripts/release.py 5573934e6746db3dd261a7c143d91730b22decf1, plan-review.plan.md 6e775fb68e10014feeff35942930d4040217aadc (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 12 · Fixed since the earlier review: 1
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-039, PR-040, PR-045; PR-041 fixed) |
+| Requirements and traceability | Outstanding (PR-040, PR-044) |
+| Architecture and boundaries | Outstanding (PR-038, PR-045) |
+| Adversarial implementation and verification | Outstanding (PR-036, PR-043, PR-046, PR-048; PR-041 fixed) |
+| Security and reliability | Outstanding (PR-035, PR-037, PR-038, PR-042, PR-044, PR-046, PR-047; PR-041 fixed) |
+
+### Findings
+
+- **PR-041, MAJOR, fixed.** Fixed by R6 pattern 1's `REPO` group before `pr` and before the verb, R4 reading `-R` wherever it sits and refusing two, pattern 8 skipping `-R`, FR-012, three contract rows, and the planned tests. All three spellings the finding named now match.
+- **PR-046, MAJOR, open.** New. Pattern 1 allows one `-R` before `pr` and one before the verb, and nothing else, but `gh` accepts more there. `gh pr --squash=true merge 630` and `gh -R <this repo> -R owner/other pr merge 630` reach no check, and `gh pr --squash=true merge --help` prints the merge help, which confirms `gh` parses a verb's flag before the verb.
+- **PR-047, MINOR, open.** New. In `gh -R $(git push -q; echo a/b) pr merge 630`, pattern 1 fails at `push`, and pattern 8 reads `push` as the command word and passes it.
+- **PR-048, MINOR, open.** New. R4's argument reader starts at the matched verb, and no artifact says where the comparison gets an `-R` value from before `pr` or before the verb, how the two-`-R` count spans both places, or that `-R=value` drops the `=`.
+- **PR-035, MINOR, open.** A GraphQL mutation built in a variable or a substitution still matches no pattern.
+- **PR-036, MINOR, open.** Three legitimate `gh api` calls still refuse: `-f merge_method=merge` before the path, the `:owner/:repo` placeholders, and pattern 6 over every variable-path write.
+- **PR-037, MINOR, open.** `uv run --directory` and `direnv exec` still change the directory `gh` runs in with no separator, prefix, or `env`.
+- **PR-038, MINOR, open.** Ownership item 6 still reads as enforced, and R4 still doesn't say to compare the branch with `origin/` stripped.
+- **PR-039, MINOR, open.** A timed-out lookup still has two different messages, and the error rows don't say which carry the line about a person's own terminal.
+- **PR-040, MINOR, open.** Widened to three stale spec passages. The Validation Strategy line now also says "`-R` before the verb" only, while FR-012 names every placement.
+- **PR-042, MINOR, open.** A quoted or variable `gh` word still matches no pattern.
+- **PR-043, MINOR, open.** Pattern 8 still refuses greps with `\|`, regexes with `.*`, and commit messages that quote a refused form.
+- **PR-044, MINOR, open.** A `gh` call inside a script, such as `release.py`, is still neither refused nor recorded.
+- **PR-045, MINOR, open.** The `WFCTL_BRANCH` override still names the branch without reading `cwd`, against FR-012c.
