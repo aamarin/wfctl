@@ -79,13 +79,13 @@ branch it acts on, or because the agent shouldn't run it at all:
 3. `gh pr merge --auto`, since GitHub would later merge a head the check
    never judged.
 4. A command that names another repository, through `-R`, a `GH_REPO=`
-   prefix, or a `repos/<owner>/<repo>/` path, since that repository's reviews
-   aren't kept here.
+   prefix, a `repos/<owner>/<repo>/` path, or an `owner:` prefix on `--head`
+   naming another owner, since that repository's reviews aren't kept here.
 5. A pull request command that follows another command in the same text, such
-   as `git push && gh pr create`. The check reads the branch and its newest
-   commit before any of the text runs, so an earlier commit, push, or `cd`
-   would change what the pull request command acts on after the check judged
-   it.
+   as `git push && gh pr create`, or that holds a command substitution. The
+   check reads the branch and its newest commit before any of the text runs,
+   so an earlier commit, push, or `cd`, or one inside a substitution, would
+   change what the pull request command acts on after the check judged it.
 6. The sign-off command.
 
 If a command matches none of them, it goes on to the worktree check with no
@@ -200,3 +200,7 @@ to check means changing one list in either graph.
   time, which adds the create and GraphQL calls, `--auto`, another
   repository, and a chained pull request command. Andre approved folding in
   the second review's findings.
+- 2026-10-23  proposed  — #622 plan review. A command substitution in a pull
+  request command, and a `--head` owner other than this checkout's, join the
+  second kind. Andre approved fixing the third review's findings without a
+  fourth review.
