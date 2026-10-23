@@ -44,8 +44,12 @@ reviewer wrote, and wfctl counts it the same way.
 
 ## Decision
 
-The coordinator passes the reply to wfctl, and wfctl saves it. A wfctl command
-takes the reviewer's id and reads the report from stdin. It saves the report
+The coordinator saves the reply to a file and passes that file to wfctl, and
+wfctl saves it. A wfctl command takes the reviewer's id and reads the report
+from the file it is given, never from stdin or the command's own text. The
+worktree guard matches command text, and a security report quotes the
+commands the guard refuses, so a report pasted into the command would be
+refused while the branch is unreviewed. It saves the report
 under that id with a header that marks it as relayed and includes the block
 reason the reviewer gave. wfctl refuses a relayed report that gives no reason.
 
@@ -120,3 +124,6 @@ coordinator's write into a call.
 
 - 2026-10-21  proposed  — #622 level 3. Andre agreed to the relay and added the
   rule that a reviewer that wasn't really blocked is a gap to report.
+- 2026-10-23  proposed  — #622 plan review. The report now arrives from a
+  file rather than stdin, so it never travels in the text the guard matches.
+  Andre approved folding in the second review's findings.

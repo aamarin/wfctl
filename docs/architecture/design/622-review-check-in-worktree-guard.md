@@ -60,17 +60,38 @@ record on managed hooks describes.
 ## Decision
 
 The review check runs inside `wfctl hook worktree-guard`, before the worktree
-check. It looks for four commands:
+check. It looks for two kinds of command.
 
-1. `gh pr create`.
+The first kind is judged against the branch's reviews:
+
+1. `gh pr create`, and `gh pr new`, which is `gh`'s second name for it.
 2. `gh pr merge`.
-3. A `gh api` call to the `merge-async` endpoint.
-4. The sign-off command.
+3. A `gh api` call to a pull request's `merge` or `merge-async` endpoint.
+
+The second kind is refused every time, because the check can't tell which
+branch it acts on, or because the agent shouldn't run it at all:
+
+1. A `gh api` call that creates a pull request through the `pulls` endpoint.
+2. A `gh api graphql` call naming `createPullRequest`, `mergePullRequest`,
+   `enablePullRequestAutoMerge`, or `enqueuePullRequest`. The branch these act
+   on sits in a request body the check can't read reliably, so the refusal
+   tells the agent to use `gh pr create` or `gh pr merge` instead.
+3. `gh pr merge --auto`, since GitHub would later merge a head the check
+   never judged.
+4. A command that names another repository, through `-R`, a `GH_REPO=`
+   prefix, or a `repos/<owner>/<repo>/` path, since that repository's reviews
+   aren't kept here.
+5. A pull request command that follows another command in the same text, such
+   as `git push && gh pr create`. The check reads the branch and its newest
+   commit before any of the text runs, so an earlier commit, push, or `cd`
+   would change what the pull request command acts on after the check judged
+   it.
+6. The sign-off command.
 
 If a command matches none of them, it goes on to the worktree check with no
 file read and no git call.
 
-If a command matches one of the first three, the review check reads each
+If a command matches the first kind, the review check reads each
 group's last reviewed commit from the state directory and asks git for the
 commits after it. Every group has to have reviewed the newest commit, so a fix
 the code group commits after the security group's run is unreviewed for the
@@ -82,9 +103,9 @@ The branch the review check judges is the one the command acts on, which isn't
 always the branch the agent is on. When the command names another pull request
 or branch, such as `gh pr merge 630`, the review check asks `gh` for that pull
 request's branch and reads that branch's state directory. It refuses when the
-lookup fails, for the same reason it refuses an unreadable record. If the command is the sign-off
-command, the review check refuses it every time, because the hook exists to
-stop the agent from signing off.
+lookup fails, for the same reason it refuses an unreadable record. The
+sign-off command is refused every time because the hook exists to stop the
+agent from signing off.
 
 Each check runs in its own `try` block, so an error in one doesn't skip the
 other. The worktree check allows a command when it can't decide, as it does
@@ -174,3 +195,8 @@ to check means changing one list in either graph.
 - 2026-10-22  proposed  — #622 clarify. Andre chose that every group has to
   review the newest commit, and that a command naming another pull request is
   judged against that pull request's branch.
+- 2026-10-23  proposed  — #622 plan review. The command list now matches the
+  plan: `gh pr new`, the `merge` endpoint, and a second kind refused every
+  time, which adds the create and GraphQL calls, `--auto`, another
+  repository, and a chained pull request command. Andre approved folding in
+  the second review's findings.

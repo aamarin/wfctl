@@ -81,11 +81,16 @@ doesn't name one of them, it gets 3 Claude reviewers. The other groups run in
 the order the list gives. Each reviewer id is the group's first letter plus a
 number, such as `s1`, `c1`, and `m1`.
 
-The `wfctl check config` command reports three problems:
+The `wfctl check config` command reports these problems:
 
 1. Two groups that start with the same letter.
-2. A reviewer whose model has no command.
-3. A count below 1.
+2. A group name that isn't lowercase letters, digits, and hyphens, starting
+   with a letter.
+3. A group whose `reviewers` list is empty, built-in or custom, and a custom
+   group with no `reviewers` key. A built-in group gets its default only when
+   the key is missing.
+4. A reviewer whose model has no command.
+5. A count below 1.
 
 ## Diagram
 
@@ -137,9 +142,10 @@ changes neither reader.
   reviewers for security or code by listing that group.
 - A repository with no `review` key gets today's panel plus the security group,
   with 3 Claude reviewers each, and the report doesn't mention other models.
-- If a listed model can't run, wfctl warns and the review continues.
-  `wfctl check config` reports the missing command, and the roster marks those
-  reviewers `✗` with one `⚠` line saying why.
+- If a listed model can't run, wfctl warns and the other reviewers carry on.
+  `wfctl check config` reports a missing command entry, and the roster marks
+  those reviewers `✗` with one `⚠` line saying why. A run in which no reviewer
+  can run stays incomplete, so a group never completes with no review at all.
 
 ## Verification
 
@@ -154,3 +160,7 @@ changes neither reader.
 
 - 2026-10-21  proposed  — #622 level 3, after Andre revised the shape three times
   in the brainstorm.
+- 2026-10-23  proposed  — #622 plan review. The `check config` list and the
+  unavailable-model consequence now match the spec: a bad group name, an empty
+  `reviewers` list on any group, and a run with no available reviewer staying
+  incomplete. Andre approved folding in the second review's findings.
