@@ -231,6 +231,19 @@ It lives in `wfctl.json` and not the tracker config because `.agents/` is
 gitignored and rewritten by `install-skills`: a policy written there works for one
 session and then vanishes with no error.
 
+`change_sections` sits beside `change_check` and lists the headings every PR
+body has to answer. `wfctl check-body` reports a listed section that is missing,
+empty, N/A, or only a yes or no with no reason:
+
+```json
+{ "change_check": ["assignees"], "change_sections": ["Needs a spec?"] }
+```
+
+wfctl names no section itself, so a repo that leaves the key out sees no change.
+It lives in `wfctl.json` for the same reason `change_check` does. `wfctl check
+config` validates it, including that every PR template in the repo carries each
+listed heading, since a template without one produces a PR that can never pass.
+
 **An in-place change to a tracker config travels by `--tracker <name>`.** A bare
 `install-skills` fills a missing tracker file and never refreshes a present one,
 deliberately — it cannot tell a stale copy from one the project edited, and the
@@ -388,9 +401,10 @@ Conventional-ish subjects (`fix(scope):`, `feat:`, `docs:`, `chore:`, `test:`),
 written as a statement of what changed and why, not a label. Bodies explain the
 reasoning that is not visible in the diff — why this shape, what was rejected.
 
-Not every change needs the spec pipeline. `design-levels` excludes "bug fixes,
-copy edits and other trivial changes that introduce no new state" — a change that
-draws no new boundary does not need one drawn for it.
+Not every change needs the spec pipeline. A change that draws no new boundary
+and adds no new state, such as most bug fixes and copy edits, skips it. Every
+change runs the design passes, either through the pipeline or through
+`.agents/skills/design-passes`.
 
 Every change commits a release note under `changes/`, whatever its size. See
 Releasing for the file name and the categories.

@@ -19,9 +19,13 @@ skill runs each level as its own pass with its own gate.
   your head is code.
 - The reader says "I need just a high-level description of this."
 
-Not for: bug fixes, copy edits and other trivial changes that introduce no new
-state, or work whose behavior and boundaries are already settled in an existing
-spec.
+Not for: a change that adds no new state or user-visible behavior and moves no
+boundary, whatever its kind. Most bug fixes and copy edits are like that. They
+skip the four levels here, not the design passes, and go to
+`.agents/skills/design-passes`. Nor for work whose behavior and boundaries are
+already settled in an existing spec. A change that `.agents/skills/design-passes`
+sent here was already answered "needs a spec", so it runs the four levels here
+even when it's a bug fix, and isn't sent back.
 
 ## The four levels
 
@@ -136,6 +140,12 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
+Before choosing a method, read the decisions in force with `wfctl arch context`,
+and the domain model under `domain/` in the folder `wfctl arch-root` prints. A
+change to what a modeled term means goes to `.agents/skills/model-the-domain`
+first. Without this step, a change can redraw a boundary the model already
+settled, and nobody notices.
+
 **The question is answered by running a method, not by reaching for an
 answer — and the capability it touches picks the method**, never how large the
 change is (`level-2-routes-by-what-is-contested`):
@@ -173,8 +183,9 @@ the stop is not a state to route around.
 
 Skip the method when an accepted record or an existing spec already settles the
 boundary, naming the one that does, or when the change moves no boundary at all.
-The test is whether a boundary moves, not how large the change is, and either
-method's own **Not for** list is the exit a trivial change takes.
+The test is whether a boundary moves, not how large the change is. A skipped
+method sends the change on to level 3 here, which is what its **Not for** line
+says too.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
