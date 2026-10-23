@@ -141,11 +141,15 @@ The risk is a small fix that makes a design decision nobody looked at, such as
 having the worktree guard read a new config file. If a reviewer catches it, the
 code may have to change, not only the paperwork.
 
-The review panel reduces that risk. Each reviewer reads only the diff and
-reports any new stored state, setting the code reads, command, or boundary that
-no record or spec on the change covers. So an agent other than the author judges
-whether a "No" holds, and the finding reaches the person in the panel's table
-before the PR opens. The panel still can't show that the question came first.
+The review panel reduces that risk, but doesn't close it. The panel runs before
+the PR description is written, so no reviewer sees the answer. Instead, each
+reviewer reads only the diff and reports any new stored state, setting the code
+reads, command, or boundary that no record or spec on the change covers. The
+author writes the answer after reading those findings, and still decides what
+to do with each one. In an attended run, the person sees the findings in the
+panel's table before the PR opens. In an unattended run nobody reads the table,
+so a finding the author dismisses stays in the reviewer's report and goes no
+further. The panel also can't show that the question came first.
 
 Right now, the short pipeline in #382 requires a committed `arch none` to choose
 the short track. This record drops that file from every fix, so #382's
