@@ -70,10 +70,19 @@ check. It looks for four commands:
 If a command matches none of them, it goes on to the worktree check with no
 file read and no git call.
 
-If a command matches one of the first three, the review check reads the
-branch's last reviewed commit from the state directory and asks git for the
-commits after it. If any commits are unreviewed and no sign-off covers them, it
-prints those commits to stderr and returns 2. If the command is the sign-off
+If a command matches one of the first three, the review check reads each
+group's last reviewed commit from the state directory and asks git for the
+commits after it. Every group has to have reviewed the newest commit, so a fix
+the code group commits after the security group's run is unreviewed for the
+security group. If any group has unreviewed commits and no sign-off covers
+them, the review check prints those commits to stderr, grouped by review group,
+and returns 2.
+
+The branch the review check judges is the one the command acts on, which isn't
+always the branch the agent is on. When the command names another pull request
+or branch, such as `gh pr merge 630`, the review check asks `gh` for that pull
+request's branch and reads that branch's state directory. It refuses when the
+lookup fails, for the same reason it refuses an unreadable record. If the command is the sign-off
 command, the review check refuses it every time, because the hook exists to
 stop the agent from signing off.
 
@@ -161,3 +170,6 @@ to check means changing one list in either graph.
 - 2026-10-21  proposed  — #622 level 3. Andre asked whether this added a hook on
   every prompt and cost tokens, and approved it once it ran inside the existing
   guard. He then approved refusing a pull request when the record can't be read.
+- 2026-10-22  proposed  — #622 clarify. Andre chose that every group has to
+  review the newest commit, and that a command naming another pull request is
+  judged against that pull request's branch.
