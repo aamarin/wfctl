@@ -163,3 +163,156 @@ def test_an_unclosed_fence_is_a_block_even_though_it_never_closes() -> None:
     body = "intro\n```\nA   ok. Then more.\nB   also. Also more.\nC   yes. Yes more.\n"
     assert _shape.body_findings(body)
     assert "line 2" in _shape.body_findings(body)[0]
+
+
+# --- check-body and the sections a repository lists -------------------------
+
+_SECTION = "Needs a spec?"
+_SECTION_COMMENT = "<!--\nDid this change need a full spec? Answer yes or no, then give the reason.\n-->"
+_CLEAN = "✓ {path}: the drawings look right"
+
+
+def _sections_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: dict | None
+) -> Path:
+    """A repository root declaring no definition of done, so the verification
+    finding stays silent and a run reports only what these tests are about.
+
+    `config` is written verbatim, or no `wfctl.json` at all when None. The
+    absent-key rows of `contracts/cli.md` need both.
+    """
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    if config is not None:
+        (repo / "wfctl.json").write_text(json.dumps(config))
+    monkeypatch.setenv("WFCTL_REPO_ROOT", str(repo))
+    return repo
+
+
+def _body_with(tmp_path: Path, section: str) -> Path:
+    body = tmp_path / "body.md"
+    body.write_text(f"# Pull Request\n\n## Summary\n\nsomething\n\n{section}\n")
+    return body
+
+
+def _check(path: Path) -> tuple[int, str]:
+    result = runner.invoke(app, ["check-body", str(path)])
+    return result.exit_code, result.output
+
+
+def test_an_answered_section_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sections_repo(tmp_path, monkeypatch, {"change_sections": [_SECTION]})
+    body = _body_with(
+        tmp_path, f"## {_SECTION}\n{_SECTION_COMMENT}\nNo. It moves no boundary.\n"
+    )
+    code, output = _check(body)
+    assert code == 0
+    assert _CLEAN.format(path=body) in output.replace("\n", "")
+
+
+@pytest.mark.parametrize(
+    ("section", "finding"),
+    [
+        (
+            "",
+            f'"{_SECTION}" is missing. This repository asks every pull request to answer it.',
+        ),
+        (
+            f"## {_SECTION}\n{_SECTION_COMMENT}\n",
+            f'"{_SECTION}" is empty. The template\'s comment under that heading says what to write.',
+        ),
+        (
+            f"## {_SECTION}\n{_SECTION_COMMENT}\nN/A\n",
+            f'"{_SECTION}" holds N/A. The template\'s comment under that heading says what to write.',
+        ),
+        (
+            f"## {_SECTION}\n{_SECTION_COMMENT}\nNo.\n",
+            f'"{_SECTION}" answers yes or no with no reason. '
+            "The template's comment under that heading says what to write.",
+        ),
+    ],
+    ids=["deleted", "comment-only", "n-a", "bare-no"],
+)
+def test_a_listed_section_with_no_answer_is_a_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, section: str, finding: str
+) -> None:
+    """One row per bad body in `contracts/cli.md`: each prints its own line and
+    exits 1, so an agent told only the line knows which of the four it did."""
+    _sections_repo(tmp_path, monkeypatch, {"change_sections": [_SECTION]})
+    code, output = _check(_body_with(tmp_path, section))
+    assert code == 1
+    assert f"⚠ {finding}" in " ".join(output.split())
+
+
+@pytest.mark.parametrize("config", [None, {}, {"change_sections": []}])
+@pytest.mark.parametrize(
+    "section",
+    [
+        "",
+        f"## {_SECTION}\n{_SECTION_COMMENT}\n",
+        f"## {_SECTION}\nN/A\n",
+        f"## {_SECTION}\nNo.\n",
+    ],
+    ids=["deleted", "comment-only", "n-a", "bare-no"],
+)
+def test_a_repository_listing_no_sections_sees_what_it_saw_before(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: dict | None,
+    section: str,
+) -> None:
+    """SC-003: opting in is the only way to get the new findings. With no key,
+    an empty list, or no `wfctl.json` at all, the four bodies that fail above
+    print today's clean line and exit 0."""
+    _sections_repo(tmp_path, monkeypatch, config)
+    body = _body_with(tmp_path, section)
+    code, output = _check(body)
+    assert code == 0
+    assert _CLEAN.format(path=body) in output.replace("\n", "")
+
+
+def test_a_malformed_key_is_reported_by_check_body_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A value that is not a list would otherwise turn the check off with no
+    output, in the command the author is running at that moment."""
+    _sections_repo(tmp_path, monkeypatch, {"change_sections": "x"})
+    code, output = _check(_body_with(tmp_path, f"## {_SECTION}\nNo.\n"))
+    assert code == 1
+    assert "wfctl.json: 'change_sections' must be a list of section headings" in " ".join(
+        output.split()
+    )
+
+
+def test_section_findings_sit_between_the_drawing_and_verification_findings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The order in `contracts/cli.md`, so a reader meets the drawing fault
+    first and the verification line, which every unverified branch shows, last."""
+    repo = _sections_repo(tmp_path, monkeypatch, {"change_sections": [_SECTION]})
+    (repo / "wfctl.json").write_text(
+        json.dumps({"change_sections": [_SECTION], "verify": ["true"]})
+    )
+    body = tmp_path / "body.md"
+    body.write_text(REJECTED)
+    code, output = _check(body)
+    flat = " ".join(output.split())
+    assert code == 1
+    assert flat.index("line ") < flat.index(f'"{_SECTION}" is missing') < flat.index(
+        "verification"
+    )
+
+
+def test_outside_a_repository_check_body_reads_no_sections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """There is no `wfctl.json` to read, the way `_verification_finding` already
+    returns nothing there."""
+    monkeypatch.delenv("WFCTL_REPO_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    body = _body_with(tmp_path, "")
+    code, output = _check(body)
+    assert code == 0
+    assert _SECTION not in output

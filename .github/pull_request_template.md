@@ -94,6 +94,14 @@ touched, ask whether a pre-existing issue tracked that exact task.
 ### Related
 - Related: #(issue number)
 
+## Needs a spec?
+<!--
+Did this change need a full spec? Answer yes or no, then give the reason in one
+sentence. For example: "No. It fixes an off-by-one in check-body and moves no
+boundary." A yes or no with no reason fails the check. N/A and None aren't
+answers here, since every change either needed a spec or didn't.
+-->
+
 ## What Changed?
 
 ### Changes Made
