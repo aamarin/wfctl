@@ -117,3 +117,31 @@
 - **PR-028, MINOR, open.** A command substitution inside an argument, such as `gh pr create --title "$(git push)"`, and GNU `env -C dir gh pr create` change the branch or head with no separator before the match. Neither is a recorded limit.
 - **PR-029, MINOR, open.** R4 strips an `owner:` prefix from `--head`, so a fork's head is judged against `origin`'s branch of the same name, which fails open. Grouped short flags such as `-sd` have no defined reading, which fails safe.
 - **PR-030, MINOR, open.** The `opening-a-change` skill's existing step 5 block runs `gh pr create` after two other commands, which FR-012b refuses, and the plan doesn't name that block for change.
+
+## Review 2026-10-23T18:33Z
+
+- Verdict: satisfied
+- Reviewed: plan.md ca6d84060873482a49de5254152d548c0cc1fb7b, spec.md f5315879639f558a409f67856d2cf95d54f2a935, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md 01b7e7cfed9b1b0c28d0a853435b0f4bfefec308, research.md fe60e1b99475be30815fdb1911b2a11aa554ac92, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md d28aefd9fd8d8180ad1829e84e64c795083d395d, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, plan-review.plan.md 3b3fd81b384d660ee538ccece2011bef3e487b29 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Resolved (PR-026 and PR-030 fixed) |
+| Architecture and boundaries | Clear |
+| Adversarial implementation and verification | Outstanding (PR-022; PR-026 and PR-027 fixed) |
+| Security and reliability | Outstanding (PR-031; PR-028 and PR-029 fixed) |
+
+### Findings
+
+- **PR-022, MINOR, open.** Narrowed again. `resolve_branch` and `resolve_agent_dir` now take the timeout. The plan counts five helpers, but `trunk_branch` passes the timeout to `_resolve_declared` and `_bare_head` too, and `_bare_head` calls `is_bare_layout`, which runs `git config --bool core.bare` with no timeout and which no artifact names. The call is reached only when `origin/HEAD` isn't set and no trunk is declared.
+- **PR-026, MAJOR, fixed.** Fixed by FR-025, R10 item 7, the plan's `reviewing-security` item 3, and `design.md`'s Key Assumptions. The note now tells the reviewer to write one report with a `Reviewed:` line and a verdict to the path wfctl printed, and says this outranks the vendored file's last line, its "don't write files" line, and its sub-task steps.
+- **PR-027, MINOR, fixed.** Fixed by R10 item 6. `_TEMPLATE_ROW` stays a string, a new `_NOTICED_ROWS` tuple is what `_listed()` drops, and the new notice reader joins `_declaration_sources`.
+- **PR-028, MINOR, fixed.** Fixed by FR-012b, R4, the guard record, and the guard contract. A command or process substitution in the matched command refuses. A substitution between `gh` and the verb, and `env -C`, are recorded limits.
+- **PR-029, MINOR, fixed.** Fixed by FR-012a, R4, and the guard contract. A `--head` owner other than this checkout's refuses, and grouped short flags are read letter by letter.
+- **PR-030, MINOR, fixed.** Fixed by the plan's `opening-a-change` item 1.5, which rewrites Step 5 so `wfctl check-body` and `gh pr create` run as separate commands with the body path written out.
+- **PR-031, MINOR, open.** New. A `GIT_DIR=` or `GIT_WORK_TREE=` prefix sends `gh pr create` or a bare `gh pr merge` to another checkout's branch, with no separator or substitution for the check to see. It has the same shape as the recorded `env -C` limit, and it is neither refused nor recorded, so SC-001's count doesn't exclude it.
