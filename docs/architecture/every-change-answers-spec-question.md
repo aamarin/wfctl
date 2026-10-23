@@ -67,9 +67,9 @@ The check confirms that the section has an answer and a reason, not that the
 reason is right. A bare yes or no fails, because it leaves no record of why the
 decision was made, and the reason is what lets a reviewer catch an answer that
 contradicts the diff. A reviewer who reads "no, the fix changes one check inside
-the worktree guard" can compare that with the diff and disagree with it. The review panel's disposition table is different. It was
-removed from `check-body` because it only claimed that a panel ran, and wfctl
-can't verify that from text.
+the worktree guard" can compare that with the diff and disagree with it. The
+review panel's disposition table is different. It was removed from `check-body`
+because it only claimed that a panel ran, and wfctl can't verify that from text.
 
 ## Boundary
 
@@ -135,6 +135,18 @@ they don't need an exemption.
 Andre hasn't decided where the spec line falls yet. Until he does, each answer
 gives its own reason, and the reviewer judges it.
 
+Nothing checks that the question was asked before any code. An agent that
+skipped it can still answer "No" when the PR opens, and `check-body` passes it.
+The risk is a small fix that makes a design decision nobody looked at, such as
+having the worktree guard read a new config file. If a reviewer catches it, the
+code may have to change, not only the paperwork.
+
+The review panel reduces that risk. Each reviewer reads only the diff and
+reports any new stored state, setting the code reads, command, or boundary that
+no record or spec on the change covers. So an agent other than the author judges
+whether a "No" holds, and the finding reaches the person in the panel's table
+before the PR opens. The panel still can't show that the question came first.
+
 Right now, the short pipeline in #382 requires a committed `arch none` to choose
 the short track. This record drops that file from every fix, so #382's
 requirement needs a second look. #635 covers where per-branch answers such as
@@ -150,3 +162,6 @@ requirement needs a second look. #635 covers where per-branch answers such as
 - 2026-10-23  proposed    — revised after plan review: the answer is recorded
   only in the PR. The early trailer was dropped because nothing read it and git
   ignores a misplaced one without warning
+- 2026-10-23  proposed    — revised in the plan walkthrough: a bare yes or no
+  fails the check, and the review panel reports a design decision the diff
+  makes that nothing on the change covers
