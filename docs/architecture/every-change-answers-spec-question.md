@@ -3,7 +3,7 @@ status: proposed
 diagram: component
 ---
 
-# Every change records whether it needs a spec, once before coding and once in the PR
+# Every change records in its PR whether it needs a spec
 
 ## Context
 
@@ -38,18 +38,16 @@ challenge it.
 
 ## Decision
 
-Every change records whether it needs a spec, as a yes or no and a one-sentence
-reason, in two places:
+Every change answers whether it needs a spec, as a yes or no and a one-sentence
+reason. The `design-passes` skill asks the question first, before any code, so
+the answer shapes the work instead of describing it afterwards.
 
-1. **Early, before any code.** The `design-passes` skill asks the question first,
-   and the answer goes in a `Needs-spec:` trailer on the branch's first commit.
-   `628-early-answer-in-commit-trailer` covers that choice.
-2. **Late, in the PR.** The PR template has a "Needs a spec?" section, and
-   `wfctl check-body` fails a PR body that leaves it empty or N/A.
-   `628-spec-answer-in-pr-body` covers how the check works.
+The answer is written down in one place, the PR. The PR template has a "Needs a
+spec?" section, and `wfctl check-body` fails a PR body that leaves it empty or
+N/A. `628-spec-answer-in-pr-body` covers how the check works.
 
-The early answer is where the decision gets made. The late answer catches a
-change that skipped the early step, so it's the one wfctl checks.
+The answer describes one change, not the system, so it lives with the change.
+The architecture folder only gains a record when the architecture changes.
 
 The boundary question gets its own answer. A change inside an existing boundary
 writes nothing for it. A change that redraws or edits a boundary may add an
@@ -71,10 +69,6 @@ disagree with it. The review panel's disposition table is different. It was
 removed from `check-body` because it only claimed that a panel ran, and wfctl
 can't verify that from text.
 
-wfctl doesn't check the early trailer. Adding a missing trailer means rewriting
-branch history, and the PR section already guarantees an answer before the PR
-is opened.
-
 ## Boundary
 
 ```mermaid
@@ -84,7 +78,6 @@ flowchart LR
         B["redraws or edits a boundary?"]
     end
     subgraph branch["the branch"]
-        T["Needs-spec: trailer<br>on the first commit"]
         R["architecture record,<br>only when a boundary moves"]
     end
     subgraph pr["the pull request"]
@@ -93,18 +86,15 @@ flowchart LR
     subgraph wfctl["wfctl check-body"]
         C["is the section answered?"]
     end
-    Q --> T
     Q --> S
     B --> R
     S -. "read before gh pr create" .-> C
-    T -- "the trailer was written" --x C
     B -- "inside a boundary, so nothing to write" --x C
 ```
 
-The dotted edge is a file wfctl reads before the PR is opened. Each crossed edge
-is something `check-body` doesn't read: the trailer, because the PR section is
-its backstop, and the boundary answer, because working inside a boundary leaves
-nothing to check.
+The dotted edge is a file wfctl reads before the PR is opened. The crossed edge
+is something `check-body` doesn't read: the boundary answer, because working
+inside a boundary leaves nothing to check.
 
 ## Considered
 
@@ -120,12 +110,17 @@ nothing to check.
   touches a boundary may need an architecture record but not a full spec.
   Andre hasn't decided where the spec line falls, and merging the questions
   would decide it for him.
-- **Only the early answer.** It records the decision where it's made. We didn't
-  choose it alone because skipping the early step leaves no answer, and
-  nothing catches that before the PR is opened.
-- **Only the late answer.** The check works the same way. We didn't choose it
-  alone because it's written after the code, so it records the decision instead
-  of shaping it.
+- **A second copy before any code, as a `Needs-spec:` trailer on the branch's
+  first commit.** The previous draft of this record did this
+  (`628-early-answer-in-commit-trailer`). We didn't choose it because nothing
+  reads the trailer, and git silently ignores one that isn't in the commit
+  message's last paragraph. What shapes the decision is the skill asking the
+  question before any code, and that happens whether or not the answer is
+  stored.
+- **A file in the feature's spec folder, written by a wfctl command.** wfctl
+  could check it, and the spec store keeps it after the worktree is removed. We
+  didn't choose it because the answer describes one change, and the PR already
+  keeps it where the reviewer reads it.
 - **A step in the `opening-a-change` skill.** Andre decided against it because
   it runs after the code is written.
 
@@ -140,8 +135,8 @@ gives its own reason, and the reviewer judges it.
 
 Right now, the short pipeline in #382 requires a committed `arch none` to choose
 the short track. This record drops that file from every fix, so #382's
-requirement needs a second look. One option is to let the `Needs-spec:` trailer
-pick the track.
+requirement needs a second look. #635 covers where per-branch answers such as
+`arch none` belong, and #382 depends on its answer.
 
 ## Log
 
@@ -150,3 +145,6 @@ pick the track.
 - 2026-10-22  proposed    — revised before review: Andre asked for the answer to
   be recorded twice, early and in the pull request, instead of an `arch none`
   file on every branch, and for the boundary and spec questions to stay apart
+- 2026-10-23  proposed    — revised after plan review: the answer is recorded
+  only in the PR. The early trailer was dropped because nothing read it and git
+  ignores a misplaced one without warning

@@ -74,8 +74,8 @@ implementation points to this skill instead:
    change skips Spec Kit, not the passes, and point to `design-passes`.
 3. The project instructions say the same and point to the same skill.
 
-The skill starts by asking whether the change needs a spec, and records the
-answer as a `Needs-spec:` trailer on the branch's first commit. If it does, the
+The skill starts by asking whether the change needs a spec, before any code is
+written. The answer goes in the PR's "Needs a spec?" section. If it does, the
 change goes through the Spec Kit pipeline. If not, it continues with the four
 passes.
 
@@ -153,8 +153,8 @@ so the review panel covers the refactor with the rest of the change.
 ## Verification
 
 - Run `uv run wfctl install-skills`, then run `design-passes` for real on a
-  throwaway branch with a one-line fix. The run should end with a `Needs-spec:`
-  trailer on the first commit, a failing test committed before the fix, no
+  throwaway branch with a one-line fix. The run should ask the spec question
+  before any code, and end with a failing test committed before the fix, no
   `arch none` file, and either a refactor commit or nothing to refactor.
 - The skills that currently send a small change straight to implementation
   point to `design-passes` instead. Grepping for "straight to implementation"
@@ -168,3 +168,5 @@ so the review panel covers the refactor with the rest of the change.
   is needed first, and writes no `arch none` for a change inside a boundary
 - 2026-10-22  proposed  — revised before review: level 2 reads the accepted
   records and the domain model before answering the boundary question
+- 2026-10-23  proposed  — revised after plan review: the skill asks the spec
+  question first and writes no trailer, so the PR section is the only record

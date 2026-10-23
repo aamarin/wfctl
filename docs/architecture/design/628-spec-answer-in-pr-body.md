@@ -82,7 +82,7 @@ editing wfctl and cutting a release. In the decision, it's a one-line edit to
 
 - **The direct baseline above.** It's the smallest change and needs no config.
   We didn't choose it because a body that deletes the heading passes, which
-  defeats the point of a backstop. It also hardcodes one repo's template
+  defeats the point of the check. It also hardcodes one repo's template
   wording into a tool every repo runs.
 - **Read the required sections from the template itself.** This keeps a single
   source of truth, since the template already has the heading. We didn't choose

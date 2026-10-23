@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: rejected
 ---
 
 # The early spec answer is a `Needs-spec:` trailer on the branch's first commit
@@ -116,3 +116,7 @@ history. That's why the check runs on the PR section, not the trailer.
 
 - 2026-10-22  proposed  — #628: Andre asked for the spec decision to be written
   down early, before any code, without adding a file
+- 2026-10-23  rejected  — the plan review found that git ignores the trailer
+  without warning when it isn't in the commit message's last paragraph, and
+  nothing reads it. The answer describes one change, so the PR section is its
+  only record (`every-change-answers-spec-question`)
