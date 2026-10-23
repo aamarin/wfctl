@@ -8,8 +8,8 @@ status: proposed
 
 Under `every-change-answers-spec-question`, every PR says whether the change
 needs a spec in a "Needs a spec?" section, and `wfctl check-body` fails a body
-that leaves the section empty or N/A. This record decides how `check-body`
-knows a repo requires that section.
+that leaves the section empty, writes N/A, or gives a yes or no with no reason.
+This record decides how `check-body` knows a repo requires that section.
 
 `check-body` ships to every repo that uses wfctl, but each repo owns its PR
 template. Most templates won't have this section. The check needs to fail a
@@ -47,7 +47,8 @@ heading is missing, it says nothing.
 
 A repo lists the sections every PR has to answer in `wfctl.json`, under a key
 next to `change_check`. `check-body` reports a finding when a listed section is
-missing from the body, has nothing but HTML comments, or only says N/A. wfctl
+missing from the body, has nothing but HTML comments, only says N/A, or only
+says yes or no with no reason. wfctl
 doesn't hardcode any section names. `wfctl check config` reports any listed
 section that's missing from the repo's template.
 
@@ -108,8 +109,8 @@ other work happened.
 ## Verification
 
 - A test runs `check-body` on a body whose listed section says "N/A", one where
-  the section holds only its HTML comment, and one with the heading deleted,
-  and checks that each reports a finding.
+  the section holds only its HTML comment, one with the heading deleted, and
+  one that says only "No.", and checks that each reports a finding.
 - A test runs it on the same bodies with nothing listed in `wfctl.json`, and
   checks that none of them reports a finding.
 - A test runs `wfctl check config` with a listed section that's missing from
@@ -122,3 +123,5 @@ other work happened.
 - 2026-10-22  proposed  — revised before review: this record first put a
   boundary check in `wfctl verify`, which Andre replaced with the pull request
   section
+- 2026-10-23  proposed  — revised before review: a bare yes or no now fails
+  the check, since it leaves no record of why the decision was made

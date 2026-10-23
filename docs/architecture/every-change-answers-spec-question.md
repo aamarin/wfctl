@@ -43,8 +43,9 @@ reason. The `design-passes` skill asks the question first, before any code, so
 the answer shapes the work instead of describing it afterwards.
 
 The answer is written down in one place, the PR. The PR template has a "Needs a
-spec?" section, and `wfctl check-body` fails a PR body that leaves it empty or
-N/A. `628-spec-answer-in-pr-body` covers how the check works.
+spec?" section, and `wfctl check-body` fails a PR body that leaves it empty,
+writes N/A, or gives a yes or no with no reason. `628-spec-answer-in-pr-body`
+covers how the check works.
 
 The answer describes one change, not the system, so it lives with the change.
 The architecture folder only gains a record when the architecture changes.
@@ -62,10 +63,11 @@ answer is there. We shouldn't take the agent's word that it answered, since it
 would be grading its own work. The section is visible in the PR body, so wfctl
 can check it without relying on anything the agent says.
 
-The check only confirms the section has an answer, not that the answer is
-right. That's enough here, since the reviewer judges the answer itself. A
-reviewer who reads "no, the fix changes one check inside the worktree guard" can
-disagree with it. The review panel's disposition table is different. It was
+The check confirms that the section has an answer and a reason, not that the
+reason is right. A bare yes or no fails, because it leaves no record of why the
+decision was made, and the reason is what lets a reviewer catch an answer that
+contradicts the diff. A reviewer who reads "no, the fix changes one check inside
+the worktree guard" can compare that with the diff and disagree with it. The review panel's disposition table is different. It was
 removed from `check-body` because it only claimed that a panel ran, and wfctl
 can't verify that from text.
 
