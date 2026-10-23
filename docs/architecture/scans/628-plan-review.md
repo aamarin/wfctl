@@ -71,3 +71,43 @@
 - **PR-006, MINOR, fixed.** Fixed by `design.md`, which now shows the current strings and key.
 - **PR-008, MINOR, fixed.** Fixed by the template comment in `contracts/cli.md`, which says N/A and None aren't answers, and accepts that `check-body` reports only N/A.
 - **PR-009, MINOR, fixed.** Fixed by the trailer's removal, so the yes path writes nothing early, and Key Entities matches.
+
+## Review 2026-10-23T20:54Z
+
+- Verdict: satisfied
+- Reviewed: plan.md d0740bdb4f336f0e3b6a0903bf03da1e8cd3d333, spec.md 45857b5e8860f32b30c89f06ca35601ac9ca3bba, .specify/memory/constitution.md absent, design.md d41fe5c87e60026e8f2db51caa0d1dcf3db43e18, docs/architecture/design/628-design-passes-own-skill.md fa8c79b243f230b7ab9bfc0f0bbd03804a6b71ce, docs/architecture/design/628-early-answer-in-commit-trailer.md 068548995e0554924008460ed2153ac702637f5f, docs/architecture/design/628-spec-answer-in-pr-body.md 010bc12a6c3450f2c3df65ad6054e5ad55ce68ae, docs/architecture/every-change-answers-spec-question.md b6eaf518b57c98aa47b0a796786528937379d931, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/required-sections-are-wfctls.md d9e545e997c1a990b66e1790e9698b8e4297ca48, docs/architecture/scans/628-clarify.md 15d82f295d378b3555e00371d1f9fd0639f28a8d, research.md 231a518874733dcd61700c672a68367b59df6374, data-model.md 601f44991139d0bb70b6f06e0b00aa0938a7f7b1, quickstart.md 48b694f6a7f77ae4b863073ee2ffe8cfb86ed241, contracts/cli.md 91236b8f9bab39707a4ac485469a05389c7c2ef6, contracts/skills.md 3d5fcb7369e5986761ed822d797127e352c09f2d, checklists/requirements.md ecaadae4e34c4b62523600d25eca79e912b3bc96, plan-review.plan.md ca8c5cb89695e720737e3e2bef5df2f8507696b3 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 17 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/628-design-passes-every-change/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-020, PR-021, PR-026) |
+| Requirements and traceability | Outstanding (PR-010, PR-015, PR-016, PR-021, PR-023, PR-025, PR-026) |
+| Architecture and boundaries | Outstanding (PR-005, PR-011, PR-012, PR-018, PR-022, PR-023, PR-026; PR-013 and PR-014 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-007, PR-017, PR-019, PR-020, PR-024, PR-025) |
+| Security and reliability | Deferred (no trust boundary is touched: the feature reads local files and writes none, and the panel bullet is instruction text) |
+
+### Findings
+
+- **PR-013, MAJOR, fixed.** Fixed by the `design-levels/SKILL.md:22-24` row in `contracts/skills.md`, which keys the line on new state, behavior, or a moved boundary and keeps a change `design-passes` answered yes for (spec FR-004, User Story 1 scenario 7).
+- **PR-014, MAJOR, fixed.** Fixed by the `architecture-decisions/SKILL.md:29-31` row in `contracts/skills.md`, which keys its "Not for" line on boundary movement.
+- **PR-005, MINOR, open.** The test-first gate line gives a reason `a-rule-is-expressed-as-a-check` doesn't recognise. Stands because the plan text is unchanged.
+- **PR-007, MINOR, open.** R4 and R5 don't fix whether sections are found before or after HTML comments are stripped. Stands because neither says.
+- **PR-010, MINOR, open.** The spec and the contract name the domain model's folder differently, and neither says what level 2 does without one. Stands because both are unchanged.
+- **PR-011, MINOR, open.** The `check_body_cmd` docstring and `opening-a-change` Step 5 still say `check-body` checks only drawings. Stands because the plan updates neither.
+- **PR-012, MINOR, open.** "Required sections" now names two different lists, and the plan doesn't cite `required-sections-are-wfctls` to tell them apart. Stands because nothing was added.
+- **PR-015, MINOR, open.** `628-design-passes-own-skill.md` still describes the old grep as the verification. Stands because the record wasn't edited.
+- **PR-016, MINOR, open.** The `worktree-handoff` row leaves two sentences in the route item that contradict the new route. Stands because the row is unchanged.
+- **PR-017, MINOR, open.** The quickstart's mutation deletes one of two occurrences of the path, so the section test can't fail. Stands because §3 is unchanged.
+- **PR-018, MINOR, open.** The routing section's lists of callers are incomplete. Stands because it omits `architecture-design` to `model-the-domain` and `model-the-domain` to `architecture-decisions`.
+- **PR-019, MINOR, open.** The `design-levels` sentence that keeps a "yes" change relies on the conversation remembering who sent it. Stands because nothing records it, so a restart costs one extra hop.
+- **PR-020, MINOR, open.** The fifth dispatch bullet, used verbatim, fails `test_the_dispatch_list_requires_the_coverage_the_clean_row_reproduces`, and the Scale line still says four skills. Stands because the bold phrase wraps onto a second line, and the reviewer confirmed the count of 4 against "five" on a scratch copy.
+- **PR-021, MINOR, open.** `design.md` and research R1's message list predate the no-reason message and the panel bullet. Stands because only the committed record was updated.
+- **PR-022, MINOR, open.** The #622 constraint protects only `opening-a-change`, and the plan now edits `fanning-out-code-review`, which #622 is also redesigning. Stands because the plan doesn't address the overlap.
+- **PR-023, MINOR, open.** The no-reason rule applies to every listed section, where a bare "No." can be a complete answer, such as "Breaking changes?". Stands because a repo can't opt a section out.
+- **PR-024, MINOR, open.** Emphasis isn't stripped before matching, so "**No.**" and "**N/A**" pass. Stands because R5's patterns match the bare text only.
+- **PR-025, MINOR, open.** The spec and the record say an agent other than the author judges a "No", but no reviewer sees the answer, the author disposes of the finding, and in an unattended run nobody reads the table. Stands because the wording overstates what the panel does.
+- **PR-026, MINOR, open.** The contract keeps the `AGENTS.md:391` paragraph "the same", and that paragraph quotes the kind-keyed `design-levels` exclusion the plan rewrites. Stands because the row is unchanged.
