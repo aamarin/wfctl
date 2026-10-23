@@ -145,3 +145,35 @@
 - **PR-029, MINOR, fixed.** Fixed by FR-012a, R4, and the guard contract. A `--head` owner other than this checkout's refuses, and grouped short flags are read letter by letter.
 - **PR-030, MINOR, fixed.** Fixed by the plan's `opening-a-change` item 1.5, which rewrites Step 5 so `wfctl check-body` and `gh pr create` run as separate commands with the body path written out.
 - **PR-031, MINOR, open.** New. A `GIT_DIR=` or `GIT_WORK_TREE=` prefix sends `gh pr create` or a bare `gh pr merge` to another checkout's branch, with no separator or substitution for the check to see. It has the same shape as the recorded `env -C` limit, and it is neither refused nor recorded, so SC-001's count doesn't exclude it.
+
+## Review 2026-10-23T20:54Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 0a23bdd355a41a8056ec6be0233202a4ca6842fd, spec.md 43f16ed10283b97444b8ef0b6d3ecc73403a3bdf, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md 6548fd74c0c016edbe86b140349a170627777424, research.md 9fc3d1ec5e0c86a4ef978de51c71382975114974, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md 790544cf51f7df64af04ab00790e4d1f9f96d86d, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, wfctl/_guard.py 2b6f0d39f1c0af749d32b0fbd409448fdf5e06f3, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/receiving-code-review/SKILL.md d9dc70c6c98e60b96b9fb591e2079920bd2eec99, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, plan-review.plan.md ca6d84060873482a49de5254152d548c0cc1fb7b (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 2 · MINOR 7 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-034, PR-039, PR-040) |
+| Requirements and traceability | Outstanding (PR-033, PR-040) |
+| Architecture and boundaries | Outstanding (PR-032, PR-038) |
+| Adversarial implementation and verification | Outstanding (PR-032, PR-033, PR-036; PR-022 fixed) |
+| Security and reliability | Outstanding (PR-034, PR-035, PR-037, PR-038; PR-031 fixed) |
+
+### Findings
+
+- **PR-022, MINOR, fixed.** Fixed by R4 item 1, Scale/Scope, and Project Structure. The plan now names all eight `_paths` helpers that take the timeout, `is_bare_layout` included.
+- **PR-031, MINOR, fixed.** Fixed by FR-012b, R4, the guard contract, and guard record item 6. Any `NAME=value` word or `env` before a matched command now refuses, whatever the variable.
+- **PR-032, MAJOR, open.** No artifact says whether the review check reads the branch from the payload's `cwd` or from its own process directory, and `_hook.py` reads the payload's on purpose because the two can differ. If the check reads its own, a session in the `main` checkout can `cd` into another worktree by a relative path and run `gh pr create --fill` unjudged. Quickstart sets `cwd` to `$PWD`, so no planned test would catch it.
+- **PR-033, MAJOR, open.** The FR-012b rule on `gh` command words has no R6 pattern that triggers it, so the contract's own examples, such as `gh "$X" merge 630`, match nothing and pass. Running the rule on every `gh` in the text instead would refuse ordinary commands like `rg 'gh (pr|api)'`, which FR-016 argues against.
+- **PR-034, MINOR, open.** R4 puts the `-R` value under the letters, digits, and hyphens rule, but every `-R` value holds a `/`, and repository names can hold `.` and `_`. Under the likely intended reading, the verb after `-R` is never checked, so `gh pr -R <this repo> 'merge' 630` merges unjudged.
+- **PR-035, MINOR, open.** A GraphQL mutation read through a substitution, such as `gh api graphql -f query="$(cat m.graphql)"`, matches no pattern. Pattern 7 covers only `query=@file` and `--input`, and this case is neither refused nor recorded as a limit.
+- **PR-036, MINOR, open.** The new rules refuse legitimate `gh api` calls. A `-f merge_method=merge` written before the path reads as an environment prefix, `gh`'s `:owner/:repo` placeholder compares as another repository, and pattern 6 refuses every variable-path write, including review-comment replies.
+- **PR-037, MINOR, open.** Wrappers such as `uv run --directory ../630-x gh pr create --fill` and `direnv exec ../630-x gh …` change the directory `gh` runs in without a separator, prefix, or `env`. This is the same shape the walkthrough turned from a limit into a refusal.
+- **PR-038, MINOR, open.** The trunk-checkout rule rests on the branch name, and a worktree can switch to the trunk branch, so Ownership item 6 reads as enforced when it is a convention. Separately, R4 doesn't repeat R3's `origin/` strip, so a plain comparison against `trunk_branch` never matches.
+- **PR-039, MINOR, open.** The artifacts don't say which refusals carry FR-015's "person's own terminal" sentence. Contract row 150's timeout message lacks it while the error-refusal block's timeout example has it, and `opening-a-change` item 1.6 tells an error refusal apart by this text.
+- **PR-040, MINOR, open.** Two spec passages describe the earlier behavior. User Story 3 says the agent can't loop forever on fixes, which nothing enforces until #626, and a Validation Strategy line judges another branch's PR from anywhere, while FR-012a allows it only from the trunk checkout.
