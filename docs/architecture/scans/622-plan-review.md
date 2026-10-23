@@ -177,3 +177,38 @@
 - **PR-038, MINOR, open.** The trunk-checkout rule rests on the branch name, and a worktree can switch to the trunk branch, so Ownership item 6 reads as enforced when it is a convention. Separately, R4 doesn't repeat R3's `origin/` strip, so a plain comparison against `trunk_branch` never matches.
 - **PR-039, MINOR, open.** The artifacts don't say which refusals carry FR-015's "person's own terminal" sentence. Contract row 150's timeout message lacks it while the error-refusal block's timeout example has it, and `opening-a-change` item 1.6 tells an error refusal apart by this text.
 - **PR-040, MINOR, open.** Two spec passages describe the earlier behavior. User Story 3 says the agent can't loop forever on fixes, which nothing enforces until #626, and a Validation Strategy line judges another branch's PR from anywhere, while FR-012a allows it only from the trunk checkout.
+
+## Review 2026-10-23T22:17Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 6e775fb68e10014feeff35942930d4040217aadc, spec.md 3cfff7e768c02fe1b9d36b1f6e34feec9566b2f2, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md f6d03db7433c10ee6d1f9674f1d3dee9efbff3d3, research.md 45ded1ddc1a4a06b653ca8df10f269e250af8809, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md 4228c65782d6ebe69d7d383ee8c5ea6568e90321, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, wfctl/_guard.py 2b6f0d39f1c0af749d32b0fbd409448fdf5e06f3, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/receiving-code-review/SKILL.md d9dc70c6c98e60b96b9fb591e2079920bd2eec99, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, .github/scripts/release.py 5573934e6746db3dd261a7c143d91730b22decf1, plan-review.plan.md 0a23bdd355a41a8056ec6be0233202a4ca6842fd (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 10 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-039, PR-040, PR-045; PR-034 fixed) |
+| Requirements and traceability | Outstanding (PR-040, PR-044; PR-033 fixed) |
+| Architecture and boundaries | Outstanding (PR-038, PR-045; PR-032 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-036, PR-041, PR-043; PR-032 and PR-033 fixed) |
+| Security and reliability | Outstanding (PR-035, PR-037, PR-038, PR-041, PR-042, PR-044; PR-034 fixed) |
+
+### Findings
+
+- **PR-032, MAJOR, fixed.** Fixed by `research.md` R4 (Where the check reads from), FR-012c, plan Ownership item 8, two contract rows, and the guard record. The check reads the payload's `cwd`, finds the root with `git -C <cwd> rev-parse --show-toplevel`, and refuses a matched command when `cwd` is missing or outside a repository.
+- **PR-033, MAJOR, fixed.** Fixed by R6 pattern 8, FR-012b, and FR-016. The command-word rule now has its own trigger and refuses every time, and every refused and passing example in the contract behaves as its row says.
+- **PR-034, MINOR, fixed.** Fixed by R4, which says the `-R` value isn't a command word. Pattern 8 now checks the verb after it, so `gh pr -R <repo> 'merge' 630` refuses.
+- **PR-041, MAJOR, open.** New. `gh -R <repo> pr merge 630` and `gh pr -R<repo> merge 630` merge a pull request with no pattern matching, since pattern 1 needs `gh\s+pr` and a space or `=` after `-R`. `gh -R cli/cli pr merge --help` prints the `gh pr merge` help, which confirms `gh` parses `-R` before `pr`.
+- **PR-035, MINOR, open.** A GraphQL mutation read through a substitution, such as `gh api graphql -f query="$(cat m.graphql)"`, still matches no pattern.
+- **PR-036, MINOR, open.** Three legitimate calls still refuse: a `-f merge_method=merge` before the path, the `:owner/:repo` placeholder, and pattern 6 over unrelated writes such as review-comment replies.
+- **PR-037, MINOR, open.** `uv run --directory ../630-x gh pr create` and `direnv exec ../630-x gh …` are neither refused nor recorded. The `cwd` rule doesn't reach them, since the session's directory hasn't moved.
+- **PR-038, MINOR, open.** The trunk-checkout rule keys on a branch name, so Ownership item 6 reads as enforced when it is a convention. R4 still doesn't say it compares against `main` rather than `origin/main`.
+- **PR-039, MINOR, open.** A timed-out lookup still has two different messages in the contract, and the unreadable-record and no-trunk rows don't point at the error refusal block.
+- **PR-040, MINOR, open.** User Story 3 still says the agent can't loop forever on fixes, and the Validation Strategy line on another branch's PR doesn't name the trunk checkout.
+- **PR-042, MINOR, open.** New. A quoted or variable `gh`, such as `"gh" pr merge 630` or `$GH pr merge 630`, matches no pattern, since patterns 1 and 8 both start at `\bgh\s+`.
+- **PR-043, MINOR, open.** New. Pattern 8 refuses more ordinary commands than R6 says, such as `grep "gh pr create\|gh pr merge"`, `rg 'gh pr.*merge'`, and a commit message that quotes `gh "$X" merge 630`. R6 names only the glob cost and no workaround.
+- **PR-044, MINOR, open.** New. A `gh` call made inside a script, such as `.github/scripts/release.py`'s `gh pr create`, is neither refused nor recorded in the spec's Edge Cases, and the artifacts don't say whether the release PR skips the review groups.
+- **PR-045, MINOR, open.** New. R4 keeps `resolve_branch` honoring `WFCTL_BRANCH`, which names the branch without reading `cwd`, while FR-012c says the branch comes from `cwd`.
