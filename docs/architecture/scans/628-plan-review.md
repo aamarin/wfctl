@@ -32,3 +32,42 @@
 - **PR-010, MINOR, open.** The spec's US4 test names `docs/architecture/domain/`, the contract names `<arch-root>/domain/`, and neither covers a repo with no domain model. Stands because the two paths still disagree.
 - **PR-011, MINOR, open.** The `check_body_cmd` docstring and `opening-a-change` Step 5 both say `check-body` checks one thing. Stands because the plan schedules neither edit.
 - **PR-012, MINOR, open.** "Required sections" is wfctl-owned in `required-sections-are-wfctls` and repo-owned here. Stands because the plan doesn't cite that record or say why the owner differs.
+
+## Review 2026-10-23T18:45Z
+
+- Verdict: satisfied
+- Reviewed: plan.md ca8c5cb89695e720737e3e2bef5df2f8507696b3, spec.md 22dcd56e2f46e2e70ccc1f6717ae05ee7cf0c620, .specify/memory/constitution.md absent, design.md d41fe5c87e60026e8f2db51caa0d1dcf3db43e18, docs/architecture/design/628-design-passes-own-skill.md fa8c79b243f230b7ab9bfc0f0bbd03804a6b71ce, docs/architecture/design/628-early-answer-in-commit-trailer.md 068548995e0554924008460ed2153ac702637f5f, docs/architecture/design/628-spec-answer-in-pr-body.md a1c9322052627ddbb05a9340946ef5531e94d7b0, docs/architecture/every-change-answers-spec-question.md f00e30683ff076ab93cf49425e23a9ef3c000dd4, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/required-sections-are-wfctls.md d9e545e997c1a990b66e1790e9698b8e4297ca48, docs/architecture/scans/628-clarify.md 15d82f295d378b3555e00371d1f9fd0639f28a8d, research.md f2f8c277931c2d2d041d83e345f734e49f71ebba, data-model.md 3793d677e770ef5aed343b1121544c305af3a6eb, quickstart.md 03b7e874d36f957bfc64b2651e5e592055e53bc8, contracts/cli.md f5c9a922db0f8007d0be3967edf88e6c9b7007dc, contracts/skills.md 0fd792d1050e5430f8563adc5953113485b7a91e, checklists/requirements.md ecaadae4e34c4b62523600d25eca79e912b3bc96, plan-review.plan.md 9120efc407a0bb72ed24472d1d883d461d080f9a (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 2 · MINOR 9 · Fixed since the earlier review: 7
+- Detail: /Users/andremarin/Development/wfctl-specs/628-design-passes-every-change/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-007, PR-010, PR-015) |
+| Requirements and traceability | Outstanding (PR-010, PR-015, PR-016) |
+| Architecture and boundaries | Outstanding (PR-005, PR-011, PR-012, PR-014, PR-016, PR-018) |
+| Adversarial implementation and verification | Outstanding (PR-007, PR-013, PR-014, PR-017) |
+| Security and reliability | Deferred (the feature reads local files and writes none, and adds no authorization, secret, destructive operation, concurrent state, migration, or history operation) |
+
+### Findings
+
+- **PR-013, MAJOR, open.** The `design-levels` "Not for" line still excludes changes by kind, and the contract adds a pointer to `design-passes` to it. A bug fix that reaches brainstorm, whether a handoff routed it there or `design-passes` answered yes, is sent back to `design-passes`. Stands because the contract keys that line on kind, not on whether the change needs a spec.
+- **PR-014, MAJOR, open.** `architecture-decisions` still says "Not for: bug fixes", and `architecture-design` hands every proposed boundary to it. Stands because the plan rekeys `model-the-domain` for this reason and misses the same dead end one hop further on.
+- **PR-005, MINOR, open.** Downgraded from MAJOR, since the trailer half no longer applies. The Constitution Check still says test-first "leaves nothing a check can trust", and the commit order is visible in history. Stands because the gate line doesn't give the real reason, that a check would have to judge whether a test applies.
+- **PR-007, MINOR, open.** The plan still doesn't say whether HTML comments are stripped before or after headings are found. Stands because no artifact changed it.
+- **PR-010, MINOR, open.** The spec names `docs/architecture/domain/`, the contract names `<arch-root>/domain/`, and neither covers a repo with no domain model. Stands because no artifact changed it.
+- **PR-011, MINOR, open.** The `check_body_cmd` docstring update isn't scheduled, and no follow-up for #622 names `opening-a-change` Step 5. Stands because no artifact changed it.
+- **PR-012, MINOR, open.** "Required sections" has two owners, and the plan doesn't cite `required-sections-are-wfctls`. Stands because no artifact changed it.
+- **PR-015, MINOR, open.** `628-design-passes-own-skill.md` still names the grep in its verification and says no test catches a place that stops pointing, while `design.md` names the section test. Stands because the record wasn't updated with `design.md`.
+- **PR-016, MINOR, open.** The contract rewrites only the opening and end of `worktree-handoff` item 3, leaving "design-levels owns where the line falls" and "draws a boundary … goes through the pipeline", which contradict the new route. Stands because the middle of the item isn't in the contract.
+- **PR-017, MINOR, open.** The new `architecture-design` paragraph names `design-passes` twice, so the quickstart step that deletes one mention leaves the section test passing. Stands because the mutation step doesn't say which mention, or to delete both.
+- **PR-018, MINOR, open.** `architecture-design` is also reached from `model-the-domain`, which has no level 3, so the contract's "called from two places" is incomplete. Stands because the contract names only two callers.
+- **PR-001, MAJOR, fixed.** Fixed by `contracts/skills.md §Routing between the skills`, which keys the `architecture-design` and `model-the-domain` "Not for" lines on whether a boundary moves, and sends a skipped change to level 3 of the caller.
+- **PR-002, MAJOR, fixed.** Fixed by `contracts/cli.md §The template comment the messages point at`, which gives the comment's text, and `quickstart.md §4`, which observes SC-005 with an agent.
+- **PR-003, MAJOR, fixed.** Fixed by `plan.md §The cross-reference tests`, which reads four sections between markers, fails on a missing marker, and bans the old phrase case- and wrap-insensitively.
+- **PR-004, MAJOR, fixed.** Fixed by `spec.md §FR-005`, which drops the trailer and records the answer only in the PR section.
+- **PR-006, MINOR, fixed.** Fixed by `design.md`, which now shows the current strings and key.
+- **PR-008, MINOR, fixed.** Fixed by the template comment in `contracts/cli.md`, which says N/A and None aren't answers, and accepts that `check-body` reports only N/A.
+- **PR-009, MINOR, fixed.** Fixed by the trailer's removal, so the yes path writes nothing early, and Key Entities matches.
