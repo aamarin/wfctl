@@ -89,8 +89,9 @@ stop the agent from signing off.
 Each check runs in its own `try` block, so an error in one doesn't skip the
 other. The worktree check allows a command when it can't decide, as it does
 today. The review check refuses a pull request when it can't read the record,
-because those commands run only a few times per branch, and a wrong refusal
-costs one retry. A branch with no review history isn't this case. No review has
+or when any other error stops it once a command has matched, such as a failed
+`git` call or a `gh` lookup that times out. We chose this because those
+commands run only a few times per branch, and a wrong refusal costs one retry. A branch with no review history isn't this case. No review has
 run on it, so the branch is unreviewed, and the review check refuses it for that
 reason. The record is unreadable only when a file was half-written, which is
 rare enough that the choice costs almost nothing.
