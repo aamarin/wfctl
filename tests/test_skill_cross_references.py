@@ -987,3 +987,66 @@ def test_no_shipped_digest_is_truncated_by_the_hook_that_reads_it() -> None:
         if _digest_text(d.parent, _AGENTS).endswith("…")
     }
     assert not over, f"truncated at {_DIGEST_MAX_CHARS} chars: {over}"
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _section(path: Path, start: str, end: str | None) -> str:
+    """The text from `start` to the first `end` after it, or to the next blank
+    line when `end` is None.
+
+    A missing marker fails the test rather than returning an empty string, so
+    renaming a section cannot make the pointer test pass by finding nothing.
+    """
+    text = path.read_text()
+    assert start in text, f"{path.name} no longer contains {start!r}"
+    rest = text[text.index(start):]
+    stop = rest.find(end, len(start)) if end else rest.find("\n\n")
+    return rest if stop == -1 else rest[:stop]
+
+
+@pytest.mark.parametrize(
+    ("path", "start", "end"),
+    [
+        (_AGENTS / "skills/design-levels/SKILL.md", "Not for:", None),
+        (_AGENTS / "skills/architecture-design/SKILL.md", "**Not for**:", None),
+        (
+            _AGENTS / "skills/worktree-handoff/SKILL.md",
+            "3. **Which route this work takes.**",
+            "4. **",
+        ),
+        (_REPO_ROOT / "AGENTS.md", "Not every change needs the spec pipeline.", None),
+    ],
+    ids=["design-levels", "architecture-design", "worktree-handoff", "AGENTS.md"],
+)
+def test_every_route_around_spec_kit_names_design_passes(
+    path: Path, start: str, end: str | None
+) -> None:
+    """Each place that used to send a small change straight to implementation
+    now sends it to `design-passes`, and nothing else notices when a later edit
+    drops the pointer: the phrase it replaced is gone, so a search for the old
+    wording finds nothing either way. Reading each section for the path is the
+    only check that fails when the pointer goes.
+    """
+    section = _section(path, start, end)
+    assert ".agents/skills/design-passes" in section, (
+        f"{path.name} no longer sends a change that skips Spec Kit to design-passes"
+    )
+
+
+def test_no_shipped_file_sends_a_change_straight_to_implementation() -> None:
+    """The old route had no design step, and every file that said so has to be
+    reworded or the agent finds a second route that still has none.
+
+    Whitespace is collapsed because `architecture-design` wraps the phrase across
+    two lines, and the text is lowercased because `worktree-handoff` capitalizes
+    it at the start of a sentence.
+    """
+    sources = [*sorted(_AGENTS.rglob("*.md")), _REPO_ROOT / "AGENTS.md"]
+    offenders = [
+        str(md.relative_to(_REPO_ROOT))
+        for md in sources
+        if "straight to implementation" in " ".join(md.read_text().lower().split())
+    ]
+    assert not offenders, f"still send a change straight to implementation: {offenders}"
