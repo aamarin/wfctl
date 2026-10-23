@@ -78,15 +78,31 @@ branch it acts on, or because the agent shouldn't run it at all:
    tells the agent to use `gh pr create` or `gh pr merge` instead.
 3. `gh pr merge --auto`, since GitHub would later merge a head the check
    never judged.
-4. A command that names another repository, through `-R`, a `GH_REPO=`
-   prefix, a `repos/<owner>/<repo>/` path, or an `owner:` prefix on `--head`
-   naming another owner, since that repository's reviews aren't kept here.
+4. A command that names another repository, through `-R`, a
+   `repos/<owner>/<repo>/` path, or an `owner:` prefix on `--head` naming
+   another owner, since that repository's reviews aren't kept here.
 5. A pull request command that follows another command in the same text, such
    as `git push && gh pr create`, or that holds a command substitution. The
    check reads the branch and its newest commit before any of the text runs,
    so an earlier commit, push, or `cd`, or one inside a substitution, would
    change what the pull request command acts on after the check judged it.
-6. The sign-off command.
+6. A pull request command with an environment prefix, such as `GIT_DIR=` or
+   `GH_REPO=`, or run through `env`. The check's own `git` and `gh` calls
+   don't see the prefix, so it would judge this branch while `gh` acts on
+   another branch or repository.
+7. A command the check can't read for sure: a `gh` command word that isn't
+   written out plainly, such as `gh pr $(…) create`, a `gh api` call that
+   writes through a variable path, and a GraphQL query read from a file.
+8. A command that acts on another branch's pull request, unless it runs in the
+   checkout on the trunk branch. A worktree opens and merges only its own
+   branch's pull request, and the person orchestrates from the trunk checkout.
+9. The sign-off command.
+
+The rule behind items 5 to 7 is that the check refuses a command whose text
+shows it can't be sure what the command acts on. A gap is recorded as a known
+limit instead only when the command looks ordinary and what changes it lives
+outside the text, such as a `gh` alias or GitHub's auto-merge when checks are
+pending.
 
 If a command matches none of them, it goes on to the worktree check with no
 file read and no git call.
@@ -102,7 +118,8 @@ and returns 2.
 The branch the review check judges is the one the command acts on, which isn't
 always the branch the agent is on. When the command names another pull request
 or branch, such as `gh pr merge 630`, the review check asks `gh` for that pull
-request's branch and reads that branch's state directory. It refuses when the
+request's branch. In the checkout on the trunk branch, it reads that branch's
+state directory. Anywhere else, it refuses (item 8 above). It refuses when the
 lookup fails, for the same reason it refuses an unreadable record. The
 sign-off command is refused every time because the hook exists to stop the
 agent from signing off.
@@ -112,7 +129,10 @@ other. The worktree check allows a command when it can't decide, as it does
 today. The review check refuses a pull request when it can't read the record,
 or when any other error stops it once a command has matched, such as a failed
 `git` call or a `gh` lookup that times out. We chose this because those
-commands run only a few times per branch, and a wrong refusal costs one retry. A branch with no review history isn't this case. No review has
+commands run only a few times per branch, and a wrong refusal costs one retry.
+A sign-off doesn't get past an error, since the error stops the check either
+way. So the refusal names the error and says that a person can run the same
+command in their own terminal, where the hook doesn't run. A branch with no review history isn't this case. No review has
 run on it, so the branch is unreviewed, and the review check refuses it for that
 reason. The record is unreadable only when a file was half-written, which is
 rare enough that the choice costs almost nothing.
@@ -204,3 +224,8 @@ to check means changing one list in either graph.
   request command, and a `--head` owner other than this checkout's, join the
   second kind. Andre approved fixing the third review's findings without a
   fourth review.
+- 2026-10-23  proposed  — #622 plan walkthrough. An environment prefix, a
+  command the check can't read for sure, and another branch's pull request
+  outside the trunk checkout join the second kind. The error refusal names the
+  person's own terminal as the way past a broken check. Andre set the rule
+  that a command the check can't read is refused rather than recorded.
