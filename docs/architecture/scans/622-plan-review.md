@@ -35,3 +35,49 @@
 - **PR-013, MINOR, open.** FR-003, the security group committing its fixes before the code group reviews, and FR-004, one findings table in chat, have no place in the plan. The plan names the skills it rewrites but not what they say.
 - **PR-014, MINOR, open.** The upstream `security-and-hardening` skill points at `../../references/security-checklist.md`, a path outside its own folder, and R10 doesn't vendor that file.
 - **PR-015, MINOR, open.** When reviewed commits aren't pushed yet, the pushed head is behind the last reviewed commit, and R3's ancestor rule then lists every commit on the branch as unreviewed. The check still refuses, which is safe, but the list it prints is wrong.
+
+## Review 2026-10-23T15:26Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 6eca84d0a6c550d50d9e9eee89f42dbd0c614f0e, spec.md 131acea9c1e2c1cd8a68809f1f0a52e654e73eca, .specify/memory/constitution.md absent, design.md d4cae71c606e64ecb6216d18d5afdfc85b4641a4, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 0b649f0a435241ffd1007d8b4b7a845cebde164b, docs/architecture/design/622-blocked-reviewer-relays-report.md 29357caf33b2837de6f39a779afa8ec1ff034455, docs/architecture/design/622-review-check-in-worktree-guard.md b927b04c49a1880495b4a1ec8143e403e9811e58, research.md 9bc39239550e7b749950154cd566eeeeea1a07f4, data-model.md d43b098e8ac6ac90a4c2ac7b8368c0be9043627d, contracts/cli.md b83e2952b47a566bf542a8376e108dbaf08cf5ed, contracts/config.md 03415ccdbd139a10d138f1534a024e91030aa80b, quickstart.md 1fd59c8ec9724088dc9b3735bb70d255428f9a4b, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, plan-review.plan.md 96270dd4a271be76eb72d06b2d298484768a6a58 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 4 · MINOR 6 · Fixed since the earlier review: 15
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-012 fixed) |
+| Requirements and traceability | Outstanding (PR-023; PR-010 and PR-013 fixed) |
+| Architecture and boundaries | Outstanding (PR-016, PR-024; PR-001, PR-008, PR-009, PR-011 and PR-014 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-018, PR-020, PR-022; PR-005, PR-007 and PR-015 fixed) |
+| Security and reliability | Outstanding (PR-017, PR-019, PR-021, PR-025; PR-002, PR-003, PR-004 and PR-006 fixed) |
+
+### Findings
+
+- **PR-001, BLOCKER, fixed.** Fixed by `plan.md`'s Technical Context and Constitution Check, `research.md` R10, and FR-024. The `security-and-hardening` skill ends with the attribution line, and the `/security-review` copy is credited by a new table in the vendor record, a `NOTICES.md` entry, and an extended attribution test.
+- **PR-002, MAJOR, fixed.** Fixed by R4 and FR-015. Any error, timeout, or non-zero exit after a match refuses, and every `gh` and `git` call has a 5-second timeout.
+- **PR-003, MAJOR, fixed.** Fixed by R6 and R9. The sign-off pattern matches the two words anywhere in the text, the command needs a terminal and a typed sha, and the spec records a direct write of `sign-off.json` as a limit.
+- **PR-004, MAJOR, fixed.** Fixed by R6, FR-012, and SC-001. The patterns cover `-R` before the verb, both merge endpoints, a `gh api` create, and the GraphQL mutations, `--auto` refuses, and the spec's Edge Cases record the spellings that stay open.
+- **PR-005, MAJOR, fixed.** Fixed by R4. It states the argument rule, looks `--head` up with `git ls-remote`, refuses when `-R` names another repository, and never falls back to the current branch.
+- **PR-006, MAJOR, fixed.** Fixed by FR-023, R7, and the data model. A run with no available reviewer stays incomplete, and a custom group with no reviewers is a `check config` finding.
+- **PR-007, MINOR, fixed.** Fixed by the plan's ownership point 2 and the spec's Assumptions, which say the `PATH` lookup is visible rather than enforced.
+- **PR-008, MINOR, fixed.** Fixed by Complexity Tracking, which records the round cap as a deviation pending #626.
+- **PR-009, MINOR, fixed.** Fixed by the plan's Constitution Check and Project Structure, which list the edit to the `AGENTS.md` Safety section.
+- **PR-010, MINOR, fixed.** Fixed by R3, which names the trunk refs and the case where no trunk is found, and by FR-006.
+- **PR-011, MINOR, fixed.** Fixed by FR-020, the data model, and the config contract, which restrict group names to `^[a-z][a-z0-9-]*$`.
+- **PR-012, MINOR, fixed.** Fixed by `test_review_store.py` in the plan's test list and by the data model's note on old `reviews/` folders.
+- **PR-013, MINOR, fixed.** Fixed by the plan's new section on what the skill rewrites say.
+- **PR-014, MINOR, fixed.** Fixed by R10, which vendors the upstream checklist into the skill's `references/` folder.
+- **PR-015, MINOR, fixed.** Fixed by R3 item 3, which treats a head that is the last reviewed commit or one of its ancestors as reviewed.
+- **PR-016, MAJOR, open.** The new table in `vendor-upstream-skills.md` changes an accepted record, and the plan doesn't say whether that is an amendment or a new record. The record currently calls the templates the one case where the notice stands in for the line. The existing test also reads every non-template row as a file that must carry the line, so the new row fails it until the test can tell the tables apart.
+- **PR-017, MAJOR, open.** The check judges a matched command before any of the text runs. In `git commit -am x && git push && gh pr create`, or `git switch other && gh pr create`, the pull request opens on a commit or branch the check never judged. The spec's known limits don't name this case.
+- **PR-018, MAJOR, open.** A relayed report travels in the command text, through a heredoc or `echo`, so the guard's text match reads it. A report quoting `gh pr create`, or mentioning "review" before "sign-off", is refused.
+- **PR-019, MAJOR, open.** `gh pr new`, the built-in alias of `gh pr create`, matches no pattern, and neither does the GraphQL `enqueuePullRequest` mutation for the merge queue.
+- **PR-020, MINOR, open.** R4's flag lists miss `-s`, `-m`, and `-r` for `merge`, don't say how `--flag=value` is read, and compare `-R HOST/OWNER/REPO` against `nameWithOwner`. Each fails safe as a wrong refusal.
+- **PR-021, MINOR, open.** `gh api repos/other/repo/pulls/N/merge` and `GH_REPO=other/repo gh pr merge N` look up pull request N in this repository, which is the wrong-repository case the `-R` rule stops.
+- **PR-022, MINOR, open.** Read literally, the rule that a non-zero exit refuses misfires on `git merge-base --is-ancestor` and `git show-ref --verify`, which answer "no" with exit 1. The `_paths` helpers R3 and R5 name run `git` with no timeout, and `resolve_agent_dir` creates the directory it is asked about by default.
+- **PR-023, MINOR, open.** FR-021 asks for a finding on any group with no reviewers, and the config contract applies it only to custom groups, so a built-in group with an empty list has no defined meaning.
+- **PR-024, MINOR, open.** The guard record still lists four commands, the groups record still lists three `check config` problems and says the review continues on a bad config, and `design.md` still gives #626 the question of how the sign-off is recorded, which R9 now decides.
+- **PR-025, MINOR, open.** A pseudo-terminal from `script` or `pty.spawn` satisfies `isatty`, so FR-013's claim that a missed spelling still can't sign off overstates the check. It should read as a second obstacle, recorded beside the direct-write limit.
