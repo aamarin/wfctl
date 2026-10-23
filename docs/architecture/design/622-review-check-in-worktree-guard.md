@@ -91,8 +91,11 @@ branch it acts on, or because the agent shouldn't run it at all:
    don't see the prefix, so it would judge this branch while `gh` acts on
    another branch or repository.
 7. A command the check can't read for sure: a `gh` command word that isn't
-   written out plainly, such as `gh pr $(…) create`, a `gh api` call that
-   writes through a variable path, and a GraphQL query read from a file.
+   written out plainly, such as `gh pr $(…) create` or `gh "$X" merge 630`, a
+   `gh api` call that writes through a variable path, and a GraphQL query read
+   from a file. An unplain command word is refused on its own, without one of
+   the first kind matching, since a command like `gh "$X" merge 630` holds no
+   verb the check can match.
 8. A command that acts on another branch's pull request, unless it runs in the
    checkout on the trunk branch. A worktree opens and merges only its own
    branch's pull request, and the person orchestrates from the trunk checkout.
@@ -123,6 +126,15 @@ state directory. Anywhere else, it refuses (item 8 above). It refuses when the
 lookup fails, for the same reason it refuses an unreadable record. The
 sign-off command is refused every time because the hook exists to stop the
 agent from signing off.
+
+The review check reads the branch, its newest commit, and the repository from
+the session's working directory, which the hook payload names in `cwd`. The
+worktree check already reads that field. The hook process itself runs in the
+agent's project directory, and that differs from the session's directory once
+an earlier command has run `cd`. If the review check read its own directory, a
+session started in the `main` checkout could `cd` into another worktree and run
+`gh pr create` there, and the check would judge `main` instead. A matched
+command whose payload names no working directory is refused.
 
 Each check runs in its own `try` block, so an error in one doesn't skip the
 other. The worktree check allows a command when it can't decide, as it does
@@ -201,6 +213,8 @@ to check means changing one list in either graph.
   unreviewed commit, and checks for exit code 2 and the commit on stderr. The
   same test on a fully reviewed branch checks for exit code 0 and no output.
 - A test pipes the sign-off command into the guard and checks for exit code 2.
+- A test pipes a `gh pr create` payload whose `cwd` is a different worktree
+  from the hook's own directory, and checks that the `cwd`'s branch is judged.
 - A test pipes a `gh pr create` payload into the guard with an unreadable
   record, and checks for exit code 2.
 - A measurement of the guard on an `ls` payload, before and after this change,
@@ -229,3 +243,7 @@ to check means changing one list in either graph.
   outside the trunk checkout join the second kind. The error refusal names the
   person's own terminal as the way past a broken check. Andre set the rule
   that a command the check can't read is refused rather than recorded.
+- 2026-10-23  proposed  — #622 plan review. The review check reads the
+  session's working directory from the payload, and an unplain `gh` command
+  word is refused without another match. Andre approved fixing the review's two
+  MAJOR findings.
