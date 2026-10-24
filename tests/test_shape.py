@@ -169,7 +169,7 @@ def test_an_unclosed_fence_is_a_block_even_though_it_never_closes() -> None:
 
 _SECTION = "Needs a spec?"
 _SECTION_COMMENT = "<!--\nDid this change need a full spec? Answer yes or no, then give the reason.\n-->"
-_CLEAN = "✓ {path}: the drawings look right"
+_CLEAN = "✓ {path}: the body looks right"
 
 
 def _sections_repo(

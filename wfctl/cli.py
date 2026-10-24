@@ -6548,7 +6548,7 @@ def check_body_cmd(
         _shape.body_findings(body) + _section_findings(body) + _verification_finding()
     )
     if not found:
-        console.print(f"[green]✓[/green] {path}: the drawings look right", soft_wrap=True)
+        console.print(f"[green]✓[/green] {path}: the body looks right", soft_wrap=True)
         return
     for line in found:
         console.print(f"[yellow]⚠[/yellow] {escape(line)}", soft_wrap=True)
