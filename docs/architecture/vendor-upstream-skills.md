@@ -76,10 +76,21 @@ A skill's line covers every file in its folder, so a derived skill's
 `references/` files carry no line of their own. One of those files came from
 outside its upstream's skill folder.
 `security-and-hardening/references/security-checklist.md` is upstream's
-top-level `references/security-checklist.md`, moved into the skill because the
-skill cites it as `../../references/`, which resolves outside an installed
-skills folder. A re-pull of `skills/security-and-hardening/` has to fetch it
-from that top-level path, or it reads as a file wfctl added.
+top-level `references/security-checklist.md`. wfctl ships it inside the skill
+because nothing installs a top-level `references/` folder. A re-pull of
+`skills/security-and-hardening/` has to fetch it from that top-level path, or it
+reads as a file wfctl added.
+
+Shipping the checklist doesn't fix the skill's citations of it. `SKILL.md` cites
+it as `../../references/security-checklist.md`, and `hardening-patterns.md` as
+`../../../references/security-checklist.md`, and from an installed skills folder
+both resolve to `.agents/references/`, which doesn't exist. So an agent that
+loads `security-and-hardening` on its own can't follow the checklist path.
+`reviewing-security` gives its reviewers the real path. We accept the broken
+citations to keep upstream's bytes unedited. The skill also names
+`observability-and-instrumentation` and `debugging-and-error-recovery`, two
+upstream skills wfctl doesn't ship, and those names stay unresolved for the same
+reason.
 
 `python-pattern-selection` is absent for a reason worth stating rather than
 leaving to the default below, because its own commit message says "ported from a
