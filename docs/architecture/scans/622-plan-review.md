@@ -359,3 +359,38 @@
 - **PR-042, MINOR, open.** A quoted or variable `gh` word still matches no pattern.
 - **PR-044, MINOR, open.** A `gh` call inside a script, such as `release.py`, is still neither refused nor recorded.
 - **PR-045, MINOR, open.** The `WFCTL_BRANCH` override still names the branch without reading `cwd`, against FR-012c.
+
+## Review 2026-10-24T12:41Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 41b127397541b1228cc131fe0fc86f80bfc795bf, spec.md 292a98a74e2a9c0a33629e4513ae50a8e85cbc9a, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md 0a9221a25e13dbaa3bd7a05cba7edb8c8b13724a, research.md 17f7b1f36eb7ccd74ae5e28ceb529ed3c83b4962, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md 9c633dacc9f4c7b8e578315d36323d05f1701b77, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, wfctl/_guard.py 2b6f0d39f1c0af749d32b0fbd409448fdf5e06f3, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/receiving-code-review/SKILL.md d9dc70c6c98e60b96b9fb591e2079920bd2eec99, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, .github/scripts/release.py 5573934e6746db3dd261a7c143d91730b22decf1, plan-review.plan.md 7d3e9135f3df5ae3bf18244aa18b0de06240ed58 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 5 · Fixed since the earlier review: 16
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-060, PR-061; PR-039, PR-040, PR-045 fixed) |
+| Requirements and traceability | Outstanding (PR-060; PR-040, PR-044, PR-055, PR-056 fixed) |
+| Architecture and boundaries | Resolved (PR-038, PR-045, PR-053, PR-059 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-043, PR-062; PR-036, PR-037, PR-053, PR-054, PR-056, PR-057, PR-058, PR-059 fixed) |
+| Security and reliability | Outstanding (PR-063; PR-035, PR-037, PR-038, PR-042, PR-044, PR-054, PR-055, PR-056, PR-057, PR-058 fixed) |
+
+### Findings
+
+Scored under Andre's decision of 2026-10-24: the review check stops adding rules, a disguised command already listed as a known limit isn't a finding, and a new one is at most MINOR.
+
+- **PR-060, MINOR, open.** New. The plan's Summary still says the check refuses any command whose text it can't read for sure, and R6 and the guard record date the cutoff at the fifth plan review. The limit list holds PR-035 and PR-037, first reported in the 2026-10-23T20:54Z review, and PR-042 and PR-044, first reported at 22:17Z. PR-035 and PR-042 also show a substitution or a variable, which R6's sorting test says refuse. Stands because the sentences around the list contradict it. Dating the cutoff at 2026-10-24 and naming the limits in the Summary would fix it.
+- **PR-061, MINOR, open.** New. R4 (Another branch) numbers its items 1, 2, 3, 4, and 3. The refusal text became a second item 3 when the PR-038 fix added items 3 and 4.
+- **PR-062, MINOR, open.** New. The contract refuses `WFCTL_STATE_DIR` set for another branch and `WFCTL_BRANCH` naming a different branch from `cwd`, and the plan's `test_review_gate.py` list names neither. Many test fixtures, `tests/conftest.py` among them, set `WFCTL_BRANCH`.
+- **PR-063, MINOR, open.** New. A git alias written into `.git/config` with a file tool, such as `pm = !gh pr merge`, and a shell function from the person's profile both run `gh pr merge` with no `gh`, `merge`, or `sign` in the command text. No known limit names either. The response is to record it, by widening limit 2.10 to scripts, git aliases, and shell aliases or functions.
+- **PR-043, MINOR, open.** Narrowed. The spec now names the wrong refusals, but its one rewording, searching without the `gh ` prefix, fits only the two searches. `which gh && gh pr view` needs a separate command, and a commit message that quotes a refused form needs `git commit -F <file>`. R6 says the spec names the rewording for each.
+- **PR-054, PR-055, PR-056, PR-057, MAJOR, fixed.** Recorded as known limits in `spec.md §Edge Cases` (2.1 to 2.4) and R6. R4 item 1 now says `gh extension exec` passes, R4 item 3 says a two-word alias is accepted, R6 pattern 8 says the glued backtick reads as `pr`, and R6 pattern 3 and FR-012b name the spellings they read rather than every spelling.
+- **PR-035, PR-037, PR-042, PR-044, PR-053, PR-058, PR-059, MINOR, fixed.** Recorded as known limits in `spec.md §Edge Cases` and R6 (Known limits). Naming `release.py` there answers PR-044's question about the release PR.
+- **PR-036, MINOR, fixed.** The three wrong `gh api` refusals are recorded in `spec.md §Edge Cases` with a rewording each, and each rewording avoids the refusal as R4 describes it.
+- **PR-038, MINOR, fixed.** R4 strips `origin/` from the trunk ref before comparing, which `_paths.trunk_branch` makes correct for both its return forms. Ownership 6, R4 item 4, the guard record's Consequences, and a contract row call the rule a convention.
+- **PR-039, MINOR, fixed.** `contracts/cli.md` names every refusal that uses the error refusal block, and the timed-out lookup has one message.
+- **PR-040, MINOR, fixed.** US3 says nothing enforces the round cap until #626, and the Validation Strategy runs the other-branch merge from the trunk checkout and refuses it from a feature worktree.
+- **PR-045, MINOR, fixed.** R4 (Timeouts and errors) item 2 and a contract row refuse a `WFCTL_BRANCH` that names a different branch from `cwd`, which agrees with FR-012c.
