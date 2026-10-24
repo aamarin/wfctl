@@ -308,8 +308,8 @@ def _refuse_swapped_content(repo_root: Path, shown: set[str], timeout: float | N
     listed = _git(
         repo_root, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/replace/",
         timeout=timeout,
-    ).stdout.split("\n")
-    replaced = dict(line.split() for line in listed if line)
+    ).stdout.splitlines()
+    replaced = dict(line.split() for line in listed)
     for sha in sorted(shown & replaced.keys()):
         trees = {
             _git(repo_root, "rev-parse", f"{obj}^{{tree}}", timeout=timeout).stdout.strip()
