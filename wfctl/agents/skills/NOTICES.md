@@ -4,7 +4,9 @@ wfctl is MIT-licensed; see the `LICENSE` shipped in the wfctl package — not
 whatever `LICENSE` sits at the root of the repository you are reading this in,
 which is yours. Some of the skills beside this file are derived from other
 MIT-licensed projects, and each such file names its upstream on its own last
-line. The one file that carries no line is named by path in its section below.
+line, which covers the rest of that skill's folder too. One derived file sits
+inside a skill of wfctl's own and carries no line, so its section below names
+it by path.
 Those upstreams' notices are reproduced here, which is what MIT asks for beyond
 the copyright line itself.
 

@@ -72,6 +72,15 @@ Derived today:
 | `using-superpowers` | `obra/superpowers` |
 | `verification-before-completion` | `obra/superpowers` |
 
+A skill's line covers every file in its folder, so a derived skill's
+`references/` files carry no line of their own. One of those files came from
+outside its upstream's skill folder.
+`security-and-hardening/references/security-checklist.md` is upstream's
+top-level `references/security-checklist.md`, moved into the skill because the
+skill cites it as `../../references/`, which resolves outside an installed
+skills folder. A re-pull of `skills/security-and-hardening/` has to fetch it
+from that top-level path, or it reads as a file wfctl added.
+
 `python-pattern-selection` is absent for a reason worth stating rather than
 leaving to the default below, because its own commit message says "ported from a
 third-party skill" and a later reader would go looking for the row. The source it
@@ -123,8 +132,9 @@ one. The prefix is a naming convention, not a provenance claim, and the eight
 above were identified by content — `speckit-specify` carries no `source:` key and would
 have been missed by any rule reading frontmatter (#216).
 
-`wfctl/specify/` is derived from the same upstream and is a second table
-because it holds no skills. The scripts carry the attribution line as a comment
+The second table lists files by their path under `wfctl/`, and all but one of
+them are in `wfctl/specify/`. That tree is derived from the same upstream and
+is a separate table because it holds no skills. The scripts carry the attribution line as a comment
 on the line after the shebang; the templates carry nothing, because
 `setup-plan.sh` runs `cp` on `plan-template.md` and the skills that read the
 others write from their structure, so a line in a template would assert

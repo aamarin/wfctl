@@ -18,6 +18,9 @@ template is `cp`'d to become a project's own `spec.md`, so a line in one would
 travel into documents GitHub had no hand in (#216). Their declaration is
 `wfctl/specify/templates/NOTICES.md` naming them, and the second pair holds that
 file and the record's rows together the way the first holds the line and the row.
+The `/security-review` prompt is the second file a notice credits instead of a
+line, and its own test holds its row against `wfctl/agents/skills/NOTICES.md`
+the same way.
 
 What neither pair can do is notice #213 itself. A file arriving with no line
 *and* no row is invisible to both directions — the checks keep two declarations
@@ -190,9 +193,8 @@ def _reference_claims() -> list[tuple[str, str]]:
     in a project's `.agents/skills/`, and the record writes it relative to
     `wfctl/`.
 
-    Only a path with a `references/` segment counts. Every other backticked
-    name in that notice is a skill, which its own line declares, or a notice
-    in the other tree.
+    Only a path with a `references/` segment counts, and nothing else in the
+    notice's sections has one.
     """
     return _path_claims(NOTICES, r"`([a-z0-9-]+/references/[a-z0-9.-]+)`", "agents/skills/")
 
@@ -515,8 +517,9 @@ def test_the_specify_notice_names_no_template_the_record_does_not_list() -> None
 
 
 def test_every_template_the_record_lists_is_a_file_that_ships() -> None:
-    """The templates are the one population whose declarations are both
-    documents. A skill or a script that is deleted or renamed drops out of
+    """The templates are one of two populations whose declarations are both
+    documents, and the `/security-review` prompt's own test checks the other.
+    A skill or a script that is deleted or renamed drops out of
     `_attributed()` and the record's row fails immediately; a template has no
     line of its own to lose, so the record and the shipped notice would go on
     asserting GitHub's copyright over a path that is no longer in the tree, with
@@ -538,11 +541,18 @@ def test_every_reference_the_record_lists_ships_with_no_line_and_is_noticed() ->
     it instead. And its path has to sit under its upstream's section in the
     notice, which is the only declaration that reaches an installed project.
 
+    That section also has to carry its copyright line. Nothing names this
+    upstream in an attribution line, so the check that every attributed
+    upstream has a copyright in its tree never visits it, and the path claim
+    still parses from a section with no copyright line. Without this check,
+    deleting `Copyright (c) 2025 Anthropic` left every test green.
+
     An empty listing fails rather than passing on nothing. If the row is
-    missing, or `_ROW` stops matching it, the three checks below have no file
-    to look at, so they would pass even with the declarations gone.
+    missing, or `_ROW` stops matching it, the checks below have no file to look
+    at, so they would pass even with the declarations gone.
     """
     listed, noticed = _listed_references(), dict(_reference_claims())
+    copyrighted = _noticed(NOTICES)
     assert listed, f"vendor-upstream-skills lists nothing under {_REFERENCE_ROW}"
 
     wfctl_root = SPECIFY_ROOT.parent
@@ -553,11 +563,13 @@ def test_every_reference_the_record_lists_ships_with_no_line_and_is_noticed() ->
     )
     unnoticed = {p: (noticed.get(p), upstream) for p, upstream in listed.items() if noticed.get(p) != upstream}
     unlisted = sorted(set(noticed) - set(listed))
+    uncopyrighted = sorted(p for p, upstream in listed.items() if upstream not in copyrighted)
 
     assert not absent, f"listed in vendor-upstream-skills but not in the tree: {absent}"
     assert not lined, f"credited by {NOTICES.name}, so they carry no attribution line: {lined}"
     assert not unnoticed, f"not named under their upstream in {NOTICES.name} (notice, record): {unnoticed}"
     assert not unlisted, f"named in {NOTICES.name} but vendor-upstream-skills does not list them: {unlisted}"
+    assert not uncopyrighted, f"their upstream's {NOTICES.name} section has no copyright line: {uncopyrighted}"
 
 
 def test_both_notices_sit_where_install_skills_will_carry_them() -> None:
