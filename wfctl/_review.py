@@ -20,6 +20,7 @@ loads `typer` or `rich`, and every `git` call takes the caller's timeout.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -54,6 +55,15 @@ _VERDICT_WORD = re.compile(r"(?<![A-Za-z])(?:Approve|Request changes)", re.I)
 _FENCE = re.compile(r"`{3,}|~{3,}")
 
 _RELAYED = "Relayed: "
+
+# A file under `os.devnull` can't exist, so git reads no grafts and says
+# nothing. `os.devnull` itself works too, but git then prints its grafts
+# deprecation hint on stderr, and `_git` puts stderr in every error it raises.
+_NO_GRAFTS = os.path.join(os.devnull, "grafts")
+
+# A fetch refspec with one of these sources fetches every branch, so
+# `origin/HEAD` can name the trunk rather than the one branch a clone took.
+_EVERY_BRANCH = ("refs/heads/*", "refs/*")
 
 
 class ReviewError(Exception):
@@ -96,11 +106,14 @@ def _git(
 
     `--no-replace-objects` because a replace ref made with `git replace
     --graft` rewrites a commit's parents, and `rev-list` then skips the commits
-    it cut out, so a completed run would mark them reviewed unseen.
+    it cut out, so a completed run would mark them reviewed unseen. A
+    `.git/info/grafts` line does the same, and `--no-replace-objects` doesn't
+    turn it off, so `GIT_GRAFT_FILE` points at a file that can't exist.
     """
     r = subprocess.run(
         ["git", "--no-replace-objects", *args],
         cwd=repo_root, capture_output=True, text=True, timeout=timeout,
+        env={**os.environ, "GIT_GRAFT_FILE": _NO_GRAFTS},
     )
     if r.returncode not in answers:
         detail = r.stderr.strip() or f"exit {r.returncode}"
@@ -131,7 +144,9 @@ def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
     return found.returncode == 0
 
 
-def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
+def trunk_refs(
+    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+) -> list[str]:
     """The trunk branch on `origin` and its local branch, each when it exists,
     by full ref name.
 
@@ -144,17 +159,57 @@ def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
 
     Full names because git resolves a short `main` to a tag of that name before
     the branch, and a tag on one of the branch's own commits made that work read
-    as already on the trunk. A trunk found under neither name is used as named.
+    as already on the trunk. A trunk found under neither name raises `NoTrunk`
+    for the same reason: a clone that fetched only the feature branch has no
+    `main` branch, and `_paths.trunk_branch` then finds the tag.
+
+    The trunk has to be a different branch from the one under review, since
+    every commit on the trunk is left out of the range. `branch` is the branch
+    under review, and the caller passes it because the merge gate judges other
+    branches from the `main` checkout, where the checked-out branch is the
+    trunk (`642-commit-range-takes-judged-branch.md`).
+
+    A name check can't catch a clone made with `--single-branch --branch
+    <feature>` after a rename or on a detached HEAD. In such a clone,
+    `origin/HEAD` can only name the branch the clone took, so a trunk found
+    through it is refused unless `origin` fetches every branch. A declared
+    trunk is used either way.
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
         raise NoTrunk()
     local = trunk.removeprefix("origin/")
+    if branch is not None and local == branch:
+        raise ReviewError(
+            f"the trunk branch is {local}, the branch under review; check trunk in wfctl.json"
+        )
+    if trunk.startswith("origin/") and _paths.declared_trunk(repo_root)[0] is None:
+        _refuse_a_single_branch_clone(repo_root, local, timeout)
     refs = [
         ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
         if _has_ref(repo_root, ref, timeout)
     ]
-    return refs or [trunk]
+    if not refs:
+        raise NoTrunk()
+    return refs
+
+
+def _refuse_a_single_branch_clone(repo_root: Path, trunk: str, timeout: float | None) -> None:
+    """Raise when `origin` fetches only some branches, so `origin/HEAD` can
+    name the branch under review rather than the trunk."""
+    specs = _git(
+        repo_root, "config", "--get-all", "remote.origin.fetch",
+        timeout=timeout, answers=(0, 1),
+    ).stdout.split()
+    sources = [spec.removeprefix("+").split(":", 1)[0] for spec in specs]
+    if any(source in _EVERY_BRANCH for source in sources):
+        return
+    fetched = ", ".join(s.removeprefix("refs/heads/") for s in sources) or "no branch"
+    raise ReviewError(
+        f"this clone fetches only {fetched} from origin, so wfctl can't tell whether "
+        f"{trunk} is the trunk; run git remote set-branches --add origin <trunk> and "
+        "git fetch, then set trunk in wfctl.json"
+    )
 
 
 def is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
@@ -176,7 +231,12 @@ def _is_ancestor(repo_root: Path, older: str, newer: str, timeout: float | None)
 
 
 def commit_range(
-    repo_root: Path, head: str, last_reviewed: str | None, timeout: float | None = None,
+    repo_root: Path,
+    head: str,
+    last_reviewed: str | None,
+    timeout: float | None = None,
+    *,
+    branch: str | None = None,
 ) -> Range:
     """The commits a group hasn't reviewed at `head` (research.md R3).
 
@@ -204,11 +264,14 @@ def commit_range(
     a completed run would mark them reviewed unseen. A merge whose parents'
     nearest shared commit was cut is also redone against an older base, which
     can match a merge that kept a file `main` deleted.
+
+    `branch` is the branch under review, and `trunk_refs` refuses a trunk of
+    the same name. A caller that leaves it out gets no such check.
     """
     shallow = _git(repo_root, "rev-parse", "--is-shallow-repository", timeout=timeout)
     if shallow.stdout.strip() == "true":
         raise ShallowClone()
-    refs = trunk_refs(repo_root, timeout)
+    refs = trunk_refs(repo_root, timeout, branch=branch)
     base = None
     if last_reviewed is not None and is_commit(repo_root, last_reviewed, timeout):
         if _is_ancestor(repo_root, head, last_reviewed, timeout):
@@ -222,11 +285,41 @@ def commit_range(
         timeout=timeout,
     ).stdout.splitlines()
     commits = []
+    shown: set[str] = set()
     for line in listed:
         sha, *parents = line.split()
         if len(parents) < 2 or _has_own_edits(repo_root, sha, parents, timeout):
             commits.append(sha)
+            shown.update((sha, *parents))
+    _refuse_swapped_content(repo_root, shown, timeout)
     return Range(base, tuple(commits))
+
+
+def _refuse_swapped_content(repo_root: Path, shown: set[str], timeout: float | None) -> None:
+    """Raise when a replace ref changes the tree of a commit a reviewer reads.
+
+    Each reviewer reads a listed commit with plain `git show`, which honors
+    replace refs, so a whole-object `git replace` of the commit, or of a parent
+    it is diffed against, shows other content while the real change goes
+    unread. `shown` holds both. A replacement with the same tree only rewrites
+    parents, as `git replace --graft` does, and the reviewer still reads every
+    change, so it passes. A replaced tree or file isn't checked.
+    """
+    listed = _git(
+        repo_root, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/replace/",
+        timeout=timeout,
+    ).stdout.split("\n")
+    replaced = dict(line.split() for line in listed if line)
+    for sha in sorted(shown & replaced.keys()):
+        trees = {
+            _git(repo_root, "rev-parse", f"{obj}^{{tree}}", timeout=timeout).stdout.strip()
+            for obj in (sha, replaced[sha])
+        }
+        if len(trees) > 1:
+            raise ReviewError(
+                f"{sha[:7]} has a replace ref, so a reviewer's git show reads other content; "
+                f"remove it with git replace -d {sha[:7]}"
+            )
 
 
 def _has_own_edits(
@@ -395,6 +488,7 @@ def start(
     *,
     timeout: float | None = None,
     which: Callable[[str], str | None] | None = None,
+    branch: str | None = None,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
@@ -403,7 +497,9 @@ def start(
     can run is still written, and `check` never completes it.
     """
     head = head_commit(repo_root, timeout)
-    found = commit_range(repo_root, head, last_reviewed(agent_dir, group.name), timeout)
+    found = commit_range(
+        repo_root, head, last_reviewed(agent_dir, group.name), timeout, branch=branch,
+    )
     # Resolved when called rather than bound as the default, so `shutil.which`
     # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
@@ -612,6 +708,8 @@ def unreviewed(
     groups: Sequence[Group],
     head: str,
     timeout: float | None = None,
+    *,
+    branch: str | None = None,
 ) -> dict[str, tuple[str, ...]]:
     """Each group's commits at `head` that no complete run and no sign-off
     covers, oldest first. A group with none is left out.
@@ -636,7 +734,7 @@ def unreviewed(
     found: dict[str, tuple[str, ...]] = {}
     for group in groups:
         commits = commit_range(
-            repo_root, head, last_reviewed(agent_dir, group.name), timeout,
+            repo_root, head, last_reviewed(agent_dir, group.name), timeout, branch=branch,
         ).commits
         left = tuple(c for c in reversed(commits) if not is_covered(c))
         if left:
