@@ -415,14 +415,27 @@ again, since a required check that never reports blocks every merge.
 
 ## Safety
 
-**wfctl does not gate outward actions; your agent's permission layer does.**
-`wfctl issue comment`, `create`, `label` and `close` run when you run them, and a
-refusal you meet comes from the host — Claude Code's auto-mode classifier or its
+**wfctl gates one outward action, opening or merging a PR, and your agent's
+permission layer gates the rest.** `wfctl issue comment`, `create`, `label` and
+`close` run when you run them, and a refusal you meet comes from the host — Claude Code's auto-mode classifier or its
 equivalent — before wfctl's process starts. Do not route around one with `gh` or
 another client: that is the one gate there is. Report it instead, with
 `wfctl report-block <action> --reason "…"`, which holds the step until the action
 is taken (`wfctl-records-outward-actions-and-never-gates-them`, #384 removed the
 grant that used to stand in front of these).
+
+**The review check is the one refusal wfctl makes.** The worktree guard, a hook
+wfctl installs, refuses `gh pr create` and `gh pr merge` while a review group
+has commits it hasn't reviewed, and lists them under each group. That refusal
+comes from wfctl, not the host, so don't report it with `wfctl report-block`.
+Run the review groups it names, as `opening-a-change` Step 1 says, and open the
+PR again.
+
+When the check refuses with an error instead, it couldn't reach an answer, such
+as a `gh` call that timed out. Stop and tell the person. They can run the same
+command in their own terminal, where the hook doesn't run, and that is their
+call. So is `wfctl review sign-off`, which the guard refuses when an agent runs
+it.
 
 What wfctl keeps is the record. `wfctl issue` logs each write that succeeded as
 `issue-<verb>`, and `wfctl report-action push` logs a push, which is the only
