@@ -877,6 +877,42 @@ def test_a_redirection_before_the_api_path_is_not_read_as_the_path(
 
 
 @pytest.mark.parametrize("command", [
+    'git commit -m "gh api calls are read only when they write"',
+    "gh api repos/o/r/pulls?state=open",
+    'rg -n "gh api [a-z]+/"',
+    'echo "gh api <x>"',
+    "gh api repos/o/r/issues/1/comments # first page",
+    "gh api repos/o/r/issues/1/comments --input - <<'EOF'",
+    'gh api repos/o/r/issues/1/comments -f body=x <<< "ignored"',
+])
+def test_a_gh_api_read_or_a_plain_write_is_not_refused_for_its_shape(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """Every `gh api` call once went through the reader that refuses a glob, a
+    comment, or an odd redirection, so a query string, a search for the words
+    `gh api`, and a commit message mentioning it were all refused. A read
+    can't open or merge a pull request. Found by code reviewers on #638's own
+    panel, round 2."""
+    assert guard(command, tmp_path) == (0, "")
+
+
+@pytest.mark.parametrize(("command", "refusal"), [
+    ("gh api -X PUT repos/o/r/pulls/63?/merge", "without a brace or a glob"),
+    ("gh api repos/o/r/issues -f title=x # -X GET", "without a # comment"),
+    ("gh api -X POST repos/o/r/issues 631&>/dev/null", "redirections as words of their own"),
+])
+def test_a_gh_api_write_still_refuses_a_shape_the_check_cant_read(
+    guard: Guard, tmp_path: Path, command: str, refusal: str,
+) -> None:
+    """A write is what can open or merge a pull request, so a write keeps the
+    strict reader that reads won't."""
+    code, err = guard(command, tmp_path)
+
+    assert code == 2
+    assert refusal in err
+
+
+@pytest.mark.parametrize("command", [
     "gh pr merge 630 # --help",
     "gh pr merge #630 --help",
     "gh pr new --fill # -h",

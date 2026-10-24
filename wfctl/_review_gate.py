@@ -93,9 +93,12 @@ _BRACE = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
 # every one the shell accepts, since `631&>/dev/null` and `-tx> --help` each
 # read as a redirection to a looser pattern while the shell passed `631` and
 # `-tx` to `gh`.
+# A heredoc and a here-string are on the list because `gh api --input -
+# <<'EOF'` is how a body is written by hand. The shell consumes the delimiter
+# or the string, so `gh` never receives it as an argument.
 _FD_COPY = re.compile(r"[12]?>&[12]")
-_REDIRECT_ALONE = re.compile(r"[12]?>>?|<|&>>?")
-_REDIRECT_TO = re.compile(r"(?:[12]?>>?|<|&>>?)[^<>&|]+")
+_REDIRECT_ALONE = re.compile(r"[12]?>>?|<(?:<-?|<<)?|&>>?")
+_REDIRECT_TO = re.compile(r"(?:[12]?>>?|<(?:<-?|<<)?|&>>?)[^<>&|]+")
 
 _MERGE_VALUE = frozenset({
     "-t", "--subject", "-b", "--body", "-F", "--body-file", "-A", "--author-email",
@@ -205,8 +208,11 @@ def read(command: str) -> tuple[list[str], list[Target]]:
         if problem:
             refused.append(f"✗ {problem}")
     for m in _GH_API.finditer(command):
-        words = _shell_words(command[m.end():_command_end(command, m.end())], "gh api", False)
-        problem = words if isinstance(words, str) else _api_call(words)
+        text = command[m.end():_command_end(command, m.end())]
+        problem, writes = _api_call(_api_words(text))
+        if problem is None and writes:
+            words = _shell_words(text, "gh api", False)
+            problem = words if isinstance(words, str) else None
         if problem:
             refused.append(f"✗ {problem}")
     if _CREATE_MUTATION.search(command):
@@ -488,8 +494,8 @@ def _shell_words(text: str, name: str, variables: bool) -> list[str] | str:
     A comment hid a `--help` the shell drops, and a brace slid a second pull
     request in after the check had read one.
 
-    `variables` is False for `gh api`, whose reads go through a variable path
-    all the time and are refused only when they write (`_api_call`).
+    `variables` is False for `gh api`, since `_api_call` has already judged a
+    variable path, with a message that names the path.
     """
     written = _raw_words(text)
     if any(word.startswith("#") and bare.startswith("#") for word, bare in written):
@@ -522,7 +528,7 @@ def _shell_words(text: str, name: str, variables: bool) -> list[str] | str:
         elif word == bare and _REDIRECT_ALONE.fullmatch(word):
             target = True
             continue
-        elif _REDIRECT_TO.fullmatch(word) and word[0] in "12<>&":
+        elif _REDIRECT_TO.fullmatch(word):
             continue
         return (
             f"write {name}'s redirections as words of their own, such as 2>&1 or "
@@ -570,8 +576,36 @@ def _raw_words(text: str) -> list[tuple[str, str]]:
     return words
 
 
-def _api_call(words: Sequence[str]) -> str | None:
-    """Why a `gh api` call refuses every time, if it does (R6 patterns 3, 6, 7).
+def _api_words(text: str) -> list[str]:
+    """The words of a `gh api` call, read only far enough to tell whether it
+    writes: the redirections the check reads are dropped, and every other word
+    is kept as written.
+
+    Not `_shell_words`, which refuses a glob, a comment, or an odd redirection
+    outright. A read can't open or merge a pull request, and refusing those
+    shapes in every `gh api` call refused `gh api repos/o/r/pulls?state=open`,
+    `rg "gh api [a-z]+/"` and a commit message that mentioned `gh api`. A
+    redirection is still dropped, since one taken as the path turned every
+    `gh api` refusal off.
+    """
+    kept: list[str] = []
+    target = False
+    for word, bare in _raw_words(text):
+        if target:
+            target = False
+        elif word == bare and _REDIRECT_ALONE.fullmatch(word):
+            target = True
+        elif not (word == bare and _FD_COPY.fullmatch(word) or _REDIRECT_TO.fullmatch(word)):
+            kept.append(word)
+    try:
+        return shlex.split(" ".join(kept))
+    except ValueError:
+        return " ".join(kept).split()
+
+
+def _api_call(words: Sequence[str]) -> tuple[str | None, bool]:
+    """Why a `gh api` call refuses every time, if it does (R6 patterns 3, 6, 7),
+    and whether it writes.
 
     A create through the `pulls` endpoint and a GraphQL query read from a file
     each act on a branch named in a body the check can't read reliably. A
@@ -602,21 +636,24 @@ def _api_call(words: Sequence[str]) -> str | None:
             )
         elif name in ("-X", "--method"):
             method = value.upper()
-    if path is None:
-        return None
     writes = body or (method is not None and method != "GET")
+    if path is None:
+        return None, writes
     # `/graphql` and a full URL reach the same endpoint as `graphql`, since
     # `gh` sends a body to any path as a POST.
     endpoint = path.split("?", 1)[0].rstrip("/")
     if endpoint == "graphql" or endpoint.endswith("/graphql"):
         if reads_file:
-            return "put the GraphQL query in the command; the check doesn't read files"
-        return None
+            return "put the GraphQL query in the command; the check doesn't read files", writes
+        return None, writes
     if ("$" in path or "`" in path) and writes:
-        return "write the gh api path out plainly; the check can't read where it writes"
+        return "write the gh api path out plainly; the check can't read where it writes", writes
     if _PULLS_CREATE.search(path) and (body or method == "POST"):
-        return "open the pull request with gh pr create so the review check can judge its branch"
-    return None
+        return (
+            "open the pull request with gh pr create so the review check can judge its branch",
+            writes,
+        )
+    return None, writes
 
 
 # --- the judging pass ------------------------------------------------------------
