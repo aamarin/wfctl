@@ -251,16 +251,18 @@ def test_the_reviewer_cap_is_reported_beside_the_groups_other_problems(
 ) -> None:
     """The cap returned as soon as the total passed 20, and counted only the
     entries that were valid so far. A model with no command, a bad model name,
-    or an unknown key hid the cap, and the cap hid every entry after it, so each
-    fix revealed the next problem."""
+    an unknown key, or a missing name hid the cap, and the cap hid every entry
+    after it, so each fix revealed the next problem."""
     _write(tmp_path, {"groups": [{"group": "security", "reviewers": [
-        {"name": "gemini", "count": 8},
-        {"name": "4o", "count": 8},
-        {"name": "claude", "count": 8, "model": "opus"},
+        {"name": "gemini", "count": 6},
+        {"name": "4o", "count": 6},
+        {"name": "claude", "count": 6, "model": "opus"},
+        {"count": 6},
         {"name": "x y", "count": 1},
     ]}]})
     groups, problems = load(tmp_path)
     assert groups == []
+    assert "review group 'security': each reviewer needs a name and a count" in problems
     assert "review group 'security': model 'gemini' has no entry in review.commands" in problems
     assert any("model '4o'" in p for p in problems), problems
     assert "review group 'security': unknown key 'model' in a reviewer" in problems
@@ -404,7 +406,7 @@ def test_check_config_passes_the_documented_review_example(
         ),
         pytest.param(
             {"groups": [{"group": "money\n", "reviewers": [{"name": "claude", "count": 1}]}]},
-            "review group 'money\n': a name is lowercase letters, digits and hyphens, "
+            "review group 'money\\n': a name is lowercase letters, digits and hyphens, "
             "starting with a letter",
             id="trailing-newline",
         ),

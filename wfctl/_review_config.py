@@ -17,6 +17,7 @@ import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeGuard
 
 CONFIG_PATH = "wfctl.json"
 
@@ -105,7 +106,7 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
             continue
         if not PLAIN_NAME.fullmatch(name):
             problems.append(
-                f"review group '{name}': a name is lowercase letters, digits and "
+                f"review group {name!r}: a name is lowercase letters, digits and "
                 "hyphens, starting with a letter"
             )
             continue
@@ -113,7 +114,7 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
             problems.append(f"review group '{name}' is listed twice")
             continue
         problems += [
-            f"review group '{name}': unknown key '{k}'" for k in entry if k not in _GROUP_KEYS
+            f"review group '{name}': unknown key {k!r}" for k in entry if k not in _GROUP_KEYS
         ]
         declared[name] = entry
 
@@ -144,14 +145,14 @@ def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
         hidden = next((c for c in command if not c.isprintable()), None)
         if hidden is not None:
             problems.append(
-                f"review.commands: the command for '{model}' holds a character that "
+                f"review.commands: the command for {model!r} holds a character that "
                 f"can't be printed (U+{ord(hidden):04X})"
             )
             continue
         try:
             shlex.split(command)
         except ValueError as e:
-            problems.append(f"review.commands: can't split the command for '{model}': {e}")
+            problems.append(f"review.commands: can't split the command for {model!r}: {e}")
     return found
 
 
@@ -220,6 +221,8 @@ def _reviewers(
         if not isinstance(model, str) or not model:
             problems.append(f"review group '{group}': each reviewer needs a name and a count")
             ok = False
+            if isinstance(spec, dict) and _is_count(spec.get("count")):
+                total += spec["count"]
             continue
         assert isinstance(spec, dict)
         entry_ok = True
@@ -231,13 +234,12 @@ def _reviewers(
             entry_ok = False
         unknown = [k for k in spec if k not in _REVIEWER_KEYS]
         if unknown:
-            problems.append(f"review group '{group}': unknown key '{unknown[0]}' in a reviewer")
+            problems.append(f"review group '{group}': unknown key {unknown[0]!r} in a reviewer")
             entry_ok = False
         count = spec.get("count")
-        # `bool` is a subclass of `int`, and `"count": true` is a typo rather
-        # than a count of one. The model is quoted with `repr` because it may be
-        # the bad name reported above, newline included.
-        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        # The model is quoted with `repr` because it may be the bad name
+        # reported above, newline included.
+        if not _is_count(count):
             problems.append(f"review group '{group}': count for {model!r} must be 1 or more")
             ok = False
             continue
@@ -261,3 +263,9 @@ def _reviewers(
     if total > MAX_COUNT:
         problems.append(f"review group '{group}' has more than {MAX_COUNT} reviewers")
     return tuple(found) if ok else None
+
+
+def _is_count(value: object) -> TypeGuard[int]:
+    """A reviewer count of 1 or more. `bool` is a subclass of `int`, and
+    `"count": true` is a typo rather than a count of one."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1

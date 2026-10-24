@@ -353,37 +353,22 @@ def test_range_keeps_a_merge_of_a_history_with_no_common_commit(repo: Path) -> N
     assert set(found) == {vendored, merge, own}
 
 
-def test_range_keeps_a_merge_whose_shared_history_a_shallow_clone_cut(
-    tmp_path: Path, repo: Path
-) -> None:
-    """Redone against an empty base, a merge that kept a file `main` deleted
-    matches its own tree. In a clone too shallow to hold the parents' common
-    commit, that merge left the range unreviewed."""
-    git(repo, "checkout", "-q", "main")
-    commit(repo, "guard")
-    commit(repo, "m1")
-    git(repo, "checkout", "-q", "-B", "637-x")
+def test_range_refuses_a_shallow_clone(tmp_path: Path, repo: Path) -> None:
+    """`rev-list` can't list commits past a shallow cut, so a completed run
+    marked them reviewed unseen. A merge whose parents' shared commit was cut
+    was also redone against an older base, and one that kept a file `main`
+    deleted matched its redo and left the range."""
     commit(repo, "a")
-    git(repo, "checkout", "-q", "main")
-    git(repo, "rm", "-q", "guard")
-    git(repo, "commit", "-q", "-m", "delete guard")
-    commit(repo, "t")
-    git(repo, "checkout", "-q", "637-x")
-    git(repo, "merge", "-q", "--no-ff", "--no-commit", "main")
-    git(repo, "checkout", "HEAD", "--", "guard")
-    git(repo, "commit", "-q", "--no-edit")
-    merge = git(repo, "rev-parse", "HEAD")
-    git(repo, "checkout", "-q", "main")
+    head = commit(repo, "b")
     shallow = tmp_path / "shallow"
     subprocess.run(
-        ["git", "clone", "-q", "--depth", "2", "--no-single-branch",
+        ["git", "clone", "-q", "--depth", "1", "--branch", "637-x",
          f"file://{repo}", str(shallow)],
         check=True,
     )
-    git(shallow, "checkout", "-q", "637-x")
 
-    assert git(shallow, "rev-parse", "--is-shallow-repository") == "true"
-    assert merge in _review.commit_range(shallow, merge, None).commits
+    with pytest.raises(_review.ShallowClone, match="git fetch --unshallow"):
+        _review.commit_range(shallow, head, None)
 
 
 def test_range_keeps_a_merge_of_more_than_two_branches(repo: Path) -> None:

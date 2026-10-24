@@ -65,6 +65,14 @@ class NoTrunk(ReviewError):
         super().__init__(TRUNK_MESSAGE)
 
 
+class ShallowClone(ReviewError):
+    def __init__(self) -> None:
+        super().__init__(
+            "this clone is shallow, so wfctl can't see every commit on the branch; "
+            "run git fetch --unshallow"
+        )
+
+
 class NoRun(ReviewError):
     def __init__(self, group: str) -> None:
         super().__init__(f"{group} has no run; run wfctl review start {group}")
@@ -186,7 +194,15 @@ def commit_range(
 
     The arguments end with `--`, since git otherwise reads a bare `main` as a
     path when one exists and refuses the range as ambiguous.
+
+    A shallow clone is refused. `rev-list` can't list commits past the cut, so
+    a completed run would mark them reviewed unseen. A merge whose parents'
+    nearest shared commit was cut is also redone against an older base, which
+    can match a merge that kept a file `main` deleted.
     """
+    shallow = _git(repo_root, "rev-parse", "--is-shallow-repository", timeout=timeout)
+    if shallow.stdout.strip() == "true":
+        raise ShallowClone()
     refs = trunk_refs(repo_root, timeout)
     base = None
     if last_reviewed is not None and _is_commit(repo_root, last_reviewed, timeout):
@@ -223,12 +239,10 @@ def _has_own_edits(
     A merge with more than two parents has no single redo to compare against,
     so it stays in the range.
 
-    A merge whose parents share no commit stays in the range too. A merged
-    orphan branch makes one, and so does a shallow clone that cut the history
-    the parents share. `merge-tree` refuses to redo such a merge, and
-    `--allow-unrelated-histories` would redo it against an empty base instead.
-    An empty base can't show that a merge kept a file one side deleted, so in a
-    shallow clone that edit would leave the range unreviewed.
+    A merge whose parents share no commit, such as a merged orphan branch,
+    stays in the range too. `merge-tree` refuses to redo such a merge, and
+    `--allow-unrelated-histories` would redo it against an empty base instead,
+    which can't show that the merge kept a file one side deleted.
     """
     if len(parents) != 2:
         return True
