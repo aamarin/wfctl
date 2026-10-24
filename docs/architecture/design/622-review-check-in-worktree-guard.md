@@ -100,7 +100,12 @@ branch it acts on, or because the agent shouldn't run it at all:
    `gh pr --squash=true merge 630`. `gh` accepts more spellings there than a
    list of refused ones keeps up with, so the check lists the one spelling it
    allows instead. The check matches the program name `gh` in any case, since
-   macOS runs `GH pr merge 630` as `gh`.
+   macOS runs `GH pr merge 630` as `gh`. The word after `gh` has to be one of
+   `gh`'s own commands, on a fixed list wfctl keeps, for the same reason: an
+   extension such as `gh stack merge` merges pull requests, and every
+   extension or shortcut a person installs adds a word the check has never
+   seen. `copilot` and `agent-task` are left off the list, since each hands
+   the request to another agent.
 8. A command that acts on another branch's pull request, unless it runs in the
    checkout on the trunk branch. A worktree opens and merges only its own
    branch's pull request, and the person orchestrates from the trunk checkout.
@@ -109,8 +114,7 @@ branch it acts on, or because the agent shouldn't run it at all:
 The rule behind items 5 to 7 is that the check refuses a command whose text
 shows it can't be sure what the command acts on. A gap is recorded as a known
 limit instead only when the command looks ordinary and what changes it lives
-outside the text, such as a `gh` alias or GitHub's auto-merge when checks are
-pending.
+outside the text, such as GitHub's auto-merge when checks are pending.
 
 If a command matches none of them, it goes on to the worktree check with no
 file read and no git call.
@@ -259,3 +263,8 @@ to check means changing one list in either graph.
 - 2026-10-23  proposed  — #622 plan review. The program name `gh` matches in
   any case, and an `-R` host other than `github.com` refuses. Andre approved
   fixing the fourth review's two findings.
+- 2026-10-24  proposed  — #622 plan review. The word after `gh` has to be one
+  of `gh`'s own commands, which refuses extensions and shortcuts, and a
+  `gh api` create is read in every body-flag spelling `gh` accepts. Andre
+  approved allowing a fixed list of commands, at the cost of running
+  extensions in his own terminal.
