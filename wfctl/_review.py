@@ -182,7 +182,7 @@ def commit_range(
     dropped only when git would have made it on its own, so merging `main`
     doesn't force a round. A conflict resolution exists only in the merge
     commit, and dropping every merge would leave it unreviewed. Each merge in
-    the range costs up to two more git calls, each under the same timeout.
+    the range costs up to three more git calls, each under the same timeout.
 
     The arguments end with `--`, since git otherwise reads a bare `main` as a
     path when one exists and refuses the range as ambiguous.
@@ -223,16 +223,20 @@ def _has_own_edits(
     A merge with more than two parents has no single redo to compare against,
     so it stays in the range.
 
-    The redo passes `--allow-unrelated-histories`, since `git subtree add` and a
-    merged orphan branch both make a merge whose parents share no commit.
-    Without the flag, git refuses the redo, and every `review start` on that
-    branch failed.
+    A merge whose parents share no commit stays in the range too. A merged
+    orphan branch makes one, and so does a shallow clone that cut the history
+    the parents share. `merge-tree` refuses to redo such a merge, and
+    `--allow-unrelated-histories` would redo it against an empty base instead.
+    An empty base can't show that a merge kept a file one side deleted, so in a
+    shallow clone that edit would leave the range unreviewed.
     """
     if len(parents) != 2:
         return True
+    shared = _git(repo_root, "merge-base", *parents, timeout=timeout, answers=(0, 1))
+    if shared.returncode == 1:
+        return True
     redone = _git(
-        repo_root, "merge-tree", "--write-tree", "--allow-unrelated-histories", *parents,
-        timeout=timeout, answers=(0, 1),
+        repo_root, "merge-tree", "--write-tree", *parents, timeout=timeout, answers=(0, 1),
     )
     if redone.returncode == 1:
         return True

@@ -205,13 +205,15 @@ def test_a_custom_group_with_no_skill_runs_the_code_review(tmp_path: Path) -> No
         pytest.param(
             {"commands": {"codex": "codex exec\nreports: /tmp/x/\ns9 claude"},
              "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}]},
-            "review.commands: the command for 'codex' holds a control character",
+            "review.commands: the command for 'codex' holds a character that can't be "
+            "printed (U+000A)",
             id="command-with-a-newline",
         ),
         pytest.param(
-            {"commands": {"codex": "codex exec s9 claude"},
+            {"commands": {"codex": "codex exec\u2028s9 claude"},
              "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}]},
-            "review.commands: the command for 'codex' holds a control character",
+            "review.commands: the command for 'codex' holds a character that can't be "
+            "printed (U+2028)",
             id="command-with-a-unicode-line-separator",
         ),
         pytest.param(
@@ -248,18 +250,22 @@ def test_the_reviewer_cap_is_reported_beside_the_groups_other_problems(
     tmp_path: Path,
 ) -> None:
     """The cap returned as soon as the total passed 20, and counted only the
-    entries that were valid so far. A model with no command hid the cap, and the
-    cap hid every entry after it, so each fix revealed the next problem."""
+    entries that were valid so far. A model with no command, a bad model name,
+    or an unknown key hid the cap, and the cap hid every entry after it, so each
+    fix revealed the next problem."""
     _write(tmp_path, {"groups": [{"group": "security", "reviewers": [
-        {"name": "gemini", "count": 15},
-        {"name": "claude", "count": 15},
-        {"name": "4o", "count": 1},
+        {"name": "gemini", "count": 8},
+        {"name": "4o", "count": 8},
+        {"name": "claude", "count": 8, "model": "opus"},
+        {"name": "x y", "count": 1},
     ]}]})
     groups, problems = load(tmp_path)
     assert groups == []
     assert "review group 'security': model 'gemini' has no entry in review.commands" in problems
-    assert "review group 'security' has more than 20 reviewers" in problems
     assert any("model '4o'" in p for p in problems), problems
+    assert "review group 'security': unknown key 'model' in a reviewer" in problems
+    assert any("model 'x y'" in p for p in problems), problems
+    assert "review group 'security' has more than 20 reviewers" in problems
 
 
 def test_a_wfctl_json_that_is_not_json_is_a_finding_rather_than_an_exception(

@@ -39,11 +39,6 @@ _REVIEWER_KEYS = ("name", "count")
 # a trailing newline. A model name follows the same rule, since `review start`
 # prints it in lines the panel skill reads one at a time.
 PLAIN_NAME = re.compile(r"[a-z][a-z0-9-]*")
-# A command is printed on that same line, so it can't hold a control character
-# either. A newline in one would print a roster line nobody declared. The check
-# uses `str.isprintable` rather than a list of ASCII controls. Python's
-# `splitlines` also breaks a line at U+0085, U+2028, and U+2029, so a reader
-# that splits the roster with it would see the same extra line.
 # A skill is named the way an agent loads one, optionally after a plugin name,
 # such as `agent-skills:review`. A path is never a skill name.
 _SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?")
@@ -141,9 +136,16 @@ def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
     if CLAUDE in found:
         problems.append(f"review.commands: {CLAUDE} runs inside the agent and takes no command")
     for model, command in found.items():
-        if not command.isprintable():
+        # A command is printed on the same roster line as its model, so a
+        # newline in one would print a roster line nobody declared. The check is
+        # `str.isprintable` rather than the ASCII controls, because `splitlines`
+        # also breaks a line at U+0085, U+2028, and U+2029. It rejects a
+        # no-break space or U+202E as well, so the finding names the character.
+        hidden = next((c for c in command if not c.isprintable()), None)
+        if hidden is not None:
             problems.append(
-                f"review.commands: the command for '{model}' holds a control character"
+                f"review.commands: the command for '{model}' holds a character that "
+                f"can't be printed (U+{ord(hidden):04X})"
             )
             continue
         try:
@@ -209,9 +211,9 @@ def _reviewers(
     Codex reviewer after two Claude ones is `s3` rather than a second `s1`."""
     found: list[Reviewer] = []
     ok = True
-    # Every well-formed count adds to the total, including one whose model has
-    # no command, so the cap is reported in the same run as the other problems
-    # rather than after they are fixed.
+    # Every well-formed count adds to the total, whatever else is wrong with its
+    # entry, so the cap is reported in the same run as the other problems rather
+    # than after they are fixed.
     total = 0
     for spec in listed:
         model = spec.get("name") if isinstance(spec, dict) else None
@@ -220,26 +222,29 @@ def _reviewers(
             ok = False
             continue
         assert isinstance(spec, dict)
+        entry_ok = True
         if not PLAIN_NAME.fullmatch(model):
             problems.append(
                 f"review group '{group}': model {model!r} isn't lowercase letters, "
                 "digits and hyphens, starting with a letter"
             )
-            ok = False
-            continue
+            entry_ok = False
         unknown = [k for k in spec if k not in _REVIEWER_KEYS]
         if unknown:
             problems.append(f"review group '{group}': unknown key '{unknown[0]}' in a reviewer")
-            ok = False
-            continue
+            entry_ok = False
         count = spec.get("count")
         # `bool` is a subclass of `int`, and `"count": true` is a typo rather
-        # than a count of one.
+        # than a count of one. The model is quoted with `repr` because it may be
+        # the bad name reported above, newline included.
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
-            problems.append(f"review group '{group}': count for '{model}' must be 1 or more")
+            problems.append(f"review group '{group}': count for {model!r} must be 1 or more")
             ok = False
             continue
         total += count
+        if not entry_ok:
+            ok = False
+            continue
         command = None if model == CLAUDE or commands is None else commands.get(model)
         if model != CLAUDE and command is None:
             if commands is not None:

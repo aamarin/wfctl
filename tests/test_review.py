@@ -336,19 +336,54 @@ def test_range_leaves_out_a_clean_merge_of_nearby_lines(
     assert _review.commit_range(repo, own, reviewed).commits == (own,)
 
 
-def test_range_reads_a_merge_of_a_history_with_no_common_commit(repo: Path) -> None:
-    """`git subtree add` merges a history that shares no commit with the
-    branch, and `merge-tree` refuses those unless told otherwise, so every
-    `review start` on such a branch failed with a git error."""
+def test_range_keeps_a_merge_of_a_history_with_no_common_commit(repo: Path) -> None:
+    """A merged orphan branch shares no commit with the branch, and
+    `merge-tree` refuses to redo that merge, so every `review start` on such a
+    branch failed with a git error."""
     reviewed = commit(repo, "a")
     git(repo, "checkout", "-q", "--orphan", "vendor")
     git(repo, "rm", "-q", "-r", "-f", ".")
     vendored = commit(repo, "lib")
     git(repo, "checkout", "-q", "637-x")
     git(repo, "merge", "-q", "--no-edit", "--allow-unrelated-histories", "vendor")
+    merge = git(repo, "rev-parse", "HEAD")
     own = commit(repo, "b")
 
-    assert set(_review.commit_range(repo, own, reviewed).commits) == {vendored, own}
+    found = _review.commit_range(repo, own, reviewed).commits
+    assert set(found) == {vendored, merge, own}
+
+
+def test_range_keeps_a_merge_whose_shared_history_a_shallow_clone_cut(
+    tmp_path: Path, repo: Path
+) -> None:
+    """Redone against an empty base, a merge that kept a file `main` deleted
+    matches its own tree. In a clone too shallow to hold the parents' common
+    commit, that merge left the range unreviewed."""
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "guard")
+    commit(repo, "m1")
+    git(repo, "checkout", "-q", "-B", "637-x")
+    commit(repo, "a")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "rm", "-q", "guard")
+    git(repo, "commit", "-q", "-m", "delete guard")
+    commit(repo, "t")
+    git(repo, "checkout", "-q", "637-x")
+    git(repo, "merge", "-q", "--no-ff", "--no-commit", "main")
+    git(repo, "checkout", "HEAD", "--", "guard")
+    git(repo, "commit", "-q", "--no-edit")
+    merge = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "main")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "2", "--no-single-branch",
+         f"file://{repo}", str(shallow)],
+        check=True,
+    )
+    git(shallow, "checkout", "-q", "637-x")
+
+    assert git(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert merge in _review.commit_range(shallow, merge, None).commits
 
 
 def test_range_keeps_a_merge_of_more_than_two_branches(repo: Path) -> None:
