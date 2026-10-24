@@ -8,12 +8,14 @@ status: proposed
 
 A review run lists the commits a group hasn't reviewed, and each reviewer reads those commits with a plain `git show <sha>`. The two reads have to see the same content. Otherwise a completed run marks a change reviewed that no reviewer read.
 
-Git has two kinds of local state that change what a commit looks like without changing the commit:
+Git has two kinds of local state that swap the objects a commit is made of without changing the commit:
 
 1. A replace ref, made with `git replace`, swaps one object for another. It can swap a commit, a tree, or a file's blob, and `git replace --graft` swaps a commit for a copy with other parents.
 2. A grafts file, `.git/info/grafts` or the file `GIT_GRAFT_FILE` names, gives a commit other parents. Git has deprecated it, but still reads it.
 
 wfctl lists commits with both turned off: every call passes `--no-replace-objects` (#640), and `GIT_GRAFT_FILE` points at a file that can't exist. A reviewer's `git show` honors both. Neither is pushed by default, so the PR and the merge carry the real commits.
+
+Other local settings change how `git show` prints a diff without swapping any object. A textconv driver set in `.git/config` and `.git/info/attributes` can print other text for a file, and a `-diff` attribute prints only "Binary files differ". This record doesn't cover them.
 
 Previously, this branch refused only a replace ref that changed a commit's tree, and let a same-tree replacement through on the grounds that the reviewer still reads every change. The security review of this branch showed three ways past that check, each reproduced at 013b70d:
 
@@ -29,7 +31,8 @@ The agent writing the change can create any of these, since `refs/replace/` and 
 
 - `git --no-replace-objects replace -l` lists replace refs on git 2.44, so the listing works under the flag `_git` always passes.
 - `GIT_REPLACE_REF_BASE=refs/other/ git replace -l` lists nothing for a ref under `refs/replace/`, so `replace -l` reads the namespace the reviewer's git reads.
-- `git rev-parse --git-path info/grafts` returns `GIT_GRAFT_FILE` when it is set, and fails with "Not a directory" under `_git`'s own override. `--git-path info` is not remapped, so the check asks for that and appends `grafts`.
+- `git rev-parse --path-format=absolute --git-path info/grafts` returns the file `GIT_GRAFT_FILE` names when it is set, and fails with "Not a directory" under `_git`'s own override. So the check runs that one call with the caller's environment.
+- Git resolves a relative `GIT_GRAFT_FILE` from the top of the worktree, even when it runs from a subdirectory, and `--git-path` returns that same file.
 - This repository has no replace refs (`git replace -l` prints nothing).
 - `tests/test_review.py` reproduces all three cases above, plus the graft that cuts commits out (#640's case) and a whole-object replace of a listed commit and of its parent.
 
@@ -76,7 +79,7 @@ The baseline has four arrows and the decision has three. The baseline's reads de
 
 ## Consequences
 
-A completed run now means every reviewer's `git show` read the commit wfctl listed, whatever replace refs or grafts the repository held.
+A run now refuses to start, and the guard refuses to pass, while the repository has any replace ref or grafts file. The check runs only at those two points. `wfctl review check` doesn't read the repository, so a replace ref created after the run starts and removed before the guard runs leaves no trace. That takes a deliberate act by the agent writing the change, which could also forge a report in the state directory.
 
 #640's case, a graft that cuts commits out, is now refused where it used to be listed through. The range was correct there, but each reviewer's diff spanned the commits the graft cut out, so the review read them as one change.
 
@@ -88,7 +91,8 @@ At the worktree guard, the refusal surfaces as "the review check failed", the sa
 
 - `test_range_refuses_any_replace_ref` covers a graft that cuts commits out, a same-tree graft, a replaced blob, and a whole-object replace of a listed commit and of its parent.
 - `test_range_refuses_a_grafts_file` covers a grafts line onto `main` and onto a same-tree decoy.
-- `test_range_refuses_a_grafts_file_named_by_the_environment` covers `GIT_GRAFT_FILE`.
+- `test_range_refuses_a_grafts_file_named_by_the_environment` covers `GIT_GRAFT_FILE`, as an absolute path and as a relative one with wfctl run from a subdirectory.
+- `test_range_refuses_a_grafts_file_that_is_not_text` covers a grafts file that isn't UTF-8.
 
 ## Log
 

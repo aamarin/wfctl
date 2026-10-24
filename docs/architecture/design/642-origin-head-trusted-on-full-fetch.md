@@ -24,7 +24,11 @@ Two clone states made `trunk_refs` exclude the branch under review:
 
 ## Assumed
 
-- `origin/HEAD` in a clone that fetches every branch names the remote's default branch, unless someone set it by hand. A clone where someone ran `git remote set-head origin <feature>` and then renamed the branch passes this check (the security review reproduced it at 013b70d). That takes a deliberate command, and this record doesn't cover it.
+- `origin/HEAD` in a clone that fetches every branch names the remote's default branch. Two paths break that bet, and the reviews reproduced both:
+  1. Someone runs `git remote set-head origin <feature>` in a full clone, then renames the branch.
+  2. Newer git sets `origin/HEAD` to the feature branch in a single-branch clone. Someone then widens the clone with `git remote set-branches origin '*'` and renames the branch.
+
+  In both, the refspec is the wildcard and the names differ, so the check passes and the range leaves out the commits already pushed. Each takes a command that changes the clone's remote setup, and this record doesn't cover them.
 
 ## Direct baseline
 
