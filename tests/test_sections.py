@@ -145,13 +145,34 @@ def test_a_bare_yes_or_no_is_flagged(answer: str) -> None:
 
 @pytest.mark.parametrize(
     ("answer", "finding"),
-    [("**No.**", NO_REASON), ("*No*", NO_REASON), ("_Yes._", NO_REASON), ("**N/A**", NA)],
+    [
+        ("**No.**", NO_REASON),
+        ("*No*", NO_REASON),
+        ("_Yes._", NO_REASON),
+        ("**N/A**", NA),
+        ("**No**.", NO_REASON),
+        ("_None_.", NA),
+        ("`No`", NO_REASON),
+        ("> No", NO_REASON),
+        ("- No", NO_REASON),
+        ("- [ ] No", NO_REASON),
+        ("[x] Yes", NO_REASON),
+    ],
 )
-def test_an_emphasized_bare_answer_is_flagged(answer: str, finding: str) -> None:
-    """Bolding a one-word answer is a common way to fill a template section, and
-    the plan review found that "**No.**" passed as answered (PR-024)."""
+def test_a_bare_answer_in_markdown_markup_is_flagged(answer: str, finding: str) -> None:
+    """Bolding a one-word answer, or writing it as a list item or a quote, is a
+    common way to fill a template section. The plan review found "**No.**"
+    passing as answered (PR-024), and the review panel then found "**No**." and
+    "- No" passing after that fix."""
     body = _body(f"## {NAME}\n{COMMENT}\n{answer}\n")
     assert _sections.body_findings(body, [NAME]) == [finding]
+
+
+def test_a_section_holding_only_a_sub_heading_is_empty() -> None:
+    """A lower-level heading stays inside the section, so a body that kept only
+    the template's sub-heading would otherwise read as an answer."""
+    body = _body(f"## {NAME}\n{COMMENT}\n### Why\n")
+    assert _sections.body_findings(body, [NAME]) == [EMPTY]
 
 
 def test_an_emphasized_answer_with_a_reason_passes() -> None:

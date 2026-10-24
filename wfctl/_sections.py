@@ -48,6 +48,9 @@ _HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 _NOT_AN_ANSWER = re.compile(r"(n/?a|none)\.?", re.IGNORECASE)
 _BARE_ANSWER = re.compile(r"(yes|no)[.!]?", re.IGNORECASE)
 
+# A quote, a list bullet, or a checkbox at the start of a line, in any mix.
+_MARKER = re.compile(r"^\s*(?:>\s*|[-*+]\s+|\[[ xX]\]\s*)*")
+
 # `find -maxdepth 3`, as `opening-a-change` Step 2 spells it: a path with three
 # parts at most, counted from the repository root.
 _TEMPLATE_PARTS = 3
@@ -128,6 +131,23 @@ def _section(body: str, name: str) -> str | None:
     return "\n".join(collected) if level else None
 
 
+def _markup_removed(text: str) -> str:
+    """The section's text with its markdown markup taken out, for matching only.
+
+    "**No**.", "- [ ] No" and "> No" are each a bare answer once the markup is
+    gone, and the markup is the most common way an agent fills a template
+    section. Removing it can't turn an answer with a reason into a bare one,
+    since the patterns only ever match the whole text. A sub-heading carries no
+    answer, so a section holding only one reads as empty.
+    """
+    lines = [
+        _MARKER.sub("", line)
+        for line in text.splitlines()
+        if not _HEADING.match(line)
+    ]
+    return re.sub(r"[*_`]", "", "\n".join(lines)).strip()
+
+
 def body_findings(body: str, required: list[str]) -> list[str]:
     """One line per listed section the body leaves unanswered, in list order.
 
@@ -144,10 +164,7 @@ def body_findings(body: str, required: list[str]) -> list[str]:
                 f'"{name}" is missing. This repository asks every pull request to answer it.'
             )
             continue
-        # Emphasis around the whole answer is stripped before matching, so "**No.**"
-        # is still a bare answer. Emphasis on only part of it, as in "**No**, small
-        # change.", leaves a reason behind and passes.
-        answer = text.strip().strip("*_").strip()
+        answer = _markup_removed(text)
         hint = "The template's comment under that heading says what to write."
         if not answer:
             findings.append(f'"{name}" is empty. {hint}')
