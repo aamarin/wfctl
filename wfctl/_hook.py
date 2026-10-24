@@ -183,8 +183,9 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # checkout's manifest and for the project name, and nearly every command
     # that names a path names one in this worktree and was never going to need
     # either.
-    # Whether a root takes commits costs three more, and one per feature folder
-    # a commit names, so it is asked only of a command that runs git at all.
+    # Whether a root takes commits costs up to five more, and one per feature
+    # folder a commit names, so it is asked only of a command that runs git at
+    # all.
     # Only the spec root is asked: nothing commits handoffs, and a state root
     # under a dotfiles repository would otherwise take commits nobody meant it
     # to.

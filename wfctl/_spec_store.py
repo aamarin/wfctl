@@ -95,15 +95,24 @@ def owns_branch(root: str, here: str) -> bool:
 
     Asked of git rather than read from the path, because git picks the
     repository from files inside the root. `root` qualifies when it belongs to
-    another repository than `here`, or when it has a branch checked out that no
-    other worktree of `here`'s project has. A plain `<main>/specs` fails, since
-    git there finds the main checkout and its branch, and so does a store whose
-    `.git` was replaced to point at the main checkout's.
+    another repository than `here`, or when it is not the project's main
+    checkout and has a branch checked out that no other worktree of `here`'s
+    project has. A plain `<main>/specs` fails, since git there finds the main
+    checkout and its branch, and so does a store whose `.git` was replaced to
+    point at the main checkout's.
 
-    False whenever git cannot answer, for `root` or for `here`. The worktree
-    guard reads this before it lets an agent commit, and the store reads it
-    before it commits on its own, so an unanswered question has to come out as
-    "not a store" for both.
+    The main checkout is refused by its path, because its branch is the
+    code's, whatever it is called. From a feature worktree no other worktree
+    has that branch checked out, so the branch test alone would pass it, and
+    refusing it here rather than in each caller means a caller cannot forget
+    to. The main checkout is the first worktree git lists, so in a bare
+    repository, where that entry is the bare directory, the worktree holding
+    the code's default branch is not covered.
+
+    False whenever git cannot answer, for `root` or for `here`, the worktree
+    listing included. The worktree guard reads this before it lets an agent
+    commit, and the store reads it before it commits on its own, so an
+    unanswered question has to come out as "not a store" for both.
 
     This does not check that `root` is the top of its checkout. `top_level`
     is that check, and both callers make it separately.
@@ -114,12 +123,17 @@ def owns_branch(root: str, here: str) -> bool:
         return False
     if theirs != ours:
         return True
+    # A listing that fails would leave `taken` empty below, and every branch
+    # would read as one nobody else has.
+    real = os.path.realpath(root)
+    main = _main_worktree(here)
+    if main is None or real == main:
+        return False
     branch = _read(root, "symbolic-ref", "-q", "HEAD")
     if not branch:
         return False
     # Each porcelain block names one worktree and, unless it is detached, the
     # branch it has checked out.
-    real = os.path.realpath(root)
     taken: set[str] = set()
     for block in (_read(here, "worktree", "list", "--porcelain") or "").split("\n\n"):
         fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
@@ -188,11 +202,14 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     # `owns_branch` leaves the root's own worktree out of the branches already
     # taken, so a code checkout named as the root would read as a worktree
     # holding a branch nobody else has, and the store would commit onto the
-    # code's branch. It has to be turned away before that rule runs. There are
-    # two such checkouts: this one, and the main one, which is where a
-    # relative `spec_root` lands from a feature worktree, since it is anchored
-    # to the manifest that declared it and `install-skills` writes that in
-    # the main checkout.
+    # code's branch. There are two such checkouts: this one, and the main one,
+    # which is where a relative `spec_root` lands from a feature worktree,
+    # since it is anchored to the manifest that declared it and
+    # `install-skills` writes that in the main checkout. `owns_branch` refuses
+    # the main one itself but not this one, so this one has to be turned away
+    # before that rule runs. Both are turned away before the detached test
+    # below, so a code checkout with no branch reads as code rather than as a
+    # broken store.
     if top in (top_level(repo), _main_worktree(repo)):
         return Layout("in_repo", root)
     branch = _local_branch(root)
