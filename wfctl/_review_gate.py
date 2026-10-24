@@ -88,8 +88,14 @@ _PR_URL = re.compile(r"https?://(?P<host>[^/]+)/(?P<owner>[^/]+)/(?P<repo>[^/]+)
 # The shell expands `{a,b}` and `{1..3}` into several words, and a glob into
 # the files it matches, after the check has read the command as one word.
 _BRACE = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
-_REDIRECT_ONLY = re.compile(r"\d*(?:>>?|<|&>>?|>&|<&|>\|)")
-_REDIRECT = re.compile(r"\d*(?:>>?|<|&>>?|>&|<&|>\|)\S")
+# The redirections the check reads, and nothing else: a `<` or `>` in any
+# other word refuses. A list of allowed spellings rather than a pattern for
+# every one the shell accepts, since `631&>/dev/null` and `-tx> --help` each
+# read as a redirection to a looser pattern while the shell passed `631` and
+# `-tx` to `gh`.
+_FD_COPY = re.compile(r"[12]?>&[12]")
+_REDIRECT_ALONE = re.compile(r"[12]?>>?|<|&>>?")
+_REDIRECT_TO = re.compile(r"(?:[12]?>>?|<|&>>?)[^<>&|]+")
 
 _MERGE_VALUE = frozenset({
     "-t", "--subject", "-b", "--body", "-F", "--body-file", "-A", "--author-email",
@@ -199,7 +205,8 @@ def read(command: str) -> tuple[list[str], list[Target]]:
         if problem:
             refused.append(f"✗ {problem}")
     for m in _GH_API.finditer(command):
-        problem = _api_call(_split(command[m.end():_command_end(command, m.end())]))
+        words = _shell_words(command[m.end():_command_end(command, m.end())], "gh api", False)
+        problem = words if isinstance(words, str) else _api_call(words)
         if problem:
             refused.append(f"✗ {problem}")
     if _CREATE_MUTATION.search(command):
@@ -370,13 +377,6 @@ def _shape(text: str, start: int, end: int, name: str) -> str | None:
     return None
 
 
-def _split(text: str) -> list[str]:
-    try:
-        return shlex.split(text)
-    except ValueError:
-        return text.split()
-
-
 def _flags(
     words: Sequence[str], takes_value: frozenset[str], known: frozenset[str] | None,
 ) -> tuple[list[tuple[str, str | None]], list[str]] | None:
@@ -432,42 +432,18 @@ def _repo_value(flag: str) -> str:
     return flag
 
 
-def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
+def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str:
     """The command a matched `gh pr` verb runs, or why the check can't read it.
 
-    None for `--help`, which prints help and does nothing else.
-
-    The words are read as written first, quotes kept, for what the shell does
-    to them before `gh` starts and `shlex` doesn't: a word starting with `#`
-    begins a comment, a brace or a glob expands into other words, and a
-    redirection names a file rather than an argument. A comment hid a `--help`
-    the shell drops, and a brace slid a second pull request in after the check
-    had read one.
+    `--help` is judged like any other flag. Allowing it as help, since `gh`
+    prints help and does nothing else, let a `--help` the shell drops or
+    redirects carry a merge past the check unjudged, in more spellings than
+    one review round could list.
     """
-    written = _raw_words(text)
-    if any(word.startswith("#") and bare.startswith("#") for word, bare in written):
-        return (
-            f"run {name} without a # comment; the shell drops it, and the check "
-            "would read it as part of the command"
-        )
-    if any(_BRACE.search(bare) or set(bare) & set("*?[") for _, bare in written):
-        return (
-            f"write {name}'s arguments without a brace or a glob; the shell expands "
-            "them after the check has read the command"
-        )
-    kept: list[str] = []
-    skip = False
-    for word, bare in written:
-        if skip:
-            skip = False
-        elif word == bare and _REDIRECT_ONLY.fullmatch(word):
-            skip = True
-        elif not (word[0] not in "'\"" and _REDIRECT.match(word)):
-            kept.append(word)
-    try:
-        words = shlex.split(" ".join(kept))[1:]
-    except ValueError:
-        return _UNREADABLE
+    words = _shell_words(text, name, True)
+    if isinstance(words, str):
+        return words
+    words = words[1:]
     create = name == "gh pr create"
     read_flags = _flags(
         words, _CREATE_VALUE if create else _MERGE_VALUE, None if create else _MERGE_FLAG,
@@ -476,10 +452,6 @@ def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
         return _UNREADABLE
     pairs, args = read_flags
     flags = {flag for flag, _ in pairs}
-    if any(f == "--help" and v is not None for f, v in pairs):
-        return _UNREADABLE
-    if flags & {"-h", "--help"}:
-        return None
     if "--auto" in flags:
         return "auto-merge would merge a head this check never judged"
     repos = [_repo_value(p) for p in pre] + [v or "" for f, v in pairs if f in ("-R", "--repo")]
@@ -504,6 +476,64 @@ def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
         create, pr=args[0] if args else None, repo=repo, named_by=named_by,
         head=head or None, owner=owner or None,
     )
+
+
+def _shell_words(text: str, name: str, variables: bool) -> list[str] | str:
+    """The words `gh` receives from `text`, or why the check can't tell.
+
+    `shlex` keeps what the shell changes before `gh` starts, so the words are
+    read as written first, quotes kept. A word starting with `#` begins a
+    comment, a brace or a glob expands into other words, an unquoted variable
+    splits into words, and a redirection names a file rather than an argument.
+    A comment hid a `--help` the shell drops, and a brace slid a second pull
+    request in after the check had read one.
+
+    `variables` is False for `gh api`, whose reads go through a variable path
+    all the time and are refused only when they write (`_api_call`).
+    """
+    written = _raw_words(text)
+    if any(word.startswith("#") and bare.startswith("#") for word, bare in written):
+        return (
+            f"run {name} without a # comment; the shell drops it, and the check "
+            "would read it as part of the command"
+        )
+    if any(_BRACE.search(bare) or set(bare) & set("*?[") for _, bare in written):
+        return (
+            f"write {name}'s arguments without a brace or a glob; the shell expands "
+            "them after the check has read the command"
+        )
+    if variables and any("$" in bare for _, bare in written):
+        return (
+            f"write {name}'s arguments without an unquoted variable; the shell splits "
+            "it into words after the check has read the command"
+        )
+    kept: list[str] = []
+    target = False
+    for word, bare in written:
+        if target:
+            target = False
+            if not set(bare) & set("<>&|"):
+                continue
+        elif not set(bare) & set("<>"):
+            kept.append(word)
+            continue
+        elif word == bare and _FD_COPY.fullmatch(word):
+            continue
+        elif word == bare and _REDIRECT_ALONE.fullmatch(word):
+            target = True
+            continue
+        elif _REDIRECT_TO.fullmatch(word) and word[0] in "12<>&":
+            continue
+        return (
+            f"write {name}'s redirections as words of their own, such as 2>&1 or "
+            "> out.txt; the check can't read this one"
+        )
+    if target:
+        return _UNREADABLE
+    try:
+        return shlex.split(" ".join(kept))
+    except ValueError:
+        return _UNREADABLE
 
 
 def _raw_words(text: str) -> list[tuple[str, str]]:

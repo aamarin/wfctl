@@ -794,26 +794,86 @@ def test_a_merge_the_check_cant_read_is_refused(
     assert "✗ can't read the pull request this command names" in lines(err)
 
 
-@pytest.mark.parametrize("command", ["gh pr merge --help", "gh pr merge -h"])
-def test_help_is_allowed(repos: Repos, guard: Guard, command: str) -> None:
-    """`gh` prints its help and does nothing else."""
-    assert guard(command, repos.feature) == (0, "")
-
-
 @pytest.mark.parametrize("command", [
+    "gh pr merge 630 --help",
+    "gh pr merge 630 -h",
     "gh pr merge 630 --squash --help=false",
     "gh pr create --fill --help=0",
+    "gh pr merge 630 -tx> --help",
+    "gh pr merge 630 --subject=x> --help",
+    "gh pr merge 630 <<< --help",
+    "gh pr merge 630 >! --help",
 ])
-def test_help_with_a_value_is_not_read_as_help(
+def test_help_is_judged_like_any_other_flag(
     repos: Repos, guard: Guard, command: str,
 ) -> None:
-    """`gh` reads `--help=false` as help switched off and runs the command, so
-    allowing it as help would let an unreviewed merge through unjudged. Found
-    by security reviewer s1 on #638's own panel."""
+    """Allowing a command as help, since `gh` prints help and does nothing
+    else, let a `--help` the shell drops or redirects carry a merge past the
+    check unjudged. Reviewers on #638's own panel found `--help=false`, a
+    `# --help` comment, and six redirection spellings, one round after
+    another, so help gets no exception at all."""
     code, err = guard(command, repos.main)
 
     assert code == 2
-    assert "✗ can't read the pull request this command names" in lines(err)
+    assert err.startswith("✗")
+
+
+def test_help_on_a_reviewed_pull_request_is_allowed(repos: Repos, guard: Guard) -> None:
+    """Judged like any other command, help passes once the branch is reviewed."""
+    repos.complete(repos.other, "630-x")
+
+    assert guard("gh pr merge 630 --help", repos.main) == (0, "")
+
+
+@pytest.mark.parametrize("command", [
+    "gh pr merge 631&>/dev/null",
+    "gh pr merge 631>&2",
+    "gh pr merge 631> /dev/null",
+    "gh pr merge 630 <> x",
+])
+def test_a_redirection_the_check_cant_read_is_refused(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """A pattern loose enough to take `631&>/dev/null` as a redirection dropped
+    the PR number the shell still passes to `gh`, and the merge was judged as
+    this branch's own. Found by security reviewer s3 on #638's own panel."""
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard(command, repos.feature)
+
+    assert code == 2
+    assert "redirections as words of their own" in err
+
+
+@pytest.mark.parametrize("command", [
+    "gh pr merge 630 -t $X",
+    "gh pr merge 630 ${x:+ --help }",
+])
+def test_an_unquoted_variable_in_the_arguments_is_refused(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """The shell splits an unquoted variable into words, so `-t $X` can carry a
+    second pull request the check never read."""
+    code, err = guard(command, repos.main)
+
+    assert code == 2
+    assert "without an unquoted variable" in err
+
+
+@pytest.mark.parametrize(("command", "refusal"), [
+    ("gh api 2>/dev/null graphql -F query=@m.graphql", "put the GraphQL query in the command"),
+    ("gh api >/dev/null repos/o/r/pulls --input body.json", "open the pull request with gh pr create"),
+    ('gh api -X PUT >/dev/null "$U"', "write the gh api path out plainly"),
+])
+def test_a_redirection_before_the_api_path_is_not_read_as_the_path(
+    guard: Guard, tmp_path: Path, command: str, refusal: str,
+) -> None:
+    """Taken as the path, a redirection turned every `gh api` refusal off.
+    Found by security reviewer s3 on #638's own panel."""
+    code, err = guard(command, tmp_path)
+
+    assert code == 2
+    assert refusal in err
 
 
 @pytest.mark.parametrize("command", [

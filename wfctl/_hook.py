@@ -179,9 +179,16 @@ def worktree_guard(stdin_text: str | bytes) -> int:
 
             refused = _review_gate.refusal(command, payload.get("cwd"))
         except Exception as e:
-            from wfctl._guard import review_check_failed
+            reason = str(e) or type(e).__name__
+            # A plain line if even `_guard` won't import, since an exception
+            # leaving this block would exit 1, which the host reads as a
+            # failed hook rather than a refusal, and the command would run.
+            try:
+                from wfctl._guard import review_check_failed
 
-            refused = review_check_failed(str(e) or type(e).__name__)
+                refused = review_check_failed(reason)
+            except Exception:
+                refused = f"✗ the review check failed: {reason}"
         if refused:
             print(refused, file=sys.stderr)
             return 2
