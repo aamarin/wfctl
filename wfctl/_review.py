@@ -133,6 +133,16 @@ def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
     return refs
 
 
+def _is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
+    """Whether this repository has the commit. One it has never seen is no
+    ancestor of anything, and asking `merge-base` about it is an error rather
+    than a no."""
+    r = _git(
+        repo_root, "cat-file", "-e", f"{sha}^{{commit}}", timeout=timeout, answers=(0, 1, 128),
+    )
+    return r.returncode == 0
+
+
 def _is_ancestor(repo_root: Path, older: str, newer: str, timeout: float | None) -> bool:
     r = _git(
         repo_root, "merge-base", "--is-ancestor", older, newer,
@@ -161,20 +171,13 @@ def commit_range(
     drops the merge that brought them, so merging `main` doesn't force a round.
     """
     refs = trunk_refs(repo_root, timeout)
-    if last_reviewed is not None:
-        # A last reviewed commit this repository has never seen is no ancestor
-        # of anything, and asking git about it is an error rather than a no.
-        known = _git(
-            repo_root, "cat-file", "-e", f"{last_reviewed}^{{commit}}",
-            timeout=timeout, answers=(0, 1, 128),
-        ).returncode == 0
-        if known and _is_ancestor(repo_root, head, last_reviewed, timeout):
+    base = None
+    if last_reviewed is not None and _is_commit(repo_root, last_reviewed, timeout):
+        if _is_ancestor(repo_root, head, last_reviewed, timeout):
             return Range(last_reviewed, ())
-        if not known or not _is_ancestor(repo_root, last_reviewed, head, timeout):
-            last_reviewed = None
-    if last_reviewed is not None:
-        base = last_reviewed
-    else:
+        if _is_ancestor(repo_root, last_reviewed, head, timeout):
+            base = last_reviewed
+    if base is None:
         base = _git(repo_root, "merge-base", head, refs[0], timeout=timeout).stdout.strip()
     listed = _git(
         repo_root, "rev-list", "--no-merges", f"{base}..{head}", "--not", *refs,
@@ -318,8 +321,8 @@ def start(
     """
     head = head_commit(repo_root, timeout)
     found = commit_range(repo_root, head, last_reviewed(agent_dir, group.name), timeout)
-    # Looked up at call time rather than bound as the default, so a test that
-    # patches `shutil.which` reaches the CLI's call too.
+    # Resolved when called rather than bound as the default, so `shutil.which`
+    # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
     if not found.commits:
         return Started(group.name, found.base, head, (), None, tuple(reviewers), unavailable)
@@ -394,12 +397,14 @@ def _relay_reason(text: str) -> str | None:
 @dataclass(frozen=True)
 class Entry:
     """One line of the roster. `note` is the reason a report didn't count, or
-    the relay reason on a report that did."""
+    the relay reason on a report that did. `expected` is False for a reviewer
+    whose model couldn't run, which the run doesn't wait for."""
 
     id: str
     model: str
     counted: bool
     note: str | None
+    expected: bool = True
 
 
 @dataclass(frozen=True)
@@ -412,10 +417,7 @@ class Checked:
 
     @property
     def missing(self) -> int:
-        return sum(
-            1 for e in self.entries
-            if not e.counted and not (e.note or "").startswith("unavailable")
-        )
+        return sum(1 for e in self.entries if e.expected and not e.counted)
 
 
 def _roster(run: Run) -> list[Entry]:
@@ -423,7 +425,9 @@ def _roster(run: Run) -> list[Entry]:
     for r in run.reviewers:
         rid, model = str(r.get("id", "?")), str(r.get("model", "?"))
         if r.get("state") == "unavailable":
-            entries.append(Entry(rid, model, False, f"unavailable: {r.get('reason', '')}"))
+            entries.append(
+                Entry(rid, model, False, f"unavailable: {r.get('reason', '')}", expected=False)
+            )
             continue
         path = run.path / f"{rid}.md"
         if not REVIEWER_ID.match(rid) or not path.is_file():
@@ -455,10 +459,8 @@ def check(agent_dir: Path, group: str) -> Checked:
     if run is None:
         raise NoRun(group)
     entries = _roster(run)
-    expected = sum(1 for r in run.reviewers if r.get("state") == "expected")
-    complete = expected > 0 and all(
-        e.counted for e in entries if not (e.note or "").startswith("unavailable")
-    )
+    expected = sum(1 for e in entries if e.expected)
+    complete = expected > 0 and all(e.counted for e in entries if e.expected)
     if complete and run.record.get("completed_at") is None:
         at = _now()
         record = {**run.record, "completed_at": at}
@@ -505,9 +507,8 @@ def relay(
     reason = " ".join(reason.split())
     if not reason:
         raise RelayRefused("a relay needs --reason saying why the reviewer couldn't write")
-    group = next((g for g in groups if REVIEWER_ID.match(reviewer) and g.name[0] == reviewer[0]),
-                 None)
-    if group is None:
+    group = next((g for g in groups if g.name[0] == reviewer[:1]), None)
+    if group is None or not REVIEWER_ID.match(reviewer):
         raise RelayRefused(f"{reviewer} isn't a reviewer in any review group")
     run = latest_run(agent_dir, group.name)
     if run is None:
