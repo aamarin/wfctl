@@ -283,3 +283,39 @@
 - **PR-043, MINOR, open.** Widened: pattern 8 now also refuses any text that quotes a flag after `gh`, which item 3 names. Greps with `\|`, regexes with `.*`, and commit messages quoting an unplain command word are still refused and unnamed.
 - **PR-044, MINOR, open.** A `gh` call inside a script, such as `release.py`, is still neither refused nor recorded.
 - **PR-045, MINOR, open.** The `WFCTL_BRANCH` override still names the branch without reading `cwd`, against FR-012c.
+
+## Review 2026-10-24T04:46Z
+
+- Verdict: satisfied
+- Reviewed: plan.md f89881396f793a8a0306340916ef3ddb051c27a6, spec.md 6173e59cded4478f74c5c5fc9bc53e05bf9f12a1, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md 9ca19addd8c991d2baa103aafc4a3730d088683a, research.md 8fd2f0e0ff3892f4d990d2652cb7902943533c06, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md 7d6f3ccdd5fa102650a27f17e3018be2fe852c1e, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, wfctl/_guard.py 2b6f0d39f1c0af749d32b0fbd409448fdf5e06f3, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/receiving-code-review/SKILL.md d9dc70c6c98e60b96b9fb591e2079920bd2eec99, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, .github/scripts/release.py 5573934e6746db3dd261a7c143d91730b22decf1, plan-review.plan.md b90696cd3c1290bfdf731946fc1fd5c8f06fbd7b (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 2 · MINOR 11 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-039, PR-040, PR-045) |
+| Requirements and traceability | Outstanding (PR-040, PR-044, PR-052) |
+| Architecture and boundaries | Outstanding (PR-038, PR-045, PR-053) |
+| Adversarial implementation and verification | Outstanding (PR-036, PR-037, PR-043, PR-051, PR-053; PR-049 and PR-050 fixed) |
+| Security and reliability | Outstanding (PR-035, PR-037, PR-038, PR-042, PR-044, PR-051, PR-052; PR-049 and PR-050 fixed) |
+
+### Findings
+
+- **PR-049, MAJOR, fixed.** Fixed by R6, which now matches the program word `gh` in any case in the substring test and in every pattern that names it, and keeps the rest case-sensitive. FR-012b, a new Edge Case, a contract row, the plan's test list, and the guard record's Decision item 7 say the same. `GH pr merge 630`, `GH pr create --fill`, and `/opt/homebrew/bin/Gh pr create --fill` now match. `gh PR merge --help` exits 1 and GitHub returns 404 for a `PULLS` path, so keeping the rest case-sensitive lets nothing through.
+- **PR-050, MINOR, fixed.** Fixed by R4 (Another repository) item 1, which refuses an `-R` host other than `github.com` and passes the value to `gh pr view` as written, plus FR-012b, the Edge Case, Decision item 7, a contract row, and a planned test.
+- **PR-051, MAJOR, open.** New. Pattern 3 lists its body flags as words and its path as "ending in `/pulls`", and doesn't say whether it reads an attached field or a query string after the path. `gh api` reads `-fper_page=1` as a field, so under the whole-word reading `gh api repos/{owner}/{repo}/pulls -fhead=630-x -fbase=main -ftitle=t` opens a pull request with no match. A `pulls?x=1` path misses a strict reading too, assuming GitHub ignores the query string on a POST as it does on a GET.
+- **PR-052, MAJOR, open.** New. `gh extension list` shows `gh stack` from `github/gh-stack` on this machine. `gh stack submit` creates pull requests and `gh stack merge` merges them without prompting in a non-interactive terminal. Neither matches any pattern, and the spec records only `gh alias set` shortcuts as a limit.
+- **PR-053, MINOR, open.** New. R4's host rule names `github.com` rather than this checkout's host, so in a checkout on a GitHub Enterprise host `-R github.com/<owner>/<repo>` compares as this repository. `gh` also takes a URL as an `-R` value, and R4 doesn't say how the check reads one after the verb.
+- **PR-035, MINOR, open.** A GraphQL mutation built in a variable or a substitution still matches no pattern.
+- **PR-036, MINOR, open.** Three legitimate `gh api` calls still refuse: `-f merge_method=merge` before the path, the `:owner/:repo` placeholders, and pattern 6 over every variable-path write.
+- **PR-037, MINOR, open.** Widened. `uv run --directory` and `direnv exec` still change the directory `gh` runs in, and `<<<630 xargs gh pr merge` adds an argument the check never reads, so the check judges the current branch's pull request while `gh` merges pull request 630.
+- **PR-038, MINOR, open.** Ownership item 6 still reads as enforced, and R4 still doesn't say to compare the branch with `origin/` stripped.
+- **PR-039, MINOR, open.** A timed-out lookup still has two different messages, and the error rows don't say which carry the line about a person's own terminal.
+- **PR-040, MINOR, open.** Two spec passages are still stale: the round cap in US3 and the other-branch test in the Validation Strategy.
+- **PR-042, MINOR, open.** A quoted or variable `gh` word still matches no pattern.
+- **PR-043, MINOR, open.** Widened slightly: pattern 8 now also refuses `GH` followed by a flag in quoted text. Greps with `\|`, regexes with `.*`, and commit messages quoting an unplain command word are still refused and unnamed.
+- **PR-044, MINOR, open.** A `gh` call inside a script, such as `release.py`, is still neither refused nor recorded.
+- **PR-045, MINOR, open.** The `WFCTL_BRANCH` override still names the branch without reading `cwd`, against FR-012c.
