@@ -58,8 +58,13 @@ def get_repo_root() -> Path:
         raise SystemExit("wfctl: not a git repository")
 
 
-def resolve_branch(repo_root: Path) -> str:
-    """Return branch name: WFCTL_BRANCH → git → short SHA → 'detached'."""
+def resolve_branch(repo_root: Path, timeout: float | None = None) -> str:
+    """Return branch name: WFCTL_BRANCH → git → short SHA → 'detached'.
+
+    A `timeout` that expires raises rather than reading as 'detached'. The
+    review check passes one, and a fallback name there would have it judge
+    records that belong to no branch anyone has checked out.
+    """
     override = os.environ.get(_BRANCH_OVERRIDE)
     if override:
         return override
@@ -67,7 +72,7 @@ def resolve_branch(repo_root: Path) -> str:
         result = subprocess.run(
             ["git", "branch", "--show-current"],
             capture_output=True, text=True, check=True,
-            cwd=repo_root,
+            cwd=repo_root, timeout=timeout,
         )
         branch = result.stdout.strip()
         if branch:
@@ -76,7 +81,7 @@ def resolve_branch(repo_root: Path) -> str:
         r = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, check=True,
-            cwd=repo_root,
+            cwd=repo_root, timeout=timeout,
         )
         return r.stdout.strip() or "detached"
     except subprocess.CalledProcessError:
@@ -99,28 +104,29 @@ def is_detached(repo_root: Path) -> bool:
     return r.returncode != 0
 
 
-def is_bare_layout(repo_root: Path) -> bool:
+def is_bare_layout(repo_root: Path, timeout: float | None = None) -> bool:
     """Is this checkout a worktree of a bare repository, where none is the main one?"""
     r = subprocess.run(
         ["git", "config", "--bool", "core.bare"], cwd=repo_root, capture_output=True, text=True,
+        timeout=timeout,
     )
     return r.stdout.strip() == "true"
 
 
-def _bare_head(repo_root: Path) -> str | None:
+def _bare_head(repo_root: Path, timeout: float | None = None) -> str | None:
     """The branch a bare repository's own HEAD names, or None outside a bare layout."""
-    if not is_bare_layout(repo_root):
+    if not is_bare_layout(repo_root, timeout=timeout):
         return None
     common = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if common.returncode != 0:
         return None
     git_dir = common.stdout.strip()
     head = subprocess.run(
         ["git", f"--git-dir={git_dir}", "symbolic-ref", "--short", "HEAD"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=timeout,
     )
     branch = head.stdout.strip() if head.returncode == 0 else ""
     if not branch:
@@ -133,7 +139,7 @@ def _bare_head(repo_root: Path) -> str | None:
     # `master` left, was refused as naming no issue.
     exists = subprocess.run(
         ["git", f"--git-dir={git_dir}", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
-        capture_output=True,
+        capture_output=True, timeout=timeout,
     )
     return branch if exists.returncode == 0 else None
 
@@ -180,7 +186,7 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     return declared, []
 
 
-def _resolve_declared(repo_root: Path, name: str) -> str | None:
+def _resolve_declared(repo_root: Path, name: str, timeout: float | None = None) -> str | None:
     """The revision a declared branch name stands for: `origin/<name>` when the
     remote has it, else the local branch, else None.
 
@@ -210,7 +216,7 @@ def _resolve_declared(repo_root: Path, name: str) -> str | None:
     ):
         if subprocess.run(
             ["git", "show-ref", "--verify", "--quiet", ref],
-            cwd=repo_root, capture_output=True,
+            cwd=repo_root, capture_output=True, timeout=timeout,
         ).returncode == 0:
             return answer
     return None
@@ -227,7 +233,7 @@ def declared_trunk_problems(repo_root: Path) -> list[str]:
     return problems
 
 
-def trunk_branch(repo_root: Path) -> str | None:
+def trunk_branch(repo_root: Path, timeout: float | None = None) -> str | None:
     """The repo's trunk: the branch `wfctl.json` declares, else origin/HEAD when
     the remote publishes it, then a bare repository's own HEAD, else the first
     local main/master/dev that exists. None when nothing looks like one.
@@ -254,20 +260,20 @@ def trunk_branch(repo_root: Path) -> str | None:
     if problems:
         return None
     if name is not None:
-        return _resolve_declared(repo_root, name)
+        return _resolve_declared(repo_root, name, timeout=timeout)
     head = subprocess.run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if head.returncode == 0 and head.stdout.strip():
         return head.stdout.strip()
-    bare = _bare_head(repo_root)
+    bare = _bare_head(repo_root, timeout=timeout)
     if bare is not None:
         return bare
     for name in ("main", "master", "dev"):
         if subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", name],
-            cwd=repo_root, capture_output=True,
+            cwd=repo_root, capture_output=True, timeout=timeout,
         ).returncode == 0:
             return name
     return None
@@ -938,7 +944,7 @@ def claim_conflicts(repo_root: Path) -> list[ClaimConflict]:
     return [c for c in conflicts if len(c.own) + len(c.mapped) > 1]
 
 
-def project_name(repo_root: Path) -> str:
+def project_name(repo_root: Path, timeout: float | None = None) -> str:
     """The project's name — the main checkout's directory, not the worktree's.
 
     The `<project>/` level separates one project's state from another's, but a
@@ -950,7 +956,7 @@ def project_name(repo_root: Path) -> str:
     """
     common = subprocess.run(
         ["git", "rev-parse", "--git-common-dir"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if common.returncode != 0 or not common.stdout.strip():
         return repo_root.name
@@ -959,10 +965,10 @@ def project_name(repo_root: Path) -> str:
     return git_dir.parent.name or repo_root.name
 
 
-def project_state_dir(repo_root: Path) -> Path:
+def project_state_dir(repo_root: Path, timeout: float | None = None) -> Path:
     """`$XDG_STATE_HOME/wfctl/<project>`, the parent of every branch's state dir."""
     xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    return xdg_base / "wfctl" / project_name(repo_root)
+    return xdg_base / "wfctl" / project_name(repo_root, timeout=timeout)
 
 
 def state_root(repo_root: Path) -> Path:
@@ -977,7 +983,9 @@ def state_root(repo_root: Path) -> Path:
     return Path(override) if override else project_state_dir(repo_root)
 
 
-def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path:
+def resolve_agent_dir(
+    repo_root: Path, branch: str, create: bool = True, timeout: float | None = None,
+) -> Path:
     """Return state dir: WFCTL_STATE_DIR → `$XDG_STATE_HOME/wfctl/<project>/<branch>`.
 
     Creates the dir unless `create` is False. Project directories sit directly
@@ -991,7 +999,7 @@ def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path
     behind for each branch anyone replied on.
     """
     override = os.environ.get(_STATE_DIR_OVERRIDE)
-    d = Path(override) if override else project_state_dir(repo_root) / branch
+    d = Path(override) if override else project_state_dir(repo_root, timeout=timeout) / branch
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d
