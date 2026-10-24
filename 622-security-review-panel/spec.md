@@ -430,6 +430,23 @@ and find both security reviews in the installed tree, credited as above.
      11. A command aimed at another GitHub host, such as
          `gh api --hostname ghe.example.com` with `{owner}/{repo}`
          placeholders, or an `-R` value written as a URL.
+     12. A GraphQL mutation name split by shell quotes, such as
+         `merge''PullRequest`, which the shell joins and the check's text
+         match doesn't see. Found by #638's security group.
+     13. A redirection between `pr` and the verb, such as
+         `gh pr >/dev/null merge 630`, which the check reads as no verb at
+         all, so the merge isn't judged.
+     14. A zsh glob qualifier, such as `-t nosuchfile(N)`, which removes a
+         word when nothing matches. The check still reads the word, so the
+         next one is read as its value.
+     15. A zsh process substitution, such as `=(echo 631)`, which the shell
+         runs after the check has read the command.
+     16. A double-quoted zsh expansion that splits into words, such as
+         `"${=:-x 631}"`, which the check reads as one quoted word.
+     17. A `gh api` read with a glob or a brace that the shell expands into a
+         write flag, such as a `-*` matching a file named `-XPUT`. The check
+         refuses those shapes only in a call it reads as a write.
+     Limits 13 - 16 were found by #638's code group, round 2.
 - Some ordinary commands are refused even though they open or merge nothing.
   Each costs the agent one reworded command:
   1. A `gh api` call with `-f merge_method=merge` before the path, which reads
@@ -454,6 +471,27 @@ and find both security reviews in the installed tree, credited as above.
   misses. The command's terminal check passes. That takes no less effort than
   writing the sign-off file directly, so the terminal check is a second
   obstacle for the agent, not enforcement.
+- An agent moves the local trunk branch, such as with
+  `git update-ref refs/heads/main HEAD`. The commits it moved past then read as
+  already on the trunk, and no group reviews them. That is the same kind of
+  tampering as writing the sign-off file, and the required CI check in #627
+  covers it. Found by #638's security group.
+- The review check runs several `git` and `gh` calls, each bounded at 5
+  seconds, with no bound on their total. A run slow enough to pass the host's
+  own hook timeout would be killed, and the command would run. Each call that
+  hangs refuses at 5 seconds, so this needs many slow calls that each finish.
+  Found by #638's security group.
+- A push lands between the check and the merge. The check judges the pull
+  request at the commit GitHub reports, and `gh pr merge` without
+  `--match-head-commit` merges whatever the head is when it runs, so a push
+  made in that gap, such as from a background job or after a `&`, is merged
+  unreviewed. The required CI check in #627 covers it. Found by #638's code
+  group.
+- An agent edits `trunk` in `wfctl.json` with a file tool, which no Bash hook
+  sees. The check refuses a trunk that is the branch being judged, but a trunk
+  pointed at another branch that already holds the commits hides them the same
+  way moving the local trunk does. Found by #638's code group.
+
 
 ## Requirements _(mandatory)_
 

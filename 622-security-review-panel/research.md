@@ -280,8 +280,10 @@ each.
      A flag that takes a value takes the rest of the word, as in `-tfix`, or
      the next word when nothing is left, as in `-st fix`. A letter neither
      list names refuses.
-  5. `-h` or `--help` anywhere after the verb allows the command, since `gh`
-     prints its help and does nothing else.
+  5. `-h` or `--help` is judged like any other flag. This item once allowed
+     the command as help, and #638's own review panel found a `--help` the
+     shell drops or redirects in eight spellings across two rounds, each one
+     carrying a merge past the check unjudged.
   6. The check refuses when `shlex.split` fails, when it finds more than one
      pull request argument, or when it meets a flag neither list names. A
      command the rule can't read never falls back to the current branch.
@@ -510,6 +512,19 @@ each.
       `.git/config`, or a shell function or alias (PR-063).
   12. A command aimed at another GitHub host through `gh api --hostname`, or
       an `-R` value written as a URL (PR-053).
+  13. A GraphQL mutation name split by shell quotes, such as
+      `merge''PullRequest` (#638's security group, after the cutoff).
+  14. A redirection between `pr` and the verb, such as
+      `gh pr >/dev/null merge 630` (#638's code group, round 2).
+  15. A zsh glob qualifier that removes a word, such as `-t nosuchfile(N)`
+      (#638's code group, round 2).
+  16. A zsh process substitution, such as `=(echo 631)` (#638's code group,
+      round 2).
+  17. A double-quoted zsh expansion that splits into words, such as
+      `"${=:-x 631}"` (#638's code group, round 2).
+  18. A `gh api` read whose glob or brace the shell expands into a write
+      flag, such as a `-*` that matches a file named `-XPUT`. Reads skip the
+      strict reader, so the check sees a read.
 - Known wrong refusals, recorded in the spec's Edge Cases: a `-f` field before
   a `gh api` path, the `:owner/:repo` placeholders, a variable-path write such
   as a review-comment reply (PR-036), a search or commit message quoting a

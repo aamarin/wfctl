@@ -139,7 +139,7 @@ The review check runs first, inside the same process, in its own `try` block.
 | `gh pr merge -s 630`, `gh pr merge --subject=fix 630`, `gh pr merge -tfix 630` | PR 630's head branch at `headRefOid` | as `gh pr merge 630` |
 | `gh pr merge -sd 630`, `gh pr merge -st fix 630` | PR 630's head branch at `headRefOid` | as `gh pr merge 630`; a group is read letter by letter |
 | `gh pr merge -sx 630` | none | exit 2, `can't read the pull request this command names` |
-| `gh pr merge --help` | none | exit 0; `gh` prints help and does nothing |
+| `gh pr merge --help` | as `gh pr merge` | judged like any other flag; allowing help let a `--help` the shell drops carry a merge past the check (#638's panel) |
 | `git push && gh pr create --fill`, `cd ../x && gh pr create` | none | exit 2, `run gh pr create on its own; the check judges the branch before anything earlier in the command runs` |
 | `gh pr create --fill && gh pr merge 630` | none | exit 2, the same message for the second match |
 | `gh pr create --title "$(git push -q && echo t)"`, a backtick, `<(…)`, or `>(…)` in the matched command | none | exit 2, `run gh pr create without a substitution; the shell runs it after the check has judged the branch` |

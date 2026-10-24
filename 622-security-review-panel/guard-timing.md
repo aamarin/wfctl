@@ -30,4 +30,16 @@ a cold interpreter, and the two runs after it agreed with each other.
 
 ## After (#638, T040)
 
-Not measured yet.
+- Tree: `638-review-check` with the review check wired into `_hook.py`, on top
+  of `f659944`, before its first commit.
+- Machine: the same Mac, Python from `uv run`.
+- Result: 1.254 µs, 1.271 µs, and 1.273 µs per call over three runs.
+
+The check adds about 0.13 µs per call on a command it can't match, which is the
+substring test for `gh`, `merge`, and `sign`. SC-003's limit is 1 ms, so the
+added cost is under it by a factor of about 7,000.
+
+The `_hook.py` module docstring measures something else: a whole hook process,
+81.7 ms per call before #135 took `typer` and `rich` off the guard's path, with
+27.1 ms of that being interpreter startup. Against those figures the in-process
+cost of the guard, before and after this change, is too small to show.
