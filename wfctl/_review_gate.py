@@ -121,7 +121,6 @@ class Target:
     `--head [owner:]branch` on a create.
     """
 
-    name: str
     create: bool
     pr: str | None = None
     repo: str | None = None
@@ -224,7 +223,7 @@ def read(command: str) -> tuple[list[str], list[Target]]:
         repo = None
         if path and (path["owner"], path["repo"]) != ("{owner}", "{repo}"):
             repo = f"{path['owner']}/{path['repo']}"
-        targets.append(Target("gh api", False, m["number"], repo, repo_from_path=True))
+        targets.append(Target(False, m["number"], repo, repo_from_path=True))
     return list(dict.fromkeys(refused)), targets
 
 
@@ -319,7 +318,7 @@ def _command_end(text: str, start: int) -> int:
             i += 2
             continue
         if inner is None:
-            if c == outer or (outer is None and c in ";|&\n") or (outer and c in ";|&\n"):
+            if c == outer or c in ";|&\n":
                 return i
             if c in "'\"":
                 inner = c
@@ -445,12 +444,12 @@ def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
     repo = repos[0] if repos else None
     if repo is not None:
         parts = repo.split("/")
-        if len(parts) == 3 and parts[0].lower() != "github.com" or not 2 <= len(parts) <= 3:
+        if not 2 <= len(parts) <= 3 or (len(parts) == 3 and parts[0].lower() != "github.com"):
             return "-R names another repository; its reviews aren't here"
     heads = [v for f, v in pairs if f in ("-H", "--head") and v is not None]
     owner, _, head = heads[-1].rpartition(":") if heads else ("", "", "")
     return Target(
-        name, create, pr=args[0] if args else None, repo=repo,
+        create, pr=args[0] if args else None, repo=repo,
         head=head or None, owner=owner or None,
     )
 
