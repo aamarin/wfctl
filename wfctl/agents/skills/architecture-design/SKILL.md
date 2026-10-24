@@ -43,11 +43,13 @@ Use this skill when level 2 is active and the change may:
 - depend on a quality such as availability, latency, security, modifiability,
   deployability, or integrability under specific conditions.
 
-**Not for**: bug fixes, copy edits, dependency bumps, naming, refactors that
-move no boundary, or any one-off change introducing no new state — those go
-straight to implementation, and running this method over one costs more than the
-change. Nor for work whose boundaries are already settled in an accepted record
-or an existing spec.
+**Not for**: a change that moves no boundary, whatever its kind or size. Most
+bug fixes, copy edits, dependency bumps, renames, and refactors are like that.
+Such a change skips this method and goes on to level 3 of the skill that sent
+it here, either `design-levels` or `.agents/skills/design-passes`. A change
+that came from neither starts at `.agents/skills/design-passes`. A bug fix that
+does move a boundary belongs here. Nor for work whose boundaries are already
+settled in an accepted record or an existing spec.
 
 **Nor for a capability that earns domain modeling** — a core or supporting
 subdomain whose complexity is in its business rules, or one term doing two

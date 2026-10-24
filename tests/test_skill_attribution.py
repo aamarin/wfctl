@@ -18,6 +18,9 @@ template is `cp`'d to become a project's own `spec.md`, so a line in one would
 travel into documents GitHub had no hand in (#216). Their declaration is
 `wfctl/specify/templates/NOTICES.md` naming them, and the second pair holds that
 file and the record's rows together the way the first holds the line and the row.
+The `/security-review` prompt is the second file a notice credits instead of a
+line, and its own test holds its row against `wfctl/agents/skills/NOTICES.md`
+the same way.
 
 What neither pair can do is notice #213 itself. A file arriving with no line
 *and* no row is invisible to both directions — the checks keep two declarations
@@ -63,6 +66,13 @@ _ROW = re.compile(r"^\|\s*`([a-z0-9./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
 # table, free to disagree with the directory it describes — the class of defect
 # the `license:` key was (#213).
 _TEMPLATE_ROW = "specify/templates/"
+# The `/security-review` prompt is the second file a notice credits instead of a
+# line: it ends on the instruction that sets the reviewer's whole reply, so a
+# line after it would be the last thing the reviewer reads. Its own constant
+# rather than a second entry in `_TEMPLATE_ROW`, because `_listed_templates()`
+# reads that one and the prompt is not a template.
+_REFERENCE_ROW = "agents/skills/reviewing-security/references/"
+_NOTICED_ROWS = (_TEMPLATE_ROW, _REFERENCE_ROW)
 
 
 def _declared() -> dict[str, dict[str, str]]:
@@ -129,8 +139,12 @@ def _rows() -> list[tuple[str, str]]:
 
 
 def _listed() -> dict[str, str]:
-    """Skill name or script path → the upstream the record's tables name."""
-    return {name: upstream for name, upstream in _rows() if not name.startswith(_TEMPLATE_ROW)}
+    """Skill name or script path → the upstream the record's tables name.
+
+    Rows a notice covers are left out, since those files carry no line for the
+    checks that read this to find.
+    """
+    return {name: upstream for name, upstream in _rows() if not name.startswith(_NOTICED_ROWS)}
 
 
 def _listed_templates() -> dict[str, str]:
@@ -168,16 +182,40 @@ def _template_claims() -> list[tuple[str, str]]:
     file to two owners with every check green, so the duplicate has to survive
     as far as the check that looks for it.
     """
+    return _path_claims(SPECIFY_NOTICES, r"`(templates/[a-z0-9-]+\.md)`", "specify/")
+
+
+def _reference_claims() -> list[tuple[str, str]]:
+    """Every (reference path, upstream) claim the skills notice makes, in order.
+
+    `_template_claims` one tree over, and a list for the same reason. The
+    notice writes the path relative to the skills tree, which is how it reads
+    in a project's `.agents/skills/`, and the record writes it relative to
+    `wfctl/`.
+
+    Only a path with a `references/` segment counts, and nothing else in the
+    notice's sections has one.
+    """
+    return _path_claims(NOTICES, r"`([a-z0-9-]+/references/[a-z0-9.-]+)`", "agents/skills/")
+
+
+def _path_claims(notice: Path, pattern: str, prefix: str) -> list[tuple[str, str]]:
+    """Every (`prefix` + path, upstream) pair `pattern` finds in `notice`'s sections."""
     claims = []
-    for section in re.split(r"^## ", SPECIFY_NOTICES.read_text(encoding="utf-8"), flags=re.M)[1:]:
+    for section in re.split(r"^## ", notice.read_text(encoding="utf-8"), flags=re.M)[1:]:
         heading, _, body = section.partition("\n")
         # Bounded at the copyright line where there is one — the prose below it
         # names a template in order to deny it. An unbounded section is read
         # whole rather than skipped: enumerate before filtering, per `_sections`.
         covered = body.split("\n    Copyright", 1)
-        for path in re.findall(r"`(templates/[a-z0-9-]+\.md)`", covered[0]):
-            claims.append((f"specify/{path}", heading.strip()))
+        for path in re.findall(pattern, covered[0]):
+            claims.append((f"{prefix}{path}", heading.strip()))
     return claims
+
+
+def _listed_references() -> dict[str, str]:
+    """Reference path → the upstream the record's file table names for it."""
+    return {name: upstream for name, upstream in _rows() if name.startswith(_REFERENCE_ROW)}
 
 
 def test_every_file_the_record_lists_carries_its_attribution_line() -> None:
@@ -318,6 +356,7 @@ def _declaration_sources() -> dict[str, list[tuple[str, object]]]:
     return {
         "vendor-upstream-skills tables": list(_rows()),
         f"{SPECIFY_NOTICES.name} template claims": list(_template_claims()),
+        f"{NOTICES.parent.name}/{NOTICES.name} reference claims": list(_reference_claims()),
         f"{NOTICES.parent.name}/{NOTICES.name} sections": list(_sections(NOTICES)),
         f"{SPECIFY_NOTICES.name} sections": list(_sections(SPECIFY_NOTICES)),
         f"{NOTICES.parent.name}/{NOTICES.name} section fields": list(_field_claims(NOTICES)),
@@ -478,8 +517,9 @@ def test_the_specify_notice_names_no_template_the_record_does_not_list() -> None
 
 
 def test_every_template_the_record_lists_is_a_file_that_ships() -> None:
-    """The templates are the one population whose declarations are both
-    documents. A skill or a script that is deleted or renamed drops out of
+    """The templates are one of two populations whose declarations are both
+    documents, and the `/security-review` prompt's own test checks the other.
+    A skill or a script that is deleted or renamed drops out of
     `_attributed()` and the record's row fails immediately; a template has no
     line of its own to lose, so the record and the shipped notice would go on
     asserting GitHub's copyright over a path that is no longer in the tree, with
@@ -488,6 +528,48 @@ def test_every_template_the_record_lists_is_a_file_that_ships() -> None:
 
 
     assert not missing, f"listed in vendor-upstream-skills but not in the tree: {missing}"
+
+
+def test_every_reference_the_record_lists_ships_with_no_line_and_is_noticed() -> None:
+    """The `/security-review` prompt's three declarations, held together the way
+    the templates' are, in one test because the population is one file.
+
+    The file has to ship, since a reference has no line of its own to lose and
+    a deleted one would leave the record and the notice crediting nothing. It
+    has to carry no line, because a line appended to it would become part of
+    the reviewer's prompt, and the record says that is why the notice credits
+    it instead. And its path has to sit under its upstream's section in the
+    notice, which is the only declaration that reaches an installed project.
+
+    That section also has to carry its copyright line. Nothing names this
+    upstream in an attribution line, so the check that every attributed
+    upstream has a copyright in its tree never visits it, and the path claim
+    still parses from a section with no copyright line. Without this check,
+    deleting `Copyright (c) 2025 Anthropic` left every test green.
+
+    An empty listing fails rather than passing on nothing. If the row is
+    missing, or `_ROW` stops matching it, the checks below have no file to look
+    at, so they would pass even with the declarations gone.
+    """
+    listed, noticed = _listed_references(), dict(_reference_claims())
+    copyrighted = _noticed(NOTICES)
+    assert listed, f"vendor-upstream-skills lists nothing under {_REFERENCE_ROW}"
+
+    wfctl_root = SPECIFY_ROOT.parent
+    absent = sorted(p for p in listed if not (wfctl_root / p).exists())
+    lined = sorted(
+        p for p in set(listed) - set(absent)
+        if any(_LINE.match(line) for line in (wfctl_root / p).read_text(encoding="utf-8").splitlines())
+    )
+    unnoticed = {p: (noticed.get(p), upstream) for p, upstream in listed.items() if noticed.get(p) != upstream}
+    unlisted = sorted(set(noticed) - set(listed))
+    uncopyrighted = sorted(p for p, upstream in listed.items() if upstream not in copyrighted)
+
+    assert not absent, f"listed in vendor-upstream-skills but not in the tree: {absent}"
+    assert not lined, f"credited by {NOTICES.name}, so they carry no attribution line: {lined}"
+    assert not unnoticed, f"not named under their upstream in {NOTICES.name} (notice, record): {unnoticed}"
+    assert not unlisted, f"named in {NOTICES.name} but vendor-upstream-skills does not list them: {unlisted}"
+    assert not uncopyrighted, f"their upstream's {NOTICES.name} section has no copyright line: {uncopyrighted}"
 
 
 def test_both_notices_sit_where_install_skills_will_carry_them() -> None:

@@ -404,8 +404,8 @@ def test_the_declaration_lands_in_the_change_not_in_state(
 def test_a_feature_with_no_design_step_is_not_gated(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """Not every change needs a design. `design-levels` excludes bug fixes and
-    copy edits, and a pipeline that never reached design has nothing to advance
+    """Not every change needs a design. `design-levels` excludes a change that
+    moves no boundary, and a pipeline that never reached design has nothing to advance
     past — gating it would demand a record for work no boundary question was
     ever asked about."""
     _arch_root(storyctl_dir, monkeypatch)

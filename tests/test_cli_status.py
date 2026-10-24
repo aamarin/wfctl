@@ -248,3 +248,66 @@ def test_status_never_prints_anything_about_the_shape_check(
     for phrase in phrases:
         assert phrase not in console.lower()
         assert phrase not in payload.lower()
+
+
+def _declare_sections(storyctl_dir: types.SimpleNamespace, sections: object) -> None:
+    (storyctl_dir.repo_root / "wfctl.json").write_text(
+        json.dumps({"change_sections": sections})
+    )
+
+
+def _write_template(storyctl_dir: types.SimpleNamespace, text: str) -> None:
+    path = storyctl_dir.repo_root / ".github" / "pull_request_template.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def test_check_config_reports_a_listed_section_the_template_lacks(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A template with no such heading produces a PR that can never pass
+    `check-body`, and the author editing `wfctl.json` is the one person placed
+    to hear about it before opening one."""
+    _declare_sections(storyctl_dir, ["Needs a spec?"])
+    _write_template(storyctl_dir, "## Summary\n")
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 1
+    assert (
+        "wfctl.json: 'change_sections' lists \"Needs a spec?\", which "
+        ".github/pull_request_template.md doesn't have"
+    ) in " ".join(result.output.split())
+
+
+def test_check_config_reports_a_malformed_change_sections(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    _declare_sections(storyctl_dir, "x")
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 1
+    assert "'change_sections' must be a list of section headings" in " ".join(
+        result.output.split()
+    )
+
+
+def test_check_config_reports_listed_sections_with_no_template(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    _declare_sections(storyctl_dir, ["Needs a spec?"])
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 1
+    assert "'change_sections' lists sections, but no PR template was found" in " ".join(
+        result.output.split()
+    )
+
+
+def test_check_config_adds_no_line_when_every_template_has_the_section(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The success output of a repository that opted in is the one it printed
+    before, so a clean run has nothing new to read."""
+    _declare_sections(storyctl_dir, ["Needs a spec?"])
+    _write_template(storyctl_dir, "## Needs a spec?\n<!-- why -->\n")
+    result = runner.invoke(app, ["check", "config"])
+    assert result.exit_code == 0
+    assert "change_sections" not in result.output
+    assert "Needs a spec?" not in result.output
