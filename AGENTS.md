@@ -303,9 +303,10 @@ review groups, and each one names its reviewers as a model and a count. The
 count is exact, so wfctl expects that many reports and keeps the run incomplete
 until they arrive.
 
-By default, each group has three Claude reviewers. Leave the key out and a
-repository gets a `security` group and a `code` group with three each. A
-built-in group gets that default only when its `reviewers` key is missing, so
+By default, `security` and `code` each have three Claude reviewers, so a
+repository that leaves the key out still gets both groups. A custom group has
+no default and lists its own. A built-in group gets the default only when its
+`reviewers` key is missing, so
 listing `security` to change its skill keeps its reviewers. An empty
 `reviewers` list is a finding, not a way to skip a group.
 
@@ -434,6 +435,10 @@ turns that into `update: wfctl install-skills --from <path>` — a line
 repo, read a committed manifest before the first `doctor`, for the same reason as
 the hooks: what it can install is agent instructions and `.specify/scripts/`,
 which speckit commands execute.
+
+`review.commands` in a committed `wfctl.json` is the same kind of thing. `wfctl
+review start` prints each command beside its reviewers, and the review skill
+runs it, so read the key in an unfamiliar repo before running a review there.
 
 ## Conventions
 
