@@ -18,7 +18,7 @@ the fields a change must carry, and wfctl compares the body against that list.
 
 `body_findings` is, and stays that way: a body and a list in, lines out, no
 repository and no subprocess. That is `_shape.py`'s shape, and it is why every
-state in `data-model.md` is reachable from a unit test.
+state it reports is reachable from a unit test.
 
 `load_required` and `templates` read the repository. `load_required` follows
 `_change.load_required` line for line and borrows only `CONFIG_PATH`, so the
@@ -43,7 +43,9 @@ _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 # is part of the syntax, not of the heading's text.
 _HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 
-_NOT_AN_ANSWER = re.compile(r"n/?a\.?", re.IGNORECASE)
+# The PR template's comment names None beside N/A as a non-answer, so the check
+# flags both.
+_NOT_AN_ANSWER = re.compile(r"(n/?a|none)\.?", re.IGNORECASE)
 _BARE_ANSWER = re.compile(r"(yes|no)[.!]?", re.IGNORECASE)
 
 # `find -maxdepth 3`, as `opening-a-change` Step 2 spells it: a path with three

@@ -127,7 +127,9 @@ def test_a_section_with_nothing_under_it_is_empty() -> None:
     assert _sections.body_findings(_body(f"## {NAME}\n"), [NAME]) == [EMPTY]
 
 
-@pytest.mark.parametrize("answer", ["N/A", "n/a", "NA", "N/A.", "  na  "])
+@pytest.mark.parametrize(
+    "answer", ["N/A", "n/a", "NA", "N/A.", "  na  ", "None", "none."]
+)
 def test_every_spelling_of_n_a_is_flagged(answer: str) -> None:
     body = _body(f"## {NAME}\n{COMMENT}\n{answer}\n")
     assert _sections.body_findings(body, [NAME]) == [NA]
