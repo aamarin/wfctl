@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
@@ -34,10 +35,9 @@ from wfctl._review_config import Group, Reviewer
 
 TRUNK_MESSAGE = "can't find the trunk branch; set trunk in wfctl.json"
 
-# A group name is a directory under `reviews/`, and one read from the command
-# line is checked against this before any path is built from it.
-GROUP_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
-REVIEWER_ID = re.compile(r"^[a-z][0-9]+$")
+# Matched with `fullmatch`, never `match` and `$`, since `$` also matches
+# before a trailing newline and the id becomes a file name.
+REVIEWER_ID = re.compile(r"[a-z][0-9]+")
 
 # Seven hex digits is what `git log --oneline` prints, so it is what a reviewer
 # copies. Anything shorter can match more than one commit.
@@ -65,7 +65,6 @@ class NoTrunk(ReviewError):
 class NoRun(ReviewError):
     def __init__(self, group: str) -> None:
         super().__init__(f"{group} has no run; run wfctl review start {group}")
-        self.group = group
 
 
 class RelayRefused(ReviewError):
@@ -242,10 +241,15 @@ def latest_run(agent_dir: Path, group: str) -> Run | None:
     `check` and `relay` act on this run only. An earlier run that never
     completed stays on disk for reading, and its reports never count toward a
     later one.
+
+    A folder with no `run.json` is a start that was interrupted, or one still
+    writing, and is passed over. Read as the latest run, it would fail every
+    `start`, `check` and `relay` on the group until someone deleted it.
     """
     runs = group_dir(agent_dir, group) / "runs"
     numbers = sorted(
-        int(p.name) for p in runs.glob("[0-9][0-9][0-9]*") if p.name.isdigit()
+        int(p.name) for p in runs.glob("[0-9][0-9][0-9]*")
+        if p.name.isdigit() and (p / "run.json").is_file()
     ) if runs.is_dir() else []
     if not numbers:
         return None
@@ -295,7 +299,10 @@ def _availability(
         if r.command is not None:
             entry["command"] = r.command
             if r.model not in unavailable:
-                program = (r.command.split() or [""])[0]
+                try:
+                    program = (shlex.split(r.command) or [""])[0]
+                except ValueError:
+                    program = r.command
                 if not program or which(program) is None:
                     unavailable[r.model] = f"`{program}` not found on PATH"
             if r.model in unavailable:
@@ -378,8 +385,10 @@ def judge(text: str, head: str) -> str | None:
     if not named:
         return "no Reviewed: line"
     if not any(len(sha) >= _MIN_SHA and head.lower().startswith(sha) for sha in named):
-        return f"names {named[-1]}, not {head[:_MIN_SHA]}"
-    lines = [line for line in text.splitlines() if line.strip()]
+        return f"names {named[-1][:_MIN_SHA]}, not {head[:_MIN_SHA]}"
+    # A reviewer that wraps its report in a code fence ends on the fence, and
+    # the verdict is the line inside it.
+    lines = [line for line in text.splitlines() if line.strip() and line.strip() != "```"]
     last = lines[-1] if lines else ""
     before = lines[-2] if len(lines) > 1 else ""
     if not _VERDICT_WORD.search(last) or not (
@@ -430,10 +439,14 @@ def _roster(run: Run) -> list[Entry]:
             )
             continue
         path = run.path / f"{rid}.md"
-        if not REVIEWER_ID.match(rid) or not path.is_file():
+        if not REVIEWER_ID.fullmatch(rid) or not path.is_file():
             entries.append(Entry(rid, model, False, "no report"))
             continue
-        text = path.read_text(errors="replace")
+        try:
+            text = path.read_text(errors="replace")
+        except OSError as e:
+            entries.append(Entry(rid, model, False, f"can't read report: {e.strerror}"))
+            continue
         reason = judge(text, run.head)
         if reason is not None:
             entries.append(Entry(rid, model, False, reason))
@@ -451,9 +464,12 @@ def check(agent_dir: Path, group: str) -> Checked:
     config read again here would let a repository drop a reviewer whose report
     was bad and complete the run without it.
 
-    Completion sets `completed_at`, changes nothing else in the run record, and
-    moves `last-reviewed.json` to the run's head. A run already complete is
-    judged again and left as it is, so `check` is safe to run twice.
+    Completion moves `last-reviewed.json` to the run's head, then sets
+    `completed_at` and changes nothing else in the run record. A run already
+    complete is judged again and left as it is, so `check` is safe to run
+    twice. The order matters for a write that fails halfway: a run marked
+    complete is never completed again, so `last-reviewed.json` goes first, and
+    a failure before the second write leaves a run the next `check` completes.
     """
     run = latest_run(agent_dir, group)
     if run is None:
@@ -464,11 +480,11 @@ def check(agent_dir: Path, group: str) -> Checked:
     if complete and run.record.get("completed_at") is None:
         at = _now()
         record = {**run.record, "completed_at": at}
-        write_atomic(run.path / "run.json", json.dumps(record, indent=2) + "\n")
         write_atomic(
             group_dir(agent_dir, group) / "last-reviewed.json",
             json.dumps({"sha": run.head, "run": run.number, "at": at}, indent=2) + "\n",
         )
+        write_atomic(run.path / "run.json", json.dumps(record, indent=2) + "\n")
         append_event(agent_dir, "review-complete", group=group, run=run.number, head=run.head)
         run = Run(run.number, run.path, record)
     return Checked(group, run, tuple(entries), expected, complete)
@@ -508,7 +524,7 @@ def relay(
     if not reason:
         raise RelayRefused("a relay needs --reason saying why the reviewer couldn't write")
     group = next((g for g in groups if g.name[0] == reviewer[:1]), None)
-    if group is None or not REVIEWER_ID.match(reviewer):
+    if group is None or not REVIEWER_ID.fullmatch(reviewer):
         raise RelayRefused(f"{reviewer} isn't a reviewer in any review group")
     run = latest_run(agent_dir, group.name)
     if run is None:

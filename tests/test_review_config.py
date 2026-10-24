@@ -298,3 +298,51 @@ def test_check_config_passes_the_documented_review_example(
     }})
 
     assert code == 0, lines
+
+
+@pytest.mark.parametrize(
+    ("review", "finding"),
+    [
+        pytest.param(
+            {"groups": [{"group": "money-rules", "reviewers": [{"name": "claude", "count": 1}]},
+                        {"group": "money-rules", "reviewers": [{"name": "claude", "count": 5}]}]},
+            "review group 'money-rules' is listed twice", id="listed-twice",
+        ),
+        pytest.param({"group": []}, "review: unknown key 'group'", id="review-typo"),
+        pytest.param(
+            {"groups": [{"group": "security", "reviewer": []}]},
+            "review group 'security': unknown key 'reviewer'", id="group-typo",
+        ),
+        pytest.param(
+            {"groups": [{"group": "security", "reviewers": [{"name": "claude", "cnt": 2}]}]},
+            "review group 'security': unknown key 'cnt' in a reviewer", id="reviewer-typo",
+        ),
+        pytest.param(
+            {"groups": [{"group": "money\n", "reviewers": [{"name": "claude", "count": 1}]}]},
+            "review group 'money\n': a name is lowercase letters, digits and hyphens, "
+            "starting with a letter",
+            id="trailing-newline",
+        ),
+    ],
+)
+def test_a_declaration_that_would_have_passed_silently_is_a_finding(
+    tmp_path: Path, review: object, finding: str
+) -> None:
+    """Each of these used to load. A group listed twice kept only its last
+    entry, a misspelled key fell back to three Claude reviewers, and a name
+    ending in a newline passed `$` and became a directory name."""
+    _write(tmp_path, review)
+    groups, problems = load(tmp_path)
+    assert finding in problems, problems
+    assert groups == []
+
+
+def test_an_unreadable_commands_key_is_one_finding_not_one_per_model(tmp_path: Path) -> None:
+    """A second finding per model saying it has no command points at the wrong
+    fix, since the command is there and the key around it is broken."""
+    _write(tmp_path, {
+        "commands": ["codex exec"],
+        "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}],
+    })
+    _, problems = load(tmp_path)
+    assert problems == ["review.commands must map each model to a command string"]

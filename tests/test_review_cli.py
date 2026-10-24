@@ -457,3 +457,29 @@ def test_check_where_no_reviewer_could_run_says_so(
 
     assert result.exit_code == 1
     assert result.output.splitlines()[-1] == "incomplete: no reviewer in security could run"
+
+
+def test_relay_refuses_dev_stdin(repo: Path) -> None:
+    """`--from /dev/stdin` with a heredoc puts the report back in the command's
+    text, which is the whole reason `relay` reads a file."""
+    reports, head = _started(repo)
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", "/dev/stdin",
+                 input=report(head))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == ["✗ can't read /dev/stdin: not a regular file"]
+    assert not (reports / "s2.md").exists()
+
+
+def test_start_pads_the_id_column_once_a_group_has_ten_reviewers(repo: Path) -> None:
+    """The coordinator reads the model from the second column, and `s10`
+    pushed it out of line with `s1` to `s9`."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"groups": [
+        {"group": "security", "reviewers": [{"name": "claude", "count": 10}]}]}}))
+    commit(repo, "a")
+
+    lines = run("review", "start", "security").output.splitlines()
+
+    assert lines[2] == "s1  claude"
+    assert lines[11] == "s10 claude"

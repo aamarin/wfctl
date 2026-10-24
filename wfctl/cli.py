@@ -6091,9 +6091,10 @@ def review_start_cmd(
         f"since {started.base[:7]} · head {started.head[:7]}"
     )
     _say(f"reports: {started.run.path}/")
+    id_width = max(len(r["id"]) for r in started.reviewers)
     width = max(len(r["model"]) for r in started.reviewers)
     for r in started.reviewers:
-        line = f"{r['id']} {r['model']:<{width}}"
+        line = f"{r['id']:<{id_width}} {r['model']:<{width}}"
         if r["state"] == "unavailable":
             line += " ✗ unavailable"
         elif "command" in r:
@@ -6120,9 +6121,9 @@ def review_check_cmd(
     newest commit and ends with a verdict. Exits 1 while the run is
     incomplete.
     """
-    from wfctl import _review
+    from wfctl import _review, _review_config
 
-    if not _review.GROUP_NAME.match(group):
+    if not _review_config.GROUP_NAME.fullmatch(group):
         _say(f"✗ no review group named '{group}'")
         raise typer.Exit(1)
     repo_root = _get_repo_root_or_exit()
@@ -6172,6 +6173,11 @@ def relay_cmd(
         raise typer.Exit(1)
     if source is None:
         _say("✗ a relay needs --from naming the file that holds the report")
+        raise typer.Exit(1)
+    # A regular file only. `/dev/stdin` and `<(…)` would read a heredoc, which
+    # puts the report back in the command's text.
+    if source.exists() and not source.is_file():
+        _say(f"✗ can't read {source}: not a regular file")
         raise typer.Exit(1)
     try:
         text = source.read_text()

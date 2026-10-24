@@ -762,3 +762,97 @@ def test_claude_has_no_command_and_is_always_available(repo: Path, state: Path) 
 
     assert started.expected == ["s1", "s2", "s3"]
     assert started.unavailable == {}
+
+
+# --- what a run folder or a report left half-written does ----------------------
+
+
+def test_a_run_folder_with_no_run_record_is_passed_over(repo: Path, state: Path) -> None:
+    """An interrupted `start` leaves a folder with no `run.json`. Read as the
+    latest run, it failed every `start`, `check` and `relay` on the group until
+    someone deleted it by hand."""
+    commit(repo, "a")
+    _review.start(repo, state, SECURITY)
+    (state / "reviews/security/runs/002").mkdir()
+
+    assert _review.check(state, "security").run.number == 1
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None and started.run.number == 3
+    assert _review.check(state, "security").run.number == 3
+
+
+@pytest.mark.parametrize("failing", ["last-reviewed.json", "run.json"])
+def test_a_completion_cut_off_partway_is_finished_by_the_next_check(
+    repo: Path, state: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    """A run marked complete is never completed again. Marking it before
+    `last-reviewed.json` was written would leave a run every later `check`
+    calls complete, with the last reviewed commit never moved."""
+    commit(repo, "a")
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None
+    for r in started.expected:
+        (started.run.path / f"{r}.md").write_text(report(started.head))
+    real = _review.write_atomic
+
+    def fail_on(path: Path, content: str, newline: str | None = None) -> None:
+        if path.name == failing:
+            raise OSError("disk full")
+        real(path, content, newline)
+
+    monkeypatch.setattr(_review, "write_atomic", fail_on)
+    with pytest.raises(OSError):
+        _review.check(state, "security")
+    monkeypatch.setattr(_review, "write_atomic", real)
+
+    assert _review.check(state, "security").complete
+    assert json.loads((started.run.path / "run.json").read_text())["completed_at"]
+    assert _review.last_reviewed(state, "security") == started.head
+
+
+def test_a_report_that_cannot_be_read_is_a_reason_rather_than_a_traceback(
+    repo: Path, state: Path
+) -> None:
+    """The roster is where a person learns which report to fix, and a
+    traceback hides the other reviewers' lines."""
+    commit(repo, "a")
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None
+    unreadable = started.run.path / "s1.md"
+    unreadable.write_text(report(started.head))
+    unreadable.chmod(0)
+    try:
+        entries = _review.check(state, "security").entries
+    finally:
+        unreadable.chmod(0o600)
+
+    assert entries[0].note == "can't read report: Permission denied"
+
+
+def test_a_verdict_inside_a_closing_code_fence_counts() -> None:
+    """The rubric's own example wraps the report in a fence, so a reviewer
+    copying it ends on the fence rather than on the verdict."""
+    text = f"```\nReviewed: {HEAD[:7]}\n\nVerdict: Approve\n```\n"
+    assert _review.judge(text, HEAD) is None
+
+
+def test_a_report_naming_a_full_sha_of_another_commit_shows_seven_digits() -> None:
+    """The roster line has to fit on a terminal, and seven digits name the
+    commit as well as forty."""
+    other = "5c4b3a2" + "0" * 33
+    assert _review.judge(f"Reviewed: {other}\n\nVerdict: Approve\n", HEAD) == (
+        f"names 5c4b3a2, not {HEAD[:7]}"
+    )
+
+
+def test_a_quoted_program_path_is_looked_up_whole(repo: Path, state: Path) -> None:
+    """Splitting on spaces looked up `"/opt/my` for a quoted path with a space
+    in it, and marked a model that is installed as unavailable."""
+    commit(repo, "a")
+    seen: list[str] = []
+    group = Group("security", "reviewing-security",
+                  (Reviewer("s1", "codex", '"/opt/my tools/codex" exec'),))
+
+    _review.start(repo, state, group, which=lambda p: seen.append(p) or p)
+
+    assert seen == ["/opt/my tools/codex"]

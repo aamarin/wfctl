@@ -27,9 +27,16 @@ _DEFAULT_SKILL = {"security": "reviewing-security"}
 _FALLBACK_SKILL = "code-review"
 _DEFAULT_REVIEWERS: list[object] = [{"name": CLAUDE, "count": 3}]
 
+# Every key each level may hold. A misspelled key, such as `reviewer` for
+# `reviewers`, would otherwise fall back to the default and pass as valid.
+_REVIEW_KEYS = ("commands", "groups")
+_GROUP_KEYS = ("group", "skill", "reviewers")
+_REVIEWER_KEYS = ("name", "count")
+
 # A group name becomes a directory under `reviews/`, so it can't hold a slash
-# or start with a dot.
-_GROUP_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+# or start with a dot. Matched with `fullmatch`, since `$` also matches before
+# a trailing newline.
+GROUP_NAME = re.compile(r"[a-z][a-z0-9-]*")
 
 
 @dataclass(frozen=True)
@@ -72,13 +79,13 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
     if not isinstance(review, dict):
         return [], ["review must be an object"]
 
-    problems: list[str] = []
-    commands = review.get("commands", {})
+    problems = [f"review: unknown key '{k}'" for k in review if k not in _REVIEW_KEYS]
+    commands: dict[str, str] | None = review.get("commands", {})
     if not isinstance(commands, dict) or not all(
         isinstance(v, str) and v.strip() for v in commands.values()
     ):
         problems.append("review.commands must map each model to a command string")
-        commands = {}
+        commands = None
 
     entries = review.get("groups", [])
     if not isinstance(entries, list):
@@ -90,12 +97,18 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
         if not isinstance(name, str):
             problems.append(f"review.groups[{i}] has no group name")
             continue
-        if not _GROUP_NAME.match(name):
+        if not GROUP_NAME.fullmatch(name):
             problems.append(
                 f"review group '{name}': a name is lowercase letters, digits and "
                 "hyphens, starting with a letter"
             )
             continue
+        if name in declared:
+            problems.append(f"review group '{name}' is listed twice")
+            continue
+        problems += [
+            f"review group '{name}': unknown key '{k}'" for k in entry if k not in _GROUP_KEYS
+        ]
         declared[name] = entry
 
     groups = _resolve(declared, commands, problems)
@@ -104,11 +117,16 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
 
 def _resolve(
     declared: dict[str, dict[str, object]],
-    commands: dict[str, str],
+    commands: dict[str, str] | None,
     problems: list[str] | None = None,
 ) -> list[Group]:
     """Every group in run order, with its reviewers numbered, appending what's
-    wrong with each declaration to `problems`."""
+    wrong with each declaration to `problems`.
+
+    `commands` is None when `review.commands` couldn't be read. That's already
+    a finding, and a second one per model saying it has no command would point
+    at the wrong fix.
+    """
     problems = problems if problems is not None else []
     order = [*_BUILT_IN, *(n for n in declared if n not in _BUILT_IN)]
 
@@ -147,7 +165,7 @@ def _resolve(
 
 
 def _reviewers(
-    group: str, listed: list[object], commands: dict[str, str], problems: list[str],
+    group: str, listed: list[object], commands: dict[str, str] | None, problems: list[str],
 ) -> tuple[Reviewer, ...] | None:
     """The group's reviewers, numbered across its whole list, so the first
     Codex reviewer after two Claude ones is `s3` rather than a second `s1`."""
@@ -159,18 +177,25 @@ def _reviewers(
             problems.append(f"review group '{group}': each reviewer needs a name and a count")
             ok = False
             continue
-        count = spec.get("count") if isinstance(spec, dict) else None
+        assert isinstance(spec, dict)
+        unknown = [k for k in spec if k not in _REVIEWER_KEYS]
+        if unknown:
+            problems.append(f"review group '{group}': unknown key '{unknown[0]}' in a reviewer")
+            ok = False
+            continue
+        count = spec.get("count")
         # `bool` is a subclass of `int`, and `"count": true` is a typo rather
         # than a count of one.
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             problems.append(f"review group '{group}': count for '{model}' must be 1 or more")
             ok = False
             continue
-        command = None if model == CLAUDE else commands.get(model)
+        command = None if model == CLAUDE or commands is None else commands.get(model)
         if model != CLAUDE and command is None:
-            problems.append(
-                f"review group '{group}': model '{model}' has no entry in review.commands"
-            )
+            if commands is not None:
+                problems.append(
+                    f"review group '{group}': model '{model}' has no entry in review.commands"
+                )
             ok = False
             continue
         for _ in range(count):
