@@ -394,3 +394,32 @@ Scored under Andre's decision of 2026-10-24: the review check stops adding rules
 - **PR-039, MINOR, fixed.** `contracts/cli.md` names every refusal that uses the error refusal block, and the timed-out lookup has one message.
 - **PR-040, MINOR, fixed.** US3 says nothing enforces the round cap until #626, and the Validation Strategy runs the other-branch merge from the trunk checkout and refuses it from a feature worktree.
 - **PR-045, MINOR, fixed.** R4 (Timeouts and errors) item 2 and a contract row refuse a `WFCTL_BRANCH` that names a different branch from `cwd`, which agrees with FR-012c.
+
+## Review 2026-10-24T12:47Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 6a0e2d4abba00699396f571a735b7bd758b30f28, spec.md 839880bd6f5205a0073a1158793a7df7dc09c8e7, .specify/memory/constitution.md absent, design.md e82e45ce32266ada7c33003be09900fdbd625387, docs/architecture/design/622-review-records-in-state-dir.md 4027336f312d54eaf9b30470a60a701fe87f5e8c, docs/architecture/design/622-review-groups-list.md 44048f18080066767fa5f064e3b7e75c9738fa91, docs/architecture/design/622-blocked-reviewer-relays-report.md 737f15b5d4a3019e229cdc9bb30a6eb544450116, docs/architecture/design/622-review-check-in-worktree-guard.md c08a744939fabe46c8971bf8727e65c9306d61ad, research.md ba551572fd9977ddf274c92bc5ea034c8db29357, data-model.md 4a2b1597bd61bf6d47295f00336d5a0fb2716f26, contracts/cli.md 9c633dacc9f4c7b8e578315d36323d05f1701b77, contracts/config.md a6cb93ef21e11f2778edb6e78b51027b2dbd0576, quickstart.md ff7e876c9ed0bd86381649db4d6a0ffec639348c, docs/architecture/review-covers-unreviewed-commits.md 69bf5f4cdcae15c3495bf402deb23c104fa3bd3c, docs/architecture/vendor-upstream-skills.md 299f4f8cb5e2b2e0d84661741696f97ca6c0b3f0, docs/architecture/a-rule-is-expressed-as-a-check.md 81e9a7d67301935f73a6e3b97c9b06284310879f, docs/architecture/wfctl-records-outward-actions-and-never-gates-them.md 8ff8575e2c4b1e5c7ff342092144866d12c98380, AGENTS.md 4dfb90941c8fb593b64d5bdc5d2ff631a4bcc70a, wfctl/_hook.py 77060f8723515559fe708b0e9f10bff2ee9ae99c, wfctl/_entry.py a26598d8eeb62a3847fff5fb70235410ae4ccde9, wfctl/_io.py 50990ecb0d1bfb76788e4592465c21bffb3306ed, wfctl/_paths.py 73d865219982aa4da4aade36fe472032fe550da7, wfctl/_restart.py 97eface9df371260af973dca55a215a2251304de, wfctl/_guard.py 2b6f0d39f1c0af749d32b0fbd409448fdf5e06f3, tests/test_guard_entry.py 04b8a817989f7d5af46815ae6cf36a29b916c5d1, tests/test_skill_attribution.py 6665bbf9db2490b969e0d389d0e45561accadb6a, wfctl/agents/skills/NOTICES.md 4aeb6145750062f3fbc661974f460a2f885f8ab2, wfctl/agents/skills/fanning-out-code-review/SKILL.md dcf63a66bd69730ab52866916c0bd83299a395c2, wfctl/agents/skills/code-review/SKILL.md f1b669063ac31d22c94cfaebb32c1131f147e304, wfctl/agents/skills/idea-refine/SKILL.md ca60506bac2baa0dd8bca0e3ef9b42de20a524d4, wfctl/agents/skills/opening-a-change/SKILL.md ec2437e0ab6ff1d188cadd9b677db0c715144ee5, wfctl/agents/skills/receiving-code-review/SKILL.md d9dc70c6c98e60b96b9fb591e2079920bd2eec99, wfctl/agents/skills/architecture-decisions/SKILL.md bdcc407f2bbe287b6d31099ab2bcf483129e405f, .github/scripts/release.py 5573934e6746db3dd261a7c143d91730b22decf1, plan-review.plan.md 41b127397541b1228cc131fe0fc86f80bfc795bf (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 1 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/622-security-review-panel/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-064; PR-060 and PR-061 fixed) |
+| Requirements and traceability | Outstanding (PR-064; PR-060 fixed) |
+| Architecture and boundaries | Clear |
+| Adversarial implementation and verification | Resolved (PR-043 and PR-062 fixed) |
+| Security and reliability | Resolved (PR-063 fixed) |
+
+### Findings
+
+Scored under Andre's decision of 2026-10-24: the review check stops adding rules, a disguised command already listed as a known limit isn't a finding, and a new one is at most MINOR. This review found no new disguised command.
+
+- **PR-064, MINOR, open.** New. `research.md §R6` item 1 says the rules cover "the holes fixed before 2026-10-24" and that every hole still open on that date is a known limit, and `plan.md §Summary` and the guard record say the same. But the guard record's own Log adds two rules on 2026-10-24, and the reviews at 2026-10-24T04:46Z and 05:48Z mark PR-049 to PR-052 fixed by them. PR-051 and PR-052 were open when the day began. Stands because the date doesn't mark the cutoff by itself. Naming the decision instead, as the spec's Clarification already does with "from now on", would fix it.
+- **PR-060, MINOR, fixed.** Fixed by `plan.md §Summary`, which now names the known limits in the spec's Edge Cases and #627, and by R6 item 1 and the guard record, which date the cutoff instead of counting reviews.
+- **PR-061, MINOR, fixed.** Fixed by `research.md §R4` (Another branch), which now numbers its items 1 to 5.
+- **PR-062, MINOR, fixed.** Fixed by the `test_review_gate.py` list in `plan.md §Project Structure`, which adds both override refusals and says every other gate test clears `WFCTL_BRANCH` or sets it to the `cwd`'s branch, since `tests/conftest.py` sets it in two fixtures.
+- **PR-063, MINOR, fixed.** Fixed by `spec.md §Edge Cases` known limit 2.10 and R6 limit 11, which now name a git alias in `.git/config` and a shell function or alias from the person's profile.
+- **PR-043, MINOR, fixed.** Fixed by `spec.md §Edge Cases` wrong refusals 4 to 6, which give a search without the `gh ` prefix, `which gh` on its own, and `git commit -F <file>`. Each one avoids the refusal as R6 describes the patterns.
