@@ -373,22 +373,15 @@ def test_range_refuses_a_shallow_clone(tmp_path: Path, repo: Path) -> None:
         _review.commit_range(shallow, head, None)
 
 
-def test_range_refuses_a_trunk_that_resolves_to_the_branch_under_review(
-    tmp_path: Path, repo: Path
-) -> None:
-    """A clone of the feature branch alone points `origin/HEAD` at that
-    branch, so it became the trunk, `--not` dropped every commit on it, and
-    the group read as up to date with nothing reviewed."""
-    head = commit(repo, "a")
-    single = tmp_path / "single"
-    subprocess.run(
-        ["git", "clone", "-q", "--single-branch", "--branch", "637-x",
-         f"file://{repo}", str(single)],
-        check=True,
-    )
+def test_range_judges_a_feature_head_from_the_main_checkout(repo: Path) -> None:
+    """The merge gate judges a pull request's head from the `main` checkout. A
+    check that compared the trunk with the checked-out branch refused every
+    range computed there, since the checkout is on the trunk itself."""
+    first = commit(repo, "a")
+    head = commit(repo, "b")
+    git(repo, "checkout", "-q", "main")
 
-    with pytest.raises(_review.TrunkIsThisBranch, match="set trunk in wfctl.json"):
-        _review.commit_range(single, head, None)
+    assert set(_review.commit_range(repo, head, None).commits) == {first, head}
 
 
 def test_range_lists_commits_a_replace_ref_grafted_out(repo: Path) -> None:

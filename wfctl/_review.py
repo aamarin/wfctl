@@ -73,14 +73,6 @@ class ShallowClone(ReviewError):
         )
 
 
-class TrunkIsThisBranch(ReviewError):
-    def __init__(self, branch: str) -> None:
-        super().__init__(
-            f"the trunk branch resolves to {branch}, the branch under review; "
-            "set trunk in wfctl.json"
-        )
-
-
 class NoRun(ReviewError):
     def __init__(self, group: str) -> None:
         super().__init__(f"{group} has no run; run wfctl review start {group}")
@@ -153,21 +145,11 @@ def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
     Full names because git resolves a short `main` to a tag of that name before
     the branch, and a tag on one of the branch's own commits made that work read
     as already on the trunk. A trunk found under neither name is used as named.
-
-    A trunk that resolves to the checked-out branch is refused. A clone made
-    with `--single-branch --branch <feature>` points `origin/HEAD` at the
-    feature branch, and `--not` that branch drops every commit on it, so the
-    group read as up to date with nothing reviewed.
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
         raise NoTrunk()
     local = trunk.removeprefix("origin/")
-    current = _git(
-        repo_root, "symbolic-ref", "-q", "--short", "HEAD", timeout=timeout, answers=(0, 1),
-    ).stdout.strip()
-    if current == local:
-        raise TrunkIsThisBranch(local)
     refs = [
         ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
         if _has_ref(repo_root, ref, timeout)
