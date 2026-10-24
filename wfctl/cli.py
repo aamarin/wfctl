@@ -3587,6 +3587,12 @@ _MIRRORED_SKILLS = frozenset({
     # grant, pinned by `test_implement_allows_the_commands_the_refactor_pass_needs`.
     "clean-code",
     "design-levels",
+    # `worktree-handoff`'s route line and the "Not for" lines in the design skills
+    # name this skill by path, and an agent that read one of those pointers and
+    # reached for `Skill(design-passes)` is refused without membership. It ships
+    # no command wrapper on purpose, so this entry is the only way to reach it by
+    # name. The mirror removes the fork between the two routes.
+    "design-passes",
     "fanning-out-code-review",
     # `architecture-design`'s case, and the second method at the same gate:
     # `design-levels` level 2 names this skill by path beside that one, and an
