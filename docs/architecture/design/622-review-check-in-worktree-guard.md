@@ -96,9 +96,11 @@ branch it acts on, or because the agent shouldn't run it at all:
    from a file. An unplain command word is refused on its own, without one of
    the first kind matching, since a command like `gh "$X" merge 630` holds no
    verb the check can match. So is any flag before `gh`'s verb other than one
-   plain `-R` naming `OWNER/REPO`, such as `gh pr --squash=true merge 630`.
-   `gh` accepts more spellings there than a list of refused ones keeps up
-   with, so the check lists the one spelling it allows instead.
+   plain `-R` naming `OWNER/REPO` or `github.com/OWNER/REPO`, such as
+   `gh pr --squash=true merge 630`. `gh` accepts more spellings there than a
+   list of refused ones keeps up with, so the check lists the one spelling it
+   allows instead. The check matches the program name `gh` in any case, since
+   macOS runs `GH pr merge 630` as `gh`.
 8. A command that acts on another branch's pull request, unless it runs in the
    checkout on the trunk branch. A worktree opens and merges only its own
    branch's pull request, and the person orchestrates from the trunk checkout.
@@ -254,3 +256,6 @@ to check means changing one list in either graph.
   refused unless it is one plain `-R`. Andre approved allowing that one
   spelling rather than refusing a list, after three reviews in a row each
   found one more spelling the list missed.
+- 2026-10-23  proposed  — #622 plan review. The program name `gh` matches in
+  any case, and an `-R` host other than `github.com` refuses. Andre approved
+  fixing the fourth review's two findings.
