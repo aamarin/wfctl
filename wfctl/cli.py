@@ -6480,9 +6480,9 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes, trunk and saved folders.
+    """Validate this repository's own declared pipeline passes, trunk, saved folders and reviewers.
 
-    Every rule `wfctl.json`'s `steps`, `trunk` and `save_on_remove` keys must satisfy, in one run
+    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove` and `review` keys must satisfy, in one run
     (FR-022) — the repository's own configuration, never wfctl's installed
     state, which is `doctor`'s remit and not this one's (research.md R5).
     Nothing here is dropped silently: a declaration this command discards
@@ -6505,6 +6505,12 @@ def check_config_cmd() -> None:
     from wfctl import _archive
 
     problems += _archive.declared_paths(repo_root)[1]
+    from wfctl import _review_config
+
+    problems += _review_config.load(repo_root)[1]
+    # A file that won't parse is found by every reader, and one line per reader
+    # would read as several problems.
+    problems = list(dict.fromkeys(problems))
     if problems:
         console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
         for problem in problems:

@@ -202,3 +202,99 @@ def test_a_wfctl_json_whose_top_level_is_not_an_object_is_a_finding(tmp_path: Pa
     groups, problems = load(tmp_path)
     assert groups == []
     assert problems == ["wfctl.json: top level must be an object"]
+
+
+# --- wfctl check config ----------------------------------------------------------
+
+
+def _check_config(repo: Path, config: object) -> tuple[int, list[str]]:
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    (repo / "wfctl.json").write_text(json.dumps(config))
+    result = CliRunner().invoke(app, ["check", "config"])
+    return result.exit_code, result.output.splitlines()
+
+
+@pytest.mark.parametrize(
+    ("review", "finding"),
+    [
+        ([], "review must be an object"),
+        ({"groups": {}}, "review.groups must be a list"),
+        ({"groups": [{"group": "money-rules"}]}, "review group 'money-rules' has no reviewers"),
+        ({"groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}]},
+         "review group 'security': model 'codex' has no entry in review.commands"),
+    ],
+)
+def test_check_config_prints_each_review_finding_as_its_own_line(
+    storyctl_dir: object, monkeypatch: pytest.MonkeyPatch, review: object, finding: str
+) -> None:
+    """`check config` is where a person learns a declaration is broken, and
+    `review start` refuses on the same findings, so the two have to agree
+    (FR-021, US5 scenarios 2 to 4)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = storyctl_dir.repo_root  # type: ignore[attr-defined]
+
+    code, lines = _check_config(repo, {"review": review})
+
+    assert code == 1, lines
+    assert lines[0] == "✗ wfctl.json:"
+    assert f"  - {finding}" in lines
+
+
+def test_check_config_prints_review_findings_beside_the_trunk_and_steps_ones(
+    storyctl_dir: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One run reports every problem in the file, so fixing one doesn't reveal
+    the next only on the following run."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = storyctl_dir.repo_root  # type: ignore[attr-defined]
+
+    code, lines = _check_config(repo, {
+        "trunk": 5, "steps": {"nope": []}, "review": {"groups": {}},
+    })
+
+    assert code == 1
+    assert "  - review.groups must be a list" in lines
+    assert any("'trunk' must be a branch name" in line for line in lines)
+    assert any("'nope' is not a pipeline step" in line for line in lines)
+
+
+def test_check_config_reports_invalid_json_once(
+    storyctl_dir: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both readers find a file that won't parse, and the same line twice
+    reads as two problems."""
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = storyctl_dir.repo_root  # type: ignore[attr-defined]
+    (repo / "wfctl.json").write_text("{not json")
+
+    result = CliRunner().invoke(app, ["check", "config"])
+
+    assert result.exit_code == 1
+    assert sum("not valid JSON" in line for line in result.output.splitlines()) == 1
+
+
+def test_check_config_passes_the_documented_review_example(
+    storyctl_dir: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid declaration is silent about `review`, as a valid `steps` is."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    repo = storyctl_dir.repo_root  # type: ignore[attr-defined]
+
+    code, lines = _check_config(repo, {"review": {
+        "commands": {"codex": "codex exec --sandbox read-only"},
+        "groups": [
+            {"group": "security",
+             "reviewers": [{"name": "claude", "count": 2}, {"name": "codex", "count": 2}]},
+            {"group": "money-rules", "skill": "money-rules-review",
+             "reviewers": [{"name": "claude", "count": 2}]},
+        ],
+    }})
+
+    assert code == 0, lines
