@@ -68,9 +68,12 @@ raised.
 ## R5. What counts as empty, as N/A, and as no reason
 
 - **Decision**: Strip every `<!-- … -->` comment, including multi-line ones,
-  then whitespace. Nothing left is empty. What's left matching
-  `n/?a\.?`, case-insensitive, is N/A. What's left matching `(yes|no)[.!]?`,
-  case-insensitive, is a bare answer with no reason.
+  then whitespace, then any `*` or `_` around the whole answer. Nothing left
+  is empty. What's left matching `(n/?a|none)\.?`, case-insensitive, is N/A.
+  What's left matching `(yes|no)[.!]?`, case-insensitive, is a bare answer
+  with no reason. Stripping the emphasis means "**No.**" is still a bare
+  answer, since bolding a one-word answer is a common way to fill a template
+  section (PR-024).
 - **Rationale**: The template carries a comment under the heading, and a body
   that only kept it answers nothing. `N/A`, `n/a`, `NA`, and `N/A.` are the
   forms an agent writes when following the template's "N/A over deletion" rule.
@@ -78,15 +81,18 @@ raised.
   reason is what a reviewer compares with the diff to catch a contradiction.
   The rule applies to every listed section, not only "Needs a spec?", since a
   repo lists a section for a reader and a one-word answer gives the reader
-  nothing. The check confirms that a reason is there, not that it's a good
+  nothing. A repo should list only sections whose yes or no needs a reason.
+  For a section such as "Breaking changes?", "No." is a complete answer, and
+  listing it would fail every PR that gives it (PR-023). The check confirms that a reason is there, not that it's a good
   one: "No, small change." passes, and the reviewer judges it.
 - **Alternatives considered**: Require a minimum length, such as five words.
   We didn't choose it because a length can't tell a reason from padding
   either, and it would fail a short real answer.
-- **Alternatives considered**: Also treat "TBD", "-", or "None" as no answer.
-  We didn't choose them because "None" can be a real answer in some section,
-  and the check is meant to catch the template's own escape hatch, not judge
-  wording. The reviewer judges the answer.
+- **Alternatives considered**: Also treat "TBD" or "-" as no answer. We
+  didn't choose them because the check is meant to catch the template's own
+  escape hatch, not judge wording. "None" is flagged, since this repo's PR
+  template names it beside N/A as a non-answer. The reviewer judges the
+  answer.
 
 ## R6. How `check config` finds the PR template
 

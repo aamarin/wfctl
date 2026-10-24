@@ -386,7 +386,7 @@ Nine earlier MINOR findings are still open, unchanged.
 
 - Priority: MINOR
 - Category: Requirement / Plan Mismatch
-- Status: open
+- Status: fixed
 - Evidence:
   - `wfctl/agents/skills/worktree-handoff/SKILL.md:66-70`:
     "`.agents/skills/design-levels` owns where the line falls" and "A change
@@ -561,7 +561,7 @@ Nine earlier MINOR findings are still open, unchanged.
 
 - Priority: MINOR
 - Category: Assumption Challenge
-- Status: open
+- Status: fixed
 - Evidence:
   - `research.md §R5`: "The rule applies to every listed section, not only
     'Needs a spec?', since a repo lists a section for a reader and a one-word
@@ -588,7 +588,7 @@ Nine earlier MINOR findings are still open, unchanged.
 
 - Priority: MINOR
 - Category: Verification Gap
-- Status: open
+- Status: fixed
 - Evidence:
   - `research.md §R5` and `data-model.md §Section finding`: the remainder must
     match `(yes|no)[.!]?`, after comments and whitespace are stripped.
