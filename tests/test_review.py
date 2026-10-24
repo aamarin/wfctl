@@ -336,6 +336,36 @@ def test_range_leaves_out_a_clean_merge_of_nearby_lines(
     assert _review.commit_range(repo, own, reviewed).commits == (own,)
 
 
+def test_range_reads_a_merge_of_a_history_with_no_common_commit(repo: Path) -> None:
+    """`git subtree add` merges a history that shares no commit with the
+    branch, and `merge-tree` refuses those unless told otherwise, so every
+    `review start` on such a branch failed with a git error."""
+    reviewed = commit(repo, "a")
+    git(repo, "checkout", "-q", "--orphan", "vendor")
+    git(repo, "rm", "-q", "-r", "-f", ".")
+    vendored = commit(repo, "lib")
+    git(repo, "checkout", "-q", "637-x")
+    git(repo, "merge", "-q", "--no-edit", "--allow-unrelated-histories", "vendor")
+    own = commit(repo, "b")
+
+    assert set(_review.commit_range(repo, own, reviewed).commits) == {vendored, own}
+
+
+def test_range_keeps_a_merge_of_more_than_two_branches(repo: Path) -> None:
+    """An octopus merge has no single two-parent redo to compare against, so
+    nothing can show git made it unaided, and it stays in the range."""
+    reviewed = commit(repo, "a")
+    for name in ("b1", "b2"):
+        git(repo, "checkout", "-q", "-b", name, reviewed)
+        commit(repo, name)
+    git(repo, "checkout", "-q", "637-x")
+    git(repo, "merge", "-q", "--no-ff", "--no-edit", "b1", "b2")
+    merge = git(repo, "rev-parse", "HEAD")
+
+    assert len(git(repo, "rev-list", "--parents", "-1", merge).split()) == 4
+    assert merge in _review.commit_range(repo, merge, reviewed).commits
+
+
 def test_range_ignores_a_tag_named_after_the_trunk(repo: Path) -> None:
     """git resolves a short `main` to a tag before the branch, so a tag named
     `main` on the branch's own commit made that commit read as already on the

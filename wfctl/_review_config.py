@@ -40,8 +40,10 @@ _REVIEWER_KEYS = ("name", "count")
 # prints it in lines the panel skill reads one at a time.
 PLAIN_NAME = re.compile(r"[a-z][a-z0-9-]*")
 # A command is printed on that same line, so it can't hold a control character
-# either. A newline in one would print a roster line nobody declared.
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+# either. A newline in one would print a roster line nobody declared. The check
+# uses `str.isprintable` rather than a list of ASCII controls. Python's
+# `splitlines` also breaks a line at U+0085, U+2028, and U+2029, so a reader
+# that splits the roster with it would see the same extra line.
 # A skill is named the way an agent loads one, optionally after a plugin name,
 # such as `agent-skills:review`. A path is never a skill name.
 _SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?")
@@ -139,7 +141,7 @@ def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
     if CLAUDE in found:
         problems.append(f"review.commands: {CLAUDE} runs inside the agent and takes no command")
     for model, command in found.items():
-        if _CONTROL.search(command):
+        if not command.isprintable():
             problems.append(
                 f"review.commands: the command for '{model}' holds a control character"
             )
@@ -207,6 +209,10 @@ def _reviewers(
     Codex reviewer after two Claude ones is `s3` rather than a second `s1`."""
     found: list[Reviewer] = []
     ok = True
+    # Every well-formed count adds to the total, including one whose model has
+    # no command, so the cap is reported in the same run as the other problems
+    # rather than after they are fixed.
+    total = 0
     for spec in listed:
         model = spec.get("name") if isinstance(spec, dict) else None
         if not isinstance(model, str) or not model:
@@ -233,9 +239,7 @@ def _reviewers(
             problems.append(f"review group '{group}': count for '{model}' must be 1 or more")
             ok = False
             continue
-        if len(found) + count > MAX_COUNT:
-            problems.append(f"review group '{group}' has more than {MAX_COUNT} reviewers")
-            return None
+        total += count
         command = None if model == CLAUDE or commands is None else commands.get(model)
         if model != CLAUDE and command is None:
             if commands is not None:
@@ -244,6 +248,11 @@ def _reviewers(
                 )
             ok = False
             continue
+        if total > MAX_COUNT:
+            ok = False
+            continue
         for _ in range(count):
             found.append(Reviewer(f"{group[0]}{len(found) + 1}", model, command))
+    if total > MAX_COUNT:
+        problems.append(f"review group '{group}' has more than {MAX_COUNT} reviewers")
     return tuple(found) if ok else None

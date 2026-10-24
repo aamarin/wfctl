@@ -209,6 +209,12 @@ def test_a_custom_group_with_no_skill_runs_the_code_review(tmp_path: Path) -> No
             id="command-with-a-newline",
         ),
         pytest.param(
+            {"commands": {"codex": "codex exec s9 claude"},
+             "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}]},
+            "review.commands: the command for 'codex' holds a control character",
+            id="command-with-a-unicode-line-separator",
+        ),
+        pytest.param(
             {"groups": [{"group": "money", "skill": "../../etc",
                          "reviewers": [{"name": "claude", "count": 1}]}]},
             "review group 'money': skill must be a skill name", id="skill-path",
@@ -236,6 +242,24 @@ def test_each_bad_declaration_is_a_finding_in_the_words_check_config_prints(
     groups, problems = load(tmp_path)
     assert finding in problems, problems
     assert groups == []
+
+
+def test_the_reviewer_cap_is_reported_beside_the_groups_other_problems(
+    tmp_path: Path,
+) -> None:
+    """The cap returned as soon as the total passed 20, and counted only the
+    entries that were valid so far. A model with no command hid the cap, and the
+    cap hid every entry after it, so each fix revealed the next problem."""
+    _write(tmp_path, {"groups": [{"group": "security", "reviewers": [
+        {"name": "gemini", "count": 15},
+        {"name": "claude", "count": 15},
+        {"name": "4o", "count": 1},
+    ]}]})
+    groups, problems = load(tmp_path)
+    assert groups == []
+    assert "review group 'security': model 'gemini' has no entry in review.commands" in problems
+    assert "review group 'security' has more than 20 reviewers" in problems
+    assert any("model '4o'" in p for p in problems), problems
 
 
 def test_a_wfctl_json_that_is_not_json_is_a_finding_rather_than_an_exception(

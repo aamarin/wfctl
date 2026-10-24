@@ -130,8 +130,8 @@ def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
     the trunk then resolves to the local name, so both are looked up.
 
     Full names because git resolves a short `main` to a tag of that name before
-    the branch, and a tag on an older commit made the branch's own work read as
-    already on the trunk. A trunk found under neither name is used as named.
+    the branch, and a tag on one of the branch's own commits made that work read
+    as already on the trunk. A trunk found under neither name is used as named.
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
@@ -222,11 +222,17 @@ def _has_own_edits(
 
     A merge with more than two parents has no single redo to compare against,
     so it stays in the range.
+
+    The redo passes `--allow-unrelated-histories`, since `git subtree add` and a
+    merged orphan branch both make a merge whose parents share no commit.
+    Without the flag, git refuses the redo, and every `review start` on that
+    branch failed.
     """
     if len(parents) != 2:
         return True
     redone = _git(
-        repo_root, "merge-tree", "--write-tree", *parents, timeout=timeout, answers=(0, 1),
+        repo_root, "merge-tree", "--write-tree", "--allow-unrelated-histories", *parents,
+        timeout=timeout, answers=(0, 1),
     )
     if redone.returncode == 1:
         return True

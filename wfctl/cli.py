@@ -6141,9 +6141,10 @@ def review_check_cmd(
     if checked.complete:
         _say(f"complete: {group} reviewed through {head}")
         if checked.missing:
-            reports = "report no longer counts" if checked.missing == 1 else (
-                "reports no longer count"
-            )
+            if checked.missing == 1:
+                reports = "report no longer counts"
+            else:
+                reports = "reports no longer count"
             _say(f"⚠ {checked.missing} {reports} since the run completed at "
                  f"{checked.run.record['completed_at']}")
         return
