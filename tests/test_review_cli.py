@@ -6,6 +6,7 @@ this output to launch reviewers and a person reads the roster to decide.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -209,6 +210,26 @@ def test_check_with_a_report_missing_is_incomplete(repo: Path) -> None:
         "s3 claude ✗ no report",
         "incomplete: 1 of 3 expected reports missing",
     ]
+
+
+def test_check_after_a_report_changed_on_a_complete_run_stays_complete_and_warns(
+    repo: Path,
+) -> None:
+    """The run printed `incomplete` and exited 1 while its records still said
+    complete, and the last reviewed commit had already moved."""
+    reports, head = _started(repo)
+    for rid in ("s1", "s2", "s3"):
+        (reports / f"{rid}.md").write_text(report(head))
+    assert run("review", "check", "security").exit_code == 0
+    (reports / "s2.md").unlink()
+
+    result = run("review", "check", "security")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[2:4] == ["s2 claude ✗ no report", "s3 claude ✓"]
+    assert lines[4] == f"complete: security reviewed through {head[:7]}"
+    assert re.fullmatch(r"⚠ 1 report changed after the run completed at \S+Z", lines[5])
 
 
 def test_check_with_no_run_says_how_to_start_one(repo: Path) -> None:

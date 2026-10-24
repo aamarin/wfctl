@@ -252,6 +252,52 @@ def test_every_git_call_in_the_range_takes_the_callers_timeout(
     assert set(seen) == {5}
 
 
+def test_range_works_beside_a_path_named_after_the_trunk(repo: Path) -> None:
+    """git reads a bare `main` as a path too when one exists, and an untracked
+    build output or a `main/` folder made `rev-list` refuse the range as
+    ambiguous, so `review start` failed in that repository every time."""
+    reviewed = commit(repo, "a")
+    head = commit(repo, "b")
+    (repo / "main").mkdir()
+
+    assert _review.commit_range(repo, head, reviewed).commits == (head,)
+
+
+def test_range_keeps_a_merge_that_carries_edits_of_its_own(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A conflict resolved by hand exists only in the merge commit. Dropping
+    every merge meant a branch whose only new commit was that merge read as
+    up to date, and nobody reviewed the resolution."""
+    reviewed = commit(repo, "a")
+    push_to_main(tmp_path, repo, "m1")
+    git(repo, "merge", "-q", "--no-commit", "origin/main")
+    (repo / "a").write_text("resolved by hand\n")
+    git(repo, "add", "a")
+    git(repo, "commit", "-q", "--no-edit")
+    merge = git(repo, "rev-parse", "HEAD")
+
+    assert _review.commit_range(repo, merge, reviewed).commits == (merge,)
+
+
+def test_range_reads_origin_main_when_origin_head_is_not_set(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A remote added with `git remote add` has no `origin/HEAD`, so the trunk
+    resolves to the local `main`. A stale local `main` then made every commit
+    merged in from `origin/main` read as the branch's own work."""
+    reviewed = commit(repo, "a")
+    from_main = push_to_main(tmp_path, repo, "m1")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    own = commit(repo, "b")
+    git(repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+
+    assert _review.trunk_refs(repo) == ["origin/main", "main"]
+    found = _review.commit_range(repo, own, reviewed)
+    assert from_main not in found.commits
+    assert found.commits == (own,)
+
+
 # --- reports -------------------------------------------------------------------
 
 
@@ -535,6 +581,24 @@ def test_checking_a_complete_run_again_changes_nothing(repo: Path, state: Path) 
     assert len((state / "events.jsonl").read_text().splitlines()) == 2
 
 
+def test_a_complete_run_stays_complete_when_a_report_changes_later(
+    repo: Path, state: Path
+) -> None:
+    """The last reviewed commit has already moved, so reading the run as
+    incomplete again would contradict the record every later run starts from.
+    The roster still shows the changed report."""
+    commit(repo, "a")
+    started = complete(repo, state)
+    assert started.run is not None
+    (started.run.path / "s2.md").unlink()
+
+    checked = _review.check(state, "security")
+
+    assert checked.complete
+    assert checked.missing == 1
+    assert checked.run.record["completed_at"] is not None
+
+
 def test_check_with_no_run_raises_naming_the_group(state: Path) -> None:
     """There is nothing to judge, and the fix is to start one."""
     with pytest.raises(_review.NoRun):
@@ -575,7 +639,7 @@ def test_the_review_modules_load_neither_typer_nor_rich() -> None:
 # --- relay ---------------------------------------------------------------------
 
 
-def _relay(state: Path, rid: str, reason: str, text: str) -> tuple[str, _review.Run]:
+def _relay(state: Path, rid: str, reason: str, text: str) -> str:
     return _review.relay(state, [SECURITY], rid, reason, text)
 
 
@@ -834,6 +898,22 @@ def test_a_verdict_inside_a_closing_code_fence_counts() -> None:
     copying it ends on the fence rather than on the verdict."""
     text = f"```\nReviewed: {HEAD[:7]}\n\nVerdict: Approve\n```\n"
     assert _review.judge(text, HEAD) is None
+
+
+def test_a_verdict_inside_a_closing_tilde_fence_counts() -> None:
+    """Markdown fences with `~~~` as well, and a report wrapped that way read
+    as having no verdict."""
+    text = f"~~~\nReviewed: {HEAD[:7]}\n\nVerdict: Approve\n~~~\n"
+    assert _review.judge(text, HEAD) is None
+
+
+@pytest.mark.parametrize("ending", ["Verdict: Disapprove", "Verdict: Unapproved"])
+def test_a_verdict_word_inside_another_word_is_not_a_verdict(ending: str) -> None:
+    """The word was matched anywhere in the line, so `Disapprove` read as
+    `Approve` and a verdict outside the rubric's two counted."""
+    assert _review.judge(f"Reviewed: {HEAD[:7]}\n\n{ending}\n", HEAD) == (
+        "no verdict at the end"
+    )
 
 
 def test_a_report_naming_a_full_sha_of_another_commit_shows_seven_digits() -> None:

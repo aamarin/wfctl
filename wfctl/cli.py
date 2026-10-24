@@ -6140,6 +6140,10 @@ def review_check_cmd(
         _say(line)
     if checked.complete:
         _say(f"complete: {group} reviewed through {head}")
+        if checked.missing:
+            reports = "report" if checked.missing == 1 else "reports"
+            _say(f"⚠ {checked.missing} {reports} changed after the run completed at "
+                 f"{checked.run.record['completed_at']}")
         return
     if not checked.expected:
         _say(f"incomplete: no reviewer in {group} could run")
@@ -6192,11 +6196,11 @@ def relay_cmd(
     groups = _review_groups_or_exit(repo_root)
     agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
     try:
-        _review.relay(agent_dir, groups, reviewer, reason, text)
+        saved = _review.relay(agent_dir, groups, reviewer, reason, text)
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
-    _say(f"✓ {reviewer} relayed: {' '.join(reason.split())}")
+    _say(f"✓ {reviewer} relayed: {saved}")
 
 
 check_app = typer.Typer(

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,8 +36,17 @@ _REVIEWER_KEYS = ("name", "count")
 
 # A group name becomes a directory under `reviews/`, so it can't hold a slash
 # or start with a dot. Matched with `fullmatch`, since `$` also matches before
-# a trailing newline.
+# a trailing newline. A model name follows the same rule, since `review start`
+# prints it in lines the panel skill reads one at a time.
 GROUP_NAME = re.compile(r"[a-z][a-z0-9-]*")
+# A skill is named the way an agent loads one, optionally after a plugin name,
+# such as `agent-skills:review`. A path is never a skill name.
+_SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?")
+
+# Each reviewer is a full review of the range, and more than this is a typo
+# rather than a panel. Unbounded, a count of 2,000,000 took two seconds to load
+# on every guarded command.
+MAX_COUNT = 20
 
 
 @dataclass(frozen=True)
@@ -80,12 +90,7 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
         return [], ["review must be an object"]
 
     problems = [f"review: unknown key '{k}'" for k in review if k not in _REVIEW_KEYS]
-    commands: dict[str, str] | None = review.get("commands", {})
-    if not isinstance(commands, dict) or not all(
-        isinstance(v, str) and v.strip() for v in commands.values()
-    ):
-        problems.append("review.commands must map each model to a command string")
-        commands = None
+    commands = _commands(review.get("commands", {}), problems)
 
     entries = review.get("groups", [])
     if not isinstance(entries, list):
@@ -113,6 +118,28 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
 
     groups = _resolve(declared, commands, problems)
     return ([], problems) if problems else (groups, [])
+
+
+def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
+    """`review.commands`, or None when it isn't an object of strings.
+
+    A command wfctl can't split into words is a finding here rather than a
+    model `review start` reports as missing, since the quoting is a fact about
+    the repository and not about the machine.
+    """
+    if not isinstance(found, dict) or not all(
+        isinstance(v, str) and v.strip() for v in found.values()
+    ):
+        problems.append("review.commands must map each model to a command string")
+        return None
+    if CLAUDE in found:
+        problems.append(f"review.commands: {CLAUDE} runs inside the agent and takes no command")
+    for model, command in found.items():
+        try:
+            shlex.split(command)
+        except ValueError as e:
+            problems.append(f"review.commands: can't split the command for '{model}': {e}")
+    return found
 
 
 def _resolve(
@@ -143,7 +170,7 @@ def _resolve(
     for name in order:
         entry = declared.get(name, {})
         skill = entry.get("skill", _DEFAULT_SKILL.get(name, _FALLBACK_SKILL))
-        if not isinstance(skill, str) or not skill.strip():
+        if not isinstance(skill, str) or not _SKILL_NAME.fullmatch(skill):
             problems.append(f"review group '{name}': skill must be a skill name")
             continue
         if "reviewers" in entry:
@@ -178,6 +205,13 @@ def _reviewers(
             ok = False
             continue
         assert isinstance(spec, dict)
+        if not GROUP_NAME.fullmatch(model):
+            problems.append(
+                f"review group '{group}': model {model!r} isn't lowercase letters, "
+                "digits and hyphens"
+            )
+            ok = False
+            continue
         unknown = [k for k in spec if k not in _REVIEWER_KEYS]
         if unknown:
             problems.append(f"review group '{group}': unknown key '{unknown[0]}' in a reviewer")
@@ -188,6 +222,12 @@ def _reviewers(
         # than a count of one.
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             problems.append(f"review group '{group}': count for '{model}' must be 1 or more")
+            ok = False
+            continue
+        if count > MAX_COUNT:
+            problems.append(
+                f"review group '{group}': count for '{model}' must be {MAX_COUNT} or fewer"
+            )
             ok = False
             continue
         command = None if model == CLAUDE or commands is None else commands.get(model)

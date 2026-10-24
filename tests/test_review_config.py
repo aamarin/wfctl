@@ -169,6 +169,41 @@ def test_a_custom_group_with_no_skill_runs_the_code_review(tmp_path: Path) -> No
             "review.commands must map each model to a command string",
             id="command-not-string",
         ),
+        pytest.param(
+            {"groups": [{"group": "security", "reviewers": [{"name": "claude", "count": 21}]}]},
+            "review group 'security': count for 'claude' must be 20 or fewer",
+            id="count-too-large",
+        ),
+        pytest.param(
+            {"commands": {"gpt 5": "gpt"},
+             "groups": [{"group": "security", "reviewers": [{"name": "gpt 5", "count": 1}]}]},
+            "review group 'security': model 'gpt 5' isn't lowercase letters, digits and hyphens",
+            id="model-name-with-a-space",
+        ),
+        pytest.param(
+            {"commands": {"x\ns9 claude": "x"},
+             "groups": [{"group": "security",
+                         "reviewers": [{"name": "x\ns9 claude", "count": 1}]}]},
+            "review group 'security': model 'x\\ns9 claude' isn't lowercase letters, "
+            "digits and hyphens",
+            id="model-name-with-a-newline",
+        ),
+        pytest.param(
+            {"groups": [{"group": "money", "skill": "../../etc",
+                         "reviewers": [{"name": "claude", "count": 1}]}]},
+            "review group 'money': skill must be a skill name", id="skill-path",
+        ),
+        pytest.param(
+            {"commands": {"claude": "claude -p"}},
+            "review.commands: claude runs inside the agent and takes no command",
+            id="command-for-claude",
+        ),
+        pytest.param(
+            {"commands": {"codex": "codex 'exec"},
+             "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}]},
+            "review.commands: can't split the command for 'codex': No closing quotation",
+            id="command-unbalanced-quote",
+        ),
     ],
 )
 def test_each_bad_declaration_is_a_finding_in_the_words_check_config_prints(

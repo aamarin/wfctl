@@ -48,7 +48,9 @@ _REVIEWED = re.compile(r"^[^A-Za-z0-9\n]*Reviewed:[*_` \t]*([0-9A-Fa-f]+)", re.M
 # decoration before the word, so `**Verdict: Approve**` and `## Verdict` both
 # count, and refuses other words, so prose that mentions a verdict doesn't.
 _VERDICT_ANCHOR = re.compile(r"^[^A-Za-z]*Verdict")
-_VERDICT_WORD = re.compile(r"Approve|Request changes", re.I)
+# Whole words, so `Disapprove` isn't read as `Approve`.
+_VERDICT_WORD = re.compile(r"\b(?:Approve|Request changes)\b", re.I)
+_FENCES = ("```", "~~~")
 
 _RELAYED = "Relayed: "
 
@@ -108,27 +110,35 @@ def head_commit(repo_root: Path, timeout: float | None = None) -> str:
     return _git(repo_root, "rev-parse", "HEAD", timeout=timeout).stdout.strip()
 
 
+def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
+    found = _git(
+        repo_root, "show-ref", "--verify", "--quiet", ref, timeout=timeout, answers=(0, 1),
+    )
+    return found.returncode == 0
+
+
 def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
-    """The trunk branch as `_paths.trunk_branch` names it, and its local branch
-    when one exists.
+    """The trunk branch on `origin` and its local branch, each when it exists.
 
     The remote ref comes first because a person's local `main` usually trails
     it, and excluding only the local branch would list everything merged since
     as the branch's own work. The local one is added because a commit can reach
-    the local `main` before it is pushed.
+    the local `main` before it is pushed. `_paths.trunk_branch` names either
+    one, since a remote added with `git remote add` has no `origin/HEAD` and
+    the trunk then resolves to the local name, so the other is looked up.
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
         raise NoTrunk()
-    refs = [trunk]
     if trunk.startswith("origin/"):
-        local = trunk.removeprefix("origin/")
-        found = _git(
-            repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{local}",
-            timeout=timeout, answers=(0, 1),
-        )
-        if found.returncode == 0:
-            refs.append(local)
+        remote, local = trunk, trunk.removeprefix("origin/")
+    else:
+        remote, local = f"origin/{trunk}", trunk
+    refs = []
+    if remote == trunk or _has_ref(repo_root, f"refs/remotes/{remote}", timeout):
+        refs.append(remote)
+    if local == trunk or _has_ref(repo_root, f"refs/heads/{local}", timeout):
+        refs.append(local)
     return refs
 
 
@@ -166,8 +176,13 @@ def commit_range(
     a merge is judged at the pushed head, and every ancestor of a reviewed
     commit was covered by an earlier complete run.
 
-    `--not` drops every commit that came in from the trunk, and `--no-merges`
-    drops the merge that brought them, so merging `main` doesn't force a round.
+    `--not` drops every commit that came in from the trunk, and a merge is
+    dropped unless it carries edits of its own, so merging `main` doesn't force
+    a round. A conflict resolved by hand exists only in the merge commit, and
+    dropping every merge would leave it unreviewed.
+
+    The arguments end with `--`, since git otherwise reads a bare `main` as a
+    path when one exists and refuses the range as ambiguous.
     """
     refs = trunk_refs(repo_root, timeout)
     base = None
@@ -179,10 +194,27 @@ def commit_range(
     if base is None:
         base = _git(repo_root, "merge-base", head, refs[0], timeout=timeout).stdout.strip()
     listed = _git(
-        repo_root, "rev-list", "--no-merges", f"{base}..{head}", "--not", *refs,
+        repo_root, "rev-list", "--parents", f"{base}..{head}", "--not", *refs, "--",
         timeout=timeout,
-    ).stdout.split()
-    return Range(base, tuple(listed))
+    ).stdout.splitlines()
+    commits = []
+    for line in listed:
+        sha, *parents = line.split()
+        if len(parents) < 2 or _has_own_edits(repo_root, sha, timeout):
+            commits.append(sha)
+    return Range(base, tuple(commits))
+
+
+def _has_own_edits(repo_root: Path, merge: str, timeout: float | None) -> bool:
+    """Whether a merge changed anything beyond what its parents brought.
+
+    `--cc` keeps only the hunks that differ from every parent, so a clean merge
+    prints nothing and a hand-resolved conflict prints the resolution.
+    """
+    shown = _git(
+        repo_root, "diff-tree", "--cc", "--no-commit-id", merge, timeout=timeout,
+    ).stdout
+    return bool(shown.strip())
 
 
 # --- records ---------------------------------------------------------------------
@@ -388,7 +420,7 @@ def judge(text: str, head: str) -> str | None:
         return f"names {named[-1][:_MIN_SHA]}, not {head[:_MIN_SHA]}"
     # A reviewer that wraps its report in a code fence ends on the fence, and
     # the verdict is the line inside it.
-    lines = [line for line in text.splitlines() if line.strip() and line.strip() != "```"]
+    lines = [line for line in text.splitlines() if line.strip() and line.strip() not in _FENCES]
     last = lines[-1] if lines else ""
     before = lines[-2] if len(lines) > 1 else ""
     if not _VERDICT_WORD.search(last) or not (
@@ -470,14 +502,21 @@ def check(agent_dir: Path, group: str) -> Checked:
     twice. The order matters for a write that fails halfway: a run marked
     complete is never completed again, so `last-reviewed.json` goes first, and
     a failure before the second write leaves a run the next `check` completes.
+
+    A run stays complete when a report changes afterwards. The last reviewed
+    commit has already moved, so calling the run incomplete again would
+    contradict the record the next run starts from. The roster still shows the
+    changed report, and `missing` counts it.
     """
     run = latest_run(agent_dir, group)
     if run is None:
         raise NoRun(group)
     entries = _roster(run)
     expected = sum(1 for e in entries if e.expected)
+    if run.record.get("completed_at") is not None:
+        return Checked(group, run, tuple(entries), expected, True)
     complete = expected > 0 and all(e.counted for e in entries if e.expected)
-    if complete and run.record.get("completed_at") is None:
+    if complete:
         at = _now()
         record = {**run.record, "completed_at": at}
         write_atomic(
@@ -511,14 +550,15 @@ def roster_lines(entries: Sequence[Entry]) -> list[str]:
 
 def relay(
     agent_dir: Path, groups: Sequence[Group], reviewer: str, reason: str, text: str,
-) -> tuple[str, Run]:
+) -> str:
     """Save a blocked reviewer's report as that reviewer's, marked as relayed.
 
     The report is saved under the reviewer's id in its group's latest run, with
     a header naming the reason, so the roster can show a relay rather than pass
     it off as a report the reviewer wrote
     (`622-blocked-reviewer-relays-report.md`). The group is found by the id's
-    letter, which no two groups share. Returns the group's name and the run.
+    letter, which no two groups share. Returns the reason as saved, collapsed to
+    one line so it can't add a line to the header.
     """
     reason = " ".join(reason.split())
     if not reason:
@@ -539,4 +579,4 @@ def relay(
     append_event(
         agent_dir, "review-relay", group=group.name, run=run.number, id=reviewer, reason=reason,
     )
-    return group.name, run
+    return reason

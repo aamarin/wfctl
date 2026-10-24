@@ -300,15 +300,14 @@ its own:
 `commands` maps each model other than Claude to the command that starts it.
 Claude runs inside the current agent, so it needs none. `groups` lists the
 review groups, and each one names its reviewers as a model and a count. The
-count is exact, so wfctl expects that many reports and keeps the run incomplete
-until they arrive.
+count is exact and at most 20, so wfctl expects that many reports and keeps the
+run incomplete until they arrive.
 
 By default, `security` and `code` each have three Claude reviewers, so a
 repository that leaves the key out still gets both groups. A custom group has
 no default and lists its own. A built-in group gets the default only when its
-`reviewers` key is missing, so
-listing `security` to change its skill keeps its reviewers. An empty
-`reviewers` list is a finding, not a way to skip a group.
+`reviewers` key is missing, so listing `security` to change its skill keeps its
+reviewers. An empty `reviewers` list is a finding, not a way to skip a group.
 
 `security` and `code` always run first, in that order, whether or not the list
 names them. The code group reviews the security group's fixes, and every other
