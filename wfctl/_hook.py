@@ -179,7 +179,9 @@ def worktree_guard(stdin_text: str | bytes) -> int:
 
             refused = _review_gate.refusal(command, payload.get("cwd"))
         except Exception as e:
-            refused = f"✗ the review check failed: {str(e) or type(e).__name__}"
+            from wfctl._guard import review_check_failed
+
+            refused = review_check_failed(str(e) or type(e).__name__)
         if refused:
             print(refused, file=sys.stderr)
             return 2

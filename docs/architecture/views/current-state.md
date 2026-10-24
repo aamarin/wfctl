@@ -30,7 +30,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
    │ _sections 206  _review_config 272  _review 720               │      ┊
-   │ _review_gate 623                                             │      ┊
+   │ _review_gate 723                                             │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -53,7 +53,7 @@ when a command is about to be refused, to find the spec root and the state
 root, and `_spec_store` only when that command also runs git, to ask whether
 the spec root takes commits. It imports `_review_gate` only when a command holds
 `gh`, `merge`, or `sign`, and that module reaches `_review`, `_review_config`,
-and `_paths` only once a command has matched. None of these imports pulls in `cli`, which is what lets the guard run without
+`_paths`, and `_guard` only once a command has matched. None of these imports pulls in `cli`, which is what lets the guard run without
 it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:

@@ -75,7 +75,8 @@ worktree guard refuses `gh pr create` and `gh pr merge` while any group has
 commits it hasn't reviewed, and lists them under each group. A fix the code
 group commits is a commit the security group hasn't reviewed, so the security
 group runs again over just that fix, then the code group if the security group
-changed anything. Each pass is a short one, since a group's run covers only the
+changed anything. The security group's own fixes are new commits too, so a
+security run that led to fixes is followed by another security run over them. Each pass is a short one, since a group's run covers only the
 commits since its last complete run.
 
 **Stop after three complete rounds and ask the person for a sign-off.** A round
@@ -318,7 +319,7 @@ one state reached two ways — collapse them.
 ## Step 5: Open it
 
 Write the body to a file and pass the file. `--body` on a shell line mangles
-newlines, backticks and anything a diagram needs:
+newlines, backticks and anything a diagram needs.
 
 Write the description to `/tmp/pr-body-<branch>.md`, with this branch's name
 written out, such as `/tmp/pr-body-622-security-review-panel.md`. Then run two

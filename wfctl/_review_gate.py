@@ -76,10 +76,20 @@ _SIGN_OFF = re.compile(r"\breview\b.*\bsign.?off\b", re.S)
 
 _SEPARATOR = re.compile(r"[;&|\n]")
 _SUBSTITUTION = re.compile(r"\$\(|`|<\(|>\(")
-_ENV_PREFIX = re.compile(r"(?:^|[\s\"'`(])(?:[A-Za-z_][A-Za-z0-9_]*=|env(?=[\s\"']|$))")
+# `env` matches after a `/` or a backslash too, since `/usr/bin/env -C` and
+# `\\env -C` move `gh` to another directory just as `env -C` does.
+_ENV_PREFIX = re.compile(
+    r"(?:^|[\s\"'`(])[A-Za-z_][A-Za-z0-9_]*=|(?:^|[\s\"'`(/\\])env(?=[\s\"']|$)"
+)
 _PLAIN_REPO = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)?")
 _UNPLAIN_VERB = re.compile(r"[$\\*?\[{'\"`]")
 _PULLS_CREATE = re.compile(r"(?:^|/)pulls/?(?:\?.*)?\Z")
+_PR_URL = re.compile(r"https?://(?P<host>[^/]+)/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/\d+")
+# The shell expands `{a,b}` and `{1..3}` into several words, and a glob into
+# the files it matches, after the check has read the command as one word.
+_BRACE = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
+_REDIRECT_ONLY = re.compile(r"\d*(?:>>?|<|&>>?|>&|<&|>\|)")
+_REDIRECT = re.compile(r"\d*(?:>>?|<|&>>?|>&|<&|>\|)\S")
 
 _MERGE_VALUE = frozenset({
     "-t", "--subject", "-b", "--body", "-F", "--body-file", "-A", "--author-email",
@@ -116,15 +126,16 @@ class Target:
     """A command the check judges against a branch's reviews.
 
     `pr` is what `gh pr view` is asked about, as the command wrote it, and None
-    for the current branch's pull request. `repo` is the `-R` value as written,
-    or the `owner/repo` of a `repos/` path. `head` and `owner` come from
-    `--head [owner:]branch` on a create.
+    for the current branch's pull request. `repo` is the repository the
+    command names, and `named_by` says where: `-R` as written, the
+    `owner/repo` of a `repos/` path, or a pull request URL. `head` and `owner`
+    come from `--head [owner:]branch` on a create.
     """
 
     create: bool
     pr: str | None = None
     repo: str | None = None
-    repo_from_path: bool = False
+    named_by: str = "-R"
     head: str | None = None
     owner: str | None = None
 
@@ -143,7 +154,8 @@ def refusal(command: str, cwd: object) -> str | None:
     if not targets:
         return None
     try:
-        found = [r for r in (_judge(t, _Session.open(cwd)) for t in targets) if r]
+        session = _Session.open(cwd)
+        found = [r for r in (_judge(t, session) for t in targets) if r]
     except subprocess.TimeoutExpired as e:
         return _error(f"{_name(e.cmd)} timed out after {e.timeout:g}s")
     except Exception as e:
@@ -152,12 +164,11 @@ def refusal(command: str, cwd: object) -> str | None:
 
 
 def _error(reason: str) -> str:
-    return (
-        f"✗ the review check failed: {reason}\n"
-        "  The check blocks a pull request when it can't reach an answer. A sign-off\n"
-        "  won't get past this. A person can run the same command in their own\n"
-        "  terminal, where this hook doesn't run."
-    )
+    # The text lives in `_guard`, since `_hook` also prints it when this module
+    # can't be imported or raises outside its own `try`.
+    from wfctl._guard import review_check_failed
+
+    return review_check_failed(reason)
 
 
 def _name(cmd: object) -> str:
@@ -223,7 +234,7 @@ def read(command: str) -> tuple[list[str], list[Target]]:
         repo = None
         if path and (path["owner"], path["repo"]) != ("{owner}", "{repo}"):
             repo = f"{path['owner']}/{path['repo']}"
-        targets.append(Target(False, m["number"], repo, repo_from_path=True))
+        targets.append(Target(False, m["number"], repo, named_by="the path"))
     return list(dict.fromkeys(refused)), targets
 
 
@@ -318,7 +329,11 @@ def _command_end(text: str, start: int) -> int:
             i += 2
             continue
         if inner is None:
-            if c == outer or c in ";|&\n":
+            # `2>&1`, `&>`, `<&` and `>|` are redirections, not separators.
+            redirect = (c == "&" and (text[i - 1:i] in ("<", ">") or text[i + 1:i + 2] == ">")) or (
+                c == "|" and text[i - 1:i] == ">"
+            )
+            if c == outer or (c in ";|&\n" and not redirect):
                 return i
             if c in "'\"":
                 inner = c
@@ -421,9 +436,36 @@ def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
     """The command a matched `gh pr` verb runs, or why the check can't read it.
 
     None for `--help`, which prints help and does nothing else.
+
+    The words are read as written first, quotes kept, for what the shell does
+    to them before `gh` starts and `shlex` doesn't: a word starting with `#`
+    begins a comment, a brace or a glob expands into other words, and a
+    redirection names a file rather than an argument. A comment hid a `--help`
+    the shell drops, and a brace slid a second pull request in after the check
+    had read one.
     """
+    written = _raw_words(text)
+    if any(word.startswith("#") and bare.startswith("#") for word, bare in written):
+        return (
+            f"run {name} without a # comment; the shell drops it, and the check "
+            "would read it as part of the command"
+        )
+    if any(_BRACE.search(bare) or set(bare) & set("*?[") for _, bare in written):
+        return (
+            f"write {name}'s arguments without a brace or a glob; the shell expands "
+            "them after the check has read the command"
+        )
+    kept: list[str] = []
+    skip = False
+    for word, bare in written:
+        if skip:
+            skip = False
+        elif word == bare and _REDIRECT_ONLY.fullmatch(word):
+            skip = True
+        elif not (word[0] not in "'\"" and _REDIRECT.match(word)):
+            kept.append(word)
     try:
-        words = shlex.split(text)[1:]
+        words = shlex.split(" ".join(kept))[1:]
     except ValueError:
         return _UNREADABLE
     create = name == "gh pr create"
@@ -446,16 +488,56 @@ def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
     if len(args) > (0 if create else 1):
         return _UNREADABLE
     repo = repos[0] if repos else None
+    named_by = "-R"
+    url = _PR_URL.match(args[0]) if args else None
+    if url:
+        if repo is not None:
+            return "name the repository once; the check can't tell which -R gh uses"
+        repo, named_by = f"{url['host']}/{url['owner']}/{url['repo']}", "the URL"
     if repo is not None:
         parts = repo.split("/")
         if not 2 <= len(parts) <= 3 or (len(parts) == 3 and parts[0].lower() != "github.com"):
-            return "-R names another repository; its reviews aren't here"
+            return f"{named_by} names another repository; its reviews aren't here"
     heads = [v for f, v in pairs if f in ("-H", "--head") and v is not None]
     owner, _, head = heads[-1].rpartition(":") if heads else ("", "", "")
     return Target(
-        create, pr=args[0] if args else None, repo=repo,
+        create, pr=args[0] if args else None, repo=repo, named_by=named_by,
         head=head or None, owner=owner or None,
     )
+
+
+def _raw_words(text: str) -> list[tuple[str, str]]:
+    """Each word as written, quotes kept, beside its characters outside quotes.
+
+    A character escaped with a backslash counts as quoted, since the shell
+    gives it no meaning of its own.
+    """
+    words: list[tuple[str, str]] = []
+    word: list[str] = []
+    bare: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote is None and c.isspace():
+            if word:
+                words.append(("".join(word), "".join(bare)))
+                word, bare = [], []
+        elif c == "\\" and quote != "'" and i + 1 < len(text):
+            word.append(text[i:i + 2])
+            i += 1
+        else:
+            word.append(c)
+            if quote is None and c in "'\"":
+                quote = c
+            elif c == quote:
+                quote = None
+            elif quote is None:
+                bare.append(c)
+        i += 1
+    if word:
+        words.append(("".join(word), "".join(bare)))
+    return words
 
 
 def _api_call(words: Sequence[str]) -> str | None:
@@ -573,8 +655,7 @@ def _judge(target: Target, session: _Session) -> str | None:
     if target.repo is not None:
         repo = target.repo.split("/")[-2:]
         if "/".join(repo).casefold() != session.name_with_owner().casefold():
-            where = "the path" if target.repo_from_path else "-R"
-            return f"✗ {where} names another repository; its reviews aren't here"
+            return f"✗ {target.named_by} names another repository; its reviews aren't here"
     if target.owner is not None:
         if target.owner.casefold() != session.name_with_owner().split("/")[0].casefold():
             return "✗ --head names another owner's branch; its reviews aren't here"
@@ -583,22 +664,35 @@ def _judge(target: Target, session: _Session) -> str | None:
         branch, head = session.branch, _review.head_commit(session.root, TIMEOUT)
     elif target.create:
         branch = str(target.head)
-        listed = session.run("git", "ls-remote", "origin", f"refs/heads/{branch}").split()
-        if not listed:
+        # `ls-remote` matches a pattern by its end, so `a/refs/heads/<branch>`
+        # is listed too, and can sort first.
+        ref = f"refs/heads/{branch}"
+        listed = session.run("git", "ls-remote", "origin", ref).splitlines()
+        exact = [line.split()[0] for line in listed if line.split()[1:] == [ref]]
+        if not exact:
             raise _Failed(f"origin has no branch {branch}")
-        head = listed[0]
+        head = exact[0]
     else:
         view = ["gh", "pr", "view", *([target.pr] if target.pr else [])]
-        if target.repo is not None and not target.repo_from_path:
+        if target.repo is not None and target.named_by == "-R":
             view += ["-R", target.repo]
         found = json.loads(session.run(*view, "--json", "headRefName,headRefOid"))
         branch, head = str(found["headRefName"]), str(found["headRefOid"])
 
+    trunk = _paths.trunk_branch(session.root, timeout=TIMEOUT)
+    if trunk is None:
+        raise _review.NoTrunk()
+    trunk = trunk.removeprefix("origin/")
+    # Compared with the judged branch, never the checked-out one, since the
+    # `main` checkout judges other branches with the trunk checked out. A
+    # trunk that is the judged branch makes every commit on it read as already
+    # on the trunk, and a `wfctl.json` edit is all it takes.
+    if branch == trunk:
+        return (
+            f"✗ the trunk branch is {trunk}, the branch this command acts on; "
+            "check trunk in wfctl.json"
+        )
     if branch != session.branch:
-        trunk = _paths.trunk_branch(session.root, timeout=TIMEOUT)
-        if trunk is None:
-            raise _review.NoTrunk()
-        trunk = trunk.removeprefix("origin/")
         if session.branch != trunk:
             return (
                 f"✗ run this from the checkout on {trunk}; a worktree opens and merges only "

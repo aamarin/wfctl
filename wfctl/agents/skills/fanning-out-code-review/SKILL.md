@@ -138,7 +138,7 @@ Every dispatch instruction carries these six:
 - **Say which passes ran and what each covered,** whether or not it found
   anything. `code-review` Step 5 ends a clean report at the over-engineering
   metric and a verdict, which is enough to show a reviewer worked and not
-  enough to say what it looked at. Step 6 gives a reviewer that found nothing a
+  enough to say what it looked at. Step 5 gives a reviewer that found nothing a
   row whose Finding cell carries its coverage, and this bullet is where that
   requirement reaches the reviewer.
 - **Report only. Change nothing.** Reviewers share a worktree with each other
@@ -170,15 +170,16 @@ with the parent either way.
 ### A reviewer on another model
 
 A line with a command after the model, such as `s3 codex  codex exec --sandbox
-read-only`, is a reviewer you run yourself with that command:
-
-The command comes from the `review.commands` key in the repository's
-`wfctl.json`, so in a repository you don't own, read that key before running
-it, the same as you would a hook the repository ships.
+read-only`, is a reviewer you run yourself. The command comes from the
+`review.commands` key in the repository's `wfctl.json`, so in a repository you
+don't own, read that key before running it, the same as you would a hook the
+repository ships.
 
 Use the scratch folder your harness gives you, never a fixed path such as
 `/tmp/panel/`. Another session, or another user on the same machine, can write
 to a shared path, and a report planted there would be relayed as this run's.
+
+To run the reviewer:
 
 1. Write the reviewer's whole prompt, with the six instructions above, to a
    file in your scratch folder.

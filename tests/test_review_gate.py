@@ -738,6 +738,23 @@ def test_an_environment_prefix_or_env_before_the_command_is_refused(
     ]
 
 
+@pytest.mark.parametrize("command", [
+    "/usr/bin/env -C ../630-x gh pr create --fill",
+    "\\env -C ../630-x gh pr create --fill",
+])
+def test_env_by_its_path_is_an_environment_prefix(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """`/usr/bin/env -C` moves `gh` to another worktree as `env -C` does.
+    Found by code reviewer c2 on #638's own panel."""
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard(command, repos.feature)
+
+    assert code == 2
+    assert "without an environment prefix or env" in err
+
+
 # --- arguments (T025) --------------------------------------------------------------
 
 
@@ -797,6 +814,79 @@ def test_help_with_a_value_is_not_read_as_help(
 
     assert code == 2
     assert "✗ can't read the pull request this command names" in lines(err)
+
+
+@pytest.mark.parametrize("command", [
+    "gh pr merge 630 # --help",
+    "gh pr merge #630 --help",
+    "gh pr new --fill # -h",
+])
+def test_a_shell_comment_in_the_command_is_refused(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """The shell drops a comment and `shlex` keeps it, so a `# --help` the check
+    read as help never reached `gh`, and the merge ran unjudged. Found by code
+    reviewer c3 on #638's own panel."""
+    code, err = guard(command, repos.main)
+
+    assert code == 2
+    assert "without a # comment" in err
+
+
+@pytest.mark.parametrize("command", [
+    "gh pr merge --squash -t {fix,631}",
+    "gh pr merge 630 -t {x,--auto}",
+    "gh pr create --fill --title {a,--head=640-y}",
+    "gh pr merge 63*",
+])
+def test_a_brace_or_glob_in_the_arguments_is_refused(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """The shell turns `{fix,631}` into two words after the check read one, so
+    a merge judged as this branch's own could merge PR 631. Found by code
+    reviewer c1 on #638's own panel."""
+    code, err = guard(command, repos.main)
+
+    assert code == 2
+    assert "without a brace or a glob" in err
+
+
+def test_a_quoted_hash_or_brace_is_an_ordinary_argument(repos: Repos, guard: Guard) -> None:
+    """Quoted, neither reaches the shell as anything but text, and a title that
+    starts with `#12` is common."""
+    repos.complete(repos.other, "630-x")
+
+    assert guard('gh pr merge 630 -t "#12 fix {a,b}"', repos.main) == (0, "")
+
+
+@pytest.mark.parametrize("command", [
+    "gh pr merge 630 --squash 2>&1",
+    "gh pr merge 630 --squash 2>/dev/null",
+    "gh pr merge 630 --squash 2>&1 | tail -5",
+    "gh pr merge 630 --squash > /tmp/out.txt",
+    "gh pr merge 630 --squash </dev/null",
+])
+def test_a_redirection_is_not_read_as_an_argument(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """Redirecting output is ordinary, and reading `2>&1` as a separator and a
+    stray argument refused it on every branch with a message that named
+    neither. Found by code reviewer c2 on #638's own panel."""
+    repos.complete(repos.other, "630-x")
+
+    assert guard(command, repos.main) == (0, "")
+
+
+def test_a_pull_request_url_naming_another_repository_is_refused(
+    repos: Repos, guard: Guard,
+) -> None:
+    """A URL names a repository the same as `-R` does, and from the `main`
+    checkout it would otherwise be judged against this repository's records.
+    Found by code reviewer c1 on #638's own panel."""
+    code, err = guard("gh pr merge https://github.com/other/repo/pull/5", repos.main)
+
+    assert code == 2
+    assert lines(err) == ["✗ the URL names another repository; its reviews aren't here"]
 
 
 def test_auto_merge_is_refused(repos: Repos, guard: Guard) -> None:
@@ -869,6 +959,33 @@ def test_a_head_is_judged_at_the_commit_origin_holds(repos: Repos, guard: Guard)
     commit(repos.other, "unpushed.txt")
 
     assert guard("gh pr create --head 630-x", repos.main) == (0, "")
+
+
+def test_a_head_is_judged_at_its_own_ref_not_one_that_ends_the_same(
+    repos: Repos, guard: Guard,
+) -> None:
+    """`ls-remote` matches a ref by its end, so `a/refs/heads/630-x` is listed
+    too and sorts first. Found by code reviewer c3 on #638's own panel."""
+    repos.complete(repos.other, "630-x")
+    decoy = commit(repos.feature, "decoy.txt")
+    git(repos.feature, "push", "-q", "origin", f"{decoy}:refs/heads/a/refs/heads/630-x")
+
+    assert guard("gh pr create --head 630-x", repos.main) == (0, "")
+
+
+def test_a_trunk_that_is_the_judged_branch_is_refused(repos: Repos, guard: Guard) -> None:
+    """With `trunk` set to the branch itself, every commit on it reads as
+    already on the trunk and nothing is unreviewed. A `wfctl.json` edit made
+    with a file tool is all it takes, and no Bash hook sees that. Found by
+    code reviewer c1 on #638's own panel."""
+    (repos.feature / "wfctl.json").write_text(json.dumps({"trunk": "604-x"}))
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert lines(err) == [
+        "✗ the trunk branch is 604-x, the branch this command acts on; check trunk in wfctl.json",
+    ]
 
 
 @pytest.mark.parametrize("command", ["gh pr merge 630", "gh pr create --head 630-x"])
