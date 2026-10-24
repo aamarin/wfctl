@@ -31,6 +31,8 @@ The agent writing the change can create any of these, since `refs/replace/` and 
 
 - `git --no-replace-objects replace -l` lists replace refs on git 2.44, so the listing works under the flag `_git` always passes.
 - `GIT_REPLACE_REF_BASE=refs/other/ git replace -l` lists nothing for a ref under `refs/replace/`, so `replace -l` reads the namespace the reviewer's git reads.
+- With `refs/replace/foo` and `refs/replace/<12-char abbreviation>` pointing at a benign blob, `git cat-file -p` prints the real blob and warns "bad replace ref name" for each.
+- With `.git/info/grafts` present, `git rev-list --count HEAD` honors it when `GIT_GRAFT_FILE` is unset and ignores it when the variable is empty.
 - `git rev-parse --path-format=absolute --git-path info/grafts` returns the file `GIT_GRAFT_FILE` names when it is set, and fails with "Not a directory" under `_git`'s own override. So the check runs that one call with the caller's environment.
 - Git resolves a relative `GIT_GRAFT_FILE` from the top of the worktree, even when it runs from a subdirectory, and `--git-path` returns that same file.
 - This repository has no replace refs (`git replace -l` prints nothing).
@@ -46,7 +48,7 @@ Keep the existing per-object check and extend it to each case the review found. 
 
 ## Decision
 
-`commit_range` refuses before it lists anything when `git replace -l` prints any ref, or when the grafts file has any content. The refusal names the remedy: `git replace -d <shas>`, `delete <path>`, or `unset GIT_GRAFT_FILE`.
+`commit_range` refuses before it lists anything when `git replace -l` prints any ref named by a full object id, or when the grafts file has any content. Git ignores a replace ref under any other name, with a "bad replace ref name" warning, so the check ignores it too. An empty `GIT_GRAFT_FILE` reads no grafts file, so the check skips the grafts file then. The refusal names the remedy: `git replace -d <shas>`, `delete <path>`, or `unset GIT_GRAFT_FILE`.
 
 wfctl's own calls keep `--no-replace-objects` and the `GIT_GRAFT_FILE` override, so the reads after the refusal still see the real objects.
 
@@ -91,7 +93,8 @@ At the worktree guard, the refusal surfaces as "the review check failed", the sa
 
 - `test_range_refuses_any_replace_ref` covers a graft that cuts commits out, a same-tree graft, a replaced blob, and a whole-object replace of a listed commit and of its parent.
 - `test_range_refuses_a_grafts_file` covers a grafts line onto `main` and onto a same-tree decoy.
-- `test_range_refuses_a_grafts_file_named_by_the_environment` covers `GIT_GRAFT_FILE`, as an absolute path and as a relative one with wfctl run from a subdirectory.
+- `test_range_refuses_a_grafts_file_named_by_the_environment` covers `GIT_GRAFT_FILE` as an absolute path, as a relative one with wfctl run from a subdirectory, and as a path ending in a space.
+- `test_range_lists_through_a_replace_ref_git_ignores` and `test_range_lists_when_the_grafts_variable_is_empty` cover the two states git ignores.
 - `test_range_refuses_a_grafts_file_that_is_not_text` covers a grafts file that isn't UTF-8.
 
 ## Log

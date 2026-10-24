@@ -65,6 +65,10 @@ _NO_GRAFTS = os.path.join(os.devnull, "grafts")
 # `origin/HEAD` can name the trunk rather than the one branch a clone took.
 _EVERY_BRANCH = ("refs/heads/*", "refs/*")
 
+# Git honors a replace ref only under a full SHA-1 or SHA-256 object id, and
+# warns about any other name and reads the real object.
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
 
 class ReviewError(Exception):
     """A question git or a record couldn't answer. The message names which."""
@@ -315,23 +319,28 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     (`642-range-refuses-replace-refs-and-grafts.md`).
 
     `git replace -l` lists the namespace the reviewer's git reads, which
-    `GIT_REPLACE_REF_BASE` can move. `--git-path info/grafts` names the file
+    `GIT_REPLACE_REF_BASE` can move. Only names git honors count, and each is
+    named in full, since `git replace -d` can't resolve a short one whose
+    object this repository lacks. `--git-path info/grafts` names the file
     `GIT_GRAFT_FILE` points at, resolved from the top of the worktree the way
-    git resolves it, or `info/grafts` in the common directory.
+    git resolves it, or `info/grafts` in the common directory. An empty
+    `GIT_GRAFT_FILE` reads no grafts file, and `--git-path` refuses it.
     """
-    replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
+    listed = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
+    replaced = [name for name in listed if _OBJECT_ID.fullmatch(name)]
     if replaced:
-        # In full and quoted, since a ref name needn't be a sha, and git can't
-        # resolve a short one whose object this repository lacks.
-        names = " ".join(shlex.quote(name) for name in replaced)
         raise ReviewError(
             f"this repository has replace refs, so a reviewer's git show reads content other "
-            f"than the commit's; remove them with git replace -d {names}"
+            f"than the commit's; remove them with git replace -d {' '.join(replaced)}"
         )
+    named = os.environ.get("GIT_GRAFT_FILE")
+    if named == "":
+        return
+    # Only git's own line ending comes off, since a path can end in a space.
     grafts = Path(_git(
         repo_root, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts",
         timeout=timeout, honor_grafts=True,
-    ).stdout.strip())
+    ).stdout.removesuffix("\n"))
     # Bytes, since git reads the file as bytes and any content at all refuses.
     try:
         content = grafts.read_bytes()
@@ -340,7 +349,7 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     except OSError as e:
         raise ReviewError(f"can't read {grafts}: {e}") from e
     if content.strip():
-        remedy = "unset GIT_GRAFT_FILE" if os.environ.get("GIT_GRAFT_FILE") else f"delete {grafts}"
+        remedy = "unset GIT_GRAFT_FILE" if named else f"delete {grafts}"
         raise ReviewError(
             f"{grafts} grafts commits onto other parents, so a reviewer's git show reads "
             f"changes other than the commit's own; {remedy}"

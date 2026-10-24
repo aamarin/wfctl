@@ -512,6 +512,34 @@ def test_range_refuses_a_grafts_file(repo: Path, parent: str) -> None:
         _review.commit_range(repo, head, None)
 
 
+def test_range_lists_through_a_replace_ref_git_ignores(repo: Path) -> None:
+    """Git honors a replace ref only when its name is a full object id, and
+    warns about any other name and reads the real object. Refusing one stopped
+    every review over a ref that changed nothing, and its remedy,
+    `git replace -d <name>`, can't delete it."""
+    head = commit(repo, "a")
+    benign = subprocess.run(
+        ["git", "hash-object", "-w", "--stdin"], cwd=repo, input="benign\n",
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    git(repo, "update-ref", "refs/replace/foo", benign)
+    git(repo, "update-ref", f"refs/replace/{head[:12]}", benign)
+
+    assert _review.commit_range(repo, head, None).commits == (head,)
+
+
+def test_range_lists_when_the_grafts_variable_is_empty(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git reads no grafts file when `GIT_GRAFT_FILE` is set and empty, and
+    `rev-parse --git-path` refuses the empty value, so every review failed
+    with an error that named no remedy."""
+    head = commit(repo, "a")
+    monkeypatch.setenv("GIT_GRAFT_FILE", "")
+
+    assert _review.commit_range(repo, head, None).commits == (head,)
+
+
 def test_range_refuses_a_grafts_file_that_is_not_text(repo: Path) -> None:
     """Git reads a grafts file as bytes, and wfctl read it as UTF-8, so a file
     holding other bytes raised a decode error, which `review start` printed as
@@ -525,21 +553,27 @@ def test_range_refuses_a_grafts_file_that_is_not_text(repo: Path) -> None:
         _review.commit_range(repo, head, None)
 
 
-@pytest.mark.parametrize("named", ["absolute", "relative"])
+@pytest.mark.parametrize("named", ["absolute", "relative", "trailing space"])
 def test_range_refuses_a_grafts_file_named_by_the_environment(
     tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, named: str
 ) -> None:
     """A reviewer's git reads the grafts file `GIT_GRAFT_FILE` names in place
     of `.git/info/grafts`, so that is the file to look at. Git resolves a
     relative name from the top of the worktree, and wfctl resolved it from
-    its own directory, so a run from a subdirectory missed the file."""
+    its own directory, so a run from a subdirectory missed the file. wfctl
+    also stripped the path git printed, so a name ending in a space named
+    another file."""
     commit(repo, "a")
     head = commit(repo, "b")
-    grafts = tmp_path / "elsewhere" if named == "absolute" else repo / "grafts"
+    grafts = {
+        "absolute": tmp_path / "elsewhere",
+        "relative": repo / "grafts",
+        "trailing space": tmp_path / "elsewhere ",
+    }[named]
     grafts.write_text(f"{head} {git(repo, 'rev-parse', 'main')}\n")
     (repo / "sub").mkdir()
     monkeypatch.chdir(repo / "sub")
-    monkeypatch.setenv("GIT_GRAFT_FILE", str(grafts) if named == "absolute" else "grafts")
+    monkeypatch.setenv("GIT_GRAFT_FILE", "grafts" if named == "relative" else str(grafts))
 
     with pytest.raises(_review.ReviewError, match="unset GIT_GRAFT_FILE"):
         _review.commit_range(repo, head, None)
