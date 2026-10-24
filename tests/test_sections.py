@@ -347,3 +347,31 @@ def test_each_template_missing_the_section_is_its_own_finding(tmp_path: Path) ->
         f"wfctl.json: 'change_sections' lists \"{NAME}\", which "
         ".github/PULL_REQUEST_TEMPLATE/feature.md doesn't have"
     ]
+
+
+def test_a_shadowed_template_is_not_checked(tmp_path: Path) -> None:
+    """`opening-a-change` lets `.github/` win over `docs/` and the repository
+    root, so a root template missing the section is never the one a change
+    uses, and failing `check config` on it would fail a valid setup."""
+    _template(tmp_path, ".github/pull_request_template.md", f"## {NAME}\n")
+    _template(tmp_path, "pull_request_template.md")
+    _template(tmp_path, "docs/pull_request_template.md")
+    assert _sections.template_problems(tmp_path, [NAME]) == []
+
+
+def test_docs_and_the_root_win_over_anywhere_else(tmp_path: Path) -> None:
+    _template(tmp_path, "docs/pull_request_template.md", f"## {NAME}\n")
+    _template(tmp_path, "other/pull_request_template.md")
+    assert _sections.template_problems(tmp_path, [NAME]) == []
+
+
+def test_an_unreadable_template_is_a_finding(tmp_path: Path) -> None:
+    """Skipping a template that can't be read would let `check config` pass
+    without checking any heading, when that template is the only one."""
+    path = tmp_path / ".github/pull_request_template.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"## Summary\n\xff\xfe\n")
+    assert _sections.template_problems(tmp_path, [NAME]) == [
+        "wfctl.json: 'change_sections' lists sections, but "
+        ".github/pull_request_template.md can't be read as UTF-8 text"
+    ]

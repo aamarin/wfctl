@@ -208,26 +208,53 @@ def templates(repo_root: Path) -> list[Path]:
     return sorted(found)
 
 
+def _winning(repo_root: Path, paths: list[Path]) -> list[Path]:
+    """The templates in the location `opening-a-change` picks from.
+
+    Its Step 2 says `.github/` wins over `docs/` and the repository root, which
+    win over a match anywhere else. Every template in the winning location is
+    kept, so a multi-template directory stays whole.
+    """
+    def rank(path: Path) -> int:
+        parts = path.relative_to(repo_root).parts
+        if parts[0].lower() == ".github":
+            return 0
+        if len(parts) == 1 or parts[0].lower() == "docs":
+            return 1
+        return 2
+
+    best = min((rank(p) for p in paths), default=0)
+    return [p for p in paths if rank(p) == best]
+
+
 def template_problems(repo_root: Path, required: list[str]) -> list[str]:
     """The gaps between the listed sections and the repository's PR templates.
 
     Only a missing heading is a gap. A template's sections are meant to be empty,
     so reporting an empty one would flag every repository that opted in. Each
-    template is checked, since any of them can be the one a change uses.
+    template in the winning location is checked, since any of them can be the
+    one a change uses, and a template it shadows never is.
+
+    A template that can't be read is a problem rather than a skip. When it is the
+    only one, skipping it would pass the check without reading any heading.
     """
     if not required:
         return []
-    paths = templates(repo_root)
+    paths = _winning(repo_root, templates(repo_root))
     if not paths:
         return [f"{CONFIG_PATH}: '{CONFIG_KEY}' lists sections, but no PR template was found"]
 
     problems: list[str] = []
     for path in paths:
+        rel = path.relative_to(repo_root).as_posix()
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
+            problems.append(
+                f"{CONFIG_PATH}: '{CONFIG_KEY}' lists sections, but {rel} can't be "
+                "read as UTF-8 text"
+            )
             continue
-        rel = path.relative_to(repo_root).as_posix()
         for name in required:
             if _section(text, name) is None:
                 problems.append(
