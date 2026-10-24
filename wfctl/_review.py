@@ -97,7 +97,11 @@ def _now() -> str:
 
 
 def _git(
-    repo_root: Path, *args: str, timeout: float | None, answers: tuple[int, ...] = (0,),
+    repo_root: Path,
+    *args: str,
+    timeout: float | None,
+    answers: tuple[int, ...] = (0,),
+    honor_grafts: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run git in `repo_root`. An exit code outside `answers` is an error.
 
@@ -111,11 +115,13 @@ def _git(
     turn it off, so `GIT_GRAFT_FILE` points at a file that can't exist.
     `commit_range` refuses both before it lists anything, since a reviewer's
     git reads them, and these keep wfctl's own reads on the real objects.
+    `honor_grafts` leaves the caller's `GIT_GRAFT_FILE` alone, for the one
+    call that asks git which grafts file a reviewer's git reads.
     """
+    env = dict(os.environ) if honor_grafts else {**os.environ, "GIT_GRAFT_FILE": _NO_GRAFTS}
     r = subprocess.run(
         ["git", "--no-replace-objects", *args],
-        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
-        env={**os.environ, "GIT_GRAFT_FILE": _NO_GRAFTS},
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout, env=env,
     )
     if r.returncode not in answers:
         detail = r.stderr.strip() or f"exit {r.returncode}"
@@ -206,9 +212,10 @@ def _refuse_a_single_branch_clone(repo_root: Path, trunk: str, timeout: float | 
     sources = [spec.removeprefix("+").split(":", 1)[0] for spec in specs]
     if any(source in _EVERY_BRANCH for source in sources):
         return
-    fetched = ", ".join(s.removeprefix("refs/heads/") for s in sources) or "no branch"
+    fetched = ", ".join(s.removeprefix("refs/heads/") for s in sources)
+    what = f"only {fetched}" if fetched else "no branch"
     raise ReviewError(
-        f"this clone fetches only {fetched} from origin, so wfctl can't tell whether "
+        f"this clone fetches {what} from origin, so wfctl can't tell whether "
         f"{trunk} is the trunk; run git remote set-branches --add origin <trunk> and "
         "git fetch, then set trunk in wfctl.json"
     )
@@ -308,9 +315,9 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     (`642-range-refuses-replace-refs-and-grafts.md`).
 
     `git replace -l` lists the namespace the reviewer's git reads, which
-    `GIT_REPLACE_REF_BASE` can move. The grafts file is the one
-    `GIT_GRAFT_FILE` names, or `info/grafts` in the common directory, which is
-    where git looks for it.
+    `GIT_REPLACE_REF_BASE` can move. `--git-path info/grafts` names the file
+    `GIT_GRAFT_FILE` points at, resolved from the top of the worktree the way
+    git resolves it, or `info/grafts` in the common directory.
     """
     replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
     if replaced:
@@ -319,23 +326,19 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
             f"this repository has replace refs, so a reviewer's git show reads content other "
             f"than the commit's; remove them with git replace -d {shas}"
         )
-    named = os.environ.get("GIT_GRAFT_FILE")
-    if named:
-        grafts = Path(named)
-    else:
-        info = _git(
-            repo_root, "rev-parse", "--path-format=absolute", "--git-path", "info",
-            timeout=timeout,
-        ).stdout.strip()
-        grafts = Path(info) / "grafts"
+    grafts = Path(_git(
+        repo_root, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts",
+        timeout=timeout, honor_grafts=True,
+    ).stdout.strip())
+    # Bytes, since git reads the file as bytes and any content at all refuses.
     try:
-        text = grafts.read_text()
+        content = grafts.read_bytes()
     except (FileNotFoundError, NotADirectoryError):
         return
     except OSError as e:
         raise ReviewError(f"can't read {grafts}: {e}") from e
-    if text.strip():
-        remedy = "unset GIT_GRAFT_FILE" if named else f"delete {grafts}"
+    if content.strip():
+        remedy = "unset GIT_GRAFT_FILE" if os.environ.get("GIT_GRAFT_FILE") else f"delete {grafts}"
         raise ReviewError(
             f"{grafts} grafts commits onto other parents, so a reviewer's git show reads "
             f"changes other than the commit's own; {remedy}"

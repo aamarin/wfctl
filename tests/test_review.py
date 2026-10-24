@@ -510,16 +510,34 @@ def test_range_refuses_a_grafts_file(repo: Path, parent: str) -> None:
         _review.commit_range(repo, head, None)
 
 
+def test_range_refuses_a_grafts_file_that_is_not_text(repo: Path) -> None:
+    """Git reads a grafts file as bytes, and wfctl read it as UTF-8, so a file
+    holding other bytes raised a decode error, which `review start` printed as
+    a traceback rather than a refusal."""
+    head = commit(repo, "a")
+    grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_bytes(b"\xff\xfe\x00bad\n")
+
+    with pytest.raises(_review.ReviewError, match="grafts"):
+        _review.commit_range(repo, head, None)
+
+
+@pytest.mark.parametrize("named", ["absolute", "relative"])
 def test_range_refuses_a_grafts_file_named_by_the_environment(
-    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, named: str
 ) -> None:
     """A reviewer's git reads the grafts file `GIT_GRAFT_FILE` names in place
-    of `.git/info/grafts`, so that is the file to look at."""
+    of `.git/info/grafts`, so that is the file to look at. Git resolves a
+    relative name from the top of the worktree, and wfctl resolved it from
+    its own directory, so a run from a subdirectory missed the file."""
     commit(repo, "a")
     head = commit(repo, "b")
-    grafts = tmp_path / "elsewhere"
+    grafts = tmp_path / "elsewhere" if named == "absolute" else repo / "grafts"
     grafts.write_text(f"{head} {git(repo, 'rev-parse', 'main')}\n")
-    monkeypatch.setenv("GIT_GRAFT_FILE", str(grafts))
+    (repo / "sub").mkdir()
+    monkeypatch.chdir(repo / "sub")
+    monkeypatch.setenv("GIT_GRAFT_FILE", str(grafts) if named == "absolute" else "grafts")
 
     with pytest.raises(_review.ReviewError, match="unset GIT_GRAFT_FILE"):
         _review.commit_range(repo, head, None)
@@ -561,6 +579,21 @@ def test_range_refuses_a_single_branch_clone_whose_origin_head_names_the_branch(
     head = commit(clone, "b")
 
     with pytest.raises(_review.ReviewError, match="fetches only"):
+        _review.commit_range(clone, head, None)
+
+
+def test_range_refusal_names_a_clone_that_fetches_no_branch(
+    tmp_path: Path, repo: Path
+) -> None:
+    """With no fetch refspec at all, the refusal said "fetches only no
+    branch"."""
+    commit(repo, "a")
+    clone = single_branch_clone(tmp_path, repo)
+    git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/637-x")
+    git(clone, "config", "--unset-all", "remote.origin.fetch")
+    head = commit(clone, "b")
+
+    with pytest.raises(_review.ReviewError, match="this clone fetches no branch from origin"):
         _review.commit_range(clone, head, None)
 
 
