@@ -228,3 +228,232 @@ def test_check_refuses_a_group_name_that_could_leave_the_reviews_folder(repo: Pa
 
     assert result.exit_code == 1
     assert result.output.splitlines() == ["✗ no review group named '../x'"]
+
+
+# --- relay ---------------------------------------------------------------------
+
+
+def test_relay_saves_the_report_and_says_so(tmp_path: Path, repo: Path) -> None:
+    """The line names the reason, which is what the roster will show too."""
+    reports, head = _started(repo)
+    source = tmp_path / "s2-report.md"
+    source.write_text(report(head))
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", str(source))
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == ["✓ s2 relayed: write denied"]
+    assert (reports / "s2.md").read_text().startswith("Relayed: write denied\n")
+
+
+@pytest.mark.parametrize("reason", [None, "", "   "])
+def test_relay_without_a_reason_is_refused(
+    tmp_path: Path, repo: Path, reason: str | None
+) -> None:
+    """A relay with no reason is a report the coordinator wrote for a reviewer,
+    with nothing on the roster to show it."""
+    reports, head = _started(repo)
+    source = tmp_path / "r.md"
+    source.write_text(report(head))
+    args = ["relay", "s2", "--from", str(source)]
+    if reason is not None:
+        args += ["--reason", reason]
+
+    result = run(*args)
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ a relay needs --reason saying why the reviewer couldn't write",
+    ]
+    assert not (reports / "s2.md").exists()
+
+
+def test_relay_without_from_is_refused_and_never_reads_stdin(repo: Path) -> None:
+    """A report fed on stdin is usually a heredoc, which puts the report back
+    in the command's text, where the guard matches every command a security
+    report quotes (research.md R8)."""
+    reports, head = _started(repo)
+
+    result = run("relay", "s2", "--reason", "write denied", input=report(head))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ a relay needs --from naming the file that holds the report",
+    ]
+    assert not (reports / "s2.md").exists()
+
+
+def test_relay_reads_only_the_file_even_when_stdin_holds_a_report(
+    tmp_path: Path, repo: Path
+) -> None:
+    """The file is the report. Text on stdin is ignored rather than appended,
+    so what's saved is what the coordinator put in the file."""
+    reports, head = _started(repo)
+    source = tmp_path / "r.md"
+    source.write_text(report(head))
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", str(source),
+                 input="Reviewed: 5c4b3a2\n\nVerdict: Approve\n")
+
+    assert result.exit_code == 0, result.output
+    assert "5c4b3a2" not in (reports / "s2.md").read_text()
+
+
+def test_relay_of_a_file_that_does_not_exist_names_it(tmp_path: Path, repo: Path) -> None:
+    """The coordinator saved the reply somewhere, and the line has to say
+    where wfctl looked."""
+    _started(repo)
+    missing = tmp_path / "nope.md"
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", str(missing))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        f"✗ can't read {missing}: No such file or directory",
+    ]
+
+
+def test_relay_of_a_file_that_cannot_be_read_names_it(tmp_path: Path, repo: Path) -> None:
+    """A directory passed by mistake is the commonest unreadable `--from`."""
+    _started(repo)
+    folder = tmp_path / "a-folder"
+    folder.mkdir()
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", str(folder))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[0].startswith(f"✗ can't read {folder}: ")
+
+
+def test_relay_of_an_empty_file_is_refused(tmp_path: Path, repo: Path) -> None:
+    """An empty file is a save that didn't happen, not a report."""
+    reports, _ = _started(repo)
+    source = tmp_path / "r.md"
+    source.write_text("\n\n")
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", str(source))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [f"✗ {source} is empty; nothing to relay for s2"]
+    assert not (reports / "s2.md").exists()
+
+
+def test_relay_for_an_id_not_in_the_latest_run_is_refused(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A report under an id nobody launched would count toward nothing, and
+    one under another group's letter would land in the wrong run."""
+    _, head = _started(repo)
+    source = tmp_path / "r.md"
+    source.write_text(report(head))
+
+    result = run("relay", "s9", "--reason", "write denied", "--from", str(source))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == ["✗ s9 isn't a reviewer in security run 001"]
+
+
+def test_relay_for_an_id_that_already_has_a_report_is_refused(
+    tmp_path: Path, repo: Path
+) -> None:
+    """Overwriting a report the reviewer wrote would replace its findings with
+    the coordinator's copy."""
+    reports, head = _started(repo)
+    (reports / "s2.md").write_text(report(head))
+    source = tmp_path / "r.md"
+    source.write_text(report(head))
+
+    result = run("relay", "s2", "--reason", "write denied", "--from", str(source))
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == ["✗ s2 already has a report in run 001"]
+
+
+# --- models that can't run -----------------------------------------------------
+
+
+_MIXED = {"review": {
+    "commands": {"codex": "codex exec --sandbox read-only"},
+    "groups": [{"group": "security", "reviewers": [
+        {"name": "claude", "count": 2}, {"name": "codex", "count": 2}]}],
+}}
+
+
+def test_start_marks_a_missing_model_and_says_which_reviewers_it_left_out(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ⚠ line is how a person learns the run is smaller than the
+    repository declared."""
+    (repo / "wfctl.json").write_text(json.dumps(_MIXED))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[2:] == [
+        "s1 claude",
+        "s2 claude",
+        "s3 codex  ✗ unavailable",
+        "s4 codex  ✗ unavailable",
+        "⚠ codex: `codex` not found on PATH; s3 and s4 left out of this run",
+    ]
+
+
+def test_start_where_no_reviewer_can_run_warns_and_still_exits_0(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run is written so the roster can show why it never completes, and
+    start itself did what it was asked."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {
+        "commands": {"codex": "codex exec"},
+        "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}],
+    }}))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[-1] == (
+        "⚠ no reviewer in security can run; the run can't complete until one can, "
+        "or a person signs off"
+    )
+
+
+def test_check_shows_the_unavailable_reason_and_completes_on_the_rest(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unavailable reviewer isn't a missing report, so it doesn't count
+    against completion, and the roster still names it."""
+    (repo / "wfctl.json").write_text(json.dumps(_MIXED))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    reports, head = _started(repo)
+    for rid in ("s1", "s2"):
+        (reports / f"{rid}.md").write_text(report(head))
+
+    result = run("review", "check", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[3:] == [
+        "s3 codex  ✗ unavailable: `codex` not found on PATH",
+        "s4 codex  ✗ unavailable: `codex` not found on PATH",
+        f"complete: security reviewed through {head[:7]}",
+    ]
+
+
+def test_check_where_no_reviewer_could_run_says_so(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`0 of 0 expected reports missing` would read as nothing left to do."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {
+        "commands": {"codex": "codex exec"},
+        "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}],
+    }}))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    _started(repo)
+
+    result = run("review", "check", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[-1] == "incomplete: no reviewer in security could run"

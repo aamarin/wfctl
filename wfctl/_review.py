@@ -308,7 +308,7 @@ def start(
     group: Group,
     *,
     timeout: float | None = None,
-    which: Callable[[str], str | None] = shutil.which,
+    which: Callable[[str], str | None] | None = None,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
@@ -318,7 +318,9 @@ def start(
     """
     head = head_commit(repo_root, timeout)
     found = commit_range(repo_root, head, last_reviewed(agent_dir, group.name), timeout)
-    reviewers, unavailable = _availability(group.reviewers, which)
+    # Looked up at call time rather than bound as the default, so a test that
+    # patches `shutil.which` reaches the CLI's call too.
+    reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
     if not found.commits:
         return Started(group.name, found.base, head, (), None, tuple(reviewers), unavailable)
 

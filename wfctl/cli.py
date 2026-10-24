@@ -6155,7 +6155,6 @@ def relay_cmd(
     ),
     source: Path = typer.Option(
         None, "--from", help="The file holding the reviewer's report.",
-        dir_okay=False, resolve_path=False,
     ),
 ) -> None:
     """Save the report of a reviewer that was blocked from writing it.

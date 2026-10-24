@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -569,3 +570,195 @@ def test_the_review_modules_load_neither_typer_nor_rich() -> None:
         [sys.executable, "-c", probe], check=True, capture_output=True, text=True,
     ).stdout.strip()
     assert out == "[]"
+
+
+# --- relay ---------------------------------------------------------------------
+
+
+def _relay(state: Path, rid: str, reason: str, text: str) -> tuple[str, _review.Run]:
+    return _review.relay(state, [SECURITY], rid, reason, text)
+
+
+def test_a_relayed_report_naming_the_head_counts_and_shows_its_reason(
+    repo: Path, state: Path
+) -> None:
+    """A reviewer the host blocked from writing still did the review. The
+    roster line is where a person sees that it was relayed, and why
+    (`622-blocked-reviewer-relays-report.md`, Verification)."""
+    commit(repo, "a")
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None
+    for rid in ("s1", "s3"):
+        (started.run.path / f"{rid}.md").write_text(report(started.head))
+
+    _relay(state, "s2", "write denied", report(started.head))
+    checked = _review.check(state, "security")
+
+    assert checked.complete
+    assert _review.roster_lines(checked.entries) == [
+        "s1 claude ✓", "s2 claude ✓ relayed: write denied", "s3 claude ✓",
+    ]
+
+
+def test_a_relayed_report_is_saved_under_a_header_then_verbatim(
+    repo: Path, state: Path
+) -> None:
+    """The header is what tells a relay apart from a report the reviewer wrote,
+    and the body has to arrive word for word to be judged as the reviewer's."""
+    commit(repo, "a")
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None
+    body = report(started.head) + "\n  trailing indent kept\n"
+
+    _relay(state, "s2", "write   denied\n", body)
+
+    saved = (started.run.path / "s2.md").read_text()
+    header, rest = saved.split("\n\n", 1)
+    reason, at = header.split("\n")
+    assert reason == "Relayed: write denied"
+    assert re.fullmatch(r"Relayed-at: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", at)
+    assert rest == body
+
+
+@pytest.mark.parametrize("reason", ["", "   ", "\n"])
+def test_a_relay_with_no_reason_is_refused_and_the_run_stays_incomplete(
+    repo: Path, state: Path, reason: str
+) -> None:
+    """Every relayed report carries a reason a person can check against what
+    the coordinator saw. One without a reason is a report the coordinator wrote
+    for a reviewer, with nothing to show it."""
+    commit(repo, "a")
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None
+    for rid in ("s1", "s3"):
+        (started.run.path / f"{rid}.md").write_text(report(started.head))
+
+    with pytest.raises(_review.RelayRefused):
+        _relay(state, "s2", reason, report(started.head))
+
+    assert not (started.run.path / "s2.md").exists()
+    assert not _review.check(state, "security").complete
+
+
+def test_a_relayed_report_naming_an_older_commit_does_not_count(
+    repo: Path, state: Path
+) -> None:
+    """A relay is judged like any other report, so it can't carry a review of
+    code the branch no longer has."""
+    older = commit(repo, "a")
+    commit(repo, "b")
+    started = _review.start(repo, state, SECURITY)
+    assert started.run is not None
+
+    _relay(state, "s2", "write denied", report(older))
+
+    entry = next(e for e in _review.check(state, "security").entries if e.id == "s2")
+    assert not entry.counted
+    assert entry.note == f"names {older[:7]}, not {started.head[:7]}"
+
+
+def test_a_relay_appends_its_event(repo: Path, state: Path) -> None:
+    """A restarted session reads `events.jsonl` to learn what happened, and a
+    relay is the one report a coordinator handed in for someone else."""
+    commit(repo, "a")
+    started = _review.start(repo, state, SECURITY)
+
+    _relay(state, "s2", "write denied", report(started.head))
+
+    last = json.loads((state / "events.jsonl").read_text().splitlines()[-1])
+    assert {k: v for k, v in last.items() if k != "ts"} == {
+        "event": "review-relay", "group": "security", "run": 1, "id": "s2",
+        "reason": "write denied",
+    }
+
+
+# --- models that can't run -----------------------------------------------------
+
+
+CODEX = "codex exec --sandbox read-only"
+MIXED = Group("security", "reviewing-security", (
+    Reviewer("s1", "claude", None), Reviewer("s2", "claude", None),
+    Reviewer("s3", "codex", CODEX), Reviewer("s4", "codex", CODEX),
+))
+ONLY_CODEX = Group("security", "reviewing-security", (Reviewer("s1", "codex", CODEX),))
+
+
+def test_a_model_whose_command_is_not_on_path_is_recorded_unavailable(
+    repo: Path, state: Path
+) -> None:
+    """wfctl decides availability, so the coordinator can't declare a
+    reviewer it would rather skip unavailable (research.md R7)."""
+    commit(repo, "a")
+
+    started = _review.start(repo, state, MIXED, which=lambda _: None)
+
+    assert started.run is not None
+    reviewers = json.loads((started.run.path / "run.json").read_text())["reviewers"]
+    assert reviewers[2:] == [
+        {"id": f"s{i}", "model": "codex", "state": "unavailable", "command": CODEX,
+         "reason": "`codex` not found on PATH"}
+        for i in (3, 4)
+    ]
+    assert started.unavailable == {"codex": "`codex` not found on PATH"}
+    assert started.expected == ["s1", "s2"]
+
+
+def test_a_run_completes_on_the_reviewers_that_could_run(repo: Path, state: Path) -> None:
+    """A repository that lists Codex shouldn't be stuck on a machine without
+    it, and the roster still names the reviewers that were left out."""
+    commit(repo, "a")
+    started = _review.start(repo, state, MIXED, which=lambda _: None)
+    assert started.run is not None
+    for rid in ("s1", "s2"):
+        (started.run.path / f"{rid}.md").write_text(report(started.head))
+
+    checked = _review.check(state, "security")
+
+    assert checked.complete
+    assert _review.roster_lines(checked.entries)[2:] == [
+        "s3 codex  ✗ unavailable: `codex` not found on PATH",
+        "s4 codex  ✗ unavailable: `codex` not found on PATH",
+    ]
+
+
+def test_a_run_where_no_reviewer_can_run_is_written_and_never_completes(
+    repo: Path, state: Path
+) -> None:
+    """A group that completed with no review at all is the failure FR-001
+    forbids. A person installs the model or signs off instead."""
+    commit(repo, "a")
+
+    started = _review.start(repo, state, ONLY_CODEX, which=lambda _: None)
+
+    assert started.run is not None
+    assert started.expected == []
+    checked = _review.check(state, "security")
+    assert not checked.complete
+    assert checked.expected == 0
+    assert not (state / "reviews/security/last-reviewed.json").exists()
+
+
+def test_a_model_on_path_that_writes_no_report_reads_as_no_report(
+    repo: Path, state: Path
+) -> None:
+    """Codex installed but not logged in fails when it runs. That's a missing
+    report, not an unavailable model, so the run waits for it."""
+    commit(repo, "a")
+    started = _review.start(repo, state, ONLY_CODEX, which=lambda _: "/bin/codex")
+    assert started.run is not None
+
+    checked = _review.check(state, "security")
+
+    assert not checked.complete
+    assert [(e.id, e.note) for e in checked.entries] == [("s1", "no report")]
+
+
+def test_claude_has_no_command_and_is_always_available(repo: Path, state: Path) -> None:
+    """Claude runs inside the current agent, so there is nothing to look up,
+    and a `which` that finds nothing mustn't mark it unavailable."""
+    commit(repo, "a")
+
+    started = _review.start(repo, state, SECURITY, which=lambda _: None)
+
+    assert started.expected == ["s1", "s2", "s3"]
+    assert started.unavailable == {}
