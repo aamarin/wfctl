@@ -219,6 +219,10 @@ to check means changing one list in either graph.
 - A pull request opened without `gh` isn't checked, and neither is one opened
   by an agent without hooks or through a disguised command the review check
   doesn't read. The follow-up issue on a required CI check covers all three.
+- The rule that only the trunk checkout acts on another branch's pull request
+  keys on the branch name, so it is a convention rather than enforcement. A
+  feature worktree that runs `git switch main` passes as the trunk checkout.
+  The required CI check covers that case too.
 - A command that only mentions `gh pr create`, such as an `echo`, is refused on
   an unreviewed branch. The refusal lists the commits, so the cost is one
   confusing message.
