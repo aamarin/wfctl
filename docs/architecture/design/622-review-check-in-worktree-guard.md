@@ -116,8 +116,9 @@ shows it can't be sure what the command acts on. A gap is recorded as a known
 limit instead when the command looks ordinary and what changes it lives
 outside the text, such as GitHub's auto-merge when checks are pending.
 
-A disguised command still open on 2026-10-24, or found later, is recorded as a
-known limit too, such as `gh extension exec stack merge` or a two-word shortcut like
+A disguised command still open when the check stopped adding rules on
+2026-10-24, after the sixth plan review, or found later, is recorded as a known
+limit too, such as `gh extension exec stack merge` or a two-word shortcut like
 `gh pr ship 630`. We stopped adding rules there because six reviews in a row
 each found more disguises, and the hook only sees a command's text. The
 required CI check in #627 closes these gaps, since GitHub blocks the merge
