@@ -330,8 +330,13 @@ def verb_of(segment: str) -> str:
     return words[0].rsplit("/", 1)[-1] if words else ""
 
 
-def _reads_only(segment: str) -> bool:
-    """Whether a single command may name another worktree."""
+def _reads_only(segment: str, extra: frozenset[str] = frozenset()) -> bool:
+    """Whether a single command may name another worktree.
+
+    `extra` is the repository's own `guard_read_commands`. It widens only the
+    final plain-verb test: `git`, `find` and `workmux` are decided above it by
+    their arguments, and a listed `git` does not turn `git push` into a read.
+    """
     words = segment.split()
     if not words:
         return True
@@ -359,7 +364,7 @@ def _reads_only(segment: str) -> bool:
     if verb == "workmux":
         sub = [w for w in words[1:] if not w.startswith("-")]
         return bool(sub) and sub[0] in _WORKMUX_OK
-    return verb in _READ_VERBS
+    return verb in _READ_VERBS or verb in extra
 
 
 def _shareable(candidate: str | None, roots: list[str]) -> str | None:
@@ -577,6 +582,7 @@ def commit_targets(command: str) -> list[str]:
 
 def _exempt(
     command: str, here: str, roots: list[str], exempt: set[str], committable: set[str],
+    extra: frozenset[str] = frozenset(),
 ) -> bool:
     """Whether `command` only writes where a shared root lets it.
 
@@ -606,7 +612,7 @@ def _exempt(
         # A redirect is a write whatever the verb, and one into a link already
         # in the store can rewrite the `.git` it points at.
         if not all(
-            c or (_reads_only(" ".join(s.words)) and all(w == "/dev/null" for w in s.writes))
+            c or (_reads_only(" ".join(s.words), extra) and all(w == "/dev/null" for w in s.writes))
             for s, c in zip(simple, commits)
         ):
             return False
@@ -621,7 +627,7 @@ def _exempt(
         # ignores it, redirects whatever git command a session later runs there.
         if any(_climbs(w) or ".git" in re.split(r"[/=:]", w.casefold()) for w in named):
             return False
-        reads = _reads_only(" ".join(s.words))
+        reads = _reads_only(" ".join(s.words), extra)
         if not reads and not commit and (not s.words or s.words[0] not in _WRITE_VERBS):
             return False
 
@@ -643,6 +649,7 @@ def refusal(
     worktrees: Iterable[str],
     shared: Iterable[str | None] = (),
     committable: Iterable[str] = (),
+    extra_reads: Iterable[str] = (),
 ) -> str | None:
     """Why `command` may not run from `here`, or None if it may.
 
@@ -663,13 +670,18 @@ def refusal(
     folder below it whose top level is that root. It is a question about the
     filesystem, which this module does not ask, and a directory missing from
     it gets no commit exemption.
+
+    `extra_reads` holds the command names the repository declared read-only in
+    `guard_read_commands`. They are judged like the built-in verbs, so a listed
+    command still cannot redirect output into another worktree.
     """
     roots = list(worktrees)
+    extra = frozenset(extra_reads)
     exempt = {s for s in (_shareable(c, roots) for c in shared) if s}
     commits = {
         c for c in (posixpath.realpath(c) for c in committable) if _owner(c, exempt)
     }
-    if exempt and _exempt(command, here, roots, exempt, commits):
+    if exempt and _exempt(command, here, roots, exempt, commits, extra):
         return None
 
     # Segment by segment, each judged against the paths *it* names. Judging the
@@ -709,7 +721,7 @@ def refusal(
             continue
         if _WRITE_REDIRECT.search(segment):
             why = "it redirects output"
-        elif not _reads_only(segment):
+        elif not _reads_only(segment, extra):
             why = f"`{verb_of(segment)}` is not a read command"
         else:
             continue

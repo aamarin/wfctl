@@ -132,6 +132,28 @@ def committable(
     return found + folders
 
 
+def extra_read_commands(here: str) -> list[str]:
+    """The command names this worktree's `wfctl.json` lists in `guard_read_commands`.
+
+    Empty for anything this cannot read: no file, bad JSON, a value that is not a
+    list, or an entry that is not a bare command name. The guard runs before
+    every Bash call, so a mistake in this key has to leave it where it was
+    rather than raise, and `wfctl check config` is where the mistake gets
+    reported. Read from `here`, the session's own worktree, because a command
+    that widens what this session may read should not come from a sibling's
+    checkout.
+    """
+    try:
+        with open(f"{here}/wfctl.json", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    declared = data.get("guard_read_commands") if isinstance(data, dict) else None
+    if not isinstance(declared, list):
+        return []
+    return [d for d in declared if isinstance(d, str) and d and d.split() == [d] and "/" not in d]
+
+
 def worktree_guard(stdin_text: str | bytes) -> int:
     """The guard's exit code for one payload: 2 to refuse, 0 to allow.
 
@@ -195,7 +217,10 @@ def worktree_guard(stdin_text: str | bytes) -> int:
             committable(here, shared[:1], _guard.commit_targets(command))
             if "git" in command else []
         )
-        message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
+        message = _guard.refusal(
+            command, here, roots, shared=shared, committable=commits,
+            extra_reads=extra_read_commands(here),
+        )
     if not message:
         return 0
     # Straight to stderr, not through rich: exit 2 hands stderr to the model

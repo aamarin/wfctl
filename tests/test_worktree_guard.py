@@ -346,6 +346,49 @@ def test_the_hook_blocks_with_exit_2_against_real_worktrees(tmp_path: Path) -> N
     assert run("workmux send 105-mypy-cold-venv 'go'").exit_code == 0
 
 
+def test_guard_read_commands_in_wfctl_json_widen_the_read_verbs(tmp_path: Path) -> None:
+    """A repository lists its own read-only tools, and the guard stops refusing them.
+
+    `bat` reads a file like `cat` does, but it is not in the built-in list, so
+    `bat <other>/README.md` was refused as "not a read command". The key widens
+    only the plain-verb test: a listed command still cannot redirect output, and
+    `git` is decided by its subcommand whatever the list says.
+    """
+    main = git_repo(tmp_path / "project")
+    other = tmp_path / "project" / "wt" / "105-mypy-cold-venv"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-b", "other", str(other)],
+        check=True, capture_output=True,
+    )
+
+    def run(command: str) -> int:
+        payload = json.dumps({"cwd": str(main), "tool_input": {"command": command}})
+        return runner.invoke(app, ["hook", "worktree-guard"], input=payload).exit_code
+
+    assert run(f"bat {other}/README.md") == 2
+
+    (main / "wfctl.json").write_text(json.dumps({"guard_read_commands": ["bat", "git"]}))
+    assert run(f"bat {other}/README.md") == 0
+    assert run(f"bat {other}/README.md > {other}/out") == 2
+    assert run(f"git -C {other} push") == 2
+
+
+@pytest.mark.parametrize("declared", [
+    "bat",
+    {"bat": True},
+    [1, None, ""],
+    ["bat --plain", "/usr/bin/bat"],
+])
+def test_a_malformed_guard_read_commands_changes_nothing(tmp_path: Path, declared: object) -> None:
+    """A bad value leaves the guard where it was, since it runs before every Bash call."""
+    from wfctl._hook import extra_read_commands
+
+    (tmp_path / "wfctl.json").write_text(json.dumps({"guard_read_commands": declared}))
+    assert extra_read_commands(str(tmp_path)) == []
+    (tmp_path / "wfctl.json").write_text("{not json")
+    assert extra_read_commands(str(tmp_path)) == []
+
+
 # The spec root as pfms lays it out: `specs-trunk` checked out beside the main
 # checkout, so `git worktree list` names it and every feature worktree's
 # `FEATURE_DIR` lands inside it.
