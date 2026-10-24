@@ -420,12 +420,15 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
     Scoped to `github` because it is the only config that seeds verbatim:
     `workmux` is a template whose keys are substituted per repo.
 
-    One section is exempt, in one file. This repository's pull request template
-    drops "Type of Change" because the release note carries that information
-    here, and the template wfctl ships keeps it for the projects it seeds.
-    Comparing the two with that section removed from each keeps the guard on
-    every other line, which is where the drift it was written for can still
-    happen.
+    Two sections are exempt, in one file. This repository's pull request
+    template drops "Type of Change" because the release note carries that
+    information here, and the template wfctl ships keeps it for the projects it
+    seeds. It also adds "Needs a spec?", which the repo opts into through
+    `change_sections` in `wfctl.json` and the shipped template leaves out, since
+    a section no project asked for would be one more for every new repository's
+    PRs to fill. Comparing the two with those sections removed from each keeps
+    the guard on every other line, which is where the drift it was written for
+    can still happen.
     """
     root = Path(__file__).resolve().parent.parent
     bundle = root / "wfctl" / "agents" / "configs" / "github"
@@ -435,7 +438,7 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
         rel = src.relative_to(bundle)
         theirs, ours = src.read_text(), (root / rel).read_text()
         if rel == Path(".github/pull_request_template.md"):
-            theirs, ours = _without_type_of_change(theirs), _without_type_of_change(ours)
+            theirs, ours = _without_exempt_sections(theirs), _without_exempt_sections(ours)
         assert theirs == ours, (
             f"{rel} has drifted between the bundle and this repo's copy — diff the "
             f"two, decide which is newer, and copy that one over the other. "
@@ -445,16 +448,20 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
         )
 
 
-def _without_type_of_change(template: str) -> str:
-    """The template with its "Type of Change" section cut out.
+def _without_section(template: str, heading: str) -> str:
+    """The template with one `##` section cut out.
 
-    The section runs from its `##` heading to the next one, so a section added
-    after it later is still compared.
+    The section runs from its heading to the next one, so a section added after
+    it later is still compared.
     """
-    before, found, rest = template.partition("## Type of Change\n")
+    before, found, rest = template.partition(f"## {heading}\n")
     if not found:
         return template
     return before + "## " + rest.partition("\n## ")[2]
+
+
+def _without_exempt_sections(template: str) -> str:
+    return _without_section(_without_section(template, "Type of Change"), "Needs a spec?")
 
 
 def test_shipped_pull_request_template_still_asks_for_the_type_of_change() -> None:

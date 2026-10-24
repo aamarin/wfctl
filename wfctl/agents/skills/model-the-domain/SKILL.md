@@ -122,11 +122,14 @@ window* and an empty *workspace* rendered as one state — is one term doing two
 jobs. It belongs here first, even though it ends in an ownership decision about
 who computes "is this workspace empty?".
 
-**Not for**: bug fixes, copy edits, refactors that move no boundary, or work
-whose language and boundaries an accepted record or spec already settles. Not
-for a capability the table above leaves in the right column. Not for quality
-drivers, which go to `architecture-design`. Not for how code
-expresses a settled model, which is `.agents/skills/clean-code`.
+**Not for**: a change that leaves every modeled term meaning what it did and
+moves no boundary, whatever its kind or size. Such a change skips this method
+and goes on to level 3 of the skill that sent it here. A bug fix that changes
+what a modeled term means belongs here, and `.agents/skills/design-passes`
+sends one. Not for work whose language and boundaries an accepted record or
+spec already settles. Not for a capability the table above leaves in the right
+column. Not for quality drivers, which go to `architecture-design`. Not for how
+code expresses a settled model, which is `.agents/skills/clean-code`.
 
 ## Authority
 

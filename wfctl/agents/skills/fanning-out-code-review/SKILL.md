@@ -79,7 +79,7 @@ the change is supposed to do, and the project's rules — **never your session
 history**, and never another reviewer's findings. A reviewer primed with the
 first reviewer's report is not a second opinion.
 
-Every dispatch instruction carries these four:
+Every dispatch instruction carries these five:
 
 - **Read `.agents/skills/code-review/SKILL.md` and follow it.** Do not invoke a
   Skill named `code-review`. Give the path because a host can ship its own
@@ -107,6 +107,15 @@ Every dispatch instruction carries these four:
   later as evidence is off limits too. Under wfctl that is `wfctl verify`, which
   writes one record per branch outside the worktree — a reviewer running it
   replaces the parent's proof of done with one taken mid-review.
+- **Report any design decision nothing on the change covers:** new stored state,
+  a new file or setting the code reads, a new command or flag, or a boundary
+  drawn or moved. A record or spec the change names covers it, and the change
+  calling itself a bug fix doesn't. Nothing checks that the author asked whether
+  the change needs a spec before writing code, and an agent that skipped the
+  question can still answer "No" when the PR opens. A reviewer that reads only
+  the diff is the first reader who didn't write it, so it is the one placed to
+  notice. The coordinator shows these findings in the table before the PR opens,
+  and the author writes the "Needs a spec?" answer after reading them.
 - **Write findings to `$FEATURE_DIR/reviews/<id>.md`,** the id you assigned it.
 
 Mark the dispatch before the first reviewer can write:

@@ -26,9 +26,12 @@ This is the `.agents/skills/design-levels` level-2 gate's answer in durable
 form. That skill decides *which level you answer at*; this one is where a
 level-2 answer lands.
 
-**Not for**: bug fixes, refactors that move no boundary, naming, style, library
-version bumps, or anything a code comment already carries. A record per change
-is a changelog, and nobody reads a changelog to find a constraint.
+**Not for**: a change that moves no boundary, whatever its kind. Most bug
+fixes, refactors, renames, style changes, and library version bumps are like
+that, and so is anything a code comment already carries. A record per change
+is a changelog, and nobody reads a changelog to find a constraint. A bug fix
+that moves a boundary does get a record, and `.agents/skills/architecture-design`
+sends it here.
 
 ## Where records live
 

@@ -210,7 +210,7 @@ it and only the implementation ships.
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check` | Validate a `.agents/trackers/<name>.json` tracker config |
 | `hook` | Run a hook from an agent's `settings.json` or workmux's `.workmux.yaml` (`worktree-guard`, `user-prompt`, `session-restart`, `worktree-remove`); not for interactive use. `worktree-remove` is what `pre_remove` calls: it runs the checks, `store specs` and `archive unsaved`, and stops the removal when work would be lost |
-| `check-body` | Check a PR description's drawings, and whether the definition of done has passed |
+| `check-body` | Check a PR description's drawings, the sections `change_sections` lists, and whether the definition of done has passed |
 | `doctor` | Check the installed skills against the ones this wfctl ships |
 
 `wfctl --version` prints the installed package version and exits. Run `wfctl
@@ -849,6 +849,20 @@ not `assignee`) — a name the backend never reports is a finding rather than
 silence, so a typo shows up on the first run instead of never. Both verbs
 degrade gracefully (exit 0) when no backend is configured or the active one
 doesn't implement it.
+
+`change_sections` sits beside `change_check` and lists the headings every PR
+body has to answer. `wfctl check-body` reports a listed section that is missing,
+empty, N/A or None, or a bare yes or no with no reason, however it is marked up:
+
+```json
+{ "change_check": ["assignees"], "change_sections": ["Needs a spec?"] }
+```
+
+wfctl names no section itself, so a repo that leaves the key out sees no change.
+List only a section whose yes or no needs a reason, since every PR answering a
+question such as "Breaking changes?" with "No." would fail. `wfctl check config`
+validates the key, and checks that every PR template in the repo carries each
+listed heading.
 
 **Scoping lists to you (`{me}`)** — set a top-level `"identity"` (e.g. `"@me"`, a
 username, or an email) and use `{me}` in any command. wfctl substitutes it, so

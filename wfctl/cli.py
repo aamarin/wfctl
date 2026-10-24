@@ -3587,6 +3587,12 @@ _MIRRORED_SKILLS = frozenset({
     # grant, pinned by `test_implement_allows_the_commands_the_refactor_pass_needs`.
     "clean-code",
     "design-levels",
+    # `worktree-handoff`'s route line and the "Not for" lines in the design skills
+    # name this skill by path, and an agent that read one of those pointers and
+    # reached for `Skill(design-passes)` is refused without membership. It ships
+    # no command wrapper on purpose, so this entry is the only way to reach it by
+    # name. The mirror removes the fork between the two routes.
+    "design-passes",
     "fanning-out-code-review",
     # `architecture-design`'s case, and the second method at the same gate:
     # `design-levels` level 2 names this skill by path beside that one, and an
@@ -6303,9 +6309,9 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes, trunk and saved folders.
+    """Validate this repository's own declared pipeline passes, trunk, saved folders and PR sections.
 
-    Every rule `wfctl.json`'s `steps`, `trunk` and `save_on_remove` keys must satisfy, in one run
+    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove` and `change_sections` keys must satisfy, in one run
     (FR-022) — the repository's own configuration, never wfctl's installed
     state, which is `doctor`'s remit and not this one's (research.md R5).
     Nothing here is dropped silently: a declaration this command discards
@@ -6328,6 +6334,10 @@ def check_config_cmd() -> None:
     from wfctl import _archive
 
     problems += _archive.declared_paths(repo_root)[1]
+    from wfctl import _sections
+
+    required, section_problems = _sections.load_required(repo_root)
+    problems += section_problems + _sections.template_problems(repo_root, required)
     if problems:
         console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
         for problem in problems:
@@ -6436,6 +6446,27 @@ def _verification_finding() -> list[str]:
     return [] if reason is None else [f"verification: {reason}"]
 
 
+def _section_findings(body: str) -> list[str]:
+    """Why a listed section of `body` is unanswered, and why the list is unreadable.
+
+    The third source `check-body` composes, and like `_verification_finding` it
+    reads the repository: the list lives in `wfctl.json`, which `_shape` has no
+    business knowing about. Empty is the common answer — no repository, or one
+    that lists no sections, which is every repository until it opts in.
+    """
+    from wfctl import _sections
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        # Same reason as `_verification_finding`: outside a wfctl repo there is
+        # no `wfctl.json` to read, and a body that is fine is not the place to
+        # report that git is missing.
+        return []
+    required, problems = _sections.load_required(repo_root)
+    return problems + _sections.body_findings(body, required)
+
+
 @app.command("check-body")
 def check_body_cmd(
     path: Path = typer.Argument(..., help="The change description to check, as a file"),
@@ -6463,8 +6494,8 @@ def check_body_cmd(
     putting a *file* verdict inside `verify`. It says nothing against reading
     `verify`'s record here, and the reason to is that this command is the only
     check on the road every change takes. `wfctl verify` had exactly one caller —
-    `speckit-implement` step 9c — which runs only when the pipeline runs, and
-    `design-levels` sends bug fixes and copy edits around the pipeline. So the
+    `speckit-implement` step 9c — which runs only when the pipeline runs, and a
+    bug fix or a copy edit that moves no boundary skips the pipeline. So the
     changes nothing verified were precisely the ones with no spec, and the
     agent's own account of its work was the only record of them. Opening a change
     is what those still do.
@@ -6476,11 +6507,16 @@ def check_body_cmd(
     already failed — every handoff listed four commands and this was in none of
     them.
 
-    Only the drawing rule, from `opening-a-change`'s "Choosing a drawing"
-    section. A PR body is built out of headers, so there is no header rule for
-    a check that only ever sees PR bodies to carry. The template names that
-    section's form-selection table as the single owner of which drawing to use,
-    and `wfctl/_shape.py` carries the rule.
+    Two rules about the body itself. The first is the drawing rule, from
+    `opening-a-change`'s "Choosing a drawing" section. A PR body is built out of
+    headers, so there is no header rule for a check that only ever sees PR bodies
+    to carry. The template names that section's form-selection table as the
+    single owner of which drawing to use, and `wfctl/_shape.py` carries the rule.
+
+    The second is the sections a repository lists under `change_sections` in
+    `wfctl.json`: each must be present, hold more than its template comment, and
+    say more than N/A or a bare yes or no (`wfctl/_sections.py`). wfctl names no
+    section itself, so a repository that lists none sees nothing new.
 
     **A rule this cannot settle does not belong here.** The review panel's
     disposition table was checked here until #347, and what ended it is that the
@@ -6508,9 +6544,11 @@ def check_body_cmd(
     from wfctl import _shape
     from rich.markup import escape
 
-    found = _shape.body_findings(body) + _verification_finding()
+    found = (
+        _shape.body_findings(body) + _section_findings(body) + _verification_finding()
+    )
     if not found:
-        console.print(f"[green]✓[/green] {path}: the drawings look right", soft_wrap=True)
+        console.print(f"[green]✓[/green] {path}: the body looks right", soft_wrap=True)
         return
     for line in found:
         console.print(f"[yellow]⚠[/yellow] {escape(line)}", soft_wrap=True)
