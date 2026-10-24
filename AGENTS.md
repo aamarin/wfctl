@@ -300,8 +300,8 @@ its own:
 `commands` maps each model other than Claude to the command that starts it.
 Claude runs inside the current agent, so it needs none. `groups` lists the
 review groups, and each one names its reviewers as a model and a count. The
-count is exact and at most 20, so wfctl expects that many reports and keeps the
-run incomplete until they arrive.
+count is exact, and a group's counts add up to at most 20. wfctl expects that
+many reports and keeps the run incomplete until they arrive.
 
 By default, `security` and `code` each have three Claude reviewers, so a
 repository that leaves the key out still gets both groups. A custom group has

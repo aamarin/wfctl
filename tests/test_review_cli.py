@@ -229,7 +229,7 @@ def test_check_after_a_report_changed_on_a_complete_run_stays_complete_and_warns
     lines = result.output.splitlines()
     assert lines[2:4] == ["s2 claude ✗ no report", "s3 claude ✓"]
     assert lines[4] == f"complete: security reviewed through {head[:7]}"
-    assert re.fullmatch(r"⚠ 1 report changed after the run completed at \S+Z", lines[5])
+    assert re.fullmatch(r"⚠ 1 report no longer counts since the run completed at \S+Z", lines[5])
 
 
 def test_check_with_no_run_says_how_to_start_one(repo: Path) -> None:

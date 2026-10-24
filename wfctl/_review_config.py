@@ -38,14 +38,18 @@ _REVIEWER_KEYS = ("name", "count")
 # or start with a dot. Matched with `fullmatch`, since `$` also matches before
 # a trailing newline. A model name follows the same rule, since `review start`
 # prints it in lines the panel skill reads one at a time.
-GROUP_NAME = re.compile(r"[a-z][a-z0-9-]*")
+PLAIN_NAME = re.compile(r"[a-z][a-z0-9-]*")
+# A command is printed on that same line, so it can't hold a control character
+# either. A newline in one would print a roster line nobody declared.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # A skill is named the way an agent loads one, optionally after a plugin name,
 # such as `agent-skills:review`. A path is never a skill name.
 _SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?")
 
-# Each reviewer is a full review of the range, and more than this is a typo
-# rather than a panel. Unbounded, a count of 2,000,000 took two seconds to load
-# on every guarded command.
+# Each reviewer is a full review of the range, and more than this in one group
+# is a typo rather than a panel. Unbounded, a count of 2,000,000 took two
+# seconds to load on every guarded command. The bound is on the group's total,
+# since repeating an entry under the bound reached the same count.
 MAX_COUNT = 20
 
 
@@ -102,7 +106,7 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
         if not isinstance(name, str):
             problems.append(f"review.groups[{i}] has no group name")
             continue
-        if not GROUP_NAME.fullmatch(name):
+        if not PLAIN_NAME.fullmatch(name):
             problems.append(
                 f"review group '{name}': a name is lowercase letters, digits and "
                 "hyphens, starting with a letter"
@@ -135,6 +139,11 @@ def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
     if CLAUDE in found:
         problems.append(f"review.commands: {CLAUDE} runs inside the agent and takes no command")
     for model, command in found.items():
+        if _CONTROL.search(command):
+            problems.append(
+                f"review.commands: the command for '{model}' holds a control character"
+            )
+            continue
         try:
             shlex.split(command)
         except ValueError as e:
@@ -205,10 +214,10 @@ def _reviewers(
             ok = False
             continue
         assert isinstance(spec, dict)
-        if not GROUP_NAME.fullmatch(model):
+        if not PLAIN_NAME.fullmatch(model):
             problems.append(
                 f"review group '{group}': model {model!r} isn't lowercase letters, "
-                "digits and hyphens"
+                "digits and hyphens, starting with a letter"
             )
             ok = False
             continue
@@ -224,12 +233,9 @@ def _reviewers(
             problems.append(f"review group '{group}': count for '{model}' must be 1 or more")
             ok = False
             continue
-        if count > MAX_COUNT:
-            problems.append(
-                f"review group '{group}': count for '{model}' must be {MAX_COUNT} or fewer"
-            )
-            ok = False
-            continue
+        if len(found) + count > MAX_COUNT:
+            problems.append(f"review group '{group}' has more than {MAX_COUNT} reviewers")
+            return None
         command = None if model == CLAUDE or commands is None else commands.get(model)
         if model != CLAUDE and command is None:
             if commands is not None:

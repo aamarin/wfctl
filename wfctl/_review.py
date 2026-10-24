@@ -48,9 +48,10 @@ _REVIEWED = re.compile(r"^[^A-Za-z0-9\n]*Reviewed:[*_` \t]*([0-9A-Fa-f]+)", re.M
 # decoration before the word, so `**Verdict: Approve**` and `## Verdict` both
 # count, and refuses other words, so prose that mentions a verdict doesn't.
 _VERDICT_ANCHOR = re.compile(r"^[^A-Za-z]*Verdict")
-# Whole words, so `Disapprove` isn't read as `Approve`.
-_VERDICT_WORD = re.compile(r"\b(?:Approve|Request changes)\b", re.I)
-_FENCES = ("```", "~~~")
+# No letter before the word, so `Disapprove` isn't read as `Approve`. Nothing
+# is required after it, so `Approved` and `_Approve_` still count.
+_VERDICT_WORD = re.compile(r"(?<![A-Za-z])(?:Approve|Request changes)", re.I)
+_FENCE = re.compile(r"`{3,}|~{3,}")
 
 _RELAYED = "Relayed: "
 
@@ -118,28 +119,29 @@ def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
 
 
 def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
-    """The trunk branch on `origin` and its local branch, each when it exists.
+    """The trunk branch on `origin` and its local branch, each when it exists,
+    by full ref name.
 
     The remote ref comes first because a person's local `main` usually trails
     it, and excluding only the local branch would list everything merged since
     as the branch's own work. The local one is added because a commit can reach
     the local `main` before it is pushed. `_paths.trunk_branch` names either
     one, since a remote added with `git remote add` has no `origin/HEAD` and
-    the trunk then resolves to the local name, so the other is looked up.
+    the trunk then resolves to the local name, so both are looked up.
+
+    Full names because git resolves a short `main` to a tag of that name before
+    the branch, and a tag on an older commit made the branch's own work read as
+    already on the trunk. A trunk found under neither name is used as named.
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
         raise NoTrunk()
-    if trunk.startswith("origin/"):
-        remote, local = trunk, trunk.removeprefix("origin/")
-    else:
-        remote, local = f"origin/{trunk}", trunk
-    refs = []
-    if remote == trunk or _has_ref(repo_root, f"refs/remotes/{remote}", timeout):
-        refs.append(remote)
-    if local == trunk or _has_ref(repo_root, f"refs/heads/{local}", timeout):
-        refs.append(local)
-    return refs
+    local = trunk.removeprefix("origin/")
+    refs = [
+        ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
+        if _has_ref(repo_root, ref, timeout)
+    ]
+    return refs or [trunk]
 
 
 def _is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
@@ -177,9 +179,10 @@ def commit_range(
     commit was covered by an earlier complete run.
 
     `--not` drops every commit that came in from the trunk, and a merge is
-    dropped unless it carries edits of its own, so merging `main` doesn't force
-    a round. A conflict resolved by hand exists only in the merge commit, and
-    dropping every merge would leave it unreviewed.
+    dropped only when git would have made it on its own, so merging `main`
+    doesn't force a round. A conflict resolution exists only in the merge
+    commit, and dropping every merge would leave it unreviewed. Each merge in
+    the range costs up to two more git calls, each under the same timeout.
 
     The arguments end with `--`, since git otherwise reads a bare `main` as a
     path when one exists and refuses the range as ambiguous.
@@ -200,21 +203,35 @@ def commit_range(
     commits = []
     for line in listed:
         sha, *parents = line.split()
-        if len(parents) < 2 or _has_own_edits(repo_root, sha, timeout):
+        if len(parents) < 2 or _has_own_edits(repo_root, sha, parents, timeout):
             commits.append(sha)
     return Range(base, tuple(commits))
 
 
-def _has_own_edits(repo_root: Path, merge: str, timeout: float | None) -> bool:
-    """Whether a merge changed anything beyond what its parents brought.
+def _has_own_edits(
+    repo_root: Path, merge: str, parents: list[str], timeout: float | None,
+) -> bool:
+    """Whether a merge differs from the one git makes from its parents unaided.
 
-    `--cc` keeps only the hunks that differ from every parent, so a clean merge
-    prints nothing and a hand-resolved conflict prints the resolution.
+    `merge-tree` redoes the merge and exits 1 on a conflict, so any conflict
+    counts, whichever side the person kept. A clean redo whose tree differs
+    from the merge's own is a merge someone edited, `-s ours` included, which
+    drops the trunk's changes without a conflict. `diff-tree --cc` answered
+    this before and got both wrong: a conflict resolved by keeping one side
+    printed nothing, and a clean merge of nearby lines printed a hunk.
+
+    A merge with more than two parents has no single redo to compare against,
+    so it stays in the range.
     """
-    shown = _git(
-        repo_root, "diff-tree", "--cc", "--no-commit-id", merge, timeout=timeout,
-    ).stdout
-    return bool(shown.strip())
+    if len(parents) != 2:
+        return True
+    redone = _git(
+        repo_root, "merge-tree", "--write-tree", *parents, timeout=timeout, answers=(0, 1),
+    )
+    if redone.returncode == 1:
+        return True
+    own = _git(repo_root, "rev-parse", f"{merge}^{{tree}}", timeout=timeout).stdout.strip()
+    return redone.stdout.split("\n", 1)[0].strip() != own
 
 
 # --- records ---------------------------------------------------------------------
@@ -331,10 +348,8 @@ def _availability(
         if r.command is not None:
             entry["command"] = r.command
             if r.model not in unavailable:
-                try:
-                    program = (shlex.split(r.command) or [""])[0]
-                except ValueError:
-                    program = r.command
+                # `_review_config.load` refuses a command `shlex` can't split.
+                program = (shlex.split(r.command) or [""])[0]
                 if not program or which(program) is None:
                     unavailable[r.model] = f"`{program}` not found on PATH"
             if r.model in unavailable:
@@ -420,7 +435,9 @@ def judge(text: str, head: str) -> str | None:
         return f"names {named[-1][:_MIN_SHA]}, not {head[:_MIN_SHA]}"
     # A reviewer that wraps its report in a code fence ends on the fence, and
     # the verdict is the line inside it.
-    lines = [line for line in text.splitlines() if line.strip() and line.strip() not in _FENCES]
+    lines = [
+        line for line in text.splitlines() if line.strip() and not _FENCE.fullmatch(line.strip())
+    ]
     last = lines[-1] if lines else ""
     before = lines[-2] if len(lines) > 1 else ""
     if not _VERDICT_WORD.search(last) or not (

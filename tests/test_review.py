@@ -18,9 +18,10 @@ def git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def commit(repo: Path, name: str) -> str:
-    """Commit one new file named `name`, and return the commit's full sha."""
-    (repo / name).write_text(f"{name}\n")
+def commit(repo: Path, name: str, text: str | None = None) -> str:
+    """Commit the file `name`, holding `text` or its own name, and return the
+    commit's full sha."""
+    (repo / name).write_text(text if text is not None else f"{name}\n")
     git(repo, "add", name)
     git(repo, "commit", "-q", "-m", name)
     return git(repo, "rev-parse", "HEAD")
@@ -51,17 +52,17 @@ def review_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return repo
 
 
-def push_to_main(tmp_path: Path, repo: Path, name: str) -> str:
+def push_to_main(tmp_path: Path, repo: Path, name: str, text: str | None = None) -> str:
     """Land a commit on `origin/main` from a second clone, and fetch it.
 
     The local `main` stays where it was, which is the stale trunk a person's
     checkout usually has.
     """
-    other = tmp_path / f"other-{name}"
+    other = tmp_path / f"other-{len(list(tmp_path.glob('other-*')))}"
     subprocess.run(["git", "clone", "-q", str(tmp_path / "origin.git"), str(other)], check=True)
     for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
         git(other, "config", key, val)
-    sha = commit(other, name)
+    sha = commit(other, name, text)
     git(other, "push", "-q", "origin", "main")
     git(repo, "fetch", "-q", "origin")
     return sha
@@ -170,7 +171,7 @@ def test_range_reads_origin_main_so_a_stale_local_main_hides_nothing(
     git(repo, "merge", "-q", "--no-edit", "origin/main")
     own = commit(repo, "b")
 
-    assert _review.trunk_refs(repo) == ["origin/main", "main"]
+    assert _review.trunk_refs(repo) == ["refs/remotes/origin/main", "refs/heads/main"]
     assert git(repo, "rev-parse", "main") != git(repo, "rev-parse", "origin/main")
     found = _review.commit_range(repo, own, reviewed)
     assert from_main not in found.commits
@@ -181,7 +182,7 @@ def test_trunk_refs_leave_out_a_local_branch_that_does_not_exist(repo: Path) -> 
     """`--not main` with no `main` is a git error, which would read as the
     whole range failing."""
     git(repo, "branch", "-q", "-D", "main")
-    assert _review.trunk_refs(repo) == ["origin/main"]
+    assert _review.trunk_refs(repo) == ["refs/remotes/origin/main"]
 
 
 def test_range_is_empty_at_or_behind_the_last_reviewed_commit(repo: Path) -> None:
@@ -229,12 +230,15 @@ def test_range_restarts_at_the_merge_base_when_the_state_dir_is_empty(
 
 
 def test_every_git_call_in_the_range_takes_the_callers_timeout(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The guard will call these with a 5-second bound, before every Bash call
     that names a PR command. One unbounded call is a hook that can hang the
-    agent's shell."""
+    agent's shell. The merge from `main` is there so the calls that judge a
+    merge are recorded too."""
     reviewed = commit(repo, "a")
+    push_to_main(tmp_path, repo, "m1")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
     head = commit(repo, "b")
     real = subprocess.run
     seen: list[object] = []
@@ -263,21 +267,83 @@ def test_range_works_beside_a_path_named_after_the_trunk(repo: Path) -> None:
     assert _review.commit_range(repo, head, reviewed).commits == (head,)
 
 
-def test_range_keeps_a_merge_that_carries_edits_of_its_own(
+def test_range_keeps_a_merge_edited_before_it_was_committed(
     tmp_path: Path, repo: Path
 ) -> None:
-    """A conflict resolved by hand exists only in the merge commit. Dropping
+    """An edit made during a merge exists only in the merge commit. Dropping
     every merge meant a branch whose only new commit was that merge read as
-    up to date, and nobody reviewed the resolution."""
+    up to date, and nobody reviewed the edit."""
     reviewed = commit(repo, "a")
     push_to_main(tmp_path, repo, "m1")
     git(repo, "merge", "-q", "--no-commit", "origin/main")
-    (repo / "a").write_text("resolved by hand\n")
+    (repo / "a").write_text("edited in the merge\n")
     git(repo, "add", "a")
     git(repo, "commit", "-q", "--no-edit")
     merge = git(repo, "rev-parse", "HEAD")
 
     assert _review.commit_range(repo, merge, reviewed).commits == (merge,)
+
+
+def test_range_keeps_a_conflict_resolved_by_keeping_the_branchs_side(
+    tmp_path: Path, repo: Path
+) -> None:
+    """Keeping one side is the most common resolution, and here it undoes the
+    fix `main` made to the same line. `diff-tree --cc` printed nothing for it,
+    since the result matches a parent, so the merge left the range unreviewed."""
+    reviewed = commit(repo, "init", "branch edit\n")
+    push_to_main(tmp_path, repo, "init", "security fix\n")
+    conflicted = subprocess.run(
+        ["git", "-C", str(repo), "merge", "-q", "--no-edit", "origin/main"],
+        capture_output=True,
+    )
+    assert conflicted.returncode == 1
+    git(repo, "checkout", "--ours", "init")
+    git(repo, "add", "init")
+    git(repo, "commit", "-q", "--no-edit")
+    merge = git(repo, "rev-parse", "HEAD")
+
+    assert _review.commit_range(repo, merge, reviewed).commits == (merge,)
+
+
+def test_range_keeps_a_merge_that_discards_mains_changes(
+    tmp_path: Path, repo: Path
+) -> None:
+    """`git merge -s ours` records `main` as merged and keeps none of it, so
+    landing the branch deletes `main`'s work with no conflict to notice."""
+    reviewed = commit(repo, "a")
+    push_to_main(tmp_path, repo, "fix")
+    git(repo, "merge", "-q", "-s", "ours", "--no-edit", "origin/main")
+    merge = git(repo, "rev-parse", "HEAD")
+
+    assert _review.commit_range(repo, merge, reviewed).commits == (merge,)
+
+
+def test_range_leaves_out_a_clean_merge_of_nearby_lines(
+    tmp_path: Path, repo: Path
+) -> None:
+    """Both sides editing lines close together in one file put one hunk of
+    each parent in `diff-tree --cc`, so a merge git made on its own forced a
+    review round (US2 scenario 4)."""
+    commit(repo, "a")
+    push_to_main(tmp_path, repo, "f", "1\n2\n3\n4\n")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    reviewed = commit(repo, "f", "one\n2\n3\n4\n")
+    push_to_main(tmp_path, repo, "f", "1\n2\nthree\n4\n")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    own = commit(repo, "b")
+
+    assert (repo / "f").read_text() == "one\n2\nthree\n4\n"
+    assert _review.commit_range(repo, own, reviewed).commits == (own,)
+
+
+def test_range_ignores_a_tag_named_after_the_trunk(repo: Path) -> None:
+    """git resolves a short `main` to a tag before the branch, so a tag named
+    `main` on the branch's own commit made that commit read as already on the
+    trunk."""
+    own = commit(repo, "a")
+    git(repo, "tag", "main", own)
+
+    assert _review.commit_range(repo, own, None).commits == (own,)
 
 
 def test_range_reads_origin_main_when_origin_head_is_not_set(
@@ -292,7 +358,7 @@ def test_range_reads_origin_main_when_origin_head_is_not_set(
     own = commit(repo, "b")
     git(repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
 
-    assert _review.trunk_refs(repo) == ["origin/main", "main"]
+    assert _review.trunk_refs(repo) == ["refs/remotes/origin/main", "refs/heads/main"]
     found = _review.commit_range(repo, own, reviewed)
     assert from_main not in found.commits
     assert found.commits == (own,)
@@ -905,6 +971,29 @@ def test_a_verdict_inside_a_closing_tilde_fence_counts() -> None:
     as having no verdict."""
     text = f"~~~\nReviewed: {HEAD[:7]}\n\nVerdict: Approve\n~~~\n"
     assert _review.judge(text, HEAD) is None
+
+
+def test_a_verdict_inside_a_longer_closing_fence_counts() -> None:
+    """A report holding its own three-backtick blocks is wrapped in four, and
+    only exactly three were recognised as a fence."""
+    text = f"````\nReviewed: {HEAD[:7]}\n\nVerdict: Approve\n````\n"
+    assert _review.judge(text, HEAD) is None
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        "**Verdict:** _Approve_",
+        "Verdict: __Approve__",
+        "Verdict: _Request changes_ (1 blocker)",
+        "Verdict: Approved",
+    ],
+)
+def test_a_verdict_with_underscores_or_a_past_tense_counts(ending: str) -> None:
+    """Matching whole words rejected these, since `_` is a word character and
+    `Approved` runs past the word. Each counted before, and a run stayed
+    incomplete over a report that had finished."""
+    assert _review.judge(f"Reviewed: {HEAD[:7]}\n\n{ending}\n", HEAD) is None
 
 
 @pytest.mark.parametrize("ending", ["Verdict: Disapprove", "Verdict: Unapproved"])

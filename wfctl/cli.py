@@ -6123,7 +6123,7 @@ def review_check_cmd(
     """
     from wfctl import _review, _review_config
 
-    if not _review_config.GROUP_NAME.fullmatch(group):
+    if not _review_config.PLAIN_NAME.fullmatch(group):
         _say(f"✗ no review group named '{group}'")
         raise typer.Exit(1)
     repo_root = _get_repo_root_or_exit()
@@ -6141,8 +6141,10 @@ def review_check_cmd(
     if checked.complete:
         _say(f"complete: {group} reviewed through {head}")
         if checked.missing:
-            reports = "report" if checked.missing == 1 else "reports"
-            _say(f"⚠ {checked.missing} {reports} changed after the run completed at "
+            reports = "report no longer counts" if checked.missing == 1 else (
+                "reports no longer count"
+            )
+            _say(f"⚠ {checked.missing} {reports} since the run completed at "
                  f"{checked.run.record['completed_at']}")
         return
     if not checked.expected:

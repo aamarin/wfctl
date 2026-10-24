@@ -171,22 +171,42 @@ def test_a_custom_group_with_no_skill_runs_the_code_review(tmp_path: Path) -> No
         ),
         pytest.param(
             {"groups": [{"group": "security", "reviewers": [{"name": "claude", "count": 21}]}]},
-            "review group 'security': count for 'claude' must be 20 or fewer",
+            "review group 'security' has more than 20 reviewers",
             id="count-too-large",
+        ),
+        pytest.param(
+            {"groups": [{"group": "security",
+                         "reviewers": [{"name": "claude", "count": 20}] * 2}]},
+            "review group 'security' has more than 20 reviewers",
+            id="repeated-entries-too-many",
         ),
         pytest.param(
             {"commands": {"gpt 5": "gpt"},
              "groups": [{"group": "security", "reviewers": [{"name": "gpt 5", "count": 1}]}]},
-            "review group 'security': model 'gpt 5' isn't lowercase letters, digits and hyphens",
+            "review group 'security': model 'gpt 5' isn't lowercase letters, digits and "
+            "hyphens, starting with a letter",
             id="model-name-with-a-space",
+        ),
+        pytest.param(
+            {"commands": {"4o": "gpt"},
+             "groups": [{"group": "security", "reviewers": [{"name": "4o", "count": 1}]}]},
+            "review group 'security': model '4o' isn't lowercase letters, digits and "
+            "hyphens, starting with a letter",
+            id="model-name-starting-with-a-digit",
         ),
         pytest.param(
             {"commands": {"x\ns9 claude": "x"},
              "groups": [{"group": "security",
                          "reviewers": [{"name": "x\ns9 claude", "count": 1}]}]},
             "review group 'security': model 'x\\ns9 claude' isn't lowercase letters, "
-            "digits and hyphens",
+            "digits and hyphens, starting with a letter",
             id="model-name-with-a-newline",
+        ),
+        pytest.param(
+            {"commands": {"codex": "codex exec\nreports: /tmp/x/\ns9 claude"},
+             "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}]},
+            "review.commands: the command for 'codex' holds a control character",
+            id="command-with-a-newline",
         ),
         pytest.param(
             {"groups": [{"group": "money", "skill": "../../etc",
