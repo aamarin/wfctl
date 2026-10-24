@@ -113,8 +113,15 @@ branch it acts on, or because the agent shouldn't run it at all:
 
 The rule behind items 5 to 7 is that the check refuses a command whose text
 shows it can't be sure what the command acts on. A gap is recorded as a known
-limit instead only when the command looks ordinary and what changes it lives
+limit instead when the command looks ordinary and what changes it lives
 outside the text, such as GitHub's auto-merge when checks are pending.
+
+A disguised command found after the fifth plan review is recorded as a known
+limit too, such as `gh extension exec stack merge` or a two-word shortcut like
+`gh pr ship 630`. We stopped adding rules there because six reviews in a row
+each found more disguises, and the hook only sees a command's text. The
+required CI check in #627 closes these gaps, since GitHub blocks the merge
+itself however the command was typed. Until #627 ships, they stay open.
 
 If a command matches none of them, it goes on to the worktree check with no
 file read and no git call.
@@ -210,8 +217,8 @@ to check means changing one list in either graph.
   payload that isn't valid JSON, skips both. The guard already reads every
   payload field defensively for that reason.
 - A pull request opened without `gh` isn't checked, and neither is one opened
-  by an agent without hooks. The follow-up issue on a required CI check covers
-  both.
+  by an agent without hooks or through a disguised command the review check
+  doesn't read. The follow-up issue on a required CI check covers all three.
 - A command that only mentions `gh pr create`, such as an `echo`, is refused on
   an unreviewed branch. The refusal lists the commits, so the cost is one
   confusing message.
@@ -268,3 +275,8 @@ to check means changing one list in either graph.
   `gh api` create is read in every body-flag spelling `gh` accepts. Andre
   approved allowing a fixed list of commands, at the cost of running
   extensions in his own terminal.
+- 2026-10-24  proposed  — #622 plan review. The review check stops adding
+  rules. The sixth review's findings are recorded as known limits that the
+  required CI check in #627 closes, including a two-word `gh alias set`
+  shortcut. Andre approved this after six reviews in a row each found more
+  disguised commands.
