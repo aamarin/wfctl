@@ -3,7 +3,7 @@ status: proposed
 supersedes: a-human-grants-outward-facing-authority
 ---
 
-# wfctl records outward actions and never gates them; the host's permission layer is the only gate
+# wfctl records outward actions and never refuses one over who may act; the host's permission layer is the only gate
 
 ## Context
 
@@ -50,6 +50,14 @@ wfctl never refuses an action for reaching outside the repository. The host
 agent's permission layer is the only gate on those actions. An attended session
 asks before them exactly as its skills already say; an unattended run attempts
 them, and a refusal from the host is reported rather than routed around.
+
+wfctl can still refuse an outward action when the work behind it isn't
+finished. Currently, the only case is a pull request on a branch with
+unreviewed commits. wfctl's agent hook refuses to open or merge that pull
+request until a review covers every commit, or until a person signs off on the
+commits left after three rounds. This refusal depends on the state of the
+change, not on who is allowed to act. The accepted record on review coverage
+makes that decision, and this record doesn't change it.
 
 wfctl keeps the half it can do and the host cannot: recording. Two verbs, both
 the agent telling wfctl a fact wfctl could not observe:
@@ -160,3 +168,6 @@ it.
 
 - 2026-09-15  proposed    — #384 level 2; the grant refused the person it deferred
   to, and the host already gated every command it covered
+- 2026-10-21  revised     — #622 level 3. The record now lets wfctl refuse a pull
+  request on a branch with unreviewed commits, since that refusal depends on
+  the change rather than on who is allowed to act
