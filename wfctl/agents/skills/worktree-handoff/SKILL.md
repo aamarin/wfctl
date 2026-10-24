@@ -64,12 +64,11 @@ heading next time.
    sections bind will negotiate with all of them.
 
 3. **Which route this work takes.** Through `.agents/skills/design-passes`, or
-   through the spec pipeline. `.agents/skills/design-levels` owns where the line falls —
-   do not restate its criteria here, state which side *this* change lands on and
-   why. A change that draws a boundary, moves who owns a piece of truth, or adds
-   new state goes through the pipeline. A bug fix or a copy edit runs
-   `.agents/skills/design-passes` before any code is written. That skill decides
-   whether the change needs a spec.
+   through the spec pipeline. A change that draws a boundary, moves who owns a
+   piece of truth, or adds new state goes through the pipeline. A bug fix or a
+   copy edit runs `.agents/skills/design-passes` before any code is written, and
+   that skill decides whether the change needs a spec. Don't restate its criteria
+   here. State which side *this* change lands on and why.
 
    This section is always present, because an unstated route is not neutral. A
    handoff that opened with "implement issue #N" and said nothing else was read
