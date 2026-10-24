@@ -233,7 +233,7 @@ session and then vanishes with no error.
 
 `change_sections` sits beside `change_check` and lists the headings every PR
 body has to answer. `wfctl check-body` reports a listed section that is missing,
-empty, N/A, or only a yes or no with no reason:
+empty, N/A or None, or only a yes or no with no reason:
 
 ```json
 { "change_check": ["assignees"], "change_sections": ["Needs a spec?"] }

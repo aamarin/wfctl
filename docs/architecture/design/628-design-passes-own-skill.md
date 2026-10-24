@@ -144,8 +144,8 @@ decision, it touches only `design-passes`.
 
 Changing the passes means editing one skill. The cost is one more skill in the
 tree, and four places that have to keep pointing to it. The suite's
-cross-reference test catches a pointer to a missing skill, but not a place that
-stops pointing to it.
+cross-reference tests catch both a pointer to a missing skill and a place that
+stops pointing to `design-passes`.
 
 `design-passes` doesn't touch `opening-a-change`. It ends before opening a PR,
 so the review panel covers the refactor with the rest of the change.
@@ -157,8 +157,9 @@ so the review panel covers the refactor with the rest of the change.
   before any code, and end with a failing test committed before the fix, no
   `arch none` file, and either a refactor commit or nothing to refactor.
 - The skills that currently send a small change straight to implementation
-  point to `design-passes` instead. Grepping for "straight to implementation"
-  confirms it.
+  point to `design-passes` instead. `tests/test_skill_cross_references.py`
+  fails if any of them stops naming it, or if a shipped file still sends a
+  change "straight to implementation".
 
 ## Log
 
