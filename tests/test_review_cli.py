@@ -504,3 +504,123 @@ def test_start_pads_the_id_column_once_a_group_has_ten_reviewers(repo: Path) -> 
 
     assert lines[2] == "s1  claude"
     assert lines[11] == "s10 claude"
+
+
+# --- review sign-off -----------------------------------------------------------
+
+
+@pytest.fixture
+def terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stand in for a person at a terminal. `CliRunner` swaps `sys.stdin` and
+    `sys.stdout` for streams that are never a terminal, so the check is patched
+    where the command reads it."""
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: True)
+
+
+def test_sign_off_without_a_terminal_refuses(repo: Path) -> None:
+    """FR-013. An agent's shell tool has no terminal, so a spelling the guard's
+    pattern misses still fails here."""
+    commit(repo, "a")
+
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 1
+    assert result.output == "✗ wfctl review sign-off needs a person at an interactive terminal\n"
+    assert not (Path(str(repo)).parent / "state" / "reviews" / "sign-off.json").exists()
+
+
+def test_sign_off_lists_the_commits_then_asks_for_the_head_sha(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """Typing the sha makes the person read what they're signing off. A run is
+    not required first, since a sign-off doesn't wait for three rounds."""
+    first = commit(repo, "a")
+    head = commit(repo, "b")
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        f"security  {first[:7]} a",
+        f"security  {head[:7]} b",
+        f"code      {first[:7]} a",
+        f"code      {head[:7]} b",
+        f"Type {head[:7]} to sign off on these commits: ✓ signed off through {head[:7]}",
+    ]
+    record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
+    assert record["sha"] == head
+    events = (tmp_path / "state" / "events.jsonl").read_text()
+    assert '"review-sign-off"' in events and head in events
+
+
+def test_sign_off_with_anything_else_typed_writes_nothing(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """An `y` or a stray Enter isn't a decision about these commits."""
+    commit(repo, "a")
+
+    result = run("review", "sign-off", input="y\n")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[-1].endswith("✗ not signed off; nothing written")
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
+def test_sign_off_with_nothing_unreviewed_needs_none(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """There is nothing to sign, so the command doesn't ask."""
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 0
+    assert result.output == "nothing unreviewed; no sign-off needed\n"
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
+# --- review groups -------------------------------------------------------------
+
+
+def test_groups_lists_the_two_built_in_groups_with_no_review_key(repo: Path) -> None:
+    """`opening-a-change` runs exactly these lines, in this order, so a
+    repository that configures nothing still gets both groups (FR-022)."""
+    result = run("review", "groups")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "security  reviewing-security  s1 s2 s3 claude",
+        "code      code-review         c1 c2 c3 claude",
+    ]
+
+
+def test_groups_lists_a_custom_group_after_the_built_in_ones(repo: Path) -> None:
+    """FR-019. The code group reviews the security group's fixes, and a custom
+    group reviews the result of both, whatever order the list gives."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {
+        "commands": {"codex": "codex exec"},
+        "groups": [
+            {"group": "money-rules", "skill": "money-rules-review",
+             "reviewers": [{"name": "claude", "count": 2}]},
+            {"group": "security", "reviewers": [
+                {"name": "claude", "count": 1}, {"name": "codex", "count": 1}]},
+        ],
+    }}))
+
+    result = run("review", "groups")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "security     reviewing-security  s1 claude, s2 codex",
+        "code         code-review         c1 c2 c3 claude",
+        "money-rules  money-rules-review  m1 m2 claude",
+    ]
+
+
+def test_groups_with_an_invalid_review_key_prints_the_findings(repo: Path) -> None:
+    """The skill reads this list to decide what runs, so a broken key stops it
+    rather than running the defaults."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"groups": "security"}}))
+
+    result = run("review", "groups")
+
+    assert result.exit_code == 1
+    assert result.output.startswith("✗ wfctl.json:\n  - ")

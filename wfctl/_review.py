@@ -157,7 +157,7 @@ def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
     return refs or [trunk]
 
 
-def _is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
+def is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
     """Whether this repository has the commit. One it has never seen is no
     ancestor of anything, and asking `merge-base` about it is an error rather
     than a no."""
@@ -210,7 +210,7 @@ def commit_range(
         raise ShallowClone()
     refs = trunk_refs(repo_root, timeout)
     base = None
-    if last_reviewed is not None and _is_commit(repo_root, last_reviewed, timeout):
+    if last_reviewed is not None and is_commit(repo_root, last_reviewed, timeout):
         if _is_ancestor(repo_root, head, last_reviewed, timeout):
             return Range(last_reviewed, ())
         if _is_ancestor(repo_root, last_reviewed, head, timeout):
@@ -573,6 +573,98 @@ def check(agent_dir: Path, group: str) -> Checked:
         append_event(agent_dir, "review-complete", group=group, run=run.number, head=run.head)
         run = Run(run.number, run.path, record)
     return Checked(group, run, tuple(entries), expected, complete)
+
+
+# --- sign-off and what is still unreviewed ---------------------------------------
+
+
+def sign_off_path(agent_dir: Path) -> Path:
+    return agent_dir / "reviews" / "sign-off.json"
+
+
+def signed_off(agent_dir: Path) -> str | None:
+    """The commit a person last signed off through, or None."""
+    path = sign_off_path(agent_dir)
+    if not path.exists():
+        return None
+    sha = _read_json(path).get("sha")
+    if not isinstance(sha, str) or not sha:
+        raise ReviewError(f"can't read {path}: no sha")
+    return sha
+
+
+def sign_off(agent_dir: Path, sha: str) -> None:
+    """Record a person's sign-off through `sha`, replacing any earlier one.
+
+    One file for every group, since a sign-off is one decision about the
+    branch, and making a person sign once per group adds nothing (research.md
+    R9).
+    """
+    path = sign_off_path(agent_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, json.dumps({"sha": sha, "at": _now()}, indent=2) + "\n")
+    append_event(agent_dir, "review-sign-off", sha=sha)
+
+
+def unreviewed(
+    repo_root: Path,
+    agent_dir: Path,
+    groups: Sequence[Group],
+    head: str,
+    timeout: float | None = None,
+) -> dict[str, tuple[str, ...]]:
+    """Each group's commits at `head` that no complete run and no sign-off
+    covers, oldest first. A group with none is left out.
+
+    A sign-off covers a commit when it is the signed-off commit or one of its
+    ancestors, so a commit added after the sign-off is unreviewed again. Every
+    group has to have reviewed the head, so a fix the code group commits after
+    the security group's run is unreviewed for `security`.
+    """
+    signed = signed_off(agent_dir)
+    if signed is not None and not is_commit(repo_root, signed, timeout):
+        signed = None
+    covered: dict[str, bool] = {}
+
+    def is_covered(sha: str) -> bool:
+        if signed is None:
+            return False
+        if sha not in covered:
+            covered[sha] = sha == signed or _is_ancestor(repo_root, sha, signed, timeout)
+        return covered[sha]
+
+    found: dict[str, tuple[str, ...]] = {}
+    for group in groups:
+        commits = commit_range(
+            repo_root, head, last_reviewed(agent_dir, group.name), timeout,
+        ).commits
+        left = tuple(c for c in reversed(commits) if not is_covered(c))
+        if left:
+            found[group.name] = left
+    return found
+
+
+def subjects(repo_root: Path, shas: Sequence[str], timeout: float | None = None) -> dict[str, str]:
+    """Each commit's subject line, in one git call."""
+    unique = list(dict.fromkeys(shas))
+    if not unique:
+        return {}
+    shown = _git(
+        repo_root, "show", "-s", "--no-walk=unsorted", "--format=%H%x00%s", *unique, "--",
+        timeout=timeout,
+    ).stdout
+    return dict(line.split("\0", 1) for line in shown.splitlines() if "\0" in line)
+
+
+def pending_lines(pending: dict[str, tuple[str, ...]], subjects: dict[str, str]) -> list[str]:
+    """One line per unreviewed commit under its group, such as
+    `security  9f8e7d6 test: cover an empty note`."""
+    width = max((len(g) for g in pending), default=0)
+    return [
+        f"{group:<{width}}  {sha[:_MIN_SHA]} {subjects.get(sha, '')}".rstrip()
+        for group, commits in pending.items()
+        for sha in commits
+    ]
 
 
 def roster_lines(entries: Sequence[Entry]) -> list[str]:
