@@ -33,22 +33,50 @@ each.
 
 ## R3. The commits a run covers
 
-- Decision: `git rev-list --no-merges <base>..<head> --not <trunk refs>`. The
-  base is the group's last reviewed commit when it is an ancestor of the head,
-  and otherwise the merge base of the head and the trunk branch.
-  1. The trunk refs are the remote ref `_paths.trunk_branch` returns, such as
-     `origin/main`, and the local branch of the same name with `origin/`
-     stripped, such as `main`, when that local branch exists.
+- Decision: `git rev-list --parents <base>..<head> --not <trunk refs> --`,
+  keeping every commit with one parent and every merge that has edits of its
+  own. A merge has edits of its own when git can't redo it unaided, or when the
+  redo differs from it. `git merge-tree --write-tree <parent1> <parent2>` redoes
+  the merge, exits 1 on a conflict, and otherwise prints the tree it made,
+  which is compared with `<merge>^{tree}`. A merge whose parents share no
+  commit, where `git merge-base <parent1> <parent2>` exits 1, is always kept.
+  A merged orphan branch makes one. We didn't pass
+  `--allow-unrelated-histories` instead, because it redoes the merge against an
+  empty base, which can't show that a merge kept a file one side deleted. A
+  merge with more than two parents
+  is always kept. The base is the group's last reviewed commit when it is an
+  ancestor of the head, and otherwise the merge base of the head and the trunk
+  branch.
+  1. The trunk refs are `refs/remotes/origin/<trunk>` and `refs/heads/<trunk>`,
+     each when it exists, in that order. `_paths.trunk_branch` returns either
+     one: the remote ref when `origin/HEAD` is set, and the local name when it
+     isn't, such as for a remote added with `git remote add`. They are full
+     names because git resolves a short `main` to a tag of that name first.
   2. When `_paths.trunk_branch` returns None, `review start` fails and names
      the `trunk` key in `wfctl.json`, and the review check refuses for the
      same reason. Without a trunk there is no merge base to start from.
   3. When the head is the last reviewed commit or one of its ancestors, the
      group has no unreviewed commits. This happens when reviewed commits
      haven't been pushed yet and a merge is judged at the pushed head.
+  4. A shallow clone is refused, and the error says to run
+     `git fetch --unshallow`. `rev-list` can't list commits past the cut, so a
+     completed run would mark them reviewed without anyone seeing them. A cut
+     can also leave two merge parents with an older shared commit than the
+     real one, and a redo against that base can match a merge that kept a file
+     `main` deleted. For the same reason, every git call passes
+     `--no-replace-objects`, since a replace ref can graft commits out of the
+     history `rev-list` walks.
 - Rationale: `--not <trunk>` drops every commit that came in from the trunk
-  branch (US2 scenario 4). `--no-merges` drops the merge commit itself, so
-  merging `main` doesn't force a review round. Passing the remote ref too means
-  a stale local `main` doesn't make merged commits look like branch work. A
+  branch (US2 scenario 4). A clean merge is dropped as well, so merging `main`
+  doesn't force a review round. Any conflict counts, whichever side the person
+  kept, because keeping the branch's side of a conflict undoes `main`'s change
+  to those lines. A clean redo that differs from the merge catches an edit made
+  during the merge, and `git merge -s ours`, which records `main` as merged
+  while keeping none of it. `_archive.py` already uses `merge-tree`, so it adds
+  no new git requirement. The closing `--` stops git reading a bare `main` as a path
+  when one exists, which made it refuse the range as ambiguous. Passing the
+  remote ref too means a stale local `main` doesn't make merged commits look
+  like branch work, whichever of the two `_paths.trunk_branch` returned. A
   last reviewed commit that is no longer an ancestor, after a rebase, falls back
   to the merge base, which costs one larger review and lets nothing through.
   `_paths.trunk_branch` falls back to `origin/HEAD` when `trunk` isn't
@@ -56,10 +84,22 @@ each.
   branch. Item 3 is safe because every ancestor of a reviewed commit was
   covered by an earlier complete run. Without it, the range falls back to the
   merge base and lists every commit on the branch as unreviewed.
-- Alternatives considered: keeping merge commits in the range, which forces a
-  round after every `main` merge. The risk we accept is a conflict resolution
-  inside a merge commit going unreviewed; the next real commit's review reads
-  the code around it.
+- Alternatives considered:
+  1. Keeping every merge commit in the range. We didn't choose this because it
+     forces a round after every `main` merge.
+  2. `git rev-list --no-merges`. We didn't choose this because it drops every
+     conflict resolution, and a branch whose only new commit was that merge
+     reads as up to date.
+  3. `git diff-tree --cc`, which prints the hunks that differ from every
+     parent. We didn't choose this because it gets two cases wrong. A conflict
+     resolved by keeping one side matches that parent, so it prints nothing
+     and the merge is dropped. Two clean edits a few lines apart in one file
+     share a hunk, so it prints that hunk and a clean merge forces a round.
+  4. `git show --remerge-diff`, which gives the same answers as `merge-tree`.
+     We didn't choose this because `show` is porcelain and reads user config
+     such as an external diff tool, which can print output for a clean merge.
+     `git diff-tree --remerge-diff` would avoid that, but it aborts with a git
+     bug on git 2.44.
 
 ## R4. The branch the review check judges
 

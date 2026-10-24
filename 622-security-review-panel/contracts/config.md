@@ -39,7 +39,13 @@ Each is one `- ` line under `✗ wfctl.json:`, and the command exits 1.
 | two groups share a first letter | `review groups 'security' and 'storage' both start with 's'; reviewer ids would clash` |
 | a reviewer's model has no command | `review group 'security': model 'codex' has no entry in review.commands` |
 | a count below 1, or not an integer | `review group 'security': count for 'claude' must be 1 or more` |
+| a group's counts add up to more than 20 | `review group 'security' has more than 20 reviewers` |
+| a model name isn't lowercase letters, digits, and hyphens starting with a letter | `review group 'security': model 'gpt 5' isn't lowercase letters, digits and hyphens, starting with a letter` |
+| a skill isn't a skill name, such as a path | `review group 'money': skill must be a skill name` |
 | `commands` isn't an object of strings | `review.commands must map each model to a command string` |
+| `commands` has an entry for `claude` | `review.commands: claude runs inside the agent and takes no command` |
+| a command holds a character that can't be printed, such as a newline, U+2028, or a no-break space | `review.commands: the command for 'codex' holds a character that can't be printed (U+000A)` |
+| a command has an unbalanced quote | `review.commands: can't split the command for 'codex': No closing quotation` |
 
 `check config` doesn't check that a command is installed, because that is a
 fact about the machine running the review, not about the repository. `review

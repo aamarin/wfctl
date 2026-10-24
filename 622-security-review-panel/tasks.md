@@ -89,7 +89,7 @@ The phases don't follow spec.md's priority order exactly. US1 is P1, but its ski
   1. The first run starts at the merge base of the head and the trunk branch (FR-007).
   2. A later run starts after the group's last reviewed commit when it is an ancestor of the head.
   3. After a rebase, a last reviewed commit that is no longer an ancestor falls back to the merge base.
-  4. A branch that merged in `main` since its last review lists only its own commits, with no merge commit, from `git rev-list --no-merges <base>..<head> --not <trunk refs>` (US2 scenario 4).
+  4. A branch that merged in `main` since its last review lists only its own commits, and no merge git could have made unaided, from `git rev-list --parents <base>..<head> --not <trunk refs> --` (US2 scenario 4). A merge with a conflict, or one that differs from git's own redo of it, stays in the range (research.md R3).
   5. The trunk refs are the remote ref from `_paths.trunk_branch` and the local branch of the same name with `origin/` stripped, when it exists. A stale local `main` doesn't make merged commits look like branch work.
   6. A head equal to the last reviewed commit, or behind it, has no unreviewed commits (R3 item 3).
   7. No trunk branch raises an error that names the `trunk` key in `wfctl.json`.

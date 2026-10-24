@@ -43,6 +43,7 @@ s4 codex  ✗ unavailable
 | every reviewer unavailable | the block above, then `⚠ no reviewer in security can run; the run can't complete until one can, or a person signs off` | 0 |
 | nothing since the last reviewed commit | `security is up to date at 9f8e7d6` | 0 |
 | no trunk branch found | `✗ can't find the trunk branch; set trunk in wfctl.json` | 1 |
+| the clone is shallow | `✗ this clone is shallow, so wfctl can't see every commit on the branch; run git fetch --unshallow` | 1 |
 | unknown group | `✗ no review group named 'x'`, then the group list | 1 |
 | invalid `review` config | the `check config` findings | 1 |
 
@@ -63,12 +64,18 @@ incomplete: 1 of 4 expected reports missing
 | Case | Last line | Exit |
 | --- | --- | --- |
 | every expected report counts | `complete: security reviewed through 9f8e7d6` | 0 |
+| the run completed earlier, and a report no longer counts | `complete: security reviewed through 9f8e7d6`, then `⚠ 1 report no longer counts since the run completed at <time>` | 0 |
 | any expected report missing or not counted | `incomplete: N of M expected reports missing` | 1 |
 | no reviewer in the run could run | `incomplete: no reviewer in security could run` | 1 |
 | no run started | `✗ security has no run; run wfctl review start security` | 1 |
 
+A run stays complete once it completes. The last reviewed commit has already
+moved, so calling the run incomplete again would contradict the record the next
+run starts from.
+
 The reason on a ✗ line is one of: `no report`, `names <sha>, not <head>`,
-`no Reviewed: line`, `no verdict at the end`, `unavailable: <reason>`.
+`no Reviewed: line`, `no verdict at the end`, `can't read report: <error>`,
+`unavailable: <reason>`.
 
 ## `wfctl relay <id> --reason TEXT --from PATH`
 
