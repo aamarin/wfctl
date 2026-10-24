@@ -109,6 +109,8 @@ def _git(
     it cut out, so a completed run would mark them reviewed unseen. A
     `.git/info/grafts` line does the same, and `--no-replace-objects` doesn't
     turn it off, so `GIT_GRAFT_FILE` points at a file that can't exist.
+    `commit_range` refuses both before it lists anything, since a reviewer's
+    git reads them, and these keep wfctl's own reads on the real objects.
     """
     r = subprocess.run(
         ["git", "--no-replace-objects", *args],
@@ -173,7 +175,7 @@ def trunk_refs(
     <feature>` after a rename or on a detached HEAD. In such a clone,
     `origin/HEAD` can only name the branch the clone took, so a trunk found
     through it is refused unless `origin` fetches every branch. A declared
-    trunk is used either way.
+    trunk is used either way (`642-origin-head-trusted-on-full-fetch.md`).
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
@@ -271,6 +273,7 @@ def commit_range(
     shallow = _git(repo_root, "rev-parse", "--is-shallow-repository", timeout=timeout)
     if shallow.stdout.strip() == "true":
         raise ShallowClone()
+    _refuse_rewritten_history(repo_root, timeout)
     refs = trunk_refs(repo_root, timeout, branch=branch)
     base = None
     if last_reviewed is not None and is_commit(repo_root, last_reviewed, timeout):
@@ -285,41 +288,58 @@ def commit_range(
         timeout=timeout,
     ).stdout.splitlines()
     commits = []
-    shown: set[str] = set()
     for line in listed:
         sha, *parents = line.split()
         if len(parents) < 2 or _has_own_edits(repo_root, sha, parents, timeout):
             commits.append(sha)
-            shown.update((sha, *parents))
-    _refuse_swapped_content(repo_root, shown, timeout)
     return Range(base, tuple(commits))
 
 
-def _refuse_swapped_content(repo_root: Path, shown: set[str], timeout: float | None) -> None:
-    """Raise when a replace ref changes the tree of a commit a reviewer reads.
+def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
+    """Raise when a replace ref or a grafts file can change what a reviewer
+    reads.
 
-    Each reviewer reads a listed commit with plain `git show`, which honors
-    replace refs, so a whole-object `git replace` of the commit, or of a parent
-    it is diffed against, shows other content while the real change goes
-    unread. `shown` holds both. A replacement with the same tree only rewrites
-    parents, as `git replace --graft` does, and the reviewer still reads every
-    change, so it passes. A replaced tree or file isn't checked.
+    wfctl lists commits with both turned off, and each reviewer reads a listed
+    commit with plain `git show`, which honors both. A replaced commit, tree,
+    or file shows other content. A graft onto a parent with the commit's own
+    tree shows an empty diff, and one that cuts commits out shows them all as
+    one diff. Any of these leaves the real change unread, so any replace ref or
+    grafts file is refused rather than judged one at a time
+    (`642-range-refuses-replace-refs-and-grafts.md`).
+
+    `git replace -l` lists the namespace the reviewer's git reads, which
+    `GIT_REPLACE_REF_BASE` can move. The grafts file is the one
+    `GIT_GRAFT_FILE` names, or `info/grafts` in the common directory, which is
+    where git looks for it.
     """
-    listed = _git(
-        repo_root, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/replace/",
-        timeout=timeout,
-    ).stdout.splitlines()
-    replaced = dict(line.split() for line in listed)
-    for sha in sorted(shown & replaced.keys()):
-        trees = {
-            _git(repo_root, "rev-parse", f"{obj}^{{tree}}", timeout=timeout).stdout.strip()
-            for obj in (sha, replaced[sha])
-        }
-        if len(trees) > 1:
-            raise ReviewError(
-                f"{sha[:7]} has a replace ref, so a reviewer's git show reads other content; "
-                f"remove it with git replace -d {sha[:7]}"
-            )
+    replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
+    if replaced:
+        shas = " ".join(sha[:7] for sha in replaced)
+        raise ReviewError(
+            f"this repository has replace refs, so a reviewer's git show reads content other "
+            f"than the commit's; remove them with git replace -d {shas}"
+        )
+    named = os.environ.get("GIT_GRAFT_FILE")
+    if named:
+        grafts = Path(named)
+    else:
+        info = _git(
+            repo_root, "rev-parse", "--path-format=absolute", "--git-path", "info",
+            timeout=timeout,
+        ).stdout.strip()
+        grafts = Path(info) / "grafts"
+    try:
+        text = grafts.read_text()
+    except (FileNotFoundError, NotADirectoryError):
+        return
+    except OSError as e:
+        raise ReviewError(f"can't read {grafts}: {e}") from e
+    if text.strip():
+        remedy = "unset GIT_GRAFT_FILE" if named else f"delete {grafts}"
+        raise ReviewError(
+            f"{grafts} grafts commits onto other parents, so a reviewer's git show reads "
+            f"changes other than the commit's own; {remedy}"
+        )
 
 
 def _has_own_edits(
