@@ -6161,6 +6161,76 @@ def review_check_cmd(
     raise typer.Exit(1)
 
 
+@review_app.command("groups")
+def review_groups_cmd() -> None:
+    """List the review groups in the order they run, with each one's skill and
+    reviewers.
+
+    Security and code always run first, in that order, and every other group
+    follows in the order `wfctl.json` lists it.
+    """
+    repo_root = _get_repo_root_or_exit()
+    groups = _review_groups_or_exit(repo_root)
+    name_width = max(len(g.name) for g in groups)
+    skill_width = max(len(g.skill) for g in groups)
+    for g in groups:
+        # One run of ids per model, in list order: `s1 s2 claude, s3 s4 codex`.
+        runs: list[tuple[str, list[str]]] = []
+        for r in g.reviewers:
+            if runs and runs[-1][0] == r.model:
+                runs[-1][1].append(r.id)
+            else:
+                runs.append((r.model, [r.id]))
+        reviewers = ", ".join(f"{' '.join(ids)} {model}" for model, ids in runs)
+        _say(f"{g.name:<{name_width}}  {g.skill:<{skill_width}}  {reviewers}")
+
+
+def _at_terminal() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+@review_app.command("sign-off")
+def review_sign_off_cmd() -> None:
+    """Sign off on the commits no review covered, as a person at a terminal.
+
+    Lists every group's unreviewed commits, then asks you to type the head
+    commit's short sha. A sign-off covers those commits and none added after
+    them, and the worktree guard then allows the pull request. The guard
+    refuses this command when an agent runs it.
+    """
+    from wfctl import _review
+
+    # A second obstacle behind the guard's text match, not enforcement: a
+    # pseudo-terminal satisfies it (research.md R9).
+    if not _at_terminal():
+        _say("✗ wfctl review sign-off needs a person at an interactive terminal")
+        raise typer.Exit(1)
+    repo_root = _get_repo_root_or_exit()
+    groups = _review_groups_or_exit(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    try:
+        head = _review.head_commit(repo_root)
+        pending = _review.unreviewed(repo_root, agent_dir, groups, head)
+        subjects = _review.subjects(repo_root, [c for cs in pending.values() for c in cs])
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    if not pending:
+        _say("nothing unreviewed; no sign-off needed")
+        return
+    for line in _review.pending_lines(pending, subjects):
+        _say(line)
+    try:
+        typed = input(f"Type {head[:7]} to sign off on these commits: ")
+    except EOFError:
+        typed = ""
+    if typed.strip() != head[:7]:
+        _say("✗ not signed off; nothing written")
+        raise typer.Exit(1)
+    _review.sign_off(agent_dir, head)
+    _say(f"✓ signed off through {head[:7]}")
+
+
 @app.command("relay")
 def relay_cmd(
     reviewer: str = typer.Argument(..., help="The reviewer's id, such as s2."),

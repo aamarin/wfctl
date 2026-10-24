@@ -266,3 +266,38 @@ def test_undecodable_stdin_is_swallowed_rather_than_raised() -> None:
 
     assert result.returncode == 0, result.stderr.decode()
     assert result.stderr == b""
+
+
+def test_the_review_check_never_imports_typer_or_rich() -> None:
+    """The review check runs inside the guard's process, so a matching command
+    pays its imports. `_review_gate` and the modules it reaches must stay off
+    `typer` and `rich` for the same reason the guard does."""
+    payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "gh pr view 1"}})
+    result = _run(
+        "import sys, json\n"
+        "from wfctl._hook import worktree_guard\n"
+        "from wfctl import _review_gate, _review, _review_config\n"
+        f"worktree_guard({payload!r})\n"
+        "loaded = {m for m in ('typer', 'rich', 'wfctl.cli') if m in sys.modules}\n"
+        "print(sorted(loaded))\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "[]", (
+        f"the review check imported {result.stdout.strip()}"
+    )
+
+
+def test_a_command_that_cant_match_never_imports_the_review_check() -> None:
+    """FR-016. A command holding none of `gh`, `merge`, or `sign` pays one
+    substring test, not an import, on every Bash call."""
+    payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "ls -la"}})
+    result = _run(
+        "import sys\n"
+        "from wfctl._hook import worktree_guard\n"
+        f"worktree_guard({payload!r})\n"
+        "print('wfctl._review_gate' in sys.modules)\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"

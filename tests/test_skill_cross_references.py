@@ -929,8 +929,8 @@ def _quoted_after(text: str, slug: str) -> list[str]:
 def test_a_skill_quoting_an_architecture_record_still_matches_it() -> None:
     """A shipped skill may quote a record; it may not paraphrase one.
 
-    `opening-a-change` Step 1 explains why the review-panel rule is prose rather
-    than a check, and the explanation rests on `a-rule-is-expressed-as-a-check`'s
+    `opening-a-change` Step 1 explains why the review-panel rule became a check
+    once wfctl kept review records, and the explanation rests on `a-rule-is-expressed-as-a-check`'s
     decision test. Retelling that test in the skill's own words drifted twice on
     #347 — first into "not visible in any artifact the work produces", which is
     false, then into "no artifact a reader can reach", a criterion the record

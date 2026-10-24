@@ -1100,3 +1100,59 @@ def test_a_quoted_program_path_is_looked_up_whole(repo: Path, state: Path) -> No
     _review.start(repo, state, group, which=lambda p: seen.append(p) or p)
 
     assert seen == ["/opt/my tools/codex"]
+
+
+# --- sign-off ------------------------------------------------------------------
+
+
+CODE = Group("code", "code-review", tuple(Reviewer(f"c{i}", "claude", None) for i in (1, 2, 3)))
+
+
+def test_a_sign_off_covers_the_signed_commit_and_its_ancestors(repo: Path, state: Path) -> None:
+    """R9. A sign-off covers what a person read when they signed, so every
+    group's unreviewed commits up to the signed head are covered."""
+    commit(repo, "a")
+    head = commit(repo, "b")
+
+    _review.sign_off(state, head)
+
+    assert _review.unreviewed(repo, state, [SECURITY, CODE], head) == {}
+
+
+def test_a_commit_after_the_sign_off_is_not_covered(repo: Path, state: Path) -> None:
+    """A commit added later isn't an ancestor of the signed-off commit, so the
+    person never read it."""
+    signed = commit(repo, "a")
+    _review.sign_off(state, signed)
+    later = commit(repo, "b")
+
+    assert _review.unreviewed(repo, state, [SECURITY, CODE], later) == {
+        "security": (later,), "code": (later,),
+    }
+
+
+def test_unreviewed_commits_are_listed_oldest_first_per_group(repo: Path, state: Path) -> None:
+    """The refusal reads top to bottom in the order the commits were made, and
+    a group whose run completed is left out."""
+    first = commit(repo, "a")
+    second = commit(repo, "b")
+    complete(repo, state, CODE)
+
+    assert _review.unreviewed(repo, state, [SECURITY, CODE], second) == {
+        "security": (first, second),
+    }
+
+
+def test_each_sign_off_replaces_the_last(repo: Path, state: Path) -> None:
+    """One file holds one decision about the branch, so a second sign-off
+    overwrites the first rather than adding to a list."""
+    first = commit(repo, "a")
+    _review.sign_off(state, first)
+    second = commit(repo, "b")
+    _review.sign_off(state, second)
+
+    record = json.loads(_review.sign_off_path(state).read_text())
+
+    assert record["sha"] == second
+    assert set(record) == {"sha", "at"}
+    assert _review.signed_off(state) == second

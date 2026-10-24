@@ -17,6 +17,8 @@ import subprocess
 from importlib.resources import files
 from pathlib import Path
 
+import pytest
+
 _SKILL = (
     Path(str(files("wfctl"))) / "agents" / "skills" / "opening-a-change" / "SKILL.md"
 )
@@ -89,3 +91,54 @@ def test_the_lookup_survives_zsh(tmp_path: Path) -> None:
     _fixture(tmp_path)
 
     assert _run("zsh", tmp_path) == _run("sh", tmp_path)
+
+
+def _open_commands() -> list[str]:
+    """Step 5's fences, each a single command."""
+    text = _SKILL.read_text()
+    step = text.split("## Step 5: Open it")[1].split("## Step 6")[0]
+    return [b.strip() for b in _FENCE.findall(step)]
+
+
+def test_step_5_runs_check_body_and_gh_pr_create_as_two_commands() -> None:
+    """The guard refuses `gh pr create` after a separator, a substitution, or an
+    environment prefix (FR-012b). Step 5 once set the body path with
+    `$(git branch --show-current)` and ran both commands in one block, which
+    the guard refuses every time."""
+    commands = _open_commands()
+
+    assert [c.split()[:2] for c in commands] == [["wfctl", "check-body"], ["gh", "pr"]]
+    for command in commands:
+        assert "\n" not in command
+        assert "/tmp/pr-body-622-security-review-panel.md" in command
+        assert not re.search(r"\$\(|`|[;&|]|^[A-Za-z_]+=|\benv\b", command), command
+
+
+def test_step_5s_gh_pr_create_passes_the_guard_on_a_reviewed_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The skill's own command has to pass the check it teaches, or every PR
+    this repo opens by the skill is refused until someone rewords it by hand."""
+    import json
+
+    from tests.test_review import review_repo
+    from tests.test_review_gate import commit
+    from wfctl import _hook, _review, _review_config
+    from wfctl._paths import resolve_agent_dir
+
+    repo = review_repo(tmp_path, monkeypatch)
+    commit(repo, "change.txt")
+    agent_dir = resolve_agent_dir(repo, "637-x")
+    for group in _review_config.load(repo)[0]:
+        started = _review.start(repo, agent_dir, group)
+        assert started.run is not None
+        for rid in started.expected:
+            (started.run.path / f"{rid}.md").write_text(
+                f"Reviewed: {started.head[:7]}\n\nNo findings.\n\nVerdict: Approve\n"
+            )
+        assert _review.check(agent_dir, group.name).complete
+
+    line = _open_commands()[1].replace("622-security-review-panel", "637-x")
+    payload = json.dumps({"tool_input": {"command": line}, "cwd": str(repo)})
+
+    assert _hook.worktree_guard(payload.encode()) == 0

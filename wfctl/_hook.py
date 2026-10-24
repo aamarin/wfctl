@@ -135,6 +135,13 @@ def committable(
 def worktree_guard(stdin_text: str | bytes) -> int:
     """The guard's exit code for one payload: 2 to refuse, 0 to allow.
 
+    Two checks run here, each in its own `try`. The review check refuses a
+    pull request command while a review group has unreviewed commits
+    (`_review_gate`), and refuses when it can't reach an answer. The worktree
+    check refuses a command that reaches into another worktree, and allows
+    when it can't decide. They share a process so every Bash call pays one
+    interpreter start, not two (`622-review-check-in-worktree-guard.md`).
+
     Returning rather than raising so a caller can test the decision without a
     process. `cli.py` turns a 2 into the `typer.Exit` the hook contract wants.
 
@@ -160,6 +167,31 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if not isinstance(command, str):
         return 0
+
+    # The review check comes first because `gh pr create` holds no "/", and the
+    # fast path below would allow it. The substring test keeps a command that
+    # can't match from importing `_review_gate` at all. An exception escaping
+    # the check refuses rather than allows, since it was only reached by a
+    # command that might open or merge a pull request.
+    if "gh" in command.lower() or "merge" in command or "sign" in command:
+        try:
+            from wfctl import _review_gate
+
+            refused = _review_gate.refusal(command, payload.get("cwd"))
+        except Exception as e:
+            reason = str(e) or type(e).__name__
+            # A plain line if even `_guard` won't import, since an exception
+            # leaving this block would exit 1, which the host reads as a
+            # failed hook rather than a refusal, and the command would run.
+            try:
+                from wfctl._guard import review_check_failed
+
+                refused = review_check_failed(reason)
+            except Exception:
+                refused = f"✗ the review check failed: {reason}"
+        if refused:
+            print(refused, file=sys.stderr)
+            return 2
 
     # The two `git` subprocesses below are ~10 ms, and a command with no "/" in
     # it can reach no worktree but this one: `_guard._ABS_PATH` only ever matches

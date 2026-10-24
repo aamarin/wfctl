@@ -29,7 +29,8 @@ when this drawing stops matching it. See **Staleness** below.
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
-   │ _sections 206  _review_config 272  _review 628               │      ┊
+   │ _sections 206  _review_config 272  _review 720               │      ┊
+   │ _review_gate 723                                             │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -50,7 +51,9 @@ importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` imports `_guard` directly. It imports `_paths` only
 when a command is about to be refused, to find the spec root and the state
 root, and `_spec_store` only when that command also runs git, to ask whether
-the spec root takes commits. None of these imports pulls in `cli`, which is what lets the guard run without
+the spec root takes commits. It imports `_review_gate` only when a command holds
+`gh`, `merge`, or `sign`, and that module reaches `_review`, `_review_config`,
+`_paths`, and `_guard` only once a command has matched. None of these imports pulls in `cli`, which is what lets the guard run without
 it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
@@ -309,7 +312,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review
+domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate
 resolution  _paths _manifest _provenance
 mechanism   _io _md _copy_out
 ```
