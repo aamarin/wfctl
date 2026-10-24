@@ -135,7 +135,7 @@ def test_every_spelling_of_n_a_is_flagged(answer: str) -> None:
     assert _sections.body_findings(body, [NAME]) == [NA]
 
 
-@pytest.mark.parametrize("answer", ["No.", "YES", "no!", "yes", "No"])
+@pytest.mark.parametrize("answer", ["No.", "YES", "no!", "yes", "No", "No,", "No;", "Yes:"])
 def test_a_bare_yes_or_no_is_flagged(answer: str) -> None:
     """A yes or no with no reason leaves a reviewer nothing to compare with the
     diff, which is the contradiction the answer exists to expose."""
@@ -157,13 +157,19 @@ def test_a_bare_yes_or_no_is_flagged(answer: str) -> None:
         ("- No", NO_REASON),
         ("- [ ] No", NO_REASON),
         ("[x] Yes", NO_REASON),
+        ("1. No", NO_REASON),
+        ("2) Yes", NO_REASON),
+        ("~~No~~", NO_REASON),
+        ("<strong>No</strong>", NO_REASON),
+        ("<details>No</details>", NO_REASON),
     ],
 )
 def test_a_bare_answer_in_markdown_markup_is_flagged(answer: str, finding: str) -> None:
     """Bolding a one-word answer, or writing it as a list item or a quote, is a
     common way to fill a template section. The plan review found "**No.**"
     passing as answered (PR-024), and the review panel then found "**No**." and
-    "- No" passing after that fix."""
+    "- No" passing after that fix, and later a numbered item, strikethrough, and
+    HTML tags."""
     body = _body(f"## {NAME}\n{COMMENT}\n{answer}\n")
     assert _sections.body_findings(body, [NAME]) == [finding]
 
@@ -172,6 +178,21 @@ def test_a_section_holding_only_a_sub_heading_is_empty() -> None:
     """A lower-level heading stays inside the section, so a body that kept only
     the template's sub-heading would otherwise read as an answer."""
     body = _body(f"## {NAME}\n{COMMENT}\n### Why\n")
+    assert _sections.body_findings(body, [NAME]) == [EMPTY]
+
+
+@pytest.mark.parametrize("rule", ["---", "***", "___", "- - -"])
+def test_a_section_holding_only_a_horizontal_rule_is_empty(rule: str) -> None:
+    """A rule renders as a line and nothing else, so a reviewer sees an empty
+    section."""
+    body = _body(f"## {NAME}\n{COMMENT}\n{rule}\n")
+    assert _sections.body_findings(body, [NAME]) == [EMPTY]
+
+
+def test_text_after_an_unclosed_comment_is_not_an_answer() -> None:
+    """GitHub hides everything after an unclosed `<!--`, so the reviewer sees an
+    empty section even though the text is in the body."""
+    body = _body(f"## {NAME}\n<!-- say why\nNo, small change.\n")
     assert _sections.body_findings(body, [NAME]) == [EMPTY]
 
 

@@ -37,7 +37,9 @@ from wfctl._verify import CONFIG_PATH
 
 CONFIG_KEY = "change_sections"
 
-_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# An unclosed comment runs to the end of the body, because GitHub hides
+# everything after it.
+_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 
 # Up to three leading spaces, which is markdown's own limit. A closing run of `#`
 # is part of the syntax, not of the heading's text.
@@ -46,10 +48,14 @@ _HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 # The PR template's comment names None beside N/A as a non-answer, so the check
 # flags both.
 _NOT_AN_ANSWER = re.compile(r"(n/?a|none)\.?", re.IGNORECASE)
-_BARE_ANSWER = re.compile(r"(yes|no)[.!]?", re.IGNORECASE)
+_BARE_ANSWER = re.compile(r"(yes|no)[.!,;:]?", re.IGNORECASE)
 
-# A quote, a list bullet, or a checkbox at the start of a line, in any mix.
-_MARKER = re.compile(r"^\s*(?:>\s*|[-*+]\s+|\[[ xX]\]\s*)*")
+# A quote, a list bullet, a numbered item, or a checkbox at the start of a line,
+# in any mix.
+_MARKER = re.compile(r"^\s*(?:>\s*|[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s*)*")
+
+# A horizontal rule renders as a line and nothing else.
+_RULE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 
 # `find -maxdepth 3`, as `opening-a-change` Step 2 spells it: a path with three
 # parts at most, counted from the repository root.
@@ -137,15 +143,17 @@ def _markup_removed(text: str) -> str:
     "**No**.", "- [ ] No" and "> No" are each a bare answer once the markup is
     gone, and the markup is the most common way an agent fills a template
     section. Removing it can't turn an answer with a reason into a bare one,
-    since the patterns only ever match the whole text. A sub-heading carries no
-    answer, so a section holding only one reads as empty.
+    since the patterns only ever match the whole text. A sub-heading or a
+    horizontal rule carries no answer, so a section holding only one reads as
+    empty. HTML tags go too, since `<strong>No</strong>` renders as a bare "No".
     """
     lines = [
         _MARKER.sub("", line)
         for line in text.splitlines()
-        if not _HEADING.match(line)
+        if not _HEADING.match(line) and not _RULE.match(line)
     ]
-    return re.sub(r"[*_`]", "", "\n".join(lines)).strip()
+    text = re.sub(r"<[^>]+>", "", "\n".join(lines))
+    return re.sub(r"[*_`~]", "", text).strip()
 
 
 def body_findings(body: str, required: list[str]) -> list[str]:
