@@ -143,6 +143,22 @@ def test_a_bare_yes_or_no_is_flagged(answer: str) -> None:
     assert _sections.body_findings(body, [NAME]) == [NO_REASON]
 
 
+@pytest.mark.parametrize(
+    ("answer", "finding"),
+    [("**No.**", NO_REASON), ("*No*", NO_REASON), ("_Yes._", NO_REASON), ("**N/A**", NA)],
+)
+def test_an_emphasized_bare_answer_is_flagged(answer: str, finding: str) -> None:
+    """Bolding a one-word answer is a common way to fill a template section, and
+    the plan review found that "**No.**" passed as answered (PR-024)."""
+    body = _body(f"## {NAME}\n{COMMENT}\n{answer}\n")
+    assert _sections.body_findings(body, [NAME]) == [finding]
+
+
+def test_an_emphasized_answer_with_a_reason_passes() -> None:
+    body = _body(f"## {NAME}\n{COMMENT}\n**No**, small change.\n")
+    assert _sections.body_findings(body, [NAME]) == []
+
+
 def test_an_answer_with_a_reason_passes() -> None:
     body = _body(f"## {NAME}\n{COMMENT}\nNo, small change.\n")
     assert _sections.body_findings(body, [NAME]) == []

@@ -144,7 +144,10 @@ def body_findings(body: str, required: list[str]) -> list[str]:
                 f'"{name}" is missing. This repository asks every pull request to answer it.'
             )
             continue
-        answer = text.strip()
+        # Emphasis around the whole answer is stripped before matching, so "**No.**"
+        # is still a bare answer. Emphasis on only part of it, as in "**No**, small
+        # change.", leaves a reason behind and passes.
+        answer = text.strip().strip("*_").strip()
         hint = "The template's comment under that heading says what to write."
         if not answer:
             findings.append(f'"{name}" is empty. {hint}')
