@@ -1,0 +1,178 @@
+"""Read the `review` key in `wfctl.json`: the review groups, in run order.
+
+One reader for every caller, so `wfctl check config`, `wfctl review start` and
+the worktree guard can't disagree about which reviewers a repository declared.
+The guard imports this module on a matched command, so it imports nothing that
+loads `typer` or `rich`.
+
+`security` and `code` always run first, in that order, whether or not the list
+names them, and every other group follows in list order. The code group reviews
+the security group's fixes, and a custom group reviews the result of both
+(`622-review-groups-list.md`).
+"""
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+CONFIG_PATH = "wfctl.json"
+
+# The one model that runs inside the current agent, so it needs no command.
+CLAUDE = "claude"
+
+_BUILT_IN = ("security", "code")
+_DEFAULT_SKILL = {"security": "reviewing-security"}
+_FALLBACK_SKILL = "code-review"
+_DEFAULT_REVIEWERS: list[object] = [{"name": CLAUDE, "count": 3}]
+
+# A group name becomes a directory under `reviews/`, so it can't hold a slash
+# or start with a dot.
+_GROUP_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+@dataclass(frozen=True)
+class Reviewer:
+    """One expected report: its id, such as `s3`, and the model that writes it.
+
+    `command` is how a model other than Claude is started, and None for Claude.
+    """
+
+    id: str
+    model: str
+    command: str | None
+
+
+@dataclass(frozen=True)
+class Group:
+    name: str
+    skill: str
+    reviewers: tuple[Reviewer, ...]
+
+
+def load(repo_root: Path) -> tuple[list[Group], list[str]]:
+    """Return (the groups in run order, problems).
+
+    Any problem returns no groups at all. A run started from half a declaration
+    would expect a different roster from the one the repository wrote, so every
+    caller stops on a problem instead.
+    """
+    path = repo_root / CONFIG_PATH
+    if not path.exists():
+        return _resolve({}, {}), []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
+    if not isinstance(data, dict):
+        return [], [f"{CONFIG_PATH}: top level must be an object"]
+
+    review = data.get("review", {})
+    if not isinstance(review, dict):
+        return [], ["review must be an object"]
+
+    problems: list[str] = []
+    commands = review.get("commands", {})
+    if not isinstance(commands, dict) or not all(
+        isinstance(v, str) and v.strip() for v in commands.values()
+    ):
+        problems.append("review.commands must map each model to a command string")
+        commands = {}
+
+    entries = review.get("groups", [])
+    if not isinstance(entries, list):
+        return [], [*problems, "review.groups must be a list"]
+
+    declared: dict[str, dict[str, object]] = {}
+    for i, entry in enumerate(entries):
+        name = entry.get("group") if isinstance(entry, dict) else None
+        if not isinstance(name, str):
+            problems.append(f"review.groups[{i}] has no group name")
+            continue
+        if not _GROUP_NAME.match(name):
+            problems.append(
+                f"review group '{name}': a name is lowercase letters, digits and "
+                "hyphens, starting with a letter"
+            )
+            continue
+        declared[name] = entry
+
+    groups = _resolve(declared, commands, problems)
+    return ([], problems) if problems else (groups, [])
+
+
+def _resolve(
+    declared: dict[str, dict[str, object]],
+    commands: dict[str, str],
+    problems: list[str] | None = None,
+) -> list[Group]:
+    """Every group in run order, with its reviewers numbered, appending what's
+    wrong with each declaration to `problems`."""
+    problems = problems if problems is not None else []
+    order = [*_BUILT_IN, *(n for n in declared if n not in _BUILT_IN)]
+
+    first_letter: dict[str, str] = {}
+    for name in order:
+        earlier = first_letter.setdefault(name[0], name)
+        if earlier != name:
+            problems.append(
+                f"review groups '{earlier}' and '{name}' both start with "
+                f"'{name[0]}'; reviewer ids would clash"
+            )
+
+    groups: list[Group] = []
+    for name in order:
+        entry = declared.get(name, {})
+        skill = entry.get("skill", _DEFAULT_SKILL.get(name, _FALLBACK_SKILL))
+        if not isinstance(skill, str) or not skill.strip():
+            problems.append(f"review group '{name}': skill must be a skill name")
+            continue
+        if "reviewers" in entry:
+            listed = entry["reviewers"]
+        elif name in _BUILT_IN:
+            listed = _DEFAULT_REVIEWERS
+        else:
+            listed = []
+        if not isinstance(listed, list):
+            problems.append(f"review group '{name}': reviewers must be a list")
+            continue
+        if not listed:
+            problems.append(f"review group '{name}' has no reviewers")
+            continue
+        reviewers = _reviewers(name, listed, commands, problems)
+        if reviewers is not None:
+            groups.append(Group(name, skill, reviewers))
+    return groups
+
+
+def _reviewers(
+    group: str, listed: list[object], commands: dict[str, str], problems: list[str],
+) -> tuple[Reviewer, ...] | None:
+    """The group's reviewers, numbered across its whole list, so the first
+    Codex reviewer after two Claude ones is `s3` rather than a second `s1`."""
+    found: list[Reviewer] = []
+    ok = True
+    for spec in listed:
+        model = spec.get("name") if isinstance(spec, dict) else None
+        if not isinstance(model, str) or not model:
+            problems.append(f"review group '{group}': each reviewer needs a name and a count")
+            ok = False
+            continue
+        count = spec.get("count") if isinstance(spec, dict) else None
+        # `bool` is a subclass of `int`, and `"count": true` is a typo rather
+        # than a count of one.
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            problems.append(f"review group '{group}': count for '{model}' must be 1 or more")
+            ok = False
+            continue
+        command = None if model == CLAUDE else commands.get(model)
+        if model != CLAUDE and command is None:
+            problems.append(
+                f"review group '{group}': model '{model}' has no entry in review.commands"
+            )
+            ok = False
+            continue
+        for _ in range(count):
+            found.append(Reviewer(f"{group[0]}{len(found) + 1}", model, command))
+    return tuple(found) if ok else None
