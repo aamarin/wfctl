@@ -386,16 +386,50 @@ def test_range_judges_a_feature_head_from_the_main_checkout(repo: Path) -> None:
     assert set(found.commits) == {first, head}
 
 
-def test_range_lists_commits_a_replace_ref_grafted_out(repo: Path) -> None:
-    """`git replace --graft` rewrites a commit's parents, and `rev-list` then
-    skipped the commits it cut out, so a completed run marked them reviewed
-    unseen."""
-    first = commit(repo, "a")
-    second = commit(repo, "b")
-    third = commit(repo, "c")
-    git(repo, "replace", "--graft", third, git(repo, "rev-parse", "main"))
+def replace_ref(repo: Path, kind: str, first: str, head: str) -> str:
+    """Make a replace ref of `kind` against a branch whose commits are `first`
+    and `head`, and return the object it replaces."""
+    main = git(repo, "rev-parse", "main")
+    if kind == "graft-out":
+        git(repo, "replace", "--graft", head, main)
+        return head
+    if kind == "same-tree-graft":
+        decoy = git(repo, "commit-tree", f"{head}^{{tree}}", "-m", "decoy")
+        git(repo, "replace", "--graft", head, decoy)
+        return head
+    if kind == "blob":
+        blob = git(repo, "rev-parse", f"{head}:b")
+        benign = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"], cwd=repo, input="benign\n",
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        git(repo, "replace", blob, benign)
+        return blob
+    target = first if kind == "listed-commit" else main
+    (repo / "other").write_text("other\n")
+    git(repo, "add", "other")
+    tree = git(repo, "write-tree")
+    git(repo, "reset", "-q", "other")
+    git(repo, "replace", target, git(repo, "commit-tree", tree, "-m", "other"))
+    return target
 
-    assert set(_review.commit_range(repo, third, None).commits) == {first, second, third}
+
+@pytest.mark.parametrize(
+    "kind", ["graft-out", "same-tree-graft", "blob", "listed-commit", "parent-commit"],
+)
+def test_range_refuses_any_replace_ref(repo: Path, kind: str) -> None:
+    """wfctl lists commits with `--no-replace-objects`, and a reviewer reads
+    them with a plain `git show`, which honors replace refs. A check of the
+    replaced commit's tree let three kinds through: a replaced blob showed
+    other file content, and a graft onto a parent with the same tree showed an
+    empty diff, so the real change went unread. Grafting commits out made the
+    reviewer's diff span them all, against a range listing them one by one."""
+    first = commit(repo, "a")
+    head = commit(repo, "b")
+    replaced = replace_ref(repo, kind, first, head)
+
+    with pytest.raises(_review.ReviewError, match=f"git replace -d {replaced[:7]}"):
+        _review.commit_range(repo, head, None)
 
 
 def test_range_keeps_a_merge_of_more_than_two_branches(repo: Path) -> None:
@@ -456,40 +490,38 @@ def single_branch_clone(tmp_path: Path, repo: Path, branch: str = "637-x") -> Pa
     return clone
 
 
-def test_range_lists_commits_a_grafts_file_cut_out(repo: Path) -> None:
-    """A `.git/info/grafts` line rewrites a commit's parents the same way a
-    replace ref does, and `--no-replace-objects` doesn't turn it off, so a
-    completed run marked the commits it cut out reviewed unseen."""
-    first = commit(repo, "a")
-    second = commit(repo, "b")
-    third = commit(repo, "c")
+@pytest.mark.parametrize("parent", ["main", "same-tree"])
+def test_range_refuses_a_grafts_file(repo: Path, parent: str) -> None:
+    """A `.git/info/grafts` line rewrites a commit's parents, and
+    `--no-replace-objects` doesn't turn it off. wfctl now ignores the file,
+    but a reviewer's `git show` still reads it, so a line pointing the head at
+    a parent with its own tree showed the reviewer an empty diff."""
+    commit(repo, "a")
+    head = commit(repo, "b")
+    onto = (
+        git(repo, "rev-parse", "main") if parent == "main"
+        else git(repo, "commit-tree", f"{head}^{{tree}}", "-m", "decoy")
+    )
     grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
     grafts.parent.mkdir(parents=True, exist_ok=True)
-    grafts.write_text(f"{third} {git(repo, 'rev-parse', 'main')}\n")
-    assert git(repo, "rev-list", "--count", f"main..{third}") == "1"
+    grafts.write_text(f"{head} {onto}\n")
 
-    assert set(_review.commit_range(repo, third, None).commits) == {first, second, third}
+    with pytest.raises(_review.ReviewError, match="grafts"):
+        _review.commit_range(repo, head, None)
 
 
-@pytest.mark.parametrize("swapped", ["listed", "parent"])
-def test_range_refuses_a_commit_a_replace_ref_swaps_for_other_content(
-    repo: Path, swapped: str
+def test_range_refuses_a_grafts_file_named_by_the_environment(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A whole-object `git replace` leaves wfctl's own listing alone, since
-    every call passes `--no-replace-objects`. A reviewer's `git show` honors
-    it, though, and reads the replacement's content, or a diff against the
-    replacement of the commit's parent, so the real change went unread."""
-    first = commit(repo, "a")
+    """A reviewer's git reads the grafts file `GIT_GRAFT_FILE` names in place
+    of `.git/info/grafts`, so that is the file to look at."""
+    commit(repo, "a")
     head = commit(repo, "b")
-    target = first if swapped == "listed" else git(repo, "rev-parse", "main")
-    (repo / "other").write_text("other\n")
-    git(repo, "add", "other")
-    tree = git(repo, "write-tree")
-    git(repo, "reset", "-q", "other")
-    other = git(repo, "commit-tree", tree, "-m", "other")
-    git(repo, "replace", target, other)
+    grafts = tmp_path / "elsewhere"
+    grafts.write_text(f"{head} {git(repo, 'rev-parse', 'main')}\n")
+    monkeypatch.setenv("GIT_GRAFT_FILE", str(grafts))
 
-    with pytest.raises(_review.ReviewError, match=f"git replace -d {target[:7]}"):
+    with pytest.raises(_review.ReviewError, match="unset GIT_GRAFT_FILE"):
         _review.commit_range(repo, head, None)
 
 
