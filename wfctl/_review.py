@@ -65,10 +65,6 @@ _NO_GRAFTS = os.path.join(os.devnull, "grafts")
 # `origin/HEAD` can name the trunk rather than the one branch a clone took.
 _EVERY_BRANCH = ("refs/heads/*", "refs/*")
 
-# Git honors a replace ref only under a full SHA-1 or SHA-256 object id, and
-# warns about any other name and reads the real object.
-_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-
 
 class ReviewError(Exception):
     """A question git or a record couldn't answer. The message names which."""
@@ -319,19 +315,23 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     (`642-range-refuses-replace-refs-and-grafts.md`).
 
     `git replace -l` lists the namespace the reviewer's git reads, which
-    `GIT_REPLACE_REF_BASE` can move. Only names git honors count, and each is
-    named in full, since `git replace -d` can't resolve a short one whose
-    object this repository lacks. `--git-path info/grafts` names the file
+    `GIT_REPLACE_REF_BASE` can move. Every name counts, since git honors more
+    than a bare object id: it reads the part after the last `/`, in either
+    case, and ignores what follows the id. The remedy deletes each ref by its
+    full name, which `git replace -d` can't reach for every name, and quotes
+    it, since a ref name can hold characters a shell reads.
+    `--git-path info/grafts` names the file
     `GIT_GRAFT_FILE` points at, resolved from the top of the worktree the way
     git resolves it, or `info/grafts` in the common directory. An empty
     `GIT_GRAFT_FILE` reads no grafts file, and `--git-path` refuses it.
     """
-    listed = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
-    replaced = [name for name in listed if _OBJECT_ID.fullmatch(name)]
+    replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
     if replaced:
+        base = os.environ.get("GIT_REPLACE_REF_BASE") or "refs/replace/"
+        refs = " ".join(shlex.quote(base + name) for name in replaced)
         raise ReviewError(
             f"this repository has replace refs, so a reviewer's git show reads content other "
-            f"than the commit's; remove them with git replace -d {' '.join(replaced)}"
+            f"than the commit's; remove each with git update-ref -d {refs}"
         )
     named = os.environ.get("GIT_GRAFT_FILE")
     if named == "":

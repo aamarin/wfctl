@@ -424,13 +424,13 @@ def test_range_refuses_any_replace_ref(repo: Path, kind: str) -> None:
     other file content, and a graft onto a parent with the same tree showed an
     empty diff, so the real change went unread. Grafting commits out made the
     reviewer's diff span them all, against a range listing them one by one.
-    The remedy names each ref in full, since `git replace -d` can't resolve a
-    short name that is ambiguous or whose object isn't in the repository."""
+    The remedy deletes each ref by its full name, since `git replace -d`
+    resolves its argument as an object and can't reach every name."""
     first = commit(repo, "a")
     head = commit(repo, "b")
     replaced = replace_ref(repo, kind, first, head)
 
-    with pytest.raises(_review.ReviewError, match=f"git replace -d {replaced}$"):
+    with pytest.raises(_review.ReviewError, match=f"git update-ref -d refs/replace/{replaced}$"):
         _review.commit_range(repo, head, None)
 
 
@@ -512,20 +512,25 @@ def test_range_refuses_a_grafts_file(repo: Path, parent: str) -> None:
         _review.commit_range(repo, head, None)
 
 
-def test_range_lists_through_a_replace_ref_git_ignores(repo: Path) -> None:
-    """Git honors a replace ref only when its name is a full object id, and
-    warns about any other name and reads the real object. Refusing one stopped
-    every review over a ref that changed nothing, and its remedy,
-    `git replace -d <name>`, can't delete it."""
+@pytest.mark.parametrize("form", ["nested", "upper", "suffixed", "longer", "not an id"])
+def test_range_refuses_a_replace_ref_under_any_name(repo: Path, form: str) -> None:
+    """Git reads a replace ref's name after its last `/`, in either case, and
+    ignores what follows the id, so a check for exactly 40 or 64 lowercase hex
+    digits let four names through that swapped what a reviewer read. A name
+    git ignores is refused too, since its remedy works for any name."""
     head = commit(repo, "a")
-    benign = subprocess.run(
-        ["git", "hash-object", "-w", "--stdin"], cwd=repo, input="benign\n",
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
-    git(repo, "update-ref", "refs/replace/foo", benign)
-    git(repo, "update-ref", f"refs/replace/{head[:12]}", benign)
+    blob = git(repo, "rev-parse", f"{head}:a")
+    name = {
+        "nested": f"x/{blob}",
+        "upper": blob.upper(),
+        "suffixed": f"{blob}zz",
+        "longer": f"{blob}0",
+        "not an id": "foo",
+    }[form]
+    git(repo, "update-ref", f"refs/replace/{name}", git(repo, "rev-parse", "main:"))
 
-    assert _review.commit_range(repo, head, None).commits == (head,)
+    with pytest.raises(_review.ReviewError, match=re.escape(f"git update-ref -d refs/replace/{name}")):
+        _review.commit_range(repo, head, None)
 
 
 def test_range_lists_when_the_grafts_variable_is_empty(
