@@ -423,12 +423,14 @@ def test_range_refuses_any_replace_ref(repo: Path, kind: str) -> None:
     replaced commit's tree let three kinds through: a replaced blob showed
     other file content, and a graft onto a parent with the same tree showed an
     empty diff, so the real change went unread. Grafting commits out made the
-    reviewer's diff span them all, against a range listing them one by one."""
+    reviewer's diff span them all, against a range listing them one by one.
+    The remedy names each ref in full, since `git replace -d` can't resolve a
+    short name that is ambiguous or whose object isn't in the repository."""
     first = commit(repo, "a")
     head = commit(repo, "b")
     replaced = replace_ref(repo, kind, first, head)
 
-    with pytest.raises(_review.ReviewError, match=f"git replace -d {replaced[:7]}"):
+    with pytest.raises(_review.ReviewError, match=f"git replace -d {replaced}$"):
         _review.commit_range(repo, head, None)
 
 

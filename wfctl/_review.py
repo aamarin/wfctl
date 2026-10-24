@@ -321,10 +321,12 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     """
     replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
     if replaced:
-        shas = " ".join(sha[:7] for sha in replaced)
+        # In full and quoted, since a ref name needn't be a sha, and git can't
+        # resolve a short one whose object this repository lacks.
+        names = " ".join(shlex.quote(name) for name in replaced)
         raise ReviewError(
             f"this repository has replace refs, so a reviewer's git show reads content other "
-            f"than the commit's; remove them with git replace -d {shas}"
+            f"than the commit's; remove them with git replace -d {names}"
         )
     grafts = Path(_git(
         repo_root, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts",
