@@ -4,9 +4,9 @@ wfctl is MIT-licensed; see the `LICENSE` shipped in the wfctl package — not
 whatever `LICENSE` sits at the root of the repository you are reading this in,
 which is yours. Some of the skills beside this file are derived from other
 MIT-licensed projects, and each such file names its upstream on its own last
-line. Those upstreams'
-notices are reproduced here, which is what MIT asks for beyond the copyright
-line itself.
+line. The one file that carries no line is named by path in its section below.
+Those upstreams' notices are reproduced here, which is what MIT asks for beyond
+the copyright line itself.
 
 This file sits beside the skills it covers rather than one directory up,
 because `install-skills` mirrors this directory into a project and nothing above
@@ -27,7 +27,8 @@ against each other by `tests/test_skill_attribution.py`.
 
 ## addyosmani/agent-skills
 
-<https://github.com/addyosmani/agent-skills> — `idea-refine`.
+<https://github.com/addyosmani/agent-skills> — `idea-refine`,
+`security-and-hardening`.
 
     Copyright (c) 2025 Addy Osmani
 
@@ -40,6 +41,16 @@ against each other by `tests/test_skill_attribution.py`.
 once installed, and `wfctl/specify/templates/NOTICES.md` in wfctl's own tree.
 
     Copyright GitHub, Inc.
+
+## anthropics/claude-code-security-review
+
+<https://github.com/anthropics/claude-code-security-review> —
+`reviewing-security/references/security-review.md`, the prompt behind its
+`/security-review` command. That file carries no line of its own, because it
+ends on the instruction that sets the reviewer's whole reply, and a line after
+it would be the last thing the reviewer reads. This section is its credit.
+
+    Copyright (c) 2025 Anthropic
 
 ## The permission notice
 

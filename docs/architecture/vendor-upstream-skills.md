@@ -60,6 +60,7 @@ Derived today:
 | `idea-refine` | `addyosmani/agent-skills` |
 | `receiving-code-review` | `obra/superpowers` |
 | `requesting-code-review` | `obra/superpowers` |
+| `security-and-hardening` | `addyosmani/agent-skills` |
 | `speckit-analyze` | `github/spec-kit` |
 | `speckit-checklist` | `github/spec-kit` |
 | `speckit-clarify` | `github/spec-kit` |
@@ -130,6 +131,15 @@ others write from their structure, so a line in a template would assert
 GitHub's copyright over every artifact the runtime generates. Their notice is `wfctl/specify/templates/NOTICES.md`, which names
 each of them.
 
+The table's last row is not under `specify/`. It is the prompt behind the
+`/security-review` command from `anthropics/claude-code-security-review`, which
+`reviewing-security` reads as a reference, and it carries no line either. The
+file ends on the instruction that defines the reviewer's whole reply, "Your
+final reply must contain the markdown report and nothing else", so a line after
+it is the last thing the reviewer reads before it answers. Its notice is the
+`anthropics/claude-code-security-review` section of
+`wfctl/agents/skills/NOTICES.md`, which names it by path.
+
 | File under `wfctl/` | Upstream |
 | --- | --- |
 | `specify/scripts/bash/check-prerequisites.sh` | `github/spec-kit` |
@@ -140,6 +150,7 @@ each of them.
 | `specify/templates/plan-template.md` | `github/spec-kit` |
 | `specify/templates/spec-template.md` | `github/spec-kit` |
 | `specify/templates/tasks-template.md` | `github/spec-kit` |
+| `agents/skills/reviewing-security/references/security-review.md` | `anthropics/claude-code-security-review` |
 
 Three rows left this table, and the prose beside it lost a fourth file, rather
 than any of them changing hands. `create-new-feature.sh`, `update-agent-context.sh` and the
@@ -213,13 +224,15 @@ level it was found at produced the next report one level in, which is why the
 rule is written here as a property of the reader rather than as a list of the
 places it has been violated.
 
-The templates are the one case where the notice
-stands in for the line, so the same pair runs between the template rows and
-`wfctl/specify/templates/NOTICES.md` instead: a row that file does not name, or
-a file it names with no row, fails the same way. A listed template is also
-checked against the tree, which the line does for a skill or a script for free —
-delete one and its key leaves `_attributed()`, while a template's two
-declarations are both documents and would go on naming a path that had gone.
+The templates and the `/security-review` prompt are the two cases where the
+notice stands in for the line. So the same pair runs between their rows and the
+notice that names them instead, `wfctl/specify/templates/NOTICES.md` for the
+templates and `wfctl/agents/skills/NOTICES.md` for the prompt: a row the notice
+does not name, or a file it names with no row, fails the same way. A listed
+template or prompt is also checked against the tree, which the line does for a
+skill or a script for free. Delete a skill and its key leaves `_attributed()`,
+while a template's or the prompt's two declarations are both documents and
+would go on naming a path that had gone.
 
 `knowledge-placement` rules out a fact with two homes, and this is the exception
 it names, not a breach of it: the line and the row are not the same fact. The
@@ -325,3 +338,6 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   rule stands, and `fanning-out-code-review` layering over
   `requesting-code-review` and `receiving-code-review` is a current instance of
   it (#485)
+- 2026-10-24  amended     — `security-and-hardening` added to the table, and
+  anthropics/claude-code-security-review's /security-review file credited by
+  NOTICES.md, as the templates are (#636)
