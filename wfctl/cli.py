@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from wfctl import _spec_copy as _spec_copy_mod
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
+    from wfctl._review_config import Group as _ReviewGroup
 
 app = typer.Typer(no_args_is_help=True)
 # highlight=False: don't let rich auto-color numbers/paths — this output is parsed
@@ -6022,6 +6023,195 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
+review_app = typer.Typer(
+    no_args_is_help=True,
+    help="Record which commits each review group has covered on this branch.",
+)
+# A group for the reason `check` and `store` are: #402's `<noun> <verb>` shape,
+# and four review commands under one noun keep `wfctl --help` short. `relay`
+# stays top-level because the spec, its design record, and the roster line all
+# name it that way (research.md R1).
+app.add_typer(review_app, name="review")
+
+
+def _say(line: str) -> None:
+    """Print one line verbatim: no markup, and no folding at the terminal's
+    width, since the panel skill parses these lines and a report path holds
+    whatever characters the state directory's path does."""
+    console.print(line, markup=False, soft_wrap=True, highlight=False)
+
+
+def _review_groups_or_exit(repo_root: Path) -> list[_ReviewGroup]:
+    from wfctl import _review_config
+
+    groups, problems = _review_config.load(repo_root)
+    if problems:
+        _say(f"✗ {_review_config.CONFIG_PATH}:")
+        for problem in problems:
+            _say(f"  - {problem}")
+        raise typer.Exit(1)
+    return groups
+
+
+def _ids(ids: list[str]) -> str:
+    """`s3`, `s3 and s4`, or `s3, s4, and s5`."""
+    if len(ids) < 3:
+        return " and ".join(ids)
+    return f"{', '.join(ids[:-1])}, and {ids[-1]}"
+
+
+@review_app.command("start")
+def review_start_cmd(
+    group: str = typer.Argument(..., help="The review group to start, such as security."),
+) -> None:
+    """Start the next run of a review group, listing its reviewers and where
+    their reports go.
+
+    The run covers every commit since the group's last complete run, or since
+    the branch left the trunk when it has none. Prints that the group is up to
+    date, and writes nothing, when there is nothing new to review.
+    """
+    from wfctl import _review
+
+    repo_root = _get_repo_root_or_exit()
+    groups = _review_groups_or_exit(repo_root)
+    chosen = next((g for g in groups if g.name == group), None)
+    if chosen is None:
+        _say(f"✗ no review group named '{group}'")
+        for g in groups:
+            _say(f"  {g.name}")
+        raise typer.Exit(1)
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    try:
+        started = _review.start(repo_root, agent_dir, chosen)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+
+    if started.run is None:
+        _say(f"{group} is up to date at {started.head[:7]}")
+        return
+    n = len(started.commits)
+    _say(
+        f"{group} run {started.run.number:03d} · {n} commit{'s' if n != 1 else ''} "
+        f"since {started.base[:7]} · head {started.head[:7]}"
+    )
+    _say(f"reports: {started.run.path}/")
+    id_width = max(len(r["id"]) for r in started.reviewers)
+    width = max(len(r["model"]) for r in started.reviewers)
+    for r in started.reviewers:
+        line = f"{r['id']:<{id_width}} {r['model']:<{width}}"
+        if r["state"] == "unavailable":
+            line += " ✗ unavailable"
+        elif "command" in r:
+            line += f" {r['command']}"
+        _say(line.rstrip())
+    for model, reason in started.unavailable.items():
+        left_out = [r["id"] for r in started.reviewers if r["model"] == model]
+        _say(f"⚠ {model}: {reason}; {_ids(left_out)} left out of this run")
+    if not started.expected:
+        _say(
+            f"⚠ no reviewer in {group} can run; the run can't complete until one "
+            "can, or a person signs off"
+        )
+
+
+@review_app.command("check")
+def review_check_cmd(
+    group: str = typer.Argument(..., help="The review group to check, such as security."),
+) -> None:
+    """Judge the latest run's reports, print the roster, and complete the run
+    when every expected reviewer has a counted report.
+
+    A report counts when it has a `Reviewed: <sha>` line naming the run's
+    newest commit and ends with a verdict. Exits 1 while the run is
+    incomplete.
+    """
+    from wfctl import _review, _review_config
+
+    if not _review_config.PLAIN_NAME.fullmatch(group):
+        _say(f"✗ no review group named '{group}'")
+        raise typer.Exit(1)
+    repo_root = _get_repo_root_or_exit()
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    try:
+        checked = _review.check(agent_dir, group)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+
+    head = checked.run.head[:7]
+    _say(f"{group} run {checked.run.number:03d} · head {head}")
+    for line in _review.roster_lines(checked.entries):
+        _say(line)
+    if checked.complete:
+        _say(f"complete: {group} reviewed through {head}")
+        if checked.missing:
+            if checked.missing == 1:
+                reports = "report no longer counts"
+            else:
+                reports = "reports no longer count"
+            _say(f"⚠ {checked.missing} {reports} since the run completed at "
+                 f"{checked.run.record['completed_at']}")
+        return
+    if not checked.expected:
+        _say(f"incomplete: no reviewer in {group} could run")
+    else:
+        _say(f"incomplete: {checked.missing} of {checked.expected} expected reports missing")
+    raise typer.Exit(1)
+
+
+@app.command("relay")
+def relay_cmd(
+    reviewer: str = typer.Argument(..., help="The reviewer's id, such as s2."),
+    reason: str = typer.Option(
+        None, "--reason", help="Why the reviewer couldn't write its own report.",
+    ),
+    source: Path = typer.Option(
+        None, "--from", help="The file holding the reviewer's report.",
+    ),
+) -> None:
+    """Save the report of a reviewer that was blocked from writing it.
+
+    The report is saved under the reviewer's id in its group's latest run,
+    marked as relayed with the reason, and the roster shows that reason. It is
+    read only from the file `--from` names, never from stdin, so a report
+    can't travel in the command's text, where the worktree guard would match
+    the commands it quotes.
+    """
+    from wfctl import _review
+
+    if reason is None or not reason.strip():
+        _say("✗ a relay needs --reason saying why the reviewer couldn't write")
+        raise typer.Exit(1)
+    if source is None:
+        _say("✗ a relay needs --from naming the file that holds the report")
+        raise typer.Exit(1)
+    # A regular file only. `/dev/stdin` and `<(…)` would read a heredoc, which
+    # puts the report back in the command's text.
+    if source.exists() and not source.is_file():
+        _say(f"✗ can't read {source}: not a regular file")
+        raise typer.Exit(1)
+    try:
+        text = source.read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        _say(f"✗ can't read {source}: {e.strerror if isinstance(e, OSError) else e}")
+        raise typer.Exit(1)
+    if not text.strip():
+        _say(f"✗ {source} is empty; nothing to relay for {reviewer}")
+        raise typer.Exit(1)
+
+    repo_root = _get_repo_root_or_exit()
+    groups = _review_groups_or_exit(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    try:
+        saved = _review.relay(agent_dir, groups, reviewer, reason, text)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    _say(f"✓ {reviewer} relayed: {saved}")
+
+
 check_app = typer.Typer(
     no_args_is_help=True, help="Check a repository's configuration and its spec store.",
 )
@@ -6309,9 +6499,9 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes, trunk, saved folders and PR sections.
+    """Validate this repository's own declared pipeline passes, trunk, saved folders, PR sections and reviewers.
 
-    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove` and `change_sections` keys must satisfy, in one run
+    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove`, `change_sections` and `review` keys must satisfy, in one run
     (FR-022) — the repository's own configuration, never wfctl's installed
     state, which is `doctor`'s remit and not this one's (research.md R5).
     Nothing here is dropped silently: a declaration this command discards
@@ -6338,6 +6528,12 @@ def check_config_cmd() -> None:
 
     required, section_problems = _sections.load_required(repo_root)
     problems += section_problems + _sections.template_problems(repo_root, required)
+    from wfctl import _review_config
+
+    problems += _review_config.load(repo_root)[1]
+    # A file that won't parse is found by every reader, and one line per reader
+    # would read as several problems.
+    problems = list(dict.fromkeys(problems))
     if problems:
         console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
         for problem in problems:

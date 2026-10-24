@@ -290,6 +290,59 @@ verb beside `wfctl arch none`, not a generalisation of it, because a branch
 makes as many pass claims as it has passes and `arch none`'s whole-file
 overwrite would lose all but the last.
 
+## Declaring reviewers
+
+`wfctl.json` holds a `review` key beside `steps` and `change_check`. It says
+which models review each change, and which review groups a repository adds of
+its own:
+
+```json
+{
+  "review": {
+    "commands": { "codex": "codex exec --sandbox read-only" },
+    "groups": [
+      { "group": "security",
+        "reviewers": [ { "name": "claude", "count": 2 }, { "name": "codex", "count": 2 } ] },
+      { "group": "money-rules", "skill": "money-rules-review",
+        "reviewers": [ { "name": "claude", "count": 2 } ] }
+    ]
+  }
+}
+```
+
+`commands` maps each model other than Claude to the command that starts it.
+Claude runs inside the current agent, so it needs none. `groups` lists the
+review groups, and each one names its reviewers as a model and a count. The
+count is exact, and a group's counts add up to at most 20. wfctl expects that
+many reports and keeps the run incomplete until they arrive.
+
+By default, `security` and `code` each have three Claude reviewers, so a
+repository that leaves the key out still gets both groups. A custom group has
+no default and lists its own. A built-in group gets the default only when its
+`reviewers` key is missing, so listing `security` to change its skill keeps its
+reviewers. An empty `reviewers` list is a finding, not a way to skip a group.
+
+`security` and `code` always run first, in that order, whether or not the list
+names them. The code group reviews the security group's fixes, and every other
+group follows in list order and reviews the result of both. A group runs the
+`reviewing-security` skill if it is `security`, and the `code-review` skill
+otherwise, unless it names its own with `skill`.
+
+A reviewer's id is its group's first letter and its place in the group's list,
+so the file above gives `s1` to `s4`, with `s3` and `s4` on Codex, then `c1` to
+`c3`, then `m1` and `m2`. That's why no two groups may share a first letter.
+
+`wfctl check config` reports every problem in the key, such as a model with no
+command or a count below 1, and `wfctl review start` refuses to start a run
+until they are fixed. Whether a command is installed is a fact about the machine
+running the review, not the repository, so `check config` doesn't look. `review
+start` looks it up on `PATH` instead, leaves that model's reviewers out of the
+run, and prints a `⚠` line naming them.
+
+It lives in `wfctl.json` for the same reason `steps` does. `.agents/` is
+gitignored and rewritten by `install-skills`, so a reviewer list written there
+works for one session and then vanishes with no error.
+
 ## Releasing
 
 **Every change commits a release note, and a release is cut from those notes.**
@@ -394,6 +447,10 @@ turns that into `update: wfctl install-skills --from <path>` — a line
 repo, read a committed manifest before the first `doctor`, for the same reason as
 the hooks: what it can install is agent instructions and `.specify/scripts/`,
 which speckit commands execute.
+
+`review.commands` in a committed `wfctl.json` is the same kind of thing. `wfctl
+review start` prints each command beside its reviewers, and the review skill
+runs it, so read the key in an unfamiliar repo before running a review there.
 
 ## Conventions
 
