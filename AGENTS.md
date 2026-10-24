@@ -36,7 +36,7 @@ first use:
 ```bash
 uv run pytest -q          # 1393 tests, ~2min
 uv run ruff check wfctl/ tests/
-uv run mypy wfctl/
+uv run mypy               # wfctl/ and .github/scripts, from [tool.mypy]
 ```
 
 Without uv: `pip install -e ".[dev]"`.

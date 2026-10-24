@@ -238,6 +238,20 @@ def test_a_merge_that_added_no_note_is_listed_before_the_draft(
     assert out.index("Merged with no release note") < out.index("## Behaviour changes")
 
 
+def test_a_note_whose_name_has_an_accented_letter_is_released(
+    repo: Path, release: Release
+) -> None:
+    """`git ls-files` quotes a path with a non-ASCII byte, so without `-z` the
+    note read as a stray file and stopped the release (#604)."""
+    merge_pr(repo, 1, "accents", {"+café.fix.md": "Accented names are read.\n"})
+
+    code, out = release()
+
+    assert code == 0
+    assert "Proposed version: 0.23.1 (patch: 1 fix)" in out
+    assert "Accented names are read." in out
+
+
 def test_a_merge_whose_branch_carries_a_plus_note_is_not_listed(
     repo: Path, release: Release
 ) -> None:

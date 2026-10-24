@@ -114,7 +114,9 @@ def notes_by_category(
     """
     found: dict[str, list[str]] = {}
     stray: list[str] = []
-    for path in git("ls-files", directory).stdout.splitlines():
+    # `-z`, since git otherwise quotes a path with an accented letter, and the
+    # quoted name would read as a stray file and stop the release.
+    for path in filter(None, git("ls-files", "-z", directory).stdout.split("\0")):
         name = path.removeprefix(directory + "/")
         match = NOTE_NAME.match(name) if "/" not in name else None
         if match and match["category"] in categories:
@@ -141,8 +143,9 @@ def merges_since(tag: str, directory: str) -> tuple[int, list[int]]:
         if not match:
             continue
         total += 1
-        added = git("diff", "--name-only", "--no-renames", "--diff-filter=A",
-                    f"{sha}^1", sha, "--", directory).stdout.split()
+        diff = git("diff", "-z", "--name-only", "--no-renames", "--diff-filter=A",
+                   f"{sha}^1", sha, "--", directory)
+        added = [path for path in diff.stdout.split("\0") if path]
         if not added:
             unnoted.append(int(match["number"]))
     return total, sorted(unnoted)
