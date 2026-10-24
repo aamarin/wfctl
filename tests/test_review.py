@@ -382,6 +382,8 @@ def test_range_judges_a_feature_head_from_the_main_checkout(repo: Path) -> None:
     git(repo, "checkout", "-q", "main")
 
     assert set(_review.commit_range(repo, head, None).commits) == {first, head}
+    found = _review.commit_range(repo, head, None, branch="637-x")
+    assert set(found.commits) == {first, head}
 
 
 def test_range_lists_commits_a_replace_ref_grafted_out(repo: Path) -> None:
@@ -437,6 +439,129 @@ def test_range_reads_origin_main_when_origin_head_is_not_set(
     found = _review.commit_range(repo, own, reviewed)
     assert from_main not in found.commits
     assert found.commits == (own,)
+
+
+def single_branch_clone(tmp_path: Path, repo: Path, branch: str = "637-x") -> Path:
+    """A clone that fetched only `branch` from `origin`, the way
+    `git clone --single-branch --branch <branch>` makes one."""
+    git(repo, "push", "-q", "origin", "637-x")
+    clone = tmp_path / f"single-{branch}"
+    subprocess.run(
+        ["git", "clone", "-q", "--single-branch", "--branch", branch,
+         str(tmp_path / "origin.git"), str(clone)],
+        check=True,
+    )
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        git(clone, "config", key, val)
+    return clone
+
+
+def test_range_lists_commits_a_grafts_file_cut_out(repo: Path) -> None:
+    """A `.git/info/grafts` line rewrites a commit's parents the same way a
+    replace ref does, and `--no-replace-objects` doesn't turn it off, so a
+    completed run marked the commits it cut out reviewed unseen."""
+    first = commit(repo, "a")
+    second = commit(repo, "b")
+    third = commit(repo, "c")
+    grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_text(f"{third} {git(repo, 'rev-parse', 'main')}\n")
+    assert git(repo, "rev-list", "--count", f"main..{third}") == "1"
+
+    assert set(_review.commit_range(repo, third, None).commits) == {first, second, third}
+
+
+@pytest.mark.parametrize("swapped", ["listed", "parent"])
+def test_range_refuses_a_commit_a_replace_ref_swaps_for_other_content(
+    repo: Path, swapped: str
+) -> None:
+    """A whole-object `git replace` leaves wfctl's own listing alone, since
+    every call passes `--no-replace-objects`. A reviewer's `git show` honors
+    it, though, and reads the replacement's content, or a diff against the
+    replacement of the commit's parent, so the real change went unread."""
+    first = commit(repo, "a")
+    head = commit(repo, "b")
+    target = first if swapped == "listed" else git(repo, "rev-parse", "main")
+    (repo / "other").write_text("other\n")
+    git(repo, "add", "other")
+    tree = git(repo, "write-tree")
+    git(repo, "reset", "-q", "other")
+    other = git(repo, "commit-tree", tree, "-m", "other")
+    git(repo, "replace", target, other)
+
+    with pytest.raises(_review.ReviewError, match=f"git replace -d {target[:7]}"):
+        _review.commit_range(repo, head, None)
+
+
+def test_range_refuses_a_tag_named_after_a_trunk_branch_the_clone_lacks(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A clone that fetched only the feature branch has no `main` branch, so
+    the trunk lookup fell back to the short name, and git resolved it to a tag
+    named `main` on the branch's own commit. Every commit up to the tag then
+    read as already on the trunk."""
+    commit(repo, "a")
+    clone = single_branch_clone(tmp_path, repo)
+    head = git(clone, "rev-parse", "HEAD")
+    git(clone, "tag", "main", head)
+
+    with pytest.raises(_review.NoTrunk):
+        _review.commit_range(clone, head, None)
+
+
+@pytest.mark.parametrize("checkout", ["as-cloned", "renamed", "detached"])
+def test_range_refuses_a_single_branch_clone_whose_origin_head_names_the_branch(
+    tmp_path: Path, repo: Path, checkout: str
+) -> None:
+    """In a clone of only the feature branch, `origin/HEAD` can point only at
+    that branch. It then reads as the trunk, `--not` drops every commit on the
+    branch, and `review start` reported the group up to date with nothing
+    reviewed. Comparing branch names doesn't catch it after a rename or on a
+    detached HEAD, so the refusal reads the clone's fetch refspec instead.
+    `origin/HEAD` is set by hand, the way `git remote set-head` sets it."""
+    commit(repo, "a")
+    clone = single_branch_clone(tmp_path, repo)
+    git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/637-x")
+    if checkout == "renamed":
+        git(clone, "branch", "-m", "637-x", "642-renamed")
+    elif checkout == "detached":
+        git(clone, "checkout", "-q", "--detach")
+    head = commit(clone, "b")
+
+    with pytest.raises(_review.ReviewError, match="fetches only"):
+        _review.commit_range(clone, head, None)
+
+
+def test_range_reads_a_declared_trunk_in_a_single_branch_clone_of_it(
+    tmp_path: Path, repo: Path
+) -> None:
+    """The refusal above names declaring the trunk as the way out, so a
+    single-branch clone of `main` with `trunk` declared has to work."""
+    clone = single_branch_clone(tmp_path, repo, "main")
+    git(clone, "checkout", "-q", "-b", "642-y")
+    (clone / "wfctl.json").write_text(json.dumps({"trunk": "main"}))
+    head = commit(clone, "a")
+
+    assert _review.commit_range(clone, head, None).commits == (head,)
+
+
+def test_range_refuses_a_trunk_that_is_the_branch_under_review(
+    repo: Path, state: Path
+) -> None:
+    """With `origin/HEAD` on the branch itself, every commit on it reads as
+    already on the trunk. The guard refused that, but `review start` reported
+    the group up to date with nothing reviewed."""
+    commit(repo, "a")
+    git(repo, "push", "-q", "origin", "637-x")
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/637-x")
+    head = commit(repo, "b")
+
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.commit_range(repo, head, None, branch="637-x")
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.start(repo, state, SECURITY, branch="637-x")
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.unreviewed(repo, state, [SECURITY], head, branch="637-x")
 
 
 # --- reports -------------------------------------------------------------------
