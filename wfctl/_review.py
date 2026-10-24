@@ -73,6 +73,14 @@ class ShallowClone(ReviewError):
         )
 
 
+class TrunkIsThisBranch(ReviewError):
+    def __init__(self, branch: str) -> None:
+        super().__init__(
+            f"the trunk branch resolves to {branch}, the branch under review; "
+            "set trunk in wfctl.json"
+        )
+
+
 class NoRun(ReviewError):
     def __init__(self, group: str) -> None:
         super().__init__(f"{group} has no run; run wfctl review start {group}")
@@ -93,9 +101,14 @@ def _git(
 
     `merge-base --is-ancestor` and `show-ref --verify` exit 1 to say no, which
     is an answer rather than a failure, so their callers pass `(0, 1)`.
+
+    `--no-replace-objects` because a replace ref made with `git replace
+    --graft` rewrites a commit's parents, and `rev-list` then skips the commits
+    it cut out, so a completed run would mark them reviewed unseen.
     """
     r = subprocess.run(
-        ["git", *args], cwd=repo_root, capture_output=True, text=True, timeout=timeout,
+        ["git", "--no-replace-objects", *args],
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if r.returncode not in answers:
         detail = r.stderr.strip() or f"exit {r.returncode}"
@@ -140,11 +153,21 @@ def trunk_refs(repo_root: Path, timeout: float | None = None) -> list[str]:
     Full names because git resolves a short `main` to a tag of that name before
     the branch, and a tag on one of the branch's own commits made that work read
     as already on the trunk. A trunk found under neither name is used as named.
+
+    A trunk that resolves to the checked-out branch is refused. A clone made
+    with `--single-branch --branch <feature>` points `origin/HEAD` at the
+    feature branch, and `--not` that branch drops every commit on it, so the
+    group read as up to date with nothing reviewed.
     """
     trunk = _paths.trunk_branch(repo_root, timeout=timeout)
     if trunk is None:
         raise NoTrunk()
     local = trunk.removeprefix("origin/")
+    current = _git(
+        repo_root, "symbolic-ref", "-q", "--short", "HEAD", timeout=timeout, answers=(0, 1),
+    ).stdout.strip()
+    if current == local:
+        raise TrunkIsThisBranch(local)
     refs = [
         ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
         if _has_ref(repo_root, ref, timeout)

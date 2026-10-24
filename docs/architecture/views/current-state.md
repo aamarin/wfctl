@@ -29,7 +29,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
    │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
-   │ _review_config 271  _review 623                              │      ┊
+   │ _review_config 272  _review 646                              │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊

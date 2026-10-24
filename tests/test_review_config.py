@@ -410,6 +410,26 @@ def test_check_config_passes_the_documented_review_example(
             "starting with a letter",
             id="trailing-newline",
         ),
+        pytest.param(
+            {"commands\nx": {}},
+            "review: unknown key 'commands\\nx'", id="review-key-with-a-newline",
+        ),
+        pytest.param(
+            {"groups": [{"group": "security", "skill\nx": "y"}]},
+            "review group 'security': unknown key 'skill\\nx'", id="group-key-with-a-newline",
+        ),
+        pytest.param(
+            {"groups": [{"group": "security",
+                         "reviewers": [{"name": "claude", "count": 1, "n\nx": 1}]}]},
+            "review group 'security': unknown key 'n\\nx' in a reviewer",
+            id="reviewer-key-with-a-newline",
+        ),
+        pytest.param(
+            {"commands": {"x\ny": "x\ty"}},
+            "review.commands: the command for 'x\\ny' holds a character that can't be "
+            "printed (U+0009)",
+            id="commands-key-with-a-newline",
+        ),
     ],
 )
 def test_a_declaration_that_would_have_passed_silently_is_a_finding(

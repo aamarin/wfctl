@@ -91,7 +91,7 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
     if not isinstance(review, dict):
         return [], ["review must be an object"]
 
-    problems = [f"review: unknown key '{k}'" for k in review if k not in _REVIEW_KEYS]
+    problems = [f"review: unknown key {k!r}" for k in review if k not in _REVIEW_KEYS]
     commands = _commands(review.get("commands", {}), problems)
 
     entries = review.get("groups", [])
@@ -221,8 +221,9 @@ def _reviewers(
         if not isinstance(model, str) or not model:
             problems.append(f"review group '{group}': each reviewer needs a name and a count")
             ok = False
-            if isinstance(spec, dict) and _is_count(spec.get("count")):
-                total += spec["count"]
+            unnamed_count = spec.get("count") if isinstance(spec, dict) else None
+            if _is_count(unnamed_count):
+                total += unnamed_count
             continue
         assert isinstance(spec, dict)
         entry_ok = True

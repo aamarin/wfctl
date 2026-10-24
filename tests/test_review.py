@@ -360,15 +360,47 @@ def test_range_refuses_a_shallow_clone(tmp_path: Path, repo: Path) -> None:
     deleted matched its redo and left the range."""
     commit(repo, "a")
     head = commit(repo, "b")
+    git(repo, "checkout", "-q", "main")
     shallow = tmp_path / "shallow"
     subprocess.run(
-        ["git", "clone", "-q", "--depth", "1", "--branch", "637-x",
+        ["git", "clone", "-q", "--depth", "1", "--no-single-branch",
          f"file://{repo}", str(shallow)],
         check=True,
     )
+    git(shallow, "checkout", "-q", "637-x")
 
     with pytest.raises(_review.ShallowClone, match="git fetch --unshallow"):
         _review.commit_range(shallow, head, None)
+
+
+def test_range_refuses_a_trunk_that_resolves_to_the_branch_under_review(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A clone of the feature branch alone points `origin/HEAD` at that
+    branch, so it became the trunk, `--not` dropped every commit on it, and
+    the group read as up to date with nothing reviewed."""
+    head = commit(repo, "a")
+    single = tmp_path / "single"
+    subprocess.run(
+        ["git", "clone", "-q", "--single-branch", "--branch", "637-x",
+         f"file://{repo}", str(single)],
+        check=True,
+    )
+
+    with pytest.raises(_review.TrunkIsThisBranch, match="set trunk in wfctl.json"):
+        _review.commit_range(single, head, None)
+
+
+def test_range_lists_commits_a_replace_ref_grafted_out(repo: Path) -> None:
+    """`git replace --graft` rewrites a commit's parents, and `rev-list` then
+    skipped the commits it cut out, so a completed run marked them reviewed
+    unseen."""
+    first = commit(repo, "a")
+    second = commit(repo, "b")
+    third = commit(repo, "c")
+    git(repo, "replace", "--graft", third, git(repo, "rev-parse", "main"))
+
+    assert set(_review.commit_range(repo, third, None).commits) == {first, second, third}
 
 
 def test_range_keeps_a_merge_of_more_than_two_branches(repo: Path) -> None:
