@@ -512,6 +512,25 @@ def test_a_graphql_query_from_a_file_is_refused(
 
 
 @pytest.mark.parametrize("command", [
+    "gh api /graphql --input m.json",
+    "gh api /graphql -F query=@m.graphql",
+    "gh api https://api.github.com/graphql --input m.json",
+])
+def test_a_graphql_query_from_a_file_is_refused_at_any_spelling_of_the_endpoint(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """`/graphql` and a full URL reach the same endpoint as `graphql`, and a
+    mutation kept in a file is invisible to the mutation-name check. Found by
+    security reviewer s2 on #638's own panel."""
+    code, err = guard(command, tmp_path)
+
+    assert code == 2
+    assert lines(err) == [
+        "✗ put the GraphQL query in the command; the check doesn't read files",
+    ]
+
+
+@pytest.mark.parametrize("command", [
     "gh api repos/{owner}/{repo}/pulls/630/comments",
     "gh api repos/{owner}/{repo}/pulls",
     "gh version",
@@ -762,6 +781,22 @@ def test_a_merge_the_check_cant_read_is_refused(
 def test_help_is_allowed(repos: Repos, guard: Guard, command: str) -> None:
     """`gh` prints its help and does nothing else."""
     assert guard(command, repos.feature) == (0, "")
+
+
+@pytest.mark.parametrize("command", [
+    "gh pr merge 630 --squash --help=false",
+    "gh pr create --fill --help=0",
+])
+def test_help_with_a_value_is_not_read_as_help(
+    repos: Repos, guard: Guard, command: str,
+) -> None:
+    """`gh` reads `--help=false` as help switched off and runs the command, so
+    allowing it as help would let an unreviewed merge through unjudged. Found
+    by security reviewer s1 on #638's own panel."""
+    code, err = guard(command, repos.main)
+
+    assert code == 2
+    assert "✗ can't read the pull request this command names" in lines(err)
 
 
 def test_auto_merge_is_refused(repos: Repos, guard: Guard) -> None:

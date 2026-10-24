@@ -371,7 +371,9 @@ def _flags(
     on its own, so `-sd` is `-s -d`, and one that takes a value takes the rest
     of the word or the next word, so `-tfix` and `-st fix` both name `fix`.
     None when a flag isn't in `known`, or a value is missing. `known` None
-    means every other flag takes no value.
+    means every other flag takes no value. A long flag that takes no value
+    keeps one written after `=`, since `--help=false` turns help off and `gh`
+    then runs the command.
     """
     pairs: list[tuple[str, str | None]] = []
     args: list[str] = []
@@ -385,7 +387,7 @@ def _flags(
                     return None
                 pairs.append((name, found))
             elif known is None or name in known:
-                pairs.append((name, None))
+                pairs.append((name, value if eq else None))
             else:
                 return None
         elif word.startswith("-") and len(word) > 1 and word != "--":
@@ -432,6 +434,8 @@ def _arguments(name: str, text: str, pre: Sequence[str]) -> Target | str | None:
         return _UNREADABLE
     pairs, args = read_flags
     flags = {flag for flag, _ in pairs}
+    if any(f == "--help" and v is not None for f, v in pairs):
+        return _UNREADABLE
     if flags & {"-h", "--help"}:
         return None
     if "--auto" in flags:
@@ -489,7 +493,10 @@ def _api_call(words: Sequence[str]) -> str | None:
     if path is None:
         return None
     writes = body or (method is not None and method != "GET")
-    if path == "graphql":
+    # `/graphql` and a full URL reach the same endpoint as `graphql`, since
+    # `gh` sends a body to any path as a POST.
+    endpoint = path.split("?", 1)[0].rstrip("/")
+    if endpoint == "graphql" or endpoint.endswith("/graphql"):
         if reads_file:
             return "put the GraphQL query in the command; the check doesn't read files"
         return None

@@ -172,13 +172,21 @@ with the parent either way.
 A line with a command after the model, such as `s3 codex  codex exec --sandbox
 read-only`, is a reviewer you run yourself with that command:
 
+The command comes from the `review.commands` key in the repository's
+`wfctl.json`, so in a repository you don't own, read that key before running
+it, the same as you would a hook the repository ships.
+
+Use the scratch folder your harness gives you, never a fixed path such as
+`/tmp/panel/`. Another session, or another user on the same machine, can write
+to a shared path, and a report planted there would be relayed as this run's.
+
 1. Write the reviewer's whole prompt, with the six instructions above, to a
    file in your scratch folder.
 2. Run the printed command with that file as its input, and redirect its output
    to a second file:
 
    ```bash
-   codex exec --sandbox read-only < /tmp/panel/s3-prompt.md > /tmp/panel/s3-report.md
+   codex exec --sandbox read-only < <scratch folder>/s3-prompt.md > <scratch folder>/s3-report.md
    ```
 
 3. Relay the output file, as the next section describes, with the reason
@@ -191,7 +199,7 @@ report to you instead of writing it. Save the reply to a file in your scratch
 folder with your own file tool, then relay it:
 
 ```bash
-wfctl relay s2 --reason "write denied" --from /tmp/panel/s2-report.md
+wfctl relay s2 --reason "write denied" --from <scratch folder>/s2-report.md
 ```
 
 wfctl saves the report under that id in the group's latest run, marked as
