@@ -160,8 +160,8 @@ branch.
 
 - wfctl now pushes notes, in addition to the specs it pushes with
   `wfctl store specs`. If a push fails, such as when offline, the note stays local, and CI
-  fails until wfctl pushes it. wfctl needs a command that pushes the notes
-  ref again.
+  fails until wfctl pushes it. The `wfctl store reviews` command pushes the
+  notes ref again, next to `wfctl store specs`, which does the same for specs.
 - If another machine pushed the notes ref first, `origin` rejects the push.
   wfctl then fetches the ref, merges it with
   `git notes merge -s cat_sort_uniq`, and pushes again. Worktrees on one machine share a single
