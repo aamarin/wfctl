@@ -465,14 +465,20 @@ from `WFCTL_AGENT` in a table in wfctl's code
 Today the table covers `claude`. With `WFCTL_AGENT=claude` set, there is nothing
 else to configure.
 
-**`WFCTL_SESSION_ID`** overrides that lookup, and `--session-id` overrides both.
-Use it for an agent the table doesn't cover yet, mapping whatever that host
-exports:
+**`WFCTL_SESSION_ID`** overrides that lookup. Use it for an agent the table
+doesn't cover yet, mapping whatever that host exports:
 
 ```bash
 # ~/.zshrc
 export WFCTL_SESSION_ID="$YOUR_HOST_SESSION_VARIABLE"
 ```
+
+`wfctl start --session-id` overrides both, but only `start` takes the flag.
+`resume`, `end` and the orchestrate gate read the id from the environment. So if
+the flag differs from the id the environment gives, `start` refuses it and
+records nothing, since those commands would then refuse your own conversation.
+In a terminal where the environment gives no id, `start` records the flag as
+typed.
 
 With no id from any of the three, every gate answers exactly as it did before
 this existed. If your host's own variable turns out to rotate more often than a

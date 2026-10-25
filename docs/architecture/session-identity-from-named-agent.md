@@ -90,6 +90,8 @@ The solid edges are what the running command reads. The crossed edge is what wfc
 
 `WFCTL_SESSION_ID` keeps working as an override, so you can still wire a host wfctl has no entry for by hand.
 
+Only `start` takes the `--session-id` flag. `resume`, `end`, and the orchestrate gate read the id from the environment, so a typed id that differs from it would make your own conversation read `other`, and the gates would refuse it. Under Claude Code, the host always exports its own id, so this would reach every pane where `WFCTL_AGENT` is set. That's why `start` refuses a flag that differs from the id the environment gives, and records nothing. When the environment gives no id, as in a plain terminal, `start` records the flag as typed.
+
 A nested agent that inherits the parent's `WFCTL_AGENT` presents the parent's id. For example, a Codex reviewer started from a Claude conversation would present that Claude conversation's id. The hand-written profile line had the same weakness, because the nested shell copies the same parent variable. This decision doesn't make it worse. It doesn't matter today, since a Codex reviewer runs read-only and never calls `start`, `resume`, or `end`. A host that sets `WFCTL_AGENT` for its own children would fix it with no change to wfctl.
 
 Adding an agent to the table takes a wfctl release. The earlier record measured `CODEX_SESSION_ID` for Codex and `COPILOT_AGENT_SESSION_ID` for Copilot on 2026-09-13. Running `strings` on the Codex binary installed on 2026-10-24 finds both `CODEX_SESSION_ID` and `CODEX_THREAD_ID`. That shows the names are in the binary, not which one a running Codex exports to its shell, so that measurement needs repeating before either agent gets an entry.

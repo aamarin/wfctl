@@ -288,6 +288,35 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
         raise typer.Exit(1)
 
 
+def _refuse_a_flag_later_commands_cannot_present(caller: str | None) -> None:
+    """Exit 1 when `start` would record an id its own conversation can't present.
+
+    Only `start` takes `--session-id`. `resume`, `end` and the orchestrate gate
+    read `_caller_identity()`, so a typed id that differs from it leaves the
+    conversation that typed it reading `"other"` on its own branch, and every
+    gate refuses it. Under Claude Code that reaches any pane where `WFCTL_AGENT`
+    is set, since the host always exports its own id. When `_caller_identity()`
+    is `None` there is nothing to disagree with, so a plain terminal keeps the
+    flag. Ahead of `_resolve_context()` for the reason the issue check gives:
+    a refusal writes nothing.
+    """
+    later = _caller_identity()
+    if caller is None or later is None or caller == later:
+        return
+    console.print(
+        "[red]✗[/red] --session-id doesn't match the session id that `wfctl "
+        "resume`, `wfctl end` and the orchestrate gate will read, so they would "
+        "refuse this conversation. Nothing was recorded.",
+        soft_wrap=True,
+    )
+    console.print(
+        f"  Drop the flag to record {later}, or run with "
+        f"WFCTL_SESSION_ID={caller} exported so every command reads the same id.",
+        markup=False, soft_wrap=True,
+    )
+    raise typer.Exit(1)
+
+
 def _report_unfilled_in_flight(agent_dir: Path) -> None:
     """Say when the last handoff left `## In Flight` as the template wrote it.
 
@@ -346,6 +375,8 @@ def start_cmd(
         help="Opaque identity for the calling conversation. Recorded verbatim "
              "and never parsed; wfctl compares it and nothing else. Presenting "
              "an identity a branch does not already hold takes the branch over. "
+             "Refused when it differs from the id the environment gives, since "
+             "the commands after start read only that one. "
              "Omit it and wfctl uses the session id of the agent WFCTL_AGENT "
              "names, when it knows that agent's variable; with neither, every "
              "gate behaves exactly as it did before this existed.",
@@ -357,14 +388,15 @@ def start_cmd(
     from wfctl._session import grant_auto_approve, last_session_id, presented_identity
 
     _refuse_unless_the_issue_allows_a_session()
-    agent_dir, repo_root, branch, _ = _resolve_context()
-    _report_unfilled_in_flight(agent_dir)
     # Resolved once, here, and passed down. The environment fallback lives on the
     # option rather than at each read, so a caller that exports the variable and
     # a caller that types the flag reach every branch below by the same path —
     # and there is one place where blank becomes absent rather than one per use.
     # The agent's own variable comes last, so either of those still overrides it.
     caller = presented_identity(session_id, os.environ)
+    _refuse_a_flag_later_commands_cannot_present(caller)
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    _report_unfilled_in_flight(agent_dir)
     spec_dir = resolve_spec_dir(branch, repo_root)
 
     # Before the early return, not after. `start` is idempotent about the session
