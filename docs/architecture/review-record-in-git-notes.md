@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -187,3 +187,4 @@ branch.
   left as a decision for this issue.
 - 2026-10-24  revised     — Andre accepted that CI can't catch a forged note,
   and added the guard rule that blocks an agent from writing one by hand.
+- 2026-10-25  accepted    — Andre in the 627-ci-review-check session, 2026-10-24: approved the record after the trust answer, the guard rule, and the wfctl store reviews name
