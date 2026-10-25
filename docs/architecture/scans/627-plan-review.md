@@ -107,3 +107,43 @@
 - **PR-011, MINOR, open.** R3's claim that the two readers agree is unchanged. Stands because they disagree once the state directory's last reviewed commit has left the branch, though both answers are safe.
 - **PR-012, MAJOR, fixed.** Fixed by FR-010, FR-010a, and R13, which give the guard, the sign-off, and `wfctl check reviews` one group list, and let `review start` run a removed group with the trunk's skill and reviewers.
 - **PR-013, MAJOR, fixed.** Fixed by FR-015a, R14, and step 4 of `contracts/review-job.md`. CI passes `--base` from the event through `env:` and ignores the `trunk` key.
+
+## Review 2026-10-25T22:41Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 06cc9fce3aa12eca6167ac5b3f034b8157d64e89, spec.md 36130e83efd7cf26e04864e3fdf4ae84c899c41d, .specify/memory/constitution.md absent, design.md a300e080b4678211c03622c9cc526026ac136c85, docs/architecture/design/627-unreviewed-takes-coverage.md 6952a2a5ce10f93a970695db193bacb0a5ffa297, docs/architecture/design/627-review-note-line-per-event.md 2899b52b14cad409fc8524a1c28eb34f789988a0, docs/architecture/design/627-guard-blocks-note-writes.md 666b18a2720685bbb6174ea35aa39ea7d69b17ac, docs/architecture/review-record-in-git-notes.md 00389d02a47676c5a0efaa0f649ee16a4fd4ff05, docs/architecture/review-covers-unreviewed-commits.md 24c4b0e1c20ef1fa397c6e861eaf907785b28769, research.md 59cf1651e2f87ee14be4b63a276d06f15b2326f9, data-model.md 469957bb0c12a9250c332ad93f7d854cb9bca7e9, quickstart.md a563a80554c1892fdc4c411fb301657f43e31835, contracts/cli.md 03c3df17467cd06fed7c1c661930a09a0db79ff0, contracts/review-job.md c18409e6a0dda3726e7c4a86832605ad160d3369, contracts/review-note.md dfdbb4b3891a514c88396ff9d958191cc203a765, checklists/requirements.md f0f311123f87812b1660c822ee055effe594c3f7, plan-review.plan.md ac694568f3e22398d13e703fe85b79db0ce4e3cd (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 7 · Fixed since the earlier review: 12
+- Detail: /Users/andremarin/Development/wfctl-specs/627-ci-review-check/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-026; PR-014, PR-019 fixed) |
+| Requirements and traceability | Outstanding (PR-024; PR-017, PR-018 fixed) |
+| Architecture and boundaries | Resolved (PR-006, PR-016, PR-020 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-009, PR-011, PR-025; PR-015, PR-021, PR-022 fixed) |
+| Security and reliability | Outstanding (PR-004; PR-010, PR-023 fixed) |
+
+### Findings
+
+- **PR-024, MINOR, open.** The CLI contract says `review check` still refuses a name outside the group list, but today `review_check_cmd` checks only the name's shape. Stands because the plan puts trunk lookups and their failures in front of the step that records the note, and nothing says so or tests it.
+- **PR-025, MINOR, open.** The `relay` refusal's example, `security` and `style`, can't happen, since every file carries the built-in groups and rejects `style`. Stands because the only real clash is a group renamed on the branch, where the "rename one" remedy doesn't help.
+- **PR-026, MINOR, open.** `contracts/review-job.md` says quickstart step 4 checks `integration_id` 15368, and step 4 doesn't mention it. Stands because FR-018 and the plan's ruleset and test lines don't name the id either, so it could be left out.
+- **PR-009, MINOR, open.** The contract now covers a failed note write in `review check`, but not in the sign-off. Stands because running the sign-off again finds nothing unreviewed and records nothing, so CI stays red.
+- **PR-004, MINOR, open.** R9 rule 2 is unchanged. Stands because `git push origin notes/wfctl-review` and a `refs/*` glob push the notes ref without `refs/notes/` in the text. Left open by the author as a known limit of the guard's text match.
+- **PR-005, MINOR, open.** R9 rule 1 still doesn't require `notes` to be git's subcommand. Stands because a commit message mentioning "git notes add" may be refused. Left open by the author for the same reason.
+- **PR-011, MINOR, open.** R3 still says the two readers agree. Stands because they differ once the state directory's last reviewed commit has left the branch, though both answers are safe. Left open by the author.
+- **PR-006, MINOR, fixed.** Fixed by the design record's Consequences, which say recording reads the note only to skip a duplicate.
+- **PR-010, MINOR, fixed.** Fixed by `contracts/review-job.md`, which gives the ruleset entry `integration_id` 15368.
+- **PR-014, MINOR, fixed.** Fixed by the plan's Project Structure, which lists `_review_config.py`, and by R13, which validates each file alone and joins by name.
+- **PR-015, MINOR, fixed.** Fixed by R13, which keeps a broken trunk `review` key a failure and names the `AGENTS.md` recovery.
+- **PR-016, MINOR, fixed.** Fixed by R8, which reruns and prints nothing when `gh` is missing or `origin` isn't on GitHub.
+- **PR-017, MINOR, fixed.** Fixed by FR-010a, which now covers `review groups` and `relay`.
+- **PR-018, MINOR, fixed.** Fixed by FR-010, which lists all three cases where the guard's result changes.
+- **PR-019, MINOR, fixed.** Fixed by R10's `trunk` keyword and R14's single-branch skip.
+- **PR-020, MINOR, fixed.** Fixed by the record's Consequences and Log entry, and by the Constitution re-check line naming R14.
+- **PR-021, MINOR, fixed.** Fixed by the narrowed Summary and R13's paragraph on a stale fetch.
+- **PR-022, MINOR, fixed.** Fixed by the Validation Strategy and the new test lines in the plan.
+- **PR-023, MINOR, fixed.** Fixed by quickstart step 5, R14's post-merge check, and the job's `concurrency` group.
