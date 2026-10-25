@@ -68,3 +68,42 @@
 - **PR-003, MAJOR, fixed.** Fixed by FR-024 and R12, which give the printed output: `git switch release/v<version>`, then the person's own command.
 - **PR-007, MINOR, fixed.** Fixed by the spec's Validation Strategy, which names a throwaway PR after merge.
 - **PR-008, MINOR, fixed.** Fixed by `contracts/review-job.md` and the plan, which give `ci.yml` a top-level `permissions: contents: read`, with the `tag` job keeping `contents: write`.
+
+## Review 2026-10-25T21:20Z
+
+- Verdict: satisfied
+- Reviewed: plan.md ac694568f3e22398d13e703fe85b79db0ce4e3cd, spec.md dc5887554dc92f2ef5b27058e7e6848678d947f2, .specify/memory/constitution.md absent, design.md a300e080b4678211c03622c9cc526026ac136c85, docs/architecture/design/627-unreviewed-takes-coverage.md 6952a2a5ce10f93a970695db193bacb0a5ffa297, docs/architecture/design/627-review-note-line-per-event.md 9630d75158af14e37fe67d866147ee1054355e44, docs/architecture/design/627-guard-blocks-note-writes.md 666b18a2720685bbb6174ea35aa39ea7d69b17ac, docs/architecture/review-record-in-git-notes.md 4e24a7da9f16a04447f2f681e9b307f6fac76d9a, docs/architecture/review-covers-unreviewed-commits.md 24c4b0e1c20ef1fa397c6e861eaf907785b28769, research.md c01fee80337a9a7786298e53b831b1ed225287b8, data-model.md 469957bb0c12a9250c332ad93f7d854cb9bca7e9, quickstart.md 7fe0a3660c89a83d3acb9562d54c181840bc9f69, contracts/cli.md c0508c86175149a21ae88c557d3f1fa9166d0d90, contracts/review-job.md f1e2e8a18e1c25528359e0722a62fb03801f204e, contracts/review-note.md dfdbb4b3891a514c88396ff9d958191cc203a765, checklists/requirements.md f0f311123f87812b1660c822ee055effe594c3f7, plan-review.plan.md 5c1cfa80e45835314be9571dab823427e4cc955f (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 16 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/627-ci-review-check/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-014, PR-019) |
+| Requirements and traceability | Outstanding (PR-017, PR-018; PR-012 fixed) |
+| Architecture and boundaries | Outstanding (PR-006, PR-016, PR-020) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-009, PR-011, PR-015, PR-021, PR-022) |
+| Security and reliability | Outstanding (PR-004, PR-010, PR-023; PR-013 fixed) |
+
+### Findings
+
+- **PR-017, MINOR, open.** `wfctl review groups` and `wfctl relay` still read only the working tree's `wfctl.json`. Stands because the review panel lists its groups with `review groups`, so it never starts a group the branch removed, and `relay` can't find that group's reviewers.
+- **PR-018, MINOR, open.** FR-010 says the guard's results change only for a removed group. Stands because the edge cases also change an uncommitted group: today the guard requires it, and under the new list it doesn't.
+- **PR-019, MINOR, open.** R10's `unreviewed` signature and the notes reader have no parameter that carries `--base` down to `trunk_refs`. Stands because neither R10 nor R14 says whether the single-branch refusal applies to a trunk named by `--base`.
+- **PR-020, MINOR, open.** `review-record-in-git-notes.md` still says CI requires `main`'s groups, and R14 reads the base branch's. Stands because the record wasn't revised and the plan's Constitution Check doesn't mention R14.
+- **PR-021, MINOR, open.** The plan's Summary says a PR that passes locally passes in CI. Stands because a stale local `origin/main` can give the local check a different group list.
+- **PR-022, MINOR, open.** Neither the Validation Strategy nor the plan's test list covers FR-010 or FR-010a. Stands because the shared group list and `review start`'s wider list have no named test.
+- **PR-023, MINOR, open.** Nothing checks that `edited` fires when GitHub retargets a stacked PR on its own, and the job has no `concurrency` group. Stands because a missed retarget leaves a stale result, and two overlapping runs on the same head are unordered.
+- **PR-014, MINOR, open.** `_review_config.load` reads only from disk, and the plan's Project Structure doesn't list `_review_config.py`. Stands because the plan doesn't say whether the joined group list is validated as one declaration.
+- **PR-015, MINOR, open.** A problem in the trunk's `review` key fails every PR, the fixing PR included. Stands because the guard and the sign-off now read the trunk's file too, so the guard also refuses `gh pr create` on every branch.
+- **PR-016, MINOR, open.** R8 can't tell "no PR" from "`gh` is missing or `origin` isn't on GitHub". Stands because in such a repository every notes push prints the rerun warning.
+- **PR-004, MINOR, open.** R9 rule 2 is unchanged. Stands because `git push origin notes/wfctl-review` and a `refs/*` glob push the notes ref without `refs/notes/` in the text.
+- **PR-005, MINOR, open.** R9 rule 1 still doesn't require `notes` to be git's subcommand. Stands because a commit message containing "git notes add" may be refused, and no test catches a false refusal.
+- **PR-006, MINOR, open.** `627-review-note-line-per-event.md` still says recording doesn't read the note first. Stands because R6 and the data model say it does.
+- **PR-009, MINOR, open.** `contracts/cli.md` defines no output or exit code for a failed local `record`. Stands because a ref lock held by another worktree has no stated behavior.
+- **PR-010, MINOR, open.** The ruleset's `review` entry has no `integration_id`. Stands because any commit status named `review` satisfies it.
+- **PR-011, MINOR, open.** R3's claim that the two readers agree is unchanged. Stands because they disagree once the state directory's last reviewed commit has left the branch, though both answers are safe.
+- **PR-012, MAJOR, fixed.** Fixed by FR-010, FR-010a, and R13, which give the guard, the sign-off, and `wfctl check reviews` one group list, and let `review start` run a removed group with the trunk's skill and reviewers.
+- **PR-013, MAJOR, fixed.** Fixed by FR-015a, R14, and step 4 of `contracts/review-job.md`. CI passes `--base` from the event through `env:` and ignores the `trunk` key.
