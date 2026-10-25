@@ -51,14 +51,12 @@ wfctl step none ui-design --reason "backend-only; no screens change"
 ```
 
 The sub-step then reads `skipped`, carrying the sentence as its annotation. The
-file goes under a directory of its own —
-`<arch-root>/step-claims/<branch>/<step>.<name>.md`, one file per pass — and
-carries the same guards `arch none` already applies: an empty reason is refused,
-a `<why>` placeholder is refused, and a write that landed somewhere no reviewer
-will see it warns and exits non-zero. One file per pass because a branch makes as
-many claims as it has passes, and a single shared file would mean the second
-claim destroys the first. `step-claims/` joins `_paths.non_record_subtrees`, so
-no reader of the arch root counts a claim as a record.
+file goes in the branch's spec folder, one file per pass, and the PR body
+carries the same sentence to the reviewer
+(`branch-claims-live-with-specs.md`). It carries the same guards `arch none`
+applies: an empty reason is refused, and a `<why>` placeholder is refused. One
+file per pass because a branch makes as many claims as it has passes, and a
+single shared file would mean the second claim destroys the first.
 
 "Ran and produced nothing" and "does not apply here" are one state, not two.
 Both mean the pipeline advances and a reviewer reads a claim they can disagree
@@ -111,7 +109,7 @@ claim was made, that it is legible, and that it reached the reviewer.
 ## Consequences
 
 `wfctl step none <name>` is a second claim-writing verb beside `wfctl arch none`,
-not a generalisation of it. Each claim is its own file under `step-claims/`, so
+not a generalisation of it. Each claim is its own file in the spec folder, so
 two claims on one branch never contend for one path, and a repeated claim on the
 same pass replaces exactly itself.
 
@@ -147,3 +145,6 @@ ran the skill, and the default view hides the row once it is settled.
   `arch none`, and the state count were all written before the spec settled
   them. `skipped` has two producers and `claimed` separates them; a fifth state
   was rejected on this record's own ground that nothing branches on it
+- 2026-10-25  revised     — #635: claims move out of the architecture folder
+  into the branch's spec folder, and the PR body carries them to the reviewer
+  (`branch-claims-live-with-specs.md`)
