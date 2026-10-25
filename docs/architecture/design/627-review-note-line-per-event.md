@@ -88,8 +88,8 @@ The change this is built to absorb is a second machine writing the same note. In
 the baseline, `cat_sort_uniq` sorts the lines of two JSON objects into text that
 no longer parses, so wfctl needs its own merge that reads both objects and
 writes one back. In the decision, git's own merge already produces a valid note.
-The decision also drops one arrow, since recording an event appends to the note
-and doesn't read it first.
+Recording an event reads the note only to skip a line that's already there,
+and never merges what it reads.
 
 ## Considered
 
@@ -106,8 +106,8 @@ and doesn't read it first.
 
 ## Consequences
 
-- Recording an event doesn't read the note first, so wfctl needs no merge logic
-  of its own, locally or after a rejected push.
+- Recording an event reads the note only to skip a duplicate line, so wfctl
+  needs no merge logic of its own, locally or after a rejected push.
 - The note can't say which run reviewed a commit. The state directory on the
   machine that ran it still can.
 - A line in a format wfctl doesn't recognize is ignored, not an error, so an

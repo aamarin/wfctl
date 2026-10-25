@@ -176,11 +176,14 @@ branch.
 - GitHub runs `main`'s copy of the CI job and `main`'s wfctl, so a PR that
   breaks the check code, even by accident, can't pass its own check. The job
   reads the PR's commits and notes only as data.
-- The check requires every review group that `main`'s `wfctl.json` lists, plus
-  any group the PR's own `wfctl.json` adds. A PR that removes a group still
-  needs that group's review, and the removal takes effect once it reaches
-  `main`. A PR that adds a group needs that group's review on the same PR,
-  since adding it means the group should run.
+- The check requires every review group that the PR's base branch lists in
+  `wfctl.json`, plus any group the PR's own `wfctl.json` adds. CI reads the
+  base branch from GitHub's event, never from the PR's files. A PR that
+  removes a group still needs that group's review, and the removal takes
+  effect once it reaches `main`. A PR that adds a group needs that group's
+  review on the same PR, since adding it means the group should run. The local
+  check requires the same groups, so a PR that removes a group is blocked
+  locally too.
 - A test runs the CI check against a scratch repository. It fails if an
   unreviewed commit passes, or if a commit that a note or a sign-off covers
   fails. The test makes sure CI and the local check agree on what is
@@ -199,3 +202,7 @@ branch.
   its own check by accident. CI requires `main`'s review groups plus any the
   PR adds. wfctl reruns the failed check after pushing notes, and a failed
   rerun is the user's to retry.
+- 2026-10-25  revised     — Andre after the second #627 plan review: the local
+  check requires the same groups as CI, and CI measures against the PR's base
+  branch from GitHub's event, so a `trunk` key in the PR's own `wfctl.json`
+  can't skip review.
