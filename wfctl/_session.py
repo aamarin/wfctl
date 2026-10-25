@@ -8,6 +8,7 @@ about it (`session-state-is-re-derived`).
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -81,19 +82,48 @@ def identity(presented: str | None) -> str | None:
     """The caller's identity, or None when it presented none.
 
     Empty and whitespace-only read as absent rather than as an identity, because
-    the shipped skill leaves the value to the `WFCTL_SESSION_ID` environment
-    variable, and a variable exported as `""` is the same caller as one never
-    exported. A reader that treated `""` as an identity would answer differently
-    depending on which of the two the shell happened to produce, for a caller
-    that did the same thing both times.
+    the value comes from an environment variable, and a variable exported as
+    `""` is the same caller as one never exported. A reader that treated `""`
+    as an identity would answer differently depending on which of the two the
+    shell happened to produce, for a caller that did the same thing both times.
 
     The one transformation wfctl performs on the value. Equality is the only
     other operation — never a parse, a split or a pattern
-    (`session-identity-comes-from-the-caller`).
+    (`session-identity-from-named-agent`).
     """
     if presented is None:
         return None
     return presented if presented.strip() else None
+
+
+# Each agent's own session variable, keyed by the name a developer puts in
+# `WFCTL_AGENT` (`session-identity-from-named-agent`). An entry is added only once
+# someone has measured what that host exports to a shell. A misspelled name only
+# leaves the holder `unknown`, but a variable that holds something other than the
+# conversation's id gives a wrong holder. Codex and Copilot are absent until
+# someone repeats the 2026-09-13 measurement against a current release of each.
+AGENT_SESSION_VARIABLES = {
+    "claude": "CLAUDE_CODE_SESSION_ID",
+}
+
+
+def presented_identity(
+    presented: str | None, environ: Mapping[str, str]
+) -> str | None:
+    """The caller's identity: what it presented, else its agent's own variable.
+
+    `presented` is `--session-id` or `WFCTL_SESSION_ID`, already merged by the
+    caller, so the agent's variable is only ever the last resort. A blank value at
+    either step reads as absent and falls through, for the reason `identity`
+    gives. The agent comes from `WFCTL_AGENT` and from nowhere else: a nested
+    agent carries its parent's variable beside its own, so checking which
+    variables are set would let the lookup order pick the conversation.
+    """
+    caller = identity(presented)
+    if caller is not None:
+        return caller
+    variable = AGENT_SESSION_VARIABLES.get(environ.get("WFCTL_AGENT", ""))
+    return identity(environ.get(variable)) if variable else None
 
 
 def _holder_since_last_boundary(

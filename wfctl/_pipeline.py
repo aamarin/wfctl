@@ -1135,7 +1135,7 @@ def build_report(
     `session_id` defaults to None so every existing caller keeps compiling and
     keeps its answer. That default is not a placeholder for a value wfctl could
     work out: the caller owns the identity and wfctl cannot derive it
-    (`session-identity-comes-from-the-caller`), so "nothing was presented" is the
+    (`session-identity-from-named-agent`), so "nothing was presented" is the
     honest input and `"unknown"` is the honest output.
     """
     # Aliased: the report field and the reader are the same word, and
