@@ -46,6 +46,10 @@ names the review group and the run. wfctl keeps the notes under
 `refs/notes/wfctl-review` and pushes that ref to `origin`. A person's sign-off
 adds a note the same way.
 
+Only wfctl writes these notes. The worktree guard blocks an agent from running
+`git notes` against `refs/notes/wfctl-review` or pushing that ref directly, the
+same way it already blocks an agent from running `wfctl review sign-off`.
+
 A CI job fetches the notes ref and finds the commits on the PR that no review
 covers, using the same range rules as the local check. The job fails if any
 group has an unreviewed commit, and the `main` ruleset makes it a required
@@ -74,10 +78,15 @@ result, every "Update branch" would block the PR until someone reran the
 review locally.
 
 CI trusts any note it finds on the ref. Anyone who can push to the repository
-can write a note. As a result, the check catches a skipped review or a merge
-that bypassed the guard, but not a deliberately forged note. `wfctl
-verify` has the same limit, since it's also a local tool
-(`wfctl-runs-the-verification.md`).
+can write a note, and the agent runs with the person's own Git credentials and
+keys, so signing the notes wouldn't help. The guard rule above stops an agent
+from writing a note by hand, but only when the command exactly matches its
+rules. An agent can still fake the reviewer reports that complete a run. As a
+result, the check catches a skipped review or a merge that bypassed the guard,
+but not a deliberately forged note. `wfctl verify` has the same limit, since
+it's also a local tool (`wfctl-runs-the-verification.md`). Closing the gap
+fully would mean running the reviewers in CI, or adding a step that only a
+person can take.
 
 ## Boundary
 
@@ -176,3 +185,5 @@ branch.
 - 2026-10-24  proposed    — #627 level 2, unattended run. Waiting on Andre,
   including whether CI should trust any pushed note, which his comment on #627
   left as a decision for this issue.
+- 2026-10-24  revised     — Andre accepted that CI can't catch a forged note,
+  and added the guard rule that blocks an agent from writing one by hand.
