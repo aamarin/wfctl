@@ -53,7 +53,8 @@ when a command is about to be refused, to find the spec root and the state
 root, and `_spec_store` only when that command also runs git, to ask whether
 the spec root takes commits. It imports `_review_gate` only when a command
 contains `gh`, `merge`, or `sign`. That module imports `_review`,
-`_review_config`, `_paths`, and `_guard` only after a command has matched. None of these imports pulls in `cli`, which is what lets the guard run without
+`_review_config`, `_paths`, and `_guard` only after a command has matched.
+None of these imports pulls in `cli`, which is what lets the guard run without
 it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:

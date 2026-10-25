@@ -57,9 +57,10 @@ into the command would be refused while the branch is unreviewed.
 The roster shows the relay on the reviewer's line, such as
 `s2 claude ✓ relayed: write denied`. The panel skill tells the coordinator to
 check that reason against what it saw. If the agent reviewer isn't blocked,
-the coordinator flags this to the human reviewer. Each agent reviewer should
-write its own report, and the coordinator should save one only for an agent
-reviewer that is blocked from writing it.
+the coordinator flags this to the human reviewer, because an agent reviewer
+that could write its report and didn't is a gap in the process. Each agent
+reviewer should write its own report, and the coordinator should save one only
+for an agent reviewer that is blocked from writing it.
 
 ## Diagram
 

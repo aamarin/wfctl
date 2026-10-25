@@ -49,8 +49,8 @@ code      code-review         c1 c2 c3 claude
 
 Run each group, in that order, with
 `.agents/skills/fanning-out-code-review/SKILL.md`, over every commit wfctl
-lists for that run, before you open the template. Security and code always come first, and a group the
-repository adds runs after them.
+lists for the group's run, before you open the template. Security and code
+always come first, and a group the repository adds runs after them.
 
 Run every group on every change, with no condition that skips one, including
 the change that looks too small to need it. Skipping a group because this

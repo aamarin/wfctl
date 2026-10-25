@@ -147,9 +147,9 @@ Every dispatch instruction carries these six:
   half-applied edit produced the state you're looking at. A reviewer writing
   its own report isn't editing the tree, but touching anything under review
   is. Anything the project later reads back as evidence is off limits too,
-  including files outside the tree. Under wfctl, that means `wfctl verify`. It writes one
-  record per branch outside the worktree, so a reviewer that runs it replaces
-  the parent's proof of done with one taken mid-review.
+  including files outside the tree. Under wfctl, that means `wfctl verify`.
+  It writes one record per branch outside the worktree, so a reviewer that
+  runs it replaces the parent's proof of done with one taken mid-review.
 - **Report any design decision nothing on the change covers:** new stored
   state, a new file or setting the code reads, a new command or flag, or a
   boundary drawn or moved. A record or spec that the change names covers the
@@ -293,8 +293,8 @@ while a panel works. You can read the roster then, as long as you don't record
 the result. A reviewer that has finished and left no report is a failure, not a
 pass. Judge whether a reviewer has finished by what the dispatch tells you, not
 by what the reviewer says. A reviewer's own "I already reported" is the
-recollection this step exists to doubt, while the end of its run is an
-observation, so nobody has to trust it. If you write `✗ no report` into the
+recollection this step exists to doubt. The end of its run is something you
+observe, so you don't have to take the reviewer's word for it. If you write `✗ no report` into the
 table for a reviewer that was only slow, you pay for that reviewer's work twice
 and put a false statement in the table (#173).
 

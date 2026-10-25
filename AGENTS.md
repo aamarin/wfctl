@@ -325,9 +325,9 @@ skip a group.
 
 `security` and `code` always run first, in that order, whether or not the list
 names them. The code group reviews the security group's fixes. Every other
-group follows in list order and reviews the result of both. The `security`
-group runs the `reviewing-security` skill and every other group runs
-`code-review`, unless a group names its own with `skill`.
+group follows in list order and reviews the result of both. By default, the
+`security` group runs the `reviewing-security` skill and every other group
+runs `code-review`. Any group can name its own skill with `skill`.
 
 A reviewer's ID is its group's first letter and its position in the group's
 list. The file above gives `s1` to `s4`, with `s3` and `s4` on Codex,

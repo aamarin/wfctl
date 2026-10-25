@@ -14,7 +14,7 @@
 | A · Duplication | Clear |
 | B · Ambiguity | Clear |
 | C · Underspecification | Clear |
-| D · Constitution alignment | Clear (no constitution; read the plan's `AGENTS.md` and record gates) |
+| D · Constitution alignment | Clear (no constitution; the plan's `AGENTS.md` and record gates were read) |
 | E · Coverage gaps | Resolved (1 MEDIUM, 3 LOW, tasks fixed) |
 | F · Inconsistency | Resolved (2 MEDIUM, spec and task fixed) |
 | G · Design-record contradiction | Clear (4 records read) |
@@ -52,8 +52,8 @@ change.
   already sets up that state.
 - **E · Coverage gaps, LOW**: T063 says a person must run `install-skills` in a
   fresh repository, but no task asked anyone to.
-  → Fixed: T074 asks the person to run it, alongside the sign-off step they already
-  run.
+  → Fixed: T074 asks the person to run it, alongside the sign-off step they
+  already run.
 - **E · Coverage gaps, LOW**: The spec's Validation Strategy compares the
   timing run against the figures in the `_hook.py` docstring, but T040
   didn't.

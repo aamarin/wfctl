@@ -86,8 +86,8 @@ it as `../../references/security-checklist.md`, and `hardening-patterns.md`
 cites it as `../../../references/security-checklist.md`. From an installed
 skills folder, both resolve to `.agents/references/`, which doesn't exist. As a
 result, an agent that loads `security-and-hardening` on its own can't follow
-the checklist path. `reviewing-security` gives its reviewers the correct path. We
-accept the broken citations to leave upstream's files unedited. The skill also
+the checklist path. `reviewing-security` gives its reviewers the correct path.
+We accept the broken citations to leave upstream's files unedited. The skill also
 names `observability-and-instrumentation` and `debugging-and-error-recovery`,
 two upstream skills wfctl doesn't ship. Those names stay unresolved for the
 same reason.
@@ -145,8 +145,8 @@ have been missed by any rule reading frontmatter (#216).
 
 The second table lists files by their path under `wfctl/`, and all but one are
 in `wfctl/specify/`. That tree comes from the same upstream and has its own
-table because it holds no skills. The scripts carry the attribution line as a comment
-on the line after the shebang; the templates carry nothing, because
+table because it holds no skills. The scripts carry the attribution line as a
+comment on the line after the shebang; the templates carry nothing, because
 `setup-plan.sh` runs `cp` on `plan-template.md` and the skills that read the
 others write from their structure, so a line in a template would assert
 GitHub's copyright over every artifact the runtime generates. Their notice is `wfctl/specify/templates/NOTICES.md`, which names
@@ -252,8 +252,9 @@ and their notice: `wfctl/specify/templates/NOTICES.md` for the templates, and
 `wfctl/agents/skills/NOTICES.md` for the prompt. A row the notice doesn't name,
 or a file it names with no row, fails the same way. The check also compares
 each listed template or prompt with the tree, which the line does for free for
-a skill or a script. Delete a skill and its key leaves `_attributed()`. A template or the prompt is declared in two documents
-instead, and both would keep naming a path that no longer exists.
+a skill or a script. Delete a skill and its key leaves `_attributed()`. A
+template or the prompt is declared in two documents instead, and both would
+keep naming a path that no longer exists.
 
 `knowledge-placement` rules out a fact with two homes, and this is the exception
 it names, not a breach of it: the line and the row are not the same fact. The

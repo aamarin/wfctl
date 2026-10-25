@@ -8,8 +8,8 @@ status: proposed
 
 Under the accepted record on review coverage, wfctl installs an agent hook that
 refuses to open or merge a PR while the branch has commits that no review
-covered. After three review rounds, a person can sign off on the remaining commits,
-and the hook then allows the PR. The agent shouldn't sign off, so the same hook
+covered. After three review rounds, a person can sign off on the remaining
+commits, and the hook then allows the PR. The agent shouldn't sign off, so the same hook
 refuses the sign-off command when the agent runs it.
 
 wfctl already installs one hook that runs before every shell command the agent
@@ -168,8 +168,9 @@ only when a file was half-written, which is rare enough that the choice costs
 almost nothing.
 
 A sign-off doesn't get a command past an error, since the error stops the check
-whether or not a sign-off exists. Instead, the refusal names the error and tells the person they can
-run the same command in their own terminal, where the hook doesn't run.
+whether or not a sign-off exists. Instead, the refusal names the error and says
+that a person can run the same command in their own terminal, where the hook
+doesn't run.
 
 ## Diagram
 
@@ -223,8 +224,8 @@ checking a fifth command means changing one list.
   payload that isn't valid JSON, skips both. The guard already reads every
   payload field defensively for that reason.
 - The hook doesn't check a PR opened without `gh`, by an agent without hooks,
-  or through a disguised command the review check doesn't read. The follow-up issue on
-  a required CI check covers all three.
+  or through a disguised command the review check doesn't read. The follow-up
+  issue on a required CI check covers all three.
 - The check identifies the trunk checkout by its branch name, so the rule that
   only the trunk checkout acts on another branch's PR is a convention rather
   than enforcement. A feature worktree that runs `git switch main` passes as
