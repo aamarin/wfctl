@@ -81,18 +81,63 @@ def test_wfctl_session_id_wins_over_the_agents_variable(
     assert _holder() == "self"
 
 
-def test_the_flag_wins_over_both_variables(
+def test_the_flag_is_recorded_when_later_commands_present_no_identity(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The flag is the one channel a person types, so it beats anything the
-    environment happens to carry."""
+    """A plain terminal with the agent named in the profile but no conversation
+    behind it. The flag is the only id on offer, so `start` records it, and the
+    commands after it present nothing and read `unknown` as they always have."""
+    monkeypatch.delenv("WFCTL_SESSION_ID", raising=False)
+    monkeypatch.setenv("WFCTL_AGENT", "claude")
+    monkeypatch.delenv(CLAUDE_VAR, raising=False)
+
+    result = runner.invoke(app, ["start", "--session-id", "typed"])
+
+    assert result.exit_code == 0, result.output
+    assert _recorded(storyctl_dir) == "typed"
+
+
+def test_the_flag_is_accepted_when_it_matches_what_later_commands_present(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Typing the conversation's own id is redundant, not a conflict, so it must
+    not be refused alongside a flag that differs."""
+    monkeypatch.delenv("WFCTL_SESSION_ID", raising=False)
     monkeypatch.setenv("WFCTL_AGENT", "claude")
     monkeypatch.setenv(CLAUDE_VAR, "from-host")
-    monkeypatch.setenv("WFCTL_SESSION_ID", "from-profile")
 
-    runner.invoke(app, ["start", "--session-id", "typed"])
+    result = runner.invoke(app, ["start", "--session-id", "from-host"])
 
-    assert _recorded(storyctl_dir) == "typed"
+    assert result.exit_code == 0, result.output
+    assert _holder() == "self"
+
+
+@pytest.mark.parametrize(
+    "variable", ["WFCTL_SESSION_ID", CLAUDE_VAR], ids=["profile", "host"]
+)
+def test_a_flag_later_commands_cannot_present_is_refused(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    """Codex on PR #645. `resume`, `end` and the orchestrate gate take no flag, so
+    they present the environment's id. A typed id that differs from it would make
+    the conversation that typed it read `other` on its own branch, and the gates
+    would refuse it. The profile case predates #629. The host case is new with
+    the agent fallback, and it reaches every Claude Code pane with `WFCTL_AGENT`
+    set, since the host always exports its own id."""
+    monkeypatch.setenv("WFCTL_AGENT", "claude")
+    if variable == "WFCTL_SESSION_ID":
+        monkeypatch.setenv("WFCTL_SESSION_ID", "from-profile")
+    else:
+        monkeypatch.delenv("WFCTL_SESSION_ID", raising=False)
+        monkeypatch.setenv(CLAUDE_VAR, "from-host")
+
+    result = runner.invoke(app, ["start", "--session-id", "typed"])
+
+    assert result.exit_code == 1, result.output
+    assert "WFCTL_SESSION_ID" in result.output
+    assert _recorded(storyctl_dir) is None
 
 
 def test_a_blank_wfctl_session_id_falls_through_to_the_agent(
