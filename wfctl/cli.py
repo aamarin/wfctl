@@ -411,7 +411,7 @@ def start_cmd(
                 agent_dir, "start", branch=branch,
                 step=report.current or "complete", session_id=caller,
             )
-            # Only the third line names another conversation. `"unknown"` here
+            # Only the last outcome names another conversation. `"unknown"` here
             # means the branch's last `start` recorded no id, which is the first
             # `start` on every branch begun before its agent's id reached wfctl,
             # and the caller is usually the same conversation that left the id

@@ -594,7 +594,9 @@ def test_restarting_your_own_ended_session_is_not_announced_as_a_takeover(
 
     assert "this conversation holds the branch again" in result.output
     assert "another conversation" not in result.output
-    assert _starts(agent_dir)[-1]["session_id"] == "mine"
+    starts = _starts(agent_dir)
+    assert len(starts) == 2
+    assert starts[-1]["session_id"] == "mine"
 
 
 def test_takeover_appends_and_never_rewrites(agent_dir: Path) -> None:
