@@ -405,19 +405,26 @@ def start_cmd(
         # FR-006: an unwired caller presents nothing and can never trigger this,
         # whatever the holder is.
         if caller is not None and report.session_holder != "self":
+            # Read before the append, which makes the caller the holder.
+            displaced = last_session_id(agent_dir, branch)
             append_event(
                 agent_dir, "start", branch=branch,
                 step=report.current or "complete", session_id=caller,
             )
-            # `"unknown"` here means the branch's last `start` recorded no id, so
-            # there is no other conversation to name. That is the first `start`
-            # on every branch begun before its agent's id reached wfctl, and the
-            # caller is usually the same conversation that left the id out.
-            console.print(
-                "[green]✓[/green] Session started — this conversation now holds the branch"
-                if report.session_holder == "unknown"
-                else "[green]✓[/green] Session started — took over from another conversation"
-            )
+            # Only the third line names another conversation. `"unknown"` here
+            # means the branch's last `start` recorded no id, which is the first
+            # `start` on every branch begun before its agent's id reached wfctl,
+            # and the caller is usually the same conversation that left the id
+            # out. A displaced holder equal to the caller is that caller's own
+            # session after an `end`, which the holder relation reads as
+            # `"other"` on purpose and which is still nobody else.
+            if report.session_holder == "unknown":
+                outcome = "this conversation now holds the branch"
+            elif displaced == caller:
+                outcome = "this conversation holds the branch again"
+            else:
+                outcome = "took over from another conversation"
+            console.print(f"[green]✓[/green] Session started — {outcome}")
             return
 
         # The sitting boundary, on the path that carries almost every sitting
@@ -441,8 +448,8 @@ def start_cmd(
             # treats that line as resetting the holder to absent
             # (`_holder_since_last_boundary`), so an unwired re-run would
             # silently drop a wired holder's identity mid-branch, which is the
-            # failure FR-006 of #200 rules out. Carrying the existing holder forward makes an unwired
-            # call a true no-op on identity, matching FR-006.
+            # failure FR-006 of #200 rules out. Carrying the existing holder
+            # forward makes an unwired call a true no-op on identity.
             identity_to_record = (
                 caller if caller is not None else last_session_id(agent_dir, branch)
             )

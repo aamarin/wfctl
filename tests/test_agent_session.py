@@ -575,6 +575,28 @@ def test_a_branch_recorded_before_identities_accepts_the_first_one(
     assert _starts(agent_dir)[-1]["session_id"] == "first"
 
 
+def test_restarting_your_own_ended_session_is_not_announced_as_a_takeover(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`start` → `end` → `start`, all as one identity, takes the branch back quietly.
+
+    The holder relation reads `"other"` after an `end` whatever the identity, so
+    this path runs the takeover branch. Before #629 no caller presented an id and
+    nobody reached it; now every Claude conversation that ends a session and
+    starts another does, and was told it took over from another conversation
+    when the conversation it displaced was itself.
+    """
+    runner.invoke(app, ["start", "--session-id", "mine"])
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+    _run("end")
+
+    result = runner.invoke(app, ["start", "--session-id", "mine"])
+
+    assert "this conversation holds the branch again" in result.output
+    assert "another conversation" not in result.output
+    assert _starts(agent_dir)[-1]["session_id"] == "mine"
+
+
 def test_takeover_appends_and_never_rewrites(agent_dir: Path) -> None:
     """The history of who held the branch survives every takeover.
 
