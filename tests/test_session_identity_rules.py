@@ -1,10 +1,11 @@
 """The three session-identity rules, each expressed as a check rather than prose.
 
-`session-identity-comes-from-the-caller` and `no-hardcoded-agent` both forbid
-something — naming a host's variable, deriving the identity, reading the answer
-out of the log by hand — and a rule that only forbids has nothing that goes red
-when it is broken. `a-rule-is-expressed-as-a-check` asks for the check to live in
-an artifact the work already produces, which is what these are.
+`session-identity-from-named-agent` and `no-hardcoded-agent` both forbid
+something — naming a host's variable outside wfctl's one table, deriving the
+identity, reading the answer out of the log by hand — and a rule that only
+forbids has nothing that goes red when it is broken.
+`a-rule-is-expressed-as-a-check` asks for the check to live in an artifact the
+work already produces, which is what these are.
 
 One file for three rules rather than three files for one test each: they share a
 subject and a failure, and splitting them would put each rule where nobody looks
@@ -22,8 +23,8 @@ SKILLS = SOURCE / "agents"
 
 # Spellings a host is known to use, plus the shape a new one would take. Matched
 # as a pattern rather than a list because the point is not these three names —
-# it is that wfctl never reads *any* variable it did not define, and a fourth
-# host appearing must fail this without anyone remembering to add it.
+# it is that wfctl reads no host variable outside its agent table, and a fourth
+# host appearing anywhere else must fail this without anyone remembering to add it.
 _HOST_SESSION_VAR = re.compile(
     r"\b(?!WFCTL_)[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_SESSION(?:_ID)?\b"
 )
@@ -33,21 +34,30 @@ def _python_sources() -> list[Path]:
     return sorted(SOURCE.rglob("*.py"))
 
 
-def test_no_host_session_variable_is_named_in_source() -> None:
-    """wfctl stores an opaque value; naming a host's variable would derive one.
+def _is_table_entry(path: Path, line: str) -> bool:
+    from wfctl._session import AGENT_SESSION_VARIABLES
 
-    The record's own argument is that a wrong guess about the host becomes a
-    mapping to fix rather than a design to redo — which holds only while the
-    mapping lives outside wfctl. One `os.environ.get("CLAUDE_CODE_SESSION_ID")`
-    added as a convenience fallback would move it inside, and nothing else here
-    would notice: every behavioural test would go on passing, because the value
-    it returns is a perfectly good identity.
+    return path.name == "_session.py" and any(
+        line.strip() == f'"{agent}": "{variable}",'
+        for agent, variable in AGENT_SESSION_VARIABLES.items()
+    )
+
+
+def test_host_session_variables_are_named_only_in_the_agent_table() -> None:
+    """`session-identity-from-named-agent` lets wfctl name a host's variable in
+    one place, keyed by the agent `WFCTL_AGENT` names.
+
+    A second place is a probe. One `os.environ.get(...)` of a host variable added
+    elsewhere as a convenience fallback would read it whatever agent the developer
+    named, which is the nested-agent mistake the record rejects. Nothing else here
+    would notice: every behavioural test would go on passing, because the value it
+    returns is a perfectly good identity.
     """
     offenders = [
         f"{path.relative_to(SOURCE)}:{n}: {line.strip()}"
         for path in _python_sources()
         for n, line in enumerate(path.read_text().splitlines(), 1)
-        if _HOST_SESSION_VAR.search(line)
+        if _HOST_SESSION_VAR.search(line) and not _is_table_entry(path, line)
     ]
     assert not offenders, "wfctl reads a session variable it does not own:\n" + "\n".join(
         offenders

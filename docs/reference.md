@@ -455,23 +455,30 @@ and the exit code stays 0.
 agents work in parallel without stepping on each other. The seeded config makes
 new worktrees come up ready.)
 
-**`WFCTL_SESSION_ID`** answers a different question — not which agent, but which
-*conversation*. `wfctl start` records it verbatim (`--session-id`, falling back
-to this variable) and every later gate compares against what it recorded, so a
-second conversation on the same branch is told the truth instead of reading a
-session as open forever. wfctl cannot derive this itself — see
-["Is a session open now?"](architecture/session-identity-comes-from-the-caller.md)
-— so it is a host mapping, set once, beside `WFCTL_AGENT`:
+**`WFCTL_AGENT` also tells wfctl which *conversation* is running.** `wfctl
+start` records a session id, and every later gate compares the caller's id
+against it, so a second conversation on the same branch is told the truth
+instead of reading a session as open forever. wfctl can't derive the id itself,
+so it reads the variable the agent's host exports. The variable is looked up
+from `WFCTL_AGENT` in a table in wfctl's code
+(["Session identity from the named agent"](architecture/session-identity-from-named-agent.md)).
+Today the table covers `claude`. With `WFCTL_AGENT=claude` set, there is nothing
+else to configure.
+
+**`WFCTL_SESSION_ID`** overrides that lookup, and `--session-id` overrides both.
+Use it for an agent the table doesn't cover yet, mapping whatever that host
+exports:
 
 ```bash
 # ~/.zshrc
-export WFCTL_SESSION_ID="$CLAUDE_CODE_SESSION_ID"
+export WFCTL_SESSION_ID="$YOUR_HOST_SESSION_VARIABLE"
 ```
 
-Unset is the same legitimate state as `WFCTL_AGENT` unset: every gate answers
-exactly as it did before this existed. If your host's own variable turns out to
-rotate more often than a conversation actually does, you will see it as repeated
-takeovers inside one sitting — the fix is this mapping, not a change to wfctl.
+With no id from any of the three, every gate answers exactly as it did before
+this existed. If your host's own variable turns out to rotate more often than a
+conversation actually does, you will see it as repeated takeovers inside one
+sitting. The fix is overriding `WFCTL_SESSION_ID` and reporting the host, not a
+change to how wfctl compares ids.
 
 `github` seeds [`.github/pull_request_template.md`](../wfctl/agents/configs/github/.github/pull_request_template.md):
 a summary that reads on its own, then issue links, implementation rationale and
@@ -1039,7 +1046,7 @@ advance the pipeline.
 | `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
 | `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
-| `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it only to know whether an absent agent layer was a choice. Unset installs the `.agents/` layer alone |
-| `WFCTL_SESSION_ID`      | Opaque identity for the calling conversation, presented to `wfctl start`'s `--session-id`. Recorded verbatim and compared, never parsed; a caller presenting a different identity than the branch's recorded holder takes it over. Unset behaves exactly as the released version — see the `WFCTL_SESSION_ID` paragraph under [Seeding project config](#seeding-project-config-install-config) above |
+| `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it to know whether an absent agent layer was a choice, and every command reads it to find the agent's session variable when `WFCTL_SESSION_ID` is unset. Unset installs the `.agents/` layer alone |
+| `WFCTL_SESSION_ID`      | Opaque identity for the calling conversation, presented to `wfctl start`'s `--session-id`. Recorded verbatim and compared, never parsed; a caller presenting a different identity than the branch's recorded holder takes it over. Overrides the session variable of the agent `WFCTL_AGENT` names; with neither, every gate behaves as it did before session ids existed. See the `WFCTL_AGENT` paragraphs under [Seeding project config](#seeding-project-config-install-config) above |
 | `WFCTL_RESTART_THRESHOLD` | Tokens in the context window at which `hook session-restart` restarts a pane (default `200000`; `0` turns it off). Read from the environment the pane was launched from, because it follows the model's window rather than the repo |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |

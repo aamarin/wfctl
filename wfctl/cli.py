@@ -236,16 +236,17 @@ def _caller_identity() -> str | None:
     `start` takes `--session-id` because it is the command that *records* one,
     and a person may want to type it. `status`, `resume` and `end` only ever
     compare, and contracts/cli.md gives them no flag — so the environment is
-    their whole channel, which is also the one the shipped skill uses.
+    their whole channel: `WFCTL_SESSION_ID`, then the session variable of the
+    agent `WFCTL_AGENT` names (`session-identity-from-named-agent`).
 
     Read here rather than in `build_report` so the identity enters the pipeline
     the same way on every path: as an argument the caller supplies. wfctl reading
-    its own environment *inside* the inference would be one step from deriving
-    the value, which `session-identity-comes-from-the-caller` forbids.
+    its own environment *inside* the inference would mix the question of who is
+    asking into the derivation of where the work stands.
     """
-    from wfctl._session import identity
+    from wfctl._session import presented_identity
 
-    return identity(os.environ.get("WFCTL_SESSION_ID"))
+    return presented_identity(os.environ.get("WFCTL_SESSION_ID"), os.environ)
 
 
 def _identity_kwarg(caller: str | None) -> dict[str, str]:
@@ -345,14 +346,15 @@ def start_cmd(
         help="Opaque identity for the calling conversation. Recorded verbatim "
              "and never parsed; wfctl compares it and nothing else. Presenting "
              "an identity a branch does not already hold takes the branch over. "
-             "Omit it and every gate behaves exactly as it did before this "
-             "existed.",
+             "Omit it and wfctl uses the session id of the agent WFCTL_AGENT "
+             "names, when it knows that agent's variable; with neither, every "
+             "gate behaves exactly as it did before this existed.",
     ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._session import grant_auto_approve, identity, last_session_id
+    from wfctl._session import grant_auto_approve, last_session_id, presented_identity
 
     _refuse_unless_the_issue_allows_a_session()
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -361,7 +363,8 @@ def start_cmd(
     # option rather than at each read, so a caller that exports the variable and
     # a caller that types the flag reach every branch below by the same path —
     # and there is one place where blank becomes absent rather than one per use.
-    caller = identity(session_id)
+    # The agent's own variable comes last, so either of those still overrides it.
+    caller = presented_identity(session_id, os.environ)
     spec_dir = resolve_spec_dir(branch, repo_root)
 
     # Before the early return, not after. `start` is idempotent about the session
@@ -432,7 +435,7 @@ def start_cmd(
             # treats that line as resetting the holder to absent
             # (`_holder_since_last_boundary`), so an unwired re-run would
             # silently drop a wired holder's identity mid-branch (#200) — the
-            # exact thing `session-identity-comes-from-the-caller` exists to
+            # exact thing `session-identity-from-named-agent` exists to
             # prevent. Carrying the existing holder forward makes an unwired
             # call a true no-op on identity, matching FR-006.
             identity_to_record = (
