@@ -35,12 +35,13 @@ memory of it — load them before doing anything else.
    user's to run; renaming a branch or reopening an issue is not this skill's
    call.
 
-   **`WFCTL_SESSION_ID` is the whole of how wfctl learns which conversation this
-   is.** `wfctl start` reads it from the environment itself, records the value
-   verbatim and compares it and nothing else, so a later conversation on the
-   same branch is refused by `resume`, `end` and the orchestrate gate rather
-   than walking through them (#200). Running it again from the displaced
-   conversation takes the branch back.
+   **wfctl learns which conversation this is from the environment.** `wfctl
+   start` reads `WFCTL_SESSION_ID` if it is set, and otherwise the session
+   variable of the agent `WFCTL_AGENT` names. It records the value verbatim and
+   compares it and nothing else, so a later conversation on the same branch is
+   refused by `resume`, `end` and the orchestrate gate rather than walking
+   through them (#200). Running it again from the displaced conversation takes
+   the branch back.
 
    **The line passes no flag on purpose.** An expansion that yields a flag and
    its value, such as `${VAR:+--flag "$VAR"}`, splits into two words under `sh`
@@ -51,15 +52,17 @@ memory of it — load them before doing anything else.
    the user's shell, do not carry a flag and its value through an expansion; give
    the flag an `envvar` and let wfctl read the variable.
 
-   **Set `WFCTL_SESSION_ID` in your shell profile, beside `WFCTL_AGENT`, mapping
-   whatever your host exports.** It is not named here on purpose: a committed
-   hook may not name an agent (`no-hardcoded-agent`) and may not name a host's
-   session variable either. The environment is the sanctioned source.
+   **`WFCTL_AGENT` is the only setting this needs.** wfctl keeps the table of
+   which variable each agent exports, so no profile line copies one into
+   another, and this skill names no host's variable (`no-hardcoded-agent`). An
+   agent missing from that table can still be wired by hand: set
+   `WFCTL_SESSION_ID` in the shell profile to the variable that host exports.
 
-   **With it unset nothing is refused.** The gates report `unknown` and behave
-   exactly as they did before this existed, so an unwired repo is no worse off;
-   it simply does not get the second answer. Surface that in step 7's
-   session-identity bullet: the profile is the
+   **With no identity, nothing is refused.** When `WFCTL_AGENT` is unset, or
+   names an agent wfctl has no variable for, and `WFCTL_SESSION_ID` is unset,
+   the gates report `unknown` and behave exactly as they did before this
+   existed. An unwired repo is no worse off; it just doesn't get the second
+   answer. Surface that in step 7's session-identity bullet: the profile is the
    user's to edit, not this step's to write.
 
    **If it reports any layer's skills behind or drifted, bring them level now.**
@@ -308,8 +311,10 @@ memory of it — load them before doing anything else.
    - **Session identity**: `session_holder` from `wfctl status --json` (step 3)
      when it is not `"unknown"` — `"self"` needs no comment, `"other"` or
      `"none"` says why the gates below will refuse. When it is `"unknown"`,
-     name `WFCTL_SESSION_ID` unset as the reason, the one time this step
-     surfaces it — setting it is the user's, not this step's to do
+     name the reason, the one time this step surfaces it: `WFCTL_AGENT` is
+     unset, or it names an agent wfctl has no session variable for, and
+     `WFCTL_SESSION_ID` is unset too. Setting either is the user's, not this
+     step's to do
    - **In force**: the accepted record slugs, or omit if the set is empty
    - Current pipeline step and the next command (from `wfctl status --json`)
    - Last session's focus and its **Next Session TODO** (from `session-summary.md`)

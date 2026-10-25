@@ -3,7 +3,7 @@
 State: proposed
 Person who knows the domain: Andre Marin
 Last checked against the code: 2026-09-29, 63345fe
-Records this model draws on: `a-rule-is-expressed-as-a-check`, `install-modes`, `knowledge-placement`, `layer-model`, `level-4-owns-pattern-selection`, `no-hardcoded-agent`, `pipeline-state-is-one-payload`, `required-sections-are-wfctls`, `session-identity-comes-from-the-caller`, `session-state-is-re-derived`, `supervisory-screen-owns-grouping`, `vendor-upstream-skills`, `wfctl-runs-the-verification`
+Records this model draws on: `a-rule-is-expressed-as-a-check`, `install-modes`, `knowledge-placement`, `layer-model`, `level-4-owns-pattern-selection`, `no-hardcoded-agent`, `pipeline-state-is-one-payload`, `required-sections-are-wfctls`, `session-identity-from-named-agent`, `session-state-is-re-derived`, `supervisory-screen-owns-grouping`, `vendor-upstream-skills`, `wfctl-runs-the-verification`
 
 ## Domain vision statement
 
@@ -161,7 +161,7 @@ flowchart LR
 | R8 | workmux | Session continuity | Conformist | wfctl | lifecycle hooks for creating branches and removing worktrees | A worktree made with bare `git worktree add` skips the hooks and registers no tmux session, and nothing announces it. |
 | R9 | workmux | Install and drift | Conformist | wfctl | the `post_create` hook running `install-skills` | The hook exits 0 even when it installs less than intended. |
 | R10 | workmux | Attention | Conformist | wfctl | agent state reported through hooks | An interrupted agent fires no hook, so it can read as working for days. |
-| R11 | Agent host | Session continuity | Conformist | wfctl records the id as given | an opaque session id (`session-identity-comes-from-the-caller`) | A conversation that presents a different id is refused. With no host wiring at all, the holder reads `unknown` and the gates behave as they did before the id existed. |
+| R11 | Agent host | Session continuity | Conformist | wfctl, which maps the agent named in `WFCTL_AGENT` to the variable its host exports, and records the id as given | an opaque session id (`session-identity-from-named-agent`) | A conversation that presents a different id is refused. With no `WFCTL_SESSION_ID` and an agent wfctl has no variable for, the holder reads `unknown` and the gates behave as they did before the id existed. |
 | R12 | Consumer repo | Evidence and derivation | Customer-supplier; the repo supplies the command, and wfctl owns the verdict | wfctl | a declared verification command | With no declared command, wfctl reports it unverified. |
 | R13 | Install and drift | Consumer repo | wfctl owns a whole file, or one entry in a file the repo owns (`install-modes`) | wfctl | the manifest and three install modes | Overwriting a repo's own file loses its work, so what was overwritten is backed up. |
 | R14 | Trackers | Attention | Conformist | wfctl | the tracker verbs | The screen has no facts about a pull request until the tracker answers. |
@@ -185,7 +185,7 @@ Andre reviewed the six contexts on 2026-09-29 and confirmed they hold. Each plac
 | `no-hardcoded-agent` | Install and drift and workmux | Committed hook config is shared across developers. |
 | `required-sections-are-wfctls` | Evidence and derivation and Spec Kit | wfctl pins section names that upstream could rename. |
 | `wfctl-runs-the-verification` | Evidence and derivation and the consumer repo | The repo declares the command and wfctl records the verdict. |
-| `session-identity-comes-from-the-caller` | Session continuity and the agent host | The host supplies the id. |
+| `session-identity-from-named-agent` | Session continuity and the agent host | The host supplies the id, and wfctl knows which variable carries it. |
 | `supervisory-screen-owns-grouping` | Attention, workmux, and the trackers | wfctl groups, and the others supply facts. |
 | `vendor-upstream-skills` | Design method and the upstream projects | Attribution and layering, not forking. |
 | `a-rule-is-expressed-as-a-check` | the whole repository | It binds every rule wfctl ships, whichever context the rule belongs to, and the record calls itself a repo-wide claim. |

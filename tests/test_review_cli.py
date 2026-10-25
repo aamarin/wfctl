@@ -117,6 +117,20 @@ def test_start_with_no_trunk_branch_names_the_trunk_key(repo: Path) -> None:
     ]
 
 
+def test_start_refuses_a_trunk_that_is_the_branch_under_review(repo: Path) -> None:
+    """Every commit on the branch reads as already on the trunk, so the group
+    was reported up to date with nothing reviewed."""
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "637-x"}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ the trunk branch is 637-x, the branch under review; check trunk in wfctl.json",
+    ]
+
+
 def test_start_on_an_unknown_group_lists_the_groups_there_are(repo: Path) -> None:
     """A typo in a group name would otherwise start nothing and say nothing
     useful."""

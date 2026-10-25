@@ -176,6 +176,22 @@ def _spec_store_reaches_only_the_tests_own_remote(
     monkeypatch.setattr("wfctl._spec_store._check_remote", refuse_unless_local)
 
 
+@pytest.fixture(autouse=True)
+def _no_host_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip every agent host's session variable the developer's shell exported.
+
+    wfctl reads the variable of the agent `WFCTL_AGENT` names (#629), and this
+    suite is usually run from inside an agent conversation with both set. Left
+    live, every test expecting an unwired caller would see that conversation's id
+    instead, and pass in CI while failing at the developer's prompt. Matched by
+    shape rather than by wfctl's table so an entry added there is covered without
+    anyone remembering this fixture. Tests that want one set it themselves.
+    """
+    for name in list(os.environ):
+        if name.endswith(("_SESSION_ID", "_SESSION")) and not name.startswith("WFCTL_"):
+            monkeypatch.delenv(name)
+
+
 # A release, shaped like the payload `uv tool install` wrote on a real machine.
 RELEASE_ORIGIN = '{"url":"https://github.com/aamarin/wfctl.git","vcs_info":{"vcs":"git","commit_id":"4ca1604f3172d5f1ecd0221a2ca6d8d6fb231e22"}}'
 

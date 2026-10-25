@@ -292,9 +292,9 @@ overwrite would lose all but the last.
 
 ## Declaring reviewers
 
-`wfctl.json` holds a `review` key beside `steps` and `change_check`. It says
-which models review each change, and which review groups a repository adds of
-its own:
+`wfctl.json` holds a `review` key beside `steps` and `change_check`. It sets
+which models review each change and which custom review groups the repository
+adds:
 
 ```json
 {
@@ -312,36 +312,39 @@ its own:
 
 `commands` maps each model other than Claude to the command that starts it.
 Claude runs inside the current agent, so it needs none. `groups` lists the
-review groups, and each one names its reviewers as a model and a count. The
-count is exact, and a group's counts add up to at most 20. wfctl expects that
-many reports and keeps the run incomplete until they arrive.
+review groups, and each group names its reviewers as a model and a count. wfctl
+expects exactly that many reports and keeps the run incomplete until they
+arrive. A group's counts must add up to 20 or fewer.
 
 By default, `security` and `code` each have three Claude reviewers, so a
 repository that leaves the key out still gets both groups. A custom group has
-no default and lists its own. A built-in group gets the default only when its
-`reviewers` key is missing, so listing `security` to change its skill keeps its
-reviewers. An empty `reviewers` list is a finding, not a way to skip a group.
+no default and must list its own reviewers. A built-in group gets the default
+only when its `reviewers` key is missing, so listing `security` to change its
+skill keeps its reviewers. An empty `reviewers` list is a finding, not a way to
+skip a group.
 
 `security` and `code` always run first, in that order, whether or not the list
-names them. The code group reviews the security group's fixes, and every other
-group follows in list order and reviews the result of both. A group runs the
-`reviewing-security` skill if it is `security`, and the `code-review` skill
-otherwise, unless it names its own with `skill`.
+names them. The code group reviews the security group's fixes. Every other
+group follows in list order and reviews the result of both. By default, the
+`security` group runs the `reviewing-security` skill and every other group
+runs `code-review`. Any group can name its own skill with `skill`.
 
-A reviewer's id is its group's first letter and its place in the group's list,
-so the file above gives `s1` to `s4`, with `s3` and `s4` on Codex, then `c1` to
-`c3`, then `m1` and `m2`. That's why no two groups may share a first letter.
+A reviewer's ID is its group's first letter and its position in the group's
+list. The file above gives `s1` to `s4`, with `s3` and `s4` on Codex,
+then `c1` to `c3`, then `m1` and `m2`. That's why no two groups may share a
+first letter.
 
 `wfctl check config` reports every problem in the key, such as a model with no
-command or a count below 1, and `wfctl review start` refuses to start a run
-until they are fixed. Whether a command is installed is a fact about the machine
-running the review, not the repository, so `check config` doesn't look. `review
-start` looks it up on `PATH` instead, leaves that model's reviewers out of the
-run, and prints a `⚠` line naming them.
+command or a count below 1. `wfctl review start` refuses to start a run until
+you fix them. `check config` doesn't check whether a command is installed,
+since that depends on the machine running the review, not the repository.
+Instead, `review start` looks the command up on `PATH`. If it's missing,
+`review start` leaves that model's reviewers out of the run and prints a `⚠`
+line naming them.
 
-It lives in `wfctl.json` for the same reason `steps` does. `.agents/` is
-gitignored and rewritten by `install-skills`, so a reviewer list written there
-works for one session and then vanishes with no error.
+The `review` key lives in `wfctl.json` for the same reason `steps` does.
+`.agents/` is gitignored and rewritten by `install-skills`, so a reviewer list
+written there works for one session and then vanishes with no error.
 
 ## Releasing
 
@@ -424,18 +427,17 @@ another client: that is the one gate there is. Report it instead, with
 is taken (`wfctl-records-outward-actions-and-never-gates-them`, #384 removed the
 grant that used to stand in front of these).
 
-**The review check is the one refusal wfctl makes.** The worktree guard, a hook
-wfctl installs, refuses `gh pr create` and `gh pr merge` while a review group
-has commits it hasn't reviewed, and lists them under each group. That refusal
-comes from wfctl, not the host, so don't report it with `wfctl report-block`.
-Run the review groups it names, as `opening-a-change` Step 1 says, and open the
-PR again.
+**The review check is the one refusal wfctl makes.** The worktree guard is a
+hook wfctl installs. While a review group has commits it hasn't reviewed, the
+guard refuses `gh pr create` and `gh pr merge` and lists those commits under
+each group. That refusal comes from wfctl, not the host, so don't report it with
+`wfctl report-block`. Instead, run the review groups it names, as
+`opening-a-change` Step 1 says, and open the PR again.
 
-When the check refuses with an error instead, it couldn't reach an answer, such
-as a `gh` call that timed out. Stop and tell the person. They can run the same
-command in their own terminal, where the hook doesn't run, and that is their
-call. So is `wfctl review sign-off`, which the guard refuses when an agent runs
-it.
+If the check refuses with an error instead, it couldn't reach an answer, for
+example because a `gh` call timed out. Stop and tell the person. Running the
+same command in their own terminal, where the hook doesn't run, is their call.
+So is `wfctl review sign-off`, which the guard refuses when an agent runs it.
 
 What wfctl keeps is the record. `wfctl issue` logs each write that succeeded as
 `issue-<verb>`, and `wfctl report-action push` logs a push, which is the only
@@ -461,9 +463,9 @@ repo, read a committed manifest before the first `doctor`, for the same reason a
 the hooks: what it can install is agent instructions and `.specify/scripts/`,
 which speckit commands execute.
 
-`review.commands` in a committed `wfctl.json` is the same kind of thing. `wfctl
+The same applies to `review.commands` in a committed `wfctl.json`. `wfctl
 review start` prints each command beside its reviewers, and the review skill
-runs it, so read the key in an unfamiliar repo before running a review there.
+runs it. In an unfamiliar repo, read the key before running a review there.
 
 ## Conventions
 
