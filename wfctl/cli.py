@@ -6081,9 +6081,10 @@ def review_start_cmd(
         for g in groups:
             _say(f"  {g.name}")
         raise typer.Exit(1)
-    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    branch = resolve_branch(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, branch)
     try:
-        started = _review.start(repo_root, agent_dir, chosen)
+        started = _review.start(repo_root, agent_dir, chosen, branch=branch)
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
@@ -6207,10 +6208,11 @@ def review_sign_off_cmd() -> None:
         raise typer.Exit(1)
     repo_root = _get_repo_root_or_exit()
     groups = _review_groups_or_exit(repo_root)
-    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    branch = resolve_branch(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, branch)
     try:
         head = _review.head_commit(repo_root)
-        pending = _review.unreviewed(repo_root, agent_dir, groups, head)
+        pending = _review.unreviewed(repo_root, agent_dir, groups, head, branch=branch)
         subjects = _review.subjects(repo_root, [c for cs in pending.values() for c in cs])
     except _review.ReviewError as e:
         _say(f"✗ {e}")

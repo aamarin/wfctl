@@ -777,7 +777,7 @@ def _judge(target: Target, session: _Session) -> str | None:
     if problems:
         raise _Failed(f"can't read the review config: {problems[0]}")
     agent_dir = _paths.resolve_agent_dir(session.root, branch, create=False, timeout=TIMEOUT)
-    pending = _review.unreviewed(session.root, agent_dir, groups, head, TIMEOUT)
+    pending = _review.unreviewed(session.root, agent_dir, groups, head, TIMEOUT, branch=branch)
     if not pending:
         return None
     subjects = _review.subjects(session.root, [c for cs in pending.values() for c in cs], TIMEOUT)

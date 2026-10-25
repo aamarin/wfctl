@@ -382,18 +382,56 @@ def test_range_judges_a_feature_head_from_the_main_checkout(repo: Path) -> None:
     git(repo, "checkout", "-q", "main")
 
     assert set(_review.commit_range(repo, head, None).commits) == {first, head}
+    found = _review.commit_range(repo, head, None, branch="637-x")
+    assert set(found.commits) == {first, head}
 
 
-def test_range_lists_commits_a_replace_ref_grafted_out(repo: Path) -> None:
-    """`git replace --graft` rewrites a commit's parents, and `rev-list` then
-    skipped the commits it cut out, so a completed run marked them reviewed
-    unseen."""
+def replace_ref(repo: Path, kind: str, first: str, head: str) -> str:
+    """Make a replace ref of `kind` against a branch whose commits are `first`
+    and `head`, and return the object it replaces."""
+    main = git(repo, "rev-parse", "main")
+    if kind == "graft-out":
+        git(repo, "replace", "--graft", head, main)
+        return head
+    if kind == "same-tree-graft":
+        decoy = git(repo, "commit-tree", f"{head}^{{tree}}", "-m", "decoy")
+        git(repo, "replace", "--graft", head, decoy)
+        return head
+    if kind == "blob":
+        blob = git(repo, "rev-parse", f"{head}:b")
+        benign = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"], cwd=repo, input="benign\n",
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        git(repo, "replace", blob, benign)
+        return blob
+    target = first if kind == "listed-commit" else main
+    (repo / "other").write_text("other\n")
+    git(repo, "add", "other")
+    tree = git(repo, "write-tree")
+    git(repo, "reset", "-q", "other")
+    git(repo, "replace", target, git(repo, "commit-tree", tree, "-m", "other"))
+    return target
+
+
+@pytest.mark.parametrize(
+    "kind", ["graft-out", "same-tree-graft", "blob", "listed-commit", "parent-commit"],
+)
+def test_range_refuses_any_replace_ref(repo: Path, kind: str) -> None:
+    """wfctl lists commits with `--no-replace-objects`, and a reviewer reads
+    them with a plain `git show`, which honors replace refs. A check of the
+    replaced commit's tree let three kinds through: a replaced blob showed
+    other file content, and a graft onto a parent with the same tree showed an
+    empty diff, so the real change went unread. Grafting commits out made the
+    reviewer's diff span them all, against a range listing them one by one.
+    The remedy deletes each ref by its full name, since `git replace -d`
+    resolves its argument as an object and can't reach every name."""
     first = commit(repo, "a")
-    second = commit(repo, "b")
-    third = commit(repo, "c")
-    git(repo, "replace", "--graft", third, git(repo, "rev-parse", "main"))
+    head = commit(repo, "b")
+    replaced = replace_ref(repo, kind, first, head)
 
-    assert set(_review.commit_range(repo, third, None).commits) == {first, second, third}
+    with pytest.raises(_review.ReviewError, match=f"git update-ref --no-deref -d refs/replace/{replaced}$"):
+        _review.commit_range(repo, head, None)
 
 
 def test_range_keeps_a_merge_of_more_than_two_branches(repo: Path) -> None:
@@ -437,6 +475,276 @@ def test_range_reads_origin_main_when_origin_head_is_not_set(
     found = _review.commit_range(repo, own, reviewed)
     assert from_main not in found.commits
     assert found.commits == (own,)
+
+
+def single_branch_clone(tmp_path: Path, repo: Path, branch: str = "637-x") -> Path:
+    """A clone that fetched only `branch` from `origin`, the way
+    `git clone --single-branch --branch <branch>` makes one."""
+    git(repo, "push", "-q", "origin", "637-x")
+    clone = tmp_path / f"single-{branch}"
+    subprocess.run(
+        ["git", "clone", "-q", "--single-branch", "--branch", branch,
+         str(tmp_path / "origin.git"), str(clone)],
+        check=True,
+    )
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        git(clone, "config", key, val)
+    return clone
+
+
+@pytest.mark.parametrize("parent", ["main", "same-tree"])
+def test_range_refuses_a_grafts_file(repo: Path, parent: str) -> None:
+    """A `.git/info/grafts` line rewrites a commit's parents, and
+    `--no-replace-objects` doesn't turn it off. wfctl now ignores the file,
+    but a reviewer's `git show` still reads it, so a line pointing the head at
+    a parent with its own tree showed the reviewer an empty diff."""
+    commit(repo, "a")
+    head = commit(repo, "b")
+    onto = (
+        git(repo, "rev-parse", "main") if parent == "main"
+        else git(repo, "commit-tree", f"{head}^{{tree}}", "-m", "decoy")
+    )
+    grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_text(f"{head} {onto}\n")
+
+    with pytest.raises(_review.ReviewError, match="grafts"):
+        _review.commit_range(repo, head, None)
+
+
+@pytest.mark.parametrize("form", ["nested", "upper", "suffixed", "longer", "not an id"])
+def test_range_refuses_a_replace_ref_under_any_name(repo: Path, form: str) -> None:
+    """Git reads a replace ref's name after its last `/`, in either case, and
+    ignores what follows the id, so a check for exactly 40 or 64 lowercase hex
+    digits let four names through that swapped what a reviewer read. A name
+    git ignores is refused too, since its remedy works for any name."""
+    head = commit(repo, "a")
+    blob = git(repo, "rev-parse", f"{head}:a")
+    name = {
+        "nested": f"x/{blob}",
+        "upper": blob.upper(),
+        "suffixed": f"{blob}zz",
+        "longer": f"{blob}0",
+        "not an id": "foo",
+    }[form]
+    git(repo, "update-ref", f"refs/replace/{name}", git(repo, "rev-parse", "main:"))
+
+    with pytest.raises(
+        _review.ReviewError, match=re.escape(f"git update-ref --no-deref -d refs/replace/{name}")
+    ):
+        _review.commit_range(repo, head, None)
+
+
+@pytest.mark.parametrize("base", [None, "refs/other/", "refs/other"])
+def test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, base: str | None
+) -> None:
+    """`git update-ref -d` deletes one ref and reads a second name as the
+    value the first must hold, so one command naming every ref deleted none of
+    two and failed outright on three. The remedy builds each name from
+    `GIT_REPLACE_REF_BASE`, which no test had set, and older git strips a base
+    with no trailing slash literally. Newer git, 2.55 on CI and 2.56 on
+    Alpine, aborts every command that reads objects under such a base, so a
+    reviewer's `git show` hides nothing there and the range refuses on git's
+    own failure. The refs are made before the base is set, since `update-ref`
+    aborts under it too. The test runs the remedy as printed."""
+    head = commit(repo, "a")
+    namespace = (base or "refs/replace/").rstrip("/")
+    for name in ("a", "b", "c"):
+        git(repo, "update-ref", f"{namespace}/{name}", git(repo, "rev-parse", "main:"))
+    if base is not None:
+        monkeypatch.setenv("GIT_REPLACE_REF_BASE", base)
+
+    if subprocess.run(["git", "replace", "-l"], cwd=repo, capture_output=True).returncode:
+        with pytest.raises(_review.ReviewError, match="git replace failed"):
+            _review.commit_range(repo, head, None)
+        return
+    with pytest.raises(_review.ReviewError) as refused:
+        _review.commit_range(repo, head, None)
+    remedy = str(refused.value).split("remove each with ", 1)[1]
+    subprocess.run(remedy, shell=True, cwd=repo, check=True)
+
+    assert git(repo, "replace", "-l") == ""
+
+
+def test_range_refusal_deletes_a_symbolic_replace_ref_and_not_its_target(repo: Path) -> None:
+    """Git honors a symbolic ref under `refs/replace/`, and `update-ref -d`
+    follows one unless told not to, so the remedy deleted the branch it
+    pointed at and left the replace ref in place to refuse again."""
+    head = commit(repo, "a")
+    git(repo, "branch", "side")
+    git(repo, "symbolic-ref", f"refs/replace/{head}", "refs/heads/side")
+
+    with pytest.raises(_review.ReviewError) as refused:
+        _review.commit_range(repo, head, None)
+    remedy = str(refused.value).split("remove each with ", 1)[1]
+    subprocess.run(remedy, shell=True, cwd=repo, check=True)
+
+    assert git(repo, "replace", "-l") == ""
+    assert git(repo, "rev-parse", "--verify", "refs/heads/side") == head
+
+
+def test_range_refuses_an_empty_replace_ref_base_with_a_remedy_that_clears_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git takes an empty `GIT_REPLACE_REF_BASE` as given, so `replace -l`
+    lists every ref in the repository. The remedy named
+    `refs/replace/refs/heads/main`, which doesn't exist, so deleting it did
+    nothing and every review stayed refused."""
+    head = commit(repo, "a")
+    monkeypatch.setenv("GIT_REPLACE_REF_BASE", "")
+
+    with pytest.raises(_review.ReviewError, match="unset GIT_REPLACE_REF_BASE$"):
+        _review.commit_range(repo, head, None)
+
+
+def test_range_refuses_a_grafts_file_of_only_whitespace(repo: Path) -> None:
+    """The record refuses a grafts file with any content, and the check
+    stripped whitespace first, so a file of blank lines passed it."""
+    head = commit(repo, "a")
+    grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_text("\n \n")
+
+    with pytest.raises(_review.ReviewError, match="grafts"):
+        _review.commit_range(repo, head, None)
+
+
+def test_range_lists_when_the_grafts_variable_is_empty(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git reads no grafts file when `GIT_GRAFT_FILE` is set and empty, and
+    `rev-parse --git-path` refuses the empty value, so every review failed
+    with an error that named no remedy."""
+    head = commit(repo, "a")
+    monkeypatch.setenv("GIT_GRAFT_FILE", "")
+
+    assert _review.commit_range(repo, head, None).commits == (head,)
+
+
+def test_range_refuses_a_grafts_file_that_is_not_text(repo: Path) -> None:
+    """Git reads a grafts file as bytes, and wfctl read it as UTF-8, so a file
+    holding other bytes raised a decode error, which `review start` printed as
+    a traceback rather than a refusal."""
+    head = commit(repo, "a")
+    grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_bytes(b"\xff\xfe\x00bad\n")
+
+    with pytest.raises(_review.ReviewError, match="grafts"):
+        _review.commit_range(repo, head, None)
+
+
+@pytest.mark.parametrize("named", ["absolute", "relative", "trailing space"])
+def test_range_refuses_a_grafts_file_named_by_the_environment(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, named: str
+) -> None:
+    """A reviewer's git reads the grafts file `GIT_GRAFT_FILE` names in place
+    of `.git/info/grafts`, so that is the file to look at. Git resolves a
+    relative name from the top of the worktree, and wfctl resolved it from
+    its own directory, so a run from a subdirectory missed the file. wfctl
+    also stripped the path git printed, so a name ending in a space named
+    another file."""
+    commit(repo, "a")
+    head = commit(repo, "b")
+    grafts = {
+        "absolute": tmp_path / "elsewhere",
+        "relative": repo / "grafts",
+        "trailing space": tmp_path / "elsewhere ",
+    }[named]
+    grafts.write_text(f"{head} {git(repo, 'rev-parse', 'main')}\n")
+    (repo / "sub").mkdir()
+    monkeypatch.chdir(repo / "sub")
+    monkeypatch.setenv("GIT_GRAFT_FILE", "grafts" if named == "relative" else str(grafts))
+
+    with pytest.raises(_review.ReviewError, match="unset GIT_GRAFT_FILE"):
+        _review.commit_range(repo, head, None)
+
+
+def test_range_refuses_a_tag_named_after_a_trunk_branch_the_clone_lacks(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A clone that fetched only the feature branch has no `main` branch, so
+    the trunk lookup fell back to the short name, and git resolved it to a tag
+    named `main` on the branch's own commit. Every commit up to the tag then
+    read as already on the trunk."""
+    commit(repo, "a")
+    clone = single_branch_clone(tmp_path, repo)
+    head = git(clone, "rev-parse", "HEAD")
+    git(clone, "tag", "main", head)
+
+    with pytest.raises(_review.NoTrunk):
+        _review.commit_range(clone, head, None)
+
+
+@pytest.mark.parametrize("checkout", ["as-cloned", "renamed", "detached"])
+def test_range_refuses_a_single_branch_clone_whose_origin_head_names_the_branch(
+    tmp_path: Path, repo: Path, checkout: str
+) -> None:
+    """In a clone of only the feature branch, `origin/HEAD` can point only at
+    that branch. It then reads as the trunk, `--not` drops every commit on the
+    branch, and `review start` reported the group up to date with nothing
+    reviewed. Comparing branch names doesn't catch it after a rename or on a
+    detached HEAD, so the refusal reads the clone's fetch refspec instead.
+    `origin/HEAD` is set by hand, the way `git remote set-head` sets it."""
+    commit(repo, "a")
+    clone = single_branch_clone(tmp_path, repo)
+    git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/637-x")
+    if checkout == "renamed":
+        git(clone, "branch", "-m", "637-x", "642-renamed")
+    elif checkout == "detached":
+        git(clone, "checkout", "-q", "--detach")
+    head = commit(clone, "b")
+
+    with pytest.raises(_review.ReviewError, match="fetches only"):
+        _review.commit_range(clone, head, None)
+
+
+def test_range_refusal_names_a_clone_that_fetches_no_branch(
+    tmp_path: Path, repo: Path
+) -> None:
+    """With no fetch refspec at all, the refusal said "fetches only no
+    branch"."""
+    commit(repo, "a")
+    clone = single_branch_clone(tmp_path, repo)
+    git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/637-x")
+    git(clone, "config", "--unset-all", "remote.origin.fetch")
+    head = commit(clone, "b")
+
+    with pytest.raises(_review.ReviewError, match="this clone fetches no branch from origin"):
+        _review.commit_range(clone, head, None)
+
+
+def test_range_reads_a_declared_trunk_in_a_single_branch_clone_of_it(
+    tmp_path: Path, repo: Path
+) -> None:
+    """The refusal above names declaring the trunk as the way out, so a
+    single-branch clone of `main` with `trunk` declared has to work."""
+    clone = single_branch_clone(tmp_path, repo, "main")
+    git(clone, "checkout", "-q", "-b", "642-y")
+    (clone / "wfctl.json").write_text(json.dumps({"trunk": "main"}))
+    head = commit(clone, "a")
+
+    assert _review.commit_range(clone, head, None).commits == (head,)
+
+
+def test_range_refuses_a_trunk_that_is_the_branch_under_review(
+    repo: Path, state: Path
+) -> None:
+    """With `origin/HEAD` on the branch itself, every commit on it reads as
+    already on the trunk. The guard refused that, but `review start` reported
+    the group up to date with nothing reviewed."""
+    commit(repo, "a")
+    git(repo, "push", "-q", "origin", "637-x")
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/637-x")
+    head = commit(repo, "b")
+
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.commit_range(repo, head, None, branch="637-x")
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.start(repo, state, SECURITY, branch="637-x")
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.unreviewed(repo, state, [SECURITY], head, branch="637-x")
 
 
 # --- reports -------------------------------------------------------------------
