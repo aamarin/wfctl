@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 supersedes: session-identity-comes-from-the-caller
 ---
@@ -99,3 +99,4 @@ A test in wfctl's suite pins the resolution order, so a later change can't put t
 ## Log
 
 - 2026-10-24  proposed    — #629 level 2; nobody wrote the profile line the earlier record relied on, so the #200 gates have never run
+- 2026-10-25  accepted    — Andre, in the #629 session on 2026-10-24 — https://claude.ai/code/session_01T5vDFWnEvWfJHuatbHYFRH
