@@ -7,14 +7,14 @@ status: proposed
 ## Context
 
 The accepted record on review coverage names three ways a panel wrongly reports
-a review as done. One of them is a reviewer blocked from writing its report,
-which looks the same as one that never ran. The host's permission layer can
-refuse a reviewer's write, and the reviewer then has its findings and nowhere to
+a review as done. One is a reviewer blocked from writing its report, which is
+indistinguishable from one that never ran. The host's permission layer can
+refuse a reviewer's write, leaving the reviewer with its findings and nowhere to
 put them.
 
 wfctl counts a report only when it finds a file that names the run's newest
-commit and includes a verdict. So when a reviewer is blocked, either it leaves
-no file and the run is incomplete, or someone else writes the file for it. The
+commit and includes a verdict. This means a blocked reviewer either leaves no
+file and the run is incomplete, or someone else writes the file for it. The
 accepted record leaves the process for the second case to this level.
 
 ## Verified
@@ -23,41 +23,44 @@ accepted record leaves the process for the second case to this level.
   when `$REVIEWS/$id.md` has a verdict line, and lists the reviewer as missing
   otherwise. It has no case for a reviewer that put its report in its reply.
 - The same skill's check for reports from reviewers nobody dispatched reads
-  filenames under `reviews/` and nothing else. A file the coordinator writes
-  under a reviewer's id passes as that reviewer's report.
+  only the filenames under `reviews/`. A file the coordinator writes under a
+  reviewer's id passes as that reviewer's report.
 
 ## Assumed
 
-- A blocked reviewer can still reply to the coordinator. If a host drops the
-  reply along with the write, this assumption fails, and the reviewer reads as
-  missing. That is the safe direction.
-- A blocked reviewer states why it was blocked. A reviewer that invents a reason
-  passes the coordinator's check, but the roster still shows the reason to
-  Andre.
+- A blocked reviewer can still reply to the coordinator. This assumption fails
+  if a host drops the reply along with the write. The reviewer is then listed
+  as missing, which is the safe way to fail.
+- A blocked agent reviewer states why it was blocked. An agent reviewer that
+  invents a reason passes the coordinator's check, but the roster still shows
+  the reason to the human reviewer.
 
 ## Direct baseline
 
 The simplest approach has the coordinator write the file. When a reviewer
 replies with its report instead of writing it, the coordinator saves the reply
-to `reviews/<id>.md` with its own file tool. The file looks the same as one the
-reviewer wrote, and wfctl counts it the same way.
+to `reviews/<id>.md` with its own file tool. Nothing distinguishes the file from
+one the reviewer wrote, and wfctl counts it the same way.
 
 ## Decision
 
-The coordinator saves the reply to a file and passes that file to wfctl, and
-wfctl saves it. A wfctl command takes the reviewer's id and reads the report
-from the file it is given, never from stdin or the command's own text. The
-worktree guard matches command text, and a security report quotes the
-commands the guard refuses, so a report pasted into the command would be
-refused while the branch is unreviewed. It saves the report
-under that id with a header that marks it as relayed and includes the block
-reason the reviewer gave. wfctl refuses a relayed report that gives no reason.
+The coordinator saves the reply to a file and passes that file and the
+reviewer's id to a wfctl command. wfctl reads the report from that file, never
+from stdin or the command's own text. It saves the report under the reviewer's
+id, with a header that marks it as relayed and includes the block reason the
+reviewer gave. wfctl refuses a relayed report that gives no reason.
+
+The report comes from a file because the worktree guard matches command text.
+A security report quotes the commands the guard refuses, so a report pasted
+into the command would be refused while the branch is unreviewed.
 
 The roster shows the relay on the reviewer's line, such as
 `s2 claude ✓ relayed: write denied`. The panel skill tells the coordinator to
-check that reason against what it saw. If the reviewer wasn't really blocked,
-the coordinator reports a gap to Andre, because a reviewer that could write and
-didn't is a hole in the process.
+check that reason against what it saw. If the agent reviewer isn't blocked,
+the coordinator flags this to the human reviewer, because an agent reviewer
+that could write its report and didn't is a gap in the process. Each agent
+reviewer should write its own report, and the coordinator should save one only
+for an agent reviewer that is blocked from writing it.
 
 ## Diagram
 
@@ -92,8 +95,9 @@ coordinator's write into a call.
 ## Considered
 
 - Have the coordinator write the file, as the direct baseline describes. We
-  didn't choose this because a report the coordinator wrote looks the same as
-  one the reviewer wrote. Andre can't tell a relay from a forgery on the roster.
+  didn't choose this because a report the coordinator wrote is indistinguishable
+  from one the agent reviewer wrote. The human reviewer can't tell a relayed
+  report from a forged one on the roster.
 - Treat a blocked reviewer as missing and run it again. We didn't choose this
   because the block usually comes from a permission rule, which refuses the
   same write the second time. The run would never complete.
@@ -109,7 +113,7 @@ coordinator's write into a call.
   a reply before relaying it, this check doesn't catch it. The accepted record
   already states the same limit for a report the agent writes itself.
 - wfctl refuses a relay with no block reason, so every relayed report includes a
-  reason Andre can read on the roster.
+  reason the human reviewer can read on the roster.
 
 ## Verification
 

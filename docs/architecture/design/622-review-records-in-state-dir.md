@@ -41,11 +41,10 @@ commits a panel read.
 
 ## Assumed
 
-- Andre is the only user, and he runs every review and every pull request from
-  one machine. If a second machine or a second person reviews a branch, the
-  other machine has no review history for it, and this assumption fails. The
-  follow-up issue on pushing review records so CI can check them covers that
-  case.
+- Andre is the only user, and he runs every review and every PR from one
+  machine. This assumption fails if a second machine or a second person reviews
+  a branch, since the other machine has no review history for it. The follow-up
+  issue on pushing review records so CI can check them covers that case.
 
 ## Direct baseline
 
@@ -105,8 +104,8 @@ has one arrow fewer into `specs-trunk`.
   which already holds 376 reports nobody will read. The last reviewed commit is
   also session state under the decision on session state.
 - Search a list of directories, so a report in an old location still counts if
-  the location moves. Andre suggested this in case the location changes later.
-  We didn't choose it for three reasons:
+  the location moves. Andre suggested this, and we didn't choose it for three
+  reasons:
   1. A report counts only when it names the run's newest commit, so a report
      left in an old location can't count anyway.
   2. If wfctl loses the last reviewed commit, the next review starts where the
@@ -114,7 +113,7 @@ has one arrow fewer into `specs-trunk`.
   3. A list would give an agent more places to plant a report.
 - Commit the records into the repository, beside the scan files under the
   architecture root. We didn't choose this because a scan file records what a
-  pipeline step covered, for a reviewer to read in the pull request. A review
+  pipeline step covered, for a reviewer to read in the PR. A review
   report is the agent's working input. Committing it would also put a report
   about one commit into the next commit.
 
@@ -125,7 +124,7 @@ has one arrow fewer into `specs-trunk`.
 - A review counts only on the machine where it ran. This is acceptable while
   Andre is the only user, and the Assumed section says what changes that.
 - The 376 reports already on `specs-trunk` stay there. Removing them is a
-  separate decision for Andre.
+  separate decision for the project's maintainer.
 - Removing a worktree keeps the review history, since the state directory sits
   outside it. Removing the state directory, or pointing `WFCTL_STATE_DIR` at a
   new path, makes the next review start where the branch left `main`.
