@@ -123,7 +123,7 @@ later. The crossed edge is the write this record removes.
   it because each design exception would cost an empty commit, a rebase or
   squash can drop the trailer, and `628-early-answer-in-commit-trailer.md`
   already rejected a trailer for the early spec answer.
-- A committed folder outside the architecture folder, such as `.wfctl/claims/`.
+- A committed folder outside the architecture folder, such as `.wfctl/exceptions/`.
   This keeps the reviewer's copy in the diff. We didn't choose it because the
   repo still gains a file for every branch that claims an exception, just in a
   different folder, and a new file for every one-line fix was already ruled out
