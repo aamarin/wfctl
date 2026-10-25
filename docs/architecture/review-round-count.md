@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -128,3 +128,4 @@ an arrow ending in x is a claim wfctl doesn't accept from the agent.
 
 - 2026-10-25  proposed    — #626 level 2, after Andre chose one run per group
   per round and sign-off as the way past the cap
+- 2026-10-25  accepted    — Andre in the #626 session chat, 2026-10-25, after clarify

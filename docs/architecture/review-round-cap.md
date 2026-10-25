@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -110,3 +110,4 @@ an arrow ending in x is a value wfctl doesn't accept from the branch.
 
 - 2026-10-25  proposed    — #626 level 2, after Andre asked for a configurable
   cap and wasn't convinced by a per-branch grant command
+- 2026-10-25  accepted    — Andre in the #626 session chat, 2026-10-25, after clarify
