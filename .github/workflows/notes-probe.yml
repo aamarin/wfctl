@@ -1,0 +1,42 @@
+name: Notes probe
+
+# Throwaway for #627. Checks two assumptions before plan, then the branch is
+# deleted: a pull_request job can fetch a pushed notes ref with the default
+# token, and what actions/checkout leaves behind on a PR run.
+on:
+  pull_request:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: What the checkout left
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PR head=$PR_HEAD"
+          echo "PR base=$PR_BASE"
+          echo "HEAD parents: $(git rev-list --parents -n 1 HEAD)"
+          echo "origin/HEAD: $(git symbolic-ref refs/remotes/origin/HEAD 2>&1)"
+          echo "local main: $(git rev-parse --verify --quiet refs/heads/main || echo none)"
+          echo "origin/main: $(git rev-parse --verify --quiet refs/remotes/origin/main || echo none)"
+          echo "shallow: $(git rev-parse --is-shallow-repository)"
+          git branch -a
+
+      - name: Fetch the notes ref with the default token
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch origin refs/notes/wfctl-probe:refs/notes/wfctl-probe
+          git notes --ref=wfctl-probe show "$PR_HEAD"
+
+      - name: Set origin/HEAD from the default branch
+        run: |
+          git remote set-head origin --auto
+          echo "origin/HEAD after set-head: $(git symbolic-ref refs/remotes/origin/HEAD 2>&1)"
