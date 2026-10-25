@@ -15,8 +15,8 @@ findings gives you a second signal for free. Agreement between two of them is
 evidence, and a finding only one of them raised is a hypothesis you now have to
 test.
 
-What the fan-out buys is independent context, not coverage. That distinction
-decides the whole design, as "The axes are not the split" below explains.
+The fan-out gives you independent context, not coverage. The design
+follows from that distinction, as "The axes are not the split" below explains.
 
 wfctl keeps the record of the panel, not you. It decides which commits each
 review group covers, which reviewers it expects, whether each report counts,
@@ -49,8 +49,8 @@ four overlapping ones"), and simplification and over-engineering are each one
 of its own passes. A panel by axis contradicts a skill this project ships, and
 it gives each reviewer a narrower brief than a single reviewer would have had.
 
-Every reviewer in a group runs that group's whole skill. Independence is the
-variable, and the rubric is not.
+Every reviewer in a group runs that group's whole skill. Independence is what
+varies between reviewers, and the rubric stays the same.
 
 ## Step 1: Start the group
 
@@ -66,11 +66,11 @@ security  reviewing-security  s1 s2 s3 claude
 code      code-review         c1 c2 c3 claude
 ```
 
-Security and code always run first, in that order, and any group the
-repository adds runs after them. Run this skill once per group, in that order.
-Each group's fixes are committed before the next group starts, so the code
-group reviews the security group's fixes and a later group reviews both. The
-second column is the skill each of the group's reviewers follows.
+The second column is the skill each of the group's reviewers follows. Security
+and code always run first, in that order, and any group the repository adds
+runs after them. Run this skill once per group, in that order. Commit each
+group's fixes before the next group starts, so the code group reviews the
+security group's fixes and a later group reviews both.
 
 Start the group:
 
@@ -119,8 +119,8 @@ Every dispatch instruction carries these six:
   `.agents/skills/code-review/SKILL.md` for the code group or
   `.agents/skills/reviewing-security/SKILL.md` for the security group. Don't
   invoke a Skill named `code-review`, or a Skill with any group's skill name.
-  Give the path because a host can ship its own command under the same name,
-  and a reviewer that reaches for the Skill tool gets the host's command
+  The path matters because a host can ship its own command under the same
+  name, and a reviewer that uses the Skill tool gets the host's command
   instead of this rubric. Claude Code's built-in `/code-review` is a different
   review. It fans out helper agents that report into your session and never
   receive the bullets below, and on two panels an agent running under it
@@ -129,7 +129,7 @@ Every dispatch instruction carries these six:
 - **Review the commits listed in `run.json` in the reports folder,** each with
   `git show <sha>`, and report a finding only if it's still there at the run's
   `head`.
-- **Write the report to `<reports folder>/<id>.md`.** It carries a
+- **Write the report to `<reports folder>/<id>.md`.** The report includes a
   `Reviewed: <sha>` line naming the run's head, and its last line is the
   verdict. wfctl counts a report only when its `Reviewed:` line names the head
   with at least seven digits and it ends with `Verdict: Approve` or
@@ -137,43 +137,43 @@ Every dispatch instruction carries these six:
   end, so it doesn't count.
 - **Say which passes ran and what each covered,** whether or not it found
   anything. `code-review` Step 5 ends a clean report at the over-engineering
-  metric and a verdict, which is enough to show a reviewer worked and not
-  enough to say what it looked at. Step 5 gives a reviewer that found nothing a
-  row whose Finding cell carries its coverage, and this bullet is where that
-  requirement reaches the reviewer.
+  metric and a verdict. That shows a reviewer worked, but not what it looked
+  at. This skill's Step 5 gives a reviewer that found nothing a row whose
+  Finding cell carries its coverage, and this bullet is how that requirement
+  reaches the reviewer.
 - **Report only. Change nothing.** Reviewers share a worktree with each other
   and with you. Three agents editing a tree a fourth is reading corrupts all
   four, and you can't recover afterwards, since you can't tell whose
-  half-applied edit produced the state you're looking at. Writing its own
-  report is not an edit to the tree, and touching anything under review is.
-  The boundary is wider than the tree, though. Anything the project reads back
-  later as evidence is off limits too. Under wfctl that is `wfctl verify`,
-  which writes one record per branch outside the worktree, and a reviewer
-  running it replaces the parent's proof of done with one taken mid-review.
+  half-applied edit produced the state you're looking at. A reviewer writing
+  its own report isn't editing the tree, but touching anything under review
+  is. Anything the project later reads back as evidence is off limits too,
+  including files outside the tree. Under wfctl, that means `wfctl verify`. It writes one
+  record per branch outside the worktree, so a reviewer that runs it replaces
+  the parent's proof of done with one taken mid-review.
 - **Report any design decision nothing on the change covers:** new stored
   state, a new file or setting the code reads, a new command or flag, or a
-  boundary drawn or moved. A record or spec the change names covers it, and the
-  change calling itself a bug fix doesn't. Nothing checks that the author asked
-  whether the change needs a spec before writing code, and an agent that
-  skipped the question can still answer "No" when the PR opens. A reviewer that
-  reads only the diff is the first reader who didn't write it, so it is the one
-  placed to notice. The coordinator shows these findings in the table before
-  the PR opens, and the author writes the "Needs a spec?" answer after reading
-  them.
+  boundary drawn or moved. A record or spec that the change names covers the
+  decision. The change calling itself a bug fix doesn't. No check confirms that
+  the author asked, before writing code, whether the change needs a spec, and
+  an agent that skipped the question can still answer "No" when the PR opens.
+  A reviewer that reads only the diff is the first reader who didn't write it,
+  so it is best placed to notice. The coordinator shows these findings in the
+  table before the PR opens, and the author writes the "Needs a spec?" answer
+  after reading them.
 
-Dispatch them in parallel, since they are independent by construction. Sharing
-one tree is a choice, not a limit to engineer around. A harness that can hand
-each reviewer its own worktree lifts the report-only constraint and buys
-nothing back, since a reviewer's product is findings and verification stays
-with the parent either way.
+Dispatch them in parallel, since they are independent by design. Sharing one
+tree is a deliberate choice, not a limitation to work around. A harness that
+gives each reviewer its own worktree removes the need for the report-only rule
+but gains nothing, since a reviewer produces findings and the parent does the
+verification either way.
 
 ### A reviewer on another model
 
 A line with a command after the model, such as `s3 codex  codex exec --sandbox
 read-only`, is a reviewer you run yourself. The command comes from the
-`review.commands` key in the repository's `wfctl.json`, so in a repository you
-don't own, read that key before running it, the same as you would a hook the
-repository ships.
+`review.commands` key in the repository's `wfctl.json`. In a repository you
+don't own, read that key before running the command, as you would read a hook
+the repository ships.
 
 Use the scratch folder your harness gives you, never a fixed path such as
 `/tmp/panel/`. Another session, or another user on the same machine, can write
@@ -205,37 +205,38 @@ wfctl relay s2 --reason "write denied" --from <scratch folder>/s2-report.md
 
 wfctl saves the report under that id in the group's latest run, marked as
 relayed with the reason, and the roster shows the reason on that reviewer's
-line. It refuses a relay with no reason.
+line. wfctl refuses a relay with no reason.
 
 **Never put a report in a command's text,** whether in a heredoc, an `echo`, or
 an argument. The worktree guard matches command text, and a security report
-quotes the commands it refuses, such as `gh pr create`, so a command carrying
-the report is refused while the branch is unreviewed, which it always is
-during a run. A file keeps the report out of the text the guard reads, and
-`wfctl relay` reads the report only from `--from` for that reason.
+quotes the commands the guard refuses, such as `gh pr create`. The guard then
+refuses any command carrying the report while the branch is unreviewed, and the
+branch is always unreviewed during a run. A file keeps the report out of the
+text the guard reads, which is why `wfctl relay` reads the report only from
+`--from`.
 
 Check each relay reason against what you saw. If the reviewer wasn't really
 blocked, such as a reviewer that said its write was denied when no denial
 reached you, tell the person you're working for. A reviewer that could write
-and didn't is a gap in the process, and the roster can't show it.
+and didn't is a gap in the process that the roster can't show.
 
-**The trigger you will meet most often is not a sentence.**
+**Most often, another skill triggers this one, not something a person said.**
 `.agents/skills/opening-a-change/SKILL.md` runs this skill for every group
-before a PR is opened. That is the path an unattended run takes, where the
-description above matches nothing because nobody said anything (#187).
+before a PR opens. An unattended run takes that path, since nobody says
+anything and the description above matches nothing (#187).
 
-The reconciled table from Step 5 is this skill's own output, and it goes to the
+The reconciled table from Step 5 is this skill's output, and it goes to the
 person you're working for, in the conversation. A change description carries
-nothing from the panel, and `opening-a-change` says the same from its side: no
-finding of any disposition, no table, and no roster or status line.
+nothing from the panel. `opening-a-change` says the same: no finding of any
+disposition, no table, and no roster or status line.
 
 **Comments already on the change are panel members you didn't pay for,** such as
-a bot's review or a person's note. Collect them in the same pass. What
-qualifies them is that whoever wrote them never had your session. They read the
-change and nothing else, which is what this step hands a dispatched reviewer
-and the only thing a panel buys. wfctl doesn't count them, since they aren't
-reviewers in the run, so they never move a group's record forward. They are
-named on the roster line in Step 5 beside the run's reviewers.
+a bot's review or a person's note. Collect them in the same pass. They qualify
+because whoever wrote them never had your session. They read the change and
+nothing else, which is what this step hands a dispatched reviewer and the only
+thing a panel buys. wfctl doesn't count them, since they aren't reviewers in
+the run. As a result, they never move a group's record forward. Name them on
+the roster line in Step 5, beside the run's reviewers.
 
 ## Step 3: Let wfctl confirm every reviewer reported
 
@@ -247,8 +248,8 @@ finding, nothing new. No action needed"* for a review that had never arrived.
 Asked again, that reviewer produced the only confirmed correctness defect in
 the change.
 
-So you don't count reports from memory, and you don't count them yourself.
-wfctl reads the reports folder against the reviewers it expected:
+That's why you don't count reports from memory, and you don't count them
+yourself. wfctl checks the reports folder against the reviewers it expected:
 
 ```bash
 wfctl review check security
@@ -264,15 +265,16 @@ incomplete: 1 of 3 expected reports missing
 
 The roster comes from `run.json`, never from the files on disk, so a reviewer
 that never wrote a file shows as `✗ no report` rather than dropping out of the
-count. The last line says `complete: security reviewed through 9f8e7d6` once
-every expected report counts, and wfctl then moves the group's last reviewed
-commit to the head. Anything else exits 1.
+count. Once every expected report counts, the last line reads
+`complete: security reviewed through 9f8e7d6`, and wfctl moves the group's last
+reviewed commit to the head. Any other result exits 1.
 
-wfctl reads the verdict the way this project's reviewers write it. The four
-spellings in this project's own spec root, `Verdict:`, `**Verdict: Approve**`,
-`## Verdict`, and `### Verdict`, all count, and prose that only mentions a
-verdict doesn't. `test_report_counts_with_each_verdict_spelling_reviewers_use`
-holds that list open, so read it before tightening the rule.
+wfctl accepts a verdict in each form this project's reviewers write it. The
+four forms in this project's own spec root all count: `Verdict:`,
+`**Verdict: Approve**`, `## Verdict`, and `### Verdict`. Prose that only
+mentions a verdict doesn't count.
+`test_report_counts_with_each_verdict_spelling_reviewers_use` fails if any of
+those forms stops counting, so read it before tightening the rule.
 
 A `✗` line carries one of these reasons:
 
@@ -287,41 +289,41 @@ A `✗` line carries one of these reasons:
 
 **`no report` is two different states, and only one of them is a failure.** A
 reviewer still running has written nothing yet, and that is the normal state
-while a panel works. Reading the roster then is not a mistake, as long as you
-don't record it. A reviewer that has finished and left no report is a failure,
-not a pass. Whether a reviewer has finished is what the dispatch told you, not
-what the reviewer told you. A reviewer's own "I already reported" is the
-recollection this step exists to disbelieve, and that its run ended is an
-observation nobody has to trust. A `✗ no report` written into the table for a
-reviewer that was only slow spends that reviewer's work twice and puts an
-untrue sentence in the table (#173).
+while a panel works. You can read the roster then, as long as you don't record
+the result. A reviewer that has finished and left no report is a failure, not a
+pass. Judge whether a reviewer has finished by what the dispatch tells you, not
+by what the reviewer says. A reviewer's own "I already reported" is the
+recollection this step exists to doubt, while the end of its run is an
+observation, so nobody has to trust it. If you write `✗ no report` into the
+table for a reviewer that was only slow, you pay for that reviewer's work twice
+and put a false statement in the table (#173).
 
 **A finished reviewer with no counted report gets asked again.** Ask it for its
 findings in the format `.agents/skills/code-review/SKILL.md` specifies, or the
-format of its group's skill, and repeat that it reads that file rather than
-invoking a Skill named `code-review`. A reviewer that wrote nothing may have
-reached the host's command the first time, and a re-ask that names the skill
-sends it back there. If a reviewer insists it already reported, the report is
-the evidence and its recollection is not, so ask again anyway. A reviewer that
+format of its group's skill, and remind it to read that file rather than invoke
+a Skill named `code-review`. A reviewer that wrote nothing may have run the
+host's command the first time, and a re-ask that names the skill sends it back
+to that command. If a reviewer insists it already reported, ask again,
+since the report is the evidence and its recollection is not. A reviewer that
 still reports nothing after the re-ask didn't run, so dispatch a replacement
-under the same id. A file with no verdict is also the likeliest trace of a
-reviewer that ran the host's command, since that command's output carries no
-verdict line.
+under the same id. A file with no verdict is also the most likely sign that a
+reviewer ran the host's command, since that command's output has no verdict
+line.
 
-Run `wfctl review check` again after each re-ask, until the last line says
-`complete`. A group isn't done until then, and the next group doesn't start
-before it.
+Run `wfctl review check` again after each re-ask, until the last line reads
+`complete`. A group isn't done until then, and don't start the next group
+before it is.
 
-A run where no reviewer could run never completes. `review check` says
-`incomplete: no reviewer in security could run`, and the only ways forward are
-making a model available or a person signing off. Tell the person, since a
-sign-off is theirs to make.
+A run where no reviewer could run never completes. `review check` prints
+`incomplete: no reviewer in security could run`. The only ways forward are to
+make a model available or to have a person sign off. Tell the person, since the
+sign-off is their decision.
 
 ### The roster is the whole panel
 
-wfctl answers one direction of one question: did every reviewer it expected
-report? The other direction is yours, and it is the one that lets a stranger
-in.
+wfctl checks that every reviewer it expected reported. You check the reverse,
+that every report came from a reviewer you dispatched, and skipping that check
+lets a stranger's report in.
 
 **A report from an agent you didn't dispatch is not a reviewer's, and being
 right doesn't make it one.** On one run, two agents this panel never
@@ -330,64 +332,62 @@ reported on the same diff through the same channel the reviewers use. One of
 their findings was a genuine defect. The panel found it independently forty
 minutes later and confirmed it by mutation (#205). A session that folded it in
 would have taken a true finding from a source with no independence behind it,
-and had nothing to tell it so. The rule therefore carries no "unless it is
-correct", since at the moment you are reading one, correct is what a
-contaminated report looks like.
+and nothing would have told it so. That's why the rule has no "unless it is
+correct" exception: when you read a contaminated report, it looks correct.
 
 **The disqualifier is inheriting your context, not the agent's type.** This
 skill hands a reviewer the run, the intent, and the project's rules, and never
 your session history. An agent that inherited your context has already read
 your reasoning, so its agreement with you is evidence about your reasoning
-rather than about the diff. Type can't answer this question. Of the two agents
-above, `ListAgents` typed one a fork and didn't list the other at all, so a rule
-keyed on type catches one of the two. Comparing against the ids you dispatched
-answers it for both.
+rather than about the diff. An agent's type can't tell you whether it inherited
+your context. Of the two agents above, `ListAgents` listed one as a fork and
+didn't list the other, so a rule keyed on type catches one of the two.
+Comparing against the ids you dispatched catches both.
 
 wfctl counts only the files named for the run's ids, so a stranger's file in
 the reports folder never counts toward a run. A report that arrives as a
-completion notification leaves no file, so read the id it reports under against
-the ids `review start` printed, as each report arrives.
+completion notification leaves no file, so as each one arrives, check the id it
+reports under against the ids `review start` printed.
 
 A report from outside the panel doesn't enter the roster line, doesn't get a
-disposition row, and isn't re-asked, because there is nothing you asked it for.
+disposition row, and isn't re-asked, because you never asked it for anything.
 Name it under the table instead, so a reader can see that five reports arrived
-and three of them were the panel.
+and three of them came from the panel.
 
 ## Step 4: Reconcile and verify
 
-Read the reports the roster counts, and the comments already on the change.
-Read all of them, and only those, then group the findings:
+Read the reports the roster counts and the comments already on the change, all
+of them and nothing else. Then group the findings:
 
 - **Two or more reviewers, same defect** → evidence. Verify it anyway, and
   verify it first.
-- **One reviewer only** → a hypothesis, not noise. How often this happens isn't
-  worth predicting. One three-reviewer run produced three disjoint sets and no
-  overlap, with the most valuable finding coming from one reviewer alone, and
-  the next produced unanimous agreement on a single defect. Both are normal. A
-  lone finding is verified, not discounted.
+- **One reviewer only** → a hypothesis, not noise. Don't try to predict how
+  often this happens. One three-reviewer run produced three separate sets of
+  findings with no overlap, and the most valuable finding came from one
+  reviewer alone. The next run produced unanimous agreement on a single defect.
+  Both are normal. Verify a lone finding, and don't discount it.
 - **Reviewers contradicting each other** → they read the same code and
   disagree, which means the code supports two readings. That is a finding in
   itself.
 
-Then verify each finding yourself. This isn't delegable, and it isn't fanned
-out, since holding findings from several reviewers against one codebase is
-exactly the synthesis a parent can't hand off. Follow `receiving-code-review`:
-check each finding against the code before acting on it, and push back with a
+Then verify each finding yourself. Don't delegate this or fan it out, since
+checking findings from several reviewers against one codebase is the
+synthesis a parent can't hand off. Follow `receiving-code-review`: check each
+finding against the code before acting on it, and push back with a
 demonstration rather than an argument.
 
-This step is not a formality. In the real run it changed the disposition of
-half the findings, and two of four would have been wrong to apply as written.
+In the real run, this step changed the disposition of half the findings, and
+two of the four would have been wrong to apply as written.
 
 ## Step 5: Report a disposition table
 
-Every finding from every reviewer appears, with what you did about it and why.
-Silence on a finding isn't an option, since an unmentioned finding reads as one
-nobody raised.
+List every finding from every reviewer, with what you did about it and why.
+Don't leave one out, since an unmentioned finding looks like one nobody raised.
 
-Report it to the person in the conversation, not into a change description. On
-a change that is already open, that holds for every later round as well. A
-description that took one row per round grew to 15 rows, 12 of them already
-applied.
+Report the table to the person in the conversation, not in a change
+description. That holds for every later round on a change that is already open,
+too. One description that gained a row each round grew to 15 rows, 12 of them
+already applied.
 
 When several groups ran, report one table covering all of them, and name each
 reviewer by its id and model, such as `s3 codex`.
@@ -407,26 +407,26 @@ reviewer by its id and model, such as `s3 codex`.
 roster: s1 ✓  s2 ✓  s3 ✓ relayed: read-only sandbox  c1 ✓  c2 ✓  c3 ✓ (c2 re-asked once)
 ```
 
-Three dispositions for a finding, each requiring a reason on the line:
+A finding gets one of three dispositions, each with a reason on its line:
 **applied**, **accepted** (with the reason you accepted it for, when it differs
-from the one given), and **rejected** (with the reason). A run in which
-everything was applied hasn't exercised the reconciliation. It has relayed
-three reports. `clean` is the fourth value in that column and not a fourth
-disposition, since it disposes of no finding and carries no reason.
+from the one given), and **rejected** (with the reason). A run where every
+finding was applied hasn't exercised the reconciliation, and it has only
+relayed three reports. `clean` is a fourth value in that column but not a
+fourth disposition, since it disposes of no finding and carries no reason.
 
-**A reviewer that found nothing gets a row, not a tick.** Its `#` carries `—`,
-not a number and not an empty cell, since nothing was found to number and a
-blank in a pipe table reads as an omission. Its Finding column carries what the
-report says it covered. A clean reading is a result the panel paid for, and the
-roster line can't carry it. `c3 ✓` says a report counted and stops there, which
-is the same mark a reviewer earns for a page of blockers.
+**A reviewer that found nothing gets a row, not a tick.** Its `#` cell holds
+`—`, not a number or an empty cell, since there is nothing to number and a
+blank cell in a pipe table looks like an omission. Its Finding cell holds what
+the report says it covered. A clean review is a result the panel paid for, and
+the roster line can't show it. `c3 ✓` only shows that a report counted, and a
+reviewer gets the same mark for a page of blockers.
 
 **Every name in the Reviewer column is on the roster line.** The line carries
 the whole panel: the ids wfctl counted, and the free members named beside them.
-A name in the column that the line doesn't carry is a report from outside the
-panel, visible to anyone reading the table. The roster line records a re-ask by
-its outcome, `c2 ✓ (re-asked once)`, never by its history. A report this skill
-excluded is named below the roster and not counted, by id:
+If a name in the column isn't on the line, it is a report from outside the
+panel, and anyone reading the table can see that. The roster line records a
+re-ask by its outcome, `c2 ✓ (re-asked once)`, never by its history. Name a
+report this skill excluded below the roster, by id, without counting it:
 
 ```
 roster: s1 ✓  s2 ✓  s3 ✓  c1 ✓  c2 ✓  c3 ✓  + codex (review comment on the PR)
@@ -435,9 +435,9 @@ not read: correctness-angles, r4 — agents this panel did not dispatch
 
 ## Red flags
 
-- Recording a reviewer as clean because it said it had nothing to add. That is
-  the exact sentence this skill was written after. A `clean` row is earned by a
-  report that names what it covered, not by one that declines to.
+- Recording a reviewer as clean because it said it had nothing to add. This
+  skill was written after that sentence. A report earns a `clean` row
+  by naming what it covered, not by declining to.
 - Counting reports yourself instead of reading `wfctl review check`, or
   starting the next group before the last line says `complete`.
 - Giving a reviewer a commit range or a trunk branch instead of the reports
@@ -449,8 +449,8 @@ not read: correctness-angles, r4 — agents this panel did not dispatch
   still running. Both corrupt the diff the others are reading.
 - Handing reviewer 2 what reviewer 1 found, or handing any of them your session
   history. Both destroy the independence that is the only thing a panel buys.
-- Reconciling a report from an agent you didn't dispatch. Being correct is what
-  makes one of those hard to catch, not what makes it a panel member.
+- Reconciling a report from an agent you didn't dispatch. A correct one is hard
+  to catch, but being correct doesn't make it a panel member.
 - Applying findings straight from the reports. Half of them changed shape under
   verification.
-- A disposition table shorter than the number of findings collected.
+- A disposition table with fewer rows than the findings collected.

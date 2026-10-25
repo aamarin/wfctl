@@ -17,7 +17,7 @@ to catch it. This happens in three ways:
 3. A reviewer blocked from writing its report looks the same as one that never
    ran.
 
-Right now, only the `fanning-out-code-review` skill checks for this. The agent
+Currently, only the `fanning-out-code-review` skill checks for this. The agent
 just looks for a verdict line in each report. wfctl doesn't read panel reports
 or reviewer lists, and it doesn't record which commits a panel reviewed. So
 far, we've fixed each issue by adding more instructions to the skill.
@@ -55,9 +55,9 @@ An agent hook that wfctl installs enforces the final review. Before the agent
 opens or merges a pull request, the hook asks wfctl whether the branch has
 commits after the last reviewed commit. If it does, the hook refuses the
 action. As a result, every change ends with a review of its newest commit.
-After three rounds, a person can sign off on the remaining commits instead, and
-the hook then allows the action. The agent shouldn't sign off, for the same
-reason it shouldn't confirm that its own panel ran.
+After three rounds, a person can sign off on the remaining commits instead. The
+hook then allows the action. The agent shouldn't sign off, for the same reason
+it shouldn't confirm that its own panel ran.
 
 The proposed record on outward actions says wfctl never refuses an action for
 reaching outside the repository. That record is about who has the authority to
@@ -161,8 +161,8 @@ run incomplete.
 - A change isn't done until a review covers its newest commit, or a person
   signs off on the commits left after three rounds. Level 3 decides how wfctl
   records the sign-off.
-- The hook works only with agents that support hooks, such as Claude Code. An
-  agent without them gets no enforcement until the CI check lands.
+- The hook runs only in agents that support hooks, such as Claude Code. Agents
+  without hook support get no enforcement until the CI check lands.
 - Commits that come in by merging `main` aren't the branch's work. Level 3
   decides how a run leaves them out, and where wfctl stores the last reviewed
   commit.

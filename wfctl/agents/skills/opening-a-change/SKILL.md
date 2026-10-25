@@ -47,45 +47,46 @@ security  reviewing-security  s1 s2 s3 claude
 code      code-review         c1 c2 c3 claude
 ```
 
-Run each group, in that order, with
-`.agents/skills/fanning-out-code-review/SKILL.md`, whole and unmodified, before
-the template is opened. Security and code always come first, and a group the
+Run each group, in that order, over this branch's whole, unmodified diff, with
+`.agents/skills/fanning-out-code-review/SKILL.md`, before
+you open the template. Security and code always come first, and a group the
 repository adds runs after them.
 
 Run every group on every change, with no condition that skips one, including
-the change that looks too small to need it. A group skipped because this
-particular diff seemed trivial is a decision made silently, per run, by the
-only party with an interest in the answer. That is the defect this step exists
-to remove, not an exception to it.
+the change that looks too small to need it. Skipping a group because this
+particular diff seemed trivial is a decision made silently, on each run, by the
+only party with an interest in the answer. That is what this step
+removes, with no exception for a small diff.
 
 It is a step here rather than a phrase in that skill's description because a
 description is matched against what a reader said, and in an unattended run
-nobody says anything. The moment a panel is most worth running, a change about
-to be opened, is the moment there is no reader to type "review this", so the
-discovery mechanism that works for a human is the one that can't fire here.
+nobody says anything. A panel is most worth running when a change is about to
+be opened, and that is when nobody is there to type "review this". The
+discovery mechanism that works for a human can't fire here.
 
 **Commit each group's fixes before the next group starts.** The security group
-commits its fixes, and the code group then reviews the result, so a security
-fix that breaks something reaches a reviewer before it reaches `main`. A group
-whose fixes are still uncommitted hands the next group a tree its run record
-doesn't describe, since wfctl records commits and not a working tree.
+commits its fixes. The code group reviews the result, so a security fix that
+breaks something reaches a reviewer before it reaches `main`. wfctl records
+commits, not the working tree. If a group's fixes are still uncommitted, the
+next group reviews a tree that its run record doesn't describe.
 
 **wfctl refuses the PR until every group has reviewed the newest commit.** The
 worktree guard refuses `gh pr create` and `gh pr merge` while any group has
-commits it hasn't reviewed, and lists them under each group. A fix the code
-group commits is a commit the security group hasn't reviewed, so the security
-group runs again over just that fix, then the code group if the security group
-changed anything. The security group's own fixes are new commits too, so a
-security run that led to fixes is followed by another security run over them. Each pass is a short one, since a group's run covers only the
+commits it hasn't reviewed, and lists those commits under each group. A fix the
+code group commits is a new commit the security group hasn't reviewed. The
+security group then runs again over only that fix, then the code group if the
+security group changed anything. The security group's own fixes are new
+commits too, so a security run that produced fixes needs another security run
+over them. Each of these runs is short, since a group's run covers only the
 commits since its last complete run.
 
 **Stop after three complete rounds and ask the person for a sign-off.** A round
-is one complete run of every group. When the guard still refuses after the
-third, show the person the commits it lists and ask them to run
+is one complete run of every group. If the guard still refuses the PR after the
+third round, show the person the commits it lists. Ask them to run
 `wfctl review sign-off` in their own terminal, or to say how they want to
 proceed. Don't run a fourth round on your own, and don't try to sign off
 yourself, since the guard refuses that command from an agent. wfctl numbers the
-runs but doesn't count rounds yet (#626), so this rule is yours to keep.
+runs but doesn't count rounds yet (#626), so you track this limit yourself.
 
 **None of the panel's output goes in the description.** That covers every
 finding, whether you applied it, accepted it, or rejected it, and it covers the
@@ -95,10 +96,10 @@ the first body and for every push after it.
 The disposition table from the panel skill's Step 5 goes to the person you are
 working for, in the conversation. Report one table covering every group, one
 row per finding, naming each reviewer by its id and model, such as `s3 codex`.
-They are the one who can overrule a
-disposition, and the conversation is where they can. A finding you applied is a
-commit on this branch, which the diff already shows. A finding you did not apply
-was a decision made with that person, and it is theirs to carry further.
+They can overrule a disposition, and they do that in the conversation. A
+finding you applied is a commit on this branch, which the diff already shows. A
+finding you did not apply was a decision made with that person, and it is
+theirs to carry further.
 
 On MarinVentures/pfms#680 a description that carried the panel gained a row
 with every review round until it held 15, 12 of them findings already applied,
@@ -114,19 +115,20 @@ keeps open questions and follow-ups, and neither names the panel or a reviewer.
 
 **The guard checks that the panel ran, and it reads wfctl's records, not
 yours.** Before wfctl kept review records, the only trace of a panel was one
-report per reviewer that the coordinating agent filed in a folder outside the
+report per reviewer, which the coordinating agent filed in a folder outside the
 tree. A check that those files existed would have been worthless, since the
-same agent wrote them about its own work, so their presence said a folder was
-filled and never that a panel ran. wfctl now decides which commits each run
-covers, which reviewers it expects, and whether each report counts, and that
-record is what the guard reads (`review-covers-unreviewed-commits`).
+same agent wrote them about its own work. Their presence showed only that a
+folder was filled, not that a panel ran. Now wfctl decides which commits each
+run covers, which reviewers it expects, and whether each report counts, and the
+guard reads that record (`review-covers-unreviewed-commits`).
 
-The question that decided it is `a-rule-is-expressed-as-a-check`'s. **Keep it
-a quotation.** Summarised, it drifts into a criterion the record does not have,
-such as "visible in *any* artifact" or "an artifact a reader can reach", and a
-drifted summary of this particular test inverts its verdict rather than
-blurring it. The record is also not shipped with this skill, so the words have
-to travel here or they are unavailable where this is read:
+The question that decided whether the rule became a check is
+`a-rule-is-expressed-as-a-check`'s. **Keep it a quotation.** A summary of it
+drifts into a criterion the record does not have, such as "visible in *any*
+artifact" or "an artifact a reader can reach". A drifted summary of this
+particular test inverts its verdict rather than blurring it. The record also
+doesn't ship with this skill, so its words have to be quoted here, or nobody
+reading this skill can see them:
 
 > is a violation of it visible in an artifact the work already produces?
 
@@ -135,9 +137,10 @@ to travel here or they are unavailable where this is read:
 > body, the diff and the tree — which is where every violation above was
 > observed.
 
-A report the agent wrote about its own work, in a store outside the tree,
-answered that no, so the rule stayed prose. A run record wfctl writes, and the
-reports it judges against it, answer yes, so the rule is now the guard's check.
+A report the agent wrote about its own work, in a folder outside the tree,
+answered no, so the rule stayed prose. A run record that wfctl writes, with
+the reports wfctl judges against it, answers yes, so the rule is now the
+guard's check.
 
 Findings you apply change the branch. **Commit them**, re-run the verification,
 and push again before Step 5 — `git push` moves commits and not a working tree,
@@ -323,7 +326,7 @@ newlines, backticks and anything a diagram needs.
 
 Write the description to `/tmp/pr-body-<branch>.md`, with this branch's name
 written out, such as `/tmp/pr-body-622-security-review-panel.md`. Then run two
-separate commands. Read what the first one says before running the second:
+separate commands, and read the first one's output before running the second:
 
 ```bash
 wfctl check-body /tmp/pr-body-622-security-review-panel.md
@@ -334,13 +337,14 @@ gh pr create --title "<subject>" --body-file /tmp/pr-body-622-security-review-pa
 ```
 
 **Run `gh pr create` on its own, exactly in this shape.** The worktree guard
-judges the branch before any of the command runs, so it refuses `gh pr create`
-chained after another command, such as a commit, a push, or a `cd`, since that
-command could change the branch after the guard judged it. It refuses a command
-substitution such as `$(git branch --show-current)` anywhere in the command for
-the same reason, and an environment prefix such as `NO_COLOR=1`, since the
-guard's own `git` and `gh` calls don't see it. That is why the path is written
-out in full in each command rather than built from the branch name.
+checks the branch before any part of the command runs. It refuses
+`gh pr create` chained after another command, such as a commit, a push, or a
+`cd`, since that command could change the branch after the guard checked it.
+For the same reason, it refuses a command substitution such as
+`$(git branch --show-current)` anywhere in the command. It also refuses an
+environment prefix such as `NO_COLOR=1`, since the guard's own `git` and `gh`
+calls don't see that variable. That's why each command writes the path out in
+full rather than building it from the branch name.
 
 **Outside the repository, and the path is not decoration.** A description written
 into the worktree is an untracked file, so the tree it describes stops being clean
@@ -353,27 +357,28 @@ cannot be on one branch, so this collides with nobody; a fixed `/tmp/pr-body.md`
 is one file every concurrent session writes, and the damage lands in the gap
 between the two commands above — yours is checked, theirs overwrites it, and `gh`
 uploads a description nothing validated and nobody wrote for this change. Write
-the path out in each command rather than carrying it in a shell variable: a
-shell doesn't outlive the command it ran, and an empty variable sends `gh` at
+the path out in each command rather than carrying it in a shell variable. A
+shell doesn't outlive the command it ran, and an empty variable points `gh` at
 the current directory.
 
-A scratch directory your harness already gives you is better than either, being
-unique per session without deriving anything. Use it where you have one, and
-write its path out the same way.
+A scratch directory your harness already gives you is better than either, since
+it is unique per session without deriving anything. Use it where you have one,
+and write its path out the same way.
 
 ### When the guard refuses
 
-The guard prints a `✗` line saying why, and each kind of refusal has one
+The guard prints a `✗` line with the reason, and each kind of refusal has one
 response:
 
-- **Commits no review covered.** It lists them under each group. Go back to
-  Step 1 and run the groups it names, then open the PR again. After three
+- **Commits no review covered.** The guard lists them under each group. Go back
+  to Step 1 and run the groups it names, then open the PR again. After three
   complete rounds, ask the person for a sign-off, as Step 1 says.
 - **The review check failed.** Something stopped the check from reaching an
   answer, such as a `gh` call that timed out or a record it couldn't read. Stop
   and tell the person, naming the error the refusal printed. Don't retry the
-  command in another spelling. The refusal says a person can run the command in
-  their own terminal, where the hook doesn't run, and that is the person's call.
+  command in another spelling. The refusal notes that a person can run the
+  command in their own terminal, where the hook doesn't run, and that is the
+  person's call.
 - **Run this from the checkout on the trunk branch.** The command acts on
   another branch's pull request, and a worktree opens and merges only its own.
   Leave that pull request to the checkout on the trunk branch.
@@ -565,11 +570,11 @@ attributes.
   The table goes to the person in the conversation, and a question a reviewer
   needs is asked about the code.
 - Skipping a group, or starting the code group before the security group's
-  fixes are committed. The guard will refuse the PR either way, and the work
-  of the group that ran early is spent on a tree that has since moved.
-- Retrying a refused `gh pr create` in another spelling. The guard refused it
-  for a reason the `✗` line names, and a spelling that slips past the check
-  opens a PR the review record says is unreviewed.
+  fixes are committed. The guard will refuse the PR either way, and the group
+  that ran early reviewed a tree that has since changed.
+- Retrying a refused `gh pr create` in another spelling. The `✗` line names why
+  the guard refused it, and a spelling that gets past the check opens a PR that
+  the review record marks as unreviewed.
 - Running the panel after the PR is open, because the diff is easier to point at
   there. The findings then arrive against a change reviewers have already been
   asked to read, and every fix lands as a commit pushed after they started.

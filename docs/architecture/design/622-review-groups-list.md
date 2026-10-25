@@ -86,9 +86,9 @@ The `wfctl check config` command reports these problems:
 1. Two groups that start with the same letter.
 2. A group name that isn't lowercase letters, digits, and hyphens, starting
    with a letter.
-3. A group whose `reviewers` list is empty, built-in or custom, and a custom
-   group with no `reviewers` key. A built-in group gets its default only when
-   the key is missing.
+3. A group, built-in or custom, whose `reviewers` list is empty, and a custom
+   group with no `reviewers` key. A built-in group gets its default only
+   when the key is missing.
 4. A reviewer whose model has no command.
 5. A count below 1.
 
@@ -111,19 +111,19 @@ reads models     │   ┌────┴─────────┐     read
 ```
 
 The line marks the existing rule that a repository's own policy lives in
-`wfctl.json`. Both graphs have the same two readers and the same two arrows, and
-they differ in what each reader reads. In the baseline, the run record writer
+`wfctl.json`. Both graphs have the same two readers and the same two arrows.
+They differ in what each reader reads. In the baseline, the run record writer
 has to read `models` to skip it, and then treat every other key under `review`
-as a group. So any setting added under `review` later would be read as a group.
-In the decision, each reader reads one key, and a new setting under `review`
-changes neither reader.
+as a group. The writer would then treat any later setting under `review` as a
+group too. In the decision, each reader reads one key, and a new
+setting under `review` changes neither reader.
 
 ## Considered
 
 - Key everything by name, as the direct baseline describes. We didn't choose
   this, for three reasons Andre gave while revising the shape:
   1. A top-level `models` key was confusing, because it meant both the commands
-     and each group's reviewer list. `commands` says what it holds.
+     and each group's reviewer list. `commands` describes what it holds.
   2. When groups are keys under `review`, every key except `models` is a group.
      A list keeps the groups apart from the settings.
   3. The groups run in order after security and code, and JSON doesn't
@@ -142,10 +142,10 @@ changes neither reader.
   reviewers for security or code by listing that group.
 - A repository with no `review` key gets today's panel plus the security group,
   with 3 Claude reviewers each, and the report doesn't mention other models.
-- If a listed model can't run, wfctl warns and the other reviewers carry on.
+- If a listed model can't run, wfctl warns, and the other reviewers carry on.
   `wfctl check config` reports a missing command entry, and the roster marks
   those reviewers `✗` with one `⚠` line saying why. A run in which no reviewer
-  can run stays incomplete, so a group never completes with no review at all.
+  can run stays incomplete, so a group never completes with no review.
 
 ## Verification
 
