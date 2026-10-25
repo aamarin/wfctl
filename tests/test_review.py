@@ -533,6 +533,22 @@ def test_range_refuses_a_replace_ref_under_any_name(repo: Path, form: str) -> No
         _review.commit_range(repo, head, None)
 
 
+def test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref(repo: Path) -> None:
+    """`git update-ref -d` deletes one ref and reads a second name as the
+    value the first must hold, so one command naming every ref deleted none of
+    two and failed outright on three. The test runs the remedy as printed."""
+    head = commit(repo, "a")
+    for name in ("a", "b", "c"):
+        git(repo, "update-ref", f"refs/replace/{name}", git(repo, "rev-parse", "main:"))
+
+    with pytest.raises(_review.ReviewError) as refused:
+        _review.commit_range(repo, head, None)
+    remedy = str(refused.value).split("remove each with ", 1)[1]
+    subprocess.run(remedy, shell=True, cwd=repo, check=True)
+
+    assert git(repo, "replace", "-l") == ""
+
+
 def test_range_lists_when_the_grafts_variable_is_empty(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -319,7 +319,9 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     than a bare object id: it reads the part after the last `/`, in either
     case, and ignores what follows the id. The remedy deletes each ref by its
     full name, which `git replace -d` can't reach for every name, and quotes
-    it, since a ref name can hold characters a shell reads.
+    it, since a ref name can hold characters a shell reads. It runs one
+    `update-ref -d` per ref, because that command reads a second name as the
+    value the first must hold.
     `--git-path info/grafts` names the file
     `GIT_GRAFT_FILE` points at, resolved from the top of the worktree the way
     git resolves it, or `info/grafts` in the common directory. An empty
@@ -328,10 +330,12 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
     if replaced:
         base = os.environ.get("GIT_REPLACE_REF_BASE") or "refs/replace/"
-        refs = " ".join(shlex.quote(base + name) for name in replaced)
+        remedy = " && ".join(
+            f"git update-ref -d {shlex.quote(base + name)}" for name in replaced
+        )
         raise ReviewError(
             f"this repository has replace refs, so a reviewer's git show reads content other "
-            f"than the commit's; remove each with git update-ref -d {refs}"
+            f"than the commit's; remove each with {remedy}"
         )
     named = os.environ.get("GIT_GRAFT_FILE")
     if named == "":
