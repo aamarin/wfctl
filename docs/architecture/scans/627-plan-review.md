@@ -31,3 +31,40 @@
 - **PR-009, MINOR, open.** FR-004 covers only a failed push. Stands because nothing says what the review check or sign-off commands print or exit with when the local `record` fails, for example when two worktrees contend for the lock on the shared notes ref.
 - **PR-010, MINOR, open.** The required checks in `main.json` list a `context` with no `integration_id`. Stands because a commit status that anyone with write access posts with `context=review` would satisfy the check.
 - **PR-011, MINOR, open.** R3 says the notes walk matches what the state directory holds. After a reset that drops the state directory's last reviewed commit from the branch, the guard counts from the merge base and the notes reader counts from an older noted commit. Stands because both answers are safe but different, which strains SC-004.
+
+## Review 2026-10-25T15:40Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 5c1cfa80e45835314be9571dab823427e4cc955f, spec.md e633fffe89c59ab1f8228a0e3df3623b95714321, .specify/memory/constitution.md absent, design.md a300e080b4678211c03622c9cc526026ac136c85, docs/architecture/design/627-unreviewed-takes-coverage.md 6952a2a5ce10f93a970695db193bacb0a5ffa297, docs/architecture/design/627-review-note-line-per-event.md 9630d75158af14e37fe67d866147ee1054355e44, docs/architecture/design/627-guard-blocks-note-writes.md 666b18a2720685bbb6174ea35aa39ea7d69b17ac, docs/architecture/review-record-in-git-notes.md 4e24a7da9f16a04447f2f681e9b307f6fac76d9a, docs/architecture/review-covers-unreviewed-commits.md 24c4b0e1c20ef1fa397c6e861eaf907785b28769, research.md 5d4d0e34a4816757e923c482e89a9647236b85cb, data-model.md 469957bb0c12a9250c332ad93f7d854cb9bca7e9, quickstart.md 7fe0a3660c89a83d3acb9562d54c181840bc9f69, contracts/cli.md 8ffe9828a2b86cc34aabaabd0ba1026cf2d9a1a5, contracts/review-job.md 8f0893a411883a061178a85d93032ae5e044e65b, contracts/review-note.md dfdbb4b3891a514c88396ff9d958191cc203a765, checklists/requirements.md f0f311123f87812b1660c822ee055effe594c3f7, plan-review.plan.md 438d83be1eda5138b13890f983182e25e865ad0f (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 2 · MINOR 9 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/627-ci-review-check/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-014; PR-007 fixed) |
+| Requirements and traceability | Outstanding (PR-012; PR-003 fixed) |
+| Architecture and boundaries | Outstanding (PR-006, PR-016; PR-001 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-005, PR-009, PR-011, PR-015; PR-002 fixed) |
+| Security and reliability | Outstanding (PR-004, PR-010, PR-013; PR-008 fixed) |
+
+### Findings
+
+- **PR-012, MAJOR, open.** CI keeps requiring a group the PR removed (FR-015, R13), but `review start` loads groups from the working tree and refuses that group, and the guard doesn't count it. Stands because a PR that removes a group passes locally and fails in CI, and FR-010 forbids widening the local group list, so either the local side or FR-015 has to change in the spec.
+- **PR-013, MAJOR, open.** R13 reads `main`'s `wfctl.json` at `trunk_refs`' first entry, and `_paths.trunk_branch` honours a `trunk` key in the PR's own `wfctl.json` before `origin/HEAD`. Stands because a PR that declares a branch already holding its head as `trunk` gets an empty range and passes with no review, and its groups are read from that branch's file.
+- **PR-014, MINOR, open.** `_review_config.load` reads only from disk, and the plan's Project Structure doesn't list `_review_config.py`. Stands because the plan doesn't say whether the joined group list is validated as one declaration, where the first-letter rule could report a clash neither file has.
+- **PR-015, MINOR, open.** If a merged change makes `main`'s wfctl refuse `main`'s own `review` key, every PR fails, the fixing PR included. Stands because the ruleset has no bypass and no recovery step is written down.
+- **PR-016, MINOR, open.** R8 can't tell "no PR" from "`gh` is missing or `origin` isn't on GitHub". Stands because in such a repository every notes push prints the rerun warning.
+- **PR-004, MINOR, open.** R9 rule 2 is unchanged. Stands because `git push origin notes/wfctl-review` and a `refs/*` glob push the notes ref without `refs/notes/` in the text.
+- **PR-005, MINOR, open.** R9 rule 1 still doesn't require `notes` to be git's subcommand. Stands because a commit message containing "git notes add" may be refused, and no test catches a false refusal.
+- **PR-006, MINOR, open.** `627-review-note-line-per-event.md` still says recording doesn't read the note first. Stands because R6 and the data model say it does, and the proposed record wasn't edited.
+- **PR-009, MINOR, open.** `contracts/cli.md` defines no output or exit code for a failed local `record`. Stands because a ref lock held by another worktree has no stated behavior.
+- **PR-010, MINOR, open.** The ruleset's `review` entry has no `integration_id`. Stands because any commit status named `review` satisfies it.
+- **PR-011, MINOR, open.** R3's claim that the two readers agree is unchanged. Stands because they disagree once the state directory's last reviewed commit has left the branch, though both answers are safe.
+- **PR-001, MAJOR, fixed.** Fixed by `review-record-in-git-notes.md` Consequences and its 2026-10-25 `revised` Log entry, and by the plan's Constitution Check, which now says the record was revised.
+- **PR-002, MAJOR, fixed.** Fixed by R4 and the spec's Assumptions, which say the fallback needs FR-017a amended by the maintainer first and the ruleset waits until that is settled.
+- **PR-003, MAJOR, fixed.** Fixed by FR-024 and R12, which give the printed output: `git switch release/v<version>`, then the person's own command.
+- **PR-007, MINOR, fixed.** Fixed by the spec's Validation Strategy, which names a throwaway PR after merge.
+- **PR-008, MINOR, fixed.** Fixed by `contracts/review-job.md` and the plan, which give `ci.yml` a top-level `permissions: contents: read`, with the `tag` job keeping `contents: write`.
