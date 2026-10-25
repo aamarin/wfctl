@@ -188,7 +188,7 @@ def _no_host_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
     anyone remembering this fixture. Tests that want one set it themselves.
     """
     for name in list(os.environ):
-        if name.endswith("_SESSION_ID") and not name.startswith("WFCTL_"):
+        if name.endswith(("_SESSION_ID", "_SESSION")) and not name.startswith("WFCTL_"):
             monkeypatch.delenv(name)
 
 
