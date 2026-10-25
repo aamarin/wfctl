@@ -53,7 +53,7 @@ wfctl step none ui-design --reason "backend-only; no screens change"
 The sub-step then reads `skipped`, carrying the sentence as its annotation. The
 file goes in the branch's spec folder, one file per pass, and the PR body
 carries the same sentence to the reviewer
-(`branch-claims-live-with-specs.md`). It carries the same guards `arch none`
+(`design-exceptions-live-with-specs.md`). It carries the same guards `arch none`
 applies: an empty reason is refused, and a `<why>` placeholder is refused. One
 file per pass because a branch makes as many claims as it has passes, and a
 single shared file would mean the second claim destroys the first.
@@ -147,4 +147,4 @@ ran the skill, and the default view hides the row once it is settled.
   was rejected on this record's own ground that nothing branches on it
 - 2026-10-25  revised     — #635: claims move out of the architecture folder
   into the branch's spec folder, and the PR body carries them to the reviewer
-  (`branch-claims-live-with-specs.md`)
+  (`design-exceptions-live-with-specs.md`)
