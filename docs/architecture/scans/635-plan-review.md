@@ -50,3 +50,59 @@
   Stands because the plan doesn't say SC-004 is limited to code.
 - **PR-008, MINOR, open.** The spec's Assumptions say #382 gets a comment, and
   `plan.md §Order of work` has no step for it.
+
+## Review 2026-10-25T23:33Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 65858e944fe16f8609724b2dad26f48dfb9ad9b7, spec.md fd21899dbc01b9e61cf4237b06d282770fc4f2d9, .specify/memory/constitution.md absent, design.md 7e9dcb35ff751dca0699c399d637e4ed52b4141e, docs/architecture/design-exceptions-live-with-specs.md 3c4ccb64482135474c453b7197f23676a5269e01, docs/architecture/design/design-exceptions-module.md 8a09f5f0100ece4b9f9162b69168f98e6beb6cf2, research.md a6b032a2261ef4638dad8fb040e0ea39191470e3, data-model.md cb488fc3bc980e88311b01fe3a4e665be854e404, contracts/cli.md 0b2b3cc3dc0f28d4b8e3d1f90606c7bd1cda4df8, quickstart.md c2e5eb290bb8cfb6a5ce06374365602228f9017f, docs/architecture/an-absent-artifact-is-claimed-not-inferred.md 2e919d537ab879730cb49f890311e1d825a50ce9, plan-review.plan.md ef0e3c8e6a6c484a6c2a4f0e7590a06c834d698d (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 5 · Fixed since the earlier review: 8
+- Detail: /Users/andremarin/Development/wfctl-specs/635-arch-folder-per-branch-notes/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-010, PR-013) |
+| Requirements and traceability | Outstanding (PR-013; PR-002, PR-005, PR-008 fixed) |
+| Architecture and boundaries | Outstanding (PR-009, PR-010; PR-001, PR-006, PR-007 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-009, PR-011, PR-012; PR-003, PR-004 fixed) |
+| Security and reliability | Clear |
+
+### Findings
+
+- **PR-009, MINOR, open.** Removing `STEP_CLAIMS_DIR` breaks
+  `tests/test_paths.py`, which imports it at module level and asserts it at
+  :1005, and `research.md R8` lists neither. The docstring at
+  `tests/test_pipeline_commands.py:341` still names `step-claims/`. Deleting the
+  5 step claims on this branch also makes `records_on_this_branch` print a
+  `record:` line for a record nobody decided. Stands because the plan doesn't
+  cover any of the three.
+- **PR-010, MINOR, open.** The level-2 record's Consequences still says the 5
+  step claims are deleted, against FR-012 and `research.md R10`, and the
+  level-3 record's grep check has no step in the Order of work. Stands because
+  the plan says it follows both records as written.
+- **PR-011, MINOR, open.** A sub-issue's own spec folder replaces the epic's for
+  every artifact, so the sub-issue also loses the epic's spec, plan, and tasks
+  and starts again at brainstorm. Stands because the spec and plan say only
+  that it starts with no exceptions, and nothing at write time warns that a
+  sub-issue's exception applies to its siblings.
+- **PR-012, MINOR, open.** Order of work step 7 doesn't say how the 5 moved
+  folders reach `specs-trunk`, since `wfctl store specs` stores only the
+  current branch's folder. Stands because no step names the command.
+- **PR-013, MINOR, open.** The rename left "a exception" and "a `exceptions/`"
+  across the plan, research, data model, contracts, and design.md, and the
+  plan's "two docstrings" doesn't match the three test files it lists.
+- **PR-001, MAJOR, fixed.** Fixed by `research.md R11`, the spec's edge cases
+  and Key Entities, and `plan.md §Epic sub-issues`, which state that an epic's
+  sub-issues share its folder on purpose.
+- **PR-002, MINOR, fixed.** Fixed by SC-003, which now names the
+  git-can't-answer case, and `research.md R8` item 9.
+- **PR-003, MINOR, fixed.** Fixed by `research.md R8` item 8.
+- **PR-004, MINOR, fixed.** Fixed by `research.md R8` item 10.
+- **PR-005, MINOR, fixed.** Fixed by `research.md R9` items 8 and 9.
+- **PR-006, MINOR, fixed.** Fixed by `research.md R9` item 10 and the plan's
+  file list.
+- **PR-007, MINOR, fixed.** Fixed by SC-004 and the closing paragraph of
+  `research.md R9`.
+- **PR-008, MINOR, fixed.** Fixed by `plan.md §Order of work` step 10.
