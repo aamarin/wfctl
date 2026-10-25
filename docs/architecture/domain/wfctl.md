@@ -1,7 +1,8 @@
 # wfctl domain model
 
-State: proposed
+State: accepted
 Person who knows the domain: Andre Marin
+Accepted: 2026-10-25, for #649. This accepts the six bounded contexts and the parties outside wfctl as the names a record and a branch can use. It doesn't accept the items under "Recommendation", which are each filed as their own work.
 Last checked against the code: 2026-09-29, 63345fe
 Records this model draws on: `a-rule-is-expressed-as-a-check`, `install-modes`, `knowledge-placement`, `layer-model`, `level-4-owns-pattern-selection`, `no-hardcoded-agent`, `pipeline-state-is-one-payload`, `required-sections-are-wfctls`, `session-identity-from-named-agent`, `session-state-is-re-derived`, `supervisory-screen-owns-grouping`, `vendor-upstream-skills`, `wfctl-runs-the-verification`
 
