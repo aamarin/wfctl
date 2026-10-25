@@ -167,14 +167,20 @@ branch.
   `git notes merge -s cat_sort_uniq`, and pushes again. Worktrees on one machine share a single
   local notes ref, so they never diverge from each other.
 - Pushing the branch starts a CI run on the PR, but pushing the notes doesn't.
-  If the branch reaches GitHub before its review's note, the check fails and
-  has to be rerun. The failure message says so.
+  If the branch reaches GitHub before its review's note, the check fails. After
+  wfctl pushes the notes, it reruns the PR's failed check. If that rerun fails,
+  wfctl prints a warning and the user reruns the check by hand.
 - A rebase gives every commit a new id, so notes on the old ids no longer
   cover anything. The check then fails until a review covers the rebased
   commits. This matches the local check, which falls back to the merge base.
-- The CI job runs the PR's own copy of wfctl and reads the review groups from
-  the PR's own `wfctl.json`. As a result, a PR can weaken the check, just as it
-  can by editing `ci.yml`, since GitHub runs the PR's own workflow file.
+- GitHub runs `main`'s copy of the CI job and `main`'s wfctl, so a PR that
+  breaks the check code, even by accident, can't pass its own check. The job
+  reads the PR's commits and notes only as data.
+- The check requires every review group that `main`'s `wfctl.json` lists, plus
+  any group the PR's own `wfctl.json` adds. A PR that removes a group still
+  needs that group's review, and the removal takes effect once it reaches
+  `main`. A PR that adds a group needs that group's review on the same PR,
+  since adding it means the group should run.
 - A test runs the CI check against a scratch repository. It fails if an
   unreviewed commit passes, or if a commit that a note or a sign-off covers
   fails. The test makes sure CI and the local check agree on what is
@@ -188,3 +194,8 @@ branch.
 - 2026-10-24  revised     — Andre accepted that CI can't catch a forged note,
   and added the guard rule that blocks an agent from writing one by hand.
 - 2026-10-25  accepted    — Andre in the 627-ci-review-check session, 2026-10-24: approved the record after the trust answer, the guard rule, and the wfctl store reviews name
+- 2026-10-25  revised     — Andre in the #627 plan session and plan walkthrough:
+  CI runs `main`'s job and wfctl rather than the PR's, so a PR can't weaken
+  its own check by accident. CI requires `main`'s review groups plus any the
+  PR adds. wfctl reruns the failed check after pushing notes, and a failed
+  rerun is the user's to retry.
