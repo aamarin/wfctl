@@ -430,7 +430,7 @@ def test_range_refuses_any_replace_ref(repo: Path, kind: str) -> None:
     head = commit(repo, "b")
     replaced = replace_ref(repo, kind, first, head)
 
-    with pytest.raises(_review.ReviewError, match=f"git update-ref -d refs/replace/{replaced}$"):
+    with pytest.raises(_review.ReviewError, match=f"git update-ref --no-deref -d refs/replace/{replaced}$"):
         _review.commit_range(repo, head, None)
 
 
@@ -529,17 +529,27 @@ def test_range_refuses_a_replace_ref_under_any_name(repo: Path, form: str) -> No
     }[form]
     git(repo, "update-ref", f"refs/replace/{name}", git(repo, "rev-parse", "main:"))
 
-    with pytest.raises(_review.ReviewError, match=re.escape(f"git update-ref -d refs/replace/{name}")):
+    with pytest.raises(
+        _review.ReviewError, match=re.escape(f"git update-ref --no-deref -d refs/replace/{name}")
+    ):
         _review.commit_range(repo, head, None)
 
 
-def test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref(repo: Path) -> None:
+@pytest.mark.parametrize("base", [None, "refs/other/", "refs/other"])
+def test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, base: str | None
+) -> None:
     """`git update-ref -d` deletes one ref and reads a second name as the
     value the first must hold, so one command naming every ref deleted none of
-    two and failed outright on three. The test runs the remedy as printed."""
+    two and failed outright on three. The remedy builds each name from
+    `GIT_REPLACE_REF_BASE`, which no test had set, and git strips a base with
+    no trailing slash literally. The test runs the remedy as printed."""
     head = commit(repo, "a")
+    if base is not None:
+        monkeypatch.setenv("GIT_REPLACE_REF_BASE", base)
+    namespace = (base or "refs/replace/").rstrip("/")
     for name in ("a", "b", "c"):
-        git(repo, "update-ref", f"refs/replace/{name}", git(repo, "rev-parse", "main:"))
+        git(repo, "update-ref", f"{namespace}/{name}", git(repo, "rev-parse", "main:"))
 
     with pytest.raises(_review.ReviewError) as refused:
         _review.commit_range(repo, head, None)
@@ -547,6 +557,49 @@ def test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref(repo: Path
     subprocess.run(remedy, shell=True, cwd=repo, check=True)
 
     assert git(repo, "replace", "-l") == ""
+
+
+def test_range_refusal_deletes_a_symbolic_replace_ref_and_not_its_target(repo: Path) -> None:
+    """Git honors a symbolic ref under `refs/replace/`, and `update-ref -d`
+    follows one unless told not to, so the remedy deleted the branch it
+    pointed at and left the replace ref in place to refuse again."""
+    head = commit(repo, "a")
+    git(repo, "branch", "side")
+    git(repo, "symbolic-ref", f"refs/replace/{head}", "refs/heads/side")
+
+    with pytest.raises(_review.ReviewError) as refused:
+        _review.commit_range(repo, head, None)
+    remedy = str(refused.value).split("remove each with ", 1)[1]
+    subprocess.run(remedy, shell=True, cwd=repo, check=True)
+
+    assert git(repo, "replace", "-l") == ""
+    assert git(repo, "rev-parse", "--verify", "refs/heads/side") == head
+
+
+def test_range_refuses_an_empty_replace_ref_base_with_a_remedy_that_clears_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git takes an empty `GIT_REPLACE_REF_BASE` as given, so `replace -l`
+    lists every ref in the repository. The remedy named
+    `refs/replace/refs/heads/main`, which doesn't exist, so deleting it did
+    nothing and every review stayed refused."""
+    head = commit(repo, "a")
+    monkeypatch.setenv("GIT_REPLACE_REF_BASE", "")
+
+    with pytest.raises(_review.ReviewError, match="unset GIT_REPLACE_REF_BASE$"):
+        _review.commit_range(repo, head, None)
+
+
+def test_range_refuses_a_grafts_file_of_only_whitespace(repo: Path) -> None:
+    """The record refuses a grafts file with any content, and the check
+    stripped whitespace first, so a file of blank lines passed it."""
+    head = commit(repo, "a")
+    grafts = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/grafts"))
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_text("\n \n")
+
+    with pytest.raises(_review.ReviewError, match="grafts"):
+        _review.commit_range(repo, head, None)
 
 
 def test_range_lists_when_the_grafts_variable_is_empty(

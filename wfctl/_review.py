@@ -321,17 +321,21 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
     full name, which `git replace -d` can't reach for every name, and quotes
     it, since a ref name can hold characters a shell reads. It runs one
     `update-ref -d` per ref, because that command reads a second name as the
-    value the first must hold.
-    `--git-path info/grafts` names the file
-    `GIT_GRAFT_FILE` points at, resolved from the top of the worktree the way
-    git resolves it, or `info/grafts` in the common directory. An empty
-    `GIT_GRAFT_FILE` reads no grafts file, and `--git-path` refuses it.
+    value the first must hold, and passes `--no-deref`, because a symbolic
+    replace ref would otherwise take its target branch with it. An empty base
+    makes every ref in the repository a replace ref, so its remedy clears the
+    variable rather than deleting branches.
+
+    `--git-path info/grafts` names the file `GIT_GRAFT_FILE` points at,
+    resolved from the top of the worktree the way git resolves it, or
+    `info/grafts` in the common directory. An empty `GIT_GRAFT_FILE` reads no
+    grafts file, and `--git-path` refuses it.
     """
     replaced = _git(repo_root, "replace", "-l", timeout=timeout).stdout.split()
     if replaced:
-        base = os.environ.get("GIT_REPLACE_REF_BASE") or "refs/replace/"
-        remedy = " && ".join(
-            f"git update-ref -d {shlex.quote(base + name)}" for name in replaced
+        base = os.environ.get("GIT_REPLACE_REF_BASE", "refs/replace/")
+        remedy = "unset GIT_REPLACE_REF_BASE" if not base else " && ".join(
+            f"git update-ref --no-deref -d {shlex.quote(base + name)}" for name in replaced
         )
         raise ReviewError(
             f"this repository has replace refs, so a reviewer's git show reads content other "
@@ -352,7 +356,7 @@ def _refuse_rewritten_history(repo_root: Path, timeout: float | None) -> None:
         return
     except OSError as e:
         raise ReviewError(f"can't read {grafts}: {e}") from e
-    if content.strip():
+    if content:
         remedy = "unset GIT_GRAFT_FILE" if named else f"delete {grafts}"
         raise ReviewError(
             f"{grafts} grafts commits onto other parents, so a reviewer's git show reads "

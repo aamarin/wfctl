@@ -32,6 +32,8 @@ The range follows the rule in `review-covers-unreviewed-commits`: each review co
 - `git --no-replace-objects replace -l` lists replace refs on git 2.44, so the listing works under the flag `_git` always passes.
 - `GIT_REPLACE_REF_BASE=refs/other/ git replace -l` lists nothing for a ref under `refs/replace/`, so `replace -l` reads the namespace the reviewer's git reads.
 - With `refs/replace/foo` or `refs/replace/<12-char abbreviation>` pointing at a benign blob, `git cat-file -p` prints the real blob and warns "bad replace ref name". With `refs/replace/x/<sha>`, `refs/replace/<SHA>`, `refs/replace/<sha>zz`, or `refs/replace/<sha>0`, it prints the benign blob, and `git update-ref -d` deletes each of them. It deletes one ref per call. Given a second name, it reads that name as the value the first ref must hold, so two refs fail with "cannot lock ref", and three exit with a usage error.
+- Git honors a symbolic ref under `refs/replace/`. Without `--no-deref`, `git update-ref -d` deletes the branch it points at and leaves the replace ref in place.
+- When `GIT_REPLACE_REF_BASE` is set and empty, `git replace -l` lists every ref in the repository, `refs/heads/main` included.
 - With `.git/info/grafts` present, `git rev-list --count HEAD` honors it when `GIT_GRAFT_FILE` is unset and ignores it when the variable is empty.
 - `git rev-parse --path-format=absolute --git-path info/grafts` returns the file `GIT_GRAFT_FILE` names when it is set, and fails with "Not a directory" under `_git`'s own override. That's why the check runs that one call with the caller's environment.
 - Git resolves a relative `GIT_GRAFT_FILE` from the top of the worktree, even when it runs from a subdirectory, and `--git-path` returns that same file.
@@ -41,6 +43,7 @@ The range follows the rule in `review-covers-unreviewed-commits`: each review co
 ## Assumed
 
 - No repository using wfctl's review depends on replace refs or a grafts file in the checkout it reviews from. A repository that does would see every `wfctl review start` refused until it removes them, and would need a way to review through them, which this record doesn't provide.
+- The reviewer's git runs with the same `GIT_REPLACE_REF_BASE` and `GIT_GRAFT_FILE` as wfctl. The check reads both from wfctl's own environment, so `GIT_GRAFT_FILE= wfctl review start` skips the grafts check while a reviewer without the variable still reads `.git/info/grafts`. The worktree guard runs in the hook's environment, so it still refuses.
 
 ## Direct baseline
 
@@ -48,7 +51,7 @@ Keep the existing per-object check and extend it to each case the review found. 
 
 ## Decision
 
-If `git replace -l` prints any ref, or the grafts file has any content, `commit_range` refuses before it lists anything. Every listed name counts, because git honors more names than a bare object id. Git reads the part after the last `/`, in either letter case, and ignores what follows the id, so `x/<sha>`, `<SHA>`, and `<sha>zz` all swap the object. A name git ignores, such as `foo`, is refused too, since the remedy deletes it in one command. When `GIT_GRAFT_FILE` is empty, git reads no grafts file, so the check skips it. The refusal prints the remedy: `git update-ref -d refs/replace/<name>` for each ref, `delete <path>`, or `unset GIT_GRAFT_FILE`.
+If `git replace -l` prints any ref, or the grafts file has any content, `commit_range` refuses before it lists anything. Every listed name counts, because git honors more names than a bare object id. Git reads the part after the last `/`, in either letter case, and ignores what follows the id, so `x/<sha>`, `<SHA>`, and `<sha>zz` all swap the object. A name git ignores, such as `foo`, is refused too, since the remedy deletes it in one command. When `GIT_GRAFT_FILE` is empty, git reads no grafts file, so the check skips it. The refusal prints the remedy: `git update-ref --no-deref -d <full ref name>` for each ref, chained with `&&`, `delete <path>`, or `unset GIT_GRAFT_FILE`. When `GIT_REPLACE_REF_BASE` is set and empty, the remedy is `unset GIT_REPLACE_REF_BASE`, since deleting what `replace -l` lists would delete every branch.
 
 wfctl's own calls keep `--no-replace-objects` and the `GIT_GRAFT_FILE` override, so the reads after this check still see the real objects.
 
@@ -97,6 +100,10 @@ At the worktree guard, the refusal surfaces as "the review check failed", the sa
 - `test_range_refuses_a_replace_ref_under_any_name` covers a nested name, an upper-case id, an id with a suffix, and a name that isn't an id.
 - `test_range_lists_when_the_grafts_variable_is_empty` covers an empty `GIT_GRAFT_FILE`.
 - `test_range_refuses_a_grafts_file_that_is_not_text` covers a grafts file that isn't UTF-8.
+- `test_range_refuses_a_grafts_file_of_only_whitespace` covers a grafts file of blank lines.
+- `test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref` runs the printed remedy against three refs, under the default namespace and under `GIT_REPLACE_REF_BASE` with and without a trailing slash.
+- `test_range_refusal_deletes_a_symbolic_replace_ref_and_not_its_target` runs the remedy against a symbolic replace ref and checks that its target branch survives.
+- `test_range_refuses_an_empty_replace_ref_base_with_a_remedy_that_clears_it` covers an empty `GIT_REPLACE_REF_BASE`.
 
 ## Log
 
