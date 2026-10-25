@@ -542,15 +542,23 @@ def test_range_refusal_prints_a_remedy_that_deletes_every_replace_ref(
     """`git update-ref -d` deletes one ref and reads a second name as the
     value the first must hold, so one command naming every ref deleted none of
     two and failed outright on three. The remedy builds each name from
-    `GIT_REPLACE_REF_BASE`, which no test had set, and git strips a base with
-    no trailing slash literally. The test runs the remedy as printed."""
+    `GIT_REPLACE_REF_BASE`, which no test had set, and older git strips a base
+    with no trailing slash literally. Newer git, 2.55 on CI and 2.56 on
+    Alpine, aborts every command that reads objects under such a base, so a
+    reviewer's `git show` hides nothing there and the range refuses on git's
+    own failure. The refs are made before the base is set, since `update-ref`
+    aborts under it too. The test runs the remedy as printed."""
     head = commit(repo, "a")
-    if base is not None:
-        monkeypatch.setenv("GIT_REPLACE_REF_BASE", base)
     namespace = (base or "refs/replace/").rstrip("/")
     for name in ("a", "b", "c"):
         git(repo, "update-ref", f"{namespace}/{name}", git(repo, "rev-parse", "main:"))
+    if base is not None:
+        monkeypatch.setenv("GIT_REPLACE_REF_BASE", base)
 
+    if subprocess.run(["git", "replace", "-l"], cwd=repo, capture_output=True).returncode:
+        with pytest.raises(_review.ReviewError, match="git replace failed"):
+            _review.commit_range(repo, head, None)
+        return
     with pytest.raises(_review.ReviewError) as refused:
         _review.commit_range(repo, head, None)
     remedy = str(refused.value).split("remove each with ", 1)[1]
