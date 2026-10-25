@@ -47,9 +47,9 @@ security  reviewing-security  s1 s2 s3 claude
 code      code-review         c1 c2 c3 claude
 ```
 
-Run each group, in that order, over this branch's whole, unmodified diff, with
-`.agents/skills/fanning-out-code-review/SKILL.md`, before
-you open the template. Security and code always come first, and a group the
+Run each group, in that order, with
+`.agents/skills/fanning-out-code-review/SKILL.md`, over every commit wfctl
+lists for that run, before you open the template. Security and code always come first, and a group the
 repository adds runs after them.
 
 Run every group on every change, with no condition that skips one, including

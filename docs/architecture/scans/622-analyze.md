@@ -53,7 +53,7 @@ change.
 - **E · Coverage gaps, LOW**: T063 says a person must run `install-skills` in a
   fresh repository, but no task asked anyone to.
   → Fixed: T074 asks the person to run it, alongside the sign-off step they already
-  runs.
+  run.
 - **E · Coverage gaps, LOW**: The spec's Validation Strategy compares the
   timing run against the figures in the `_hook.py` docstring, but T040
   didn't.
