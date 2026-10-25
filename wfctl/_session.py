@@ -83,9 +83,9 @@ def identity(presented: str | None) -> str | None:
 
     Empty and whitespace-only read as absent rather than as an identity, because
     the value comes from an environment variable, and a variable exported as
-    `""` is the same caller as one never exported. A reader that treated `""` as an identity would answer differently
-    depending on which of the two the shell happened to produce, for a caller
-    that did the same thing both times.
+    `""` is the same caller as one never exported. A reader that treated `""`
+    as an identity would answer differently depending on which of the two the
+    shell happened to produce, for a caller that did the same thing both times.
 
     The one transformation wfctl performs on the value. Equality is the only
     other operation — never a parse, a split or a pattern
@@ -100,9 +100,8 @@ def identity(presented: str | None) -> str | None:
 # `WFCTL_AGENT` (`session-identity-from-named-agent`). An entry is added only once
 # someone has measured what that host exports to a shell. A misspelled name only
 # leaves the holder `unknown`, but a variable that holds something other than the
-# conversation's id gives a wrong holder. Codex and Copilot are
-# absent for that reason: the September measurement of each has not been
-# repeated on the versions installed now.
+# conversation's id gives a wrong holder. Codex and Copilot are absent until
+# someone repeats the 2026-09-13 measurement against a current release of each.
 AGENT_SESSION_VARIABLES = {
     "claude": "CLAUDE_CODE_SESSION_ID",
 }

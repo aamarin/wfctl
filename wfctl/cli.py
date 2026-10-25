@@ -409,8 +409,14 @@ def start_cmd(
                 agent_dir, "start", branch=branch,
                 step=report.current or "complete", session_id=caller,
             )
+            # `"unknown"` here means the branch's last `start` recorded no id, so
+            # there is no other conversation to name. That is the first `start`
+            # on every branch begun before its agent's id reached wfctl, and the
+            # caller is usually the same conversation that left the id out.
             console.print(
-                "[green]✓[/green] Session started — took over from another conversation"
+                "[green]✓[/green] Session started — this conversation now holds the branch"
+                if report.session_holder == "unknown"
+                else "[green]✓[/green] Session started — took over from another conversation"
             )
             return
 
@@ -434,9 +440,8 @@ def start_cmd(
             # a `start` line with no `session_id`, and every reader of the log
             # treats that line as resetting the holder to absent
             # (`_holder_since_last_boundary`), so an unwired re-run would
-            # silently drop a wired holder's identity mid-branch (#200) — the
-            # exact thing `session-identity-from-named-agent` exists to
-            # prevent. Carrying the existing holder forward makes an unwired
+            # silently drop a wired holder's identity mid-branch, which is the
+            # failure FR-006 of #200 rules out. Carrying the existing holder forward makes an unwired
             # call a true no-op on identity, matching FR-006.
             identity_to_record = (
                 caller if caller is not None else last_session_id(agent_dir, branch)

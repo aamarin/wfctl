@@ -70,7 +70,7 @@ def test_start_session_names_no_host_variable(shipped_skill: Path) -> None:
     The skill is committed, so a variable named in it would ship to every
     project that installs wfctl and be wrong in all but one of them. The
     `${VAR:+--flag "$VAR"}` shape is what `--agent` already uses for the same
-    reason. The skill leaves the identity to the environment variable, so it
+    reason. The skill leaves the variable's name to wfctl's agent table, so it
     names no host and the unset case is a no-op.
     """
     text = (shipped_skill / "skills" / "start-session" / "SKILL.md").read_text()

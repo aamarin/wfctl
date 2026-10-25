@@ -88,6 +88,8 @@ def test_the_flag_wins_over_both_variables(
     monkeypatch.setenv(CLAUDE_VAR, "from-host")
     monkeypatch.setenv("WFCTL_SESSION_ID", "from-profile")
 
+    """The flag is the one channel a person types, so it beats anything the
+    environment happens to carry."""
     runner.invoke(app, ["start", "--session-id", "typed"])
 
     assert _recorded(storyctl_dir) == "typed"
@@ -133,6 +135,8 @@ def test_an_agent_with_no_entry_presents_nothing(
 def test_a_blank_host_variable_presents_nothing(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """`export CLAUDE_CODE_SESSION_ID=` is no identity, for the same reason a
+    blank `WFCTL_SESSION_ID` isn't."""
     monkeypatch.delenv("WFCTL_SESSION_ID", raising=False)
     monkeypatch.setenv("WFCTL_AGENT", "claude")
     monkeypatch.setenv(CLAUDE_VAR, "")
