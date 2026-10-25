@@ -84,12 +84,12 @@ def test_wfctl_session_id_wins_over_the_agents_variable(
 def test_the_flag_wins_over_both_variables(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The flag is the one channel a person types, so it beats anything the
+    environment happens to carry."""
     monkeypatch.setenv("WFCTL_AGENT", "claude")
     monkeypatch.setenv(CLAUDE_VAR, "from-host")
     monkeypatch.setenv("WFCTL_SESSION_ID", "from-profile")
 
-    """The flag is the one channel a person types, so it beats anything the
-    environment happens to carry."""
     runner.invoke(app, ["start", "--session-id", "typed"])
 
     assert _recorded(storyctl_dir) == "typed"
