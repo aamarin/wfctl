@@ -54,17 +54,18 @@ then asks git whether a record was touched.
 
 **Rationale**: The exception check reads one file and needs no git call. Checking
 it first also means an exception answers the question when git can't, which is the
-case `touched_on_this_branch` returns `None` for. Today that case blocks as
-`inconclusive`, and a branch with a boundary exception has given an answer that
-doesn't depend on git.
+case `touched_on_this_branch` returns `None` for. Today that case reads
+`inconclusive`, and `blocks` releases it, since git is ambient evidence. So the
+result doesn't change, but a branch with a boundary exception now gets its answer
+without depending on git.
 
 **Alternatives considered**: Check git first and the exception second. The result
-is the same except when git can't answer, where it would hold a branch that
-already answered.
+is the same in every case, but the gate would run a git call it doesn't need.
 
-This is the second case where the gate's result changes on purpose, beside the
-old declaration in story 4. SC-003 names both, and a gate test pins each one
-(R8 item 9).
+The gate's result changes on purpose in one case only, the old declaration in
+story 4. An earlier draft listed this ordering as a second change, on the belief
+that `inconclusive` held the branch. It doesn't, so the gate test for this
+ordering pins that the result stays the same (R8 item 9).
 
 ## R4. How `declarations/` stops counting
 
@@ -172,10 +173,12 @@ empty mapping.
    constant is in `non_record_subtrees`. It's replaced by a test asserting
    `DECLARATIONS_DIR` is in the list, which keeps the same reason: a fourth
    reader of the arch root inherits the exclusion from one place.
-9. Two new gate tests, one per deliberate change in SC-003:
+9. Two new gate tests:
    1. A branch with `design.md`, a boundary exception, and git unable to answer
-      reads answered. Today the same branch with a declaration reads
-      `inconclusive` and holds.
+      reads answered, because the gate reads the exception before it asks git.
+      Today the same branch with a declaration reads `inconclusive`, which
+      `blocks` also releases, so this test pins the order rather than a change
+      in the result.
    2. A branch with `design.md` and only an old declaration under
       `declarations/` reads unanswered (story 4, scenario 2).
 10. One CLI test per acceptance scenario the existing tests don't reach:

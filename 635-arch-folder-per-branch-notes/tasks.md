@@ -85,7 +85,7 @@ the path `uv run wfctl feature-paths` prints as `FEATURE_DIR`.
 - [X] T007 [US1] Add scenario 1.2 to `tests/test_pipeline_commands.py`: `arch none` on a branch with no spec folder creates the folder and the exception, and brainstorm is still the current step. Also pin that brainstorm's state changes from `pending` to `in_progress`, since brainstorm now rolls up behind the `design-doc` pass (research R8 item 10.1)
 - [X] T008 [US1] Add scenario 1.3 to `tests/test_pipeline_commands.py`: a second `arch none` replaces the first reason (research R8 item 10.2)
 - [X] T009 [US1] Add scenario 1.4 to `tests/test_pipeline_commands.py` if the existing refusal tests don't already cover it: an empty reason and a `<why>` placeholder both refuse, and nothing is written in the spec folder
-- [X] T010 [US1] Add the gate test for SC-003's second change to `tests/test_pipeline_commands.py`: a branch with `design.md`, a boundary exception, and git unable to answer reads `brainstorm.architecture` as answered. Today the same branch with a declaration reads `inconclusive` (research R8 item 9.1)
+- [X] T010 [US1] Add the gate test for the exception-before-git order to `tests/test_pipeline_commands.py`: a branch with `design.md`, a boundary exception, and git unable to answer reads `brainstorm.architecture` as answered. Today the same branch with a declaration reads `inconclusive`, which also releases it, so the test pins the order (research R8 item 9.1)
 - [X] T011 [P] [US1] Add a test to `tests/test_end_reports_observations.py`: with a boundary exception and no record, `wfctl end` writes `**Boundary**: answered`. With no exception and git unable to tell, it still writes `unknown` (contracts/cli.md §wfctl end)
 
 ### Implementation for User Story 1

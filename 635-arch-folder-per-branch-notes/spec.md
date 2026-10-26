@@ -145,7 +145,7 @@ The boundary answer is written early, and the branch can change after that. When
 
 - **SC-001**: After merge, the architecture folder holds 0 design exception files, down from 20.
 - **SC-002**: A branch that records a boundary exception and any number of pass exceptions adds 0 files to the architecture folder.
-- **SC-003**: Every scenario that releases or holds the brainstorm gate today gives the same result after the change, with two exceptions. First, the old-file case in story 4 now holds the gate. Second, a branch with a boundary exception is now released when git can't tell whether a record was touched, where today it's held.
+- **SC-003**: Every scenario that releases or holds the brainstorm gate today gives the same result after the change, with one exception: the old-file case in story 4 now holds the gate. A branch with a boundary exception is released when git can't tell whether a record was touched, the same as today, since the gate already releases any branch when git can't answer. The difference is that the gate now reads the exception before it asks git.
 - **SC-004**: In wfctl's code, changing where exceptions are stored, or their file format, is one edit in one module. The skill text and the PR template comment that name the folder are listed in the plan, since a move has to update them too.
 
 ## Validation Strategy _(mandatory)_
