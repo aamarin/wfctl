@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from wfctl import _paths
+from wfctl import _paths, _review_config
 from wfctl._io import append_event, write_atomic
 from wfctl._review_config import Group, Reviewer
 
@@ -71,8 +71,8 @@ class ReviewError(Exception):
 
 
 class NoTrunk(ReviewError):
-    def __init__(self) -> None:
-        super().__init__(TRUNK_MESSAGE)
+    def __init__(self, message: str = TRUNK_MESSAGE) -> None:
+        super().__init__(message)
 
 
 class ShallowClone(ReviewError):
@@ -179,11 +179,140 @@ def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
     return found.returncode == 0
 
 
+@dataclass(frozen=True)
+class ReviewTrunk:
+    """The trunk reviews measure against.
+
+    `source` is the ref whose `wfctl.json` named it, such as `origin/main`, and
+    None when the trunk came from the working tree's resolution instead.
+    `warnings` are the lines `review start` prints before any outcome.
+    """
+
+    name: str
+    source: str | None
+    warnings: tuple[str, ...]
+
+
+def _read_config_at(
+    repo_root: Path, ref: str, timeout: float | None,
+) -> tuple[dict[str, object] | None, str | None]:
+    """`wfctl.json` as it is on `ref`, and why it couldn't be read.
+
+    `(None, None)` means the ref has no such file. `ls-tree` answers that
+    first, since telling "no such path" from another `git show` failure would
+    otherwise mean matching stderr text, and that wording changes between git
+    versions. A real git failure raises rather than reading as "no file".
+    """
+    listed = _git(
+        repo_root, "ls-tree", "--name-only", ref, "--", _review_config.CONFIG_PATH,
+        timeout=timeout,
+    ).stdout.strip()
+    if not listed:
+        return None, None
+    text = _git(
+        repo_root, "show", f"{ref}:{_review_config.CONFIG_PATH}", timeout=timeout,
+    ).stdout
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        return None, f"{e.msg} at line {e.lineno}"
+    if not isinstance(data, dict):
+        return None, "it isn't a JSON object"
+    return data, None
+
+
+def _origin_fetches_every_branch(repo_root: Path, timeout: float | None) -> tuple[bool, list[str]]:
+    """Whether `origin` fetches every branch, and the sources it does fetch."""
+    specs = _git(
+        repo_root, "config", "--get-all", "remote.origin.fetch",
+        timeout=timeout, answers=(0, 1),
+    ).stdout.split()
+    sources = [spec.removeprefix("+").split(":", 1)[0] for spec in specs]
+    return any(source in _EVERY_BRANCH for source in sources), sources
+
+
+def review_trunk(
+    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+) -> ReviewTrunk:
+    """The trunk reviews measure against, read from `wfctl.json` on the
+    repository's default branch rather than the branch under review.
+
+    The agent can edit the branch's own `trunk`, and `commit_range` leaves out
+    every commit the trunk has, so a trunk the branch chose could hide its
+    commits from the PR check and raise its own cap. The default branch is the
+    one `origin/HEAD` names, which the agent can't push to
+    (`review-round-cap`). A branch that names a different trunk gets a warning,
+    and the review goes on against the default branch's.
+
+    Without `origin/HEAD`, or when `origin` doesn't fetch every branch, there is
+    no default branch to trust, so today's resolution applies and the working
+    tree's `trunk` still decides. A working-tree trunk the clone lacks, or one
+    that isn't a branch name, raises `NoTrunk`, which is what the guard's
+    `_judge` does with it too.
+    """
+    name, problems = _paths.declared_trunk(repo_root)
+    default = _git(
+        repo_root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD",
+        timeout=timeout, answers=(0, 1),
+    ).stdout.strip()
+    if not default or not _origin_fetches_every_branch(repo_root, timeout)[0]:
+        trunk = _paths.trunk_branch(repo_root, timeout=timeout)
+        if trunk is None:
+            raise NoTrunk()
+        return ReviewTrunk(trunk, None, ())
+
+    short = default.removeprefix("origin/")
+    if not _has_ref(repo_root, f"refs/remotes/{default}", timeout):
+        raise ReviewError(
+            f"origin/HEAD names {default}, which this clone doesn't have; "
+            "run git remote set-head origin --auto"
+        )
+    where = f"wfctl.json on {default}"
+    warnings: list[str] = []
+    used = default
+    data, reason = _read_config_at(repo_root, f"refs/remotes/{default}", timeout)
+    if reason is not None:
+        warnings.append(f"can't read wfctl.json on {default} ({reason}); wfctl reviews against {short}")
+    elif data is not None and _paths.TRUNK_KEY in data:
+        declared = data[_paths.TRUNK_KEY]
+        if not isinstance(declared, str) or not declared.strip() or declared == "HEAD":
+            warnings.append(f"trunk on {default} isn't a branch name; wfctl reviews against {short}")
+        else:
+            used = _paths.resolve_declared(repo_root, declared, timeout=timeout) or ""
+            if not used:
+                raise NoTrunk(
+                    f"can't find the trunk branch {declared}; check trunk in {where}, "
+                    "or run git fetch"
+                )
+
+    if problems:
+        raise NoTrunk()
+    if name is not None:
+        if branch is not None and name == branch:
+            raise ReviewError(
+                f"the trunk branch is {name}, the branch under review; "
+                f"check trunk in {_review_config.CONFIG_PATH}"
+            )
+        mine = _paths.resolve_declared(repo_root, name, timeout=timeout)
+        if mine is None:
+            raise NoTrunk()
+        if mine.removeprefix("origin/") != used.removeprefix("origin/"):
+            warnings.append(
+                f"this branch sets trunk to {name}, but wfctl reads "
+                f"{used.removeprefix('origin/')} from {default} until the change merges"
+            )
+    return ReviewTrunk(used, default, tuple(warnings))
+
+
 def trunk_refs(
     repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
 ) -> list[str]:
     """The trunk branch on `origin` and its local branch, each when it exists,
     by full ref name.
+
+    The trunk comes from `review_trunk`: the default branch's `wfctl.json`, or
+    today's resolution where the clone has no default branch to trust. A
+    declared trunk decides only on that fallback path.
 
     The remote ref comes first because a person's local `main` usually trails
     it, and excluding only the local branch would list everything merged since
@@ -210,15 +339,18 @@ def trunk_refs(
     through it is refused unless `origin` fetches every branch. A declared
     trunk is used either way (`642-origin-head-trusted-on-full-fetch.md`).
     """
-    trunk = _paths.trunk_branch(repo_root, timeout=timeout)
-    if trunk is None:
-        raise NoTrunk()
-    local = trunk.removeprefix("origin/")
+    found = review_trunk(repo_root, timeout, branch=branch)
+    local = found.name.removeprefix("origin/")
     if branch is not None and local == branch:
+        where = f"wfctl.json on {found.source}" if found.source else "wfctl.json"
         raise ReviewError(
-            f"the trunk branch is {local}, the branch under review; check trunk in wfctl.json"
+            f"the trunk branch is {local}, the branch under review; check trunk in {where}"
         )
-    if trunk.startswith("origin/") and _paths.declared_trunk(repo_root)[0] is None:
+    if (
+        found.source is None
+        and found.name.startswith("origin/")
+        and _paths.declared_trunk(repo_root)[0] is None
+    ):
         _refuse_a_single_branch_clone(repo_root, local, timeout)
     refs = [
         ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
@@ -229,15 +361,57 @@ def trunk_refs(
     return refs
 
 
+@dataclass(frozen=True)
+class TrunkRounds:
+    """The cap read from the trunk, the short name of the ref it was read from,
+    and a warning when the trunk's value couldn't be used."""
+
+    cap: int
+    ref: str
+    warning: str | None
+
+
+def trunk_rounds(
+    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+) -> TrunkRounds:
+    """The round cap from `wfctl.json` on the trunk `trunk_refs` returns first.
+
+    That is the ref `commit_range` measures from, so the cap and the commit
+    range come from the same trunk. A trunk with no file, no `review` key, or no
+    `rounds` key gets the default without a warning, since the repository never
+    set one. A value that can't be used gets the default and a warning, since a
+    refusal would stop every review in the repository until the trunk was fixed.
+    """
+    ref = trunk_refs(repo_root, timeout, branch=branch)[0]
+    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    fallback = _review_config.DEFAULT_ROUNDS
+    data, reason = _read_config_at(repo_root, ref, timeout)
+    if reason is not None:
+        return TrunkRounds(
+            fallback, short,
+            f"can't read wfctl.json on {short} ({reason}); wfctl uses the default of {fallback}",
+        )
+    if data is None or "review" not in data:
+        return TrunkRounds(fallback, short, None)
+    review = data["review"]
+    cap, problem = (
+        _review_config.parse_rounds(review) if isinstance(review, dict)
+        else (None, "not an object")
+    )
+    if problem is not None:
+        return TrunkRounds(
+            fallback, short,
+            f"review.rounds on {short} isn't a whole number of 0 or more; "
+            f"wfctl uses the default of {fallback}",
+        )
+    return TrunkRounds(fallback if cap is None else cap, short, None)
+
+
 def _refuse_a_single_branch_clone(repo_root: Path, trunk: str, timeout: float | None) -> None:
     """Raise when `origin` fetches only some branches, so `origin/HEAD` can
     name the branch under review rather than the trunk."""
-    specs = _git(
-        repo_root, "config", "--get-all", "remote.origin.fetch",
-        timeout=timeout, answers=(0, 1),
-    ).stdout.split()
-    sources = [spec.removeprefix("+").split(":", 1)[0] for spec in specs]
-    if any(source in _EVERY_BRANCH for source in sources):
+    every, sources = _origin_fetches_every_branch(repo_root, timeout)
+    if every:
         return
     fetched = ", ".join(s.removeprefix("refs/heads/") for s in sources)
     what = f"only {fetched}" if fetched else "no branch"

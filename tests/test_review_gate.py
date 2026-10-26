@@ -294,6 +294,42 @@ def test_no_trunk_branch_gives_the_error_refusal(repos: Repos, guard: Guard) -> 
     assert "✗ the review check failed: can't find the trunk branch; set trunk in wfctl.json" in err
 
 
+def test_an_invalid_cap_on_the_branch_fails_the_guard_like_any_review_setting(
+    repos: Repos, guard: Guard,
+) -> None:
+    """`review.rounds` goes through the same load as every other `review`
+    setting, so a value the check can't use is an error refusal and never a
+    quiet default."""
+    (repos.feature / "wfctl.json").write_text(json.dumps({"review": {"rounds": -1}}))
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert "review.rounds must be a whole number of 0 or more" in err
+
+
+def test_a_branch_that_names_another_trunk_still_has_its_commits_counted(
+    repos: Repos, guard: Guard,
+) -> None:
+    """The guard reads the trunk from the default branch. A branch that points
+    `trunk` at its own head would otherwise hide every commit from the check."""
+    git(repos.feature, "branch", "loose", "HEAD")
+    (repos.feature / "wfctl.json").write_text(json.dumps({"trunk": "loose"}))
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert "604-x.txt" in err
+
+
+def test_the_main_checkout_still_merges_a_reviewed_branch_with_origin_head_set(
+    repos: Repos, guard: Guard,
+) -> None:
+    repos.complete(repos.other, "630-x")
+
+    assert guard("gh pr merge 630", repos.main) == (0, "")
+
+
 def test_any_other_error_after_a_match_refuses_naming_it(
     repos: Repos, guard: Guard, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

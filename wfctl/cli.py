@@ -6131,7 +6131,22 @@ def review_start_cmd(
         raise typer.Exit(1)
     branch = resolve_branch(repo_root)
     agent_dir = resolve_agent_dir(repo_root, branch)
-    cap = _review_config.DEFAULT_ROUNDS
+    try:
+        for warning in _review.review_trunk(repo_root, None, branch=branch).warnings:
+            _say(f"⚠ {warning}")
+        trunk_cap = _review.trunk_rounds(repo_root, None, branch=branch)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    if trunk_cap.warning:
+        _say(f"⚠ {trunk_cap.warning}")
+    cap = trunk_cap.cap
+    mine = _review_config.load_rounds(repo_root)
+    if mine is not None and mine != cap:
+        _say(
+            f"⚠ this branch sets review.rounds to {mine}, but wfctl reads {cap} "
+            f"from {trunk_cap.ref} until the change merges"
+        )
     try:
         started = _review.start(repo_root, agent_dir, chosen, branch=branch, cap=cap)
     except _review.RoundCapReached as e:

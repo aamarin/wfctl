@@ -1690,3 +1690,306 @@ def test_each_sign_off_replaces_the_last(repo: Path, state: Path) -> None:
     assert record["sha"] == second
     assert set(record) == {"sha", "at"}
     assert _review.signed_off(state) == second
+
+
+# --- the trunk reviews read, and the cap it carries ------------------------------
+
+
+def declare_on_main(tmp_path: Path, repo: Path, text: str) -> None:
+    """Land `wfctl.json` on `origin/main`, the file reviews read the trunk and
+    the cap from."""
+    push_to_main(tmp_path, repo, "wfctl.json", text)
+
+
+def publish_branch(repo: Path, name: str) -> None:
+    """Create `name` at `main` and push it, so the clone has `origin/<name>`."""
+    git(repo, "branch", name, "main")
+    git(repo, "push", "-q", "origin", name)
+
+
+def test_read_config_at_tells_no_file_from_a_file_it_cannot_read(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """A missing file is the ordinary case and needs no warning, while bad JSON
+    is a mistake the person has to hear about, so the two are different
+    answers."""
+    ref = "refs/remotes/origin/main"
+    assert _review._read_config_at(repo, ref, None) == (None, None)
+
+    declare_on_main(tmp_path, repo, "{not json")
+    data, reason = _review._read_config_at(repo, ref, None)
+    assert data is None and reason
+
+    declare_on_main(tmp_path, repo, "[1]")
+    assert _review._read_config_at(repo, ref, None) == (None, "it isn't a JSON object")
+
+    declare_on_main(tmp_path, repo, '{"trunk": "main"}')
+    assert _review._read_config_at(repo, ref, None) == ({"trunk": "main"}, None)
+
+
+@pytest.mark.parametrize(("text", "cap"), [
+    (None, 3),
+    ("{}", 3),
+    ('{"review": {}}', 3),
+    ('{"review": {"rounds": 5}}', 5),
+    ('{"review": {"rounds": 0}}', 0),
+])
+def test_trunk_rounds_reads_the_cap_without_a_warning_when_there_is_nothing_wrong(
+    tmp_path: Path, repo: Path, text: str | None, cap: int,
+) -> None:
+    """An absent file, key, or `review` object is a repository that never set a
+    cap, so it gets the default and no warning."""
+    if text is not None:
+        declare_on_main(tmp_path, repo, text)
+
+    found = _review.trunk_rounds(repo, None, branch="637-x")
+
+    assert (found.cap, found.ref, found.warning) == (cap, "origin/main", None)
+
+
+@pytest.mark.parametrize("text", [
+    '{"review": {"rounds": -1}}',
+    '{"review": {"rounds": 1.5}}',
+    '{"review": {"rounds": "3"}}',
+    '{"review": {"rounds": true}}',
+    '{"review": 4}',
+])
+def test_trunk_rounds_uses_the_default_and_warns_on_a_value_it_cannot_use(
+    tmp_path: Path, repo: Path, text: str,
+) -> None:
+    """Refusing here would stop every review in the repository until someone
+    fixed the trunk, so a bad value warns and the default applies."""
+    declare_on_main(tmp_path, repo, text)
+
+    found = _review.trunk_rounds(repo, None, branch="637-x")
+
+    assert found.cap == 3
+    assert found.warning == (
+        "review.rounds on origin/main isn't a whole number of 0 or more; "
+        "wfctl uses the default of 3"
+    )
+
+
+@pytest.mark.parametrize("text", ["{not json", "[1]"])
+def test_trunk_rounds_warns_when_the_trunks_file_is_not_a_json_object(
+    tmp_path: Path, repo: Path, text: str,
+) -> None:
+    declare_on_main(tmp_path, repo, text)
+
+    found = _review.trunk_rounds(repo, None, branch="637-x")
+
+    assert found.cap == 3
+    assert found.warning is not None
+    assert found.warning.startswith("can't read wfctl.json on origin/main (")
+    assert found.warning.endswith("); wfctl uses the default of 3")
+
+
+def test_trunk_rounds_reads_the_local_branch_when_there_is_no_remote(
+    repo: Path,
+) -> None:
+    """The remote ref comes first because a person's local `main` trails it. With
+    no remote at all the local branch is the trunk, so the cap comes from it."""
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "wfctl.json", '{"review": {"rounds": 5}}')
+    git(repo, "checkout", "-q", "637-x")
+    git(repo, "remote", "remove", "origin")
+
+    found = _review.trunk_rounds(repo, None, branch="637-x")
+
+    assert (found.cap, found.ref, found.warning) == (5, "main", None)
+
+
+def test_review_trunk_reads_the_default_branch_and_says_where_it_looked(
+    repo: Path,
+) -> None:
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert (found.name, found.source, found.warnings) == ("origin/main", "origin/main", ())
+
+
+def test_review_trunk_follows_a_trunk_the_default_branch_declares(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """A repository whose trunk is `develop` declares it where the agent can't
+    push, which is the default branch."""
+    publish_branch(repo, "develop")
+    declare_on_main(tmp_path, repo, '{"trunk": "develop"}')
+
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert (found.name, found.source, found.warnings) == ("origin/develop", "origin/main", ())
+    assert _review.trunk_refs(repo, None, branch="637-x")[0] == "refs/remotes/origin/develop"
+
+
+def test_review_trunk_ignores_a_trunk_only_the_branch_declares_and_warns(
+    repo: Path,
+) -> None:
+    """The branch's own `trunk` could hide its commits from the PR check, so the
+    default branch decides and the branch hears that its edit has no effect."""
+    git(repo, "branch", "loose", "main")
+    (repo / "wfctl.json").write_text('{"trunk": "loose"}')
+
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert found.name == "origin/main"
+    assert found.warnings == (
+        "this branch sets trunk to loose, but wfctl reads main from origin/main "
+        "until the change merges",
+    )
+
+
+def test_review_trunk_does_not_warn_when_the_branch_declares_the_same_trunk(
+    repo: Path,
+) -> None:
+    (repo / "wfctl.json").write_text('{"trunk": "main"}')
+
+    assert _review.review_trunk(repo, None, branch="637-x").warnings == ()
+
+
+def test_review_trunk_refuses_a_default_branch_trunk_the_clone_lacks(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Measuring against the default branch instead would review the wrong
+    commits with nothing to say so. `git fetch` is the usual fix."""
+    declare_on_main(tmp_path, repo, '{"trunk": "develop"}')
+
+    with pytest.raises(_review.NoTrunk) as refused:
+        _review.review_trunk(repo, None, branch="637-x")
+
+    assert str(refused.value) == (
+        "can't find the trunk branch develop; check trunk in wfctl.json on origin/main, "
+        "or run git fetch"
+    )
+
+
+@pytest.mark.parametrize("trunk", ['5', '""', '"HEAD"', 'null'])
+def test_review_trunk_warns_and_uses_the_default_for_a_trunk_that_is_not_a_name(
+    tmp_path: Path, repo: Path, trunk: str,
+) -> None:
+    declare_on_main(tmp_path, repo, f'{{"trunk": {trunk}}}')
+
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert found.name == "origin/main"
+    assert found.warnings == (
+        "trunk on origin/main isn't a branch name; wfctl reviews against main",
+    )
+
+
+def test_review_trunk_warns_when_the_default_branchs_file_is_not_json(
+    tmp_path: Path, repo: Path,
+) -> None:
+    declare_on_main(tmp_path, repo, "{not json")
+
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert found.name == "origin/main"
+    assert len(found.warnings) == 1
+    assert found.warnings[0].startswith("can't read wfctl.json on origin/main (")
+    assert found.warnings[0].endswith("); wfctl reviews against main")
+
+
+def test_review_trunk_refuses_a_working_tree_trunk_the_clone_lacks(repo: Path) -> None:
+    """The guard refuses the same branch, so a warning here would tell the user
+    the change can merge and the guard would then say otherwise."""
+    (repo / "wfctl.json").write_text('{"trunk": "nope"}')
+
+    with pytest.raises(_review.NoTrunk):
+        _review.review_trunk(repo, None, branch="637-x")
+
+
+def test_review_trunk_refuses_a_working_tree_trunk_that_is_not_a_name(repo: Path) -> None:
+    (repo / "wfctl.json").write_text('{"trunk": 5}')
+
+    with pytest.raises(_review.NoTrunk):
+        _review.review_trunk(repo, None, branch="637-x")
+
+
+def test_review_trunk_without_origin_head_leaves_the_branch_to_choose(repo: Path) -> None:
+    """A remote added by hand records no `origin/HEAD`. That layout keeps
+    today's resolution, which reads the working tree's `trunk` first."""
+    git(repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+    git(repo, "branch", "loose", "main")
+    (repo / "wfctl.json").write_text('{"trunk": "loose"}')
+
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert (found.name, found.source, found.warnings) == ("loose", None, ())
+
+
+def test_review_trunk_does_not_trust_origin_head_in_a_single_branch_clone(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """`origin/HEAD` can name the branch under review there, so the default
+    branch's file isn't read and today's resolution applies."""
+    publish_branch(repo, "develop")
+    declare_on_main(tmp_path, repo, '{"trunk": "develop"}')
+    git(repo, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+
+    found = _review.review_trunk(repo, None, branch="637-x")
+
+    assert (found.name, found.source) == ("origin/main", None)
+
+
+def test_review_trunk_refuses_an_origin_head_naming_a_ref_the_clone_lacks(
+    repo: Path,
+) -> None:
+    """Skipping it would turn the check off with no message, and one git command
+    fixes it."""
+    git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+
+    with pytest.raises(_review.ReviewError) as refused:
+        _review.review_trunk(repo, None, branch="637-x")
+
+    assert str(refused.value) == (
+        "origin/HEAD names origin/main, which this clone doesn't have; "
+        "run git remote set-head origin --auto"
+    )
+
+
+def test_review_trunk_tells_a_missing_origin_head_from_a_git_failure(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """A missing `origin/HEAD` exits 1 under `--quiet` and falls back. Any other
+    failure, such as a directory that isn't a repository, exits 128 and refuses,
+    so a broken git can't pass for a clone with no default branch."""
+    git(repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+    assert _review.review_trunk(repo, None, branch="637-x").source is None
+
+    with pytest.raises(_review.ReviewError, match="git symbolic-ref failed"):
+        _review.review_trunk(tmp_path, None, branch="637-x")
+
+
+def test_a_working_tree_trunk_that_is_the_branch_under_review_is_refused(
+    repo: Path,
+) -> None:
+    """PR-023. With `origin/HEAD` set the branch's setting no longer picks the
+    trunk, but a trunk equal to the branch would still hide every commit, so
+    the same-name refusal holds on this path too, without a mismatch warning."""
+    (repo / "wfctl.json").write_text('{"trunk": "637-x"}')
+    expected = (
+        "the trunk branch is 637-x, the branch under review; check trunk in wfctl.json"
+    )
+
+    with pytest.raises(_review.ReviewError) as from_trunk:
+        _review.review_trunk(repo, None, branch="637-x")
+    with pytest.raises(_review.ReviewError) as from_refs:
+        _review.trunk_refs(repo, None, branch="637-x")
+
+    assert str(from_trunk.value) == expected
+    assert str(from_refs.value) == expected
+
+
+def test_a_default_branch_trunk_that_is_the_branch_under_review_names_that_file(
+    tmp_path: Path, repo: Path,
+) -> None:
+    declare_on_main(tmp_path, repo, '{"trunk": "637-x"}')
+    git(repo, "push", "-q", "origin", "637-x")
+
+    with pytest.raises(_review.ReviewError) as refused:
+        _review.trunk_refs(repo, None, branch="637-x")
+
+    assert str(refused.value) == (
+        "the trunk branch is 637-x, the branch under review; "
+        "check trunk in wfctl.json on origin/main"
+    )

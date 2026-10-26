@@ -1442,15 +1442,15 @@ def _bare_head(repo: Path, timeout: float | None) -> object:
     return bare_head(repo, timeout=timeout)
 
 
-def _resolve_declared(repo: Path, timeout: float | None) -> object:
-    from wfctl._paths import _resolve_declared as resolve_declared
+def resolve_declared(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import resolve_declared as resolve_declared
 
     return resolve_declared(repo, "main", timeout=timeout)
 
 
 # Each case steers its helper through the whole chain the review check reaches:
 # a bare layout so `trunk_branch` asks `_bare_head` and `is_bare_layout`, a
-# declaration so it asks `_resolve_declared`, a failed lookup at every step so
+# declaration so it asks `resolve_declared`, a failed lookup at every step so
 # it falls through to the name guess, and an empty branch name so
 # `resolve_branch` asks for the short hash as well.
 _BARE = {"symbolic-ref": (1, ""), "config": (0, "true\n"), "rev-parse": (0, "/x/.git\n")}
@@ -1468,7 +1468,7 @@ _TIMEOUT_CASES = [
     pytest.param(_project_name, {"rev-parse": (0, ".git\n")}, 1, id="project_name"),
     pytest.param(_is_bare_layout, {"config": (0, "true\n")}, 1, id="is_bare_layout"),
     pytest.param(_bare_head, {**_BARE, "symbolic-ref": (0, "main\n")}, 4, id="_bare_head"),
-    pytest.param(_resolve_declared, {"show-ref": (1, "")}, 2, id="_resolve_declared"),
+    pytest.param(resolve_declared, {"show-ref": (1, "")}, 2, id="resolve_declared"),
 ]
 
 
