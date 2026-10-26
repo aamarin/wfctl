@@ -106,3 +106,44 @@
 - **PR-007, MINOR, fixed.** Fixed by SC-004 and the closing paragraph of
   `research.md R9`.
 - **PR-008, MINOR, fixed.** Fixed by `plan.md §Order of work` step 10.
+
+## Review 2026-10-26T10:56Z
+
+- Verdict: satisfied
+- Reviewed: plan.md aaff817f79ee1d0f216461909ac9f4115f186dfe, spec.md fd21899dbc01b9e61cf4237b06d282770fc4f2d9, .specify/memory/constitution.md absent, design.md adba5c0028c3f61f4b7200f1a2f140d0268f5169, docs/architecture/design-exceptions-live-with-specs.md 93babce89357bb3ebdd684717f1c5e79f9cd495d, docs/architecture/design/design-exceptions-module.md 8a09f5f0100ece4b9f9162b69168f98e6beb6cf2, research.md dd37e9f3d27bfd22f56ca7dd16e59193e8e88cc7, data-model.md c35bdb77a63bc44e80279f62ed278084612dfd37, contracts/cli.md 640b4d90c324b2ad8cdc3907d6d4b2cb643db225, quickstart.md c2e5eb290bb8cfb6a5ce06374365602228f9017f, docs/architecture/an-absent-artifact-is-claimed-not-inferred.md 2e919d537ab879730cb49f890311e1d825a50ce9, plan-review.plan.md 65858e944fe16f8609724b2dad26f48dfb9ad9b7 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/635-arch-folder-per-branch-notes/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-010, PR-013 fixed) |
+| Requirements and traceability | Resolved (PR-013 fixed) |
+| Architecture and boundaries | Resolved (PR-009, PR-010 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-015; PR-009, PR-011, PR-012 fixed) |
+| Security and reliability | Outstanding (PR-014) |
+
+### Findings
+
+- **PR-014, MINOR, open.** `plan.md §Order of work` step 7 stores each moved
+  folder with `WFCTL_BRANCH=<branch> wfctl store specs`, which logs each push
+  in that merged branch's state directory rather than this one. Stands because
+  a restarted session on this branch can't see the 5 pushes, and step 7 doesn't
+  say so or record them here.
+- **PR-015, MINOR, open.** Step 7's level-3 grep says to confirm every hit is a
+  call into `_design_exceptions`, but a call never matches the pattern, and a
+  rewritten `--help` docstring naming `exceptions/boundary.md` would be a hit
+  that isn't a call. Stands because the pass condition is ambiguous.
+- **PR-009, MINOR, fixed.** Fixed by `research.md R8` item 8, which names the
+  `tests/test_paths.py` import and test and the `test_pipeline_commands.py:341`
+  docstring, and R4, which accepts the one-time `record:` line.
+- **PR-010, MINOR, fixed.** Fixed by 024a991, which revises the level-2
+  record's Consequences and Log, and by the level-3 grep added to step 7.
+- **PR-011, MINOR, fixed.** Fixed by `research.md R11`, which states that an
+  own folder replaces the epic's for every artifact.
+- **PR-012, MINOR, fixed.** Fixed by step 7 and `research.md R10`, which name
+  the store command once per folder.
+- **PR-013, MINOR, fixed.** Fixed by the article edits across the plan,
+  research, data model, contracts, and design.md.
