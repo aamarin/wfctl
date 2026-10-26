@@ -22,7 +22,7 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl import _arch
-from tests.conftest import write_record
+from tests.conftest import write_design_record, write_record
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -122,6 +122,7 @@ def test_fixing_the_drawing_releases_the_step_on_the_next_read(
     assert _brainstorm()["state"] == "in_progress"
 
     write_record(root, "a-decision", **fixed)
+    write_design_record(root)
 
     step = _brainstorm()
     assert step["state"] == "done"
@@ -345,9 +346,10 @@ def test_an_arch_none_declaration_alone_still_answers_the_design_step(
 ) -> None:
     """A change that draws no boundary has no drawing to judge, and a gate that
     looked for one there would hold every copy edit in the repository."""
-    _arch_root(storyctl_dir, monkeypatch)
+    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
+    write_design_record(root)
 
     step = _brainstorm()
 
@@ -385,6 +387,7 @@ def test_an_accepted_record_is_not_judged_for_its_drawing(
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     write_record(root, "a-decision", "accepted", boundary=_FLOWCHART)
+    write_design_record(root)
 
     assert _brainstorm()["state"] == "done"
 
@@ -400,6 +403,7 @@ def test_a_failing_record_marked_rejected_by_hand_releases_the_step(
     assert _brainstorm()["state"] == "in_progress"
 
     write_record(root, "a-decision", "rejected", diagram="component")
+    write_design_record(root)
 
     assert _brainstorm()["state"] == "done"
 
@@ -415,6 +419,7 @@ def test_a_failing_looking_file_outside_the_records_is_not_judged(
     storyctl_dir.make_spec_artifact("brainstorm")
     assert runner.invoke(app, ["arch", "none", "--reason", "copy edit"]).exit_code == 0
     write_record(root / corner, "a-decision", diagram="component")
+    write_design_record(root)
 
     assert _brainstorm()["state"] == "done"
 
@@ -442,6 +447,7 @@ def test_a_failing_record_already_on_trunk_is_not_judged(
     _commit_on_trunk_then_branch(storyctl_dir.repo_root)
     storyctl_dir.make_spec_artifact("brainstorm")
     write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+    write_design_record(root)
 
     assert _brainstorm()["state"] == "done"
 
@@ -463,6 +469,7 @@ def test_an_edit_to_a_failing_record_from_trunk_is_not_judged(
     path.write_text(path.read_text() + "A typo, fixed.\n")
     if committed:
         _git(storyctl_dir.repo_root, "commit", "-am", "fix a typo")
+    write_design_record(root)
 
     step = _brainstorm()
 
@@ -587,15 +594,21 @@ def test_a_failing_record_under_an_arch_root_outside_the_repository_is_not_judge
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     """Git cannot say what this branch changed under a root it does not track, so
-    there is no list of this branch's records to judge. The boundary question
-    already proceeds on that silence, and the drawing check has to agree with it
-    rather than hold the step on every record kept outside the repository."""
+    there is no list of this branch's records to judge. Before specify the
+    boundary question holds on that silence (#648), so the drawing check is
+    reached past specify, where it runs as a warning. It has to find nothing
+    there rather than warn about every record kept outside the repository."""
     root = tmp_path_factory.mktemp("outside") / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify")
     write_record(root, "a-decision", diagram="component")
 
-    assert _brainstorm()["state"] == "done"
+    step = _brainstorm()
+
+    assert step["state"] == "done"
+    assert _architecture_pass(step)["annotation"] is None
+    assert _payload()["warnings"] == []
 
 
 # --- A repository with no trunk (#508) ----------------------------------------
@@ -636,13 +649,13 @@ def test_with_no_trunk_an_uncommitted_failing_record_still_holds_the_step(
 def test_with_no_trunk_a_committed_failing_record_finishes_the_step_and_says_so(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Once committed, the record is unseen: there is no base to diff against. The
-    step used to finish with nothing on screen to say why. It now finishes and
-    says the committed records went unchecked, in `display`, so no caller reads
-    the line as a held step. The rendered assertion also holds the row to 80
-    columns, since the runner renders at that width and a wrapped line no longer
-    contains the string; the first wording failed it that way."""
-    from wfctl._evidence import DRAWINGS_UNCHECKED
+    """Once committed, the record is unseen: there is no base to diff against, so
+    git can't say whether the branch answered the boundary question at all. The
+    step used to finish here, first silently and then with a line saying the
+    committed records went unchecked. Since #648 it holds on that silence and
+    names the setting that settles it, so a repository with no trunk finds out
+    before any record goes unjudged."""
+    from wfctl._evidence import GIT_UNANSWERED_HELP, GIT_UNANSWERED_REASON
 
     _failing_record_with_no_trunk(storyctl_dir, monkeypatch)
     _git(storyctl_dir.repo_root, "add", "-A")
@@ -650,11 +663,9 @@ def test_with_no_trunk_a_committed_failing_record_finishes_the_step_and_says_so(
 
     step = _brainstorm()
 
-    assert step["state"] == "done"
-    assert step["reason"] is None
-    assert step["remedy"] is None
-    assert _architecture_pass(step)["annotation"] == DRAWINGS_UNCHECKED
-    assert DRAWINGS_UNCHECKED in runner.invoke(app, ["status"]).output
+    assert step["state"] == "in_progress"
+    assert step["reason"] == GIT_UNANSWERED_REASON
+    assert step["remedy"] == GIT_UNANSWERED_HELP
 
 
 def test_with_a_trunk_a_finished_pass_carries_no_unchecked_line(
@@ -669,6 +680,7 @@ def test_with_a_trunk_a_finished_pass_carries_no_unchecked_line(
     _git(storyctl_dir.repo_root, "checkout", "-b", "418-storyctl")
     storyctl_dir.make_spec_artifact("brainstorm")
     write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+    write_design_record(root)
     _git(storyctl_dir.repo_root, "add", "-A")
     _git(storyctl_dir.repo_root, "commit", "-m", "a decision")
 
@@ -685,11 +697,13 @@ def test_with_no_trunk_an_arch_root_outside_the_repository_carries_no_unchecked_
 ) -> None:
     """Records kept outside the repository are never committed on this branch, so
     a line saying the committed ones went unchecked would be false there. Git was
-    never asked about them, trunk or not."""
+    never asked about them, trunk or not. Past specify, since before it the
+    boundary question holds on git's silence (#648)."""
     root = tmp_path_factory.mktemp("outside") / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
     storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify")
     write_record(root, "a-decision", diagram="component")
 
     step = _brainstorm()

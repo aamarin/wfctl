@@ -94,7 +94,9 @@ class Step(NamedTuple):
     `sub_steps` defaults to empty so every existing row keeps parsing. Three
     steps carry any today. `brainstorm` splits the two artifacts it already
     produces, which is what earns a pass its own row
-    (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
+    (`a-step-carries-sub-steps-one-level-deep`), and adds the level-3 question
+    between them, which reads git for a record under `design/` because no
+    artifact brainstorm writes can answer it (#648). `plan` carries the plan
     review, whose report is a second artifact read against the first (#501).
     `implement` carries the store of the spec dir, which owns no artifact and
     reads git instead (`store-specs-implement-pass.md`). The other five steps
@@ -115,7 +117,11 @@ _STEPS: dict[str, Step] = {
             # brainstorm skill actually write them in, and the reverse of the
             # order the step's own reader used to check them — see
             # `_evidence.brainstorm`'s docstring for why that read was backwards.
+            # Software design between them, because level 3 follows level 2 and
+            # `design.md` is written last, listing the level-3 records. A branch
+            # missing every answer is told about them in the order it writes them.
             SubStep("architecture", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_architecture),
+            SubStep("software-design", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_software_design),
             SubStep("design-doc", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_design_doc),
         ),
     ),

@@ -226,7 +226,9 @@ def _feature(root: Path, name: str, files: dict[str, str]) -> Path:
     return feature
 
 
-def _repo(root: Path, name: str, *, tracker: bool, record: bool) -> Path:
+def _repo(
+    root: Path, name: str, *, tracker: bool, record: bool, design_record: bool | None = None,
+) -> Path:
     """A repo with one commit, so the two predicates that ask git get an answer.
 
     Without a commit there is no trunk, `touched_on_this_branch` returns None for
@@ -237,6 +239,10 @@ def _repo(root: Path, name: str, *, tracker: bool, record: bool) -> Path:
     `key_pattern` in `.agents/`. Writing the name into `.agents/` instead leaves
     `configured_key_pattern` returning None, and all four `decompose` rows then
     exercise the no-tracker path while appearing to cover four cases.
+
+    `design_record` follows `record` unless named. A repo answering only the
+    boundary question is held on the software design pass (#648), which is
+    its own row rather than a change to `design-with-record`.
     """
     repo = git_repo(root / "repos" / name)
     if tracker:
@@ -250,6 +256,10 @@ def _repo(root: Path, name: str, *, tracker: bool, record: bool) -> Path:
         arch = repo / "docs" / "architecture"
         arch.mkdir(parents=True, exist_ok=True)
         (arch / "a-decision.md").write_text("# A decision\n")
+    if record if design_record is None else design_record:
+        design = repo / "docs" / "architecture" / "design"
+        design.mkdir(parents=True, exist_ok=True)
+        (design / "a-choice.md").write_text("# A choice\n")
     return repo
 
 
@@ -345,6 +355,11 @@ def build_payload(root: Path) -> dict[str, list[dict[str, str | None]]]:
     design = _feature(root, "design-gate", {"design.md": "x"})
     payload["design-no-record"] = _dump(design, plain)
     payload["design-with-record"] = _dump(design, recorded)
+    # Boundary answered, level 3 not: held on the software design pass (#648).
+    boundary_only = _repo(
+        root, "boundary-only", tracker=True, record=True, design_record=False,
+    )
+    payload["design-held-on-software-design"] = _dump(design, boundary_only)
 
     # The gate's third answer (#498): a record was written, and its drawing is
     # one `accept` would refuse. `recorded`'s record carries no frontmatter, so
