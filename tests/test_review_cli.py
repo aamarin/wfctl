@@ -618,21 +618,43 @@ def test_sign_off_that_cannot_say_what_ci_would_count_refuses(
     assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
 
 
-def test_sign_off_with_no_origin_lists_the_local_commits_and_signs_off(
+def test_sign_off_with_no_origin_refuses(
     tmp_path: Path, repo: Path, terminal: None,
 ) -> None:
-    """With no `origin` there's no CI to read the note, so not knowing what CI
-    would count is no reason to refuse. The local list is the whole answer."""
+    """A sign-off made with no `origin` once listed only the local commits.
+    An origin added later received its note from `wfctl store reviews`, and
+    CI read it as covering a commit only the local `main` had, which nobody
+    was shown."""
     git(repo, "remote", "remove", "origin")
     (repo / "wfctl.json").write_text(json.dumps({"trunk": "main"}))
-    head = commit(repo, "a")
+    commit(repo, "a")
 
-    result = run("review", "sign-off", input=f"{head[:7]}\n")
+    result = run("review", "sign-off")
 
-    assert result.exit_code == 0, result.output
-    assert f"security  {head[:7]} a" in result.output.splitlines()
-    record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
-    assert record["sha"] == head
+    assert result.exit_code == 1, result.output
+    assert result.output.splitlines()[0] == (
+        "✗ can't list the commits CI would count as signed off: origin/main doesn't exist"
+    )
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
+def test_sign_off_refusal_names_no_trunk_remedy_for_another_error(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """The trunk hint once followed every error, so a damaged run record told
+    the person to fix `trunk` and fetch, neither of which helps."""
+    commit(repo, "a")
+    run_dir = tmp_path / "state" / "reviews" / "security" / "runs" / "001"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.json").write_text("[]")
+
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 1, result.output
+    assert result.output.splitlines() == [
+        "✗ can't list the commits CI would count as signed off: "
+        f"can't read {run_dir / 'run.json'}: not a JSON object",
+    ]
 
 
 def test_sign_off_after_a_rebase_dropped_the_last_signed_off_commit_still_works(

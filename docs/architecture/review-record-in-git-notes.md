@@ -193,7 +193,9 @@ branch.
   guard allows the PR and CI fails it. `wfctl review sign-off` lists those
   commits too, so a person sees them before signing off, and the note is
   written once the sign-off covers them. If wfctl can't work out those
-  commits, the sign-off refuses rather than covering them unseen. A trunk the
+  commits, the sign-off refuses rather than covering them unseen. That
+  includes a repository with no `origin`, since an origin added later would
+  receive the note and CI would read it. A trunk the
   working tree's `wfctl.json` declares, and that `origin` has, is trusted for
   this check. An agent could push such a branch on purpose, but an agent
   can also write the reviewer reports that complete a run, which Owns truth
@@ -240,4 +242,5 @@ branch.
   no note that would cover a commit no run reviewed, a PR's own `review` job is
   a stated limit, and the guard blocks more ways to write or push the notes
   ref. After the code review, a sign-off lists the commits the note check
-  found, so that check has a way out.
+  found, so that check has a way out. After the third code review, a
+  sign-off refuses with no `origin` too.

@@ -75,6 +75,14 @@ class NoTrunk(ReviewError):
         super().__init__(TRUNK_MESSAGE)
 
 
+class NoRemoteTrunk(ReviewError):
+    """A trunk `origin` doesn't have. Its own class so a caller can suggest a
+    fetch or a corrected `trunk`, which would mislead for any other error."""
+
+    def __init__(self, trunk: str) -> None:
+        super().__init__(f"origin/{trunk} doesn't exist")
+
+
 class ShallowClone(ReviewError):
     def __init__(self) -> None:
         super().__init__(
@@ -212,7 +220,7 @@ def trunk_refs(
             raise ReviewError(f"the trunk branch is {trunk}, the branch under review")
         ref = f"refs/remotes/origin/{trunk}"
         if not _has_ref(repo_root, ref, timeout):
-            raise ReviewError(f"origin/{trunk} doesn't exist")
+            raise NoRemoteTrunk(trunk)
         return [ref]
     found = _paths.trunk_branch(repo_root, timeout=timeout)
     if found is None:
@@ -283,10 +291,8 @@ def is_under(
     outlive a rebase and `git gc`, and asking `merge-base` about it is an
     error rather than a no.
     """
-    return any(
-        sha == t or (is_commit(repo_root, t, timeout) and _is_ancestor(repo_root, sha, t, timeout))
-        for t in tips
-    )
+    present = [t for t in tips if is_commit(repo_root, t, timeout)]
+    return any(sha == t or _is_ancestor(repo_root, sha, t, timeout) for t in present)
 
 
 def _is_ancestor(repo_root: Path, older: str, newer: str, timeout: float | None) -> bool:
@@ -856,19 +862,12 @@ def unreviewed(
     ancestors, so a commit added after every sign-off is unreviewed again.
     Every group has to have reviewed the head, so a fix the code group commits
     after the security group's run is unreviewed for `security`.
-
-    A signed-off commit this repository doesn't have is dropped, since a note
-    can outlive a rebase, and asking `merge-base` about it is an error rather
-    than a no.
     """
-    signed = [s for s in signed_off if is_commit(repo_root, s, timeout)]
     covered: dict[str, bool] = {}
 
     def is_covered(sha: str) -> bool:
         if sha not in covered:
-            covered[sha] = any(
-                sha == s or _is_ancestor(repo_root, sha, s, timeout) for s in signed
-            )
+            covered[sha] = is_under(repo_root, sha, signed_off, timeout)
         return covered[sha]
 
     found: dict[str, tuple[str, ...]] = {}

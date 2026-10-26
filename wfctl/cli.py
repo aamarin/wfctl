@@ -6423,15 +6423,12 @@ def review_sign_off_cmd() -> None:
                     repo_root, agent_dir, g.name, head, branch=branch,
                 ).commits
             except _review.ReviewError as e:
-                # With no `origin` there's no CI to read the note, so the
-                # local list is the whole answer. With one, a sign-off that
-                # can't say what CI would count would cover it unseen.
-                if _review.git(
-                    repo_root, "remote", "get-url", "origin", timeout=None, answers=(0, 2),
-                ).returncode != 0:
-                    continue
+                # A repository with no `origin` refuses too. An origin added
+                # later receives the note from `wfctl store reviews`, and CI
+                # would read it as covering commits nobody was shown.
                 _say(f"✗ can't list the commits CI would count as signed off: {e}")
-                _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
+                if isinstance(e, (_review.NoTrunk, _review.NoRemoteTrunk)):
+                    _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
                 raise typer.Exit(1)
             extra = tuple(
                 c for c in extra if not _review.is_under(repo_root, c, local_sign_off)

@@ -460,8 +460,9 @@ completes or a person signs off. wfctl sends those notes to `origin` itself.
 When a send fails, it says so, and `wfctl store reviews` resends them.
 
 The guard also refuses any `git notes` write, any push that names a notes
-ref or carries `--mirror`, an `update-ref` or `fetch` into `refs/notes/`, and
-setting a remote's `push` or `mirror`, because CI trusts every note it finds,
+ref, carries `--mirror`, or uses a wildcard refspec outside branches and tags
+such as `refs/*:refs/*`, an `update-ref` or `fetch` into `refs/notes/`, and
+reading or setting a remote's `push` or `mirror`, because CI trusts every note it finds,
 and a note an agent writes by hand would pass a PR nobody reviewed. Reading
 notes with `git notes show` or `git log --notes` stays allowed, and so does a
 plain `git fetch`. That refusal comes from wfctl, not the host, so don't report it with
