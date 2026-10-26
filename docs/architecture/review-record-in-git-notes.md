@@ -192,9 +192,12 @@ branch.
   them was left out of every run of that group. The run stays complete, so the
   guard allows the PR and CI fails it. `wfctl review sign-off` lists those
   commits too, so a person sees them before signing off, and the note is
-  written once the sign-off covers them. A trunk the working tree's
-  `wfctl.json` declares, and that `origin` has, is trusted for this check.
-  Declaring one is a deliberate step, like forging a note.
+  written once the sign-off covers them. If wfctl can't work out those
+  commits, the sign-off refuses rather than covering them unseen. A trunk the
+  working tree's `wfctl.json` declares, and that `origin` has, is trusted for
+  this check. An agent could push such a branch on purpose, but an agent
+  can also write the reviewer reports that complete a run, which Owns truth
+  already accepts, so this adds no new way past the check.
 - The ruleset pins the `review` check to the GitHub Actions app, so a status
   someone posts by hand doesn't satisfy it. But a PR can add its own job named
   `review` to a workflow that runs the PR's copy, such as `ci.yml`, and that
@@ -204,8 +207,13 @@ branch.
 - The guard rule also blocks a push of the short name `notes/wfctl-review`, a
   wildcard refspec such as `refs/*:refs/*`, `git update-ref` or `git fetch`
   into a notes ref, and setting a remote's `push` or `mirror` with `-c` or
-  `git config`. A git alias or a script that runs these still gets past it,
-  since no rule that reads the command's text can see what an alias runs.
+  `git config`. These are the plain commands, not every one. Git has more
+  ways to write a ref or change what a push carries, such as `symbolic-ref`,
+  a remote's `fetch` setting, `git remote add --mirror`, and config set
+  through environment variables, and a git alias or a script runs any of
+  them out of sight of a rule that reads the command's text. Each round of
+  review found more, so the rule stops at the plain route, and a forged note
+  through any other route is the limit Owns truth accepts.
 - A test runs the CI check against a scratch repository. It fails if an
   unreviewed commit passes, or if a commit that a note or a sign-off covers
   fails. The test makes sure CI and the local check agree on what is

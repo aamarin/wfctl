@@ -595,6 +595,26 @@ def test_sign_off_with_nothing_unreviewed_needs_none(
     assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
 
 
+def test_sign_off_that_cannot_say_what_ci_would_count_refuses(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """A trunk the working tree declares and `origin` lacks hides its commits
+    from the local list, and CI, which measures against `origin/main`, reads
+    the sign-off note as covering them. So the sign-off stops before asking,
+    rather than covering commits the person was never shown."""
+    git(repo, "checkout", "-q", "-b", "x", "main")
+    commit(repo, "hidden")
+    git(repo, "checkout", "-q", "-B", "637-x", "x")
+    commit(repo, "a")
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "x"}))
+
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 1, result.output
+    assert result.output.splitlines() == ["✗ origin/x doesn't exist"]
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
 # --- review groups -------------------------------------------------------------
 
 

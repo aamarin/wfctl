@@ -1485,6 +1485,8 @@ def test_writing_the_notes_ref_without_git_notes_is_refused(
     "git -c remote.origin.push='+refs/notes/*:refs/notes/*' push origin",
     "git config remote.origin.push '+refs/*:refs/*'",
     "git config --add remote.origin.mirror true",
+    "git config remote.origin.MIRROR true",
+    "git config remote.origin.Push '+refs/*:refs/*'",
 ])
 def test_configuring_what_a_plain_push_carries_is_refused(
     guard: Guard, tmp_path: Path, command: str,
