@@ -23,6 +23,7 @@ through `resolve_spec_dir`, once a command has matched.
 """
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import Protocol
 
@@ -55,8 +56,11 @@ def touched(session: _Session, trunk: str, head: str) -> list[Path]:
         # branch can't be shown to change a record there.
         return []
     relative = arch.resolve().relative_to(root.resolve())
+    # Unquoted paths, since git quotes a non-ASCII name and the quoted line
+    # would fail the `.md` test below.
     listed = session.run(
-        "git", "diff", "--name-only", "--diff-filter=d", f"{trunk}...{head}", "--", str(relative),
+        "git", "-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=d",
+        f"{trunk}...{head}", "--", str(relative),
     )
     return [
         Path(line) for line in listed.splitlines()
@@ -97,7 +101,7 @@ def refusal(session: _Session, branch: str, head: str, trunk: str) -> str | None
         return "\n".join([
             f"✗ {branch} touches {records[0]}, but its spec folder says no boundary moved.",
             "  The record answers the boundary question, so delete the exception:",
-            f"  rm '{exception}'",
+            f"  rm {shlex.quote(str(exception))}",
         ])
 
     statuses = ((p.stem, _status(session, head, p)) for p in records)

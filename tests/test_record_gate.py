@@ -9,6 +9,7 @@ run, since they run only once the review check finds nothing pending.
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,7 @@ def test_a_record_contradicting_the_branchs_own_answer_is_refused(
         "✗ 604-x touches docs/architecture/owns-a-thing.md, but its spec folder says no "
         "boundary moved.\n"
         "  The record answers the boundary question, so delete the exception:\n"
-        f"  rm '{exception}'\n"
+        f"  rm {shlex.quote(str(exception))}\n"
     )
 
 
@@ -140,7 +141,7 @@ def test_a_git_failure_reading_the_records_refuses(
     run = _review_gate._Session.run
 
     def diff_fails(self: _review_gate._Session, *args: str) -> str:
-        if args[:2] == ("git", "diff"):
+        if args[0] == "git" and "diff" in args:
             raise _review_gate._Failed("git diff failed: bad revision")
         return run(self, *args)
 
@@ -237,3 +238,38 @@ def test_a_branch_with_no_records_passes_whatever_its_spec_folder_says(
 
     assert guard("gh pr create --fill", repos.feature) == (0, "")
     assert json.loads(repos.table.read_text())["repo"] == "acme/widgets"
+
+
+def test_the_printed_rm_survives_a_quote_in_the_spec_folders_path(
+    repos: Repos, guard: Guard, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal tells the agent to run the `rm` it prints. Wrapped in bare
+    single quotes, a path holding one closed the quote early, so the shell ran
+    the rest of the path as a second command."""
+    root = repos.tmp / "it's specs"
+    root.mkdir()
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(root))
+    exception = own_exception(root, "604-x")
+    record(repos.feature, "owns-a-thing", "accepted")
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    command = err.splitlines()[-1].strip()
+    assert shlex.split(command) == ["rm", str(exception)]
+
+
+def test_a_proposed_record_with_a_non_ascii_name_still_holds_the_pr(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """Git quotes a path holding a non-ASCII character in `--name-only` output,
+    so the line ended in `.md"` and the `.md` test dropped it. A proposed
+    record named that way let a PR open that nobody had accepted."""
+    record(repos.feature, "décision", "proposed")
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert "décision (proposed)" in err
