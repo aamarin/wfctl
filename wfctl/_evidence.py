@@ -810,8 +810,8 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 
 def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     """Whether the boundary question was put and answered — a record touched
-    on this branch, `wfctl arch none`'s declaration, or a later step having
-    already run.
+    on this branch, a boundary exception in the spec folder, or a later step
+    having already run.
 
     Split out of `design_block` rather than inlined in both callers:
     `design_block` only reaches this once `design.md` exists, which is exactly
@@ -828,6 +828,14 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     not `design.md` was ever written.
     """
     if _file_exists(spec_dir / "spec.md"):
+        return None
+
+    from wfctl import _design_exceptions
+
+    # Before git, because the exception is an answer that doesn't depend on it:
+    # one file read, and a git that can't say whether a record was touched has
+    # nothing to add to a branch that already said none was.
+    if _design_exceptions.boundary(spec_dir) is not None:
         return None
 
     from wfctl._paths import DESIGN_DIR, non_record_subtrees, touched_on_this_branch

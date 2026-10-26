@@ -1209,13 +1209,20 @@ def resume_cmd() -> None:
 _BOUNDARY = {True: "answered", False: "unanswered", None: "unknown"}
 
 
-def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observations":
+def _observe(
+    repo_root: Path, report: "PipelineReport", spec_dir: Path | None
+) -> "_session.Observations":
     """Read the three facts `end` reports, at the moment it is asked.
 
     Position comes off the report the caller already built, so the summary file
     and the printed line cannot name different steps.
+
+    The boundary counts a boundary exception as answered, under the same rule as
+    the brainstorm gate (FR-014), but not the gate's `spec.md` escape: the line
+    records whether the question was answered, not whether the gate is still up,
+    and with the escape it would read "answered" on every branch past specify.
     """
-    from wfctl import _session
+    from wfctl import _design_exceptions, _session
     from wfctl import _verify
 
     current = next((s for s in report.steps if s["is_current"]), None)
@@ -1230,8 +1237,9 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
             else current["name"]
 
     _, dirty = _verify.code_identity(repo_root)
-    return _session.Observations(
-        step=step,
+    if spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
+        boundary = _BOUNDARY[True]
+    else:
         # `scans/` excluded for the reason the listing above excludes it, met
         # here as a sharper failure: clarify and analyze run on nearly every
         # branch, so a scan file counted here makes `boundary` constant-true and
@@ -1239,13 +1247,16 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
         # question of whether a level-3 record under `design/` should count here
         # — `design_block` excludes it and this call does not — is older than
         # this change and is left where it was found.
-        boundary=_BOUNDARY[
+        boundary = _BOUNDARY[
             touched_on_this_branch(
                 repo_root,
                 arch_root(repo_root),
                 exclude=non_record_subtrees(arch_root(repo_root)),
             )
-        ],
+        ]
+    return _session.Observations(
+        step=step,
+        boundary=boundary,
         tree="dirty" if dirty else "clean",
     )
 
@@ -1281,7 +1292,7 @@ def end_cmd(
         console.print(_HELD_ELSEWHERE)
         raise typer.Exit(1)
 
-    observed = _observe(repo_root, report)
+    observed = _observe(repo_root, report, spec_dir)
     summary_path, summary_written = _session.end(
         agent_dir, branch, observed, continued=continued
     )
@@ -1863,12 +1874,10 @@ def feature_paths_cmd() -> None:
     single-quoted.
     """
     _, repo_root, branch, _ = _resolve_context()
-    spec_dir = resolve_spec_dir(branch, repo_root)
-    # No spec folder yet → the path setup-plan.sh will `mkdir -p`. Resolved
-    # through `spec_root` like the lookup above, not hardcoded: this line names
-    # where every new spec is written, so hardcoding it here made the configured
-    # root honored on read and silently ignored on create.
-    feature_dir = spec_dir if spec_dir is not None else spec_root(repo_root) / branch
+    from wfctl import _paths
+
+    # No spec folder yet → the path setup-plan.sh will `mkdir -p`.
+    feature_dir = _paths.feature_dir(branch, repo_root)
     fields = [
         ("REPO_ROOT", repo_root),
         ("CURRENT_BRANCH", branch),
@@ -2012,23 +2021,16 @@ def arch_none_cmd(
 ) -> None:
     """Declare that this change draws no new architectural boundary.
 
-    Written to a file in the change under review rather than to the state dir,
-    because the claim's only check is a reviewer reading it and disagreeing.
-    wfctl does not verify it: whether a change draws a boundary is a judgment
-    with no objective test, unlike completion, which either exits zero or does
-    not (FR-010a).
-
-    Kept out of the record set — `docs/architecture/*.md` is decisions, and a
-    declaration is the absence of one. The subdirectory is what keeps it out:
-    `load_records` globs one level, so a declaration filed beside the records
-    would be read as a record with an unreadable status.
+    The exception goes in the branch's spec folder, under exceptions/, and the
+    brainstorm step reads it there. Put the same reason in the PR body, since
+    the reviewer reads it there. wfctl doesn't verify the claim, because whether
+    a change draws a boundary is a judgment with no objective test.
     """
     from rich.markup import escape
 
-    from wfctl._io import write_atomic
+    from wfctl import _design_exceptions, _paths
 
     _, repo_root, branch, _ = _resolve_context()
-    root = arch_root(repo_root)
 
     if not reason.strip():
         # The declaration exists to be a claim a reviewer can disagree with.
@@ -2050,40 +2052,15 @@ def arch_none_cmd(
         )
         raise typer.Exit(1)
 
-    # `.name`: the branch reaches this as a path segment, and unlike the state
-    # dir this write lands in a working tree. Git rejects `..` in a refname, so
-    # only `WFCTL_BRANCH` can carry one — but the file is committed, and a write
-    # that escapes the arch root is not a mistake to discover after review.
-    path = root / "declarations" / f"{Path(branch).name}.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
     # Overwritten, not appended: one change makes one claim, and a branch that
-    # declares twice has changed its mind rather than declared again.
-    #
-    # Atomic, for the reason `_arch.supersede` gives about the records beside it:
-    # this is hand-authored and committed, so a torn write loses a claim no later
-    # run can reconstruct.
-    # No frontmatter: nothing reads a declaration, and the two fields it carried
-    # — branch and date — are the two things git answers about a committed file.
-    # `record-format.md` draws the same line for records: the file holds what git
-    # cannot.
-    write_atomic(path, f"# No new boundary — {Path(branch).name}\n\n{reason}\n")
-    # The declaration's only check is a reviewer reading it, so "did it land in
-    # the change under review?" is the whole question — and both ways it can
-    # fail are silent. An out-of-tree root writes outside the repo; a gitignored
-    # root writes a file git never reports. Either way the design gate keeps
-    # blocking and the escape hatch it names has no effect, so a green ✓ here
-    # would send the author back to a command that already did nothing.
-    if touched_on_this_branch(repo_root, path) is not True:
-        console.print(
-            f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
-            "part of the change under\n  review — the root is outside the working tree, "
-            "or git is ignoring it. No\n  reviewer will see this claim, and the design "
-            "step will keep blocking.",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
-
+    # declares twice has changed its mind rather than declared again. The spec
+    # folder is never in the diff, so there is no visibility check here: the
+    # reviewer's copy is the PR body, and `check-body` compares the two.
+    _design_exceptions.write(
+        _paths.feature_dir(branch, repo_root), _design_exceptions.BOUNDARY, reason
+    )
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
+    console.print("  Put the reason in the PR body.")
 
 
 step_app = typer.Typer(

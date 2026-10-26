@@ -869,6 +869,24 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     return None
 
 
+def feature_dir(branch: str, repo_root: Path) -> Path:
+    """The spec folder for `branch`, named even before it exists.
+
+    The folder `resolve_spec_dir` finds, or the one a new spec is created in.
+    One helper rather than the expression at each caller, because
+    `feature-paths` names the folder brainstorm creates and `arch none` and
+    `step none` can write into it first: computed two ways, an exception written
+    before brainstorm would land in a folder brainstorm then ignores.
+
+    The whole branch name rather than `Path(branch).name`, so a branch with a
+    `/` in it gets the same folder `resolve_spec_dir` finds. Through `spec_root`
+    rather than a fixed `specs/`, so the configured root is honoured on create
+    as well as on read.
+    """
+    found = resolve_spec_dir(branch, repo_root)
+    return found if found is not None else spec_root(repo_root) / branch
+
+
 class ClaimConflict(NamedTuple):
     """One issue key that more than one feature under the spec root claims.
 
