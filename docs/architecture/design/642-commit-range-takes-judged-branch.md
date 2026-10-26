@@ -87,3 +87,4 @@ A caller that leaves `branch` out is unprotected and gets no warning. That's the
 ## Log
 
 - 2026-10-24  proposed  — written for #642, where `review start` reported a group up to date while the trunk was the branch under review
+- 2026-10-26  amended   — #626 moved trunk resolution for reviews into `review_trunk`, which reads `trunk` from the default branch and falls back to `_paths.trunk_branch`, so a declared trunk decides only on the fallback path
