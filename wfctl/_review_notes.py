@@ -131,21 +131,30 @@ def unlisted(
     read, against `origin/<trunk>` only, and the caller writes no note while
     it finds anything.
 
+    A commit a sign-off note covers is left out, since CI counts it as
+    reviewed for every group, and a person saw it when they signed off.
+
     A trunk `origin` doesn't have raises, since CI's range can't be
-    recomputed, and a note written anyway would cover whatever CI finds.
+    recomputed, and a note written anyway would cover whatever CI finds. A
+    trunk the working tree declares and `origin` has is trusted, so a PR into
+    a different base is measured against the wrong branch. Declaring one is a
+    deliberate step, the same as forging a note.
     """
     found = _paths.trunk_branch(repo_root, timeout=timeout)
     if found is None:
         raise _review.NoTrunk()
     trunk = found.removeprefix("origin/")
-    last, _ = coverage_from_notes(
+    last, signed = coverage_from_notes(
         repo_root, head, [Group(group, "", ())], timeout, branch=branch, trunk=trunk,
     )
     commits = _review.commit_range(
         repo_root, head, last[group], timeout, branch=branch, trunk=trunk,
     ).commits
     listed = _review.reviewed_commits(agent_dir, group)
-    return Unlisted(trunk, tuple(c for c in reversed(commits) if c not in listed))
+    return Unlisted(trunk, tuple(
+        c for c in reversed(commits)
+        if c not in listed and not _review.is_under(repo_root, c, signed, timeout)
+    ))
 
 
 # --- writing and sending ---------------------------------------------------------

@@ -1468,10 +1468,30 @@ def test_a_push_of_any_notes_ref_is_refused(guard: Guard, tmp_path: Path, comman
     assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
 
 
-def test_writing_the_notes_ref_with_update_ref_is_refused(guard: Guard, tmp_path: Path) -> None:
-    """`update-ref` writes the notes ref without `git notes`, and `wfctl store
-    reviews` then pushes what it wrote."""
-    command = "git update-ref refs/notes/wfctl-review 1234567"
+@pytest.mark.parametrize("command", [
+    "git update-ref refs/notes/wfctl-review 1234567",
+    "git fetch . HEAD:refs/notes/wfctl-review",
+])
+def test_writing_the_notes_ref_without_git_notes_is_refused(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """`update-ref` and a fetch from the repository itself each write the
+    notes ref without `git notes`, and `wfctl store reviews` then pushes what
+    they wrote."""
+    assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
+
+
+@pytest.mark.parametrize("command", [
+    "git -c remote.origin.push='+refs/notes/*:refs/notes/*' push origin",
+    "git config remote.origin.push '+refs/*:refs/*'",
+    "git config --add remote.origin.mirror true",
+])
+def test_configuring_what_a_plain_push_carries_is_refused(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """A remote's `push` or `mirror` setting makes a plain `git push` carry
+    the notes ref, and the push names no notes ref for the rule above to
+    see."""
     assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
 
 
@@ -1483,6 +1503,8 @@ def test_writing_the_notes_ref_with_update_ref_is_refused(guard: Guard, tmp_path
     "git log --oneline --notes",
     "git push origin 'refs/heads/*:refs/heads/*'",
     "git update-ref refs/heads/x HEAD",
+    "git commit -m 'document remote.origin.push'",
+    "git fetch origin",
 ])
 def test_reading_notes_and_a_plain_push_are_allowed(
     guard: Guard, tmp_path: Path, command: str,

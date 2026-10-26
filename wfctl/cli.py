@@ -6195,13 +6195,11 @@ def _note_covers_only_reviewed(
         f"⚠ didn't write the review note: CI would count {n} commit{'s' if n != 1 else ''} "
         f"no {group} run reviewed: {shas}"
     )
-    it, isnt, belongs = ("it", "It isn't", "it belongs") if n == 1 else (
-        "them", "They aren't", "they belong"
-    )
+    it, isnt = ("it", "It isn't") if n == 1 else ("them", "They aren't")
     _say(
-        f"  {isnt} on origin/{found.trunk}. Run git fetch, push {found.trunk} if "
-        f"{belongs} there, and run `{again}` again. Otherwise a person has to sign "
-        f"off on {it}."
+        f"  {isnt} on origin/{found.trunk}. If origin/{found.trunk} is out of date, run "
+        f"git fetch and `{again}` again. Otherwise a person has to sign off on {it} "
+        "with `wfctl review sign-off`."
     )
     return False
 
@@ -6413,6 +6411,25 @@ def review_sign_off_cmd() -> None:
             repo_root, groups, head, *_review.coverage_from_state(agent_dir, groups),
             branch=branch,
         )
+        # The commits CI would count as reviewed that no run listed, such as
+        # one only the local `main` has, are listed too. `review check` writes
+        # no note over them and points here, and a sign-off that never showed
+        # them would cover them in CI anyway. A commit the last sign-off here
+        # covers was listed when it was made, and is left out so a sign-off
+        # whose note write failed can still be repaired below.
+        _, local_sign_off = _review.coverage_from_state(agent_dir, groups)
+        for g in groups:
+            try:
+                extra = _review_notes.unlisted(
+                    repo_root, agent_dir, g.name, head, branch=branch,
+                ).commits
+            except _review.ReviewError:
+                continue
+            extra = tuple(
+                c for c in extra if not _review.is_under(repo_root, c, local_sign_off)
+            )
+            if extra:
+                pending[g.name] = tuple(dict.fromkeys((*extra, *pending.get(g.name, ()))))
         subjects = _review.subjects(repo_root, [c for cs in pending.values() for c in cs])
     except _review.ReviewError as e:
         _say(f"✗ {e}")
@@ -6553,17 +6570,20 @@ def store_reviews_cmd() -> None:
     branch = resolve_branch(repo_root)
     agent_dir = resolve_agent_dir(repo_root, branch)
     try:
-        if not _review_notes.unsent(repo_root):
-            _say("✓ nothing to send; origin has every review note")
-            return
-        sent = _review_notes.send(repo_root, agent_dir, branch)
+        sent = None
+        if _review_notes.unsent(repo_root):
+            sent = _review_notes.send(repo_root, agent_dir, branch)
     except _review_notes.NoOrigin as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
     except _review.ReviewError as e:
         _say(f"✗ couldn't send review notes: {_one_line(e)}")
         raise typer.Exit(1)
-    if sent == "joined":
+    # The rerun runs with nothing to send too, since the CI failure says to
+    # run this, and the notes can reach `origin` while that check is running.
+    if sent is None:
+        _say("✓ nothing to send; origin has every review note")
+    elif sent == "joined":
         _say("✓ joined origin's review notes with this machine's and sent them")
     else:
         _say("✓ sent review notes to origin")
@@ -6902,8 +6922,10 @@ def check_reviews_cmd(
 ) -> None:
     """Fail while a review group has commits on this branch it hasn't reviewed.
 
-    Reads which groups reviewed which commits from the review notes, so it
-    gives the same answer locally as in CI, and reads no network. The groups
+    Reads which groups reviewed which commits from the review notes, and
+    reads no network. Given the PR's `--base`, it gives the same answer
+    locally as in CI. Without it, commits on the local trunk branch are left
+    out too, the way the worktree guard leaves them out. The groups
     are the trunk's committed `wfctl.json` plus any group the head's adds.
     A person's sign-off covers the commits under it.
     """

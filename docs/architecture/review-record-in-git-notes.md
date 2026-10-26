@@ -190,8 +190,11 @@ branch.
   the run's note as covering it. So before wfctl writes a note, it works out
   the commits CI would count as reviewed, and it writes no note while any of
   them was left out of every run of that group. The run stays complete, so the
-  guard allows the PR and CI fails it. The user pushes `main`, or a person
-  signs off on those commits.
+  guard allows the PR and CI fails it. `wfctl review sign-off` lists those
+  commits too, so a person sees them before signing off, and the note is
+  written once the sign-off covers them. A trunk the working tree's
+  `wfctl.json` declares, and that `origin` has, is trusted for this check.
+  Declaring one is a deliberate step, like forging a note.
 - The ruleset pins the `review` check to the GitHub Actions app, so a status
   someone posts by hand doesn't satisfy it. But a PR can add its own job named
   `review` to a workflow that runs the PR's copy, such as `ci.yml`, and that
@@ -199,9 +202,10 @@ branch.
   ruleset require one specific workflow file, so this stays a limit, like a
   forged note. Quickstart step 4 checks how GitHub treats the two check runs.
 - The guard rule also blocks a push of the short name `notes/wfctl-review`, a
-  wildcard refspec such as `refs/*:refs/*`, and `git update-ref` on a notes
-  ref. A git alias or a script that runs these still gets past it, since no
-  rule that reads the command's text can see what an alias runs.
+  wildcard refspec such as `refs/*:refs/*`, `git update-ref` or `git fetch`
+  into a notes ref, and setting a remote's `push` or `mirror` with `-c` or
+  `git config`. A git alias or a script that runs these still gets past it,
+  since no rule that reads the command's text can see what an alias runs.
 - A test runs the CI check against a scratch repository. It fails if an
   unreviewed commit passes, or if a commit that a note or a sign-off covers
   fails. The test makes sure CI and the local check agree on what is
@@ -226,5 +230,6 @@ branch.
   can't skip review.
 - 2026-10-26  revised     — Andre after the #627 security review: wfctl writes
   no note that would cover a commit no run reviewed, a PR's own `review` job is
-  a stated limit, and the guard blocks three more ways to write or push the
-  notes ref.
+  a stated limit, and the guard blocks more ways to write or push the notes
+  ref. After the code review, a sign-off lists the commits the note check
+  found, so that check has a way out.

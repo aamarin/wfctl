@@ -5,8 +5,8 @@ group has commits it hasn't reviewed.
 process, rather than as a second hook entry that would charge every Bash call a
 second interpreter start (`622-review-check-in-worktree-guard.md`). The guard
 imports this module only when the command holds `gh` in any case, `merge`,
-`sign`, `notes`, or `--mirror`, so a command holding none of them pays a
-substring test and nothing else.
+`sign`, `notes`, `mirror`, `.push`, or both `push` and `*`, so a command
+holding none of them pays a substring test and nothing else.
 
 The check reads the command in two passes. The first reads only the text and
 refuses what the text alone settles: the sign-off command, a hand-written git
@@ -276,10 +276,13 @@ def _writes_notes(command: str) -> bool:
     is refused when a word holds `notes/`, which git resolves the short
     `notes/wfctl-review` to, or it carries `--mirror`, which pushes every
     ref, or a wildcard refspec reaching outside branches and tags, such as
-    `refs/*:refs/*`. An `update-ref` naming `refs/notes/` is refused, since
-    it writes the ref without `git notes`. A push that names no notes ref
-    pushes none, unless the remote is configured to, which no text can show.
-    An alias or a script that runs these is out of reach of any text rule.
+    `refs/*:refs/*`. An `update-ref` or a `fetch` naming `refs/notes/` is
+    refused, since each writes the ref without `git notes`. So is setting a
+    remote's `push` or `mirror`, with `-c` or `git config`, which makes a
+    plain push carry refs it doesn't name; reading that setting is refused
+    with it. A push that names no notes ref pushes none, unless the remote
+    was configured to before, which no text can show. An alias or a script
+    that runs these is out of reach of any text rule.
     """
     try:
         words = shlex.split(command)
@@ -299,9 +302,19 @@ def _writes_notes(command: str) -> bool:
             "notes/" in w or w == "--mirror" or _wide_wildcard(w) for w in after
         ):
             return True
-        if sub == "update-ref" and any("refs/notes/" in w for w in after):
+        if sub in ("update-ref", "fetch") and any("refs/notes/" in w for w in after):
+            return True
+        # git's own options, and a `config` command's words, rather than every
+        # word, so a commit message naming the setting isn't refused.
+        options = rest[:len(rest) - len(after) - 1] if sub else rest
+        if any(_PUSH_CONFIG.search(w) for w in (*options, *(after if sub == "config" else ()))):
             return True
     return False
+
+
+# A remote's `push` or `mirror` setting, given with `-c` or written with `git
+# config`, makes a plain `git push` push refs no word of it names.
+_PUSH_CONFIG = re.compile(r"remote\.\S+\.(push|mirror)\b", re.IGNORECASE)
 
 
 def _wide_wildcard(word: str) -> bool:

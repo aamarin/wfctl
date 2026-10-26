@@ -870,8 +870,7 @@ def test_check_writes_no_note_over_a_commit_only_the_local_trunk_has(
     """A run leaves out commits on the local `main`, and CI, which sees only
     `origin/main`, reads the note on the head as covering them. A branch cut
     from a `main` with an unpushed commit would pass CI with that commit
-    unreviewed, and so would one whose working-tree `wfctl.json` names a
-    local branch as the trunk."""
+    unreviewed."""
     git(repo, "checkout", "-q", "main")
     unpushed = commit(repo, "unpushed")
     git(repo, "checkout", "-q", "-B", "637-x")
@@ -886,14 +885,33 @@ def test_check_writes_no_note_over_a_commit_only_the_local_trunk_has(
         f"reviewed: {unpushed[:7]}"
     )
     assert lines[-1] == (
-        "  It isn't on origin/main. Run git fetch, push main if it belongs there, and run "
-        "`wfctl review check security` again. Otherwise a person has to sign off on it."
+        "  It isn't on origin/main. If origin/main is out of date, run git fetch and "
+        "`wfctl review check security` again. Otherwise a person has to sign off on it "
+        "with `wfctl review sign-off`."
     )
     assert note_on(repo, head) is None
 
-    git(repo, "push", "-q", "origin", "main")
+
+def test_sign_off_lists_a_commit_only_the_local_trunk_has_and_unblocks_the_note(
+    repo: Path, terminal: None,
+) -> None:
+    """`review check` points at a sign-off for a commit no run listed, and the
+    local check finds nothing pending on a complete run. So the sign-off
+    lists the commit itself. Otherwise the person signs off on commits they
+    were never shown, or finds nothing to sign and the PR stays failing."""
+    git(repo, "checkout", "-q", "main")
+    unpushed = commit(repo, "unpushed")
+    git(repo, "checkout", "-q", "-B", "637-x")
+    head = complete_security(repo)
     assert run("review", "check", "security").exit_code == 0
-    assert note_on(repo, head) == "reviewed by security"
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"security  {unpushed[:7]} unpushed" in result.output.splitlines()
+    assert note_on(repo, head) == "signed off by a person"
+    assert run("review", "check", "security").exit_code == 0
+    assert note_on(repo, head) == "signed off by a person\nreviewed by security"
 
 
 def test_check_counts_commits_an_earlier_run_reviewed_whose_note_was_not_written(
@@ -1246,8 +1264,8 @@ def test_store_reviews_joins_origins_notes_after_a_rejected_push(
 
 @pytest.mark.parametrize("sent", [True, False])
 def test_store_reviews_with_nothing_new_says_so(repo: Path, sent: bool) -> None:
-    """A rerun warning sends the user to rerun the check, not here, because
-    once the push worked there's nothing left to send."""
+    """Once the push worked there's nothing left to send, and saying so is
+    the whole answer when no PR has a failed check to rerun."""
     if sent:
         recorded(repo)
         assert run("store", "reviews").exit_code == 0
@@ -1256,6 +1274,28 @@ def test_store_reviews_with_nothing_new_says_so(repo: Path, sent: bool) -> None:
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == ["✓ nothing to send; origin has every review note"]
+
+
+def test_store_reviews_with_nothing_to_send_still_reruns_the_failed_check(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CI failure says to run `store reviews`. When the notes reached
+    `origin` while that check was running, there's nothing to send, and the
+    check stays failing until something reruns it."""
+    from wfctl import _review_notes
+
+    monkeypatch.setattr(
+        _review_notes, "rerun", lambda root, branch: _review_notes.Rerun(651, True, None),
+    )
+    recorded(repo)
+    assert run("store", "reviews").exit_code == 0
+
+    result = run("store", "reviews")
+
+    assert result.output.splitlines() == [
+        "✓ nothing to send; origin has every review note",
+        "↻ reran the failed review check on PR #651",
+    ]
 
 
 def test_store_reviews_with_no_origin_names_it(repo: Path) -> None:

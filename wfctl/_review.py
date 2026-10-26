@@ -273,6 +273,14 @@ def is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
     return r.returncode == 0
 
 
+def is_under(
+    repo_root: Path, sha: str, tips: Sequence[str], timeout: float | None = None,
+) -> bool:
+    """Whether `sha` is one of `tips` or an ancestor of one, the way a
+    sign-off covers a commit."""
+    return any(sha == t or _is_ancestor(repo_root, sha, t, timeout) for t in tips)
+
+
 def _is_ancestor(repo_root: Path, older: str, newer: str, timeout: float | None) -> bool:
     r = _git(
         repo_root, "merge-base", "--is-ancestor", older, newer,
