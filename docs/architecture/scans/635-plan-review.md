@@ -147,3 +147,70 @@
   the store command once per folder.
 - **PR-013, MINOR, fixed.** Fixed by the article edits across the plan,
   research, data model, contracts, and design.md.
+
+## Review 2026-10-26T16:55Z
+
+- Verdict: unsatisfied
+- Reviewed: plan.md b7f4e9d5dfc298f659768eda1864cae678ab9a2d, spec.md bbacffe6230f4e0fb15b537c126afdcecdb9cc75, .specify/memory/constitution.md absent, design.md adba5c0028c3f61f4b7200f1a2f140d0268f5169, docs/architecture/design-exceptions-live-with-specs.md b76607ed4af18b7ec7b7678c33ac6ebbf8e4e5c5, docs/architecture/design/design-exceptions-module.md 8a09f5f0100ece4b9f9162b69168f98e6beb6cf2, research.md b63fdc4b666c5a9416feabe37ea6575ebfff87b6, data-model.md 480454f73c61f26c2f696f93e9bb0f5a643f31a1, contracts/cli.md dd2c1c43ae17379248f7572c0257f79cce3e4475, quickstart.md c2e5eb290bb8cfb6a5ce06374365602228f9017f, docs/architecture/an-absent-artifact-is-claimed-not-inferred.md 2e919d537ab879730cb49f890311e1d825a50ce9, plan-review.plan.md aaff817f79ee1d0f216461909ac9f4115f186dfe (base)
+- Review type: re-review
+- Open: BLOCKER 1 · MAJOR 3 · MINOR 7 · Fixed since the earlier review: 0
+- Detail: /Users/andremarin/Development/wfctl-specs/635-arch-folder-per-branch-notes/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-016, PR-021) |
+| Requirements and traceability | Outstanding (PR-019, PR-022) |
+| Architecture and boundaries | Outstanding (PR-016, PR-017, PR-023) |
+| Adversarial implementation and verification | Outstanding (PR-015, PR-018, PR-020) |
+| Security and reliability | Outstanding (PR-014, PR-024) |
+
+### Findings
+
+- **PR-016, BLOCKER, open.** `spec.md §FR-016` and `§FR-017` scope the
+  guard's two refusals to level-2 records, under the same rule as the
+  "architecture accepted" fact. `plan.md §The callers` item 7 lists every path
+  `git diff --name-only` reports outside `non_record_subtrees`, which takes in
+  level-3 records under `design/`, `views/current-state.md`, and deleted
+  files. Stands because, built that way, the guard refuses this branch's own
+  PR on the deleted step claims and holds every branch that writes a level-3
+  record.
+- **PR-017, MAJOR, open.** `research.md R14` says proposed records on `main`
+  hold no PR, but a branch that edits any of the 47 proposed records is held
+  under the fact's rule. Stands because R14 doesn't say whether an edit holds
+  the PR, and the design gate's `added_only` rule says it shouldn't.
+- **PR-018, MAJOR, open.** `plan.md §The callers` item 7 reads records
+  "between the trunk and `head`" without naming the range, and `_judge` holds
+  a trunk name with `origin/` stripped. Stands because a two-dot diff or a
+  stale local `main` lists records the branch never touched.
+- **PR-019, MAJOR, open.** `spec.md §FR-015` and `plan.md §The callers` item 6
+  compare every exception in the resolved spec folder, including an epic's.
+  Stands because a sub-issue whose own record answers yes would have to quote
+  the epic's "no new boundary" reason to pass `check-body`.
+- **PR-014, MINOR, open.** Step 9 stores the 5 moved folders under
+  `WFCTL_BRANCH`, which logs each push in that branch's state directory.
+  Stands because step 9 doesn't record the pushes on this branch.
+- **PR-015, MINOR, open.** Step 9's level-3 grep can only pass on an empty
+  result, though it reads as if hits are expected. Stands because the pass
+  condition is unchanged.
+- **PR-020, MINOR, open.** The "own spec folder" test in item 7.1 compares
+  against `spec_root / branch`, which misses a folder `resolve_spec_dir`
+  matched by issue key. Stands because R13 then fails open for that branch.
+- **PR-021, MINOR, open.** `contracts/cli.md` shows the new `check-body`
+  findings with `✗`, and `check_body_cmd` prints every finding with `⚠`.
+  Stands because the story 5 tests assert on the contract.
+- **PR-022, MINOR, open.** `research.md R15` doesn't say how
+  `architecture-decisions` learns the branch has a boundary exception, and R9's
+  list of texts naming the folder leaves the skill out. Stands because the
+  status payload carries no exception field.
+- **PR-023, MINOR, open.** The plan moves `RULED_ON` to save loading modules
+  "on every Bash call", but the guard loads them only on a command that opens
+  or merges a PR, and `resolve_spec_dir` loads `rich` anyway. Stands because
+  the stated reason is inaccurate.
+- **PR-024, MINOR, open.** `research.md R14` presents the refusal as a human
+  checkpoint, and an agent can run `wfctl arch accept` with any citation.
+  Stands because R14 doesn't name the tamper-evident ceiling that
+  `a-human-accepts-a-decision.md` accepts.
+- **PR-001 to PR-013, fixed.** Each stays fixed, for the reasons the earlier
+  review gave. The spec and research revisions leave their evidence intact.
