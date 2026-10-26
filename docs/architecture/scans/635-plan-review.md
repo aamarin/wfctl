@@ -318,3 +318,47 @@
   PR-020's "named after the branch" test now also drives the R12 skip.
 - **PR-001 to PR-013, fixed.** Each stays fixed, for the reasons the earlier
   reviews gave.
+
+## Review 2026-10-26T21:14Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 8ae93cbeb83f687d21b77b9d6536af1abf944a78, spec.md 24be2267182d5aa3b1e8cbe3556f701ffe8da888, .specify/memory/constitution.md absent, design.md adba5c0028c3f61f4b7200f1a2f140d0268f5169, docs/architecture/design-exceptions-live-with-specs.md b76607ed4af18b7ec7b7678c33ac6ebbf8e4e5c5, docs/architecture/design/design-exceptions-module.md 8a09f5f0100ece4b9f9162b69168f98e6beb6cf2, research.md 666038c954094c11ba76fb573adcfbe687e6d72d, data-model.md 89535cf49f9b64c391f7cdcd9e93dee053e03f80, contracts/cli.md dd2c1c43ae17379248f7572c0257f79cce3e4475, quickstart.md c2e5eb290bb8cfb6a5ce06374365602228f9017f, docs/architecture/an-absent-artifact-is-claimed-not-inferred.md 340ef7668c317ad98347a271a25be2b616784ea5, plan-review.plan.md adfd05636fe410e3582bcf495a841812a495fb53 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 9 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/635-arch-folder-per-branch-notes/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-029; PR-027 fixed) |
+| Requirements and traceability | Outstanding (PR-022) |
+| Architecture and boundaries | Outstanding (PR-023, PR-030; PR-026 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-014, PR-015, PR-020, PR-021; PR-028 fixed) |
+| Security and reliability | Outstanding (PR-014, PR-024) |
+
+### Findings
+
+- **PR-029, MINOR, open.** The record rewrite in 767a050 already made the
+  §Considered edit that `research.md R9` item 10 plans, so R9 item 10 quotes
+  text that is gone and the plan's Project Structure comment still says "three
+  passages". Stands because only §Decision and §Owns truth remain to edit, and
+  until step 11 runs the record contradicts itself about where claims live.
+- **PR-030, MINOR, open.** `plan.md §Complexity Tracking`'s last row reads as
+  if #339 being closed is why the PR waits, when it's why the edit stays on
+  this branch. R14 also says "branch" where #339 is an issue. Stands because
+  the wording wasn't changed after this review.
+- **PR-026, MAJOR, fixed.** Fixed by `research.md R14` and the last
+  `plan.md §Complexity Tracking` row, which name both records the guard holds
+  this PR on and say the level-3 record doesn't. The edit stays on this branch
+  because #339 is closed, which agrees with R9 item 10.
+- **PR-027, MINOR, fixed.** Fixed by `data-model.md §"Moves a boundary?" PR
+  section`, whose Agreement bullet now carries the FR-015 skip.
+- **PR-028, MINOR, fixed.** Fixed by `plan.md §The callers` item 7, where
+  `_judge` passes the unstripped trunk to `refusal(session, branch, head,
+  trunk)`. `_judge` already refuses when `trunk_branch` returns nothing, so
+  the value is never empty.
+- **PR-014, PR-015, PR-020 to PR-024, MINOR, open.** Each stands for the
+  reason the 16:55Z review gave, since the text it cites didn't change.
+- **PR-001 to PR-013, PR-016 to PR-019, PR-025, fixed.** Each stays fixed, for
+  the reasons the earlier reviews gave.
