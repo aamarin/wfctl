@@ -79,14 +79,14 @@ review locally.
 
 CI trusts any note it finds on the ref. Anyone who can push to the repository
 can write a note, and the agent runs with the person's own Git credentials and
-keys, so signing the notes wouldn't help. The guard rule above stops an agent
+keys, so signing the notes with a key on disk wouldn't help. The guard rule above stops an agent
 from writing a note by hand, but only when the command exactly matches its
 rules. An agent can still fake the reviewer reports that complete a run. As a
 result, the check catches a skipped review or a merge that bypassed the guard,
 but not a deliberately forged note. `wfctl verify` has the same limit, since
 it's also a local tool (`wfctl-runs-the-verification.md`). Closing the gap
 fully would mean running the reviewers in CI, or adding a step that only a
-person can take.
+person can take, such as touching a hardware key. #658 tracks that choice.
 
 ## Boundary
 
@@ -216,6 +216,17 @@ branch.
   them out of sight of a rule that reads the command's text. Each round of
   review found more, so the rule stops at the plain route, and a forged note
   through any other route is the limit Owns truth accepts.
+- The CI check blocks merging a PR, not opening one. An agent that gets past
+  the guard can still open a PR with unreviewed commits, and the PR stays
+  unmergeable until they're reviewed.
+- The check covers only PRs into `main` in this repository, since the
+  ruleset that requires it applies to `main` alone. A stacked PR isn't
+  checked against its parent branch, and it's checked once GitHub retargets
+  it to `main`.
+- A PR from a fork can't pass. Someone working in a fork sends their notes to
+  the fork, so CI finds none and reads every commit as unreviewed. This
+  blocks the PR rather than letting it through. A tested way for the
+  maintainer to review a fork's commits locally is tracked in #654.
 - A test runs the CI check against a scratch repository. It fails if an
   unreviewed commit passes, or if a commit that a note or a sign-off covers
   fails. The test makes sure CI and the local check agree on what is
@@ -243,4 +254,7 @@ branch.
   a stated limit, and the guard blocks more ways to write or push the notes
   ref. After the code review, a sign-off lists the commits the note check
   found, so that check has a way out. After the third code review, a
-  sign-off refuses with no `origin` too.
+  sign-off refuses with no `origin` too. Andre then accepted that the guard
+  stops at the plain commands, and asked for three more stated limits:
+  merging rather than opening, PRs into `main` only, and fork PRs (#654,
+  #658).
