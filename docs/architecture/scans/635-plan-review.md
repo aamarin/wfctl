@@ -214,3 +214,52 @@
   `a-human-accepts-a-decision.md` accepts.
 - **PR-001 to PR-013, fixed.** Each stays fixed, for the reasons the earlier
   review gave. The spec and research revisions leave their evidence intact.
+
+## Review 2026-10-26T19:54Z
+
+- Verdict: unsatisfied
+- Reviewed: plan.md 4284a233b95e5b813ccbf37e287ad88505ccc18a, spec.md bbacffe6230f4e0fb15b537c126afdcecdb9cc75, .specify/memory/constitution.md absent, design.md adba5c0028c3f61f4b7200f1a2f140d0268f5169, docs/architecture/design-exceptions-live-with-specs.md b76607ed4af18b7ec7b7678c33ac6ebbf8e4e5c5, docs/architecture/design/design-exceptions-module.md 8a09f5f0100ece4b9f9162b69168f98e6beb6cf2, research.md b63fdc4b666c5a9416feabe37ea6575ebfff87b6, data-model.md 480454f73c61f26c2f696f93e9bb0f5a643f31a1, contracts/cli.md dd2c1c43ae17379248f7572c0257f79cce3e4475, quickstart.md c2e5eb290bb8cfb6a5ce06374365602228f9017f, docs/architecture/an-absent-artifact-is-claimed-not-inferred.md 2e919d537ab879730cb49f890311e1d825a50ce9, plan-review.plan.md b7f4e9d5dfc298f659768eda1864cae678ab9a2d (base)
+- Review type: re-review
+- Open: BLOCKER 1 · MAJOR 3 · MINOR 8 · Fixed since the earlier review: 0
+- Detail: /Users/andremarin/Development/wfctl-specs/635-arch-folder-per-branch-notes/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-016) |
+| Requirements and traceability | Outstanding (PR-016, PR-019, PR-022) |
+| Architecture and boundaries | Outstanding (PR-016, PR-017, PR-023, PR-025) |
+| Adversarial implementation and verification | Outstanding (PR-014, PR-015, PR-016, PR-018, PR-019, PR-020, PR-021, PR-025) |
+| Security and reliability | Outstanding (PR-014, PR-016, PR-017, PR-024) |
+
+### Findings
+
+- **PR-016, BLOCKER, open.** `plan.md §The callers` item 7 now lists only
+  `.md` files directly in the arch root and drops deleted files, the same set
+  `_branch_records` reads, and step 8 tests it. `data-model.md §The guard's
+  record checks` item 1 still lists every path `git diff --name-only` reports
+  outside `non_record_subtrees`. Stands because the two artifacts give
+  different record sets for a refusal that gates every PR, and `tasks` reads
+  both. The fix belongs in `data-model.md`, which a revise run doesn't edit.
+- **PR-017, MAJOR, open.** `research.md R14` says proposed records on `main`
+  hold no PR, but a branch that edits any of the 47 proposed records is held
+  under the fact's rule. Stands because R14 still doesn't state that cost, and
+  step 8's new equality test makes the edits-included set the expected one.
+- **PR-018, MAJOR, open.** `plan.md §The callers` item 7 still reads records
+  "between the trunk and `head`" without naming the range, and `_judge` holds
+  a trunk name with `origin/` stripped. Stands because a two-dot diff or a
+  stale local `main` lists records the branch never touched, and no fixture in
+  step 8 moves the trunk after the branch point.
+- **PR-019, MAJOR, open.** `spec.md §FR-015` and `plan.md §The callers` item 6
+  compare every exception in the resolved spec folder, including an epic's.
+  Stands because a sub-issue whose own record answers yes would have to quote
+  the epic's "no new boundary" reason to pass `check-body`.
+- **PR-025, MINOR, open.** Item 7 doesn't say how the guard lists the arch
+  root's subdirectories at `head`. Stands because copying `_branch_records`,
+  which reads the working tree, would let a merge run from the `main`
+  checkout list files under a subdirectory the branch adds.
+- **PR-014, PR-015, PR-020 to PR-024, MINOR, open.** Each stands for the
+  reason the 16:55Z review gave, since the text it cites didn't change.
+- **PR-001 to PR-013, fixed.** Each stays fixed, for the reasons the earlier
+  reviews gave.
