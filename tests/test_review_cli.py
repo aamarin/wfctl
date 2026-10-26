@@ -632,9 +632,10 @@ def test_sign_off_with_no_origin_refuses(
     result = run("review", "sign-off")
 
     assert result.exit_code == 1, result.output
-    assert result.output.splitlines()[0] == (
-        "✗ can't list the commits CI would count as signed off: origin/main doesn't exist"
-    )
+    assert result.output.splitlines() == [
+        "✗ can't list the commits CI would count as signed off: origin/main doesn't exist",
+        "  Add an origin remote and push the trunk, then sign off again.",
+    ]
     assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
 
 

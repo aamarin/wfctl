@@ -79,9 +79,9 @@ review locally.
 
 CI trusts any note it finds on the ref. Anyone who can push to the repository
 can write a note, and the agent runs with the person's own Git credentials and
-keys, so signing the notes with a key on disk wouldn't help. The guard rule above stops an agent
-from writing a note by hand, but only when the command exactly matches its
-rules. An agent can still fake the reviewer reports that complete a run. As a
+keys, so signing the notes with a key on disk wouldn't help. The guard rule
+above stops an agent from writing a note by hand, but only when the command
+exactly matches its rules. An agent can still fake the reviewer reports that complete a run. As a
 result, the check catches a skipped review or a merge that bypassed the guard,
 but not a deliberately forged note. `wfctl verify` has the same limit, since
 it's also a local tool (`wfctl-runs-the-verification.md`). Closing the gap
@@ -219,10 +219,10 @@ branch.
 - The CI check blocks merging a PR, not opening one. An agent that gets past
   the guard can still open a PR with unreviewed commits, and the PR stays
   unmergeable until they're reviewed.
-- The check covers only PRs into `main` in this repository, since the
-  ruleset that requires it applies to `main` alone. A stacked PR isn't
-  checked against its parent branch, and it's checked once GitHub retargets
-  it to `main`.
+- The check is required only on PRs into `main` in this repository, since
+  the ruleset that requires it applies to `main` alone. CI still runs it on a
+  stacked PR against the parent branch, but a failure there doesn't block
+  the merge. The check is required once GitHub retargets the PR to `main`.
 - A PR from a fork can't pass. Someone working in a fork sends their notes to
   the fork, so CI finds none and reads every commit as unreviewed. This
   blocks the PR rather than letting it through. A tested way for the
