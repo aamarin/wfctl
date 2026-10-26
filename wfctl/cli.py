@@ -6428,12 +6428,11 @@ def review_sign_off_cmd() -> None:
                 # later receives the note from `wfctl store reviews`, and CI
                 # would read it as covering commits nobody was shown.
                 _say(f"✗ can't list the commits CI would count as signed off: {e}")
-                if _review.git(
-                    repo_root, "remote", "get-url", "origin", timeout=None, answers=(0, 2),
-                ).returncode != 0:
-                    _say("  Add an origin remote and push the trunk, then sign off again.")
-                elif isinstance(e, (_review.NoTrunk, _review.NoRemoteTrunk)):
-                    _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
+                if isinstance(e, (_review.NoTrunk, _review.NoRemoteTrunk)):
+                    if _review_notes.has_origin(repo_root):
+                        _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
+                    else:
+                        _say("  Add an origin remote and push the trunk, then sign off again.")
                 raise typer.Exit(1)
             extra = tuple(
                 c for c in extra if not _review.is_under(repo_root, c, signed_here)

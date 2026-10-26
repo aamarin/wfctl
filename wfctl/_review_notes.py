@@ -201,10 +201,16 @@ def record(repo_root: Path, sha: str, line: str, timeout: float | None = None) -
     return True
 
 
-def _require_origin(repo_root: Path, timeout: float) -> None:
-    if _review.git(
+def has_origin(repo_root: Path, timeout: float | None = None) -> bool:
+    """Whether the repository has an `origin` remote. `git remote get-url`
+    exits 2 for a remote that isn't configured."""
+    return _review.git(
         repo_root, "remote", "get-url", "origin", timeout=timeout, answers=(0, 2),
-    ).returncode != 0:
+    ).returncode == 0
+
+
+def _require_origin(repo_root: Path, timeout: float) -> None:
+    if not has_origin(repo_root, timeout):
         raise NoOrigin()
 
 
