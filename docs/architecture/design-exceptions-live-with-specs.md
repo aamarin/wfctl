@@ -141,11 +141,28 @@ later. The crossed edge is the write this record removes.
 
 The reviewer is less certain to see a design exception. Previously, the gate
 enforced it, since a design exception outside the change under review didn't
-count. Currently, `check-body` enforces it, and only in a repo that lists "Moves
-a boundary?". The opening-a-change skill runs `check-body`; CI and the worktree
-guard don't. A repo that doesn't list the heading loses the reviewer's copy.
-That's acceptable while wfctl has one user, and it should be revisited before it
-has a second.
+count. Currently, `check-body` enforces it. It reports any design exception
+whose reason isn't in the PR body, in every repo, and it finds the reason
+anywhere in the body, so wfctl still names no heading. The opening-a-change
+skill runs `check-body`; CI and the worktree guard don't. That's acceptable
+while wfctl has one user, and it should be revisited before it has a second.
+
+The answer is now written once, early, and the branch can change after that.
+The gate reads the boundary exception before it asks git about records, so an
+agent that writes "no new boundary" and adds a record later passes the gate
+with a wrong answer. So the worktree guard refuses to open or merge the PR when
+a branch touches a level-2 record and its own spec folder still says no
+boundary moved. An exception a sub-issue inherits from its epic's folder isn't
+a contradiction, since the record answers the question for that sub-issue and
+the epic's answer stays true for the others.
+
+The guard also refuses to open or merge the PR while a record the branch
+touches isn't accepted. Previously, an unattended run could merge a boundary
+nobody approved. In an attended session, the agent stops when it writes a
+record on a branch with a boundary exception, so the user can reject the record
+before anything is built on it. In an unattended run, the agent makes the call,
+writes the alternatives it rejected, and the user accepts or rejects the record
+before the PR opens.
 
 The gate ignores `declarations/`. Otherwise a declaration written by an older
 wfctl would count as a record and satisfy the gate. The architecture folder
@@ -166,3 +183,6 @@ location.
   change only when the architecture does
 - 2026-10-26  revised     — the 5 step claims move to their spec folders rather
   than being deleted, so the reasons for skipped walkthroughs are kept
+- 2026-10-26  revised     — plan walkthrough: `check-body` compares the two
+  copies, and the worktree guard holds a PR whose record contradicts the
+  branch's own answer or isn't accepted
