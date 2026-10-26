@@ -103,3 +103,30 @@
 - **PR-025, MINOR, open.** Item 6.5 is wrong in two cases: with no `design.md` and git unable to answer, `brainstorm` reads `pending`, and with the checks off, a branch with nothing in it never reads `pending`. Item 6.3 doesn't say whether the setting is read before or after the `spec.md` escape.
 - **PR-026, MINOR, open.** Five existing tests fail with the architecture check's source changed, and R10 misses `test_design_gate_drawing.py:584` and `test_pipeline_commands.py::test_an_unreadable_arch_root_advances_the_design_step`. Item 6.4 also misses the `DRAWINGS_UNCHECKED` comment (`_evidence.py:161-167`), whose rationale the change contradicts.
 - **PR-027, MINOR, open.** `quickstart.md` has no end-to-end step for User Story 5, a repo held because its architecture folder is outside the project and then released with `"off"`.
+
+## Review 2026-10-26T20:25Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 917273ccd1741eff61dfe1348db5ca30abd3a6b7, spec.md 2c9c89ffdad0c1ac38363061140b52d7bebb3519, .specify/memory/constitution.md absent, design.md 5b70b93efa85d2ea8df1ffebc08e3907829c2dac, docs/architecture/design/software-design-none-is-a-claim.md c217a83b3a517bd3cb516abd105a4371599a43c7, docs/architecture/declarations/648-design-gate.md 8358208e0cc21da4a35f3dc336d376f18fa8b8fa, docs/architecture/promised-evidence-blocks-on-silence.md 970abb8f55ac25118a36d9e71ef3d2220f662666, research.md 1efe6afae5de4efc4261b3f0db3c152c0bee3ea6, data-model.md 643113cb11c28e27dc808f047b5f9b08781e5625, contracts/cli.md 1a11576d8914c89c7978c85b38977ffd1dbcabc2, quickstart.md 8cc6853b66ebb2a5c2b0c8c5600c4bca27fa9bbe, checklists/requirements.md 5d24c2763686d2b8e4a90fa6867b32d57f7b5efa, AGENTS.md 506b62be5f7860aad3ead6ba5bae864db68b15ba, docs/architecture/vendor-upstream-skills.md 4d6b0177ffe76f882118423926af27d76b74e934, plan-review.plan.md 85a62d65e623aa2a9231e744809e60414aa982b5 (base)
+- Review type: re-review (the plan copy matched the earlier review's plan.md identity, and only plan.md changed)
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 13 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/648-design-gate/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-019, PR-023) |
+| Requirements and traceability | Resolved (PR-021, PR-022 fixed) |
+| Architecture and boundaries | Outstanding (PR-024; PR-020 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-013, PR-014, PR-017, PR-018, PR-025, PR-026, PR-027, PR-028) |
+| Security and reliability | Outstanding (PR-015, PR-016) |
+
+### Findings
+
+- **PR-001 to PR-012, fixed.** Still fixed, since this revision didn't touch them.
+- **PR-013 to PR-019 and PR-023 to PR-027, MINOR, open.** Carried from the earlier review unchanged, since this revision changed only the three MAJOR items.
+- **PR-020, MAJOR, fixed.** Plan items 5.4, 5.5, and 6.2 now call `blocks` first and pick the reason only once it holds. New test 8d patches `_evidence.blocks` to return false, so a reader that returned early for `inconclusive` fails it.
+- **PR-021, MAJOR, fixed.** Plan items 5.2 and 6.3 now use `Assessment("skipped", display=CHECKS_OFF_REASON)`. `collect_warnings` reads only `reason`, so the turned-off checks print no warning. Test 8a asserts that the `warnings` list is empty.
+- **PR-022, MAJOR, fixed.** The `check_config_cmd` items now run `design_record_checks_problems` before the early return for a missing `wfctl.json`, and exit 1 on a problem. Test 8b covers a repo with no `wfctl.json`.
+- **PR-028, MINOR, open, new.** `research.md §R10` item 3 still calls `test_every_inconclusive_verdict_goes_through_blocks` the guard for this order. Stands because that test checks only that `blocks` is called somewhere in the function, which plan test 8d now says.
