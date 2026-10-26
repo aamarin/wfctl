@@ -112,3 +112,61 @@
   PR-008 by the count field and check order, the named test file, the named
   timeout, the trunk parser, the quickstart's `--project`, and the note on
   `design.md`.
+
+## Review 2026-10-26T16:58Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 7b2b330905348dc22992528b7c1f3c7e0c67eb84, spec.md 131735051ce27c800a85490edde0c950b937b789, .specify/memory/constitution.md absent, design.md aaabe0549f5adeaac928dff090cde4be9bddc65d, research.md 67afd6417cf777506fb117703a63151541e7a1dd, data-model.md c4b74b958aa12dbf0e6eb14c9c45c54ad2407f3f, quickstart.md 4100ed78a241a44bf39660891da6fb074d7294e1, contracts/cli.md e0e12f33244b9b1007a32cb57eef1f1eebc07cc0, docs/architecture/review-round-count.md 3c8019a211b55887fdd3a64310564638c0c7173c, docs/architecture/review-round-cap.md 666b350e7b510f98f6fb6f5bc6f7218c13817631, docs/architecture/design/642-commit-range-takes-judged-branch.md b5dff1df8d6f4b6472f244ad198cf71a142cd580, docs/architecture/design/642-origin-head-trusted-on-full-fetch.md 241b285ccc6db8375365d9df6eda744a71857604, plan-review.plan.md 5b892c5607088598037088ae6def4585cc23c7e9 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 6 · Fixed since the earlier review: 7
+- Detail: /Users/andremarin/Development/wfctl-specs/626-review-round-cap/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-004 fixed) |
+| Requirements and traceability | Outstanding (PR-020, PR-021) |
+| Architecture and boundaries | Outstanding (PR-019) |
+| Adversarial implementation and verification | Outstanding (PR-016, PR-018, PR-022) |
+| Security and reliability | Outstanding (PR-017) |
+
+### Findings
+
+- **PR-016, MAJOR, open.** A branch whose `trunk` names a branch the clone
+  doesn't have fits two rows of `research.md §R11`'s table, the mismatch
+  warning and the `NoTrunk` refusal. Stands because read as a warning, it
+  breaks two existing `NoTrunk` tests the plan doesn't list. `review start`
+  would also warn while the guard's `_judge`, which still reads
+  `_paths.trunk_branch`, refuses the PR.
+- **PR-017, MINOR, open.** R11 has no row for a default-branch `trunk` that
+  names a branch the clone doesn't have. Stands because it falls through to
+  `NoTrunk` for every review and sign-off in the repository, and the message
+  points at the working tree's `wfctl.json`, which that path no longer reads.
+- **PR-018, MINOR, open.** R11 step 1 runs `git symbolic-ref --short`, which
+  exits 128 both when there's no `origin/HEAD` and when git fails. Stands
+  because the two table rows can't be told apart without `--quiet`, which
+  exits 1 for a missing ref.
+- **PR-019, MINOR, open.** The two #642 design records and the `trunk_refs`
+  docstring still say `_paths.trunk_branch` and the declared trunk choose the
+  trunk. Stands because the plan doesn't name updating them.
+- **PR-020, MINOR, open.** `research.md` R4, R5, and R10 trail the plan on
+  what `_covered_by_sign_off` returns, the `review_trunk` call, and the
+  `AGENTS.md` and release note text. Stands because the plan was updated and
+  those sections weren't.
+- **PR-021, MINOR, open.** The release note is planned as `626.addition.md`,
+  but the trunk read and the round order change behavior users rely on.
+  Stands because `AGENTS.md` files that under `change`.
+- **PR-022, MINOR, open.** Quickstart step 2 doesn't make sure the scratch
+  clone has `origin/HEAD`. Stands because without it, step 10 shows the
+  fallback reading the cap from `loose`, not the default-branch read it
+  means to check.
+- **PR-009 to PR-015, fixed.** PR-009 by `research.md §R11`, which replaces
+  the refusal with a warning, so `review sign-off` and a deliberate trunk
+  change both get through. PR-010 by stating the no-`origin/HEAD` fallback as
+  a known limit in R11, the Constitution Check, and the cap record. PR-011 by
+  R11's five steps, case table, and check order. PR-012 by the `AGENTS.md` and
+  release note text on declaring `trunk` on the default branch. PR-013 by the
+  outcome 3 line naming the signed-off commit. PR-014 by rewording FR-012 and
+  FR-017 and adding FR-017 to the Validation Strategy. PR-015 by the updated
+  git-call counts.
