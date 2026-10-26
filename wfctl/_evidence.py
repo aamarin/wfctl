@@ -158,6 +158,38 @@ _RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
 # how a view renders that conclusion.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
+# The software design pass's display string when the level-3 question went
+# unanswered, and the two answers to it. The pass builds its own remedy rather
+# than handing `_pipeline._design_remedy` a second reason to key on, the same
+# way `_judge_drawings` hands back its fix, so the help sits beside the reason
+# instead of in `_pipeline`.
+SOFTWARE_DESIGN_REASON = "no software design record for this change"
+SOFTWARE_DESIGN_HELP = (
+    "  Either record the structural choice this change makes — one file under:\n"
+    "      {location}/\n"
+    "  or state that it makes none:\n"
+    '      wfctl step none brainstorm.software-design --reason "<why>"'
+)
+
+# Both brainstorm checks hold on this when git can't say whether the branch
+# wrote a record. One reason for both, since it's the same question asked of
+# two folders, and the remedy names the two settings that answer it for the
+# repository: `trunk` for a repo whose base branch wfctl can't find, and
+# `design_record_checks` for one whose arch root git can't see.
+GIT_UNANSWERED_REASON = "git can't tell whether this branch changed the architecture folder"
+GIT_UNANSWERED_HELP = (
+    "  If this repo's base branch isn't main, master, or dev, name it in wfctl.json:\n"
+    '      { "trunk": "<branch>" }\n'
+    "  If the architecture folder is outside the project, turn these checks off:\n"
+    '      { "design_record_checks": "off" }'
+)
+
+# What both checks display once `design_record_checks` turns them off. A display
+# string and never a reason: `collect_warnings` turns a finished pass's reason
+# into a warning, and a repository that turned the checks off on purpose would
+# otherwise be told so on every `status`.
+CHECKS_OFF_REASON = "turned off by design_record_checks in wfctl.json"
+
 # The architecture pass's display string when it finished without seeing what the
 # branch committed (#508). Without a trunk there is no base to diff against, so
 # only uncommitted records reach the drawing check. The pass still finishes,

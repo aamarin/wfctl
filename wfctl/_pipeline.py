@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _evidence, _stall
-from wfctl._paths import arch_root, is_in_tree
+from wfctl._paths import arch_location, arch_root
 from wfctl._evidence import DESIGN_BLOCK_REASON, EvidenceReader, Fact, State, build_evidence
 
 if TYPE_CHECKING:
@@ -668,31 +668,6 @@ def _derive_attention(
             f"{stall.step} repeated {stall.passes} times with evidence unchanged",
         )
     return None
-
-
-def arch_location(root: Path, repo_root: Path) -> str:
-    """How a path under the arch root is named in output.
-
-    Repo-relative in-tree, absolute outside, and never with a trailing
-    separator — it renders files as well as directories, so a caller that means
-    a directory writes the slash itself.
-
-    A record set lives beside the code by default, and printing the absolute
-    path for it is noise that differs per machine. Out-of-tree has no relative
-    form worth showing, so it stays absolute.
-
-    Unescaped, and here rather than in `cli`, because the remedy it names is
-    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
-    consumer that has no rich. Escaping is the console's, applied where the
-    string is printed — `cli._arch_location` is that wrapper, and every console
-    caller still reaches the escaped form through it.
-    """
-    if not is_in_tree(root, repo_root):
-        return str(root)
-    rel = root.resolve().relative_to(repo_root.resolve())
-    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
-    # next to a slug, so the absolute path is the clearer name for that case.
-    return str(root) if rel == Path(".") else str(rel)
 
 
 def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:
