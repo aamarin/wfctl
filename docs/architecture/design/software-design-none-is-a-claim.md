@@ -144,7 +144,7 @@ choice with no alternative earns no record.
 ## Verification
 
 - On a branch with `design.md` and an architecture answer, `wfctl status` holds
-  brainstorm on `software-design` and prints both answers under `how:`.
+  brainstorm on `software-design` and prints both answers under `next:`.
 - Committing a file under `design/` turns the pass `done`.
 - `wfctl step none brainstorm.software-design --reason "…"` hides the pass, and
   `wfctl status --all` shows it as `claimed: <reason>`.
