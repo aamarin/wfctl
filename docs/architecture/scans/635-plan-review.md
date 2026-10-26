@@ -263,3 +263,58 @@
   reason the 16:55Z review gave, since the text it cites didn't change.
 - **PR-001 to PR-013, fixed.** Each stays fixed, for the reasons the earlier
   reviews gave.
+
+## Review 2026-10-26T20:09Z
+
+- Verdict: satisfied
+- Reviewed: plan.md adfd05636fe410e3582bcf495a841812a495fb53, spec.md 24be2267182d5aa3b1e8cbe3556f701ffe8da888, .specify/memory/constitution.md absent, design.md adba5c0028c3f61f4b7200f1a2f140d0268f5169, docs/architecture/design-exceptions-live-with-specs.md b76607ed4af18b7ec7b7678c33ac6ebbf8e4e5c5, docs/architecture/design/design-exceptions-module.md 8a09f5f0100ece4b9f9162b69168f98e6beb6cf2, research.md 99477b1879c374eac3b8cd5c296ae0d3da578474, data-model.md 721a5a27cabc13facc346ffbb591d67819d4bf58, contracts/cli.md dd2c1c43ae17379248f7572c0257f79cce3e4475, quickstart.md c2e5eb290bb8cfb6a5ce06374365602228f9017f, docs/architecture/an-absent-artifact-is-claimed-not-inferred.md 2e919d537ab879730cb49f890311e1d825a50ce9, plan-review.plan.md 4284a233b95e5b813ccbf37e287ad88505ccc18a (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 9 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/635-arch-folder-per-branch-notes/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-021, PR-027) |
+| Requirements and traceability | Outstanding (PR-022, PR-027) |
+| Architecture and boundaries | Outstanding (PR-023, PR-026) |
+| Adversarial implementation and verification | Outstanding (PR-015, PR-020, PR-028) |
+| Security and reliability | Outstanding (PR-014, PR-024) |
+
+### Findings
+
+- **PR-026, MAJOR, open.** `research.md R14` and `plan.md §Complexity
+  Tracking` say this PR waits on #635's two records. The guard holds it on
+  `design-exceptions-live-with-specs.md` and on
+  `an-absent-artifact-is-claimed-not-inferred.md`, which was proposed for #339
+  and is edited on this branch, while the level-3 record never holds it.
+  Stands because R14 also says an edit to a record held as proposed on purpose
+  belongs on the branch that validates it, and `research.md R9` item 10 makes
+  that edit here, so the plan doesn't say which of the two gives way.
+- **PR-027, MINOR, open.** `data-model.md §"Moves a boundary?" PR section`
+  still says `check-body` reports every exception. Stands because it lacks the
+  inherited-exception skip FR-015 now requires.
+- **PR-028, MINOR, open.** `plan.md §The callers` item 7 uses the trunk value
+  before `_judge` strips `origin/`, and `_record_gate.refusal` takes no trunk
+  argument. Stands because the plan doesn't say whether the trunk is passed in
+  or looked up again.
+- **PR-016, BLOCKER, fixed.** Fixed by `data-model.md §The guard's record
+  checks`, which now uses the same range, deleted-file filter, and top-level
+  `.md` rule as `plan.md §The callers` item 7.
+- **PR-017, MAJOR, fixed.** Fixed by `research.md R14`, which now says an
+  edit to a proposed record holds the PR, gives the reason, and names the cost.
+- **PR-018, MAJOR, fixed.** Fixed by `plan.md §The callers` item 7 and
+  `data-model.md`, which name the three-dot range from the unstripped
+  `trunk_branch` value, and by the step 8 fixture where the trunk moves after
+  the branch point.
+- **PR-019, MAJOR, fixed.** Fixed by `spec.md §FR-015`, `research.md R12` and
+  `plan.md §The callers` item 6, which skip an inherited boundary exception
+  when the branch touches a level-2 record, with a step 7 test for both sides.
+- **PR-025, MINOR, fixed.** Fixed by `plan.md §The callers` item 7, which keeps
+  only diff paths whose parent is the arch root and that end in `.md`.
+- **PR-014, PR-015, PR-020 to PR-024, MINOR, open.** Each stands for the
+  reason the 16:55Z review gave, since the text it cites didn't change.
+  PR-020's "named after the branch" test now also drives the R12 skip.
+- **PR-001 to PR-013, fixed.** Each stays fixed, for the reasons the earlier
+  reviews gave.
