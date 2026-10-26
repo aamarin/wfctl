@@ -959,10 +959,10 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #
 # `blocks` is consulted four times, by the readers whose evidence has an
 # inconclusive state to judge — `implement` and brainstorm's two record checks as
-# `repo-declared`, `decompose` as `ambient`. `tasks` reads inside its file and still reaches none:
-# the file is read or it is absent, and one holding no task is `unsatisfied`, which
-# stops the step whoever owed the evidence. The other four read a file that is
-# there or is not.
+# `repo-declared`, `decompose` as `ambient`. `tasks` reads inside its file and
+# still reaches none: the file is read or it is absent, and one holding no task
+# is `unsatisfied`, which stops the step whoever owed the evidence. The other
+# four read a file that is there or is not.
 # `decompose` was the exception until #314: it resolved two of its own readings —
 # no tracker configured, and a plan carrying no map or no rows — without reaching
 # the rule. Both still proceed; they now proceed because `blocks` says so.
@@ -1406,7 +1406,9 @@ def brainstorm_software_design(ev: Evidence) -> Assessment:
     """
     if _file_exists(ev.spec_dir / "spec.md"):
         return Assessment("done")
-    from wfctl._paths import DESIGN_DIR, arch_location, design_record_checks, touched_on_this_branch
+    from wfctl._paths import (
+        DESIGN_DIR, arch_location, design_record_checks, touched_on_this_branch,
+    )
 
     if not design_record_checks(ev.repo_root)[0]:
         return Assessment("skipped", display=CHECKS_OFF_REASON)
