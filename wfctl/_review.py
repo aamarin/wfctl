@@ -277,8 +277,16 @@ def is_under(
     repo_root: Path, sha: str, tips: Sequence[str], timeout: float | None = None,
 ) -> bool:
     """Whether `sha` is one of `tips` or an ancestor of one, the way a
-    sign-off covers a commit."""
-    return any(sha == t or _is_ancestor(repo_root, sha, t, timeout) for t in tips)
+    sign-off covers a commit.
+
+    A tip this repository doesn't have covers nothing, since a sign-off can
+    outlive a rebase and `git gc`, and asking `merge-base` about it is an
+    error rather than a no.
+    """
+    return any(
+        sha == t or (is_commit(repo_root, t, timeout) and _is_ancestor(repo_root, sha, t, timeout))
+        for t in tips
+    )
 
 
 def _is_ancestor(repo_root: Path, older: str, newer: str, timeout: float | None) -> bool:

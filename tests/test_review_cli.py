@@ -611,8 +611,49 @@ def test_sign_off_that_cannot_say_what_ci_would_count_refuses(
     result = run("review", "sign-off")
 
     assert result.exit_code == 1, result.output
-    assert result.output.splitlines() == ["✗ origin/x doesn't exist"]
+    assert result.output.splitlines() == [
+        "✗ can't list the commits CI would count as signed off: origin/x doesn't exist",
+        "  Check trunk in wfctl.json and git fetch, then sign off again.",
+    ]
     assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
+def test_sign_off_with_no_origin_lists_the_local_commits_and_signs_off(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """With no `origin` there's no CI to read the note, so not knowing what CI
+    would count is no reason to refuse. The local list is the whole answer."""
+    git(repo, "remote", "remove", "origin")
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "main"}))
+    head = commit(repo, "a")
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"security  {head[:7]} a" in result.output.splitlines()
+    record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
+    assert record["sha"] == head
+
+
+def test_sign_off_after_a_rebase_dropped_the_last_signed_off_commit_still_works(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """A sign-off can outlive a rebase and `git gc`, and asking git whether a
+    commit it no longer has covers another is an error. Left unchecked, that
+    error blocked every later sign-off with a commit only the local trunk
+    has, and only a sign-off rewrites the record."""
+    git(repo, "checkout", "-q", "main")
+    unpushed = commit(repo, "unpushed")
+    git(repo, "checkout", "-q", "-B", "637-x")
+    head = commit(repo, "a")
+    gone = "0" * 40
+    (tmp_path / "state" / "reviews").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "state" / "reviews" / "sign-off.json").write_text(json.dumps({"sha": gone}))
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"security  {unpushed[:7]} unpushed" in result.output.splitlines()
 
 
 # --- review groups -------------------------------------------------------------

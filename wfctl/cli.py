@@ -6407,9 +6407,9 @@ def review_sign_off_cmd() -> None:
     agent_dir = resolve_agent_dir(repo_root, branch)
     try:
         head = _review.head_commit(repo_root)
+        last, local_sign_off = _review.coverage_from_state(agent_dir, groups)
         pending = _review.unreviewed(
-            repo_root, groups, head, *_review.coverage_from_state(agent_dir, groups),
-            branch=branch,
+            repo_root, groups, head, last, local_sign_off, branch=branch,
         )
         # The commits CI would count as reviewed that no run listed, such as
         # one only the local `main` has, are listed too. `review check` writes
@@ -6417,13 +6417,12 @@ def review_sign_off_cmd() -> None:
         # them would cover them in CI anyway. A commit the last sign-off here
         # covers was listed when it was made, and is left out so a sign-off
         # whose note write failed can still be repaired below.
-        _, local_sign_off = _review.coverage_from_state(agent_dir, groups)
         for g in groups:
             try:
                 extra = _review_notes.unlisted(
                     repo_root, agent_dir, g.name, head, branch=branch,
                 ).commits
-            except _review.ReviewError:
+            except _review.ReviewError as e:
                 # With no `origin` there's no CI to read the note, so the
                 # local list is the whole answer. With one, a sign-off that
                 # can't say what CI would count would cover it unseen.
@@ -6431,12 +6430,16 @@ def review_sign_off_cmd() -> None:
                     repo_root, "remote", "get-url", "origin", timeout=None, answers=(0, 2),
                 ).returncode != 0:
                     continue
-                raise
+                _say(f"✗ can't list the commits CI would count as signed off: {e}")
+                _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
+                raise typer.Exit(1)
             extra = tuple(
                 c for c in extra if not _review.is_under(repo_root, c, local_sign_off)
             )
             if extra:
                 pending[g.name] = tuple(dict.fromkeys((*extra, *pending.get(g.name, ()))))
+        # In run order, since a group with only those commits was added last.
+        pending = {g.name: pending[g.name] for g in groups if g.name in pending}
         subjects = _review.subjects(repo_root, [c for cs in pending.values() for c in cs])
     except _review.ReviewError as e:
         _say(f"✗ {e}")

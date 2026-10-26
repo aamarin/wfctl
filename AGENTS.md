@@ -459,10 +459,12 @@ it reads which groups reviewed what from git notes that wfctl adds when a run
 completes or a person signs off. wfctl sends those notes to `origin` itself.
 When a send fails, it says so, and `wfctl store reviews` resends them.
 
-The guard also refuses any `git notes` write and any push that names
-`refs/notes/` or carries `--mirror`, because CI trusts every note it finds,
+The guard also refuses any `git notes` write, any push that names a notes
+ref or carries `--mirror`, an `update-ref` or `fetch` into `refs/notes/`, and
+setting a remote's `push` or `mirror`, because CI trusts every note it finds,
 and a note an agent writes by hand would pass a PR nobody reviewed. Reading
-notes stays allowed. That refusal comes from wfctl, not the host, so don't report it with
+notes with `git notes show` or `git log --notes` stays allowed, and so does a
+plain `git fetch`. That refusal comes from wfctl, not the host, so don't report it with
 `wfctl report-block`. Instead, run the review groups it names, as
 `opening-a-change` Step 1 says, and open the PR again.
 
