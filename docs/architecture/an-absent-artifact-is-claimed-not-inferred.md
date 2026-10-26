@@ -49,8 +49,8 @@ wfctl that the pipeline moved on, not why the artifact is missing.
 ## Decision
 
 A sub-step whose artifact is missing stays `pending` until a person says
-otherwise. The person says so with a command, which writes a committed sentence
-into the change under review:
+otherwise. The person says so with a command, which writes a sentence into the
+branch's spec folder:
 
 ```
 wfctl step none ui-design --reason "backend-only; no screens change"
@@ -79,7 +79,8 @@ would also mix the boundary question's refusals and path with those of a pass.
 ## Owns truth
 
 A person decides whether a pass ran and produced nothing or never ran at all,
-and records that decision as a sentence committed to the branch.
+and records that decision as a sentence in the branch's spec folder. The PR
+body repeats the sentence for the reviewer.
 
 wfctl can't compute it. Neither outcome leaves an artifact, so nothing on disk
 differs. The difference is the person's intent, and intent isn't a file. The
@@ -89,8 +90,9 @@ the evidence doesn't exist yet when the question comes up.
 
 wfctl doesn't verify the claim, for the reason `arch_none_cmd` already records.
 Whether a pass applies is a judgment with no objective test, unlike completion,
-which either exits zero or doesn't. wfctl checks that the claim was made, that
-it's readable, and that it reached the reviewer.
+which either exits zero or doesn't. wfctl checks that the claim was made and
+that it's readable, and `wfctl check-body` checks that the PR body carries it
+to the reviewer.
 
 ## Considered
 
@@ -166,3 +168,6 @@ skill, and the default view hides the row once it's settled.
 - 2026-10-26  revised     — #635: rewritten in plain language with every fact
   kept. The `design.md` alternative now says its original reason no longer
   holds once claims live in the spec folder
+- 2026-10-26  revised     — #635: the Decision and Owns truth sections no
+  longer say the claim is committed to the branch. The PR body carries it
+  to the reviewer, and `check-body` checks that it does

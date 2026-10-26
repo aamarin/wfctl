@@ -169,6 +169,27 @@ Absent, empty or unrecognised reads as **not in force**, never as the common
 case: presenting an unreviewed decision as binding is what the field prevents.
 Write `proposed` while a human still has to agree.
 
+## When the branch already said no boundary moved
+
+A record written on a branch that earlier said no boundary moved changes that
+answer, so a person should see it before anything is built on it. Check for the
+answer first. Run `wfctl feature-paths`, and look for `exceptions/boundary.md`
+under the `FEATURE_DIR` it prints. The file counts whether the folder is the
+branch's own or an epic's that the branch shares.
+
+If the file is there, read `auto_approve` from `wfctl status --json`:
+
+1. When `auto_approve` is false, write the record as `proposed`, tell the user
+   what it decides and what it changes about the earlier answer, and stop. Wait
+   for them to accept or reject it before building anything on it.
+2. When `auto_approve` is true, finish the record's `Considered` section so the
+   person who rules on it later has the alternatives and the trade-offs, and
+   carry on.
+
+Either way, the worktree guard won't let the PR open until a person accepts the
+record. If the exception is the branch's own, the guard also asks you to delete
+it, since the record now answers the boundary question.
+
 ## An accepted record is immutable
 
 Once a record is `accepted`, exactly two things ever change:

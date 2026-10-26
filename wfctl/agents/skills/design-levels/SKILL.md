@@ -201,15 +201,17 @@ in the transcript:
 wfctl arch none --reason "<what changed, or why nothing did>"
 ```
 
-It writes `declarations/<branch>.md` under `wfctl arch-root`, and that file is
-what the design gate reads: the gate counts any path under the root outside
-`design/` and the subtrees that decide nothing — `domain/`, where
-`model-the-domain` writes its model, is one — so the record arm and this arm
-satisfy it the same way, and a model document alone does not. Declared only
-out loud, the gate stays unsatisfied, `wfctl status` holds the design step at
-`in_progress`, and the reason it prints does not look connected to the answer you
-just gave. A placeholder reason is refused, which is the point — a reviewer
-cannot disagree with `<why>`.
+It writes `exceptions/boundary.md` in the branch's spec folder, and the design
+gate reads that file the same way it reads a record touched on the branch. A
+model document alone doesn't count, since `domain/`, where `model-the-domain`
+writes its model, is one of the subtrees that decide nothing. Declared only out
+loud, the gate stays unsatisfied, `wfctl status` holds the design step at
+`in_progress`, and the reason it prints doesn't look connected to the answer you
+just gave.
+
+The spec folder isn't part of the PR, so the reviewer reads the reason in the PR
+body instead, where `opening-a-change` copies it. A placeholder reason is
+refused, which is the point, since a reviewer can't disagree with `<why>`.
 
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 

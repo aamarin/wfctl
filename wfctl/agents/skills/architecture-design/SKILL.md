@@ -66,9 +66,9 @@ boundary moves, and a two-line change can move one.
 If the change is local and preserves every existing boundary and contract,
 declare **no record** with `wfctl arch none --reason "<why>"` and return to
 `design-levels`. A declared absence is the result; do not manufacture a boundary
-to complete the method. The command is how the absence becomes an artifact a
-reviewer opens and the design gate can read — saying it in the transcript leaves
-the gate exactly where it was.
+to complete the method. The command writes the answer to the spec folder, where
+the design gate reads it, and the reviewer reads the same reason in the PR body.
+Saying it in the transcript leaves the gate exactly where it was.
 
 ## Authority
 

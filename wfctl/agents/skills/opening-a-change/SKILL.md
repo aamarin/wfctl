@@ -261,6 +261,13 @@ block on it.
   mermaid, it is `flowchart LR` with the chain as edges and **no `subgraph`** —
   grouping the levels reads as the obvious translation of the nesting, and an
   edge leaving a grouped box drags its members out of the group.
+- **Copy the branch's design exceptions into the body.** `wfctl arch none` and
+  `wfctl step none` write each exception to `exceptions/` in the spec folder,
+  which a reviewer can't see. Run `wfctl feature-paths`, read every file under
+  `exceptions/` in the `FEATURE_DIR` it prints, and put each reason in the body,
+  word for word. Where the template has a section that asks for them, they go
+  there. Otherwise, put them where the template's comments ask for the change's
+  reasoning. `check-body` reports any reason the body is missing.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
   attribute Step 6 cannot set: it lives in the body or nowhere, and it is what
@@ -382,6 +389,15 @@ response:
 - **Run this from the checkout on the trunk branch.** The command acts on
   another branch's pull request, and a worktree opens and merges only its own.
   Leave that pull request to the checkout on the trunk branch.
+- **A record contradicts the branch's "no boundary moved".** The branch
+  changes a level-2 record, and its own spec folder still says no boundary
+  moved. The record is the answer now. Run the `rm` command the refusal prints,
+  change the body's boundary answer to yes and name the record, then open the
+  PR again.
+- **A record nobody has accepted.** The branch changes a level-2 record that is
+  still `proposed`. Stop and ask the person to accept or reject each record the
+  refusal names. Don't run `wfctl arch accept` yourself, since the ruling is the
+  person's.
 - **Any other refusal**, such as a chained command or an environment prefix,
   names the shape it refused. Run the command in the shape this step shows.
 
@@ -408,6 +424,17 @@ Run `wfctl verify`, then read the body check again. It is not a gate and there i
 no flag to silence it: a change that should ship unverified ships unverified, and
 the line is the record that it did. A repository that declares no definition of
 done never prints it.
+
+**A third finding names a design exception whose reason the body is missing.**
+The spec folder and the body carry two copies of the same answer, and they
+disagree. Usually the body is missing the copy and Step 4's exceptions bullet
+fixes it. When the copies say different things, work out which one is wrong
+from the code, the plan, and the domain model:
+
+- In an attended session, recommend which copy to fix and why, and let the
+  person decide.
+- In an unattended run, fix the wrong copy and carry on. The design question
+  was answered once already, so this is a clerical fix.
 
 This is the only check on the road every change takes, which is why it is here.
 `wfctl verify` was called from one place — `speckit-implement` step 9c — and that

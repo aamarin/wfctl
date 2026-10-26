@@ -5,7 +5,7 @@
     ["uv", "run", "--frozen", "--extra", "dev", "mypy"],
     ["uv", "run", "--frozen", "--extra", "dev", "python", ".github/scripts/check_release_note.py"]
   ],
-  "change_sections": ["Needs a spec?"],
+  "change_sections": ["Needs a spec?", "Moves a boundary?"],
   "review": {
     "commands": { "codex": "codex exec --sandbox read-only" },
     "groups": [

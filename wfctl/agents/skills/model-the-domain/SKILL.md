@@ -201,9 +201,10 @@ For each question the round was asked, do exactly one of these:
 
 - **No boundary moved** → a `none — <reason>` row in the model document.
   `wfctl arch none` is for the change, not the question: it writes one
-  declaration that the whole branch draws no boundary, so run it only when no
-  question in the round moved one and nothing else in the change did either.
-  Beside a record it is a false claim.
+  exception to the spec folder saying the whole branch draws no boundary, and
+  the reviewer reads its reason in the PR body. So run it only when no question
+  in the round moved one and nothing else in the change did either. Beside a
+  record it is a false claim, and the worktree guard won't open the PR.
 - **Evidence is missing** → name what and who could answer it, and stop.
 - **A crossing carries a quality driver** → hand it to `architecture-design`.
   Do not rank drivers here.

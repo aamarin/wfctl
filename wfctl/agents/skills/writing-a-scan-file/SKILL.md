@@ -37,8 +37,7 @@ wfctl arch-root      # prints the root; the file is <root>/scans/<issue>-<step>.
 ```
 
 `<step>` is `clarify`, `analyze` or `evaluation`. `<issue>` is the tracker key
-`wfctl status` prints, the same key `<root>/design/` and `<root>/declarations/`
-are named for.
+`wfctl status` prints, the same key the branch and its spec folder are named for.
 
 **`evaluation` is the kind with no step behind it.** The first two are written by
 a pipeline step and take their shape from the wrapper that invoked it. The third
