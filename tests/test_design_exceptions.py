@@ -57,11 +57,11 @@ def test_readers_return_each_reason_and_never_list_the_boundary_as_a_pass(tmp_pa
     spec = tmp_path / "700-fix"
     _design_exceptions.write(spec, BOUNDARY, "Copy fix only")
     _design_exceptions.write(spec, "brainstorm.ui-design", "No screen changes")
-    _design_exceptions.write(spec, "plan.plan-walkthrough", "Signed off in chat")
+    _design_exceptions.write(spec, "plan.plan-review", "Signed off in chat")
     assert _design_exceptions.boundary(spec) == "Copy fix only"
     assert _design_exceptions.passes(spec) == {
         "brainstorm.ui-design": "No screen changes",
-        "plan.plan-walkthrough": "Signed off in chat",
+        "plan.plan-review": "Signed off in chat",
     }
 
 
@@ -84,3 +84,64 @@ def test_readers_return_nothing_for_a_missing_folder(tmp_path: Path) -> None:
     spec.mkdir()
     assert _design_exceptions.boundary(spec) is None
     assert _design_exceptions.passes(spec) == {}
+
+
+def _sub_issue_status(storyctl_dir, monkeypatch, *, own_folder: bool) -> dict:
+    """`701-sub`'s pipeline, on a spec root holding epic 700's folder with a
+    boundary exception and a pass exception, and a `design.md` so the gate is
+    up. With `own_folder`, the sub-issue has a spec folder of its own too."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from tests.test_paths import _delivery_map
+    from wfctl.cli import app
+
+    specs = storyctl_dir.repo_root / "specs"
+    epic = specs / "700-epic"
+    epic.mkdir()
+    (epic / "delivery.md").write_text(_delivery_map("#701"))
+    (epic / "design.md").write_text("# Design\n")
+    _design_exceptions.write(epic, BOUNDARY, "The epic reuses the review store")
+    _design_exceptions.write(epic, "plan.plan-review", "Skipped for the epic")
+    if own_folder:
+        (specs / "701-sub").mkdir()
+        (specs / "701-sub" / "design.md").write_text("# Design\n")
+    monkeypatch.setenv("WFCTL_BRANCH", "701-sub")
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(storyctl_dir.repo_root / "docs" / "architecture"))
+    return json.loads(CliRunner().invoke(app, ["status", "--json"]).output)
+
+
+def _states(payload: dict) -> dict[str, tuple[str, str | None]]:
+    return {
+        f"{step['name']}.{sub['name']}": (sub["state"], sub["claimed"])
+        for step in payload["steps"]
+        for sub in step["sub_steps"]
+    }
+
+
+def test_a_sub_issue_with_no_folder_of_its_own_shares_the_epics_exceptions(
+    storyctl_dir, monkeypatch
+) -> None:
+    """Research R11. The epic's brainstorm answered the boundary question for
+    every sub-issue, and a pass skipped for the epic was skipped for the plan
+    they are all cut from, so a sub-issue that falls back to the epic's folder
+    reads both."""
+    payload = _sub_issue_status(storyctl_dir, monkeypatch, own_folder=False)
+
+    states = _states(payload)
+    assert states["brainstorm.architecture"][0] == "done"
+    assert states["plan.plan-review"] == ("skipped", "Skipped for the epic")
+
+
+def test_a_sub_issue_with_its_own_folder_starts_with_no_exceptions(
+    storyctl_dir, monkeypatch
+) -> None:
+    """A sub-issue whose answers differ from its siblings gets its own folder,
+    and wfctl reads that folder first. It starts from nothing, so the epic's
+    "no new boundary" doesn't answer a question the sub-issue hasn't."""
+    payload = _sub_issue_status(storyctl_dir, monkeypatch, own_folder=True)
+
+    states = _states(payload)
+    assert states["brainstorm.architecture"][0] != "done"
+    assert states["plan.plan-review"][1] is None

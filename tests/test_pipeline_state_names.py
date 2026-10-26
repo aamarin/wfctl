@@ -315,13 +315,13 @@ def test_a_claimed_pass_stays_skipped_once_its_artifact_appears(
 def test_a_claimed_pass_is_seen_on_a_branch_name_containing_a_slash(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`step_none_cmd` writes its claim under `Path(branch).name`, since the
-    branch reaches it as a path segment (`wfctl/cli.py`); `_step_claims` must
-    read it back from that same directory rather than the raw branch string,
-    or a branch containing `/` writes a claim inference can never find. The
+    """`step_none_cmd` writes its exception into the folder `feature_dir`
+    names, and the pipeline reads it from the folder `resolve_spec_dir` finds.
+    A branch containing `/` is where the two could part, and a claim written
+    where inference never looks would read as recorded and never count. The
     slash sits after the issue-key prefix so `resolve_spec_dir` still finds
-    this fixture's feature directory — the claims mismatch is what is under
-    test, not spec-dir resolution."""
+    this fixture's feature directory — the writer and the reader agreeing is
+    what is under test, not spec-dir resolution."""
     monkeypatch.setenv("WFCTL_BRANCH", "418-storyctl/extra")
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}

@@ -199,11 +199,11 @@ def test_the_no_boundary_exit_names_its_command() -> None:
     middle exit was prose — the agent declared "no boundary drawn, no record",
     descended, and nothing on disk had changed.
 
-    That is not a cosmetic gap, because the declaration is what the design gate
-    reads. `boundary_block` asks `touched_on_this_branch` about the whole arch
-    root excluding `design/`, so `declarations/<branch>.md` satisfies it exactly
-    as a record does. Declared only out loud, the step stays `in_progress` with a
-    reason the author has no way to connect to the answer they just gave.
+    That is not a cosmetic gap, because the exception is what the design gate
+    reads. The gate counts `exceptions/boundary.md` in the spec folder exactly
+    as it counts a record touched on the branch. Declared only out loud, the
+    step stays `in_progress` with a reason the author has no way to connect to
+    the answer they just gave.
 
     `test_brainstorm_allows_the_commands_its_records_need` is the near miss: it
     pins the command into the wrapper's ceiling, which proves the wrapper may run

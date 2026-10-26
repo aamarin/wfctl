@@ -473,10 +473,10 @@ def test_projection_orders_by_slug_not_by_filename(tmp_path: Path) -> None:
 
 
 def test_load_records_ignores_subdirectories(tmp_path: Path) -> None:
-    """`arch none` files its declaration one level down and relies on exactly
-    this: a declaration has no `status`, so a recursive glob would surface every
-    one of them as a record that cannot be read. The coupling was a comment on
-    both sides until this test; `rglob` here is a one-word edit away.
+    """An older wfctl's `arch none` files its declaration one level down, and
+    that file is still on disk in repos that ran it. A declaration has no
+    `status`, so a recursive glob would surface every one of them as a record
+    that cannot be read. `rglob` here is a one-word edit away.
     """
     root = tmp_path / "architecture"
     (root / "declarations").mkdir(parents=True)

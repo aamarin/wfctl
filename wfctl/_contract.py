@@ -412,7 +412,7 @@ def fixture_states() -> dict[str, FixtureRepo]:
     """
     import shutil
 
-    from wfctl._paths import STEP_CLAIMS_DIR, arch_root
+    from wfctl import _design_exceptions
     from wfctl._session import record_blocked
     from wfctl._stall import digest
 
@@ -466,14 +466,8 @@ def fixture_states() -> dict[str, FixtureRepo]:
         (nested.repo_root / "wfctl.json").write_text(json.dumps({
             "steps": {"decompose": [{"name": "sign-off", "manual": True, "evidence": "never.md"}]},
         }))
-        claim = (
-            arch_root(nested.repo_root) / STEP_CLAIMS_DIR / FIXTURE_BRANCH
-            / "decompose.sign-off.md"
-        )
-        claim.parent.mkdir(parents=True, exist_ok=True)
-        claim.write_text(
-            f"# decompose.sign-off does not apply — {FIXTURE_BRANCH}\n\n"
-            "not needed for this change\n",
+        _design_exceptions.write(
+            nested.spec_dir, "decompose.sign-off", "not needed for this change",
         )
 
         return states

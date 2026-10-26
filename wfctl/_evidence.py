@@ -28,6 +28,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _completion, _md, _plan_review, _spec_store, _tracker
+from wfctl._arch import RULED_ON
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
@@ -142,14 +143,6 @@ class Fact(NamedTuple):
     detail: str
 
 
-# Statuses a person moved a record to. `proposed` is the one that means nobody
-# has, and a status outside `_arch.STATUSES` parses to "" — so both fall outside
-# this set without being named in it.
-#
-# Not "accepted" alone, which was the first shape and is wrong for a branch that
-# supersedes a record: that leaves the old record at `superseded`, which a human
-# did decide, and requiring `accepted` would hold such a branch forever.
-_RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
 
 # The design step's display string when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
@@ -1108,7 +1101,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     # it read `accepted` for a record a human had *rejected*, under a label
     # saying accepted — a ruling, so not waiting, and not the same thing.
     named = ", ".join(f"{s} ({records[s].status or 'unreadable'})" for s in sorted(records))
-    waiting = [s for s, r in records.items() if r.status not in _RULED_ON]
+    waiting = [s for s, r in records.items() if r.status not in RULED_ON]
     return Fact(name, "unmet" if waiting else "met", named)
 
 

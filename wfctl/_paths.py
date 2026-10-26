@@ -493,13 +493,13 @@ SCANS_DIR = "scans"
 # and has to be dropped for it.
 IMPLEMENTATION_DIR = "implementation"
 
-# The arch-root subtree holding a person's claim that one pipeline pass does
-# not apply to this change (#339, `an-absent-artifact-is-claimed-not-inferred`).
-# A claim answers a narrower question than a record does and decides nothing
-# about the boundary a record decides — left out, `wfctl step none` would
-# double as an unintended way to satisfy the design gate (FR-016, SC-006), the
-# same failure `scans/` and `implementation/` are excluded to prevent.
-STEP_CLAIMS_DIR = "step-claims"
+# The arch-root subtree where wfctl 0.23.0 and older wrote `arch none`'s
+# declaration. Design exceptions now live in the spec folder
+# (`design-exceptions-live-with-specs`), but an older wfctl still writes here,
+# and the file stays on disk in a repo that ran one. It decides nothing a
+# record decides, so it is excluded like `scans/`: counted, a stale declaration
+# would answer the design gate for a branch that never answered it (FR-007).
+DECLARATIONS_DIR = "declarations"
 
 # The arch-root subtree holding a domain model — the language, contexts and
 # invariants `model-the-domain` found (#464). It describes what a record
@@ -529,7 +529,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
     return [
         arch / SCANS_DIR,
         arch / IMPLEMENTATION_DIR,
-        arch / STEP_CLAIMS_DIR,
+        arch / DECLARATIONS_DIR,
         arch / DOMAIN_DIR,
     ]
 
@@ -885,6 +885,18 @@ def feature_dir(branch: str, repo_root: Path) -> Path:
     """
     found = resolve_spec_dir(branch, repo_root)
     return found if found is not None else spec_root(repo_root) / branch
+
+
+def is_own_spec_dir(spec_dir: Path, branch: str, repo_root: Path) -> bool:
+    """Is `spec_dir` named after `branch`, rather than an epic's it falls back to?
+
+    An epic's sub-issues share the epic's spec folder and its design exceptions.
+    The epic's "no new boundary" stays true for the other sub-issues when one of
+    them adds a record, so `check-body` and the worktree guard both ask this
+    before treating the answer as the branch's own. One function, so the two
+    can't disagree about which folder is whose.
+    """
+    return spec_dir == spec_root(repo_root) / branch
 
 
 class ClaimConflict(NamedTuple):
