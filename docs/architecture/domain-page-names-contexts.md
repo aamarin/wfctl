@@ -11,24 +11,24 @@ A bounded context is a distinct part of wfctl with its own terms, ideas, and
 rules. For example, "install and drift" covers how wfctl installs its skills
 into a project and reports when they fall out of date, while "session
 continuity" carries work from one agent session to the next. The domain page
-under `domain/` lists all these contexts. On 2026-10-25, the user accepted
+under `domain/` lists these contexts. On 2026-10-25, the user accepted
 that list as the set of names records and branches can use.
 
-Right now, the brainstorm step runs a general architecture check. This check
+Currently, the brainstorm step runs a general architecture check. This check
 only verifies that the branch has changed any record under the arch root or
 has declared that none is needed (using `wfctl arch none`). It does not check
 whether the record matches the context the branch changed. As a result, a
 branch can pass the check even if its record covers a different area than
 what changed. This gap is described in #649.
 
-#648 adds a similar check for level 3 software design records, and it has the
+#648 adds a similar check for level-3 software design records, and it has the
 same limitation. This change ties both checks to contexts at the same time. If
 only one of them were tied to contexts, the two checks would give different
 answers about the same branch. As a result, this work starts once #648 merges.
 
 ## Direct baseline
 
-The easiest way is to leave the general check as it is. With this approach,
+The simplest option is to leave the general check as it is. With this approach,
 the architecture check passes if the branch changes any record or includes a
 `wfctl arch none` declaration, even if the record does not match the changed
 context. The agent might try to match records to contexts, but nothing
@@ -73,7 +73,7 @@ against.
 wfctl checks whether every context a branch changes has a record or a "no".
 The agent should not answer this, since that would mean grading its own work.
 An agent that wrote a record might think it covers the right context when it
-does not. The check is there for that reason.
+does not. That's why wfctl runs the check.
 
 The agent still decides which contexts a branch changes, which contexts a new
 record governs, and the reason for each "no". wfctl cannot figure out the
