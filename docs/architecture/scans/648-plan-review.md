@@ -32,3 +32,43 @@
 - **PR-010, MINOR, open.** The plan's validation list leaves out `uv run wfctl verify` and `uv run wfctl doctor`, which spec.md's Validation Strategy names. Stands because the list is unchanged.
 - **PR-011, MINOR, open.** `design.md` names `changes/648.addition.md` and the spec names `648.change.md`. The plan follows the spec, but R8 says the old value came from the spec. Stands because R8 is unchanged.
 - **PR-012, MINOR, open.** Four docstrings or comments still count brainstorm's passes as two: `brainstorm_architecture`, `brainstorm_design_doc`, the `Step` docstring, and `test_declared.py:20`. Stands because the plan doesn't list them.
+
+## Review 2026-10-26T11:03Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 59e4d6c932a82e2d70d358bb79e9b05865bb79a0, spec.md ae42f4b2c0ed202dadaa19a0ee16710eca1f7c02, .specify/memory/constitution.md absent, design.md 5b70b93efa85d2ea8df1ffebc08e3907829c2dac, docs/architecture/design/software-design-none-is-a-claim.md c217a83b3a517bd3cb516abd105a4371599a43c7, docs/architecture/declarations/648-design-gate.md 8358208e0cc21da4a35f3dc336d376f18fa8b8fa, research.md 96eb2b48a8fa83966e391a344f6c563bb9c0e9ed, data-model.md fd750e351c657a53ed5c920c197a6c75bcf6e675, contracts/cli.md dfb247a73319f0c47cddf662af68ce9ac7d8b457, quickstart.md 8cc6853b66ebb2a5c2b0c8c5600c4bca27fa9bbe, checklists/requirements.md 5d24c2763686d2b8e4a90fa6867b32d57f7b5efa, AGENTS.md 506b62be5f7860aad3ead6ba5bae864db68b15ba, docs/architecture/vendor-upstream-skills.md 4d6b0177ffe76f882118423926af27d76b74e934, plan-review.plan.md 8575811afa5ff2ff5c9de11ca4ea4ad26f5f742b (base)
+- Review type: re-review (the plan copy matched the earlier review's plan.md identity; design.md, research.md, contracts/cli.md, and quickstart.md also changed and were re-read in full)
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 7 · Fixed since the earlier review: 12
+- Detail: /Users/andremarin/Development/wfctl-specs/648-design-gate/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-019) |
+| Requirements and traceability | Resolved (PR-004, PR-008, PR-010 fixed) |
+| Architecture and boundaries | Resolved (PR-006 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-013, PR-014, PR-017, PR-018) |
+| Security and reliability | Outstanding (PR-015, PR-016) |
+
+### Findings
+
+- **PR-001, MAJOR, fixed.** Fixed by `plan.md §allowed-tools`, which gives both brainstorm frontmatters the narrow `Bash(wfctl step none brainstorm.software-design *)` grant, says why the broad form was rejected, and adds test 14.
+- **PR-002, MAJOR, fixed.** Fixed by test 8, which now checks that an arch root outside the tree doesn't hold the pass. The contract and R4 agree with it.
+- **PR-003, MINOR, fixed.** Fixed by `contracts/cli.md`, which shows `design-doc` as pending at the computed width, and by `plan.md §README.md`, which says the new row shows done.
+- **PR-004, MINOR, fixed.** Fixed by R7, which drops the floor, calls out the departure from FR-007, and lists `tests/test_cli_status.py`.
+- **PR-005, MINOR, fixed.** Fixed by tests 11 and 12.
+- **PR-006, MINOR, fixed.** Fixed by test 13, which checks that all three skills name the claim command.
+- **PR-007, MINOR, fixed.** Fixed by `quickstart.md`, which runs the working tree's wfctl through `$WFCTL` and commits only the record in step 4.
+- **PR-008, MINOR, fixed.** Fixed by `plan.md §design-levels`, which adds the claim to the line-88 table and covers the boundary-only case at line 410.
+- **PR-009, MINOR, fixed.** Fixed by R9, which corrects the snapshot and `storyctl_dir` claims, and by test 15.
+- **PR-010, MINOR, fixed.** Fixed by `plan.md §Technical Context`, which adds `wfctl verify` and `wfctl doctor`.
+- **PR-011, MINOR, fixed.** Fixed by `design.md`, which now names `changes/648.change.md`, and by R8's corrected attribution.
+- **PR-012, MINOR, fixed.** Fixed by `plan.md §_evidence.py` item 4, which lists every site the finding named.
+- **PR-013, MINOR, open.** Three more comments still count brainstorm's passes as two: `tests/test_cli_status.py:44`, `tests/test_pipeline_state_names.py:249`, and a second sentence in the `brainstorm_architecture` docstring. Stands because item 4 doesn't list them.
+- **PR-014, MINOR, open.** `test_a_written_record_with_no_design_doc_leaves_exactly_one_pass_outstanding` writes an architecture record with no `design.md` on `storyctl_dir`, so it will read two outstanding passes. R9's rule for which tests break misses it, and the quickest repair would remove what the test checks. Stands because R9 doesn't name it.
+- **PR-015, MINOR, open.** Test 14 checks only that the exact string `Bash(wfctl step none*)` is absent, so a broad grant written another way, such as `Bash(wfctl step none *)` or `Bash(wfctl*)`, would still pass. Stands because the test doesn't match command lines the way `test_provenance.py` does.
+- **PR-016, MINOR, open.** The narrow grant doesn't stop brainstorm's agent from claiming another pass, since its unrestricted `Write` can create a claim file directly. The PR review is the control that catches it, so only the rationale's wording needs to change. Stands because the plan says the grant prevents it.
+- **PR-017, MINOR, open.** No planned test fails if the width is hard-coded to `.ljust(20)`, and "20 in every repository" is false once a repo declares a pass name longer than 16 characters. Stands because test 9 only uses built-in names.
+- **PR-018, MINOR, open.** Quickstart step 6 gives no command or path for removing the claim, and step 7 reads `.claude/skills/` while the shell is still in the scratch repository. Stands because quickstart.md is unchanged there.
+- **PR-019, MINOR, open.** The design record's Verification section says `status` prints the remedy under `how:`, while the spec and contract say it goes under `next:`. Stands because the record wasn't updated.
