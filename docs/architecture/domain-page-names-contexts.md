@@ -47,14 +47,14 @@ the context names from the domain page.
    context and one for each outside party, like `install-and-drift` and
    `workmux`. wfctl reads this list every time it checks. It does not create
    its own names.
-2. A branch lists the contexts it changes in one `Contexts:` line in
+2. A branch lists the contexts it changes in one `Contexts` line in
    `design.md`.
-3. A record lists the contexts it governs in a `governs:` field.
+3. A record lists the contexts it governs in a `governs` field.
 4. If a context does not need a record, the branch marks "no" for each context
    separately, using `wfctl arch none --context <name> --reason "…"`. At level
    3, `wfctl step none` uses the same flag.
 5. wfctl checks each name against the list. It pauses brainstorm until every
-   context in the branch's `Contexts:` line has a record that governs it or a
+   context in the branch's `Contexts` line has a record that governs it or a
    "no".
 
 A repo without a name list works the same as it does now. The general check
@@ -91,8 +91,8 @@ flowchart TB
     acceptrec["accepts records"]
   end
   subgraph agent
-    contexts["writes the Contexts: line in design.md"]
-    governs["writes governs: on a new record"]
+    contexts["writes the Contexts line in design.md"]
+    governs["writes governs on a new record"]
     none["runs arch none --context with a reason"]
   end
   subgraph wfctl
@@ -103,8 +103,8 @@ flowchart TB
     today["general check only, as today"]
   end
   page[("domain page: name list")]
-  design[("design.md: Contexts:")]
-  record[("record: governs:")]
+  design[("design.md: Contexts line")]
+  record[("record: governs field")]
   decl[("declaration: context and reason")]
 
   accept --> page
@@ -154,13 +154,13 @@ With no name list on the domain page, wfctl runs only the general check.
   a context the agent did not consider. A branch-wide "no" would cover that
   context without anyone deciding it.
 - If a name is misspelled in `design.md`, it appears as the reason brainstorm
-  is paused, not when it is typed. If a record's `governs:` field has a name
+  is paused, not when it is typed. If a record's `governs` field has a name
   that is not on the list, `wfctl doctor` reports it because record validation
   happens there.
 - `model-the-domain` creates the name list as part of its output, so a
   repository that has run the skill gets the per-context checks
   automatically.
-- The PR template's "Moves a boundary?" section now has a `Contexts:` line.
+- The PR template's "Moves a boundary?" section now has a `Contexts` line.
   `opening-a-change` copies the list from `design.md` into this section, since
   a reviewer reading the PR does not see `design.md`.
 - Level 3 decides the exact format of the name list, how wfctl reads it when

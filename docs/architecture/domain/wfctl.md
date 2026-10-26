@@ -236,7 +236,7 @@ none — this round accepted no record. The 13 accepted records are placed above
 | Row | Question or conflict | Why it matters | Who can answer | Next evidence |
 | --- | --- | --- | --- | --- |
 | O1 | Does a workmux sidebar replace the dashboard, and if so, does Attention shrink or go away? | It changes what wfctl owns in the Attention context. | Andre | A design of the sidebar, or a trial of it. |
-| O2 | Where does a branch list the contexts it changes? | `arch context` can't use `governs` without that list. | Andre | Answered by `domain-page-names-contexts`. A branch lists them in one `Contexts:` line in `design.md`. |
+| O2 | Where does a branch list the contexts it changes? | `arch context` can't use `governs` without that list. | Andre | Answered by `domain-page-names-contexts`. A branch lists them in one `Contexts` line in `design.md`. |
 | O3 | Which of a feature's issues claims the spec directory when the feature groups several issues? | The doctor notices in E2 show that the code and the language disagree. | Andre | Settle the language, then add a check. |
 | O4 | The record and the skill say "Python pattern selection", while the goal is language agnostic. | The term has two meanings, and an agent working in another language gets no pattern guidance. | Andre | #416, which already tracks the gap. |
 | O5 | Should one of the two meanings of "drift" get a new name? | Once fitness functions report architectural drift, `doctor`'s drift and a failing fitness function would share a word with different meanings. | Andre | A fitness function shipped under item 7. |

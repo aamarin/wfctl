@@ -18,15 +18,15 @@ located.
 Two checks need the matcher. The architecture pass in `_evidence.py` checks
 level-2 records. #648 adds a software design pass that checks level-3 records
 under `design/`. Both run the same match against a different set of records,
-so they need the same three inputs: the name list, the branch's `Contexts:`
-line, and each record's `governs:` field.
+so they need the same three inputs: the name list, the branch's `Contexts`
+line, and each record's `governs` field.
 
 This code would go into `_evidence.py` (1,708 lines) and `_arch.py` (983
 lines), which are already the largest modules in wfctl after `cli.py`. The
 domain page lists their long explanatory comments as a sign they need
 restructuring (E13, E14). #544 would give each context its own package. When
 that's done, the branch's list comes from the files it changes instead of the
-`Contexts:` line, and only that one input changes.
+`Contexts` line, and only that one input changes.
 
 No architecture record constrains how wfctl's own modules are split, so this is
 a level-3 choice.
@@ -76,11 +76,11 @@ Add the code where each piece is used, with no new module:
 
 1. `_arch.py` reads the name list from the domain page, next to
    `_frontmatter`, since both scan header lines. `parse_record` reads
-   `governs:` into a new `Record.governs` field, and `validate` reports a name
+   `governs` into a new `Record.governs` field, and `validate` reports a name
    that isn't on the list.
-2. `_evidence.py` reads the `Contexts:` line from `design.md` in a private
+2. `_evidence.py` reads the `Contexts` line from `design.md` in a private
    helper. `brainstorm_architecture` matches each listed context against the
-   `governs:` of this branch's level-2 records and the per-context "no"
+   `governs` field of this branch's level-2 records and the per-context "no"
    answers, and returns the first context with neither.
 3. #648's software design pass in `_evidence.py` calls the same private helper
    and repeats the match against this branch's level-3 records.
@@ -93,10 +93,10 @@ A new module, `wfctl/_contexts.py`, reads the context names and matches them.
 It holds three plain functions:
 
 1. `names(arch)` returns the combined name list from every page under
-   `domain/` whose `State:` line is `accepted`, or `None` when no page has a
+   `domain/` whose `State` line is `accepted`, or `None` when no page has a
    list. `None` means the repo has no name list, and both checks fall back to
    the general check, as they do today.
-2. `listed(spec_dir)` returns the names on the `Contexts:` line in
+2. `listed(spec_dir)` returns the names on the `Contexts` line in
    `design.md`, or `None` when `design.md` has no such line.
 3. `unanswered(listed, records, spec_dir)` returns the first listed context
    that no record in `records` governs and that has no "no", or `None` when
@@ -107,7 +107,7 @@ pass gives it this branch's level-2 records, and #648's pass gives it this
 branch's level-3 records. That way, each pass decides which records count, and
 the matching rule is written once.
 
-The domain page holds the name list in two header lines, next to `State:`:
+The domain page holds the name list in two header lines, next to the `State` line:
 
 ```
 State: accepted
@@ -123,9 +123,9 @@ domain page treats contexts and outside parties as different kinds of things.
 
 `repository` isn't a built-in name. Since wfctl doesn't create its own names
 (`domain-page-names-contexts.md`), a repo that wants records to govern the
-whole repository adds `repository` to its `Contexts:` line.
+whole repository adds `repository` to its `Contexts` line.
 
-`_arch.py` gets only the `governs:` field and the `validate` finding.
+`_arch.py` gets only the `governs` field and the `validate` finding.
 `validate` takes the name list as an argument instead of reading it.
 `_contexts` imports `_arch` to read records, so the reverse import would
 create a cycle. The `doctor` check calls `_contexts.names` and passes the list
@@ -161,7 +161,7 @@ stable  ┌──────────────┐ ┌──────�
           ▼    ▼    ▼      ▼    ▼    ▼                    ▼     ▼      ▼
        ┌────────┐ ┌──────────┐ ┌─────────┐          ┌────────┐ ┌──────────┐ ┌─────────┐
        │ domain │ │design.md │ │ records,│          │ domain │ │design.md │ │ records,│
-       │ page   │ │Contexts: │ │ "no"s   │          │ page   │ │Contexts: │ │ "no"s   │
+       │ page   │ │Contexts  │ │ "no"s   │          │ page   │ │Contexts  │ │ "no"s   │
        └────────┘ └──────────┘ └─────────┘          └────────┘ └──────────┘ └─────────┘
 ```
 
@@ -172,14 +172,14 @@ Only `_contexts` reads the files, so three arrows cross the divider. The
 decision adds one module and no boundary.
 
 The decision is built to absorb #544 changing where the branch's list comes
-from. In the baseline, that changes the `Contexts:` read in both passes. In
+from. In the baseline, that changes the `Contexts` line read in both passes. In
 the decision, it changes only the body of `listed`, and the two `calls` arrows
 stay the same.
 
 ## Considered
 
 - Use the direct baseline. It's the smallest diff, and it works. We didn't
-  choose it because two passes would each read the `Contexts:` line and run
+  choose it because two passes would each read the `Contexts` line and run
   the same match, and #544 would have to change both. It would also add a parser and a matcher to `_evidence.py`
   and `_arch.py`, the two modules the domain page already lists as too large.
 - Read the names from the domain page's Bounded Contexts table instead of
@@ -193,7 +193,7 @@ stay the same.
   #635's `passes` reads `*.*.md`, so it would read
   `boundary.install-and-drift.md` as a pass named
   `boundary.install-and-drift`.
-- Define a context source interface, with the `Contexts:` line as one
+- Define a context source interface, with the `Contexts` line as one
   implementation and changed packages as the second after #544. We didn't
   choose this because there's one source today, and #544 replaces it rather
   than adding a second. A plain function whose body changes is enough.
@@ -201,17 +201,17 @@ stay the same.
 ## Consequences
 
 The two passes share one matching rule. One module defines the format of the
-name list and the `Contexts:` line. When #544 changes where the branch's list
+name list and the `Contexts` line. When #544 changes where the branch's list
 comes from, only `listed` changes.
 
-`domain-model-template.md` in `model-the-domain` gets the `Contexts:` and
-`Outside parties:` lines. It also gets `accepted` as a `State:` value, since
+`domain-model-template.md` in `model-the-domain` gets the `Contexts` and
+`Outside parties` lines. It also gets `accepted` as a `State` value, since
 `wfctl.md` already uses it and `names` reads only accepted pages. The skill
 writes both lines as part of its output.
 
-Because `load_records` reads one level, `doctor` reports a `governs:` name
+Because `load_records` reads one level, `doctor` reports a `governs` name
 that isn't on the list only in level-2 records. A misspelled name in a level-3
-record's `governs:` field appears when brainstorm pauses on the context that
+record's `governs` field appears when brainstorm pauses on the context that
 record was meant to cover.
 
 The `_design_exceptions` functions from #635 take a `context` argument, which
@@ -227,9 +227,9 @@ edit there or a follow-up here once #635 merges.
   `wfctl arch none --context <name>`, lets brainstorm pass.
 - A test with no header lines on any domain page checks that brainstorm
   behaves as it does today.
-- A test with an unknown name on the `Contexts:` line checks that brainstorm
+- A test with an unknown name on the `Contexts` line checks that brainstorm
   pauses and names the unknown context.
-- A test runs `wfctl doctor` on a level-2 record whose `governs:` holds a name
+- A test runs `wfctl doctor` on a level-2 record whose `governs` field holds a name
   that isn't on the list, and checks for the finding.
 - `grep -n "Contexts:" wfctl/_evidence.py wfctl/_arch.py` finds nothing, so
   only `_contexts` reads the line.
