@@ -47,6 +47,7 @@ brainstorm   ▶  ← current
 next: /speckit.brainstorm
   If this repo's base branch isn't main, master, or dev, name it in wfctl.json:
       { "trunk": "<branch>" }
+  If wfctl.json already names one, run `wfctl check config` to see what's wrong.
   If the architecture folder is outside the project, turn these checks off:
       { "design_record_checks": "off" }
 ```
