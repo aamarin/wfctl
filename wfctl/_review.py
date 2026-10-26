@@ -517,6 +517,24 @@ def latest_run(agent_dir: Path, group: str) -> Run | None:
     return Run(numbers[-1], path, record)
 
 
+def reviewed_commits(agent_dir: Path, group: str) -> frozenset[str]:
+    """Every commit a completed run of `group` listed, across all its runs.
+
+    All of them rather than the latest run's, because a note that wasn't
+    written leaves CI counting from an earlier commit than the state
+    directory does, and the commits in between were reviewed by an earlier
+    run.
+    """
+    runs = group_dir(agent_dir, group) / "runs"
+    found: set[str] = set()
+    for path in sorted(runs.glob("[0-9][0-9][0-9]*/run.json")) if runs.is_dir() else []:
+        record = _read_json(path)
+        commits = record.get("commits")
+        if record.get("completed_at") and isinstance(commits, list):
+            found.update(c for c in commits if isinstance(c, str))
+    return frozenset(found)
+
+
 # --- start -----------------------------------------------------------------------
 
 

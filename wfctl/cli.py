@@ -6168,6 +6168,44 @@ def _record_review_note(repo_root: Path, sha: str, line: str, again: str) -> boo
         return None
 
 
+def _note_covers_only_reviewed(
+    repo_root: Path, agent_dir: Path, group: str, head: str, branch: str,
+) -> bool:
+    """Whether a note on `head` would mark only reviewed commits as reviewed
+    in CI, after warning about the commits when it wouldn't.
+
+    The run stays complete either way, so the guard still allows the PR and
+    CI fails it. That disagreement is the point: CI is the check an agent
+    can't skip, and a note covering commits nobody reviewed would pass it.
+    """
+    from wfctl import _review, _review_notes
+
+    again = f"wfctl review check {group}"
+    try:
+        found = _review_notes.unlisted(repo_root, agent_dir, group, head, branch=branch)
+    except _review.ReviewError as e:
+        _say(f"⚠ didn't write the review note: {_one_line(e)}")
+        _say(f"  Fix that and run `{again}` again to record it.")
+        return False
+    if not found.commits:
+        return True
+    n = len(found.commits)
+    shas = " ".join(sha[:7] for sha in found.commits)
+    _say(
+        f"⚠ didn't write the review note: CI would count {n} commit{'s' if n != 1 else ''} "
+        f"no {group} run reviewed: {shas}"
+    )
+    it, isnt, belongs = ("it", "It isn't", "it belongs") if n == 1 else (
+        "them", "They aren't", "they belong"
+    )
+    _say(
+        f"  {isnt} on origin/{found.trunk}. Run git fetch, push {found.trunk} if "
+        f"{belongs} there, and run `{again}` again. Otherwise a person has to sign "
+        f"off on {it}."
+    )
+    return False
+
+
 def _send_review_notes(repo_root: Path, agent_dir: Path, branch: str) -> None:
     """Send the review notes to `origin`, then rerun the PR's failed `review`
     job so it reads them, printing a line for each.
@@ -6309,6 +6347,8 @@ def review_check_cmd(
 
         line = _review_notes.group_line(group)
         again = f"wfctl review check {group}"
+        if not _note_covers_only_reviewed(repo_root, agent_dir, group, checked.run.head, branch):
+            return
         if _record_review_note(repo_root, checked.run.head, line, again) is not None:
             _send_review_notes(repo_root, agent_dir, branch)
         return

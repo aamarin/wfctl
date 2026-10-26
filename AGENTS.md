@@ -407,7 +407,9 @@ It has no bypass, so a push straight to `main` is refused for everyone, and it
 requires `test (3.11)`, `test (3.13)`, `wheel`, `lint`, `release-note`, and
 `review` to pass and merge commits to be the only merge method. The `review`
 entry carries `"integration_id": 15368`, the GitHub Actions app, so a commit
-status someone posts by hand under that name doesn't satisfy it. The release script finds merged
+status someone posts by hand under that name doesn't satisfy it. A job named
+`review` that a PR adds to its own copy of a workflow reports under the same
+app, so the pin doesn't stop that one. The release script finds merged
 pull requests that came with no note through their merge commits, so a squash or
 rebase merge would hide them. The ruleset is applied by hand, not by CI. Apply it
 once, then read it back, because nothing checks that what GitHub holds still

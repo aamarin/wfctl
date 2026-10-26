@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from wfctl import _review
+from wfctl import _paths, _review
 from wfctl._review_config import Group
 
 NOTES_REF = "refs/notes/wfctl-review"
@@ -100,6 +100,52 @@ def _read(repo_root: Path, sha: str, blob: str, timeout: float | None) -> list[s
     except _review.ReviewError as e:
         raise _review.ReviewError(f"can't read the note on {sha[:7]}: {e}") from e
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+@dataclass(frozen=True)
+class Unlisted:
+    """What a note on a run's head would claim that no run reviewed."""
+
+    trunk: str
+    commits: tuple[str, ...]
+
+
+def unlisted(
+    repo_root: Path,
+    agent_dir: Path,
+    group: str,
+    head: str,
+    timeout: float | None = None,
+    *,
+    branch: str | None = None,
+) -> Unlisted:
+    """The commits CI would count as reviewed by `group` once `head` carries
+    its note, and that no completed run of the group listed, oldest first.
+
+    A run lists its commits against the trunk on `origin` and the local trunk
+    branch, and against the trunk the working tree's `wfctl.json` names. CI
+    measures against `origin/<base>` alone, and reads a note as covering every
+    branch commit under it. So a commit on a local `main` that was never
+    pushed, or on a branch a working-tree edit declared the trunk, is left out
+    of the run and covered by its note. This recomputes the range CI would
+    read, against `origin/<trunk>` only, and the caller writes no note while
+    it finds anything.
+
+    A trunk `origin` doesn't have raises, since CI's range can't be
+    recomputed, and a note written anyway would cover whatever CI finds.
+    """
+    found = _paths.trunk_branch(repo_root, timeout=timeout)
+    if found is None:
+        raise _review.NoTrunk()
+    trunk = found.removeprefix("origin/")
+    last, _ = coverage_from_notes(
+        repo_root, head, [Group(group, "", ())], timeout, branch=branch, trunk=trunk,
+    )
+    commits = _review.commit_range(
+        repo_root, head, last[group], timeout, branch=branch, trunk=trunk,
+    ).commits
+    listed = _review.reviewed_commits(agent_dir, group)
+    return Unlisted(trunk, tuple(c for c in reversed(commits) if c not in listed))
 
 
 # --- writing and sending ---------------------------------------------------------

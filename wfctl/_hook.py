@@ -176,6 +176,7 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     if (
         "gh" in command.lower() or "merge" in command or "sign" in command
         or "notes" in command or "--mirror" in command
+        or ("push" in command and "*" in command)
     ):
         try:
             from wfctl import _review_gate

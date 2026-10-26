@@ -1456,10 +1456,22 @@ def test_every_notes_write_is_refused_whichever_ref_it_names(
     "git push origin 'refs/notes/*:refs/notes/*'",
     "git push --mirror origin",
     "git fetch origin && git push origin +refs/notes/x:refs/notes/x",
+    "git push origin notes/wfctl-review",
+    "git push origin 'refs/*:refs/*'",
+    "git push origin '+*:*'",
 ])
 def test_a_push_of_any_notes_ref_is_refused(guard: Guard, tmp_path: Path, command: str) -> None:
     """A note written by hand only matters once it reaches `origin`, and
-    `--mirror` pushes every ref, notes included."""
+    `--mirror` pushes every ref, notes included. git resolves the short
+    `notes/wfctl-review`, and a wildcard over `refs/` pushes the notes ref
+    without naming it."""
+    assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
+
+
+def test_writing_the_notes_ref_with_update_ref_is_refused(guard: Guard, tmp_path: Path) -> None:
+    """`update-ref` writes the notes ref without `git notes`, and `wfctl store
+    reviews` then pushes what it wrote."""
+    command = "git update-ref refs/notes/wfctl-review 1234567"
     assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
 
 
@@ -1469,6 +1481,8 @@ def test_a_push_of_any_notes_ref_is_refused(guard: Guard, tmp_path: Path, comman
     "git log --notes=wfctl-review -3",
     "git push origin HEAD",
     "git log --oneline --notes",
+    "git push origin 'refs/heads/*:refs/heads/*'",
+    "git update-ref refs/heads/x HEAD",
 ])
 def test_reading_notes_and_a_plain_push_are_allowed(
     guard: Guard, tmp_path: Path, command: str,

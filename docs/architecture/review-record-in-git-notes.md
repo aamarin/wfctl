@@ -184,6 +184,24 @@ branch.
   review on the same PR, since adding it means the group should run. The local
   check requires the same groups, so a PR that removes a group is blocked
   locally too.
+- A local run measures the branch against both `origin/main` and the local
+  `main`, while CI measures against `origin/main` only. A commit that's on the
+  local `main` but was never pushed is left out of the run, and CI would read
+  the run's note as covering it. So before wfctl writes a note, it works out
+  the commits CI would count as reviewed, and it writes no note while any of
+  them was left out of every run of that group. The run stays complete, so the
+  guard allows the PR and CI fails it. The user pushes `main`, or a person
+  signs off on those commits.
+- The ruleset pins the `review` check to the GitHub Actions app, so a status
+  someone posts by hand doesn't satisfy it. But a PR can add its own job named
+  `review` to a workflow that runs the PR's copy, such as `ci.yml`, and that
+  job reports under the same app. A repository owned by a person can't make a
+  ruleset require one specific workflow file, so this stays a limit, like a
+  forged note. Quickstart step 4 checks how GitHub treats the two check runs.
+- The guard rule also blocks a push of the short name `notes/wfctl-review`, a
+  wildcard refspec such as `refs/*:refs/*`, and `git update-ref` on a notes
+  ref. A git alias or a script that runs these still gets past it, since no
+  rule that reads the command's text can see what an alias runs.
 - A test runs the CI check against a scratch repository. It fails if an
   unreviewed commit passes, or if a commit that a note or a sign-off covers
   fails. The test makes sure CI and the local check agree on what is
@@ -206,3 +224,7 @@ branch.
   check requires the same groups as CI, and CI measures against the PR's base
   branch from GitHub's event, so a `trunk` key in the PR's own `wfctl.json`
   can't skip review.
+- 2026-10-26  revised     — Andre after the #627 security review: wfctl writes
+  no note that would cover a commit no run reviewed, a PR's own `review` job is
+  a stated limit, and the guard blocks three more ways to write or push the
+  notes ref.

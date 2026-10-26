@@ -273,9 +273,13 @@ def _writes_notes(command: str) -> bool:
     It reads `git`, skips git's own options, and looks at the subcommand. A
     `notes` write is refused whichever ref it names, so `--ref`, `-c
     core.notesRef`, and `GIT_NOTES_REF` need no rule of their own. A `push`
-    is refused when a word names `refs/notes/`, or it carries `--mirror`,
-    which pushes every ref. A push that names no notes ref pushes none,
-    unless the remote is configured to, which no text can show.
+    is refused when a word holds `notes/`, which git resolves the short
+    `notes/wfctl-review` to, or it carries `--mirror`, which pushes every
+    ref, or a wildcard refspec reaching outside branches and tags, such as
+    `refs/*:refs/*`. An `update-ref` naming `refs/notes/` is refused, since
+    it writes the ref without `git notes`. A push that names no notes ref
+    pushes none, unless the remote is configured to, which no text can show.
+    An alias or a script that runs these is out of reach of any text rule.
     """
     try:
         words = shlex.split(command)
@@ -291,9 +295,23 @@ def _writes_notes(command: str) -> bool:
             verb, _ = _subcommand(after, _NOTES_VALUE)
             if verb in _NOTES_WRITES:
                 return True
-        if sub == "push" and any("refs/notes/" in w or w == "--mirror" for w in after):
+        if sub == "push" and any(
+            "notes/" in w or w == "--mirror" or _wide_wildcard(w) for w in after
+        ):
+            return True
+        if sub == "update-ref" and any("refs/notes/" in w for w in after):
             return True
     return False
+
+
+def _wide_wildcard(word: str) -> bool:
+    """Whether a push refspec is a wildcard whose source can match a notes
+    ref. `refs/heads/*` and `refs/tags/*` can't, and refusing them would
+    refuse pushing every branch."""
+    if word.startswith("-") or "*" not in word:
+        return False
+    source = word.removeprefix("+").split(":", 1)[0]
+    return not source.startswith(("refs/heads/", "refs/tags/"))
 
 
 def _subcommand(words: list[str], valued: frozenset[str]) -> tuple[str | None, list[str]]:

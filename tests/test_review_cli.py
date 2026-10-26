@@ -847,12 +847,76 @@ def test_check_records_the_note_whatever_the_trunks_config_says(
     assert note_on(repo, head) == "reviewed by security"
 
 
-def test_check_records_the_note_with_no_trunk_to_find(repo: Path) -> None:
+def test_check_with_no_trunk_to_find_completes_and_writes_no_note(repo: Path) -> None:
+    """CI's range can't be recomputed without the trunk on `origin`, and a
+    note written anyway covers whatever commits CI finds under it. The run is
+    still complete, since its reviewers all reported."""
     head = complete_security(repo)
     (repo / "wfctl.json").write_text(json.dumps({"trunk": "nope"}))
 
+    result = run("review", "check", "security")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[-3] == f"complete: security reviewed through {head[:7]}"
+    assert lines[-2].startswith("⚠ didn't write the review note: ")
+    assert lines[-1] == "  Fix that and run `wfctl review check security` again to record it."
+    assert note_on(repo, head) is None
+
+
+def test_check_writes_no_note_over_a_commit_only_the_local_trunk_has(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """A run leaves out commits on the local `main`, and CI, which sees only
+    `origin/main`, reads the note on the head as covering them. A branch cut
+    from a `main` with an unpushed commit would pass CI with that commit
+    unreviewed, and so would one whose working-tree `wfctl.json` names a
+    local branch as the trunk."""
+    git(repo, "checkout", "-q", "main")
+    unpushed = commit(repo, "unpushed")
+    git(repo, "checkout", "-q", "-B", "637-x")
+    head = complete_security(repo)
+
+    result = run("review", "check", "security")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[-2] == (
+        f"⚠ didn't write the review note: CI would count 1 commit no security run "
+        f"reviewed: {unpushed[:7]}"
+    )
+    assert lines[-1] == (
+        "  It isn't on origin/main. Run git fetch, push main if it belongs there, and run "
+        "`wfctl review check security` again. Otherwise a person has to sign off on it."
+    )
+    assert note_on(repo, head) is None
+
+    git(repo, "push", "-q", "origin", "main")
     assert run("review", "check", "security").exit_code == 0
     assert note_on(repo, head) == "reviewed by security"
+
+
+def test_check_counts_commits_an_earlier_run_reviewed_whose_note_was_not_written(
+    repo: Path,
+) -> None:
+    """With no note on the first run's head, CI counts the second run's note
+    from the merge base, so the first run's commits are in the range it
+    reads. They were reviewed, and refusing them would leave a sign-off as
+    the only way back."""
+    first = complete_security(repo)
+    lock = lock_notes(repo)
+    assert run("review", "check", "security").exit_code == 0
+    lock.unlink()
+    assert note_on(repo, first) is None
+
+    second = commit(repo, "b")
+    started = run("review", "start", "security")
+    reports = Path(started.output.splitlines()[1].removeprefix("reports: "))
+    for rid in ("s1", "s2", "s3"):
+        (reports / f"{rid}.md").write_text(report(second))
+
+    assert run("review", "check", "security").exit_code == 0
+    assert note_on(repo, second) == "reviewed by security"
 
 
 def test_check_records_a_group_no_list_names_any_more(repo: Path) -> None:
