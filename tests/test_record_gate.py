@@ -273,3 +273,36 @@ def test_a_proposed_record_with_a_non_ascii_name_still_holds_the_pr(
 
     assert code == 2
     assert "décision (proposed)" in err
+
+
+def test_a_proposed_record_with_a_quote_in_its_name_still_holds_the_pr(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """`core.quotePath=false` stops git quoting non-ASCII names only. A name
+    holding `"` still came back quoted, ending in `.md"`, and the guard dropped
+    it while `branch_records` listed it."""
+    record(repos.feature, 'a"b', "proposed")
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert 'a"b (proposed)' in err
+
+
+def test_a_folder_found_by_issue_number_is_the_branchs_own(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """Plan review PR-020. `resolve_spec_dir` finds `604-other` for branch
+    `604-x` by its issue number, so the folder is the branch's own. Comparing
+    exact names called it an epic's, and the guard let a record through beside
+    the branch's own "no boundary moved"."""
+    spec_dir = specs / "604-other"
+    _design_exceptions.write(spec_dir, _design_exceptions.BOUNDARY, "nothing moves")
+    record(repos.feature, "owns-a-thing", "accepted")
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert "but its spec folder says no boundary moved" in err

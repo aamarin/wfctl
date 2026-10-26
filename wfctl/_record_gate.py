@@ -56,15 +56,15 @@ def touched(session: _Session, trunk: str, head: str) -> list[Path]:
         # branch can't be shown to change a record there.
         return []
     relative = arch.resolve().relative_to(root.resolve())
-    # Unquoted paths, since git quotes a non-ASCII name and the quoted line
-    # would fail the `.md` test below.
+    # NUL-separated, since git quotes a name holding a non-ASCII byte, `"`, `\`
+    # or a control character, and the quoted line would fail the `.md` test.
     listed = session.run(
-        "git", "-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=d",
+        "git", "diff", "-z", "--name-only", "--diff-filter=d",
         f"{trunk}...{head}", "--", str(relative),
     )
     return [
-        Path(line) for line in listed.splitlines()
-        if line.endswith(".md") and Path(line).parent == relative
+        Path(name) for name in listed.split("\0")
+        if name.endswith(".md") and Path(name).parent == relative
     ]
 
 

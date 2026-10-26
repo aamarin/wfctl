@@ -888,15 +888,30 @@ def feature_dir(branch: str, repo_root: Path) -> Path:
 
 
 def is_own_spec_dir(spec_dir: Path, branch: str, repo_root: Path) -> bool:
-    """Is `spec_dir` named after `branch`, rather than an epic's it falls back to?
+    """Is `spec_dir` the branch's own, rather than an epic's it falls back to?
 
     An epic's sub-issues share the epic's spec folder and its design exceptions.
     The epic's "no new boundary" stays true for the other sub-issues when one of
     them adds a record, so `check-body` and the worktree guard both ask this
     before treating the answer as the branch's own. One function, so the two
     can't disagree about which folder is whose.
+
+    Issue keys, not names: `resolve_spec_dir` also finds a folder by the
+    branch's key, and that folder is the branch's own. Only the `delivery.md`
+    fallback hands back a folder carrying another key (PR-020).
     """
-    return spec_dir == spec_root(repo_root) / branch
+    root = spec_root(repo_root)
+    if spec_dir == root / branch:
+        return True
+    from wfctl import _tracker  # lazy: avoids import cycle at module load
+
+    pattern = _tracker.load_key_pattern(repo_root)
+    key = extract_issue_key(branch, pattern)
+    return (
+        key != "unknown"
+        and spec_dir.parent == root
+        and extract_issue_key(spec_dir.name, pattern) == key
+    )
 
 
 class ClaimConflict(NamedTuple):
