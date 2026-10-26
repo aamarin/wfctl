@@ -73,9 +73,9 @@ machine shouldn't decide whether the check passes, because GitHub can change
 the PR's head without involving the local machine. For example, GitHub's
 "Update branch" button adds a merge of `main` to the branch. The range rules
 drop a clean merge like that, so it needs no review. But a pass the local
-machine posted for the old head doesn't apply to the new one. If the local machine decided the
-result, every "Update branch" would block the PR until someone reran the
-review locally.
+machine posted for the old head doesn't apply to the new one. If the local
+machine decided the result, every "Update branch" would block the PR until
+someone reran the review locally.
 
 CI trusts any note it finds on the ref. Anyone who can push to the repository
 can write a note, and the agent runs with the person's own Git credentials and
