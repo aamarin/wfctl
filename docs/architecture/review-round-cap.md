@@ -105,6 +105,13 @@ an arrow ending in x is a value wfctl doesn't accept from the branch.
   the push shows up as a commit on the trunk.
 - The cap is also not unforgeable locally. An agent can move a local ref, the
   same tamper-evident limit the run records have.
+- Which branch is the trunk comes from the default branch's `wfctl.json`, the
+  one `origin/HEAD` names, so the branch can't point the cap at a branch the
+  agent pushed. A clone with no `origin/HEAD`, or one that doesn't fetch every
+  branch, has no default branch wfctl can trust. In those clones the branch's
+  own `trunk` setting still chooses the trunk, and the agent can raise its cap
+  by editing it. That covers a remote added with `git remote add`, a bare
+  clone, and a clone made with `--single-branch`.
 
 ## Log
 
