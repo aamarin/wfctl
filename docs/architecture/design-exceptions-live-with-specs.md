@@ -143,7 +143,10 @@ The reviewer is less certain to see a design exception. Previously, the gate
 enforced it, since a design exception outside the change under review didn't
 count. Currently, `check-body` enforces it. It reports any design exception
 whose reason isn't in the PR body, in every repo, and it finds the reason
-anywhere in the body, so wfctl still names no heading. The opening-a-change
+anywhere in the body, so wfctl still names no heading. `check-body` skips one
+case, a boundary exception a sub-issue inherits from its epic. Once the
+sub-issue changes a level-2 record, the inherited exception no longer applies,
+since the record states the boundary decision for that sub-issue. The opening-a-change
 skill runs `check-body`; CI and the worktree guard don't. That's acceptable
 while wfctl has one user, and it should be revisited before it has a second.
 
@@ -186,3 +189,5 @@ location.
 - 2026-10-26  revised     — plan walkthrough: `check-body` compares the two
   copies, and the worktree guard holds a PR whose record contradicts the
   branch's own answer or isn't accepted
+- 2026-10-26  revised     — analyze: `check-body` skips a boundary exception
+  inherited from an epic once the sub-issue changes a level-2 record

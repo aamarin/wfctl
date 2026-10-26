@@ -77,16 +77,22 @@ the folder name goes in `_paths.py` beside the others.
 
 ## Decision
 
-A new module, `wfctl/_design_exceptions.py`, owns the exceptions folder. It holds four plain
-functions, and both commands and both readers call them instead of building
-paths or parsing files themselves:
+A new module, `wfctl/_design_exceptions.py`, owns the exceptions folder. It holds five plain
+functions, and both commands, both readers, and the worktree guard call them
+instead of building paths or parsing files themselves:
 
 1. `folder(spec_dir)` returns `<spec_dir>/exceptions`.
-2. `write(spec_dir, name, reason)` creates the folder if needed and writes one
+2. `path(spec_dir, name)` returns the file for one exception, such as
+   `<spec_dir>/exceptions/boundary.md`.
+3. `write(spec_dir, name, reason)` creates the folder if needed and writes one
    exception with `write_atomic`.
-3. `boundary(spec_dir)` returns the boundary exception's reason, or `None`.
-4. `passes(spec_dir)` returns each pass exception as `<step>.<pass>` mapped to its
+4. `boundary(spec_dir)` returns the boundary exception's reason, or `None`.
+5. `passes(spec_dir)` returns each pass exception as `<step>.<pass>` mapped to its
    reason.
+
+The worktree guard calls `path` because its refusal prints the command that
+removes the boundary exception. Without `path`, the guard would build that file
+name itself.
 
 The module keeps the format and its parser side by side, so the header the
 commands write and the header the readers strip are defined once.
@@ -186,3 +192,5 @@ more reader function, rather than a fifth place that builds its own path.
   design exceptions is organized once they move to the spec folder
 - 2026-10-25  revised   — the folder is `exceptions/` and the module
   `_design_exceptions.py`, so the files use the same word as the docs
+- 2026-10-26  revised   — analyze: a fifth function, `path`, so the worktree
+  guard's refusal prints the boundary exception's file without building it
