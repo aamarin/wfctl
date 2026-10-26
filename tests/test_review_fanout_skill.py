@@ -58,6 +58,26 @@ def test_the_skill_starts_each_group_with_wfctl_in_the_order_it_lists() -> None:
     assert "Run this skill once per group, in that order." in _prose()
 
 
+def test_the_skill_shows_the_round_in_the_start_header_and_the_cap_outcomes() -> None:
+    """FR-014. `review start` prints `round N of M` in the header, and at the
+    cap it either finds nothing left to review or refuses. The coordinator has
+    to know which of the two to follow, since one goes on to the next group and
+    the other stops."""
+    prose = _prose()
+
+    assert (
+        "security run 003 · round 3 of 3 · 2 commits since a1b2c3d · head 9f8e7d6"
+    ) in prose
+    assert (
+        "When a sign-off covers every commit left at the cap, `review start` says "
+        "nothing is left to review and exits 0. Go on to the next group."
+    ) in prose
+    assert (
+        "When it refuses at the cap, stop and follow `opening-a-change` Step 1, "
+        "which asks the user for a sign-off."
+    ) in prose
+
+
 def test_the_skill_launches_one_reviewer_per_id_with_only_the_reports_folder() -> None:
     """`reviewing-security` reads the run's commits from `run.json` (#636). A
     range handed over beside it would be built with `git log`, which includes

@@ -72,21 +72,19 @@ next group reviews a tree that its run record doesn't describe.
 
 **wfctl refuses the PR until every group has reviewed the newest commit.** The
 worktree guard refuses `gh pr create` and `gh pr merge` while any group has
-commits it hasn't reviewed, and lists those commits under each group. A fix the
-code group commits is a new commit the security group hasn't reviewed. The
-security group then runs again over only that fix, then the code group if the
-security group changed anything. The security group's own fixes are new
-commits too, so a security run that produced fixes needs another security run
-over them. Each of these runs is short, since a group's run covers only the
-commits since its last complete run.
+commits it hasn't reviewed, and lists those commits under each group. Each group
+runs once per round, in order. A fix the code group commits is a new commit the
+security group hasn't reviewed, and so are the security group's own fixes. The
+security group reviews both in its next run. Security doesn't run again before
+code starts. Each run is short, since a group's run covers only the commits
+since its last complete run.
 
-**Stop after three complete rounds and ask the person for a sign-off.** A round
-is one complete run of every group. If the guard still refuses the PR after the
-third round, show the person the commits it lists. Ask them to run
-`wfctl review sign-off` in their own terminal, or to say how they want to
-proceed. Don't run a fourth round on your own, and don't try to sign off
-yourself, since the guard refuses that command from an agent. wfctl numbers the
-runs but doesn't count rounds yet (#626), so you track this limit yourself.
+**wfctl stops a group after the repository's round cap.** `wfctl review start`
+counts each group's runs on the branch and refuses one past `review.rounds`,
+which is 3 by default. When it refuses, stop and show the user the commits the
+guard lists. Ask them to run `wfctl review sign-off` in their own terminal, or
+to say how they want to proceed. The agent shouldn't start another round or sign
+off itself. The guard refuses the sign-off command when an agent runs it.
 
 **None of the panel's output goes in the description.** That covers every
 finding, whether you applied it, accepted it, or rejected it, and it covers the
@@ -371,8 +369,9 @@ The guard prints a `✗` line with the reason, and each kind of refusal has one
 response:
 
 - **Commits no review covered.** The guard lists them under each group. Go back
-  to Step 1 and run the groups it names, then open the PR again. After three
-  complete rounds, ask the person for a sign-off, as Step 1 says.
+  to Step 1 and run the groups it names, then open the PR again. If
+  `review start` refuses a group at the round cap, ask the user for a
+  sign-off, as Step 1 says.
 - **The review check failed.** Something stopped the check from reaching an
   answer, such as a `gh` call that timed out or a record it couldn't read. Stop
   and tell the person, naming the error the refusal printed. Don't retry the
