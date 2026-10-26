@@ -151,8 +151,10 @@ The gate ignores `declarations/`. Otherwise a declaration written by an older
 wfctl would count as a record and satisfy the gate. The architecture folder
 would start filling up again, and nothing would flag it.
 
-This change deletes the existing 15 declarations and 5 step claims. Git history
-and each merged PR keep their reasons.
+This change deletes the existing 15 declarations. Git history and each merged
+PR keep their reasons. The 5 step claims move into `exceptions/` in their
+branches' spec folders instead, since they record why each plan walkthrough was
+skipped.
 
 #382's short track reads the same design exception file in the spec folder.
 That issue's plan asks for a committed `arch none` file, so it needs the new
@@ -162,3 +164,5 @@ location.
 
 - 2026-10-25  proposed    — #635's level-2 pass; the architecture folder should
   change only when the architecture does
+- 2026-10-26  revised     — the 5 step claims move to their spec folders rather
+  than being deleted, so the reasons for skipped walkthroughs are kept
