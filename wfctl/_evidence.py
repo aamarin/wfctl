@@ -180,6 +180,7 @@ GIT_UNANSWERED_REASON = "git can't see whether this branch wrote a record"
 GIT_UNANSWERED_HELP = (
     "  If this repo's base branch isn't main, master, or dev, name it in wfctl.json:\n"
     '      { "trunk": "<branch>" }\n'
+    "  If it already names one, run `wfctl check config` to see what's wrong.\n"
     "  If the architecture folder is outside the project, turn these checks off:\n"
     '      { "design_record_checks": "off" }'
 )
@@ -1404,14 +1405,16 @@ def brainstorm_software_design(ev: Evidence) -> Assessment:
     what git's silence means, and only then does the verdict pick which reason
     to show.
     """
-    if _file_exists(ev.spec_dir / "spec.md"):
-        return Assessment("done")
     from wfctl._paths import (
         DESIGN_DIR, arch_location, design_record_checks, touched_on_this_branch,
     )
 
+    # Ahead of the `spec.md` escape, as in `brainstorm_architecture`, so one
+    # setting reads `skipped` on both rows rather than `done` on this one.
     if not design_record_checks(ev.repo_root)[0]:
         return Assessment("skipped", display=CHECKS_OFF_REASON)
+    if _file_exists(ev.spec_dir / "spec.md"):
+        return Assessment("done")
     design = arch_root(ev.repo_root) / DESIGN_DIR
     touched = touched_on_this_branch(ev.repo_root, design)
     verdict: Verdict = (

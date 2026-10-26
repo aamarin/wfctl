@@ -1576,7 +1576,7 @@ def test_an_out_of_tree_arch_root_is_named_absolutely(tmp_path: Path) -> None:
     Out-of-tree has no relative form worth showing, and `relative_to` raises
     rather than returning one — so the branch that is missing is the one that
     would take the whole command down."""
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -1589,7 +1589,7 @@ def test_an_out_of_tree_arch_root_is_named_absolutely(tmp_path: Path) -> None:
 def test_an_arch_root_at_the_repo_root_is_named_absolutely(tmp_path: Path) -> None:
     """`relative_to` returns `Path(".")` there, and "./" beside a slug reads as
     a stray typo rather than a location."""
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     repo = tmp_path / "repo"
     repo.mkdir()

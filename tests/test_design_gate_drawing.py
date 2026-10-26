@@ -365,7 +365,8 @@ def test_a_branch_with_no_record_keeps_the_existing_reason_and_fix(
     fix, built from the reason by `_design_remedy` as before. A roll-up that
     copied the pass's empty remedy would have dropped it."""
     from wfctl._evidence import DESIGN_BLOCK_REASON
-    from wfctl._pipeline import DESIGN_BLOCK_HELP, arch_location
+    from wfctl._paths import arch_location
+    from wfctl._pipeline import DESIGN_BLOCK_HELP
 
     root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")

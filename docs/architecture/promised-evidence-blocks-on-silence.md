@@ -59,8 +59,8 @@ can now settle the git question for itself:
 
 1. A repo with no `main` names its base branch with `trunk` in `wfctl.json`.
 2. A repo whose architecture folder sits outside the project sets
-   `design_record_checks` to `"off"` in `wfctl.json`. Both checks then pass
-   without asking git.
+   `design_record_checks` to `"off"` in `wfctl.json`. Both checks then read as
+   skipped without asking git.
 
 When a repo sets neither, git is expected to answer. So when git can't, the
 branch is held, and the reason names both settings.

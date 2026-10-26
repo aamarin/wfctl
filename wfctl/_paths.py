@@ -241,9 +241,9 @@ def design_record_checks(repo_root: Path) -> tuple[bool, list[str]]:
 
     The checks hold a branch when git can't say whether it wrote a record, and
     a repository whose arch root is outside the tree is one where git never
-    can. `"off"` is how that repository says so once, rather than with a claim
-    on every branch, which would sit under the arch root and never be committed
-    where the reviewer reads it.
+    can. `"off"` is the only way out there: a claim would sit under that same
+    arch root, where no reviewer would read it, so `wfctl step none` refuses to
+    write one.
 
     Anything but `"off"` reads as on, a typo included, so a mistake never turns
     a check off. The typo comes back as a problem for `check config`. A file

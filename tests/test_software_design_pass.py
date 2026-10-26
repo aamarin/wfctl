@@ -472,6 +472,26 @@ def test_turning_the_checks_off_skips_both_and_warns_about_neither(
     assert "⚠" not in shown
 
 
+def test_turning_the_checks_off_skips_both_past_specify_too(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-006a holds once `spec.md` exists. The software design check read its
+    `spec.md` escape before the setting and reported `done` there, while the
+    architecture check read the setting first and reported `skipped`, so one
+    setting showed as two different answers under `status --all`."""
+    _arch_root(storyctl_dir, monkeypatch)
+    _write_config(storyctl_dir.repo_root, {"design_record_checks": "off"})
+    storyctl_dir.make_spec_artifact("brainstorm")
+    storyctl_dir.make_spec_artifact("specify")
+
+    payload = _payload()
+
+    for name in ("architecture", "software-design"):
+        row = _pass(name, payload)
+        assert row["state"] == "skipped"
+        assert row["annotation"] == CHECKS_OFF_REASON
+
+
 def test_a_value_other_than_on_or_off_is_a_finding_and_leaves_the_checks_on(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

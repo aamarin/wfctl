@@ -36,7 +36,7 @@ approval. Don't skip, don't collapse.
 |---|---|---|---|
 | **1. Behavior** | What changes for the user? | Before/after wireframes, real output | Cheap |
 | **2. Architecture** | What moves, and who owns truth? | Boundary sketch, data flow | Expensive after spec |
-| **3. Design** | How is it structured? | Which module owns the logic, which pattern fits, named alternatives + why. A file layout or schema alone doesn't answer it. | Moderate |
+| **3. Design** | How is it structured? | Which module the logic lives in, which pattern fits, named alternatives + why. A file layout or schema alone doesn't answer it. | Moderate |
 | **4. Implementation** | What's the code? | Real code to scan, not narrate | Cheap, mechanical |
 
 Levels 2 - 4 are the three levels of software development in Klaus Iglberger's

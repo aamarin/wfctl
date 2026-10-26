@@ -1898,7 +1898,7 @@ app.add_typer(arch_app, name="arch")
 
 
 def _arch_location(root: Path, repo_root: Path) -> str:
-    """`_pipeline.arch_location`, escaped for the console.
+    """`_paths.arch_location`, escaped for the console.
 
     Escaped here rather than at each print, because one caller forgetting is
     silent: a path containing `[wip]` is legal on every platform and rich reads
@@ -1913,7 +1913,7 @@ def _arch_location(root: Path, repo_root: Path) -> str:
     """
     from rich.markup import escape
 
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     return escape(arch_location(root, repo_root))
 

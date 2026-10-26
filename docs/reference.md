@@ -191,11 +191,10 @@ and a missing key means on. Any other value leaves both checks on and is a
 while the checks are on, even in a repository with no `wfctl.json`, since every
 branch there would be held at brainstorm.
 
-You could release each branch with a claim instead, using `wfctl step none
-brainstorm.architecture --reason "…"`. That costs one claim on every branch,
-and a claim is written under the architecture folder, so with that folder
-outside the project, it's never committed where a reviewer would read it. The
-setting is the answer for this repository as a whole.
+A claim on each branch isn't a way out here. `wfctl step none` writes its claim
+under the architecture folder, and with that folder outside the project, no
+reviewer would read it, so the command refuses to write it. The setting is the
+only answer for this repository.
 
 ## What lands in your repo
 
