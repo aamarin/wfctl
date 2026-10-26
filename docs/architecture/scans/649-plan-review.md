@@ -70,3 +70,34 @@ The review ran in a fresh-context subagent after the plan was revised against th
 - **PR-012, MINOR, open.** When git can't answer, the per-context branch returns the git-unanswered reason without asking `blocks`, judges "can't answer" from `touched_on_this_branch` (which reads uncommitted changes as an answer when there's no trunk), and hides the FR-007 and FR-008 pauses, which don't depend on git.
 - **PR-013, MINOR, open.** The `; `-joined display wraps under the step table past the terminal width, since the pass row prints without `soft_wrap`.
 - **PR-014, MINOR, open.** Project Structure leaves out `_pipeline.py`, `_design_exceptions.reasons`, the `check-body` change, `test_pipeline_state_names.py`, `design-exceptions-module.md`, `architecture-design`, `design-passes`, `model-the-domain`'s `arch none` mentions, and `commands/speckit.brainstorm.md`. `design-passes` also tells the agent not to run `arch none`, so it doesn't belong in Phase A item 5's list.
+
+## Review 2026-10-26T22:03Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 052118b427ac11d993cf684778d9dfb5b43cc708, spec.md 9e4466af61c0c66b4cc01b8de12266a191a17ae4, .specify/memory/constitution.md absent, design.md 8f1a1ef55b9d0fd9742190c2401d3adcd4b2b7be, docs/architecture/design/649-contexts-module.md 0d1a60c0e6cb2819c8390d6cd4b960bbaebaadb8, docs/architecture/domain-page-names-contexts.md 5aa73e748adccc3798b780c21f1ffe0371951f77, docs/architecture/promised-evidence-blocks-on-silence.md 1c979cb4270a3c2a148363ae5b48dfa4a731b94f, research.md fa5daf450c9583405f80e13a2cc486ab65d8883c, data-model.md 348ab147f89f686d144ef3f7a7a71fb6d37f465a, contracts/cli.md 66e0635fe5399818d52791c219a7a3914f9f99c0, quickstart.md b5d38b715c8faf29213d352c88eacaf4e078725a, ../635-arch-folder-per-branch-notes/plan.md 8ae93cbeb83f687d21b77b9d6536af1abf944a78, ../635-arch-folder-per-branch-notes/data-model.md 7ebd7b9c5c9dc37045542a180d37a7a5cc497009, ../635-arch-folder-per-branch-notes/research.md 666038c954094c11ba76fb573adcfbe687e6d72d, ../635-arch-folder-per-branch-notes/contracts/cli.md dd2c1c43ae17379248f7572c0257f79cce3e4475, ../648-design-gate/plan.md 917273ccd1741eff61dfe1348db5ca30abd3a6b7, ../648-design-gate/research.md e33d7568951e6ca8268bba5d3d0ed83d32b7a8aa, plan-review.plan.md a224da8b4e7adee430a75d217b61b54973930404 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 6 · Fixed since the earlier review: 1
+- Detail: /Users/andremarin/Development/wfctl-specs/649-design-checks-by-context/plan-review.md
+
+The review ran in a fresh-context subagent after the plan walkthrough, where the user settled PR-003. The plan, spec, and research changed to match that decision. #635's plan, data model, and research had also changed since the earlier review, so the reviewer read them again, and it read #635's CLI contract for the first time.
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-014, PR-017) |
+| Requirements and traceability | Outstanding (PR-014) |
+| Architecture and boundaries | Outstanding (PR-012, PR-015, PR-016; PR-003 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-012, PR-013, PR-015, PR-016; PR-003 fixed) |
+| Security and reliability | Resolved (PR-002, PR-010 fixed) |
+
+### Findings
+
+- **PR-001, PR-002, PR-004 to PR-011, fixed.** These are unchanged since the earlier review.
+- **PR-003, MAJOR, fixed.** `_observe` now calls `_evidence.context_gap`, the function the architecture check calls, with no `spec.md` exit, so it no longer conflicts with #635 R6. The guard's per-context check is now stated against what #635 R13 checks. FR-020, FR-021, R7, R8, and two new tests agree with it.
+- **PR-012, MINOR, open.** `context_gap` still takes git's silence from `touched_on_this_branch` without asking `blocks`, and applies it before the FR-007 and FR-008 pauses. Because the function is now shared, the Boundary line inherits the same faults.
+- **PR-013, MINOR, open.** The `; `-joined display still wraps under the step table, and neither the plan nor the contract changed here.
+- **PR-014, MINOR, open.** Project Structure still leaves out `_pipeline.py`, `reasons`, `test_pipeline_state_names.py`, `design-exceptions-module.md`, `architecture-design`, `design-passes`, `speckit.brainstorm.md`, and now `context_gap`. `design-passes` still contradicts its own Step 2.
+- **PR-015, MINOR, open, new.** The guard's per-context check names `test_worktree_guard.py`, while #635 now puts the record checks in `_record_gate.py` and `test_record_gate.py`. It also leaves open a `context` argument on `_design_exceptions.path`, its order against #635 R14, whether the "allowed" test's record is accepted, whether R12's skip covers an inherited per-context "no", and where the name list is read from.
+- **PR-016, MINOR, open, new.** `context_gap(…, level)` doesn't say how a level picks its record folder and git scope, since the `Level` constants don't carry either. Phase C item 1 doesn't say whether the software design check calls it.
+- **PR-017, MINOR, open, new.** `contracts/cli.md` has no section for `wfctl end` or the guard's new reading and refusal, and `data-model.md` doesn't name either reader.
