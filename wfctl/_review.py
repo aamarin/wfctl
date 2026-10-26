@@ -25,7 +25,7 @@ import re
 import shlex
 import shutil
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,6 +129,18 @@ def _git(
     return r
 
 
+def git(
+    repo_root: Path, *args: str, timeout: float | None, answers: tuple[int, ...] = (0,),
+) -> subprocess.CompletedProcess[str]:
+    """Run git the way the range rules do, for the other review modules.
+
+    `_review_notes` reads and writes notes with it, so a note is read on the
+    same objects, with replace refs and grafts turned off, as the commits it
+    covers. An exit code outside `answers` raises `ReviewError`.
+    """
+    return _git(repo_root, *args, timeout=timeout, answers=answers)
+
+
 # --- the commits a run covers ----------------------------------------------------
 
 
@@ -153,7 +165,11 @@ def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
 
 
 def trunk_refs(
-    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+    repo_root: Path,
+    timeout: float | None = None,
+    *,
+    branch: str | None = None,
+    trunk: str | None = None,
 ) -> list[str]:
     """The trunk branch on `origin` and its local branch, each when it exists,
     by full ref name.
@@ -182,16 +198,31 @@ def trunk_refs(
     `origin/HEAD` can only name the branch the clone took, so a trunk found
     through it is refused unless `origin` fetches every branch. A declared
     trunk is used either way (`642-origin-head-trusted-on-full-fetch.md`).
+
+    `trunk` is the PR's base branch, which CI takes from GitHub's event. It
+    replaces the lookup, since that reads the `trunk` key from the PR's own
+    `wfctl.json`, and a PR naming its own branch there would pass with nothing
+    reviewed. Only `origin/<trunk>` is used: CI has no local branch, and a
+    local one elsewhere would be the stale copy the remote ref is first to
+    avoid. The single-branch refusal is skipped, since it guards `origin/HEAD`
+    and a named trunk never reads it (research R14).
     """
-    trunk = _paths.trunk_branch(repo_root, timeout=timeout)
-    if trunk is None:
+    if trunk is not None:
+        if trunk == branch:
+            raise ReviewError(f"the trunk branch is {trunk}, the branch under review")
+        ref = f"refs/remotes/origin/{trunk}"
+        if not _has_ref(repo_root, ref, timeout):
+            raise ReviewError(f"origin/{trunk} doesn't exist")
+        return [ref]
+    found = _paths.trunk_branch(repo_root, timeout=timeout)
+    if found is None:
         raise NoTrunk()
-    local = trunk.removeprefix("origin/")
+    local = found.removeprefix("origin/")
     if branch is not None and local == branch:
         raise ReviewError(
             f"the trunk branch is {local}, the branch under review; check trunk in wfctl.json"
         )
-    if trunk.startswith("origin/") and _paths.declared_trunk(repo_root)[0] is None:
+    if found.startswith("origin/") and _paths.declared_trunk(repo_root)[0] is None:
         _refuse_a_single_branch_clone(repo_root, local, timeout)
     refs = [
         ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
@@ -221,6 +252,17 @@ def _refuse_a_single_branch_clone(repo_root: Path, trunk: str, timeout: float | 
     )
 
 
+def branch_commits(
+    repo_root: Path, head: str, refs: Sequence[str], timeout: float | None = None,
+) -> list[str]:
+    """The commits `head` reaches and none of the trunk `refs` do, newest
+    first in topological order. These are the branch's own commits, the only
+    ones whose review notes the CI check reads (research R3)."""
+    return _git(
+        repo_root, "rev-list", "--topo-order", head, "--not", *refs, "--", timeout=timeout,
+    ).stdout.split()
+
+
 def is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
     """Whether this repository has the commit. One it has never seen is no
     ancestor of anything, and asking `merge-base` about it is an error rather
@@ -246,6 +288,7 @@ def commit_range(
     timeout: float | None = None,
     *,
     branch: str | None = None,
+    trunk: str | None = None,
 ) -> Range:
     """The commits a group hasn't reviewed at `head` (research.md R3).
 
@@ -275,13 +318,14 @@ def commit_range(
     can match a merge that kept a file `main` deleted.
 
     `branch` is the branch under review, and `trunk_refs` refuses a trunk of
-    the same name. A caller that leaves it out gets no such check.
+    the same name. A caller that leaves it out gets no such check. `trunk`
+    names the trunk outright, as `trunk_refs` describes.
     """
     shallow = _git(repo_root, "rev-parse", "--is-shallow-repository", timeout=timeout)
     if shallow.stdout.strip() == "true":
         raise ShallowClone()
     _refuse_rewritten_history(repo_root, timeout)
-    refs = trunk_refs(repo_root, timeout, branch=branch)
+    refs = trunk_refs(repo_root, timeout, branch=branch, trunk=trunk)
     base = None
     if last_reviewed is not None and is_commit(repo_root, last_reviewed, timeout):
         if _is_ancestor(repo_root, head, last_reviewed, timeout):
@@ -744,39 +788,60 @@ def sign_off(agent_dir: Path, sha: str) -> None:
     append_event(agent_dir, "review-sign-off", sha=sha)
 
 
+def coverage_from_state(
+    agent_dir: Path, groups: Sequence[Group],
+) -> tuple[dict[str, str | None], tuple[str, ...]]:
+    """What the state directory says was reviewed: each group's last reviewed
+    commit, and the sign-off as zero or one commit.
+
+    The notes reader in `_review_notes` returns the same two values, so the
+    guard and CI count with one function (`627-unreviewed-takes-coverage.md`).
+    """
+    signed = signed_off(agent_dir)
+    return (
+        {g.name: last_reviewed(agent_dir, g.name) for g in groups},
+        () if signed is None else (signed,),
+    )
+
+
 def unreviewed(
     repo_root: Path,
-    agent_dir: Path,
     groups: Sequence[Group],
     head: str,
+    last_reviewed: Mapping[str, str | None],
+    signed_off: Sequence[str],
     timeout: float | None = None,
     *,
     branch: str | None = None,
+    trunk: str | None = None,
 ) -> dict[str, tuple[str, ...]]:
     """Each group's commits at `head` that no complete run and no sign-off
     covers, oldest first. A group with none is left out.
 
-    A sign-off covers a commit when it is the signed-off commit or one of its
-    ancestors, so a commit added after the sign-off is unreviewed again. Every
-    group has to have reviewed the head, so a fix the code group commits after
-    the security group's run is unreviewed for `security`.
+    A sign-off covers a commit when it is a signed-off commit or one of its
+    ancestors, so a commit added after every sign-off is unreviewed again.
+    Every group has to have reviewed the head, so a fix the code group commits
+    after the security group's run is unreviewed for `security`.
+
+    A signed-off commit this repository doesn't have is dropped, since a note
+    can outlive a rebase, and asking `merge-base` about it is an error rather
+    than a no.
     """
-    signed = signed_off(agent_dir)
-    if signed is not None and not is_commit(repo_root, signed, timeout):
-        signed = None
+    signed = [s for s in signed_off if is_commit(repo_root, s, timeout)]
     covered: dict[str, bool] = {}
 
     def is_covered(sha: str) -> bool:
-        if signed is None:
-            return False
         if sha not in covered:
-            covered[sha] = sha == signed or _is_ancestor(repo_root, sha, signed, timeout)
+            covered[sha] = any(
+                sha == s or _is_ancestor(repo_root, sha, s, timeout) for s in signed
+            )
         return covered[sha]
 
     found: dict[str, tuple[str, ...]] = {}
     for group in groups:
         commits = commit_range(
-            repo_root, head, last_reviewed(agent_dir, group.name), timeout, branch=branch,
+            repo_root, head, last_reviewed.get(group.name), timeout,
+            branch=branch, trunk=trunk,
         ).commits
         left = tuple(c for c in reversed(commits) if not is_covered(c))
         if left:
@@ -827,7 +892,14 @@ def roster_lines(entries: Sequence[Entry]) -> list[str]:
 
 
 def relay(
-    agent_dir: Path, groups: Sequence[Group], reviewer: str, reason: str, text: str,
+    agent_dir: Path,
+    groups: Sequence[Group],
+    reviewer: str,
+    reason: str,
+    text: str,
+    *,
+    trunk: str | None = None,
+    required: Collection[str] = (),
 ) -> str:
     """Save a blocked reviewer's report as that reviewer's, marked as relayed.
 
@@ -835,13 +907,35 @@ def relay(
     a header naming the reason, so the roster can show a relay rather than pass
     it off as a report the reviewer wrote
     (`622-blocked-reviewer-relays-report.md`). The group is found by the id's
-    letter, which no two groups share. Returns the reason as saved, collapsed to
-    one line so it can't add a line to the header.
+    letter. Returns the reason as saved, collapsed to one line so it can't add
+    a line to the header.
+
+    No two groups in one `wfctl.json` share a letter, but the trunk's groups
+    and the branch's can, after a group is renamed on the branch. A relay then
+    can't tell which run the report belongs to, so it refuses (FR-010a). When
+    one of the two is a group the trunk requires, the refusal names the other
+    as the one to rename, since `trunk` still needs its own. `required` is the
+    names the trunk and the head's committed file list.
     """
     reason = " ".join(reason.split())
     if not reason:
         raise RelayRefused("a relay needs --reason saying why the reviewer couldn't write")
-    group = next((g for g in groups if g.name[0] == reviewer[:1]), None)
+    matched = [g for g in groups if g.name[0] == reviewer[:1]]
+    if len(matched) > 1 and REVIEWER_ID.fullmatch(reviewer):
+        names = [g.name for g in matched]
+        both = f"{', '.join(names[:-1])} and {names[-1]}"
+        kept = [n for n in names if n in required]
+        renamed = [n for n in names if n not in required]
+        if trunk is not None and len(kept) == 1 and len(renamed) == 1:
+            raise RelayRefused(
+                f"reviewer {reviewer} matches two groups, {both}.\n"
+                f"  {trunk} still requires {kept[0]}, so rename {renamed[0]} in wfctl.json "
+                "to start with a different letter."
+            )
+        raise RelayRefused(
+            f"reviewer {reviewer} matches two groups, {both}; rename one in wfctl.json"
+        )
+    group = matched[0] if matched else None
     if group is None or not REVIEWER_ID.fullmatch(reviewer):
         raise RelayRefused(f"{reviewer} isn't a reviewer in any review group")
     run = latest_run(agent_dir, group.name)

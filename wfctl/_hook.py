@@ -173,7 +173,10 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # can't match from importing `_review_gate` at all. An exception escaping
     # the check refuses rather than allows, since it was only reached by a
     # command that might open or merge a pull request.
-    if "gh" in command.lower() or "merge" in command or "sign" in command:
+    if (
+        "gh" in command.lower() or "merge" in command or "sign" in command
+        or "notes" in command or "--mirror" in command
+    ):
         try:
             from wfctl import _review_gate
 

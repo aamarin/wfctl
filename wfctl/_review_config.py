@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeGuard
@@ -79,10 +81,25 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
     """
     path = repo_root / CONFIG_PATH
     if not path.exists():
+        return parse(None)
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
+    return parse(text)
+
+
+def parse(text: str | None) -> tuple[list[Group], list[str]]:
+    """`load` for a file's text, or None for a file that doesn't exist.
+
+    The group list for CI reads `wfctl.json` from two commits with `git show`,
+    so the check that a declaration is valid can't need a path on disk.
+    """
+    if text is None:
         return _resolve({}, {}), []
     try:
-        data = json.loads(path.read_text())
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
         return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
     if not isinstance(data, dict):
         return [], [f"{CONFIG_PATH}: top level must be an object"]
@@ -270,3 +287,68 @@ def _is_count(value: object) -> TypeGuard[int]:
     """A reviewer count of 1 or more. `bool` is a subclass of `int`, and
     `"count": true` is a typo rather than a count of one."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def required(trunk: Sequence[Group], head: Sequence[Group]) -> list[Group]:
+    """Every group the trunk lists, then each group the head adds, joined by
+    name (research R13).
+
+    The trunk's list governs, so a branch that removes a group from its own
+    `wfctl.json` still owes that group's review. A group the branch adds runs
+    on that branch too. A group both list keeps the trunk's skill and
+    reviewers, which changes nothing here, since the notes say only which
+    group reviewed a commit.
+
+    Each side was validated on its own, so a trunk group and a head group that
+    share a first letter aren't a problem here. Only `relay` reads that letter,
+    and it refuses an id that matches two groups.
+    """
+    names = {g.name for g in trunk}
+    return [*trunk, *(g for g in head if g.name not in names)]
+
+
+def required_at(
+    repo_root: Path, head: str, trunk_ref: str, timeout: float | None = None,
+) -> tuple[list[Group], list[str]]:
+    """`required` for `wfctl.json` as committed at `trunk_ref` and at `head`,
+    and the problems in either file, each naming which one.
+
+    Both files come from git and never from the working tree, so an
+    uncommitted edit changes nothing, and the guard reads the same list CI
+    does (FR-010). A problem returns no groups, as `load` does.
+    """
+    trunk_groups, trunk_problems = _parse_at(repo_root, trunk_ref, timeout)
+    head_groups, head_problems = _parse_at(repo_root, head, timeout)
+    problems = trunk_problems + head_problems
+    return ([], problems) if problems else (required(trunk_groups, head_groups), [])
+
+
+def _parse_at(
+    repo_root: Path, ref: str, timeout: float | None,
+) -> tuple[list[Group], list[str]]:
+    """`parse` for `wfctl.json` at `ref`, with each problem naming the ref."""
+    label = ref
+    for prefix in ("refs/remotes/", "refs/heads/"):
+        label = label.removeprefix(prefix)
+    if re.fullmatch(r"[0-9a-f]{40}", label):
+        label = label[:7]
+    where = f"{CONFIG_PATH} at {label}"
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, capture_output=True, text=True, timeout=timeout,
+        )
+
+    # `ls-tree` prints nothing for a path the commit doesn't have, which is
+    # the defaults rather than an error. `git show` can't tell the two apart
+    # without parsing its message.
+    listed = git("ls-tree", "--name-only", ref, "--", CONFIG_PATH)
+    if listed.returncode != 0:
+        return [], [f"can't read {where}: {listed.stderr.strip() or 'git ls-tree failed'}"]
+    if not listed.stdout.strip():
+        return parse(None)
+    shown = git("show", f"{ref}:{CONFIG_PATH}")
+    if shown.returncode != 0:
+        return [], [f"can't read {where}: {shown.stderr.strip() or 'git show failed'}"]
+    groups, problems = parse(shown.stdout)
+    return groups, [f"{where}: {p.removeprefix(CONFIG_PATH + ': ')}" for p in problems]
