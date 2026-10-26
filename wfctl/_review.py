@@ -281,17 +281,25 @@ def is_commit(repo_root: Path, sha: str, timeout: float | None) -> bool:
     return r.returncode == 0
 
 
-def is_under(
-    repo_root: Path, sha: str, tips: Sequence[str], timeout: float | None = None,
-) -> bool:
-    """Whether `sha` is one of `tips` or an ancestor of one, the way a
-    sign-off covers a commit.
+def present_tips(
+    repo_root: Path, tips: Sequence[str], timeout: float | None = None,
+) -> list[str]:
+    """The signed-off commits this repository still has, to pass to
+    `is_under`.
 
     A tip this repository doesn't have covers nothing, since a sign-off can
     outlive a rebase and `git gc`, and asking `merge-base` about it is an
-    error rather than a no.
+    error rather than a no. Every caller checks many commits against the same
+    tips, so the filter runs once here rather than once per commit.
     """
-    present = [t for t in tips if is_commit(repo_root, t, timeout)]
+    return [t for t in tips if is_commit(repo_root, t, timeout)]
+
+
+def is_under(
+    repo_root: Path, sha: str, present: Sequence[str], timeout: float | None = None,
+) -> bool:
+    """Whether `sha` is one of the `present_tips` or an ancestor of one, the
+    way a sign-off covers a commit."""
     return any(sha == t or _is_ancestor(repo_root, sha, t, timeout) for t in present)
 
 
@@ -863,11 +871,12 @@ def unreviewed(
     Every group has to have reviewed the head, so a fix the code group commits
     after the security group's run is unreviewed for `security`.
     """
+    signed = present_tips(repo_root, signed_off, timeout)
     covered: dict[str, bool] = {}
 
     def is_covered(sha: str) -> bool:
         if sha not in covered:
-            covered[sha] = is_under(repo_root, sha, signed_off, timeout)
+            covered[sha] = is_under(repo_root, sha, signed, timeout)
         return covered[sha]
 
     found: dict[str, tuple[str, ...]] = {}

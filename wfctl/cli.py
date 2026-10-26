@@ -6417,6 +6417,7 @@ def review_sign_off_cmd() -> None:
         # them would cover them in CI anyway. A commit the last sign-off here
         # covers was listed when it was made, and is left out so a sign-off
         # whose note write failed can still be repaired below.
+        signed_here = _review.present_tips(repo_root, local_sign_off)
         for g in groups:
             try:
                 extra = _review_notes.unlisted(
@@ -6431,7 +6432,7 @@ def review_sign_off_cmd() -> None:
                     _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
                 raise typer.Exit(1)
             extra = tuple(
-                c for c in extra if not _review.is_under(repo_root, c, local_sign_off)
+                c for c in extra if not _review.is_under(repo_root, c, signed_here)
             )
             if extra:
                 pending[g.name] = tuple(dict.fromkeys((*extra, *pending.get(g.name, ()))))

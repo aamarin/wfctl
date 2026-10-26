@@ -151,9 +151,10 @@ def unlisted(
         repo_root, head, last[group], timeout, branch=branch, trunk=trunk,
     ).commits
     listed = _review.reviewed_commits(agent_dir, group)
+    present = _review.present_tips(repo_root, signed, timeout)
     return Unlisted(trunk, tuple(
         c for c in reversed(commits)
-        if c not in listed and not _review.is_under(repo_root, c, signed, timeout)
+        if c not in listed and not _review.is_under(repo_root, c, present, timeout)
     ))
 
 
