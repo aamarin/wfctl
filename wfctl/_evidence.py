@@ -180,7 +180,7 @@ GIT_UNANSWERED_REASON = "git can't see whether this branch wrote a record"
 GIT_UNANSWERED_HELP = (
     "  If this repo's base branch isn't main, master, or dev, name it in wfctl.json:\n"
     '      { "trunk": "<branch>" }\n'
-    "  If it already names one, run `wfctl check config` to see what's wrong.\n"
+    "  If wfctl.json already names one, run `wfctl check config` to see what's wrong.\n"
     "  If the architecture folder is outside the project, turn these checks off:\n"
     '      { "design_record_checks": "off" }'
 )

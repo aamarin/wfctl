@@ -373,6 +373,7 @@ def _assert_held_on_git(payload: dict) -> None:
     assert step["reason"] == GIT_UNANSWERED_REASON
     assert step["remedy"] == GIT_UNANSWERED_HELP
     assert '"trunk"' in step["remedy"]
+    assert "If wfctl.json already names one, run `wfctl check config`" in step["remedy"]
     assert '"design_record_checks": "off"' in step["remedy"]
 
 
