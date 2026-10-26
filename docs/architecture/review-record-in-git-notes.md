@@ -83,11 +83,11 @@ keys, so signing the notes with a key on disk wouldn't help. The guard rule
 above stops an agent from writing a note by hand, but only when the command
 exactly matches its rules. An agent can still fake the reviewer reports that
 complete a run. As a result, the check catches a skipped review or a merge
-that bypassed the guard,
-but not a deliberately forged note. `wfctl verify` has the same limit, since
-it's also a local tool (`wfctl-runs-the-verification.md`). Closing the gap
-fully would mean running the reviewers in CI, or adding a step that only a
-person can take, such as touching a hardware key. #658 tracks that choice.
+that bypassed the guard, but not a deliberately forged note. `wfctl verify`
+has the same limit, since it's also a local tool
+(`wfctl-runs-the-verification.md`). Closing the gap fully would mean running
+the reviewers in CI, or adding a step that only a person can take, such as
+touching a hardware key. #658 tracks that choice.
 
 ## Boundary
 
