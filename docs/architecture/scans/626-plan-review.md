@@ -170,3 +170,43 @@
   outcome 3 line naming the signed-off commit. PR-014 by rewording FR-012 and
   FR-017 and adding FR-017 to the Validation Strategy. PR-015 by the updated
   git-call counts.
+
+## Review 2026-10-26T19:09Z
+
+- Verdict: satisfied
+- Reviewed: plan.md ce505bac67e4a2b08143bd8e6d84e243134d8f63, spec.md 81217e14d8637b1611a0333ec7c6e097b1091b4c, .specify/memory/constitution.md absent, design.md aaabe0549f5adeaac928dff090cde4be9bddc65d, research.md 0c5e71c50ddbb64eadf125f19685e2774c5e8c53, data-model.md 142a067dd4e8d84ec07dca945d76fd2b597e8d9d, quickstart.md 189f41bfae57580bc1643a543ea4701da2ae35d9, contracts/cli.md 6d9c8bd7ac52a070b5f69d42893d5416d1a34f93, docs/architecture/review-round-count.md 3c8019a211b55887fdd3a64310564638c0c7173c, docs/architecture/review-round-cap.md 666b350e7b510f98f6fb6f5bc6f7218c13817631, docs/architecture/design/642-commit-range-takes-judged-branch.md b5dff1df8d6f4b6472f244ad198cf71a142cd580, docs/architecture/design/642-origin-head-trusted-on-full-fetch.md 241b285ccc6db8375365d9df6eda744a71857604, plan-review.plan.md 7b2b330905348dc22992528b7c1f3c7e0c67eb84 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 7
+- Detail: /Users/andremarin/Development/wfctl-specs/626-review-round-cap/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-020 fixed) |
+| Requirements and traceability | Resolved (PR-016 fixed) |
+| Architecture and boundaries | Resolved (PR-019, PR-021 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-023, PR-024) |
+| Security and reliability | Resolved (PR-017 fixed) |
+
+### Findings
+
+- **PR-023, MINOR, open.** With `origin/HEAD` set, a branch whose `trunk`
+  names the branch itself gets the mismatch warning from `review start`, and
+  its review and sign-off go through. The guard's `_judge` then refuses its PR
+  with the same-name check. Stands because that's the disagreement between
+  `review start` and the guard that `research.md §R11` step 5 says the plan
+  avoids.
+- **PR-024, MINOR, open.** `quickstart.md` step 10 expects `review start` to
+  list the branch's commits since `main`. Stands because by then security is
+  at the cap and the sign-off covers the range, so the command prints only the
+  outcome 3 line.
+- **PR-016 to PR-022, fixed.** PR-016 by R11 step 5 and its table row, which
+  refuse a branch `trunk` the clone doesn't have with `NoTrunk` as today, and
+  by FR-017 naming only the readers that decide which commits a review covers.
+  PR-017 by the R11 row that refuses a default-branch `trunk` the clone lacks,
+  with messages that name `wfctl.json on origin/<default>`. PR-018 by
+  `symbolic-ref --quiet` with `answers=(0, 1)`. PR-019 by the `trunk_refs`
+  docstring rewrite and the Log lines for both #642 records. PR-020 by the
+  updated R4, R5, and R10. PR-021 by `changes/626.change.md`. PR-022 by
+  quickstart step 2, which checks the clone has `origin/HEAD`.
