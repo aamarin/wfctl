@@ -92,7 +92,7 @@ class Repos:
         for group in _review_config.load(root)[0]:
             if only is not None and group.name != only:
                 continue
-            started = _review.start(root, agent_dir, group)
+            started = _review.start(root, agent_dir, group, cap=9)
             if started.run is None:
                 continue
             for rid in started.expected:

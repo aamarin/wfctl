@@ -92,7 +92,7 @@ def state(tmp_path: Path) -> Path:
 
 def complete(repo: Path, state: Path, group: Group = SECURITY) -> _review.Started:
     """Start a run of `group` and write a counted report for every reviewer."""
-    started = _review.start(repo, state, group)
+    started = _review.start(repo, state, group, cap=9)
     assert started.run is not None
     for r in started.expected:
         (started.run.path / f"{r}.md").write_text(report(started.head))
@@ -222,7 +222,7 @@ def test_range_restarts_at_the_merge_base_when_the_state_dir_is_empty(
     monkeypatch.setenv("WFCTL_STATE_DIR", str(empty))
     from wfctl._paths import resolve_agent_dir
 
-    started = _review.start(repo, resolve_agent_dir(repo, "637-x"), SECURITY)
+    started = _review.start(repo, resolve_agent_dir(repo, "637-x"), SECURITY, cap=9)
 
     assert started.base == git(repo, "merge-base", "HEAD", "origin/main")
     assert started.commits[0] == head
@@ -742,7 +742,7 @@ def test_range_refuses_a_trunk_that_is_the_branch_under_review(
     with pytest.raises(_review.ReviewError, match="the branch under review"):
         _review.commit_range(repo, head, None, branch="637-x")
     with pytest.raises(_review.ReviewError, match="the branch under review"):
-        _review.start(repo, state, SECURITY, branch="637-x")
+        _review.start(repo, state, SECURITY, branch="637-x", cap=9)
     with pytest.raises(_review.ReviewError, match="the branch under review"):
         _review.unreviewed(repo, state, [SECURITY], head, branch="637-x")
 
@@ -837,7 +837,7 @@ def test_start_writes_the_run_record(repo: Path, state: Path) -> None:
         Reviewer("s1", "claude", None), Reviewer("s2", "codex", codex),
     ))
 
-    started = _review.start(repo, state, group, which=lambda _: "/bin/codex")
+    started = _review.start(repo, state, group, which=lambda _: "/bin/codex", cap=9)
 
     path = state / "reviews" / "security" / "runs" / "001" / "run.json"
     assert started.run is not None and started.run.path == path.parent
@@ -862,7 +862,7 @@ def test_runs_are_numbered_in_start_order(repo: Path, state: Path) -> None:
     """A run that never completes is kept for reading, so the next one needs
     its own folder."""
     commit(repo, "a")
-    numbers = [_review.start(repo, state, SECURITY).run for _ in range(3)]
+    numbers = [_review.start(repo, state, SECURITY, cap=9).run for _ in range(3)]
     assert [r.number for r in numbers if r] == [1, 2, 3]
     assert sorted(p.name for p in (state / "reviews/security/runs").iterdir()) == [
         "001", "002", "003",
@@ -875,11 +875,196 @@ def test_start_with_nothing_unreviewed_writes_nothing(repo: Path, state: Path) -
     commit(repo, "a")
     complete(repo, state)
 
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
 
     assert started.run is None
     assert started.commits == ()
     assert sorted(p.name for p in (state / "reviews/security/runs").iterdir()) == ["001"]
+
+
+# --- the round cap -------------------------------------------------------------
+
+
+def run_folders(state: Path) -> list[str]:
+    runs = state / "reviews/security/runs"
+    return sorted(p.name for p in runs.iterdir()) if runs.is_dir() else []
+
+
+def test_start_under_the_cap_writes_the_run_and_reports_the_rounds_before_it(
+    repo: Path, state: Path,
+) -> None:
+    """`rounds` is the count before this call, so the header prints `rounds + 1`
+    and the first run reads as round 1 of the cap."""
+    commit(repo, "a")
+
+    first = _review.start(repo, state, SECURITY, cap=3)
+    second = _review.start(repo, state, SECURITY, cap=3)
+
+    assert first.run is not None and first.rounds == 0 and first.sign_off is None
+    assert second.run is not None and second.rounds == 1 and second.sign_off is None
+
+
+def test_start_with_nothing_to_review_is_up_to_date_even_at_the_cap(
+    repo: Path, state: Path,
+) -> None:
+    """FR-002 checks the range before the count. A group that has run its
+    rounds and reviewed everything is finished, so refusing it would tell the
+    agent a limit was hit when there was nothing left to review."""
+    commit(repo, "a")
+    complete(repo, state)
+
+    started = _review.start(repo, state, SECURITY, cap=1)
+
+    assert started.run is None and started.sign_off is None
+    assert started.commits == () and started.rounds == 1
+    assert run_folders(state) == ["001"]
+
+
+def test_start_with_nothing_to_review_is_up_to_date_under_a_cap_of_zero(
+    repo: Path, state: Path,
+) -> None:
+    """A cap of 0 says no review runs. With no commits there is still nothing
+    to refuse, so a branch with no work doesn't need a sign-off."""
+    started = _review.start(repo, state, SECURITY, cap=0)
+
+    assert started.run is None and started.sign_off is None and started.commits == ()
+
+
+def test_start_at_the_cap_with_a_sign_off_over_every_commit_writes_nothing(
+    repo: Path, state: Path,
+) -> None:
+    """The sign-off is the user's way past the cap. `sign_off` names the signed
+    commit so the command can say what covers the range, and no run folder is
+    made, since nothing is left for a reviewer to read."""
+    head = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, head)
+
+    started = _review.start(repo, state, SECURITY, cap=1)
+
+    assert started.run is None
+    assert started.sign_off == head
+    assert started.rounds == 1
+    assert run_folders(state) == ["001"]
+
+
+def test_start_at_the_cap_refuses_when_a_commit_is_not_signed_off(
+    repo: Path, state: Path,
+) -> None:
+    """A refusal writes no folder, so the count stays at the cap and the next
+    attempt reaches the same answer."""
+    commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+
+    with pytest.raises(_review.RoundCapReached) as refused:
+        _review.start(repo, state, SECURITY, cap=1)
+
+    assert (refused.value.group, refused.value.rounds, refused.value.cap) == ("security", 1, 1)
+    assert run_folders(state) == ["001"]
+
+
+def test_start_at_the_cap_refuses_a_commit_made_after_the_sign_off(
+    repo: Path, state: Path,
+) -> None:
+    """A sign-off covers a commit when it is the signed commit or an ancestor,
+    so one commit added afterwards is unreviewed again, as it is for the
+    guard."""
+    signed = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, signed)
+    commit(repo, "b")
+
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, state, SECURITY, cap=1)
+
+
+def test_start_at_the_cap_allows_a_clean_merge_of_main_after_the_sign_off(
+    tmp_path: Path, repo: Path, state: Path,
+) -> None:
+    """`commit_range` leaves out a merge git would have made on its own, so the
+    new head isn't covered by the sign-off but every commit in the range is.
+    The guard allows that PR, and `review start` has to agree. Checking the
+    head would ask the user for a sign-off they already gave."""
+    signed = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, signed)
+    push_to_main(tmp_path, repo, "from-main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge main", "origin/main")
+
+    started = _review.start(repo, state, SECURITY, cap=1)
+
+    assert started.run is None
+    assert started.sign_off == signed
+    assert started.commits == ()
+
+
+def test_start_past_a_lowered_cap_refuses(repo: Path, state: Path) -> None:
+    """The trunk can lower the cap below a count the branch already reached."""
+    commit(repo, "a")
+    for _ in range(3):
+        _review.start(repo, state, SECURITY, cap=9)
+
+    with pytest.raises(_review.RoundCapReached) as refused:
+        _review.start(repo, state, SECURITY, cap=2)
+
+    assert (refused.value.rounds, refused.value.cap) == (3, 2)
+
+
+def test_start_under_a_cap_of_zero_refuses_any_commit_without_a_sign_off(
+    repo: Path, state: Path,
+) -> None:
+    commit(repo, "a")
+
+    with pytest.raises(_review.RoundCapReached) as refused:
+        _review.start(repo, state, SECURITY, cap=0)
+
+    assert (refused.value.rounds, refused.value.cap) == (0, 0)
+    assert run_folders(state) == []
+
+
+def test_start_under_a_cap_of_zero_allows_a_signed_off_range(
+    repo: Path, state: Path,
+) -> None:
+    """With a cap of 0 every change needs a sign-off, and that sign-off is what
+    lets the PR through."""
+    head = commit(repo, "a")
+    _review.sign_off(state, head)
+
+    started = _review.start(repo, state, SECURITY, cap=0)
+
+    assert started.run is None and started.sign_off == head and started.rounds == 0
+
+
+def test_start_ignores_a_sign_off_for_a_commit_the_repository_never_saw(
+    repo: Path, state: Path,
+) -> None:
+    """`unreviewed` treats a sign-off naming an unknown commit as no sign-off,
+    since `merge-base` errors on one. `start` shares that rule rather than
+    crashing at the cap."""
+    commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, "0" * 40)
+
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, state, SECURITY, cap=1)
+
+
+@pytest.mark.parametrize(("rounds", "cap", "message"), [
+    (3, 3, "security has run 3 of 3 rounds on this branch, the most review.rounds allows"),
+    (4, 3, "security has run 4 rounds on this branch, more than the 3 review.rounds allows"),
+    (0, 0, "review.rounds is 0, so security doesn't run on this branch"),
+    (2, 0, "review.rounds is 0, so security doesn't run on this branch"),
+])
+def test_the_cap_refusal_says_which_limit_was_reached(
+    rounds: int, cap: int, message: str,
+) -> None:
+    """The first line follows the count and the cap, so a lowered cap and a cap
+    of 0 each read as what they are rather than as 'run 4 of 3'."""
+    refused = _review.RoundCapReached("security", rounds, cap)
+
+    assert str(refused) == message
+    assert isinstance(refused, _review.ReviewError)
+    assert (refused.group, refused.rounds, refused.cap) == ("security", rounds, cap)
 
 
 def test_check_completes_a_run_only_when_every_reviewer_reported(
@@ -889,7 +1074,7 @@ def test_check_completes_a_run_only_when_every_reviewer_reported(
     whether a PR can open. Only wfctl's own reading of the reports moves it
     (SC-002)."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     before = (started.run.path / "run.json").read_text()
 
@@ -922,7 +1107,7 @@ def test_one_uncounted_report_leaves_the_run_incomplete(
     reviewer that never wrote, one cut off, and one that read the wrong
     commit."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     head = started.head[:7]
     for r in ("s1", "s2"):
@@ -949,7 +1134,7 @@ def test_a_config_change_after_start_does_not_change_who_is_expected(
         {"group": "security", "reviewers": [{"name": "claude", "count": 1}]},
     ]}}))
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     (started.run.path / "s1.md").write_text(report(started.head))
 
@@ -966,12 +1151,12 @@ def test_a_new_start_after_an_incomplete_run_opens_the_next_from_the_same_base(
     reports toward run 2 would let a panel complete with reviewers from two
     different rounds."""
     commit(repo, "a")
-    first = _review.start(repo, state, SECURITY)
+    first = _review.start(repo, state, SECURITY, cap=9)
     assert first.run is not None
     for r in ("s1", "s2", "s3"):
         (first.run.path / f"{r}.md").write_text(report(first.head))
 
-    second = _review.start(repo, state, SECURITY)
+    second = _review.start(repo, state, SECURITY, cap=9)
 
     assert second.run is not None and second.run.number == 2
     assert second.base == first.base
@@ -988,7 +1173,7 @@ def test_a_commit_added_while_reviewers_read_leaves_the_run_incomplete(
     is one none of them read. The run's head is the one the reports have to
     name, and the next run covers the new commit."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     later = commit(repo, "b")
     for r in started.expected:
@@ -1065,7 +1250,7 @@ def test_a_half_written_last_reviewed_file_is_an_error_naming_it(
     path.write_text('{"sha": "9f8e')
 
     with pytest.raises(_review.ReviewError) as raised:
-        _review.start(repo, state, SECURITY)
+        _review.start(repo, state, SECURITY, cap=9)
     assert str(path) in str(raised.value)
 
 
@@ -1099,7 +1284,7 @@ def test_a_relayed_report_naming_the_head_counts_and_shows_its_reason(
     roster line is where a person sees that it was relayed, and why
     (`622-blocked-reviewer-relays-report.md`, Verification)."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     for rid in ("s1", "s3"):
         (started.run.path / f"{rid}.md").write_text(report(started.head))
@@ -1119,7 +1304,7 @@ def test_a_relayed_report_is_saved_under_a_header_then_verbatim(
     """The header is what tells a relay apart from a report the reviewer wrote,
     and the body has to arrive word for word to be judged as the reviewer's."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     body = report(started.head) + "\n  trailing indent kept\n"
 
@@ -1141,7 +1326,7 @@ def test_a_relay_with_no_reason_is_refused_and_the_run_stays_incomplete(
     the coordinator saw. One without a reason is a report the coordinator wrote
     for a reviewer, with nothing to show it."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     for rid in ("s1", "s3"):
         (started.run.path / f"{rid}.md").write_text(report(started.head))
@@ -1160,7 +1345,7 @@ def test_a_relayed_report_naming_an_older_commit_does_not_count(
     code the branch no longer has."""
     older = commit(repo, "a")
     commit(repo, "b")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
 
     _relay(state, "s2", "write denied", report(older))
@@ -1174,7 +1359,7 @@ def test_a_relay_appends_its_event(repo: Path, state: Path) -> None:
     """A restarted session reads `events.jsonl` to learn what happened, and a
     relay is the one report a coordinator handed in for someone else."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
 
     _relay(state, "s2", "write denied", report(started.head))
 
@@ -1203,7 +1388,7 @@ def test_a_model_whose_command_is_not_on_path_is_recorded_unavailable(
     reviewer it would rather skip unavailable (research.md R7)."""
     commit(repo, "a")
 
-    started = _review.start(repo, state, MIXED, which=lambda _: None)
+    started = _review.start(repo, state, MIXED, which=lambda _: None, cap=9)
 
     assert started.run is not None
     reviewers = json.loads((started.run.path / "run.json").read_text())["reviewers"]
@@ -1220,7 +1405,7 @@ def test_a_run_completes_on_the_reviewers_that_could_run(repo: Path, state: Path
     """A repository that lists Codex shouldn't be stuck on a machine without
     it, and the roster still names the reviewers that were left out."""
     commit(repo, "a")
-    started = _review.start(repo, state, MIXED, which=lambda _: None)
+    started = _review.start(repo, state, MIXED, which=lambda _: None, cap=9)
     assert started.run is not None
     for rid in ("s1", "s2"):
         (started.run.path / f"{rid}.md").write_text(report(started.head))
@@ -1241,7 +1426,7 @@ def test_a_run_where_no_reviewer_can_run_is_written_and_never_completes(
     forbids. A person installs the model or signs off instead."""
     commit(repo, "a")
 
-    started = _review.start(repo, state, ONLY_CODEX, which=lambda _: None)
+    started = _review.start(repo, state, ONLY_CODEX, which=lambda _: None, cap=9)
 
     assert started.run is not None
     assert started.expected == []
@@ -1257,7 +1442,7 @@ def test_a_model_on_path_that_writes_no_report_reads_as_no_report(
     """Codex installed but not logged in fails when it runs. That's a missing
     report, not an unavailable model, so the run waits for it."""
     commit(repo, "a")
-    started = _review.start(repo, state, ONLY_CODEX, which=lambda _: "/bin/codex")
+    started = _review.start(repo, state, ONLY_CODEX, which=lambda _: "/bin/codex", cap=9)
     assert started.run is not None
 
     checked = _review.check(state, "security")
@@ -1271,7 +1456,7 @@ def test_claude_has_no_command_and_is_always_available(repo: Path, state: Path) 
     and a `which` that finds nothing mustn't mark it unavailable."""
     commit(repo, "a")
 
-    started = _review.start(repo, state, SECURITY, which=lambda _: None)
+    started = _review.start(repo, state, SECURITY, which=lambda _: None, cap=9)
 
     assert started.expected == ["s1", "s2", "s3"]
     assert started.unavailable == {}
@@ -1285,13 +1470,54 @@ def test_a_run_folder_with_no_run_record_is_passed_over(repo: Path, state: Path)
     latest run, it failed every `start`, `check` and `relay` on the group until
     someone deleted it by hand."""
     commit(repo, "a")
-    _review.start(repo, state, SECURITY)
+    _review.start(repo, state, SECURITY, cap=9)
     (state / "reviews/security/runs/002").mkdir()
 
     assert _review.check(state, "security").run.number == 1
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None and started.run.number == 3
     assert _review.check(state, "security").run.number == 3
+
+
+def test_runs_started_is_zero_for_a_group_that_never_started(state: Path) -> None:
+    assert _review.runs_started(state, "security") == 0
+
+
+def test_runs_started_counts_a_run_that_never_completed(repo: Path, state: Path) -> None:
+    """The cap limits rounds started, not rounds finished. A run that got no
+    reports still cost the agent a round, and not counting it would let the
+    agent start runs it never finishes without ever reaching the cap."""
+    commit(repo, "a")
+    for _ in range(3):
+        _review.start(repo, state, SECURITY, cap=9)
+
+    assert _review.runs_started(state, "security") == 3
+    assert not _review.check(state, "security").complete
+
+
+def test_runs_started_skips_a_folder_with_no_run_record(repo: Path, state: Path) -> None:
+    """An interrupted `start` leaves a folder with no `run.json`, and `latest_run`
+    passes it over. If the count used another rule, it and the next run number
+    could disagree about how many runs there have been."""
+    commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=9)
+    (state / "reviews/security/runs/002").mkdir()
+    _review.start(repo, state, SECURITY, cap=9)
+
+    assert _review.runs_started(state, "security") == 2
+    latest = _review.latest_run(state, "security")
+    assert latest is not None and latest.number == 3
+
+
+def test_runs_started_ignores_a_name_that_is_not_a_run_number(repo: Path, state: Path) -> None:
+    """`latest_run` reads only digit names, so a stray folder or file under
+    `runs/` is no round."""
+    commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=9)
+    (state / "reviews/security/runs/notes").mkdir()
+    (state / "reviews/security/runs/notes/run.json").write_text("{}")
+
+    assert _review.runs_started(state, "security") == 1
 
 
 @pytest.mark.parametrize("failing", ["last-reviewed.json", "run.json"])
@@ -1302,7 +1528,7 @@ def test_a_completion_cut_off_partway_is_finished_by_the_next_check(
     `last-reviewed.json` was written would leave a run every later `check`
     calls complete, with the last reviewed commit never moved."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     for r in started.expected:
         (started.run.path / f"{r}.md").write_text(report(started.head))
@@ -1329,7 +1555,7 @@ def test_a_report_that_cannot_be_read_is_a_reason_rather_than_a_traceback(
     """The roster is where a person learns which report to fix, and a
     traceback hides the other reviewers' lines."""
     commit(repo, "a")
-    started = _review.start(repo, state, SECURITY)
+    started = _review.start(repo, state, SECURITY, cap=9)
     assert started.run is not None
     unreadable = started.run.path / "s1.md"
     unreadable.write_text(report(started.head))
@@ -1405,7 +1631,7 @@ def test_a_quoted_program_path_is_looked_up_whole(repo: Path, state: Path) -> No
     group = Group("security", "reviewing-security",
                   (Reviewer("s1", "codex", '"/opt/my tools/codex" exec'),))
 
-    _review.start(repo, state, group, which=lambda p: seen.append(p) or p)
+    _review.start(repo, state, group, which=lambda p: seen.append(p) or p, cap=9)
 
     assert seen == ["/opt/my tools/codex"]
 

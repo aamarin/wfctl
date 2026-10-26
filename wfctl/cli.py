@@ -6116,9 +6116,10 @@ def review_start_cmd(
 
     The run covers every commit since the group's last complete run, or since
     the branch left the trunk when it has none. Prints that the group is up to
-    date, and writes nothing, when there is nothing new to review.
+    date, and writes nothing, when there is nothing new to review. Refuses a
+    run past `review.rounds` unless a sign-off covers every commit left.
     """
-    from wfctl import _review
+    from wfctl import _review, _review_config
 
     repo_root = _get_repo_root_or_exit()
     groups = _review_groups_or_exit(repo_root)
@@ -6130,18 +6131,33 @@ def review_start_cmd(
         raise typer.Exit(1)
     branch = resolve_branch(repo_root)
     agent_dir = resolve_agent_dir(repo_root, branch)
+    cap = _review_config.DEFAULT_ROUNDS
     try:
-        started = _review.start(repo_root, agent_dir, chosen, branch=branch)
+        started = _review.start(repo_root, agent_dir, chosen, branch=branch, cap=cap)
+    except _review.RoundCapReached as e:
+        _say(f"✗ {e}")
+        _say("  Ask the user to run `wfctl review sign-off` in their own terminal.")
+        raise typer.Exit(1)
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
 
+    if started.sign_off is not None:
+        if cap == 0:
+            said = f"review.rounds is 0, so {group} doesn't run"
+        elif started.rounds > cap:
+            said = f"{group} has run {started.rounds} rounds, more than the {cap} review.rounds allows"
+        else:
+            said = f"{group} has run {started.rounds} of {cap} rounds"
+        _say(f"{said}; the sign-off at {started.sign_off[:7]} covers every commit left to review")
+        return
     if started.run is None:
         _say(f"{group} is up to date at {started.head[:7]}")
         return
     n = len(started.commits)
     _say(
-        f"{group} run {started.run.number:03d} · {n} commit{'s' if n != 1 else ''} "
+        f"{group} run {started.run.number:03d} · round {started.rounds + 1} of {cap} · "
+        f"{n} commit{'s' if n != 1 else ''} "
         f"since {started.base[:7]} · head {started.head[:7]}"
     )
     _say(f"reports: {started.run.path}/")

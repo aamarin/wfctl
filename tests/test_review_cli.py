@@ -49,12 +49,143 @@ def test_start_prints_the_run_the_reports_path_and_one_line_per_reviewer(
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [
-        f"security run 001 · 2 commits since {base[:7]} · head {head[:7]}",
+        f"security run 001 · round 1 of 3 · 2 commits since {base[:7]} · head {head[:7]}",
         f"reports: {runs(tmp_path) / '001'}/",
         "s1 claude",
         "s2 claude",
         "s3 claude",
     ]
+
+
+def start_rounds(n: int, group: str = "security") -> None:
+    """Start `n` runs of `group` that never complete, so each one is a round."""
+    for _ in range(n):
+        assert run("review", "start", group).exit_code == 0
+
+
+def sign_off(tmp_path: Path, sha: str) -> None:
+    """Write the user's sign-off the way `review sign-off` does, without the
+    terminal and typed sha the command asks a person for."""
+    from wfctl import _review
+
+    _review.sign_off(tmp_path / "state", sha)
+
+
+def test_a_later_run_prints_its_round_of_the_cap(repo: Path) -> None:
+    """The round is the runs started before this one, plus 1, so the agent sees
+    how close it is to the cap from the line it already reads."""
+    commit(repo, "a")
+    start_rounds(1)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert " run 002 · round 2 of 3 · " in result.output.splitlines()[0]
+
+
+def test_start_at_the_cap_refuses_and_asks_the_user_to_sign_off(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Outcome 4. The second line tells the agent whose move it is, since the
+    agent shouldn't start another round or sign off itself."""
+    commit(repo, "a")
+    start_rounds(3)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ security has run 3 of 3 rounds on this branch, the most review.rounds allows",
+        "  Ask the user to run `wfctl review sign-off` in their own terminal.",
+    ]
+    assert sorted(p.name for p in runs(tmp_path).iterdir()) == ["001", "002", "003"]
+
+
+def test_start_past_a_lowered_cap_says_more_than_the_cap_allows(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """The cap read from the trunk can be lower than a count the branch already
+    reached. Read as 'run 4 of 3' it would look like a miscount."""
+    commit(repo, "a")
+    start_rounds(3)
+    (runs(tmp_path) / "004").mkdir()
+    (runs(tmp_path) / "004" / "run.json").write_text(json.dumps({"head": "x", "reviewers": []}))
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ security has run 4 rounds on this branch, more than the 3 review.rounds allows",
+        "  Ask the user to run `wfctl review sign-off` in their own terminal.",
+    ]
+
+
+def test_start_at_the_cap_with_a_sign_off_says_nothing_is_left_to_review(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Outcome 3. It exits 0 and names the signed-off commit, not the head, so
+    the agent goes on to the next group instead of stopping."""
+    head = commit(repo, "a")
+    start_rounds(3)
+    sign_off(tmp_path, head)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "security has run 3 of 3 rounds; "
+        f"the sign-off at {head[:7]} covers every commit left to review",
+    ]
+    assert sorted(p.name for p in runs(tmp_path).iterdir()) == ["001", "002", "003"]
+
+
+def test_start_past_a_lowered_cap_with_a_sign_off_says_so_in_the_same_words(
+    tmp_path: Path, repo: Path,
+) -> None:
+    head = commit(repo, "a")
+    start_rounds(3)
+    (runs(tmp_path) / "004").mkdir()
+    (runs(tmp_path) / "004" / "run.json").write_text(json.dumps({"head": "x", "reviewers": []}))
+    sign_off(tmp_path, head)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "security has run 4 rounds, more than the 3 review.rounds allows; "
+        f"the sign-off at {head[:7]} covers every commit left to review",
+    ]
+
+
+def test_start_at_the_cap_with_a_commit_after_the_sign_off_still_refuses(
+    tmp_path: Path, repo: Path,
+) -> None:
+    signed = commit(repo, "a")
+    start_rounds(3)
+    sign_off(tmp_path, signed)
+    commit(repo, "b")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[0].startswith("✗ security has run 3 of 3 rounds")
+
+
+def test_start_up_to_date_at_the_cap_is_not_refused(repo: Path) -> None:
+    """The range is checked before the count, so a group that has finished its
+    rounds and reviewed everything reads as up to date."""
+    head = commit(repo, "a")
+    start_rounds(2)
+    third = run("review", "start", "security")
+    reports = Path(third.output.splitlines()[1].removeprefix("reports: "))
+    for rid in ("s1", "s2", "s3"):
+        (reports / f"{rid}.md").write_text(report(head))
+    assert run("review", "check", "security").exit_code == 0
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0
+    assert result.output.splitlines() == [f"security is up to date at {head[:7]}"]
 
 
 def test_start_says_one_commit_rather_than_one_commits(repo: Path) -> None:

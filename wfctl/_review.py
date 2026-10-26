@@ -88,6 +88,33 @@ class NoRun(ReviewError):
         super().__init__(f"{group} has no run; run wfctl review start {group}")
 
 
+class RoundCapReached(ReviewError):
+    """A group has used the rounds `review.rounds` allows, and a commit is left
+    that no sign-off covers.
+
+    The first line follows the count and the cap, so a lowered cap and a cap of
+    0 don't read as "run 4 of 3".
+    """
+
+    def __init__(self, group: str, rounds: int, cap: int) -> None:
+        self.group = group
+        self.rounds = rounds
+        self.cap = cap
+        if cap == 0:
+            message = f"review.rounds is 0, so {group} doesn't run on this branch"
+        elif rounds > cap:
+            message = (
+                f"{group} has run {rounds} rounds on this branch, "
+                f"more than the {cap} review.rounds allows"
+            )
+        else:
+            message = (
+                f"{group} has run {rounds} of {cap} rounds on this branch, "
+                "the most review.rounds allows"
+            )
+        super().__init__(message)
+
+
 class RelayRefused(ReviewError):
     """A relay wfctl won't save. The message is the line the person reads."""
 
@@ -448,6 +475,34 @@ class Run:
         return [r for r in found if isinstance(r, dict)] if isinstance(found, list) else []
 
 
+def _run_numbers(agent_dir: Path, group: str) -> list[int]:
+    """The numbers of `group`'s runs, lowest first.
+
+    A folder with no `run.json` is a start that was interrupted, or one still
+    writing, and isn't a run. `latest_run` and `runs_started` share this rule,
+    so the count and the next run number can't disagree about how many runs
+    there have been.
+    """
+    runs = group_dir(agent_dir, group) / "runs"
+    if not runs.is_dir():
+        return []
+    return sorted(
+        int(p.name) for p in runs.glob("[0-9][0-9][0-9]*")
+        if p.name.isdigit() and (p / "run.json").is_file()
+    )
+
+
+def runs_started(agent_dir: Path, group: str) -> int:
+    """How many runs `group` has started on this branch, finished or not.
+
+    The round cap limits starts. A run that got no reports still cost a round,
+    and counting only complete runs would let an agent start runs without ever
+    reaching the cap. Derived from the run folders on every call and stored
+    nowhere (`review-round-count`).
+    """
+    return len(_run_numbers(agent_dir, group))
+
+
 def latest_run(agent_dir: Path, group: str) -> Run | None:
     """The highest-numbered run of `group`, or None when it has never started.
 
@@ -459,14 +514,10 @@ def latest_run(agent_dir: Path, group: str) -> Run | None:
     writing, and is passed over. Read as the latest run, it would fail every
     `start`, `check` and `relay` on the group until someone deleted it.
     """
-    runs = group_dir(agent_dir, group) / "runs"
-    numbers = sorted(
-        int(p.name) for p in runs.glob("[0-9][0-9][0-9]*")
-        if p.name.isdigit() and (p / "run.json").is_file()
-    ) if runs.is_dir() else []
+    numbers = _run_numbers(agent_dir, group)
     if not numbers:
         return None
-    path = runs / f"{numbers[-1]:03d}"
+    path = group_dir(agent_dir, group) / "runs" / f"{numbers[-1]:03d}"
     record = _read_json(path / "run.json")
     if not isinstance(record.get("head"), str):
         raise ReviewError(f"can't read {path / 'run.json'}: no head")
@@ -488,6 +539,11 @@ class Started:
     reviewers: tuple[dict[str, str], ...]
     # Each model that can't run, with the reason, in the order the group lists it.
     unavailable: dict[str, str]
+    # Runs the group had started before this call, so a header reads `rounds + 1`.
+    rounds: int
+    # The commit a sign-off covered the range through when the group was at its
+    # cap and no run was written, otherwise None.
+    sign_off: str | None
 
     @property
     def expected(self) -> list[str]:
@@ -531,12 +587,21 @@ def start(
     timeout: float | None = None,
     which: Callable[[str], str | None] | None = None,
     branch: str | None = None,
+    cap: int,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
     A run is never started with no commits, since there's nothing to review and
     a record would read as a review waiting on reports. A run where no reviewer
     can run is still written, and `check` never completes it.
+
+    A group that has started `cap` runs gets another only through a sign-off.
+    When the sign-off covers every commit left, nothing is written and
+    `Started.sign_off` names it. Otherwise this raises `RoundCapReached`. The
+    range comes first, so a group with nothing left to review is up to date
+    rather than refused.
+
+    `cap` has no default, so a caller can't skip it without saying so.
     """
     head = head_commit(repo_root, timeout)
     found = commit_range(
@@ -545,8 +610,19 @@ def start(
     # Resolved when called rather than bound as the default, so `shutil.which`
     # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
+    rounds = runs_started(agent_dir, group.name)
     if not found.commits:
-        return Started(group.name, found.base, head, (), None, tuple(reviewers), unavailable)
+        return Started(
+            group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
+        )
+    if rounds >= cap:
+        signed, is_covered = _covered_by_sign_off(repo_root, agent_dir, timeout)
+        if signed is None or not all(is_covered(c) for c in found.commits):
+            raise RoundCapReached(group.name, rounds, cap)
+        return Started(
+            group.name, found.base, head, (), None, tuple(reviewers), unavailable,
+            rounds, signed,
+        )
 
     runs = group_dir(agent_dir, group.name) / "runs"
     runs.mkdir(parents=True, exist_ok=True)
@@ -573,7 +649,7 @@ def start(
     write_atomic(path / "run.json", json.dumps(record, indent=2) + "\n")
     started = Started(
         group.name, found.base, head, found.commits, Run(number, path, record),
-        tuple(reviewers), unavailable,
+        tuple(reviewers), unavailable, rounds, None,
     )
     append_event(
         agent_dir, "review-start", group=group.name, run=number, head=head,
@@ -744,6 +820,33 @@ def sign_off(agent_dir: Path, sha: str) -> None:
     append_event(agent_dir, "review-sign-off", sha=sha)
 
 
+def _covered_by_sign_off(
+    repo_root: Path, agent_dir: Path, timeout: float | None,
+) -> tuple[str | None, Callable[[str], bool]]:
+    """The commit a person signed off through, and a function that says whether
+    that sign-off covers a given commit.
+
+    A sign-off covers a commit when it is the signed-off commit or one of its
+    ancestors. One naming a commit this repository has never seen covers
+    nothing, since `merge-base` errors on an unknown commit rather than saying
+    no. `unreviewed` and `start` both ask this, so `review start` and the
+    worktree guard can't disagree about what a sign-off covers.
+    """
+    signed = signed_off(agent_dir)
+    if signed is not None and not is_commit(repo_root, signed, timeout):
+        signed = None
+    covered: dict[str, bool] = {}
+
+    def is_covered(sha: str) -> bool:
+        if signed is None:
+            return False
+        if sha not in covered:
+            covered[sha] = sha == signed or _is_ancestor(repo_root, sha, signed, timeout)
+        return covered[sha]
+
+    return signed, is_covered
+
+
 def unreviewed(
     repo_root: Path,
     agent_dir: Path,
@@ -761,17 +864,7 @@ def unreviewed(
     group has to have reviewed the head, so a fix the code group commits after
     the security group's run is unreviewed for `security`.
     """
-    signed = signed_off(agent_dir)
-    if signed is not None and not is_commit(repo_root, signed, timeout):
-        signed = None
-    covered: dict[str, bool] = {}
-
-    def is_covered(sha: str) -> bool:
-        if signed is None:
-            return False
-        if sha not in covered:
-            covered[sha] = sha == signed or _is_ancestor(repo_root, sha, signed, timeout)
-        return covered[sha]
+    _, is_covered = _covered_by_sign_off(repo_root, agent_dir, timeout)
 
     found: dict[str, tuple[str, ...]] = {}
     for group in groups:

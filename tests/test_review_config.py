@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._review_config import load
+from wfctl._review_config import DEFAULT_ROUNDS, load, load_rounds, parse_rounds
 
 
 def _write(repo: Path, review: object) -> None:
@@ -453,3 +453,70 @@ def test_an_unreadable_commands_key_is_one_finding_not_one_per_model(tmp_path: P
     })
     _, problems = load(tmp_path)
     assert problems == ["review.commands must map each model to a command string"]
+
+
+_ROUNDS_PROBLEM = "review.rounds must be a whole number of 0 or more"
+
+
+def test_the_default_cap_is_three_rounds() -> None:
+    """The default is the number the skill used to ask the agent to count to,
+    so a repository that never sets the key sees no change in the limit."""
+    assert DEFAULT_ROUNDS == 3
+
+
+@pytest.mark.parametrize("value", [0, 1, 3, 12])
+def test_parse_rounds_accepts_a_whole_number_of_zero_or_more(value: int) -> None:
+    """Zero is valid: it means no review runs and every change needs a
+    sign-off, which a repository may want for a sensitive branch."""
+    assert parse_rounds({"rounds": value}) == (value, None)
+
+
+def test_parse_rounds_reports_an_absent_key_as_neither_a_value_nor_a_problem() -> None:
+    """An absent key is the default, and the caller picks the default. Returning
+    3 here would make a repository that wrote `"rounds": 3` look identical to
+    one that wrote nothing, which the mismatch warning has to tell apart."""
+    assert parse_rounds({}) == (None, None)
+
+
+@pytest.mark.parametrize("value", [-1, 1.5, "3", True, False, None, [3]])
+def test_parse_rounds_rejects_anything_that_is_not_a_whole_number(value: object) -> None:
+    """`True` is a subclass of `int`, so `"rounds": true` would pass as 1
+    without the explicit check, the same trap `_is_count` closes for a reviewer
+    count."""
+    assert parse_rounds({"rounds": value}) == (None, _ROUNDS_PROBLEM)
+
+
+def test_load_reports_an_invalid_rounds_value_as_a_finding(tmp_path: Path) -> None:
+    """`check config`, `review start` and the guard all stop on the finding,
+    since all three read the key through `load`."""
+    _write(tmp_path, {"rounds": -1})
+    groups, problems = load(tmp_path)
+    assert problems == [_ROUNDS_PROBLEM]
+    assert groups == []
+
+
+def test_load_accepts_a_valid_rounds_value_beside_the_groups(tmp_path: Path) -> None:
+    """`rounds` joined the known keys, so it no longer reads as a misspelling."""
+    _write(tmp_path, {"rounds": 5})
+    assert _shape(tmp_path) == _DEFAULT
+
+
+def test_load_rounds_returns_the_working_trees_valid_value(tmp_path: Path) -> None:
+    _write(tmp_path, {"rounds": 5})
+    assert load_rounds(tmp_path) == 5
+
+
+@pytest.mark.parametrize("review", [{}, {"rounds": "5"}, {"rounds": -2}, ["rounds"]])
+def test_load_rounds_returns_none_for_an_absent_or_invalid_value(
+    tmp_path: Path, review: object,
+) -> None:
+    """The command uses this only to compare with the trunk's cap, so an invalid
+    value has nothing to compare and `load` has already reported it."""
+    _write(tmp_path, review)
+    assert load_rounds(tmp_path) is None
+
+
+def test_load_rounds_returns_none_with_no_wfctl_json_or_bad_json(tmp_path: Path) -> None:
+    assert load_rounds(tmp_path) is None
+    (tmp_path / "wfctl.json").write_text("{not json")
+    assert load_rounds(tmp_path) is None

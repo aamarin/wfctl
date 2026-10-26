@@ -24,6 +24,10 @@ CONFIG_PATH = "wfctl.json"
 # The one model that runs inside the current agent, so it needs no command.
 CLAUDE = "claude"
 
+# How many times each group may run on one branch when no `wfctl.json` on the
+# trunk says otherwise (`review-round-cap`).
+DEFAULT_ROUNDS = 3
+
 _BUILT_IN = ("security", "code")
 _DEFAULT_SKILL = {"security": "reviewing-security"}
 _FALLBACK_SKILL = "code-review"
@@ -31,7 +35,7 @@ _DEFAULT_REVIEWERS: list[object] = [{"name": CLAUDE, "count": 3}]
 
 # Every key each level may hold. A misspelled key, such as `reviewer` for
 # `reviewers`, would otherwise fall back to the default and pass as valid.
-_REVIEW_KEYS = ("commands", "groups")
+_REVIEW_KEYS = ("commands", "groups", "rounds")
 _GROUP_KEYS = ("group", "skill", "reviewers")
 _REVIEWER_KEYS = ("name", "count")
 
@@ -92,6 +96,9 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
         return [], ["review must be an object"]
 
     problems = [f"review: unknown key {k!r}" for k in review if k not in _REVIEW_KEYS]
+    _, rounds_problem = parse_rounds(review)
+    if rounds_problem:
+        problems.append(rounds_problem)
     commands = _commands(review.get("commands", {}), problems)
 
     entries = review.get("groups", [])
@@ -120,6 +127,41 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
 
     groups = _resolve(declared, commands, problems)
     return ([], problems) if problems else (groups, [])
+
+
+def parse_rounds(review: dict[str, object]) -> tuple[int | None, str | None]:
+    """The value of `review.rounds`, and what is wrong with it.
+
+    Returns `(None, None)` when the key is absent, since the caller picks the
+    default and a repository that wrote 3 has to stay distinguishable from one
+    that wrote nothing. A valid value is a whole number of 0 or more. `bool` is
+    a subclass of `int`, so `"rounds": true` would otherwise pass as 1.
+
+    One parser for the working tree and the trunk's copy, so a value `check
+    config` accepts on a branch can't fall back to the default once it merges.
+    """
+    if "rounds" not in review:
+        return None, None
+    value = review["rounds"]
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value, None
+    return None, "review.rounds must be a whole number of 0 or more"
+
+
+def load_rounds(repo_root: Path) -> int | None:
+    """The working tree's valid `review.rounds`, or None when it is absent or
+    can't be used.
+
+    `review start` reads this only to warn that the branch sets a different cap
+    than the trunk does. The cap itself comes from the trunk, and `load` has
+    already reported an invalid value here.
+    """
+    try:
+        data = json.loads((repo_root / CONFIG_PATH).read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    review = data.get("review") if isinstance(data, dict) else None
+    return parse_rounds(review)[0] if isinstance(review, dict) else None
 
 
 def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
