@@ -6752,7 +6752,7 @@ def _exception_findings(body: str) -> list[str]:
     named after the branch, the same test the worktree guard uses.
     """
     from wfctl import _design_exceptions, _paths
-    from wfctl._evidence import _branch_records
+    from wfctl._evidence import branch_records
 
     try:
         repo_root = get_repo_root()
@@ -6773,7 +6773,7 @@ def _exception_findings(body: str) -> list[str]:
     boundary = _design_exceptions.boundary(spec_dir)
     if boundary is not None and flat(boundary) not in carried:
         inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
-        if not (inherited and _branch_records(repo_root, arch_root(repo_root))):
+        if not (inherited and branch_records(repo_root, arch_root(repo_root))):
             found.append(f"the boundary exception's reason isn't in the body: \"{flat(boundary)}\"")
     for name, reason in _design_exceptions.passes(spec_dir).items():
         if flat(reason) not in carried:

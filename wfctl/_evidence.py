@@ -1003,7 +1003,7 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
-def _branch_records(
+def branch_records(
     repo_root: Path, arch: Path, *, added_only: bool = False
 ) -> dict[str, Record]:
     """The level-2 records this branch added or modified, by slug, or with
@@ -1069,7 +1069,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     answer. Nothing failed: git is being asked about a path it does not track, and
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
-    `_branch_records` decides which records count, and the design gate asks it
+    `branch_records` decides which records count, and the design gate asks it
     too, so every record the gate holds the branch on is one this fact lists.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
@@ -1089,7 +1089,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     if not touched:
         return Fact(name, "n/a", "no level-2 record on this branch")
 
-    records = _branch_records(repo_root, arch)
+    records = branch_records(repo_root, arch)
     if not records:
         # Touched something under the arch root, and none of it a record the
         # projection reads — a level-3 record, a view, a declaration. The
@@ -1302,7 +1302,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     from wfctl._paths import is_in_tree, trunk_branch
 
     arch = arch_root(repo_root)
-    records = _branch_records(repo_root, arch, added_only=True)
+    records = branch_records(repo_root, arch, added_only=True)
     failing = [
         (slug, blockers)
         for slug in sorted(records)

@@ -24,10 +24,17 @@ through `resolve_spec_dir`, once a command has matched.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from wfctl._review_gate import _Session
+
+class _Session(Protocol):
+    """The two things these checks need from `_review_gate`'s session: the
+    checkout to judge, and a git call that raises on failure so any error
+    refuses. Named here rather than imported, since that class is private."""
+
+    root: Path
+
+    def run(self, *args: str) -> str: ...
 
 
 def touched(session: _Session, trunk: str, head: str) -> list[Path]:
@@ -36,7 +43,7 @@ def touched(session: _Session, trunk: str, head: str) -> list[Path]:
     Three dots, so a record the trunk gained after the branch point isn't the
     branch's. Deleted files are left out, since a deleted record decides nothing
     a person has to rule on. A path counts only when its parent is the arch
-    root, which is the set `_evidence._branch_records` reads: level-3 records,
+    root, which is the set `_evidence.branch_records` reads: level-3 records,
     views, scans and an old declaration all sit one level down.
     """
     from wfctl._paths import arch_root, is_in_tree

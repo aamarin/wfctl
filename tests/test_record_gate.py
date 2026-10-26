@@ -201,7 +201,7 @@ def test_the_guard_lists_the_records_the_accepted_fact_lists(
     records the branch changed. Built twice, they would drift, and a branch
     held for a record the fact never listed is held for a reason nothing else
     on screen names."""
-    from wfctl._evidence import _branch_records
+    from wfctl._evidence import branch_records
     from wfctl._paths import arch_root, trunk_branch
     from wfctl._record_gate import touched
 
@@ -223,7 +223,7 @@ def test_the_guard_lists_the_records_the_accepted_fact_lists(
     listed = sorted(p.stem for p in touched(session, trunk, head))
 
     assert listed == ["new-one"]
-    assert listed == sorted(_branch_records(repos.feature, arch_root(repos.feature)))
+    assert listed == sorted(branch_records(repos.feature, arch_root(repos.feature)))
 
 
 def test_a_branch_with_no_records_passes_whatever_its_spec_folder_says(
