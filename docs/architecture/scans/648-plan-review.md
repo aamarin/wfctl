@@ -72,3 +72,34 @@
 - **PR-017, MINOR, open.** No planned test fails if the width is hard-coded to `.ljust(20)`, and "20 in every repository" is false once a repo declares a pass name longer than 16 characters. Stands because test 9 only uses built-in names.
 - **PR-018, MINOR, open.** Quickstart step 6 gives no command or path for removing the claim, and step 7 reads `.claude/skills/` while the shell is still in the scratch repository. Stands because quickstart.md is unchanged there.
 - **PR-019, MINOR, open.** The design record's Verification section says `status` prints the remedy under `how:`, while the spec and contract say it goes under `next:`. Stands because the record wasn't updated.
+
+## Review 2026-10-26T20:13Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 85a62d65e623aa2a9231e744809e60414aa982b5, spec.md 2c9c89ffdad0c1ac38363061140b52d7bebb3519, .specify/memory/constitution.md absent, design.md 5b70b93efa85d2ea8df1ffebc08e3907829c2dac, docs/architecture/design/software-design-none-is-a-claim.md c217a83b3a517bd3cb516abd105a4371599a43c7, docs/architecture/declarations/648-design-gate.md 8358208e0cc21da4a35f3dc336d376f18fa8b8fa, docs/architecture/promised-evidence-blocks-on-silence.md 970abb8f55ac25118a36d9e71ef3d2220f662666, research.md 1efe6afae5de4efc4261b3f0db3c152c0bee3ea6, data-model.md 643113cb11c28e27dc808f047b5f9b08781e5625, contracts/cli.md 1a11576d8914c89c7978c85b38977ffd1dbcabc2, quickstart.md 8cc6853b66ebb2a5c2b0c8c5600c4bca27fa9bbe, checklists/requirements.md 5d24c2763686d2b8e4a90fa6867b32d57f7b5efa, AGENTS.md 506b62be5f7860aad3ead6ba5bae864db68b15ba, docs/architecture/vendor-upstream-skills.md 4d6b0177ffe76f882118423926af27d76b74e934, plan-review.plan.md 59e4d6c932a82e2d70d358bb79e9b05865bb79a0 (base)
+- Review type: re-review (the plan copy matched the earlier review's plan.md identity; spec.md, research.md, data-model.md, contracts/cli.md, and the amended record changed and were re-read in full)
+- Open: BLOCKER 0 · MAJOR 3 · MINOR 12 · Fixed since the earlier review: 0
+- Detail: /Users/andremarin/Development/wfctl-specs/648-design-gate/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-019, PR-023) |
+| Requirements and traceability | Outstanding (PR-021, PR-022) |
+| Architecture and boundaries | Outstanding (PR-020, PR-024) |
+| Adversarial implementation and verification | Outstanding (PR-013, PR-014, PR-017, PR-018, PR-025, PR-026, PR-027) |
+| Security and reliability | Outstanding (PR-015, PR-016) |
+
+### Findings
+
+- **PR-001 to PR-012, fixed.** Still fixed. The revision for the git hold didn't touch them, and test 8 now asserts the hold that the rewritten FR-006 requires.
+- **PR-013 to PR-019, MINOR, open.** Carried from the earlier review unchanged, since the revision didn't touch them.
+- **PR-020, MAJOR, open.** Plan item 5.4 returns the git reason for an `inconclusive` verdict before calling `blocks`, so the reader decides what git's silence means itself, which the amended record forbids. Stands because `test_every_inconclusive_verdict_goes_through_blocks` only checks that `blocks` is called somewhere in the function.
+- **PR-021, MAJOR, open.** `Assessment("skipped", CHECKS_OFF_REASON)` puts the text in `reason`, which `collect_warnings` turns into a warning on every `wfctl status`, `next`, and `resume`. The contract shows the rows only under `--all`. Stands because the plan doesn't use `display=`, the pattern `DRAWINGS_UNCHECKED` follows.
+- **PR-022, MAJOR, open.** `check_config_cmd` returns "no configuration to check" when `wfctl.json` is missing (`cli.py:6637-6639`). An outside arch root is declared in the manifest or `WFCTL_ARCH_DIR`, so the FR-006b finding never prints in the repo it's written for. Stands because the plan adds the finding after that early return.
+- **PR-023, MINOR, open.** FR-006a and US5 acceptance 3 say the turned-off checks read done, and the plan, data model, and contract read them as `skipped`, with no label on the departure.
+- **PR-024, MINOR, open.** R10 and Complexity Tracking say a held architecture check has no way out without the new key, but `wfctl step none brainstorm.architecture` releases it, since claims are read from disk. The stronger reason for the key is that a claim is needed on every branch and is never committed.
+- **PR-025, MINOR, open.** Item 6.5 is wrong in two cases: with no `design.md` and git unable to answer, `brainstorm` reads `pending`, and with the checks off, a branch with nothing in it never reads `pending`. Item 6.3 doesn't say whether the setting is read before or after the `spec.md` escape.
+- **PR-026, MINOR, open.** Five existing tests fail with the architecture check's source changed, and R10 misses `test_design_gate_drawing.py:584` and `test_pipeline_commands.py::test_an_unreadable_arch_root_advances_the_design_step`. Item 6.4 also misses the `DRAWINGS_UNCHECKED` comment (`_evidence.py:161-167`), whose rationale the change contradicts.
+- **PR-027, MINOR, open.** `quickstart.md` has no end-to-end step for User Story 5, a repo held because its architecture folder is outside the project and then released with `"off"`.
