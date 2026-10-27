@@ -49,8 +49,9 @@ wfctl that the pipeline moved on, not why the artifact is missing.
 
 ## Decision
 
-A sub-step whose artifact is missing stays `pending` until a person says
-otherwise. The person says so with a command, which writes a sentence into the
+A sub-step whose artifact is missing stays outstanding until a person says
+otherwise. It reads `pending` before its step is reached and `in_progress`
+after. The person says so with a command, which writes a sentence into the
 branch's spec folder:
 
 ```
@@ -102,20 +103,22 @@ stateDiagram-v2
   [*] --> pending
   pending --> pending: parent step not done, or an earlier sub-step is outstanding
   pending --> done: parent step done, artifact exists
-  pending --> in_progress: parent step done, artifact missing
+  pending --> in_progress: parent step done, no earlier sub-step outstanding, artifact missing
   in_progress --> in_progress: artifact still missing, no claim
   in_progress --> done: artifact exists
   pending --> skipped: a claim exists for it on this branch
   in_progress --> skipped: a claim exists for it on this branch
   done --> skipped: a claim exists for it on this branch
   pending --> skipped: the parent step is skipped
-  in_progress --> skipped: needs a person; auto-approve is on
+  pending --> skipped: needs a person, auto-approve is on, artifact missing
 ```
 
 The drawing follows one sub-step through its four states. The loop on
 `in_progress` is the case this record decides. With no artifact and no claim,
 the sub-step stays where it is, and wfctl never infers `skipped` from the
-missing artifact. A claim wins from every state, `done` included, because a
+missing artifact. The auto-approve edge is the one `skipped` the setting
+produces rather than a person, and it applies only to a sub-step that needs a
+person. A claim wins from every state, `done` included, because a
 person's judgment that a pass doesn't apply isn't overturned by an artifact
 that appears later. `wfctl step none` refuses an empty reason or a `<why>`
 placeholder, so a refused claim leaves the sub-step where it was.
@@ -154,10 +157,10 @@ repeating a claim on the same pass replaces only that claim.
 A sub-step can reach the same four states a step can:
 
 1. `done` when its predicate is satisfied.
-2. `in_progress` when the parent step is current and this sub-step is the
-   outstanding one.
-3. `pending` when the parent hasn't been reached, or an earlier sub-step under
-   it is outstanding.
+2. `in_progress` when the parent step's own artifact is done and this sub-step
+   is the outstanding one.
+3. `pending` when the parent step's own artifact isn't done yet, or an earlier
+   sub-step under it is outstanding.
 4. `skipped` when a claim exists for it on this branch, the parent step is
    `skipped`, or it needs a person while auto-approve is on.
 
@@ -201,5 +204,7 @@ skill, and the default view hides the row once it's settled.
   longer say the claim is committed to the branch. The PR body carries it
   to the reviewer, and `check-body` checks that it does
 - 2026-10-26  revised     — #635: adds a state drawing of one sub-step, which
-  acceptance requires, and names the auto-approve skip as a third way a
-  sub-step reads `skipped`
+  acceptance requires
+- 2026-10-26  revised     — #635: redraws the sub-step states from the code,
+  names the auto-approve skip as a third way a sub-step reads `skipped`, and
+  says a missing artifact reads `in_progress` once its step is reached
