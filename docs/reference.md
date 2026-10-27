@@ -158,6 +158,44 @@ guessing while it stands; it treats the repository as having no trunk until the
 declaration is fixed. When the declaration is valid, `check config` prints the
 branch and the form wfctl reads it as.
 
+## Turning off the design record checks (`design_record_checks`)
+
+Brainstorm has two checks that ask git about your branch. The architecture
+check asks whether the branch added or changed a record under the architecture
+folder, or declared that it needs none. The software design check asks the same
+about `design/` inside that folder, or whether the branch claimed it makes no
+structural choice.
+
+Sometimes git can't answer. When that happens, both checks hold the branch at
+brainstorm, and `wfctl status` prints `git can't see whether this branch wrote
+a record` with the way out under `next:`. Git can't answer in three cases:
+
+1. wfctl finds no base branch to compare against. Name it with `trunk`, as
+   described above.
+2. The git command fails. That's a broken checkout, and you fix it outside
+   wfctl.
+3. The architecture folder is outside the project, so git never sees it.
+
+For the third case, turn both checks off in `wfctl.json`:
+
+```json
+{ "design_record_checks": "off" }
+```
+
+Both checks then read as skipped without asking git, and `wfctl status --all`
+shows each one as turned off by this setting. The value is `"on"` or `"off"`,
+and a missing key means on. Any other value leaves both checks on and is a
+`wfctl check config` finding, so a typo never turns a check off.
+
+`wfctl check config` also reports an architecture folder outside the project
+while the checks are on, even in a repository with no `wfctl.json`, since every
+branch there would be held at brainstorm.
+
+A claim on each branch isn't a way out here. `wfctl step none` writes its claim
+under the architecture folder, and with that folder outside the project, no
+reviewer would read it, so the command refuses to write it. The setting is the
+only answer for this repository.
+
 ## What lands in your repo
 
 After `install-skills` (and optionally `install-config`):

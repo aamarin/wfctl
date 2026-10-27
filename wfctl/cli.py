@@ -779,6 +779,13 @@ def status_cmd(
     # reason: the rule lives in `collect_warnings`, and a view that re-derived
     # it would drift from the list `next` and `resume` print.
     warned = {(w.step, w.pass_name): w for w in report.warnings}
+    # Sized to the longest pass name in the payload rather than fixed. A fixed
+    # width fits the built-in names of the day and no more: `plan-walkthrough`
+    # met its glyph at 16, and a repository can declare a longer name than any
+    # built-in. Hidden passes count too, so `--all` doesn't move the column.
+    pass_width = 2 + max(
+        (len(sub["name"]) for step in steps for sub in step["sub_steps"]), default=0
+    ) + 2
     for step in steps:
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
@@ -822,11 +829,7 @@ def status_cmd(
                 continue
             sub_glyph, sub_color = _STATE_GLYPH[sub["state"]]
             sub_sym = f"[{sub_color}]{sub_glyph}[/{sub_color}]"
-            # 16, not 14: "architecture" is 12 characters, and the 2-space
-            # indent plus a 14-wide ljust left it flush against the glyph with
-            # no gap at all — the one built-in pass name that reaches the
-            # column the parent's own `ljust(12)` was sized for.
-            sub_name = f"  {sub['name']}".ljust(16)
+            sub_name = f"  {sub['name']}".ljust(pass_width)
             if sub["claimed"]:
                 detail = f"  [dim]claimed: {escape(sub['claimed'])}[/dim]"
             elif sub["annotation"]:
@@ -1895,7 +1898,7 @@ app.add_typer(arch_app, name="arch")
 
 
 def _arch_location(root: Path, repo_root: Path) -> str:
-    """`_pipeline.arch_location`, escaped for the console.
+    """`_paths.arch_location`, escaped for the console.
 
     Escaped here rather than at each print, because one caller forgetting is
     silent: a path containing `[wip]` is legal on every platform and rich reads
@@ -1910,7 +1913,7 @@ def _arch_location(root: Path, repo_root: Path) -> str:
     """
     from rich.markup import escape
 
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     return escape(arch_location(root, repo_root))
 
@@ -6618,9 +6621,9 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes, trunk, saved folders, PR sections and reviewers.
+    """Validate this repository's own declared pipeline passes, trunk, saved folders, PR sections, reviewers and design record checks.
 
-    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove`, `change_sections` and `review` keys must satisfy, in one run
+    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove`, `change_sections`, `review` and `design_record_checks` keys must satisfy, in one run
     (FR-022) — the repository's own configuration, never wfctl's installed
     state, which is `doctor`'s remit and not this one's (research.md R5).
     Nothing here is dropped silently: a declaration this command discards
@@ -6633,13 +6636,24 @@ def check_config_cmd() -> None:
 
     repo_root = get_repo_root()
     config_path = repo_root / _declared.CONFIG_PATH
+    # Before the missing-file return, because the repository this finding is for
+    # declares its outside arch root in the manifest or `WFCTL_ARCH_DIR` and may
+    # have no `wfctl.json` at all. It still prints under that file's name, since
+    # the fix is a key in it.
+    design_checks = _paths.design_record_checks_problems(repo_root)
 
     if not config_path.exists():
+        if design_checks:
+            console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
+            for problem in design_checks:
+                console.print(f"  - {escape(problem)}")
+            raise typer.Exit(1)
         console.print("[green]✓[/green] no configuration to check")
         return
 
     _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
     problems += _paths.declared_trunk_problems(repo_root)
+    problems += design_checks
     from wfctl import _archive
 
     problems += _archive.declared_paths(repo_root)[1]

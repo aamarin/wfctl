@@ -41,7 +41,7 @@ def test_a_repository_that_declares_nothing_renders_byte_identically(
     `implement` carries the store of the spec dir (#359). A built-in pass is
     not a declaration: every repository gets it with no `wfctl.json`, so it
     draws the same row before and after the empty file is written. Those two
-    are the indented rows here, because `brainstorm`'s two passes are hidden
+    are the indented rows here, because `brainstorm`'s three passes are hidden
     while that step reads `skipped`. Any other indented row is one this
     repository never asked for.
     """
@@ -53,7 +53,9 @@ def test_a_repository_that_declares_nothing_renders_byte_identically(
 
     assert before == after
     indented = [line for line in after.splitlines() if line.startswith("  ")]
-    assert indented == ["  plan-review   ○", "  store-specs   ○"], (
+    # The column is sized to the longest pass name in the payload, which with
+    # nothing declared is the built-in `software-design`.
+    assert indented == ["  plan-review      ○", "  store-specs      ○"], (
         f"an indented row appeared with nothing declared: {indented!r}"
     )
 
@@ -73,7 +75,7 @@ def test_a_declared_pass_renders_indented_under_its_step(
 
     lines = out.splitlines()
     brainstorm_idx = next(i for i, line in enumerate(lines) if line.startswith("brainstorm"))
-    assert lines[brainstorm_idx + 3].strip().startswith("ui-design")
+    assert lines[brainstorm_idx + 4].strip().startswith("ui-design")
 
 
 def test_a_settled_away_pass_is_hidden_by_default_and_shown_with_all(

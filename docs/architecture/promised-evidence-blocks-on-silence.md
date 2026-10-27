@@ -52,6 +52,19 @@ The rule is keyed on whether anyone undertook to produce the evidence. Promised
 — repo-declared commands, accepted records, human approval — blocks when it is
 unavailable. Ambient — git, the filesystem — proceeds.
 
+The two brainstorm checks are the exception to "git proceeds". One looks for
+an architecture record on the branch, and the other looks for a software
+design record. Both pass `repo-declared` as their source, because every repo
+can now settle the git question for itself:
+
+1. A repo with no `main` names its base branch with `trunk` in `wfctl.json`.
+2. A repo whose architecture folder sits outside the project sets
+   `design_record_checks` to `"off"` in `wfctl.json`. Both checks then read as
+   skipped without asking git.
+
+When a repo sets neither, git is expected to answer. So when git can't, the
+branch is held, and the reason names both settings.
+
 Gates keep returning a reason or `None` at their boundary; the three-valued
 verdict is what they compute internally and pass to the rule. Nothing about the
 signature a caller sees changes.
@@ -86,7 +99,10 @@ and is not proposed here.
 - Block on silence everywhere, as the conservative default — sound, and already
   what two of the three do. It loses on the case `design_gate` exists for: a git
   fact that cannot be computed is not a missing answer the user can supply, so
-  refusing leaves a pipeline stopped with no action that unblocks it.
+  refusing leaves a pipeline stopped with no action that unblocks it. This
+  still holds for every other check that reads git. For the two brainstorm
+  checks it no longer does, since `trunk` and `design_record_checks` are the
+  actions that unblock them, and so those two block.
 - A per-step flag saying whether that step blocks on inconclusive evidence —
   #100 rejects a second Boolean on `_STEPS` and this is that Boolean. It also
   attaches the answer to the step, which permits two steps reading one source to
@@ -120,7 +136,15 @@ this rule could state. Its conservative default is consistent with the rule
 rather than an application of it, and routing it through `blocks` would make a
 gate out of a parser.
 
+A repo whose architecture folder sits outside the project is now held at
+brainstorm on every branch until it sets `design_record_checks` to `"off"`.
+Neither this repo nor pfms keeps its folder outside the project, so neither
+one changes.
+
 ## Log
 
 - 2026-09-07  proposed    — #100's level-2 pass. Three policies over four
   evidence sources, and the epic's own table ruled on two of them.
+- 2026-10-26  amended     — #648 plan walkthrough. Andre chose to hold both
+  brainstorm checks when git can't answer, with `trunk` and
+  `design_record_checks` as the ways out.
