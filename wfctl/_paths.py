@@ -233,6 +233,59 @@ def declared_trunk_problems(repo_root: Path) -> list[str]:
     return problems
 
 
+DESIGN_RECORD_CHECKS_KEY = "design_record_checks"
+
+
+def design_record_checks(repo_root: Path) -> tuple[bool, list[str]]:
+    """Return (whether the two brainstorm checks run, problems with the setting).
+
+    The checks hold a branch when git can't say whether it wrote a record, and
+    a repository whose arch root is outside the tree is one where git never
+    can. `"off"` is the only way out there: a claim would sit under that same
+    arch root, where no reviewer would read it, so `wfctl step none` refuses to
+    write one.
+
+    Anything but `"off"` reads as on, a typo included, so a mistake never turns
+    a check off. The typo comes back as a problem for `check config`. A file
+    that won't parse is "on" with no problem, as in `declared_trunk`: `doctor`
+    and `check config` report that already.
+    """
+    path = repo_root / _CONFIG_PATH
+    if not path.exists():
+        return True, []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return True, []
+    if not isinstance(data, dict) or DESIGN_RECORD_CHECKS_KEY not in data:
+        return True, []
+    value = data[DESIGN_RECORD_CHECKS_KEY]
+    if value == "off":
+        return False, []
+    if value == "on":
+        return True, []
+    return True, [f"'{DESIGN_RECORD_CHECKS_KEY}' is {value!r}; use \"on\" or \"off\""]
+
+
+def design_record_checks_problems(repo_root: Path) -> list[str]:
+    """Everything wrong with the setting, for `check config`.
+
+    An arch root outside the tree with the checks on is a problem rather than a
+    choice, because git can't see that folder and every branch would be held at
+    brainstorm. A repository that keeps its arch root there declares it in the
+    manifest or `WFCTL_ARCH_DIR` and may have no `wfctl.json` at all, which is
+    why `check config` asks this before it looks for one.
+    """
+    on, problems = design_record_checks(repo_root)
+    if on and not is_in_tree(arch_root(repo_root), repo_root):
+        problems.append(
+            "the architecture folder is outside the project, so git can't check "
+            "it, and every branch will be held at brainstorm; set "
+            f"\"{DESIGN_RECORD_CHECKS_KEY}\": \"off\""
+        )
+    return problems
+
+
 def trunk_branch(repo_root: Path, timeout: float | None = None) -> str | None:
     """The repo's trunk: the branch `wfctl.json` declares, else origin/HEAD when
     the remote publishes it, then a bare repository's own HEAD, else the first
@@ -733,6 +786,32 @@ def is_in_tree(root: Path, repo_root: Path) -> bool:
     to exercise it is a CLI runner over a real git repo.
     """
     return root.resolve().is_relative_to(repo_root.resolve())
+
+
+def arch_location(root: Path, repo_root: Path) -> str:
+    """How a path under the arch root is named in output.
+
+    Repo-relative in-tree, absolute outside, and never with a trailing
+    separator — it renders files as well as directories, so a caller that means
+    a directory writes the slash itself.
+
+    A record set lives beside the code by default, and printing the absolute
+    path for it is noise that differs per machine. Out-of-tree has no relative
+    form worth showing, so it stays absolute.
+
+    Unescaped, and here rather than in `cli`, because the remedy it names is
+    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
+    consumer that has no rich. Escaping is the console's, applied where the
+    string is printed — `cli._arch_location` is that wrapper, and every console
+    caller still reaches the escaped form through it.
+    """
+    if not is_in_tree(root, repo_root):
+        return str(root)
+    rel = root.resolve().relative_to(repo_root.resolve())
+    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
+    # next to a slug, so the absolute path is the clearer name for that case.
+    return str(root) if rel == Path(".") else str(rel)
+
 
 def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
     """The issue keys `spec_dir`'s delivery.md claims in its Issue Grouping Map.

@@ -399,6 +399,14 @@ def cut_release(
     print(f"Release pull request opened: {opened.stdout.strip()}. Merge it once its checks pass.")
     print(f"To change the release notes, amend the commit on {branch} with --cleanup=verbatim and force-push it.")
     print("Editing the pull request's description doesn't change the release.")
+    # A release PR gets no review panel, so its `review` check needs a person's
+    # sign-off. It's printed, never run: a scripted sign-off would let an agent
+    # that runs this script cut and merge a release with nobody involved. The
+    # switch comes first because the script ends on main, where the sign-off
+    # refuses to run.
+    print("Before merging, sign off on the release commit from your own terminal:")
+    print(f"  git switch {branch}")
+    print("  wfctl review sign-off")
     return 0
 
 

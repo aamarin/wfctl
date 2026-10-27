@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _evidence, _stall
-from wfctl._paths import arch_root, is_in_tree
+from wfctl._paths import arch_location, arch_root
 from wfctl._evidence import DESIGN_BLOCK_REASON, EvidenceReader, Fact, State, build_evidence
 
 if TYPE_CHECKING:
@@ -94,7 +94,9 @@ class Step(NamedTuple):
     `sub_steps` defaults to empty so every existing row keeps parsing. Three
     steps carry any today. `brainstorm` splits the two artifacts it already
     produces, which is what earns a pass its own row
-    (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
+    (`a-step-carries-sub-steps-one-level-deep`), and adds the level-3 question
+    between them, which reads git for a record under `design/` because no
+    artifact brainstorm writes can answer it (#648). `plan` carries the plan
     review, whose report is a second artifact read against the first (#501).
     `implement` carries the store of the spec dir, which owns no artifact and
     reads git instead (`store-specs-implement-pass.md`). The other five steps
@@ -115,7 +117,11 @@ _STEPS: dict[str, Step] = {
             # brainstorm skill actually write them in, and the reverse of the
             # order the step's own reader used to check them — see
             # `_evidence.brainstorm`'s docstring for why that read was backwards.
+            # Software design between them, because level 3 follows level 2 and
+            # `design.md` is written last, listing the level-3 records. A branch
+            # missing every answer is told about them in the order it writes them.
             SubStep("architecture", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_architecture),
+            SubStep("software-design", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_software_design),
             SubStep("design-doc", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_design_doc),
         ),
     ),
@@ -640,31 +646,6 @@ def _derive_attention(
             f"{stall.step} repeated {stall.passes} times with evidence unchanged",
         )
     return None
-
-
-def arch_location(root: Path, repo_root: Path) -> str:
-    """How a path under the arch root is named in output.
-
-    Repo-relative in-tree, absolute outside, and never with a trailing
-    separator — it renders files as well as directories, so a caller that means
-    a directory writes the slash itself.
-
-    A record set lives beside the code by default, and printing the absolute
-    path for it is noise that differs per machine. Out-of-tree has no relative
-    form worth showing, so it stays absolute.
-
-    Unescaped, and here rather than in `cli`, because the remedy it names is
-    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
-    consumer that has no rich. Escaping is the console's, applied where the
-    string is printed — `cli._arch_location` is that wrapper, and every console
-    caller still reaches the escaped form through it.
-    """
-    if not is_in_tree(root, repo_root):
-        return str(root)
-    rel = root.resolve().relative_to(repo_root.resolve())
-    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
-    # next to a slug, so the absolute path is the clearer name for that case.
-    return str(root) if rel == Path(".") else str(rel)
 
 
 def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:

@@ -21,6 +21,7 @@ from tests.conftest import (
     CLEAN_SPEC,
     SPEC_SECTIONS,
     structured,
+    write_design_record,
     write_plan_review,
 )
 from wfctl import _completion, _verify
@@ -287,6 +288,7 @@ def test_a_record_written_for_this_change_advances(
     storyctl_dir.make_spec_artifact("brainstorm")
     root.mkdir(parents=True)
     (root / "layer-model.md").write_text(ACCEPTABLE_RECORD)
+    write_design_record(root)
 
     # `exit_code == 0` alone is not the assertion. Since the gate reports
     # through the payload rather than by refusing, every `next` exits 0 —
@@ -1475,9 +1477,10 @@ def test_a_manual_pass_names_the_pass_and_never_a_command(
 ) -> None:
     """FR-007, FR-022a: a person performs this pass, so `next` and `status`
     name the qualified pass rather than handing out a command nobody ships."""
-    _arch_root(storyctl_dir, monkeypatch)
+    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")  # design.md, satisfying design-doc
     runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])  # satisfies architecture
+    write_design_record(root)  # satisfies software-design
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
     ))
@@ -1502,9 +1505,10 @@ def test_auto_approve_does_not_stop_at_a_review_required_pass(
     """FR-021b: autonomy is one switch, not one per kind of gate — the same
     grant that already answers a design gate unattended also carries a
     declared pass's default `review_required` past the pause."""
-    _arch_root(storyctl_dir, monkeypatch)
+    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    write_design_record(root)
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"brainstorm": [
             {"name": "ui-design", "command": "/pfms-ui-design-workflow", "evidence": "x.md"},
@@ -1553,13 +1557,14 @@ def test_the_rule_only_reaches_the_inconclusive_case() -> None:
     assert blocks("satisfied", "repo-declared") is False
 
 
-def test_an_unreadable_arch_root_advances_the_design_step(
+def test_an_unreadable_arch_root_holds_the_design_step_and_names_the_way_out(
     storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path: Path
 ) -> None:
-    """The ambient rule end to end. An arch root outside the repository is the
-    reachable way git cannot answer — `touched_on_this_branch` returns None, and
-    the step advances rather than stranding a pipeline on evidence nobody
-    promised.
+    """The repo-declared rule end to end for brainstorm. An arch root outside the
+    repository is the reachable way git cannot answer: `touched_on_this_branch`
+    returns None. The step used to advance on that silence, and since #648 it
+    holds, because the repository can settle it with `design_record_checks`.
+    `decompose`'s tracker read is where the ambient rule still advances a step.
 
     `tmp_path` *is* `repo_root` for this fixture, so the root has to be hung off
     its parent: a path under `tmp_path` is in-tree, and git answers about it."""
@@ -1568,8 +1573,13 @@ def test_an_unreadable_arch_root_advances_the_design_step(
 
     out = runner.invoke(app, ["status"]).output
 
-    assert "brainstorm   ●" in out
-    assert "no architecture record" not in out
+    assert "brainstorm   ▶" in out
+    assert "git can't see whether this branch wrote a record" in out
+    assert '{ "design_record_checks": "off" }' in out
+
+    (storyctl_dir.repo_root / "wfctl.json").write_text('{ "design_record_checks": "off" }')
+
+    assert "brainstorm   ●" in runner.invoke(app, ["status"]).output
 
 
 def test_a_blocked_design_step_is_never_automatic(
@@ -1639,7 +1649,7 @@ def test_an_out_of_tree_arch_root_is_named_absolutely(tmp_path: Path) -> None:
     Out-of-tree has no relative form worth showing, and `relative_to` raises
     rather than returning one — so the branch that is missing is the one that
     would take the whole command down."""
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -1652,7 +1662,7 @@ def test_an_out_of_tree_arch_root_is_named_absolutely(tmp_path: Path) -> None:
 def test_an_arch_root_at_the_repo_root_is_named_absolutely(tmp_path: Path) -> None:
     """`relative_to` returns `Path(".")` there, and "./" beside a slug reads as
     a stray typo rather than a location."""
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -1927,9 +1937,10 @@ def test_resume_says_a_manual_pass_is_a_persons_to_perform(
     continue" over a pass nothing ships a command for. One file, two composers,
     and the field only one of them filled.
     """
-    _arch_root(storyctl_dir, monkeypatch)
+    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    write_design_record(root)
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
     ))
@@ -1952,9 +1963,10 @@ def test_the_manual_sentence_does_not_reroute_the_step_to_its_own_command(
     the reason earlier and `brainstorm.ui-design` becomes `/speckit.brainstorm`
     — the sentence explaining the pass would have buried the pass.
     """
-    _arch_root(storyctl_dir, monkeypatch)
+    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("brainstorm")
     runner.invoke(app, ["arch", "none", "--reason", "no new boundary"])
+    write_design_record(root)
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}
     ))

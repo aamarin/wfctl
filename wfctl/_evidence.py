@@ -150,13 +150,48 @@ class Fact(NamedTuple):
 # how a view renders that conclusion.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
+# The software design pass's display string when the level-3 question went
+# unanswered, and the two answers to it. The pass builds its own remedy rather
+# than handing `_pipeline._design_remedy` a second reason to key on, the same
+# way `_judge_drawings` hands back its fix, so the help sits beside the reason
+# instead of in `_pipeline`.
+SOFTWARE_DESIGN_REASON = "no software design record for this change"
+SOFTWARE_DESIGN_HELP = (
+    "  Either record the structural choice this change makes — one file under:\n"
+    "      {location}/\n"
+    "  or state that it makes none:\n"
+    '      wfctl step none brainstorm.software-design --reason "<why>"'
+)
+
+# Both brainstorm checks hold on this when git can't say whether the branch
+# wrote a record. One reason for both, since it's the same question asked of
+# two folders, and the remedy names the two settings that answer it for the
+# repository: `trunk` for a repo whose base branch wfctl can't find, and
+# `design_record_checks` for one whose arch root git can't see.
+GIT_UNANSWERED_REASON = "git can't see whether this branch wrote a record"
+GIT_UNANSWERED_HELP = (
+    "  If this repo's base branch isn't main, master, or dev, name it in wfctl.json:\n"
+    '      { "trunk": "<branch>" }\n'
+    "  If wfctl.json already names one, run `wfctl check config` to see what's wrong.\n"
+    "  If the architecture folder is outside the project, turn these checks off:\n"
+    '      { "design_record_checks": "off" }'
+)
+
+# What both checks display once `design_record_checks` turns them off. A display
+# string and never a reason: `collect_warnings` turns a finished pass's reason
+# into a warning, and a repository that turned the checks off on purpose would
+# otherwise be told so on every `status`.
+CHECKS_OFF_REASON = "turned off by design_record_checks in wfctl.json"
+
 # The architecture pass's display string when it finished without seeing what the
 # branch committed (#508). Without a trunk there is no base to diff against, so
-# only uncommitted records reach the drawing check. The pass still finishes,
-# because `accept` refuses the drawing when a person rules on the record, and
-# holding the branch on a check that cannot run asks the user for a trunk they
-# may have no reason to create. Short enough that the pass's row fits 80 columns,
-# since a wrapped line breaks under the step table and reads as a new row.
+# only uncommitted records reach the drawing check. The pass gets this far only
+# when an uncommitted record already answered the boundary question, since git
+# can't answer without a trunk otherwise and `_architecture_answered` holds the
+# branch on that (#648). It finishes rather than holding a second time, because
+# `accept` refuses the drawing when a person rules on the record. Short enough
+# that the pass's row fits 80 columns, since a wrapped line breaks under the
+# step table and reads as a new row.
 DRAWINGS_UNCHECKED = "no trunk found, so committed records were not checked"
 
 # The tasks step's display string when its file holds no task (#308). Names the file
@@ -177,7 +212,12 @@ def blocks(verdict: Verdict, source: Source) -> bool:
 
     Ambient evidence proceeds on silence because nothing promised it: a git fact
     that cannot be computed is not an answer the user can go and supply, and
-    refusing on it stops a pipeline with no action that unblocks it.
+    refusing on it stops a pipeline with no action that unblocks it. `decompose`
+    is the caller that still passes `ambient`. The two brainstorm checks pass
+    `repo-declared` (#648), because a repository can settle their git question
+    itself, by naming its trunk or by turning the checks off with
+    `design_record_checks`, and a check that let the branch through on silence
+    stopped running with nobody told.
     """
     if verdict == "inconclusive":
         return source in _PROMISED
@@ -830,8 +870,15 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     if _design_exceptions.boundary(spec_dir) is not None:
         return None
 
-    from wfctl._paths import DESIGN_DIR, non_record_subtrees, touched_on_this_branch
+    from wfctl._paths import (
+        DESIGN_DIR, design_record_checks, non_record_subtrees, touched_on_this_branch,
+    )
 
+    # Off reads as answered, for `brainstorm`'s own `pending` read as much as for
+    # the pass: a repository that turned the checks off has said no record is
+    # coming from git, so a branch with nothing in it starts at `design-doc`.
+    if not design_record_checks(repo_root)[0]:
+        return None
     arch = arch_root(repo_root)
     # Three states in, three states out. `touched_on_this_branch` already returns
     # `None` for "git cannot answer" and says in its own docstring why — the old
@@ -842,7 +889,14 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     verdict: Verdict = (
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
     )
-    return DESIGN_BLOCK_REASON if blocks(verdict, "ambient") else None
+    # `repo-declared`, not `ambient`: a repository can settle git's silence
+    # itself, by naming its trunk or by turning the checks off, so letting the
+    # branch through would hide a check that stopped running. `blocks` decides
+    # what the silence means, and only then does the verdict pick the reason
+    # (`promised-evidence-blocks-on-silence`).
+    if not blocks(verdict, "repo-declared"):
+        return None
+    return GIT_UNANSWERED_REASON if verdict == "inconclusive" else DESIGN_BLOCK_REASON
 
 
 # What each reader proves (#300, epic #100 scope 5). The rungs, weakest first:
@@ -904,12 +958,12 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #               the tasks read closed, and a repo-declared verification passed
 #               against this tree.
 #
-# `blocks` is consulted three times, by the three readers whose evidence has an
-# inconclusive state to judge — `implement` as `repo-declared`, `brainstorm` and
-# `decompose` as `ambient`. `tasks` reads inside its file and still reaches none:
-# the file is read or it is absent, and one holding no task is `unsatisfied`, which
-# stops the step whoever owed the evidence. The other four read a file that is
-# there or is not.
+# `blocks` is consulted four times, by the readers whose evidence has an
+# inconclusive state to judge — `implement` and brainstorm's two record checks as
+# `repo-declared`, `decompose` as `ambient`. `tasks` reads inside its file and
+# still reaches none: the file is read or it is absent, and one holding no task
+# is `unsatisfied`, which stops the step whoever owed the evidence. The other
+# four read a file that is there or is not.
 # `decompose` was the exception until #314: it resolved two of its own readings —
 # no tracker configured, and a plan carrying no map or no rows — without reaching
 # the rule. Both still proceed; they now proceed because `blocks` says so.
@@ -1223,14 +1277,14 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     boundary exception `wfctl arch none` writes — and whether the drawing a
     proposed record carries is one `wfctl arch accept` would take.
 
-    One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
+    One of `brainstorm`'s three built-in passes. Calls `_architecture_answered`
     directly rather than `design_block`, which answers the same question with
     two extra guards that belong to the whole step (`design.md` exists;
-    `spec.md` does not) — `design.md` is the other pass's business.
+    `spec.md` does not) — `design.md` is the `design-doc` pass's business.
 
     A branch past `spec.md` does reach this reader, whenever `design.md` exists
     too: `brainstorm` reads `done` on `design.md` before it looks for `spec.md`,
-    and then both passes run. `_architecture_answered` returns early there by its
+    and then every pass runs. `_architecture_answered` returns early there by its
     own escape, and the drawing check has to repeat it, or it would hold every
     branch past specify on a record the pipeline had already moved beyond. The
     check still runs there, and its verdict is folded into a `done` reading that
@@ -1241,7 +1295,15 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     refusable drawing there would read as a step never begun, and send the
     reader to start a step already half done.
     """
+    from wfctl._paths import design_record_checks
+
+    # Ahead of everything, the drawing check included, since that reads git too
+    # and the setting says git has nothing to say here.
+    if not design_record_checks(ev.repo_root)[0]:
+        return Assessment("skipped", display=CHECKS_OFF_REASON)
     reason = _architecture_answered(ev.spec_dir, ev.repo_root)
+    if reason == GIT_UNANSWERED_REASON:
+        return Assessment("in_progress", reason, remedy=GIT_UNANSWERED_HELP)
     if reason is not None:
         return Assessment("in_progress", reason)
     verdict = _judge_drawings(ev.repo_root)
@@ -1322,8 +1384,55 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     )
 
 
+def brainstorm_software_design(ev: Evidence) -> Assessment:
+    """Whether the level-3 question was put and answered: a record under
+    `<arch-root>/design/` that this branch added or changed.
+
+    The "no" answer is a `wfctl step none` claim, which `_pass_states` reads
+    before this reader runs, so it never reaches here
+    (`software-design-none-is-a-claim`).
+
+    It asks git the question `_architecture_answered` asks, of `design/` alone,
+    and keeps that function's `spec.md` escape, so a branch that left brainstorm
+    before this pass existed doesn't move backwards. It builds its own remedy
+    because the location it names is `design/`, which `_design_remedy` was
+    never written to know about.
+
+    Its source is `repo-declared`, not `ambient`, so it holds when git can't
+    answer. A repository can settle that itself, by naming its trunk or by
+    turning the checks off, and a silent let-through is a check nobody knew had
+    stopped running (`promised-evidence-blocks-on-silence`). `blocks` decides
+    what git's silence means, and only then does the verdict pick which reason
+    to show.
+    """
+    from wfctl._paths import (
+        DESIGN_DIR, arch_location, design_record_checks, touched_on_this_branch,
+    )
+
+    # Ahead of the `spec.md` escape, as in `brainstorm_architecture`, so one
+    # setting reads `skipped` on both rows rather than `done` on this one.
+    if not design_record_checks(ev.repo_root)[0]:
+        return Assessment("skipped", display=CHECKS_OFF_REASON)
+    if _file_exists(ev.spec_dir / "spec.md"):
+        return Assessment("done")
+    design = arch_root(ev.repo_root) / DESIGN_DIR
+    touched = touched_on_this_branch(ev.repo_root, design)
+    verdict: Verdict = (
+        "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
+    )
+    if not blocks(verdict, "repo-declared"):
+        return Assessment("done")
+    if verdict == "inconclusive":
+        return Assessment("in_progress", GIT_UNANSWERED_REASON, remedy=GIT_UNANSWERED_HELP)
+    return Assessment(
+        "in_progress",
+        SOFTWARE_DESIGN_REASON,
+        remedy=SOFTWARE_DESIGN_HELP.format(location=arch_location(design, ev.repo_root)),
+    )
+
+
 def brainstorm_design_doc(ev: Evidence) -> Assessment:
-    """Whether `design.md` was written. `brainstorm`'s other built-in pass."""
+    """Whether `design.md` was written. The last of `brainstorm`'s three built-in passes."""
     return Assessment("done" if _file_exists(ev.spec_dir / "design.md") else "in_progress")
 
 
@@ -1332,7 +1441,7 @@ def brainstorm(ev: Evidence) -> Assessment:
 
     Owns only its `pending` and `skipped` branches now
     (`a-step-carries-sub-steps-one-level-deep`) — what used to be this
-    function's `in_progress`/`done` branch is the roll-up of its two passes,
+    function's `in_progress`/`done` branch is the roll-up of its passes,
     computed in `_pipeline._infer_steps` (research.md R7), because a single
     reader collapsing two artifacts into one string is the defect the record
     exists to fix.
@@ -1345,6 +1454,14 @@ def brainstorm(ev: Evidence) -> Assessment:
     `_STEPS`, and this checks the same evidence in the same order: the record
     before the document, because that is the order `design-levels` and the
     brainstorm skill write them in).
+
+    Two readings follow from `_architecture_answered` and are meant (#648).
+    Where git can't answer and there is no `design.md`, the check holds, so the
+    step reads `pending`, the same as a branch where git can answer and nothing
+    is written yet. With `design_record_checks` off, the check reads as
+    answered, so a branch with nothing in it reads under way, with `design-doc`
+    the one pass missing, which is how an arch root outside the tree read
+    before the setting existed.
     """
     if _file_exists(ev.spec_dir / "design.md"):
         return Assessment("done")

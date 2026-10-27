@@ -1,0 +1,71 @@
+name: Review
+
+# Fails a PR while a review group has commits on it that no review covers.
+# wfctl records each completed review, and each person's sign-off, as a git
+# note under refs/notes/wfctl-review and sends it to origin. This job reads
+# those notes. `.github/rulesets/main.json` requires it by its job name.
+#
+# `pull_request_target` makes GitHub run this file as it is on the base
+# branch, with the base branch's wfctl, so a PR can't weaken its own check.
+# That trigger also hands the job the base repository's token, which is why
+# the job reads the PR's checkout only as data: it never installs, imports,
+# or runs anything from `pr/`. The token can only read.
+#
+# `edited` is how a stacked PR is checked again when GitHub retargets it to
+# main after its parent merges. It also fires on a title or description edit,
+# which reruns the check to the same answer.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+# A retarget starts a run against the new base while the run against the old
+# one may still be going. Cancelling the older run leaves the newer result.
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      # The base branch, which is `pull_request_target`'s default ref. Only
+      # this checkout's code runs.
+      - uses: actions/checkout@v4
+        with:
+          path: trusted
+
+      # The PR's head as data: its commits, its notes, and its wfctl.json.
+      # Full history, because the check refuses a shallow clone.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+
+      # With no notes on origin yet, every commit reads as unreviewed, which
+      # is the right answer, so a missing ref doesn't stop the job.
+      # `ls-remote --exit-code` exits 2 for a ref origin doesn't have, and any
+      # other failure, such as a refused fetch, stops the job with git's own
+      # message rather than reading as a branch nobody reviewed.
+      - name: Fetch the review notes
+        run: |
+          found=0
+          git -C pr ls-remote --exit-code origin refs/notes/wfctl-review > /dev/null || found=$?
+          if [ "$found" = 0 ]; then
+            git -C pr fetch origin +refs/notes/wfctl-review:refs/notes/wfctl-review
+          elif [ "$found" != 2 ]; then
+            exit "$found"
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+
+      # The base branch reaches the shell through `env`, so a branch name
+      # holding shell text is only ever a quoted value.
+      - name: Check every commit has been reviewed
+        working-directory: pr
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: uv run --project ../trusted wfctl check reviews --base "$BASE_REF"

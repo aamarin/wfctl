@@ -32,7 +32,9 @@ level-3 answer lands.
 
 **Not for**: a choice with no credible alternative. An implementation that only
 ever had one shape is not a decision, and saying so is an answer rather than a
-missing record.
+missing record. Say it with
+`wfctl step none brainstorm.software-design --reason "<why>"`, which is what
+releases brainstorm.
 
 **Not here**: a choice that draws or moves a boundary. That is level 2, and it
 belongs in `.agents/skills/architecture-decisions`. See *Escalation* below —

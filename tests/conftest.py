@@ -325,6 +325,20 @@ def write_record(
     return path
 
 
+def write_design_record(root: Path, slug: str = "a-structural-choice") -> Path:
+    """A level-3 record at `root/design/<slug>.md`, which answers brainstorm's
+    software design pass.
+
+    For a test that builds a branch past brainstorm to reach something else.
+    Without one, the branch is held on that pass however it answered the
+    architecture question (#648).
+    """
+    path = root / "design" / f"{slug}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"# {slug}\n")
+    return path
+
+
 def structured(body: str) -> str:
     """`body` plus the sections `specify` requires, for a test about something else.
 

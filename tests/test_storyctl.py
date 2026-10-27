@@ -6,7 +6,7 @@ from datetime import date
 
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, structured, write_plan_review
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, structured, write_design_record, write_plan_review
 from wfctl import _completion
 from wfctl._pipeline import _current_step_name, infer_pipeline
 from wfctl._pipeline import _infer_steps as _infer_pipeline
@@ -59,6 +59,7 @@ class TestInferPipeline:
         arch = storyctl_dir.repo_root / "docs" / "architecture"
         arch.mkdir(parents=True, exist_ok=True)
         (arch / "a-boundary.md").write_text(ACCEPTABLE_RECORD)
+        write_design_record(arch)
         steps = _infer_pipeline(storyctl_dir.spec_dir, storyctl_dir.repo_root)
         assert steps[0].state == "done"
 

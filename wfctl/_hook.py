@@ -173,7 +173,14 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # can't match from importing `_review_gate` at all. An exception escaping
     # the check refuses rather than allows, since it was only reached by a
     # command that might open or merge a pull request.
-    if "gh" in command.lower() or "merge" in command or "sign" in command:
+    # Lowered once for the notes terms, since git reads config keys in any
+    # case and `remote.origin.MIRROR` is the same setting as `mirror`.
+    lowered = command.lower()
+    if (
+        "gh" in lowered or "merge" in command or "sign" in command
+        or "notes" in lowered or "mirror" in lowered or ".push" in lowered
+        or ("push" in lowered and "*" in command)
+    ):
         try:
             from wfctl import _review_gate
 

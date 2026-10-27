@@ -220,6 +220,22 @@ def test_the_no_boundary_exit_names_its_command() -> None:
         assert "wfctl arch none" in text, skill
 
 
+def test_the_no_structural_choice_exit_names_its_command() -> None:
+    """The level-3 twin of the test above (#648, SC-004). Brainstorm holds on
+    its software design pass until the branch writes a record under `design/`
+    or claims the pass, so a skill that tells an agent "no record is the
+    answer" without naming the claim leaves it stuck at a hold it was told it
+    had answered.
+
+    The three skills that say when a change earns no level-3 record. Each
+    names the claim in its own place, and an agent that read one of them
+    alone needs the command there.
+    """
+    for skill in ("design-levels", "speckit-brainstorm", "software-design-decisions"):
+        text = (_AGENTS / "skills" / skill / "SKILL.md").read_text()
+        assert "wfctl step none brainstorm.software-design" in text, skill
+
+
 def test_the_design_record_template_ships_beside_its_skill() -> None:
     """The level-3 counterpart of the ADR pair, and the half that shipped alone.
 
@@ -665,7 +681,19 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     enough to rehearse it is wide enough to perform it. The flag leads the grant
     because a grant that ends with it was met by `--agreed x -- --dry-run`, which
     accepts a record named `--dry-run`.
+
+    `wfctl step none brainstorm.software-design` is the level-3 "no" (#648),
+    which an unattended run gives itself. It is granted for that one pass. A
+    grant wide enough to claim any pass would let the same run claim away
+    `plan.plan-review` or a pass the repository declared, so the assertion
+    matches real command lines against the grants rather than checking for
+    one spelling: `Bash(wfctl step none *)` and `Bash(wfctl*)` would pass a
+    test that looked only for `Bash(wfctl step none*)`. The grant limits the
+    command line and no more, since `Write` could write a claim file directly,
+    and the PR review of the committed claim is what catches a wrong one.
     """
+    from fnmatch import fnmatchcase
+
     surfaces = {
         "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
         "skill": _AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md",
@@ -689,6 +717,11 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
         assert "Bash(wfctl arch accept --dry-run *)" in allowed, f"{where}: dry run"
         assert "Bash(wfctl arch accept * --dry-run)" not in allowed, f"{where}: trailing flag"
         assert "Bash(wfctl arch accept*)" not in allowed, f"{where}: accept itself"
+        patterns = re.findall(r"Bash\(([^)]*)\)", allowed)
+        claim = "wfctl step none brainstorm.software-design --reason x"
+        assert any(fnmatchcase(claim, p) for p in patterns), f"{where}: the level-3 claim"
+        other = "wfctl step none plan.plan-review --reason x"
+        assert not any(fnmatchcase(other, p) for p in patterns), f"{where}: any other claim"
     assert grants["wrapper"] == grants["skill"], (
         "the two copies of the grant have drifted; whichever entrance lost one "
         "now refuses a step the other can run"

@@ -7,12 +7,11 @@
   ],
   "change_sections": ["Needs a spec?", "Moves a boundary?"],
   "review": {
-    "commands": { "codex": "codex exec --sandbox read-only" },
     "groups": [
       { "group": "security",
-        "reviewers": [ { "name": "claude", "count": 2 }, { "name": "codex", "count": 2 } ] },
+        "reviewers": [ { "name": "claude", "count": 2 } ] },
       { "group": "code",
-        "reviewers": [ { "name": "claude", "count": 2 }, { "name": "codex", "count": 2 } ] }
+        "reviewers": [ { "name": "claude", "count": 2 } ] }
     ]
   },
   "steps": {
