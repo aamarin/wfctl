@@ -1,5 +1,6 @@
 ---
 status: proposed
+diagram: state
 ---
 
 # An absent artifact is claimed by a person, never inferred
@@ -75,6 +76,27 @@ siblings, not one general command. `arch none` overwrites a whole file holding
 a single boundary claim, so a branch that claimed away several passes through
 it would lose all but the last. Adding an optional pass argument to `arch none`
 would also mix the boundary question's refusals and path with those of a pass.
+
+## Boundary
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending: parent step not reached
+  pending --> in_progress: parent step is current
+  in_progress --> in_progress: artifact missing, no claim
+  in_progress --> done: artifact exists
+  pending --> skipped: a claim exists for it on this branch
+  in_progress --> skipped: a claim exists for it on this branch
+  pending --> skipped: the parent step is skipped (claimed is null)
+  note right of in_progress
+    A missing artifact never moves a sub-step to skipped.
+    Only a person's claim, written by wfctl step none, does.
+  end note
+```
+
+The drawing follows one sub-step through its four states. The loop on
+`in_progress` is the case this record decides: with no artifact and no claim,
+the sub-step stays where it is, and wfctl doesn't infer `skipped`.
 
 ## Owns truth
 
@@ -171,3 +193,5 @@ skill, and the default view hides the row once it's settled.
 - 2026-10-26  revised     — #635: the Decision and Owns truth sections no
   longer say the claim is committed to the branch. The PR body carries it
   to the reviewer, and `check-body` checks that it does
+- 2026-10-26  revised     — #635: adds a state drawing of one sub-step, which
+  acceptance requires
