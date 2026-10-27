@@ -3110,7 +3110,7 @@ def _shipped_subcommands(event: str) -> set[str]:
 # is what tells `merge_hook` to leave a group's matcher alone.
 _HOOK_MATCHERS: dict[str, dict[str, str]] = {
     "claude": {PRETOOL_EVENT: "Bash"},
-    "bob": {PRETOOL_EVENT: "^execute_command$"},
+    "bob": {PRETOOL_EVENT: "^(execute_command|run_shell_command)$"},
 }
 
 

@@ -186,7 +186,7 @@ def test_agents_without_hook_support_do_not_merge_hooks(agent_dir: Path) -> None
 
 def test_install_merges_hooks_for_bob_agent(agent_dir: Path) -> None:
     """`install-skills --agent bob` merges PreToolUse, UserPromptSubmit, and Stop
-    hooks into `.bob/settings.json` with ^execute_command$ matcher."""
+    hooks into `.bob/settings.json` with ^(execute_command|run_shell_command)$ matcher."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     bob_settings_path = repo_root / ".bob" / "settings.json"
     assert not bob_settings_path.exists()
@@ -203,7 +203,7 @@ def test_install_merges_hooks_for_bob_agent(agent_dir: Path) -> None:
     ]
     assert after["hooks"]["PreToolUse"] == [
         {
-            "matcher": "^execute_command$",
+            "matcher": "^(execute_command|run_shell_command)$",
             "hooks": [{"type": "command", "command": GUARD_HOOK_COMMAND}],
         }
     ]
@@ -213,7 +213,7 @@ def test_install_merges_hooks_for_bob_agent(agent_dir: Path) -> None:
 
 
 def test_doctor_reports_drift_when_bob_managed_hook_has_wrong_matcher(agent_dir: Path) -> None:
-    """When Bob's PreToolUse matcher is altered, doctor reports drift for execute_command."""
+    """When Bob's PreToolUse matcher is altered, doctor reports drift."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     bob_settings_path = repo_root / ".bob" / "settings.json"
 
@@ -224,7 +224,7 @@ def test_doctor_reports_drift_when_bob_managed_hook_has_wrong_matcher(agent_dir:
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 1, result.output
-    assert "matches the wrong tool — it never sees a ^execute_command$ call" in result.output
+    assert "matches the wrong tool — it never sees a ^(execute_command|run_shell_command)$ call" in result.output
 
 
 # --- US2: reinstalling converges, never duplicates --------------------------

@@ -362,11 +362,11 @@ def test_a_fresh_group_carries_the_matcher_it_was_given() -> None:
 
 
 def test_a_fresh_group_carries_bob_execute_command_matcher() -> None:
-    """Bob Shell tool event hook is scoped to execute_command via regex matcher."""
+    """Bob Shell tool event hook is scoped to execute_command / run_shell_command via regex matcher."""
     settings: dict = {}
-    assert _settings.merge_hook(settings, PRETOOL, GUARD, "^execute_command$") is True
+    assert _settings.merge_hook(settings, PRETOOL, GUARD, "^(execute_command|run_shell_command)$") is True
     assert settings["hooks"][PRETOOL] == [
-        {"matcher": "^execute_command$", "hooks": [{"type": "command", "command": GUARD}]}
+        {"matcher": "^(execute_command|run_shell_command)$", "hooks": [{"type": "command", "command": GUARD}]}
     ]
 
 
