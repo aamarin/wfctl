@@ -868,12 +868,13 @@ def _branch(
 ) -> Path:
     """A branch in brainstorm: `design.md` listing `listed`, a domain page naming
     `known` (none when `known` is None), and a level-3 record so the software
-    design pass has nothing to say."""
+    design pass has nothing to say. The record governs every listed context, since
+    that pass matches contexts too once the repo has a name list."""
     root = _arch_root(storyctl_dir, monkeypatch)
     if known is not None:
         write_domain_page(root, known, outside=outside)
     storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
-    write_design_record(root)
+    write_design_record(root, governs=listed or "")
     return root
 
 

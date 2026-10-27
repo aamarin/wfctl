@@ -176,6 +176,11 @@ no exceptions, which matches the case where nothing has been written yet.
 #648's "no design decision" exception becomes one more name in the folder and one
 more reader function, rather than a fifth place that builds its own path.
 
+When the domain page lists contexts, `exceptions/` also holds one subfolder per
+context, and a per-context "no" is written there. `passes` called without a
+context keeps ignoring those subfolders. The module that reads them is described
+in `649-contexts-module.md`.
+
 ## Verification
 
 - A test runs `step none` on two passes and `arch none` once, then checks that
@@ -194,3 +199,5 @@ more reader function, rather than a fifth place that builds its own path.
   `_design_exceptions.py`, so the files use the same word as the docs
 - 2026-10-26  revised   — analyze: a fifth function, `path`, so the worktree
   guard's refusal prints the boundary exception's file without building it
+- 2026-10-27  revised   — #649: `exceptions/` also holds one subfolder per
+  context, read through `649-contexts-module.md`
