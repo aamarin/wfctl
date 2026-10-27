@@ -1145,23 +1145,26 @@ def resolve_agent_dir(
 _ISSUE_STATE_FOLDER = ".issues"
 
 
-def resolve_review_dir(
+def resolve_round_dir(
     repo_root: Path, branch: str, create: bool = True, timeout: float | None = None,
 ) -> Path:
-    """The folder holding `reviews/` for `branch`: the review runs, the last
-    reviewed commit and the sign-off.
+    """The folder holding the review round tally for `branch`.
 
-    These are keyed by the issue the branch names, not by the branch, because
-    a rename moves the branch's state folder and leaves its round count and
-    sign-off behind (#666). `git branch -m` is an ordinary command that leaves
-    no trace, so the cap would otherwise reset for anyone who ran it.
-    Two branches on one issue share the folder, since a second branch with
-    another slug would be another way past the cap (`review-round-issue-key`).
+    The tally is keyed by the issue the branch names, not by the branch, because
+    a rename moves the branch's state folder and leaves its round count behind
+    (#666). `git branch -m` is an ordinary command that leaves no trace, so the
+    cap would otherwise reset for anyone who ran it. Two branches on one issue
+    share the folder, since a second branch with another slug would be another
+    way past the cap (`review-round-issue-key`).
+
+    Only the tally lives here. The run records, the last reviewed commit and
+    the person's approval stay in `resolve_agent_dir`, since they say which
+    commits one branch had reviewed, and CI reads that from notes reachable
+    from the branch.
 
     A branch that names no issue, such as `main`, keeps its own state folder,
     and so does a `WFCTL_STATE_DIR` override, which pins one folder for every
-    branch. Everything else about a session (events, handoff) stays under
-    `resolve_agent_dir`.
+    branch.
     """
     from wfctl import _tracker  # lazy: avoids import cycle at module load
 

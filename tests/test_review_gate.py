@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from wfctl import _hook, _review, _review_config, _review_gate
-from wfctl._paths import resolve_review_dir
+from wfctl._paths import resolve_agent_dir
 
 REPO = Path(__file__).resolve().parent.parent
 THIS_REPO = "acme/widgets"
@@ -91,7 +91,7 @@ class Repos:
 
         The groups are the ones the guard requires plus the working tree's, the
         list `wfctl review start` accepts (FR-010a)."""
-        agent_dir = resolve_review_dir(root, branch)
+        agent_dir = resolve_agent_dir(root, branch)
         head = git(root, "rev-parse", "HEAD")
         required = _review_config.required_at(root, head, "refs/remotes/origin/main")[0]
         names = {g.name for g in required}
@@ -253,7 +253,7 @@ def test_a_sign_off_allows_the_head_it_covers_and_not_a_commit_after_it(
 ) -> None:
     """US3 scenarios 4 and 5. A sign-off covers the commits that existed when a
     person read them, never one added later."""
-    agent_dir = resolve_review_dir(repos.feature, "604-x")
+    agent_dir = resolve_agent_dir(repos.feature, "604-x")
     _review.sign_off(agent_dir, git(repos.feature, "rev-parse", "HEAD"))
     assert guard("gh pr create --fill", repos.feature) == (0, "")
 
@@ -271,7 +271,7 @@ def test_an_ancestor_test_answering_no_is_an_answer_not_an_error(
     """`merge-base --is-ancestor` exits 1 to say no. Read as a failure, a
     sign-off on another line of history would turn every check into the error
     refusal instead of listing the commits."""
-    agent_dir = resolve_review_dir(repos.feature, "604-x")
+    agent_dir = resolve_agent_dir(repos.feature, "604-x")
     _review.sign_off(agent_dir, git(repos.other, "rev-parse", "HEAD"))
 
     code, err = guard("gh pr create --fill", repos.feature)
@@ -287,7 +287,7 @@ def test_a_half_written_record_gives_the_error_refusal_naming_the_file(
     """US3 scenario 6. A broken record read as missing would look like a branch
     nobody reviewed, and read as reviewed it would let anything through."""
     repos.complete(repos.feature, "604-x")
-    record = resolve_review_dir(repos.feature, "604-x") / "reviews/security/last-reviewed.json"
+    record = resolve_agent_dir(repos.feature, "604-x") / "reviews/security/last-reviewed.json"
     record.write_text('{"sha": ')
 
     code, err = guard("gh pr create --fill", repos.feature)
@@ -1267,7 +1267,7 @@ def test_judging_another_branch_creates_no_state_directory(
 ) -> None:
     """A hook reader leaves no empty directory behind for a branch nobody ran
     wfctl on."""
-    state = resolve_review_dir(repos.main, "630-x", create=False)
+    state = resolve_agent_dir(repos.main, "630-x", create=False)
 
     guard("gh pr merge 630", repos.main)
 

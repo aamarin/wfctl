@@ -75,29 +75,55 @@ def test_another_issue_starts_its_own_count(repo: Path) -> None:
     assert "run 001 · round 1 of 3" in result.output
 
 
-def test_a_rename_keeps_the_sign_off(repo: Path) -> None:
-    """The sign-off is what lets a branch past the cap. If the count survived a
-    rename and the sign-off didn't, the user would have to sign off twice."""
+def test_a_rename_drops_the_branchs_sign_off_and_the_cap_still_holds(repo: Path) -> None:
+    """A sign-off says which commits one branch had reviewed, and CI reads that
+    from notes on the branch, so it stays in the branch's folder. A rename then
+    loses it, which costs the user a second sign-off and opens no way past the cap."""
     start_rounds(3)
     head = git(repo, "rev-parse", "HEAD")
-    _review.sign_off(_paths.resolve_review_dir(repo, "626-review-round-cap"), head)
+    _review.sign_off(_paths.resolve_agent_dir(repo, "626-review-round-cap"), head)
     git(repo, "branch", "-m", "626-round-cap")
 
     result = run("review", "start", "security")
 
-    assert result.exit_code == 0, result.output
-    assert f"the sign-off at {head[:7]} covers every commit left to review" in result.output
+    assert result.exit_code == 1, result.output
+    assert "security has run 3 of 3 rounds" in result.output
+
+
+def test_a_review_finished_on_a_stacked_branch_does_not_cover_its_parent(repo: Path) -> None:
+    """Two branches on issue 626, the second stacked on the first. CI counts the
+    parent's reviewed commits from notes reachable from the parent, which cannot
+    see a note on the child. If the child's completed run moved a last reviewed
+    commit that the parent also reads, past the parent's head, the guard would
+    pass the parent locally and CI would reject it (the Codex finding on #673).
+    So the child's coverage has to land in the child's own folder."""
+    parent = "626-review-round-cap"
+    git(repo, "checkout", "-q", "-b", "626-hotfix-typo")
+    head = commit(repo, "b")
+    started = run("review", "start", "security")
+    reports = Path(started.output.splitlines()[1].removeprefix("reports: "))
+    for rid in ("s1", "s2", "s3"):
+        (reports / f"{rid}.md").write_text(
+            f"Reviewed: {head[:7]}\n\nNo findings.\n\nVerdict: Approve\n"
+        )
+    assert run("review", "check", "security").exit_code == 0
+
+    child_dir = _paths.resolve_agent_dir(repo, "626-hotfix-typo")
+    assert _review.last_reviewed(child_dir, "security") == head
+    assert _review.last_reviewed(_paths.resolve_agent_dir(repo, parent), "security") is None
+    assert _review.last_reviewed(_paths.resolve_round_dir(repo, parent), "security") is None
+    assert _review.rounds_tallied(_paths.resolve_round_dir(repo, parent), "security") == 1
 
 
 def test_a_branch_naming_no_issue_keeps_its_own_state(repo: Path) -> None:
     """`main` and similar branches carry no key to share, so they stay keyed by name."""
-    assert _paths.resolve_review_dir(repo, "scratch") == _paths.resolve_agent_dir(repo, "scratch")
+    assert _paths.resolve_round_dir(repo, "scratch") == _paths.resolve_agent_dir(repo, "scratch")
 
 
 def test_the_issue_folder_cannot_collide_with_a_branch_folder(repo: Path) -> None:
     """Branch folders sit beside the issue folder under the project. git refuses a
     ref name that starts with a dot, so no branch can take the issue folder's name."""
-    shared = _paths.resolve_review_dir(repo, "626-review-round-cap", create=False)
+    shared = _paths.resolve_round_dir(repo, "626-review-round-cap", create=False)
     holder = shared.parent
 
     assert holder.name.startswith(".")
@@ -113,7 +139,7 @@ def test_the_state_override_still_pins_one_folder(
 ) -> None:
     monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "pinned"))
 
-    assert _paths.resolve_review_dir(repo, "626-x") == tmp_path / "pinned"
+    assert _paths.resolve_round_dir(repo, "626-x") == tmp_path / "pinned"
 
 
 def linked_worktree(repo: Path, branch: str, *, tracker: bool = True) -> Path:

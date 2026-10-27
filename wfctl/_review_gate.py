@@ -870,9 +870,9 @@ def _judge(target: Target, session: _Session) -> str | None:
     groups, problems = _review_config.required_at(session.root, head, trunk_ref, TIMEOUT)
     if problems:
         raise _Failed(f"can't read the review config: {problems[0]}")
-    review_dir = _paths.resolve_review_dir(session.root, branch, create=False, timeout=TIMEOUT)
+    agent_dir = _paths.resolve_agent_dir(session.root, branch, create=False, timeout=TIMEOUT)
     pending = _review.unreviewed(
-        session.root, groups, head, *_review.coverage_from_state(review_dir, groups), TIMEOUT,
+        session.root, groups, head, *_review.coverage_from_state(agent_dir, groups), TIMEOUT,
         branch=branch,
     )
     if not pending:

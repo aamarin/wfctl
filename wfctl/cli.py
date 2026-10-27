@@ -32,7 +32,7 @@ from wfctl._paths import (
     records_on_this_branch,
     resolve_agent_dir,
     resolve_branch,
-    resolve_review_dir,
+    resolve_round_dir,
     resolve_spec_dir,
     spec_root,
     spec_root_declaration,
@@ -6125,7 +6125,7 @@ def _record_review_note(repo_root: Path, sha: str, line: str, again: str) -> boo
 
 
 def _note_covers_only_reviewed(
-    repo_root: Path, review_dir: Path, group: str, head: str, branch: str,
+    repo_root: Path, agent_dir: Path, group: str, head: str, branch: str,
 ) -> bool:
     """Whether a note on `head` would mark only reviewed commits as reviewed
     in CI, after warning about the commits when it wouldn't.
@@ -6138,7 +6138,7 @@ def _note_covers_only_reviewed(
 
     again = f"wfctl review check {group}"
     try:
-        found = _review_notes.unlisted(repo_root, review_dir, group, head, branch=branch)
+        found = _review_notes.unlisted(repo_root, agent_dir, group, head, branch=branch)
     except _review.ReviewError as e:
         _say(f"⚠ didn't write the review note: {_one_line(e)}")
         _say(f"  Fix that and run `{again}` again to record it.")
@@ -6231,7 +6231,6 @@ def review_start_cmd(
             _say(f"  {g.name}")
         raise typer.Exit(1)
     agent_dir = resolve_agent_dir(repo_root, branch)
-    review_dir = resolve_review_dir(repo_root, branch)
     try:
         for warning in _review.review_trunk(repo_root, None, branch=branch).warnings:
             _say(f"⚠ {warning}")
@@ -6250,7 +6249,8 @@ def review_start_cmd(
         )
     try:
         started = _review.start(
-            repo_root, review_dir, chosen, branch=branch, cap=cap, events_dir=agent_dir,
+            repo_root, agent_dir, chosen, branch=branch, cap=cap,
+            rounds_dir=resolve_round_dir(repo_root, branch),
         )
     except _review.RoundCapReached as e:
         _say(f"✗ {e}")
@@ -6317,9 +6317,8 @@ def review_check_cmd(
     repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
     agent_dir = resolve_agent_dir(repo_root, branch)
-    review_dir = resolve_review_dir(repo_root, branch)
     try:
-        checked = _review.check(review_dir, group, events_dir=agent_dir)
+        checked = _review.check(agent_dir, group)
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
@@ -6346,7 +6345,7 @@ def review_check_cmd(
 
         line = _review_notes.group_line(group)
         again = f"wfctl review check {group}"
-        if not _note_covers_only_reviewed(repo_root, review_dir, group, checked.run.head, branch):
+        if not _note_covers_only_reviewed(repo_root, agent_dir, group, checked.run.head, branch):
             return
         if _record_review_note(repo_root, checked.run.head, line, again) is not None:
             _send_review_notes(repo_root, agent_dir, branch)
@@ -6406,10 +6405,9 @@ def review_sign_off_cmd() -> None:
     branch = resolve_branch(repo_root)
     groups, _ = _required_groups_or_exit(repo_root, branch)
     agent_dir = resolve_agent_dir(repo_root, branch)
-    review_dir = resolve_review_dir(repo_root, branch)
     try:
         head = _review.head_commit(repo_root)
-        last, local_sign_off = _review.coverage_from_state(review_dir, groups)
+        last, local_sign_off = _review.coverage_from_state(agent_dir, groups)
         pending = _review.unreviewed(
             repo_root, groups, head, last, local_sign_off, branch=branch,
         )
@@ -6423,7 +6421,7 @@ def review_sign_off_cmd() -> None:
         for g in groups:
             try:
                 extra = _review_notes.unlisted(
-                    repo_root, review_dir, g.name, head, branch=branch,
+                    repo_root, agent_dir, g.name, head, branch=branch,
                 ).commits
             except _review.ReviewError as e:
                 # A repository with no `origin` refuses too. An origin added
@@ -6452,7 +6450,7 @@ def review_sign_off_cmd() -> None:
         # A sign-off whose note write failed leaves the head signed off here
         # and unreviewed in CI, and signing off again is the only way back to
         # the note (PR-009).
-        if _review.signed_off(review_dir) == head:
+        if _review.signed_off(agent_dir) == head:
             added = _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again)
             if added is None:
                 return
@@ -6471,7 +6469,7 @@ def review_sign_off_cmd() -> None:
     if typed.strip() != head[:7]:
         _say("✗ not signed off; nothing written")
         raise typer.Exit(1)
-    _review.sign_off(review_dir, head, events_dir=agent_dir)
+    _review.sign_off(agent_dir, head)
     _say(f"✓ signed off through {head[:7]}")
     if _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again) is not None:
         _send_review_notes(repo_root, agent_dir, branch)
@@ -6520,11 +6518,11 @@ def relay_cmd(
     repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
     local = _review_groups_or_exit(repo_root, branch)
+    agent_dir = resolve_agent_dir(repo_root, branch)
     try:
         saved = _review.relay(
-            resolve_review_dir(repo_root, branch), local.groups, reviewer, reason, text,
+            agent_dir, local.groups, reviewer, reason, text,
             trunk=local.trunk, required=local.required,
-            events_dir=resolve_agent_dir(repo_root, branch),
         )
     except _review.ReviewError as e:
         _say(f"✗ {e}")

@@ -1,14 +1,17 @@
 """Review records: which commits each review group has covered on a branch.
 
-Everything lives in the state directory of the issue the branch names, under
-`reviews/`, so `wfctl store specs` never commits it, removing a worktree keeps
-it, and renaming a branch keeps the round count (`622-review-records-in-state-dir.md`,
-`review-round-issue-key`). A branch that names no issue uses its own state
-directory:
+Everything lives in the branch's state directory under `reviews/`, beside
+`verify.json`, so `wfctl store specs` never commits it and removing a worktree
+keeps it (`622-review-records-in-state-dir.md`):
 
     reviews/<group>/last-reviewed.json     the group's last reviewed commit
     reviews/<group>/runs/<NNN>/run.json    a run's expected reviewers and commits
     reviews/<group>/runs/<NNN>/<id>.md     one report per reviewer
+
+The round count is the one exception. `start` also writes one empty folder per
+round under `rounds/<group>/` in the state directory of the issue the branch
+names, so renaming a branch keeps the count (`review-round-issue-key`). The
+tally holds no commit, so it says nothing about what a branch has reviewed.
 
 wfctl, not the coordinating agent, decides whether a report counts and whether
 a run is complete, since the agent would otherwise be grading its own panel
@@ -694,10 +697,6 @@ def _has_own_edits(
 
 
 def group_dir(agent_dir: Path, group: str) -> Path:
-    """Where `group`'s runs live. `agent_dir` here is the folder holding
-    `reviews/`, which `_paths.resolve_review_dir` answers: one per issue, not
-    the branch's own state folder. The functions that also log an event take
-    `events_dir` for the branch's folder, and write there when it is given."""
     return agent_dir / "reviews" / group
 
 
@@ -770,6 +769,39 @@ def runs_started(agent_dir: Path, group: str) -> int:
     nowhere (`review-round-count`).
     """
     return len(_run_numbers(agent_dir, group))
+
+
+def _tally_dir(rounds_dir: Path, group: str) -> Path:
+    return rounds_dir / "rounds" / group
+
+
+def rounds_tallied(rounds_dir: Path, group: str) -> int:
+    """How many rounds `group` has started on the issue, across every branch
+    that named it.
+
+    One empty folder per round, written by `start`. This is the only review
+    state shared between branches: a rename leaves the branch's own run records
+    behind, and the tally is what still shows the rounds already used
+    (`review-round-issue-key`). It holds no commit, so it says nothing about
+    what a branch has reviewed.
+    """
+    tally = _tally_dir(rounds_dir, group)
+    if not tally.is_dir():
+        return 0
+    return sum(1 for p in tally.iterdir() if p.name.isdigit())
+
+
+def _tally_round(rounds_dir: Path, group: str) -> None:
+    tally = _tally_dir(rounds_dir, group)
+    tally.mkdir(parents=True, exist_ok=True)
+    number = rounds_tallied(rounds_dir, group) + 1
+    # `exist_ok=False` so two branches starting at once can't record one round.
+    while True:
+        try:
+            (tally / f"{number:03d}").mkdir()
+            return
+        except FileExistsError:
+            number += 1
 
 
 def latest_run(agent_dir: Path, group: str) -> Run | None:
@@ -904,7 +936,7 @@ def start(
     which: Callable[[str], str | None] | None = None,
     branch: str | None = None,
     cap: int,
-    events_dir: Path | None = None,
+    rounds_dir: Path | None = None,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
@@ -919,8 +951,15 @@ def start(
     rather than refused.
 
     `cap` has no default, so a caller can't skip it without saying so.
+
+    The rounds a group has used are counted in `rounds_dir`, which is shared by
+    every branch on one issue, and in the branch's own run records. The larger
+    count applies, so a rename can't lower it, and a branch whose runs were
+    recorded before the tally existed keeps its count. A caller that passes no
+    `rounds_dir` counts in `agent_dir` alone.
     """
     head = head_commit(repo_root, timeout)
+    tally_dir = rounds_dir or agent_dir
     found = commit_range(
         repo_root, head, last_reviewed(agent_dir, group.name), timeout, branch=branch,
     )
@@ -928,7 +967,9 @@ def start(
     # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
     with _start_lock(agent_dir, group.name):
-        rounds = runs_started(agent_dir, group.name)
+        rounds = max(
+            runs_started(agent_dir, group.name), rounds_tallied(tally_dir, group.name),
+        )
         if not found.commits:
             return Started(
                 group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
@@ -943,6 +984,9 @@ def start(
                 rounds, signed,
             )
 
+        # Before the run folder, so a start that fails partway still costs the
+        # round it would have used.
+        _tally_round(tally_dir, group.name)
         runs = group_dir(agent_dir, group.name) / "runs"
         runs.mkdir(parents=True, exist_ok=True)
         previous = latest_run(agent_dir, group.name)
@@ -971,7 +1015,7 @@ def start(
         tuple(reviewers), unavailable, rounds, None,
     )
     append_event(
-        events_dir or agent_dir, "review-start", group=group.name, run=number, head=head,
+        agent_dir, "review-start", group=group.name, run=number, head=head,
         reviewers=len(started.expected),
     )
     return started
@@ -1067,7 +1111,7 @@ def _roster(run: Run) -> list[Entry]:
     return entries
 
 
-def check(agent_dir: Path, group: str, *, events_dir: Path | None = None) -> Checked:
+def check(agent_dir: Path, group: str) -> Checked:
     """Judge the latest run's reports and complete the run when every expected
     reviewer has a counted report.
 
@@ -1103,10 +1147,7 @@ def check(agent_dir: Path, group: str, *, events_dir: Path | None = None) -> Che
             json.dumps({"sha": run.head, "run": run.number, "at": at}, indent=2) + "\n",
         )
         write_atomic(run.path / "run.json", json.dumps(record, indent=2) + "\n")
-        append_event(
-            events_dir or agent_dir, "review-complete", group=group, run=run.number,
-            head=run.head,
-        )
+        append_event(agent_dir, "review-complete", group=group, run=run.number, head=run.head)
         run = Run(run.number, run.path, record)
     return Checked(group, run, tuple(entries), expected, complete)
 
@@ -1129,7 +1170,7 @@ def signed_off(agent_dir: Path) -> str | None:
     return sha
 
 
-def sign_off(agent_dir: Path, sha: str, *, events_dir: Path | None = None) -> None:
+def sign_off(agent_dir: Path, sha: str) -> None:
     """Record a person's sign-off through `sha`, replacing any earlier one.
 
     One file for every group, since a sign-off is one decision about the
@@ -1139,7 +1180,7 @@ def sign_off(agent_dir: Path, sha: str, *, events_dir: Path | None = None) -> No
     path = sign_off_path(agent_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(path, json.dumps({"sha": sha, "at": _now()}, indent=2) + "\n")
-    append_event(events_dir or agent_dir, "review-sign-off", sha=sha)
+    append_event(agent_dir, "review-sign-off", sha=sha)
 
 
 def coverage_from_state(
@@ -1248,7 +1289,6 @@ def relay(
     *,
     trunk: str | None = None,
     required: Collection[str] = (),
-    events_dir: Path | None = None,
 ) -> str:
     """Save a blocked reviewer's report as that reviewer's, marked as relayed.
 
@@ -1298,6 +1338,6 @@ def relay(
         raise RelayRefused(f"{reviewer} already has a report in run {run.number:03d}")
     write_atomic(path, f"{_RELAYED}{reason}\nRelayed-at: {_now()}\n\n{text}")
     append_event(
-        events_dir or agent_dir, "review-relay", group=group.name, run=run.number, id=reviewer, reason=reason,
+        agent_dir, "review-relay", group=group.name, run=run.number, id=reviewer, reason=reason,
     )
     return reason

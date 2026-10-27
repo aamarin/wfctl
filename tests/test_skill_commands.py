@@ -124,11 +124,11 @@ def test_step_5s_gh_pr_create_passes_the_guard_on_a_reviewed_branch(
     from tests.test_review import review_repo
     from tests.test_review_gate import commit
     from wfctl import _hook, _review, _review_config
-    from wfctl._paths import resolve_review_dir
+    from wfctl._paths import resolve_agent_dir
 
     repo = review_repo(tmp_path, monkeypatch)
     commit(repo, "change.txt")
-    agent_dir = resolve_review_dir(repo, "637-x")
+    agent_dir = resolve_agent_dir(repo, "637-x")
     for group in _review_config.load(repo)[0]:
         started = _review.start(repo, agent_dir, group, cap=9)
         assert started.run is not None
