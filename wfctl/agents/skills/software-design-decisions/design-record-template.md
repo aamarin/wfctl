@@ -2,6 +2,7 @@
 status: proposed
 pattern: <name of the pattern that shaped this, only when one did — delete otherwise>
 supersedes: <slug of the record this replaces — delete otherwise>
+governs: <names from the domain page's Contexts or Outside parties line, comma-separated>
 ---
 
 <!-- Where this goes: <arch-root>/design/<issue>-<decision>.md, numbered for the

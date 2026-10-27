@@ -1,6 +1,7 @@
 ---
 status: proposed
 diagram: <data-flow | component | state | sequence>
+governs: <names from the domain page's Contexts or Outside parties line, comma-separated>
 ---
 
 # <the decision, as a statement — "wfctl runs the verification, not the agent">
