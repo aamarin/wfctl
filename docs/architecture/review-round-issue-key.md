@@ -74,7 +74,7 @@ flowchart TB
   key -- "no issue" --> nokey
   issue -.-> count
   nokey -.-> count
-  count -- "events" --> branch
+  count -- "event log" --> branch
   agent -- "a new branch name means a new count" --x wfctl
 ```
 
