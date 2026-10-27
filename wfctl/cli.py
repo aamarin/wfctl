@@ -6771,12 +6771,17 @@ def _exception_findings(body: str) -> list[str]:
     carried = flat(body)
     found: list[str] = []
     boundary = _design_exceptions.boundary(spec_dir)
-    if boundary is not None and flat(boundary) not in carried:
+    # An empty reason is in every body, so it is its own finding.
+    if boundary == "":
+        found.append("the boundary exception gives no reason")
+    elif boundary is not None and flat(boundary) not in carried:
         inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
         if not (inherited and branch_records(repo_root, arch_root(repo_root))):
             found.append(f"the boundary exception's reason isn't in the body: \"{flat(boundary)}\"")
     for name, reason in _design_exceptions.passes(spec_dir).items():
-        if flat(reason) not in carried:
+        if not reason:
+            found.append(f"{name}'s exception gives no reason")
+        elif flat(reason) not in carried:
             found.append(f"{name}'s exception reason isn't in the body: \"{flat(reason)}\"")
     return found
 

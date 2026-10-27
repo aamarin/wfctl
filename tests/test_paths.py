@@ -10,6 +10,7 @@ import pytest
 
 from wfctl._paths import (
     DECLARATIONS_DIR,
+    STEP_CLAIMS_DIR,
     claim_conflicts,
     delivery_issue_keys,
     non_record_subtrees,
@@ -1011,6 +1012,15 @@ def test_non_record_subtrees_names_declarations(tmp_path: Path) -> None:
     having to find every call site that needs it."""
     arch = tmp_path / "docs" / "architecture"
     assert arch / DECLARATIONS_DIR in non_record_subtrees(arch)
+
+
+def test_non_record_subtrees_names_step_claims(tmp_path: Path) -> None:
+    """wfctl 0.21.0 to 0.23.0 write `step none`'s claim under `step-claims/`,
+    and a repo with one of them on PATH still does. Counted, that claim would
+    answer the design gate for a branch that never answered it, the same
+    failure `declarations/` is excluded for."""
+    arch = tmp_path / "docs" / "architecture"
+    assert arch / STEP_CLAIMS_DIR in non_record_subtrees(arch)
 
 
 # --- trunk_branch ---

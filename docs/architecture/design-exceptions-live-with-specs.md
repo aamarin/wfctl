@@ -167,8 +167,9 @@ before anything is built on it. In an unattended run, the agent makes the call,
 writes the alternatives it rejected, and the user accepts or rejects the record
 before the PR opens.
 
-The gate ignores `declarations/`. Otherwise a declaration written by an older
-wfctl would count as a record and satisfy the gate. The architecture folder
+The gate ignores `declarations/` and `step-claims/`. Otherwise a declaration
+or step claim written by an older wfctl would count as a record and satisfy the
+gate. The architecture folder
 would start filling up again, and nothing would flag it.
 
 This change deletes the existing 15 declarations. Git history and each merged

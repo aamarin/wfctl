@@ -143,7 +143,6 @@ class Fact(NamedTuple):
     detail: str
 
 
-
 # The design step's display string when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
 # `_pipeline.DESIGN_BLOCK_HELP`, which is formatted with a per-repo location.
@@ -1220,8 +1219,8 @@ def build_evidence(
 
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
-    """Whether the boundary question was put and answered — a record, or a
-    `wfctl arch none` declaration — and whether the drawing a proposed record
+    """Whether the boundary question was put and answered — a record, or the
+    boundary exception `wfctl arch none` writes — and whether the drawing a proposed record
     carries is one `wfctl arch accept` would take.
 
     One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`

@@ -369,6 +369,22 @@ def test_a_reason_rewrapped_across_lines_still_matches(storyctl_dir, tmp_path: P
     assert code == 0
 
 
+def test_an_exception_with_no_reason_is_a_finding(storyctl_dir, tmp_path: Path) -> None:
+    """An empty reason is in every body, so the check passed it without the
+    reviewer ever seeing a reason. `arch none` refuses an empty one, so only a
+    file written by hand can get here."""
+    from wfctl import _design_exceptions
+
+    target = _design_exceptions.path(storyctl_dir.spec_dir, "boundary")
+    target.parent.mkdir(parents=True)
+    target.write_text("# No new boundary\n")
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert code == 1
+    assert "⚠ the boundary exception gives no reason" in " ".join(output.split())
+
+
 def test_a_missing_pass_reason_names_the_pass(storyctl_dir, tmp_path: Path) -> None:
     """One line per missing reason, naming which exception it came from, so the
     author knows which line to add without opening the spec folder."""

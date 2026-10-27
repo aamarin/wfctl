@@ -59,11 +59,14 @@ def write(spec_dir: Path, name: str, reason: str) -> Path:
 
 
 def _reason(file: Path) -> str:
-    # Everything after the header's blank line, so a reason with a blank line of
-    # its own survives. The header is `write`'s, and stripping it here is the
-    # one parser that matches it.
-    _, _, rest = file.read_text().partition("\n\n")
-    return rest.strip()
+    # Everything after a leading `# ` header, so a reason with a blank line of
+    # its own survives. Not a split on the header's blank line: a file written
+    # by hand as one line, or with no blank line under its header, then read
+    # back as an empty reason.
+    lines = file.read_text().splitlines()
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+    return "\n".join(lines).strip()
 
 
 def boundary(spec_dir: Path) -> str | None:
@@ -84,4 +87,8 @@ def passes(spec_dir: Path) -> dict[str, str]:
     directory = folder(spec_dir)
     if not directory.is_dir():
         return {}
-    return {file.stem: _reason(file) for file in sorted(directory.glob("*.*.md"))}
+    return {
+        file.stem: _reason(file)
+        for file in sorted(directory.glob("*.*.md"))
+        if file.is_file()
+    }

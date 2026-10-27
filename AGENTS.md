@@ -179,8 +179,9 @@ says whether the boundary question was answered. A fourth reader added later has
 to make the same exclusion, and `_paths.non_record_subtrees` is where it finds
 out — a list rather than a constant per directory, because `scans/` was named at
 each call site and `implementation/` then had to find all of them (#370).
-`declarations/` is on the list too. wfctl 0.23.0 and older wrote `arch none`'s
-answer there, and a file left behind shouldn't answer the design gate (#635).
+`declarations/` and `step-claims/` are on the list too. wfctl 0.23.0 and older
+wrote `arch none`'s and `step none`'s answers there, and a file left behind
+shouldn't answer the design gate (#635).
 
 ## Testing conventions
 

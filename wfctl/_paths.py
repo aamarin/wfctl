@@ -501,6 +501,12 @@ IMPLEMENTATION_DIR = "implementation"
 # would answer the design gate for a branch that never answered it (FR-007).
 DECLARATIONS_DIR = "declarations"
 
+# The arch-root subtree where wfctl 0.21.0 to 0.23.0 wrote `step none`'s claim,
+# one folder per branch. Pass exceptions now live in the spec folder too, but
+# an older wfctl on PATH still writes here, so it is excluded for the reason
+# `declarations/` is.
+STEP_CLAIMS_DIR = "step-claims"
+
 # The arch-root subtree holding a domain model — the language, contexts and
 # invariants `model-the-domain` found (#464). It describes what a record
 # decided and decides nothing itself, and it is written at level 2, the one
@@ -530,6 +536,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
         arch / SCANS_DIR,
         arch / IMPLEMENTATION_DIR,
         arch / DECLARATIONS_DIR,
+        arch / STEP_CLAIMS_DIR,
         arch / DOMAIN_DIR,
     ]
 

@@ -74,6 +74,30 @@ def test_a_multi_line_reason_reads_back_whole(tmp_path: Path) -> None:
     assert _design_exceptions.boundary(spec) == "line one\n\nline two"
 
 
+def test_a_hand_written_exception_with_no_blank_line_keeps_its_reason(tmp_path: Path) -> None:
+    """The reader split on the header's blank line, so a file written by hand
+    as one line, or with no blank line under its header, read back as an empty
+    reason. The gate counted it as answered, and `check-body` found the empty
+    reason in every body."""
+    spec = tmp_path / "700-fix"
+    folder = _design_exceptions.folder(spec)
+    folder.mkdir(parents=True)
+    _design_exceptions.path(spec, BOUNDARY).write_text("Copy fix only\n")
+    (folder / "plan.plan-review.md").write_text("# header\nSigned off in chat\n")
+
+    assert _design_exceptions.boundary(spec) == "Copy fix only"
+    assert _design_exceptions.passes(spec) == {"plan.plan-review": "Signed off in chat"}
+
+
+def test_a_directory_named_like_a_pass_exception_is_not_read(tmp_path: Path) -> None:
+    """`passes` globs `*.*.md`, which a directory can match too, and reading
+    one raised `IsADirectoryError` on every status read."""
+    spec = tmp_path / "700-fix"
+    (_design_exceptions.folder(spec) / "x.y.md").mkdir(parents=True)
+
+    assert _design_exceptions.passes(spec) == {}
+
+
 def test_readers_return_nothing_for_a_missing_folder(tmp_path: Path) -> None:
     """The gate calls `boundary` on every status read, including on a branch
     with no spec folder, so a missing folder is an answer and not an error.
