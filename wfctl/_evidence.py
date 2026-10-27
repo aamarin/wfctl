@@ -873,6 +873,37 @@ def context_hold(gap: ContextGap) -> tuple[str, str] | None:
     return gap.reason, gap.remedy
 
 
+def _level_records(
+    repo_root: Path, arch: Path, level: "_contexts.Level"
+) -> "tuple[Path, list[Record]]":
+    """The folder a level's records live in, and the ones this branch added or
+    changed there. Level 2 is the arch root and level 3 is `design/`. A record the
+    branch deleted is listed by git and has no file, so it isn't returned."""
+    from wfctl import _arch, _contexts
+    from wfctl._paths import DESIGN_DIR, records_on_this_branch
+
+    if level == _contexts.SOFTWARE_DESIGN:
+        folder = arch / DESIGN_DIR
+        slugs = set(records_on_this_branch(repo_root, folder))
+        return folder, [r for r in _arch.load_records(folder) if r.slug in slugs]
+    return arch, list(branch_records(repo_root, arch).values())
+
+
+def context_answers(
+    repo_root: Path, spec_dir: Path, level: "_contexts.Level"
+) -> list[str]:
+    """The `<context>: no — <reason>` lines for the done row, or none when the
+    repo has no name list or the branch lists no contexts."""
+    from wfctl import _contexts
+
+    arch = arch_root(repo_root)
+    listed = _contexts.listed(spec_dir)
+    if _contexts.names(arch) is None or not listed:
+        return []
+    _, records = _level_records(repo_root, arch, level)
+    return _contexts.answers(listed, records, spec_dir, level)
+
+
 def context_gap(
     repo_root: Path, arch: Path, spec_dir: Path, level: "_contexts.Level"
 ) -> ContextGap | None:
@@ -895,21 +926,13 @@ def context_gap(
     for a branch whose one uncommitted change is elsewhere and would then call a
     committed governing record missing.
     """
-    from wfctl import _arch, _contexts
-    from wfctl._paths import (
-        DESIGN_DIR, arch_location, is_in_tree, records_on_this_branch, trunk_branch,
-    )
+    from wfctl import _contexts
+    from wfctl._paths import arch_location, is_in_tree, trunk_branch
 
     known = _contexts.names(arch)
     if known is None:
         return None
-    if level == _contexts.SOFTWARE_DESIGN:
-        folder = arch / DESIGN_DIR
-        slugs = set(records_on_this_branch(repo_root, folder))
-        records = [r for r in _arch.load_records(folder) if r.slug in slugs]
-    else:
-        folder = arch
-        records = list(branch_records(repo_root, arch).values())
+    folder, records = _level_records(repo_root, arch, level)
     gap = _contexts.pause(
         known, spec_dir, records, level, location=arch_location(folder, repo_root)
     )
@@ -1401,7 +1424,16 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
         return Assessment("in_progress", reason, remedy=remedy)
     verdict = _judge_drawings(ev.repo_root)
     if not _file_exists(ev.spec_dir / "spec.md"):
-        return verdict
+        if verdict.state != "done":
+            return verdict
+        # Each context the branch answered with a "no" shows on the done row, so
+        # a reviewer reading `status` sees what the branch said needs no record.
+        # The drawing text, when there is one, comes first.
+        from wfctl import _contexts
+
+        shown = [verdict.display] if verdict.display else []
+        shown += context_answers(ev.repo_root, ev.spec_dir, _contexts.ARCHITECTURE)
+        return Assessment("done", display="; ".join(shown) if shown else None)
     # Past specify the step stays done whatever the drawings say, and what the
     # check found travels as a warning (`design/532-payload-warnings-list.md`).
     # `collect_warnings` lists only a reason, so the no-trunk line, which is a

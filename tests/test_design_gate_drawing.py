@@ -996,3 +996,92 @@ def test_past_specify_the_context_check_does_not_pause(
     storyctl_dir.make_spec_artifact("specify")
 
     assert _brainstorm()["state"] == "done"
+
+
+# --- #649 User Story 2: a matching record or a per-context "no" passes --------
+
+
+def _arch_pass() -> dict:
+    return _architecture_pass(_brainstorm())
+
+
+def test_adding_the_listed_context_to_governs_releases_brainstorm(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity")
+    path = write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                        governs="install-and-drift")
+    assert _brainstorm()["state"] == "in_progress"
+
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity, install-and-drift")
+
+    assert path.is_file() and _brainstorm()["state"] == "done"
+
+
+def test_a_per_context_no_releases_brainstorm_and_shows_on_the_row(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row carries each "no" and its reason, so `status` and `--json` show
+    a reviewer what the branch said needed nothing (FR-010a)."""
+    _branch(storyctl_dir, monkeypatch, "session-continuity, workmux")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy change", context="session-continuity")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "No hook changes", context="workmux")
+
+    assert _brainstorm()["state"] == "done"
+    assert _arch_pass()["annotation"] == (
+        "session-continuity: no — Copy change; workmux: no — No hook changes"
+    )
+
+
+def test_a_branch_wide_no_does_not_answer_a_listed_context(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI refuses to write one, so the test writes it directly. It still
+    can't clear a branch that lists a context (FR-005a)."""
+    _branch(storyctl_dir, monkeypatch, "session-continuity")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy change")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == "no architecture record governs session-continuity"
+
+
+def test_a_governing_record_already_on_trunk_does_not_answer_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check reads only records this branch adds or edits, as the general
+    check does."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_domain_page(root, "session-continuity")
+    write_record(root, "an-older-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("session-continuity"))
+    write_design_record(root)
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == "no architecture record governs session-continuity"
+
+
+def test_the_drawing_text_comes_before_the_answers_on_the_done_row(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no trunk the drawing check says so on the row, and the "no" lines
+    follow it after `; `."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    write_domain_page(root, "session-continuity, attention")
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("session-continuity, attention"))
+    write_design_record(root)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="attention")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy change", context="session-continuity")
+
+    assert _arch_pass()["annotation"] == (
+        "no trunk found, so committed records were not checked; "
+        "session-continuity: no — Copy change"
+    )
