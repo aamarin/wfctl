@@ -847,7 +847,12 @@ def status_cmd(
                 detail = f"  [dim]{escape(what)}[/dim]"
             else:
                 detail = ""
-            console.print(f"{sub_name}{sub_sym}{detail}")
+            # Unwrapped: a done pass lists each per-context "no" and its reason on
+            # this row, which can pass the console width, and a line rich wraps
+            # breaks under the step table and reads as a new row. The reasons
+            # can't move off the row, because it and the JSON `annotation` are
+            # the same field (`contracts/cli.md`, `wfctl status`).
+            console.print(f"{sub_name}{sub_sym}{detail}", soft_wrap=True)
             if pass_warning is not None:
                 _print_warning_remedy(pass_warning)
 

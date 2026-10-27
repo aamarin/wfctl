@@ -1085,3 +1085,26 @@ def test_the_drawing_text_comes_before_the_answers_on_the_done_row(
         "no trunk found, so committed records were not checked; "
         "session-continuity: no — Copy change"
     )
+
+
+def test_a_done_row_longer_than_the_console_prints_as_one_line(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rich wraps a long line at the console width, and a wrapped line breaks
+    under the step table and reads as a new row (PR-013). The row prints
+    unwrapped and leaves wrapping to the terminal."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    _branch(storyctl_dir, monkeypatch, "session-continuity, attention")
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "boundary", "Copy change in the handoff template",
+        context="session-continuity",
+    )
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "boundary", "No change to any hook or any watcher",
+        context="attention",
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    row = next(line for line in result.output.splitlines() if "session-continuity: no" in line)
+    assert "attention: no — No change to any hook or any watcher" in row
