@@ -85,7 +85,7 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
     if not path.exists():
         return _resolve({}, {}), []
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
         return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
     if not isinstance(data, dict):
@@ -157,7 +157,7 @@ def load_rounds(repo_root: Path) -> int | None:
     already reported an invalid value here.
     """
     try:
-        data = json.loads((repo_root / CONFIG_PATH).read_text())
+        data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     review = data.get("review") if isinstance(data, dict) else None

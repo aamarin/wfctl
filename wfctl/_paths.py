@@ -171,8 +171,8 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     if not path.exists():
         return None, []
     try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None, []
     if not isinstance(data, dict):
         return None, []

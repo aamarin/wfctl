@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _review
+from wfctl import _paths, _review, _review_config
 from wfctl._review_config import Group, Reviewer
 
 
@@ -1756,6 +1756,33 @@ def test_read_config_at_reports_a_file_that_is_not_utf8_instead_of_crashing(
 
     assert data is None
     assert reason == "it isn't UTF-8"
+
+
+def test_the_branchs_wfctl_json_is_read_as_utf8_like_the_trunks(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`review start` compares the branch's `trunk` and `review.rounds` with
+    the trunk's, and the trunk's copy is read as UTF-8. On a Latin-1 machine
+    the branch's copy was read with the locale's encoding instead, so a trunk
+    named `café` on both sides came out as two different names and printed a
+    false "this branch sets trunk to ..." warning. This stands in for that
+    machine by giving `read_text` Latin-1 whenever it's called without an
+    encoding."""
+    real_read_text = Path.read_text
+
+    def read_text_under_locale(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        return real_read_text(self, encoding=encoding or "latin-1", errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", read_text_under_locale)
+
+    (repo / "wfctl.json").write_bytes('{"trunk": "café"}'.encode())
+    assert _paths.declared_trunk(repo) == ("café", [])
+
+    (repo / "wfctl.json").write_bytes(b'{"trunk": "caf\xe9", "review": {"rounds": 2}}')
+    assert _review_config.load_rounds(repo) is None
+    groups, problems = _review_config.load(repo)
+    assert groups == []
+    assert problems and problems[0].startswith("wfctl.json: not valid JSON")
 
 
 @pytest.mark.parametrize(("text", "cap"), [
