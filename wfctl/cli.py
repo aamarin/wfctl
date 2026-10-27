@@ -7156,11 +7156,14 @@ def _exception_findings(body: str) -> list[str]:
     Whitespace is collapsed in both texts first, since an author pasting a
     reason into a body wraps it to fit.
 
-    One boundary exception is skipped: an epic's, inherited by a sub-issue that
-    changes a level-2 record. That record answers the boundary question for the
-    sub-issue, so its body says yes and names it, and the epic's "no" stays true
-    for the other sub-issues (FR-015). Inherited means the spec folder isn't
-    named after the branch, the same test the worktree guard uses.
+    An epic's boundary exception, inherited by a sub-issue, is skipped when the
+    sub-issue changes a level-2 record. That record answers the boundary question
+    for the sub-issue, so its body says yes and names it, and the epic's "no"
+    stays true for the other sub-issues (FR-015). An inherited per-context "no"
+    is skipped only when a record the branch changes governs that same context,
+    so a record about one context can't hide the epic's "no" for another (#653).
+    Inherited means the spec folder isn't named after the branch, the same test
+    the worktree guard uses.
     """
     from wfctl import _design_exceptions, _paths
     from wfctl._evidence import branch_records
@@ -7181,14 +7184,30 @@ def _exception_findings(body: str) -> list[str]:
 
     carried = flat(body)
     found: list[str] = []
-    boundary = _design_exceptions.boundary(spec_dir)
-    if boundary is not None and flat(boundary) not in carried:
-        inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
-        if not (inherited and branch_records(repo_root, arch_root(repo_root))):
-            found.append(f"the boundary exception's reason isn't in the body: \"{flat(boundary)}\"")
-    for name, reason in _design_exceptions.passes(spec_dir).items():
-        if flat(reason) not in carried:
-            found.append(f"{name}'s exception reason isn't in the body: \"{flat(reason)}\"")
+    inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
+    records = branch_records(repo_root, arch_root(repo_root)) if inherited else {}
+    for label, reason in _design_exceptions.reasons(spec_dir):
+        if flat(reason) in carried:
+            continue
+        if inherited and label == _design_exceptions.BOUNDARY and records:
+            continue
+        # An inherited per-context "no" is skipped only when a record this branch
+        # changes governs that same context (#653). Every other one stays true
+        # for the branch, so the body still has to quote it.
+        prefix = f"{_design_exceptions.BOUNDARY} for "
+        if inherited and label.startswith(prefix):
+            context = label.removeprefix(prefix)
+            if any(context in record.governs for record in records.values()):
+                continue
+        if label == _design_exceptions.BOUNDARY:
+            found.append(f"the boundary exception's reason isn't in the body: \"{flat(reason)}\"")
+        elif label.startswith(prefix):
+            found.append(
+                f"the boundary exception for {label.removeprefix(prefix)}: "
+                f"its reason isn't in the body: \"{flat(reason)}\""
+            )
+        else:
+            found.append(f"{label}'s exception reason isn't in the body: \"{flat(reason)}\"")
     return found
 
 
