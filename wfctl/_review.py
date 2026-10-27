@@ -209,9 +209,14 @@ def _read_config_at(
     ).stdout.strip()
     if not listed:
         return None, None
-    text = _git(
-        repo_root, "show", f"{ref}:{_review_config.CONFIG_PATH}", timeout=timeout,
-    ).stdout
+    # `_git` decodes git's output as text, so a file in another encoding fails
+    # inside `subprocess.run` rather than in `json.loads`.
+    try:
+        text = _git(
+            repo_root, "show", f"{ref}:{_review_config.CONFIG_PATH}", timeout=timeout,
+        ).stdout
+    except UnicodeDecodeError:
+        return None, "it isn't UTF-8"
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:

@@ -1727,6 +1727,21 @@ def test_read_config_at_tells_no_file_from_a_file_it_cannot_read(
     assert _review._read_config_at(repo, ref, None) == ({"trunk": "main"}, None)
 
 
+def test_read_config_at_reports_a_file_that_is_not_utf8_instead_of_crashing(repo: Path) -> None:
+    """A trunk `wfctl.json` saved in another encoding made `git show` output
+    fail to decode, and the `UnicodeDecodeError` escaped as a traceback from
+    `review start` and as a refused PR from the guard. A bad trunk file is
+    supposed to warn, so it has to come back as a reason like bad JSON does."""
+    (repo / "wfctl.json").write_bytes(b'{"trunk": "caf\xe9"}')
+    git(repo, "add", "wfctl.json")
+    git(repo, "commit", "-q", "-m", "latin-1 config")
+
+    data, reason = _review._read_config_at(repo, "HEAD", None)
+
+    assert data is None
+    assert reason == "it isn't UTF-8"
+
+
 @pytest.mark.parametrize(("text", "cap"), [
     (None, 3),
     ("{}", 3),
