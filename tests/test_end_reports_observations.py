@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import types
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -176,3 +177,73 @@ def test_the_end_event_records_the_position_not_a_status(
     assert last["event"] == "end"
     assert "status" not in last
     assert last["step"] == "implement 0/1 done"
+
+
+# --- #649: the Boundary line reads the same answer `status` does --------------
+
+
+def _listing(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, listed: str
+) -> Path:
+    from tests.conftest import branch_design, write_domain_page
+
+    root = storyctl_dir.repo_root / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    write_domain_page(root, "session-continuity, attention")
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
+    return root
+
+
+def test_a_branch_that_answered_every_context_with_a_no_reads_answered(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before #649 the line saw only a branch-wide "no" or a changed record, so
+    this branch read "unanswered" while `wfctl status` showed the pass done, and
+    the next session redid finished work (FR-020)."""
+    from wfctl import _design_exceptions
+
+    _listing(storyctl_dir, monkeypatch, "session-continuity, attention")
+    for context in ("session-continuity", "attention"):
+        _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy only", context=context)
+
+    assert "boundary answered" in _end(storyctl_dir)
+    assert "**Boundary**: answered" in _summary(storyctl_dir)
+
+
+def test_a_branch_whose_only_record_governs_another_context_reads_unanswered(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.conftest import write_record
+
+    root = _listing(storyctl_dir, monkeypatch, "session-continuity")
+    write_record(root, "a-decision", diagram="component", governs="attention")
+
+    assert "boundary unanswered" in _end(storyctl_dir)
+
+
+def test_a_gap_git_cannot_check_reads_unknown(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no trunk, a record committed earlier on the branch is invisible, so
+    the line says it can't tell instead of calling the context unanswered."""
+    import subprocess
+
+    subprocess.run(
+        ["git", "-C", str(storyctl_dir.repo_root), "branch", "-m", "trunk"],
+        check=True, capture_output=True,
+    )
+    _listing(storyctl_dir, monkeypatch, "session-continuity")
+
+    assert "boundary unknown" in _end(storyctl_dir)
+
+
+def test_without_a_name_list_the_line_reads_as_it_did(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from wfctl import _design_exceptions
+
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(storyctl_dir.repo_root / "docs" / "architecture"))
+    storyctl_dir.make_spec_artifact("brainstorm")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy only")
+
+    assert "boundary answered" in _end(storyctl_dir)

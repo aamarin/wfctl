@@ -1976,3 +1976,115 @@ def test_the_manual_sentence_does_not_reroute_the_step_to_its_own_command(
 
     assert payload["next_command"] == "brainstorm.ui-design"
     assert brainstorm["reason"] == "a person performs this pass"
+
+
+# --- #649: `arch none --context` ----------------------------------------------
+
+
+def _with_name_list(
+    storyctl_dir: types.SimpleNamespace, monkeypatch, names: str = "session-continuity, attention"
+) -> Path:
+    from tests.conftest import write_domain_page
+
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_domain_page(root, names, outside="workmux")
+    return root
+
+
+def test_arch_none_with_a_context_writes_that_contexts_exception(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """One context gets its own file, so a "no" for it never answers another."""
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(
+        app, ["arch", "none", "--context", "session-continuity", "--reason", "Copy change"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        '✓ Recorded: session-continuity needs no new boundary — "Copy change"' in result.output
+    )
+    assert "Put the reason in the PR body." in result.output
+    written = storyctl_dir.spec_dir / "exceptions" / "session-continuity" / "boundary.md"
+    assert written.is_file()
+    assert not (storyctl_dir.spec_dir / "exceptions" / "boundary.md").exists()
+
+
+def test_arch_none_accepts_an_outside_party_as_a_context(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["arch", "none", "--context", "workmux", "--reason", "No hooks"])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_arch_none_with_a_context_needs_a_name_list(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """Without a list there is nothing to check the name against, and a typed
+    name becomes a folder."""
+    _arch_root(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["arch", "none", "--context", "a", "--reason", "x y"])
+
+    assert result.exit_code == 1
+    assert "--context needs a name list on the domain page" in result.output
+    assert "domain/ has none" in result.output
+    assert not (storyctl_dir.spec_dir / "exceptions").exists()
+
+
+def test_arch_none_refuses_a_context_that_is_not_on_the_list_and_prints_the_list(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(
+        app, ["arch", "none", "--context", "sesion-continuity", "--reason", "Copy change"]
+    )
+
+    assert result.exit_code == 1
+    assert "sesion-continuity is not on the domain page. It lists:" in result.output
+    assert "session-continuity" in result.output and "attention" in result.output
+    assert not (storyctl_dir.spec_dir / "exceptions").exists()
+
+
+def test_arch_none_refuses_a_path_as_a_context(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The name becomes a folder under `exceptions/`, so `../x` must be refused
+    as not on the list before it reaches the file system."""
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["arch", "none", "--context", "../x", "--reason", "Copy change"])
+
+    assert result.exit_code == 1
+    assert not (storyctl_dir.spec_dir / "exceptions").exists()
+    assert not (storyctl_dir.spec_dir / "x").exists()
+
+
+def test_the_bare_arch_none_is_refused_in_a_repo_with_a_name_list(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """A branch-wide "no" would answer no listed context, so writing one leaves
+    a branch that looks answered and isn't (FR-011)."""
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["arch", "none", "--reason", "Copy change"])
+
+    assert result.exit_code == 1
+    assert "checks each context separately" in result.output
+    assert 'wfctl arch none --context <name> --reason "<why>"' in result.output
+    assert not (storyctl_dir.spec_dir / "exceptions").exists()
+
+
+def test_the_empty_reason_refusal_still_runs_before_the_context_checks(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["arch", "none", "--context", "nope", "--reason", " "])
+
+    assert "--reason cannot be empty" in result.output

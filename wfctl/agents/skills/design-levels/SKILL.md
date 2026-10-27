@@ -188,12 +188,12 @@ method sends the change on to level 3 here, which is what its **Not for** line
 says too.
 
 **Decide which contexts the branch changes before writing any record.** When
-the domain page under `wfctl arch-root` has a `Contexts` line, read it and pick
-the contexts this change touches, plus any outside party whose boundary it
-moves. Use the short names exactly as the page spells them. The list goes into
-`design.md` (see `speckit-brainstorm`), and each record you write names the
-same contexts in its `governs` field. A repo with no such line has no list to
-choose from, so skip this paragraph there.
+the domain page under `wfctl arch-root` has a `Contexts` or `Outside parties`
+line, read it and pick the contexts this change touches, plus any outside party
+whose boundary it moves. Use the short names exactly as the page spells them.
+The list goes into `design.md` (see `speckit-brainstorm`), and each record you
+write names the same contexts in its `governs` field. A repo with neither line
+has no list to choose from, so skip this paragraph there.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
@@ -220,6 +220,18 @@ just gave.
 The spec folder isn't part of the PR, so the reviewer reads the reason in the PR
 body instead, where `opening-a-change` copies it. A placeholder reason is
 refused, which is the point, since a reviewer can't disagree with `<why>`.
+
+When the domain page lists contexts, `wfctl arch none` without `--context` is
+refused, since a branch-wide "no" doesn't answer any listed context. Run it once
+for each context in `design.md`'s `Contexts` line that needs no record:
+
+```bash
+wfctl arch none --context <name> --reason "<why this context needs no new boundary>"
+```
+
+Each run writes `exceptions/<name>/boundary.md`. A record whose `governs` field
+names the context answers it instead, so a branch needs one or the other for
+every context it lists.
 
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 

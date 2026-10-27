@@ -847,7 +847,12 @@ def status_cmd(
                 detail = f"  [dim]{escape(what)}[/dim]"
             else:
                 detail = ""
-            console.print(f"{sub_name}{sub_sym}{detail}")
+            # Unwrapped: a done pass lists each per-context "no" and its reason on
+            # this row, which can pass the console width, and a line rich wraps
+            # breaks under the step table and reads as a new row. The reasons
+            # can't move off the row, because it and the JSON `annotation` are
+            # the same field (`contracts/cli.md`, `wfctl status`).
+            console.print(f"{sub_name}{sub_sym}{detail}", soft_wrap=True)
             if pass_warning is not None:
                 _print_warning_remedy(pass_warning)
 
@@ -1226,7 +1231,7 @@ def _observe(
     records whether the question was answered, not whether the gate is still up,
     and with the escape it would read "answered" on every branch past specify.
     """
-    from wfctl import _design_exceptions, _session
+    from wfctl import _design_exceptions, _evidence, _session
     from wfctl import _verify
 
     current = next((s for s in report.steps if s["is_current"]), None)
@@ -1241,7 +1246,19 @@ def _observe(
             else current["name"]
 
     _, dirty = _verify.code_identity(repo_root)
-    if spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
+    boundary: str
+    if spec_dir is not None and _evidence.checks_contexts(spec_dir, arch_root(repo_root)):
+        # Asked of the function `status` asks, so the line can't say "unanswered"
+        # for a branch whose every context has a per-context "no" (#652). It
+        # reports and doesn't gate, so it reads the gap without `context_hold`:
+        # a gap git couldn't check is "unknown", not a hold.
+        from wfctl import _contexts
+
+        gap = _evidence.context_gap(
+            repo_root, arch_root(repo_root), spec_dir, _contexts.ARCHITECTURE
+        )
+        boundary = _BOUNDARY[True if gap is None else None if gap.git_silent else False]
+    elif spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
         boundary = _BOUNDARY[True]
     else:
         # `scans/` excluded for the reason the listing above excludes it, met
@@ -2019,9 +2036,51 @@ def arch_context_cmd() -> None:
         )
 
 
+def _context_refusal(context: str | None, bare_command: str, repo_root: Path) -> str | None:
+    """The refusal for a `--context` that doesn't fit the repo, or None.
+
+    With a name list a bare "no" is refused, because a branch-wide answer would
+    leave every listed context looking answered and none of them checked
+    (FR-011). With `--context` the name has to be on the list, since it becomes
+    a folder name and a typo would write a "no" no check reads. Without a list
+    there is nothing to compare a name against, so `--context` is refused and the
+    bare form is as before.
+    """
+    from rich.markup import escape
+
+    from wfctl import _contexts, _paths
+
+    arch = _paths.arch_root(repo_root)
+    names = _contexts.names(arch)
+    if context is None:
+        if names is None:
+            return None
+        return (
+            "[red]✗[/red] This repo checks each context separately, so a branch-wide "
+            "\"no\" doesn't answer any of them.\n  Run it once per context instead:\n"
+            f'      {bare_command} --context <name> --reason "<why>"'
+        )
+    if names is None:
+        where = _arch_location(arch / _paths.DOMAIN_DIR, repo_root)
+        return (
+            "[red]✗[/red] --context needs a name list on the domain page, and "
+            f"{escape(where)}/ has none."
+        )
+    if context not in names:
+        return (
+            f"[red]✗[/red] {escape(context)} is not on the domain page. It lists: "
+            f"{escape(', '.join(sorted(names)))}"
+        )
+    return None
+
+
 @arch_app.command("none")
 def arch_none_cmd(
     reason: str = typer.Option(..., "--reason", help="Why this change draws no boundary."),
+    context: str | None = typer.Option(
+        None, "--context",
+        help="The context this answers. Required when the domain page lists contexts.",
+    ),
 ) -> None:
     """Declare that this change draws no new architectural boundary.
 
@@ -2029,6 +2088,9 @@ def arch_none_cmd(
     brainstorm step reads it there. Put the same reason in the PR body, since
     the reviewer reads it there. wfctl doesn't verify the claim, because whether
     a change draws a boundary is a judgment with no objective test.
+
+    When the domain page lists contexts, a "no" answers one context, so run this
+    once per context with --context.
     """
     from rich.markup import escape
 
@@ -2056,14 +2118,21 @@ def arch_none_cmd(
         )
         raise typer.Exit(1)
 
+    refusal = _context_refusal(context, "wfctl arch none", repo_root)
+    if refusal is not None:
+        console.print(refusal, soft_wrap=True)
+        raise typer.Exit(1)
+
     # Overwritten, not appended: one change makes one claim, and a branch that
     # declares twice has changed its mind rather than declared again. The spec
     # folder is never in the diff, so there is no visibility check here: the
     # reviewer's copy is the PR body, and `check-body` compares the two.
     _design_exceptions.write(
-        _paths.feature_dir(branch, repo_root), _design_exceptions.BOUNDARY, reason
+        _paths.feature_dir(branch, repo_root), _design_exceptions.BOUNDARY, reason,
+        context=context,
     )
-    console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
+    what = "no boundary changed" if context is None else f"{escape(context)} needs no new boundary"
+    console.print(f'[green]✓[/green] Recorded: {what} — "{escape(reason)}"', soft_wrap=True)
     console.print("  Put the reason in the PR body.")
 
 
@@ -2101,6 +2170,10 @@ def step_none_cmd(
         ..., help="<step>.<name>, or a bare <name> when it names exactly one pass"
     ),
     reason: str = typer.Option(..., "--reason", help="Why this pass does not apply."),
+    context: str | None = typer.Option(
+        None, "--context",
+        help="The context this answers. Only brainstorm.software-design takes one.",
+    ),
 ) -> None:
     """Declare that one pipeline pass does not apply to the change under review.
 
@@ -2159,13 +2232,34 @@ def step_none_cmd(
         step = matches[0]
 
     qualified_name = f"{step}.{name}"
+
+    # Only the passes the context check reads care about a context. The
+    # architecture pass is answered per context by `arch none --context`, so a
+    # branch-wide claim on it would skip the pass and every listed context with it.
+    if context is not None and qualified_name != "brainstorm.software-design":
+        console.print(
+            "[red]✗[/red] --context applies only to brainstorm.software-design, "
+            "the one pass the context check reads."
+        )
+        raise typer.Exit(1)
+    bare_command = {
+        "brainstorm.architecture": "wfctl arch none",
+        "brainstorm.software-design": "wfctl step none brainstorm.software-design",
+    }.get(qualified_name)
+    if bare_command is not None:
+        refusal = _context_refusal(context, bare_command, repo_root)
+        if refusal is not None:
+            console.print(refusal, soft_wrap=True)
+            raise typer.Exit(1)
+
     # One file per pass: a second claim on a *different* pass must not destroy
     # the first (FR-015, SC-005). A second claim on *this* pass replaces exactly
     # itself, the same overwrite-not-append rule `arch none` follows.
-    _design_exceptions.write(_paths.feature_dir(branch, repo_root), qualified_name, reason)
-    console.print(
-        f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
+    _design_exceptions.write(
+        _paths.feature_dir(branch, repo_root), qualified_name, reason, context=context
     )
+    what = f"{qualified_name} does not apply" + (f" to {escape(context)}" if context else "")
+    console.print(f'[green]✓[/green] Recorded: {what} — "{escape(reason)}"', soft_wrap=True)
     console.print("  Put the reason in the PR body.")
 
 
@@ -7106,11 +7200,14 @@ def _exception_findings(body: str) -> list[str]:
     Whitespace is collapsed in both texts first, since an author pasting a
     reason into a body wraps it to fit.
 
-    One boundary exception is skipped: an epic's, inherited by a sub-issue that
-    changes a level-2 record. That record answers the boundary question for the
-    sub-issue, so its body says yes and names it, and the epic's "no" stays true
-    for the other sub-issues (FR-015). Inherited means the spec folder isn't
-    named after the branch, the same test the worktree guard uses.
+    An epic's boundary exception, inherited by a sub-issue, is skipped when the
+    sub-issue changes a level-2 record. That record answers the boundary question
+    for the sub-issue, so its body says yes and names it, and the epic's "no"
+    stays true for the other sub-issues (FR-015). An inherited per-context "no"
+    is skipped only when a record the branch changes governs that same context,
+    so a record about one context can't hide the epic's "no" for another (#653).
+    Inherited means the spec folder isn't named after the branch, the same test
+    the worktree guard uses.
     """
     from wfctl import _design_exceptions, _paths
     from wfctl._evidence import branch_records
@@ -7131,14 +7228,30 @@ def _exception_findings(body: str) -> list[str]:
 
     carried = flat(body)
     found: list[str] = []
-    boundary = _design_exceptions.boundary(spec_dir)
-    if boundary is not None and flat(boundary) not in carried:
-        inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
-        if not (inherited and branch_records(repo_root, arch_root(repo_root))):
-            found.append(f"the boundary exception's reason isn't in the body: \"{flat(boundary)}\"")
-    for name, reason in _design_exceptions.passes(spec_dir).items():
-        if flat(reason) not in carried:
-            found.append(f"{name}'s exception reason isn't in the body: \"{flat(reason)}\"")
+    inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
+    records = branch_records(repo_root, arch_root(repo_root)) if inherited else {}
+    for label, reason in _design_exceptions.reasons(spec_dir):
+        if flat(reason) in carried:
+            continue
+        if inherited and label == _design_exceptions.BOUNDARY and records:
+            continue
+        # An inherited per-context "no" is skipped only when a record this branch
+        # changes governs that same context (#653). Every other one stays true
+        # for the branch, so the body still has to quote it.
+        prefix = f"{_design_exceptions.BOUNDARY} for "
+        if inherited and label.startswith(prefix):
+            context = label.removeprefix(prefix)
+            if any(context in record.governs for record in records.values()):
+                continue
+        if label == _design_exceptions.BOUNDARY:
+            found.append(f"the boundary exception's reason isn't in the body: \"{flat(reason)}\"")
+        elif label.startswith(prefix):
+            found.append(
+                f"the boundary exception for {label.removeprefix(prefix)}: "
+                f"its reason isn't in the body: \"{flat(reason)}\""
+            )
+        else:
+            found.append(f"{label}'s exception reason isn't in the body: \"{flat(reason)}\"")
     return found
 
 

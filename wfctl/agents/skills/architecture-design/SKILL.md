@@ -68,7 +68,9 @@ declare **no record** with `wfctl arch none --reason "<why>"` and return to
 `design-levels`. A declared absence is the result; do not manufacture a boundary
 to complete the method. The command writes the answer to the spec folder, where
 the design gate reads it, and the reviewer reads the same reason in the PR body.
-Saying it in the transcript leaves the gate exactly where it was.
+Saying it in the transcript leaves the gate exactly where it was. In a repo
+whose domain page lists contexts, add `--context <name>` and run it once for
+each context that needs no record. The bare form is refused there.
 
 ## Authority
 
@@ -292,7 +294,9 @@ Then do exactly one of the following:
 
 - If no boundary was drawn or moved, run `wfctl arch none --reason "<why>"` and
   return to `design-levels`. The reason is the whole artifact — it is what a
-  reviewer disagrees with — so a placeholder is refused.
+  reviewer disagrees with — so a placeholder is refused. In a repo whose domain
+  page lists contexts, add `--context <name>` for each context that needs no
+  record, since the bare form is refused there.
 - If evidence is missing, name what must be checked and stop. Ask the human
   rather than proceeding on the weaker evidence.
 - If a boundary is proposed, invoke `.agents/skills/architecture-decisions` and

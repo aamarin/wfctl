@@ -408,3 +408,69 @@ def test_a_sub_issue_with_a_record_skips_the_epics_boundary_reason(
 
     assert ("boundary exception's reason" in output) is not record
     assert code == (0 if record else 1)
+
+
+# --- #649: per-context exceptions in check-body ---------------------------------
+
+
+def test_a_missing_per_context_reason_is_a_finding_that_names_the_context(
+    storyctl_dir, tmp_path: Path
+) -> None:
+    """The body has to carry each per-context "no", or the reviewer can't check
+    what the branch said needed nothing (FR-018)."""
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "boundary", "Copy change in the handoff template",
+        context="session-continuity",
+    )
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert code == 1
+    assert (
+        "⚠ the boundary exception for session-continuity: its reason isn't in the body: "
+        '"Copy change in the handoff template"' in " ".join(output.split())
+    )
+
+
+def test_a_per_context_reason_in_the_body_passes(storyctl_dir, tmp_path: Path) -> None:
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "boundary", "Copy change", context="session-continuity"
+    )
+
+    code, output = _check(_body_with(tmp_path, "- session-continuity: Copy change\n"))
+
+    assert code == 0, output
+
+
+@pytest.mark.parametrize(
+    "governs, skipped",
+    [("session-continuity", True), ("install-and-drift", False)],
+    ids=["same context", "other context"],
+)
+def test_an_inherited_per_context_no_is_skipped_only_for_a_record_about_that_context(
+    storyctl_dir, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, governs: str, skipped: bool
+) -> None:
+    """#653. A sub-issue branch's record answers its own context. Every other
+    inherited "no" stays true, so the body still quotes it and the reviewer can
+    check the branch didn't break it. #635's rule skips on any record, which
+    would let a record about `install-and-drift` hide the epic's "no" for
+    `session-continuity`."""
+    from wfctl import _design_exceptions
+
+    epic = _epic_sub_issue(storyctl_dir, monkeypatch)
+    _design_exceptions.write(epic, "boundary", "The epic changes no hooks", context="session-continuity")
+    arch = storyctl_dir.repo_root / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(arch))
+    arch.mkdir(parents=True)
+    (arch / "sub-owns-a-thing.md").write_text(
+        f"---\nstatus: proposed\ngoverns: {governs}\n---\n\n# x\n"
+    )
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert ("session-continuity" in output) is not skipped
+    assert code == (0 if skipped else 1)

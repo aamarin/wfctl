@@ -181,6 +181,12 @@ def parse_status(text: str) -> str:
     return status if status in STATUSES else ""
 
 
+def parse_governs(text: str) -> tuple[str, ...]:
+    """A record's `governs` names from its text, for a reader that holds the text
+    rather than a file, as `parse_status` is. Empty when the field is absent."""
+    return split_names(_frontmatter(text).get("governs", ""))
+
+
 def parse_record(path: Path) -> Record:
     """Read one record. Never raises: an unreadable file is an excluded record.
 

@@ -254,6 +254,9 @@ def _warning_block(warnings: tuple["StepWarning", ...]) -> str:
 # `git status`, which counts an *untracked* file, so a reader following that path
 # literally cleared the gate with no command and no commit — the same defect the
 # `<why>` guard on the other branch was added for, on the half that had no guard.
+# The passes that answer one context at a time once the domain page lists them.
+_CONTEXT_PASSES = frozenset({"brainstorm.architecture", "brainstorm.software-design"})
+
 DESIGN_BLOCK_HELP = (
     "  Either record the boundary this change draws — one file under:\n"
     "      {location}/\n"
@@ -386,7 +389,7 @@ def _infer_steps(
     # `_STEPS`, so importing it back at *our* top level would cycle. A
     # function-scoped import is the same shape `_apply_block_hold` already uses
     # to reach `_session`.
-    from wfctl import _declared, _design_exceptions
+    from wfctl import _contexts, _declared, _design_exceptions
 
     # Above the no-spec-dir arm, not below it. A pass is declared by the
     # repository and claimed away per branch; neither fact needs a feature
@@ -398,6 +401,12 @@ def _infer_steps(
     # Pass exceptions live in the spec folder, and `step none` creates it, so
     # with no spec folder there are none to read.
     claims = _design_exceptions.passes(spec_dir) if spec_dir is not None else {}
+    # With a name list, the two passes that read contexts answer one context at a
+    # time, so a whole-pass claim on either is no answer. `step none` refuses to
+    # write one now, but one written before the domain page had a list is still
+    # on disk, and reading it would skip a pass that has to run (FR-011).
+    if claims and _contexts.names(arch_root(repo_root)) is not None:
+        claims = {k: v for k, v in claims.items() if k not in _CONTEXT_PASSES}
 
     if spec_dir is None:
         return [

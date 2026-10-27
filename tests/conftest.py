@@ -307,6 +307,7 @@ def write_record(
     diagram: str = "",
     boundary: str = "",
     log: bool = True,
+    governs: str = "",
 ) -> Path:
     """A level-2 record at `root/<slug>.md`, for a test whose subject is its drawing.
 
@@ -319,13 +320,17 @@ def write_record(
     front = f"---\nstatus: {status}\n"
     if diagram:
         front += f"diagram: {diagram}\n"
+    if governs:
+        front += f"governs: {governs}\n"
     front += "---\n\n"
     tail = "## Log\n\n- 2026-09-26  proposed  — x\n" if log else ""
     path.write_text(f"{front}# {slug}\n\n{boundary}{tail}")
     return path
 
 
-def write_design_record(root: Path, slug: str = "a-structural-choice") -> Path:
+def write_design_record(
+    root: Path, slug: str = "a-structural-choice", *, governs: str = ""
+) -> Path:
     """A level-3 record at `root/design/<slug>.md`, which answers brainstorm's
     software design pass.
 
@@ -335,7 +340,8 @@ def write_design_record(root: Path, slug: str = "a-structural-choice") -> Path:
     """
     path = root / "design" / f"{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"# {slug}\n")
+    front = f"---\ngoverns: {governs}\n---\n\n" if governs else ""
+    path.write_text(f"{front}# {slug}\n")
     return path
 
 
@@ -682,3 +688,24 @@ def declaring_repo(tmp_path: Path) -> types.SimpleNamespace:
     return types.SimpleNamespace(
         root=root, write_config=write_config, install_command=install_command
     )
+
+
+def write_domain_page(
+    arch: Path, contexts: str, *, outside: str = "", stem: str = "wfctl", state: str = "accepted"
+) -> Path:
+    """An accepted domain page carrying a name list, which is what turns the
+    per-context check on (#649). Without one a repo keeps the general check."""
+    domain = arch / "domain"
+    domain.mkdir(parents=True, exist_ok=True)
+    lines = [f"# {stem}", "", f"State: {state}", f"Contexts: {contexts}"]
+    if outside:
+        lines.append(f"Outside parties: {outside}")
+    path = domain / f"{stem}.md"
+    path.write_text("\n".join(lines) + "\n\n## Body\n\ntext\n")
+    return path
+
+
+def branch_design(contexts: str | None, title: str = "A change") -> str:
+    """A `design.md` whose header lists `contexts`, or has no such line."""
+    line = f"Contexts: {contexts}\n" if contexts is not None else ""
+    return f"# {title}\n\n{line}\n## Body\n\ntext\n"

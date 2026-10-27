@@ -143,8 +143,8 @@ fidelity. `brainstorming` carries its approved design here in context rather tha
 saving it first; a second write to that path destroys the approved design.
 `/speckit.specify` reads the file from there.
 
-When the domain page has a `Contexts` line, write the contexts you decided on at
-level 2 as one line directly under the title of `design.md`, before the first
+When the domain page has a `Contexts` or `Outside parties` line, write the
+contexts you decided on at level 2 as one line directly under the title of `design.md`, before the first
 `##` heading:
 
 ```
@@ -153,8 +153,10 @@ Contexts: install-and-drift, session-continuity
 
 wfctl reads only the lines above the first heading, so a copy of the line
 further down the file is ignored. Use the names exactly as the domain page
-spells them, comma-separated. A repo with no `Contexts` line on its domain page
-gets no line in `design.md`.
+spells them, comma-separated. A domain page with an `Outside parties` line and
+no `Contexts` line counts as listing contexts, so put the outside parties this
+change affects in the same `Contexts` line. A repo whose domain page has neither
+line gets no line in `design.md`.
 
 **If `design.md` already exists when this skill runs, do not overwrite it.**
 Read it, and treat this run as answering whatever the pipeline still reports
@@ -162,6 +164,10 @@ open — usually the boundary question, since `wfctl status` holds the design st
 at `▶` with the reason on it and routes back here. A re-entered design step is
 the normal way that answer gets given, and the answer is a record under
 `wfctl arch-root`, or `wfctl arch none --reason "<why>"` carrying a real reason.
+In a repo whose domain page lists contexts, each context in the `Contexts` line
+is answered separately: a record whose `governs` field names it, or
+`wfctl arch none --context <name> --reason "<why>"`. The bare form is refused
+there.
 The step is also held when a proposed record this branch added has a drawing
 `wfctl arch accept` would refuse. The reason then names the record and its first
 blocker, and the fix line `wfctl arch accept --dry-run -- <slug>` lists every

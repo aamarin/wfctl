@@ -306,3 +306,107 @@ def test_a_folder_found_by_issue_number_is_the_branchs_own(
 
     assert code == 2
     assert "but its spec folder says no boundary moved" in err
+
+
+# --- #649: a per-context "no" and a record about the same context ------------
+
+
+def governed_record(repo: Path, slug: str, governs: str, status: str = "accepted") -> str:
+    """Commit one level-2 record that governs `governs`, and push it."""
+    folder = repo / "docs" / "architecture"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{slug}.md").write_text(
+        f"---\nstatus: {status}\ngoverns: {governs}\n---\n\n# A decision\n"
+    )
+    git(repo, "add", "docs")
+    git(repo, "commit", "-q", "-m", f"record {slug}")
+    git(repo, "push", "-q", "origin", "HEAD")
+    return git(repo, "rev-parse", "HEAD")
+
+
+def own_context_exception(specs: Path, branch: str, context: str) -> Path:
+    spec_dir = specs / branch
+    _design_exceptions.write(
+        spec_dir, _design_exceptions.BOUNDARY, "nothing moves", context=context
+    )
+    return _design_exceptions.path(spec_dir, _design_exceptions.BOUNDARY, context=context)
+
+
+def test_a_record_that_governs_a_context_the_branch_said_needs_none_is_refused(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """A per-context "no" and a record for that same context contradict each
+    other, as #635's branch-wide pair does. With a name list the branch-wide
+    check can never fire, so this is the one that catches it (FR-021)."""
+    exception = own_context_exception(specs, "604-x", "session-continuity")
+    governed_record(repos.feature, "owns-a-thing", "session-continuity, attention")
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert err == (
+        "✗ 604-x touches docs/architecture/owns-a-thing.md, which governs "
+        "session-continuity, but its spec folder says session-continuity needs no new "
+        "boundary.\n"
+        "  The record answers that context, so delete the exception:\n"
+        f"  rm {shlex.quote(str(exception))}\n"
+    )
+
+
+def test_a_record_for_a_different_context_is_not_a_contradiction(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """The "no" is for `session-continuity` and the record is about
+    `install-and-drift`, so both are true (research R8). The record is accepted,
+    so the check for unaccepted records doesn't refuse it first."""
+    own_context_exception(specs, "604-x", "session-continuity")
+    governed_record(repos.feature, "owns-a-thing", "install-and-drift")
+    repos.complete(repos.feature, "604-x")
+
+    assert guard("gh pr create --fill", repos.feature) == (0, "")
+
+
+def test_the_check_runs_without_a_name_list_on_the_domain_page(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """The check lists the branch's per-context files and doesn't read the name
+    list, so moving the domain page back to draft after a branch wrote its
+    notes doesn't stop it (#653). This repository has no domain page at all."""
+    own_context_exception(specs, "604-x", "session-continuity")
+    governed_record(repos.feature, "owns-a-thing", "session-continuity")
+    repos.complete(repos.feature, "604-x")
+
+    code, _ = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+
+
+def test_a_per_context_exception_inherited_from_an_epic_is_not_a_contradiction(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """The epic's "no" stays true for its other sub-issues, as its branch-wide
+    one does."""
+    epic = specs / "600-epic"
+    epic.mkdir()
+    (epic / "delivery.md").write_text(_delivery_map("#604"))
+    _design_exceptions.write(
+        epic, _design_exceptions.BOUNDARY, "reuses the store", context="session-continuity"
+    )
+    governed_record(repos.feature, "owns-a-thing", "session-continuity")
+    repos.complete(repos.feature, "604-x")
+
+    assert guard("gh pr create --fill", repos.feature) == (0, "")
+
+
+def test_the_branch_wide_contradiction_is_named_before_the_per_context_one(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    exception = own_exception(specs, "604-x")
+    own_context_exception(specs, "604-x", "session-continuity")
+    governed_record(repos.feature, "owns-a-thing", "session-continuity")
+    repos.complete(repos.feature, "604-x")
+
+    _, err = guard("gh pr create --fill", repos.feature)
+
+    assert f"rm {shlex.quote(str(exception))}" in err

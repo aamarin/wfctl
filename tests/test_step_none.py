@@ -300,3 +300,93 @@ def test_the_built_in_plan_review_can_be_claimed_away_and_a_person_still_starts_
     assert review["state"] == "skipped"
     assert "a one-line config change" in review["claimed"]
     assert (payload["next_command"], payload["auto"]) == ("/speckit.tasks", False)
+
+
+# --- #649: `step none --context` ----------------------------------------------
+
+
+def _with_name_list(storyctl_dir: types.SimpleNamespace, monkeypatch) -> None:
+    from tests.conftest import write_domain_page
+
+    write_domain_page(_arch_root(storyctl_dir, monkeypatch), "session-continuity, attention")
+
+
+def test_the_branch_wide_claim_on_the_architecture_pass_is_refused_with_a_name_list(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The claim would skip the architecture pass, and with it every listed
+    context's check (FR-011, SC-001)."""
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["step", "none", "brainstorm.architecture", "--reason", "Copy"])
+
+    assert result.exit_code == 1
+    assert "checks each context separately" in result.output
+    assert not _exceptions(storyctl_dir).exists()
+
+
+def test_the_branch_wide_claim_on_the_software_design_pass_is_refused_with_a_name_list(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(app, ["step", "none", "brainstorm.software-design", "--reason", "Copy"])
+
+    assert result.exit_code == 1
+    assert (
+        'wfctl step none brainstorm.software-design --context <name> --reason "<why>"'
+        in result.output
+    )
+    assert not _exceptions(storyctl_dir).exists()
+
+
+def test_context_applies_only_to_the_software_design_pass(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The architecture pass has `arch none --context`, and no other pass reads
+    a context, so a file under `exceptions/<context>/` would answer nothing."""
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(
+        app,
+        ["step", "none", "brainstorm.architecture", "--context", "attention", "--reason", "Copy"],
+    )
+
+    assert result.exit_code == 1
+    assert "--context applies only to brainstorm.software-design" in result.output
+    assert not _exceptions(storyctl_dir).exists()
+
+
+def test_a_software_design_claim_for_one_context_is_written_under_that_context(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    _with_name_list(storyctl_dir, monkeypatch)
+
+    result = runner.invoke(
+        app,
+        ["step", "none", "brainstorm.software-design", "--context", "attention",
+         "--reason", "No structural choice"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        '✓ Recorded: brainstorm.software-design does not apply to attention — '
+        '"No structural choice"' in result.output
+    )
+    assert (_exceptions(storyctl_dir) / "attention" / "brainstorm.software-design.md").is_file()
+
+
+def test_step_none_context_is_refused_without_a_name_list_or_for_an_unknown_name(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    _arch_root(storyctl_dir, monkeypatch)
+    command = ["step", "none", "brainstorm.software-design", "--context", "attention",
+               "--reason", "No structural choice"]
+
+    assert "needs a name list" in runner.invoke(app, command).output
+
+    _with_name_list(storyctl_dir, monkeypatch)
+    unknown = runner.invoke(app, [*command[:4], "atention", *command[5:]])
+    assert unknown.exit_code == 1
+    assert "atention is not on the domain page" in unknown.output
+    assert not _exceptions(storyctl_dir).exists()

@@ -711,3 +711,400 @@ def test_with_no_trunk_an_arch_root_outside_the_repository_carries_no_unchecked_
 
     assert step["state"] == "done"
     assert _architecture_pass(step)["annotation"] is None
+
+
+# --- #649: `context_gap`, the one function every context reader calls --------
+
+from tests.conftest import branch_design, write_domain_page  # noqa: E402
+from wfctl import _contexts, _design_exceptions, _evidence  # noqa: E402
+from wfctl._paths import arch_root  # noqa: E402
+
+
+def _gap(storyctl_dir: types.SimpleNamespace, level: _contexts.Level = _contexts.ARCHITECTURE):
+    repo = storyctl_dir.repo_root
+    return _evidence.context_gap(repo, arch_root(repo), storyctl_dir.spec_dir, level)
+
+
+def _listing(storyctl_dir: types.SimpleNamespace, root: Path, listed: str | None, known: str = "a, b, c") -> None:
+    write_domain_page(root, known)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
+
+
+def test_context_gap_is_none_when_every_listed_context_is_answered(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One record answers `a` and a per-context "no" answers `b`, so nothing is
+    left to pause on."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a, b")
+    write_record(root, "a-decision", diagram="component", governs="a")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy only", context="b")
+
+    assert _gap(storyctl_dir) is None
+
+
+def test_context_gap_names_the_first_context_a_record_about_another_one_leaves(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap #649 describes: a record that governs `b` must not answer `a`."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a")
+    write_record(root, "a-decision", diagram="component", governs="b")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.reason == "no architecture record governs a"
+    assert not gap.git_silent
+    assert "wfctl arch none --context a" in gap.remedy
+
+
+def test_context_gap_reads_level_3_records_only_for_the_software_design_level(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Level 2 answers with a record in the arch root and level 3 with one under
+    `design/`. A record at the wrong level answers nothing."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a")
+    write_record(root, "a-decision", diagram="component", governs="a")
+
+    gap = _gap(storyctl_dir, _contexts.SOFTWARE_DESIGN)
+    assert gap is not None and gap.reason == "no software design record governs a"
+
+    write_design_record(root, governs="a")
+    assert _gap(storyctl_dir, _contexts.SOFTWARE_DESIGN) is None
+
+
+def test_context_gap_skips_a_record_the_branch_deleted(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deleted record is listed by git and has no file, so it answers nothing."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a")
+    path = write_record(root, "a-decision", diagram="component", governs="a")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "record")
+    path.unlink()
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None and gap.reason == "no architecture record governs a"
+
+
+def test_a_missing_contexts_line_is_reported_even_when_git_cannot_list_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """git's silence only matters for a context nobody answered. A missing line
+    pauses whatever git says (PR-012)."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    _listing(storyctl_dir, root, None)
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.reason == "design.md lists no contexts"
+    assert not gap.git_silent
+
+
+def test_an_unknown_name_is_reported_even_when_git_cannot_list_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    _listing(storyctl_dir, root, "sesion")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.reason == "sesion is not a context on the domain page"
+    assert not gap.git_silent
+
+
+def test_with_no_trunk_an_earlier_commit_leaves_git_silent(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no trunk the listing holds only uncommitted work. A governing record
+    committed earlier on the branch is invisible, so one uncommitted change must
+    not make `a` read as unanswered (PR-012, item 2)."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    _listing(storyctl_dir, root, "a, b")
+    write_record(root, "a-decision", diagram="component", governs="a")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "the record for a")
+    write_record(root, "b-decision", diagram="component", governs="b")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.git_silent
+    held = _evidence.context_hold(gap)
+    assert held is not None and held[0] == _evidence.GIT_UNANSWERED_REASON
+
+
+def test_an_arch_root_outside_the_repository_leaves_git_silent(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    outside = tmp_path_factory.mktemp("elsewhere") / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+    _listing(storyctl_dir, outside, "a")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None and gap.git_silent
+
+
+# --- #649 User Story 1: a record about the wrong context does not pass --------
+
+
+def _branch(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    listed: str | None,
+    known: str | None = "session-continuity, install-and-drift, attention",
+    *,
+    outside: str = "workmux",
+) -> Path:
+    """A branch in brainstorm: `design.md` listing `listed`, a domain page naming
+    `known` (none when `known` is None), and a level-3 record so the software
+    design pass has nothing to say."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    if known is not None:
+        write_domain_page(root, known, outside=outside)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
+    write_design_record(root)
+    return root
+
+
+def test_a_record_about_another_context_leaves_brainstorm_paused_on_the_listed_one(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap #649 describes. The record governs install-and-drift, and the
+    branch lists session-continuity, so the old check passed on any record."""
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="install-and-drift")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == "no architecture record governs session-continuity"
+
+
+def test_the_pause_remedy_names_a_record_and_the_per_context_no(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="install-and-drift")
+
+    remedy = _brainstorm()["remedy"]
+
+    assert "governs field names session-continuity" in remedy
+    assert 'wfctl arch none --context session-continuity --reason "<why>"' in remedy
+
+
+def test_two_listed_contexts_with_a_record_for_only_the_second_name_the_first(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity, install-and-drift")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="install-and-drift")
+
+    assert _brainstorm()["reason"] == "no architecture record governs session-continuity"
+
+
+# --- #649 User Story 3: a bad or missing line pauses --------------------------
+
+
+def test_a_misspelled_context_is_named_with_the_list_as_the_remedy(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _branch(storyctl_dir, monkeypatch, "session-continuty")
+
+    step = _brainstorm()
+
+    assert step["reason"] == "session-continuty is not a context on the domain page"
+    assert "session-continuity" in step["remedy"]
+
+
+@pytest.mark.parametrize("line", [None, ""], ids=["no line", "empty line"])
+def test_a_missing_or_empty_contexts_line_pauses_brainstorm(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, line: str | None
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, line)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity")
+
+    step = _brainstorm()
+
+    assert step["reason"] == "design.md lists no contexts"
+    assert "Contexts: <names from the domain page>" in step["remedy"]
+
+
+def test_an_outside_party_is_a_valid_name(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """workmux is an outside party, not a context, and a record may govern it."""
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity, workmux")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity, workmux")
+
+    assert _brainstorm()["state"] == "done"
+
+
+# --- #649 User Story 4: a repo with no name list sees no change ----------------
+
+
+def test_without_a_name_list_any_record_passes_whatever_it_governs(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity", known=None)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="anything-at-all")
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_without_a_name_list_no_record_keeps_todays_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _branch(storyctl_dir, monkeypatch, None, known=None)
+
+    assert _brainstorm()["reason"] == "no architecture record for this change"
+
+
+def test_a_domain_page_that_is_not_accepted_is_ignored(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_domain_page(root, "session-continuity", state="proposed")
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("session-continuity"))
+    write_design_record(root)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_past_specify_the_context_check_does_not_pause(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-013. A branch that left brainstorm before the check existed must not
+    move backwards, so `spec.md` ends the check as it ends the general one."""
+    _branch(storyctl_dir, monkeypatch, "session-continuity")
+    storyctl_dir.make_spec_artifact("specify")
+
+    assert _brainstorm()["state"] == "done"
+
+
+# --- #649 User Story 2: a matching record or a per-context "no" passes --------
+
+
+def _arch_pass() -> dict:
+    return _architecture_pass(_brainstorm())
+
+
+def test_adding_the_listed_context_to_governs_releases_brainstorm(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity")
+    path = write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                        governs="install-and-drift")
+    assert _brainstorm()["state"] == "in_progress"
+
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity, install-and-drift")
+
+    assert path.is_file() and _brainstorm()["state"] == "done"
+
+
+def test_a_per_context_no_releases_brainstorm_and_shows_on_the_row(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row carries each "no" and its reason, so `status` and `--json` show
+    a reviewer what the branch said needed nothing (FR-010a)."""
+    _branch(storyctl_dir, monkeypatch, "session-continuity, workmux")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy change", context="session-continuity")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "No hook changes", context="workmux")
+
+    assert _brainstorm()["state"] == "done"
+    assert _arch_pass()["annotation"] == (
+        "session-continuity: no — Copy change; workmux: no — No hook changes"
+    )
+
+
+def test_a_branch_wide_no_does_not_answer_a_listed_context(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI refuses to write one, so the test writes it directly. It still
+    can't clear a branch that lists a context (FR-005a)."""
+    _branch(storyctl_dir, monkeypatch, "session-continuity")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy change")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == "no architecture record governs session-continuity"
+
+
+def test_a_governing_record_already_on_trunk_does_not_answer_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check reads only records this branch adds or edits, as the general
+    check does."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_domain_page(root, "session-continuity")
+    write_record(root, "an-older-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity")
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("session-continuity"))
+    write_design_record(root)
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == "no architecture record governs session-continuity"
+
+
+def test_the_drawing_text_comes_before_the_answers_on_the_done_row(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no trunk the drawing check says so on the row, and the "no" lines
+    follow it after `; `."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    write_domain_page(root, "session-continuity, attention")
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("session-continuity, attention"))
+    write_design_record(root)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="attention")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy change", context="session-continuity")
+
+    assert _arch_pass()["annotation"] == (
+        "no trunk found, so committed records were not checked; "
+        "session-continuity: no — Copy change"
+    )
+
+
+def test_a_done_row_longer_than_the_console_prints_as_one_line(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rich wraps a long line at the console width, and a wrapped line breaks
+    under the step table and reads as a new row (PR-013). The row prints
+    unwrapped and leaves wrapping to the terminal."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    _branch(storyctl_dir, monkeypatch, "session-continuity, attention")
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "boundary", "Copy change in the handoff template",
+        context="session-continuity",
+    )
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "boundary", "No change to any hook or any watcher",
+        context="attention",
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    row = next(line for line in result.output.splitlines() if "session-continuity: no" in line)
+    assert "attention: no — No change to any hook or any watcher" in row

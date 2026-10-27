@@ -1039,6 +1039,16 @@ def test_a_record_with_no_governs_field_governs_nothing(tmp_path: Path) -> None:
     assert record.governs == ()
 
 
+def test_governs_is_read_from_a_records_text_the_way_the_record_reads_it() -> None:
+    """The worktree guard holds a record's text from `git show` and not a file,
+    so the two readers have to agree on one record."""
+    text = "---\nstatus: accepted\ngoverns: install-and-drift, attention\n---\n\n# X\n"
+
+    assert _arch.parse_governs(text) == ("install-and-drift", "attention")
+    assert _arch.parse_governs("---\nstatus: accepted\n---\n\n# X\n") == ()
+    assert _arch.parse_governs("# X\n\ngoverns: attention\n") == ()
+
+
 # --- unknown governs names (#649, doctor) -----------------------------------
 
 

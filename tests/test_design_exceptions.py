@@ -184,3 +184,93 @@ def test_a_sub_issue_with_its_own_folder_starts_with_no_exceptions(
     states = _states(payload)
     assert states["brainstorm.architecture"][0] != "done"
     assert states["plan.plan-review"][1] is None
+
+
+# --- per-context answers (#649) ----------------------------------------------
+
+
+def test_a_context_gets_its_own_subfolder_of_exceptions(tmp_path: Path) -> None:
+    """A "no" for one context must not read as an answer for another, so each
+    context writes under `exceptions/<context>/` and `path` names the same file.
+    """
+    spec = tmp_path / "700-fix"
+    boundary = _design_exceptions.write(spec, BOUNDARY, "Copy only", context="install-and-drift")
+    ui = _design_exceptions.write(
+        spec, "brainstorm.software-design", "No structure change", context="install-and-drift"
+    )
+
+    assert boundary == spec / "exceptions" / "install-and-drift" / "boundary.md"
+    assert ui == spec / "exceptions" / "install-and-drift" / "brainstorm.software-design.md"
+    assert _design_exceptions.path(spec, BOUNDARY, context="install-and-drift") == boundary
+    assert _design_exceptions.boundary(spec, context="install-and-drift") == "Copy only"
+    assert _design_exceptions.passes(spec, context="install-and-drift") == {
+        "brainstorm.software-design": "No structure change"
+    }
+
+
+def test_a_per_context_title_names_the_context(tmp_path: Path) -> None:
+    """The file sits in a folder named for the context, but a reader opening it
+    alone sees only the title."""
+    spec = tmp_path / "700-fix"
+    boundary = _design_exceptions.write(spec, BOUNDARY, "Copy only", context="a")
+    claim = _design_exceptions.write(spec, "brainstorm.software-design", "None", context="a")
+
+    assert boundary.read_text().splitlines()[0] == "# No new boundary for a"
+    assert claim.read_text().splitlines()[0] == "# brainstorm.software-design does not apply to a"
+
+
+def test_a_per_context_answer_is_not_a_branch_wide_one(tmp_path: Path) -> None:
+    """Without a context `boundary` and `passes` read one level and never a
+    subfolder, or one context's "no" would clear the whole branch and every
+    context's claim would skip the pass (FR-011)."""
+    spec = tmp_path / "700-fix"
+    _design_exceptions.write(spec, BOUNDARY, "Copy only", context="a")
+    _design_exceptions.write(spec, "brainstorm.software-design", "None", context="a")
+
+    assert _design_exceptions.boundary(spec) is None
+    assert _design_exceptions.passes(spec) == {}
+    assert _design_exceptions.boundary(spec, context="b") is None
+
+
+def test_reasons_lists_every_label_and_reason_across_both_forms(tmp_path: Path) -> None:
+    """`check-body` compares each reason against the PR body, so it needs the
+    per-context ones too, labelled so a finding says which answer is missing."""
+    spec = tmp_path / "700-fix"
+    _design_exceptions.write(spec, BOUNDARY, "Wide")
+    _design_exceptions.write(spec, "brainstorm.ui-design", "No screens")
+    _design_exceptions.write(spec, BOUNDARY, "Narrow", context="a")
+
+    assert sorted(_design_exceptions.reasons(spec)) == sorted([
+        ("boundary", "Wide"),
+        ("brainstorm.ui-design", "No screens"),
+        ("boundary for a", "Narrow"),
+    ])
+
+
+def test_reasons_of_a_missing_folder_is_empty(tmp_path: Path) -> None:
+    assert _design_exceptions.reasons(tmp_path / "none") == []
+
+
+def test_boundary_contexts_lists_the_contexts_with_a_boundary_exception(tmp_path: Path) -> None:
+    """The guard names the branch's own per-context files without the name list,
+    so the list going away doesn't hide them (#653). A context holding only a
+    pass claim, or an empty file, isn't one."""
+    spec = tmp_path / "700-fix"
+    _design_exceptions.write(spec, BOUNDARY, "b", context="beta")
+    _design_exceptions.write(spec, BOUNDARY, "a", context="alpha")
+    _design_exceptions.write(spec, "brainstorm.software-design", "none", context="gamma")
+    (spec / "exceptions" / "delta").mkdir()
+    (spec / "exceptions" / "delta" / "boundary.md").write_text("# No new boundary for delta\n")
+
+    assert _design_exceptions.boundary_contexts(spec) == ["alpha", "beta"]
+    assert _design_exceptions.boundary_contexts(tmp_path / "none") == []
+
+
+def test_a_context_that_could_leave_the_exceptions_folder_is_refused(tmp_path: Path) -> None:
+    """The CLI checks a name against the domain page, but this module builds the
+    path, so it refuses one that points outside `exceptions/` itself."""
+    import pytest
+
+    for bad in ("../x", "a/b", ".hidden", ""):
+        with pytest.raises(ValueError):
+            _design_exceptions.path(tmp_path, BOUNDARY, context=bad)
