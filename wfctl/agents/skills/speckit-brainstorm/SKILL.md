@@ -153,8 +153,10 @@ Contexts: install-and-drift, session-continuity
 
 wfctl reads only the lines above the first heading, so a copy of the line
 further down the file is ignored. Use the names exactly as the domain page
-spells them, comma-separated. A repo with no `Contexts` line on its domain page
-gets no line in `design.md`.
+spells them, comma-separated. A domain page with an `Outside parties` line and
+no `Contexts` line counts as listing contexts, so put the outside parties this
+change affects in the same `Contexts` line. A repo whose domain page has neither
+line gets no line in `design.md`.
 
 **If `design.md` already exists when this skill runs, do not overwrite it.**
 Read it, and treat this run as answering whatever the pipeline still reports

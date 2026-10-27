@@ -188,12 +188,12 @@ method sends the change on to level 3 here, which is what its **Not for** line
 says too.
 
 **Decide which contexts the branch changes before writing any record.** When
-the domain page under `wfctl arch-root` has a `Contexts` line, read it and pick
-the contexts this change touches, plus any outside party whose boundary it
-moves. Use the short names exactly as the page spells them. The list goes into
-`design.md` (see `speckit-brainstorm`), and each record you write names the
-same contexts in its `governs` field. A repo with no such line has no list to
-choose from, so skip this paragraph there.
+the domain page under `wfctl arch-root` has a `Contexts` or `Outside parties`
+line, read it and pick the contexts this change touches, plus any outside party
+whose boundary it moves. Use the short names exactly as the page spells them.
+The list goes into `design.md` (see `speckit-brainstorm`), and each record you
+write names the same contexts in its `governs` field. A repo with neither line
+has no list to choose from, so skip this paragraph there.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
