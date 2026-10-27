@@ -3522,12 +3522,17 @@ _BASE_LAYER = "base"
 # do `manifest[key].get("items", [])`, which raises AttributeError on a string.
 # `base` IS a layer (it has items and a content hash, so `doctor` checks it for
 # drift), it is just not an *agent* — see _agent_keys.
+# `_NON_LAYER_KEYS` names the known scalars, but a manifest from any version
+# can carry an unknown scalar key — a field added before the caller updated its
+# exclusion list. The isinstance guard makes _layer_keys robust against that:
+# a layer entry is always a dict, so any non-dict value is a scalar regardless
+# of its key name.
 _NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 
 
 def _layer_keys(manifest: dict) -> list[str]:
     """Manifest keys that name an installed layer, base included."""
-    return [k for k in manifest if k not in _NON_LAYER_KEYS]
+    return [k for k in manifest if k not in _NON_LAYER_KEYS and isinstance(manifest[k], dict)]
 
 
 def _runner(repo_root: Path) -> str:
