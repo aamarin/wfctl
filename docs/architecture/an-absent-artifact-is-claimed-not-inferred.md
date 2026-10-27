@@ -50,8 +50,8 @@ wfctl that the pipeline moved on, not why the artifact is missing.
 ## Decision
 
 A sub-step whose artifact is missing stays outstanding until a person says
-otherwise. It reads `pending` before its step is reached and `in_progress`
-after. The person says so with a command, which writes a sentence into the
+otherwise. It reads `in_progress` once its step's own artifact is done and no
+earlier sub-step is outstanding, and `pending` before that. The person says so with a command, which writes a sentence into the
 branch's spec folder:
 
 ```
@@ -102,7 +102,7 @@ to the reviewer.
 stateDiagram-v2
   [*] --> pending
   pending --> pending: parent step not done, or an earlier sub-step is outstanding
-  pending --> done: parent step done, artifact exists
+  pending --> done: parent step done, no earlier sub-step outstanding, artifact exists
   pending --> in_progress: parent step done, no earlier sub-step outstanding, artifact missing
   in_progress --> in_progress: artifact still missing, no claim
   in_progress --> done: artifact exists
@@ -110,7 +110,7 @@ stateDiagram-v2
   in_progress --> skipped: a claim exists for it on this branch
   done --> skipped: a claim exists for it on this branch
   pending --> skipped: the parent step is skipped
-  pending --> skipped: needs a person, auto-approve is on, artifact missing
+  pending --> skipped: needs a person, auto-approve is on, would otherwise be in_progress
 ```
 
 The drawing follows one sub-step through its four states. The loop on
@@ -207,4 +207,5 @@ skill, and the default view hides the row once it's settled.
   acceptance requires
 - 2026-10-26  revised     — #635: redraws the sub-step states from the code,
   names the auto-approve skip as a third way a sub-step reads `skipped`, and
-  says a missing artifact reads `in_progress` once its step is reached
+  says a missing artifact reads `in_progress` once its step's own artifact is
+  done and no earlier sub-step is outstanding
