@@ -143,8 +143,8 @@ fidelity. `brainstorming` carries its approved design here in context rather tha
 saving it first; a second write to that path destroys the approved design.
 `/speckit.specify` reads the file from there.
 
-When the domain page has a `Contexts` line, write the contexts you decided on at
-level 2 as one line directly under the title of `design.md`, before the first
+When the domain page has a `Contexts` or `Outside parties` line, write the
+contexts you decided on at level 2 as one line directly under the title of `design.md`, before the first
 `##` heading:
 
 ```
