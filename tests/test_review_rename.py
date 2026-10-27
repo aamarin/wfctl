@@ -11,6 +11,7 @@ is the one setup where the bug can't happen.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -44,6 +45,20 @@ def start_rounds(n: int) -> None:
 def test_a_rename_keeps_the_round_count(repo: Path) -> None:
     """The reproduction from #666: security is at 3 of 3, then the branch is renamed."""
     start_rounds(3)
+    git(repo, "branch", "-m", "626-round-cap")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1, result.output
+    assert "security has run 3 of 3 rounds" in result.output
+
+
+def test_a_rename_keeps_the_count_of_runs_recorded_before_the_tally(repo: Path) -> None:
+    """A branch with two runs on disk and no tally starts a third. The tally has
+    to reach 3, not 1, or a rename lowers the count by the runs it never saw."""
+    start_rounds(2)
+    shutil.rmtree(_paths.resolve_round_dir(repo, "626-review-round-cap") / "rounds")
+    start_rounds(1)
     git(repo, "branch", "-m", "626-round-cap")
 
     result = run("review", "start", "security")

@@ -791,17 +791,23 @@ def rounds_tallied(rounds_dir: Path, group: str) -> int:
     return sum(1 for p in tally.iterdir() if p.name.isdigit())
 
 
-def _tally_round(rounds_dir: Path, group: str) -> None:
+def _tally_round(rounds_dir: Path, group: str, used: int) -> None:
+    """Record one more round, where `used` is the rounds already counted.
+
+    The tally is brought up to `used` first. A branch whose runs were recorded
+    before the tally existed has a larger count than the tally holds, and
+    adding one round to the smaller number would let a rename lower it.
+    """
     tally = _tally_dir(rounds_dir, group)
     tally.mkdir(parents=True, exist_ok=True)
-    number = rounds_tallied(rounds_dir, group) + 1
+    number = rounds_tallied(rounds_dir, group)
     # `exist_ok=False` so two branches starting at once can't record one round.
-    while True:
+    while number < used + 1:
+        number += 1
         try:
             (tally / f"{number:03d}").mkdir()
-            return
         except FileExistsError:
-            number += 1
+            continue
 
 
 def latest_run(agent_dir: Path, group: str) -> Run | None:
@@ -986,7 +992,7 @@ def start(
 
         # Before the run folder, so a start that fails partway still costs the
         # round it would have used.
-        _tally_round(tally_dir, group.name)
+        _tally_round(tally_dir, group.name, rounds)
         runs = group_dir(agent_dir, group.name) / "runs"
         runs.mkdir(parents=True, exist_ok=True)
         previous = latest_run(agent_dir, group.name)

@@ -136,6 +136,9 @@ an arrow ending in x is a claim wfctl doesn't accept from the agent.
   the same issue. The wording is left for a follow-up.
 - In the main checkout and in a repository with no tracker, a rename to a name
   with no issue still restarts the count. Neither has an issue to count under.
+- Two branches on one issue that start a round at the same moment can both pass
+  the cap check, since each branch locks only its own folder. The tally records
+  both rounds, so the next start sees the full count.
 - The count stays tamper-evident, not unforgeable, as `review-round-count.md`
   already accepts. An agent can still rename a branch to name a different issue
   number, or delete the run records.
