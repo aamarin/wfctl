@@ -129,6 +129,7 @@ def _git(
     timeout: float | None,
     answers: tuple[int, ...] = (0,),
     honor_grafts: bool = False,
+    encoding: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run git in `repo_root`. An exit code outside `answers` is an error.
 
@@ -144,11 +145,14 @@ def _git(
     git reads them, and these keep wfctl's own reads on the real objects.
     `honor_grafts` leaves the caller's `GIT_GRAFT_FILE` alone, for the one
     call that asks git which grafts file a reviewer's git reads.
+
+    Output is decoded with the locale's encoding unless `encoding` names one.
     """
     env = dict(os.environ) if honor_grafts else {**os.environ, "GIT_GRAFT_FILE": _NO_GRAFTS}
     r = subprocess.run(
         ["git", "--no-replace-objects", *args],
-        cwd=repo_root, capture_output=True, text=True, timeout=timeout, env=env,
+        cwd=repo_root, capture_output=True, text=True, encoding=encoding,
+        timeout=timeout, env=env,
     )
     if r.returncode not in answers:
         detail = r.stderr.strip() or f"exit {r.returncode}"
@@ -209,11 +213,14 @@ def _read_config_at(
     ).stdout.strip()
     if not listed:
         return None, None
-    # `_git` decodes git's output as text, so a file in another encoding fails
-    # inside `subprocess.run` rather than in `json.loads`.
+    # UTF-8 rather than the locale's encoding, since Latin-1 decodes any byte
+    # and a machine set to it would read a bad file without a warning. The
+    # decode happens inside `subprocess.run`, so the error surfaces here rather
+    # than in `json.loads`.
     try:
         text = _git(
-            repo_root, "show", f"{ref}:{_review_config.CONFIG_PATH}", timeout=timeout,
+            repo_root, "show", f"{ref}:{_review_config.CONFIG_PATH}",
+            timeout=timeout, encoding="utf-8",
         ).stdout
     except UnicodeDecodeError:
         return None, "it isn't UTF-8"

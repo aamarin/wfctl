@@ -1727,11 +1727,27 @@ def test_read_config_at_tells_no_file_from_a_file_it_cannot_read(
     assert _review._read_config_at(repo, ref, None) == ({"trunk": "main"}, None)
 
 
-def test_read_config_at_reports_a_file_that_is_not_utf8_instead_of_crashing(repo: Path) -> None:
+@pytest.mark.parametrize("locale_encoding", [None, "latin-1"])
+def test_read_config_at_reports_a_file_that_is_not_utf8_instead_of_crashing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, locale_encoding: str | None,
+) -> None:
     """A trunk `wfctl.json` saved in another encoding made `git show` output
     fail to decode, and the `UnicodeDecodeError` escaped as a traceback from
     `review start` and as a refused PR from the guard. A bad trunk file is
-    supposed to warn, so it has to come back as a reason like bad JSON does."""
+    supposed to warn, so it has to come back as a reason like bad JSON does.
+
+    The `latin-1` case stands in for a machine whose locale isn't UTF-8.
+    `text=True` decodes with the locale's encoding, and Latin-1 decodes any
+    byte, so the file read cleanly there and the warning never appeared."""
+    if locale_encoding is not None:
+        real_run = subprocess.run
+
+        def run_under_locale(*args: object, **kwargs: object) -> object:
+            if kwargs.get("text") and kwargs.get("encoding") is None:
+                kwargs["encoding"] = locale_encoding
+            return real_run(*args, **kwargs)  # type: ignore[call-overload]
+
+        monkeypatch.setattr(_review.subprocess, "run", run_under_locale)
     (repo / "wfctl.json").write_bytes(b'{"trunk": "caf\xe9"}')
     git(repo, "add", "wfctl.json")
     git(repo, "commit", "-q", "-m", "latin-1 config")
