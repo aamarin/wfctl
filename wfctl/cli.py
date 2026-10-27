@@ -3328,6 +3328,8 @@ def _shipped_subcommands(event: str) -> set[str]:
     }
 
 
+BOB_SETTINGS_PATH = ".bob/settings.json"
+
 # The group matcher an event needs, per agent, for the events that have one.
 # Its own map rather than widening `MANAGED_HOOKS`' entries to a triple: every
 # call site reads them as event and command, and a third field there would touch
