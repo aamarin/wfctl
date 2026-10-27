@@ -90,22 +90,52 @@ The decision below moves this repeated match into one module.
 ## Decision
 
 A new module, `wfctl/_contexts.py`, reads the context names and matches them.
-It holds three plain functions:
+It holds six plain functions:
 
 1. `names(arch)` returns the combined name list from every page under
    `domain/` whose `State` line is `accepted`, or `None` when no page has a
    list. `None` means the repo has no name list, and both checks fall back to
    the general check, as they do today.
-2. `listed(spec_dir)` returns the names on the `Contexts` line in
+2. `malformed(arch)` returns each entry on a domain page that isn't a valid
+   name, so `doctor` can report it. A valid name is lowercase letters and
+   digits joined by single hyphens, so `session continuity` and `../x` are
+   both malformed. `names` leaves these entries off the list, since each name
+   becomes a folder under `exceptions/`, and a name like `../x` would point
+   outside it.
+3. `listed(spec_dir)` returns the names on the `Contexts` line in
    `design.md`, or `None` when `design.md` has no such line.
-3. `unanswered(listed, records, spec_dir)` returns the first listed context
+4. `unanswered(listed, records, spec_dir)` returns the first listed context
    that no record in `records` governs and that has no "no", or `None` when
    every context has an answer.
+5. `pause(names, spec_dir, records, level)` returns why brainstorm pauses
+   and how to fix it, or `None`. It first checks for a missing or empty
+   `Contexts` line, then for a name that isn't on the list, and then calls
+   `unanswered`.
+6. `answers(listed, records, spec_dir, level)` returns one line per context
+   answered with a "no". Each pass calls it for its done row in
+   `wfctl status`.
 
-Each check gathers its own records and calls `unanswered`. The architecture
-pass gives it this branch's level-2 records, and #648's pass gives it this
-branch's level-3 records. That way, each pass decides which records count, and
-the matching rule is written once.
+`level` is a `Level`, a `NamedTuple` with two constants, `ARCHITECTURE` and
+`SOFTWARE_DESIGN`. Each holds the record noun, the pass name, and the command for a "no". The two
+levels differ only in these three strings, so a constant is enough, and
+neither check has to format its own messages.
+
+`_evidence.py` gets one function, `context_gap(repo_root, arch, spec_dir,
+level)`. It gathers this branch's records for either level and calls `pause`.
+For level 2, it reads the records under the arch root, excluding `design/`.
+For level 3, it reads the records under `design/`. A mapping in `_evidence`,
+keyed by `level`, picks the folder. `context_gap` stays in `_evidence`
+because it asks git which records the branch changed, and `_contexts` doesn't
+call git.
+
+The architecture pass, #648's software design pass, and the session summary's
+Boundary line all call `context_gap`. The Boundary line is the first thing a
+restarted session reads. Under #635, the line counts only a branch-wide "no"
+or a changed record, so it could disagree with `wfctl status`. For example, a
+branch that answered every context with a per-context "no" would read
+"unanswered" while `wfctl status` shows the architecture pass done. The next
+session would redo finished work. Calling one function from all three places
+keeps them in agreement.
 
 The domain page holds the name list in two header lines, next to the `State` line:
 
@@ -125,11 +155,15 @@ domain page treats contexts and outside parties as different kinds of things.
 (`domain-page-names-contexts.md`), a repo that wants records to govern the
 whole repository adds `repository` to its `Contexts` line.
 
-`_arch.py` gets only the `governs` field and the `validate` finding.
-`validate` takes the name list as an argument instead of reading it.
-`_contexts` imports `_arch` to read records, so the reverse import would
-create a cycle. The `doctor` check calls `_contexts.names` and passes the list
-in.
+`_arch.py` gets the `governs` field, the `validate` finding, and a
+`split_names` function. `split_names` splits a comma-separated list, trims
+each entry, and drops empty ones. The domain page's header lines, the
+`Contexts` line, and the `governs` field are all lists of the same names, so
+they share one split rule. `split_names` is in `_arch` because `parse_record`
+needs it to read `governs`. `_contexts` imports `_arch` for `split_names` and
+its `key: value` line scan, so the reverse import would create a cycle. For the same reason,
+`validate` takes the name list as an argument instead of reading it. The
+`doctor` check calls `_contexts.names` and passes the list in.
 
 Each per-context "no" is a file in its context's folder, inside #635's
 `exceptions/` folder: `exceptions/<context>/boundary.md` for level 2,
@@ -153,8 +187,9 @@ stable  ┌──────────────┐ ┌──────�
        reads reads reads reads reads reads            calls            calls
           │    │    │      │    │    │                  └───────┬────────┘
           │    │    │      │    │    │                  ┌───────▼────────┐
+          │    │    │      │    │    │                  │ context_gap,   │
           │    │    │      │    │    │                  │ _contexts      │
-          │    │    │      │    │    │                  │ (new)          │
+          │    │    │      │    │    │                  │ (both new)     │
           │    │    │      │    │    │                  └─┬─────┬──────┬─┘
           │    │    │      │    │    │                  reads reads  reads
 ══════════╪════╪════╪══════╪════╪════╪═ session-state-is-re-derived ═╪═════════
@@ -167,9 +202,13 @@ stable  ┌──────────────┐ ┌──────�
 
 Both graphs have the same two passes and the same three kinds of file. In the
 baseline, each pass reads the files and matches them itself, so six arrows
-cross the divider. In the decision, each pass makes one call into `_contexts`.
-Only `_contexts` reads the files, so three arrows cross the divider. The
-decision adds one module and no boundary.
+cross the divider. In the decision, each pass makes one call to
+`context_gap`, which gathers the records and passes them to `_contexts`. Only
+those two read the files, so three arrows cross the divider. The decision adds
+one module and two functions outside it, `context_gap` and `split_names`, and
+no boundary. The session summary's Boundary
+line also calls `context_gap`. The drawing leaves it out because it has no
+counterpart in the baseline.
 
 The decision is built to absorb #544 changing where the branch's list comes
 from. In the baseline, that changes the `Contexts` line read in both passes. In
@@ -200,9 +239,10 @@ stay the same.
 
 ## Consequences
 
-The two passes share one matching rule. One module defines the format of the
-name list and the `Contexts` line. When #544 changes where the branch's list
-comes from, only `listed` changes.
+The two passes and the Boundary line share one matching rule. `_contexts`
+reads the name list and the `Contexts` line. `_arch.split_names` splits both
+of them, and every `governs` field, with the same rule. When #544 changes
+where the branch's list comes from, only `listed` changes.
 
 `domain-model-template.md` in `model-the-domain` gets the `Contexts` and
 `Outside parties` lines. It also gets `accepted` as a `State` value, since
@@ -231,6 +271,9 @@ edit there or a follow-up here once #635 merges.
   pauses and names the unknown context.
 - A test runs `wfctl doctor` on a level-2 record whose `governs` field holds a name
   that isn't on the list, and checks for the finding.
+- A test checks that the Boundary line reads "answered" for a branch that
+  changed no record and answered every listed context with a "no", and
+  "unanswered" for a branch whose only record governs a different context.
 - `grep -n "Contexts:" wfctl/_evidence.py wfctl/_arch.py` finds nothing, so
   only `_contexts` reads the line.
 
@@ -238,3 +281,9 @@ edit there or a follow-up here once #635 merges.
 
 - 2026-10-26  proposed  — #649 level 3: where the context names are read and
   matched, and the format of the name list
+- 2026-10-26  amended  — #652: the Decision now covers what the #649 tasks
+  add. `split_names` is in `_arch` to avoid an import cycle. `context_gap` in
+  `_evidence` gathers the records for both levels, and the Boundary line calls
+  it too. `_contexts` now has `malformed`, `pause`, `answers`, and the `Level`
+  type with its two constants. Andre chose the shared `context_gap` function in the plan
+  walkthrough.
