@@ -81,8 +81,8 @@ since its last complete run.
 
 **wfctl stops a group after the repository's round cap.** `wfctl review start`
 counts each group's runs on the branch and refuses one past `review.rounds`,
-which is 3 by default. When it refuses, stop and show the user the commits the
-guard lists. Ask them to run `wfctl review sign-off` in their own terminal, or
+which is 3 by default. When it refuses, stop and show the user the refusal it
+printed. Ask them to run `wfctl review sign-off` in their own terminal, or
 to say how they want to proceed. The agent shouldn't start another round or sign
 off itself. The guard refuses the sign-off command when an agent runs it.
 

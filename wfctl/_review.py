@@ -399,10 +399,12 @@ def trunk_rounds(
     if data is None or "review" not in data:
         return TrunkRounds(fallback, short, None)
     review = data["review"]
-    cap, problem = (
-        _review_config.parse_rounds(review) if isinstance(review, dict)
-        else (None, "not an object")
-    )
+    if not isinstance(review, dict):
+        return TrunkRounds(
+            fallback, short,
+            f"review on {short} isn't an object; wfctl uses the default of {fallback}",
+        )
+    cap, problem = _review_config.parse_rounds(review)
     if problem is not None:
         return TrunkRounds(
             fallback, short,

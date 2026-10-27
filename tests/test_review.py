@@ -1767,7 +1767,6 @@ def test_trunk_rounds_reads_the_cap_without_a_warning_when_there_is_nothing_wron
     '{"review": {"rounds": 1.5}}',
     '{"review": {"rounds": "3"}}',
     '{"review": {"rounds": true}}',
-    '{"review": 4}',
 ])
 def test_trunk_rounds_uses_the_default_and_warns_on_a_value_it_cannot_use(
     tmp_path: Path, repo: Path, text: str,
@@ -1782,6 +1781,22 @@ def test_trunk_rounds_uses_the_default_and_warns_on_a_value_it_cannot_use(
     assert found.warning == (
         "review.rounds on origin/main isn't a whole number of 0 or more; "
         "wfctl uses the default of 3"
+    )
+
+
+def test_trunk_rounds_names_the_review_key_when_it_is_not_an_object(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """When `review` is a number, the file has no `review.rounds`, so a warning
+    that names `review.rounds` sends the reader looking for a key that isn't
+    there."""
+    declare_on_main(tmp_path, repo, '{"review": 4}')
+
+    found = _review.trunk_rounds(repo, None, branch="637-x")
+
+    assert found.cap == 3
+    assert found.warning == (
+        "review on origin/main isn't an object; wfctl uses the default of 3"
     )
 
 
