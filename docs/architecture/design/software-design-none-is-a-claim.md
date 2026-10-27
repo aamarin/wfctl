@@ -136,9 +136,9 @@ have had to be moved or special-cased by hand.
 A "no" shows up in the PR body as the claim's reason, the same as a skipped
 plan review, and `wfctl check-body` reports a body that leaves it out
 (`design-exceptions-live-with-specs.md`). The level-3 answer and the level-2
-answer now use different commands, `wfctl step none` and `wfctl arch none`. That's a cost to anyone who
-learns one and expects the other. The remedy text names both answers in full to
-cover it.
+answer now use different commands, `wfctl step none` and `wfctl arch none`.
+That's a cost to anyone who learns one and expects the other. The remedy text
+names both answers in full to cover it.
 
 The skills have to say this too. `design-levels` gives the `step none` answer at
 level 3, `speckit-brainstorm` names the claim where it says a branch has no
