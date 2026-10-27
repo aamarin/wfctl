@@ -394,9 +394,8 @@ def test_a_scan_file_is_not_a_decision_in_force(tmp_path: Path) -> None:
     """`arch context` must keep meaning "the decisions this repo is built under".
 
     `load_records` globs `<root>/*.md` one level deep, which is what keeps
-    `design/`, `declarations/` and `views/` out of the projection — `wfctl arch
-    none`'s own help gives that as the reason declarations live in a
-    subdirectory. `scans/` rides on the same property, and a future move of these
+    `design/`, `declarations/` and `views/` out of the projection. `scans/`
+    rides on the same property, and a future move of these
     files to the root would file every scan among the accepted records.
     """
     root = tmp_path / "docs" / "architecture"

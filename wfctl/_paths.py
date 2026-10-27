@@ -241,9 +241,8 @@ def design_record_checks(repo_root: Path) -> tuple[bool, list[str]]:
 
     The checks hold a branch when git can't say whether it wrote a record, and
     a repository whose arch root is outside the tree is one where git never
-    can. `"off"` is the only way out there: a claim would sit under that same
-    arch root, where no reviewer would read it, so `wfctl step none` refuses to
-    write one.
+    can. `"off"` settles that for every branch. A design exception settles it
+    for one, since it lives in the spec folder and git isn't asked.
 
     Anything but `"off"` reads as on, a typo included, so a mistake never turns
     a check off. The typo comes back as a problem for `check config`. A file
@@ -546,12 +545,18 @@ SCANS_DIR = "scans"
 # and has to be dropped for it.
 IMPLEMENTATION_DIR = "implementation"
 
-# The arch-root subtree holding a person's claim that one pipeline pass does
-# not apply to this change (#339, `an-absent-artifact-is-claimed-not-inferred`).
-# A claim answers a narrower question than a record does and decides nothing
-# about the boundary a record decides — left out, `wfctl step none` would
-# double as an unintended way to satisfy the design gate (FR-016, SC-006), the
-# same failure `scans/` and `implementation/` are excluded to prevent.
+# The arch-root subtree where wfctl 0.23.0 and older wrote `arch none`'s
+# declaration. Design exceptions now live in the spec folder
+# (`design-exceptions-live-with-specs`), but an older wfctl still writes here,
+# and the file stays on disk in a repo that ran one. It decides nothing a
+# record decides, so it is excluded like `scans/`: counted, a stale declaration
+# would answer the design gate for a branch that never answered it (FR-007).
+DECLARATIONS_DIR = "declarations"
+
+# The arch-root subtree where wfctl 0.21.0 to 0.23.0 wrote `step none`'s claim,
+# one folder per branch. Pass exceptions now live in the spec folder too, but
+# an older wfctl on PATH still writes here, so it is excluded for the reason
+# `declarations/` is.
 STEP_CLAIMS_DIR = "step-claims"
 
 # The arch-root subtree holding a domain model — the language, contexts and
@@ -582,6 +587,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
     return [
         arch / SCANS_DIR,
         arch / IMPLEMENTATION_DIR,
+        arch / DECLARATIONS_DIR,
         arch / STEP_CLAIMS_DIR,
         arch / DOMAIN_DIR,
     ]
@@ -946,6 +952,51 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
             return claimants[0]
 
     return None
+
+
+def feature_dir(branch: str, repo_root: Path) -> Path:
+    """The spec folder for `branch`, named even before it exists.
+
+    The folder `resolve_spec_dir` finds, or the one a new spec is created in.
+    One helper rather than the expression at each caller, because
+    `feature-paths` names the folder brainstorm creates and `arch none` and
+    `step none` can write into it first: computed two ways, an exception written
+    before brainstorm would land in a folder brainstorm then ignores.
+
+    The whole branch name rather than `Path(branch).name`, so a branch with a
+    `/` in it gets the same folder `resolve_spec_dir` finds. Through `spec_root`
+    rather than a fixed `specs/`, so the configured root is honoured on create
+    as well as on read.
+    """
+    found = resolve_spec_dir(branch, repo_root)
+    return found if found is not None else spec_root(repo_root) / branch
+
+
+def is_own_spec_dir(spec_dir: Path, branch: str, repo_root: Path) -> bool:
+    """Is `spec_dir` the branch's own, rather than an epic's it falls back to?
+
+    An epic's sub-issues share the epic's spec folder and its design exceptions.
+    The epic's "no new boundary" stays true for the other sub-issues when one of
+    them adds a record, so `check-body` and the worktree guard both ask this
+    before treating the answer as the branch's own. One function, so the two
+    can't disagree about which folder is whose.
+
+    Issue keys, not names: `resolve_spec_dir` also finds a folder by the
+    branch's key, and that folder is the branch's own. Only the `delivery.md`
+    fallback hands back a folder carrying another key (PR-020).
+    """
+    root = spec_root(repo_root)
+    if spec_dir == root / branch:
+        return True
+    from wfctl import _tracker  # lazy: avoids import cycle at module load
+
+    pattern = _tracker.load_key_pattern(repo_root)
+    key = extract_issue_key(branch, pattern)
+    return (
+        key != "unknown"
+        and spec_dir.parent == root
+        and extract_issue_key(spec_dir.name, pattern) == key
+    )
 
 
 class ClaimConflict(NamedTuple):

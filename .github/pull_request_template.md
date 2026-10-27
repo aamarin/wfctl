@@ -102,6 +102,15 @@ boundary." A yes or no with no reason fails the check. N/A and None aren't
 answers here, since every change either needed a spec or didn't.
 -->
 
+## Moves a boundary?
+<!--
+Does this change draw or move an architecture boundary? Answer yes or no, then
+give the reason in one sentence. For a yes, name the record under
+docs/architecture/. For a no, copy the reason you gave `wfctl arch none`. Then
+list each pass you ran `wfctl step none` on, with its reason. The spec folder
+holds both, and a reviewer can't see it.
+-->
+
 ## What Changed?
 
 ### Changes Made

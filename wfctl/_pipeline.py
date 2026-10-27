@@ -386,8 +386,7 @@ def _infer_steps(
     # `_STEPS`, so importing it back at *our* top level would cycle. A
     # function-scoped import is the same shape `_apply_block_hold` already uses
     # to reach `_session`.
-    from wfctl import _declared
-    from wfctl._paths import resolve_branch
+    from wfctl import _declared, _design_exceptions
 
     # Above the no-spec-dir arm, not below it. A pass is declared by the
     # repository and claimed away per branch; neither fact needs a feature
@@ -396,7 +395,9 @@ def _infer_steps(
     # step two ways, and left a consumer unable to see the declared pipeline
     # until a spec directory happened to exist.
     passes_by_step, _ = _declared.load(repo_root)
-    claims = _step_claims(repo_root, resolve_branch(repo_root))
+    # Pass exceptions live in the spec folder, and `step none` creates it, so
+    # with no spec folder there are none to read.
+    claims = _design_exceptions.passes(spec_dir) if spec_dir is not None else {}
 
     if spec_dir is None:
         return [
@@ -577,35 +578,6 @@ def _read_pass(
         sub.name, state, annotation, sub.command, sub.on_finish,
         claimed=claimed, needs_person=sub.needs_person, reason=reason, remedy=remedy,
     )
-
-
-def _step_claims(repo_root: Path, branch: str) -> dict[str, str]:
-    """Every pass claimed away on `branch`: `<step>.<name>` -> reason.
-
-    One file per pass under `<arch-root>/step-claims/<branch>/`, written by
-    `wfctl step none` — read from disk on every inference, like every other
-    fact this module reads (`session-state-is-re-derived`); nothing here is
-    cached.
-
-    `Path(branch).name`, matching `step_none_cmd`'s own write path: `branch`
-    reaches both as a path segment, and a branch containing `/` (a common
-    convention this repo's own worktree-handle rule doesn't require) would
-    otherwise make the writer and this reader disagree about which directory
-    the claim lives in — a claim recorded as successful and never seen again.
-    """
-    from wfctl._paths import STEP_CLAIMS_DIR
-
-    directory = arch_root(repo_root) / STEP_CLAIMS_DIR / Path(branch).name
-    if not directory.is_dir():
-        return {}
-    claims: dict[str, str] = {}
-    for path in sorted(directory.glob("*.md")):
-        # Body: "# <step>.<name> does not apply — <branch>\n\n<reason>\n" — the
-        # header and the blank line beneath it are `wfctl step none`'s own
-        # formatting, stripped here rather than duplicated as a second parser.
-        _, _, rest = path.read_text().partition("\n\n")
-        claims[path.stem] = rest.strip()
-    return claims
 
 
 def _outstanding_pass(step: _PipelineStep | None) -> _PipelineSubStep | None:

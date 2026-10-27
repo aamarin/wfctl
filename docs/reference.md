@@ -118,8 +118,10 @@ to anything but `true` or `false`, and `needs_person` on a manual pass, which
 already stops an autonomous run. `wfctl doctor` does not check `wfctl.json`.
 
 A pass that does not apply to one change is `wfctl step none <step>.<name>
---reason "…"`. That writes a note into the change under review, and the note wins
-over everything else until a person deletes it.
+--reason "…"`. It writes the reason to `exceptions/` in the branch's spec folder,
+and that file wins over everything else until a person deletes it. The spec
+folder isn't part of the PR, so you copy the reason into the PR body, and `wfctl
+check-body` reports any reason the body is missing.
 
 ## Declaring your trunk (`trunk`)
 
@@ -191,10 +193,10 @@ and a missing key means on. Any other value leaves both checks on and is a
 while the checks are on, even in a repository with no `wfctl.json`, since every
 branch there would be held at brainstorm.
 
-A claim on each branch isn't a way out here. `wfctl step none` writes its claim
-under the architecture folder, and with that folder outside the project, no
-reviewer would read it, so the command refuses to write it. The setting is the
-only answer for this repository.
+A design exception answers one branch instead. `wfctl arch none` and `wfctl
+step none brainstorm.software-design` write to the branch's spec folder, which
+git doesn't need to see, so each one answers its check on that branch. The
+setting answers both checks for every branch.
 
 ## What lands in your repo
 
@@ -1035,17 +1037,16 @@ wfctl arch accept <slug> --agreed "where a human agreed"  # promote proposed →
 wfctl arch check <path-to-record>                        # will a reviewer actually see it?
 ```
 
-**`arch none --reason "<why>"`** declares that a change deliberately draws no
-new architectural boundary — written to
-`<arch-root>/declarations/<branch>.md` (`docs/architecture/declarations/` by
-default; see [`arch-root`](#the-architectural-contract-arch-root-arch-context)
-if the repo points it elsewhere), inside the change under review, so a
-reviewer sees the claim rather than trusting an unwritten one. If `arch-root`
-resolves outside the working tree, the declaration lands outside the reviewed
-change too — `arch none` warns when that happens, since no reviewer would see it. wfctl checks
-only that the reason isn't empty and isn't a placeholder; whether a change
-really draws no boundary has no objective test, so this is a claim a reviewer
-can disagree with, not a proof.
+**`arch none --reason "<why>"`** records that a change draws no new
+architectural boundary. It writes the reason to `exceptions/` in the branch's
+spec folder, where the brainstorm gate reads it, and prints a line telling you
+to copy the reason into the PR body's "Moves a boundary?" section. The spec
+folder isn't part of the PR, so the body is where a reviewer reads it, and
+`wfctl check-body` reports a body that's missing it. A file under
+`<arch-root>/declarations/`, written by wfctl 0.23.0 or older, no longer
+counts. wfctl checks only that the reason isn't empty and isn't a placeholder.
+Whether a change draws no boundary has no objective test, so this is a claim a
+reviewer can disagree with, not a proof.
 
 **`wfctl arch accept <slug> --agreed "<citation>"`** is the only thing that
 moves a record from `proposed` into `arch context`'s output. `--agreed` is

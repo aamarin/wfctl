@@ -179,6 +179,9 @@ says whether the boundary question was answered. A fourth reader added later has
 to make the same exclusion, and `_paths.non_record_subtrees` is where it finds
 out — a list rather than a constant per directory, because `scans/` was named at
 each call site and `implementation/` then had to find all of them (#370).
+`declarations/` and `step-claims/` are on the list too. wfctl 0.23.0 and older
+wrote `arch none`'s and `step none`'s answers there, and a file left behind
+shouldn't answer the design gate (#635).
 
 ## Testing conventions
 
@@ -285,10 +288,12 @@ remit is state wfctl installed that has since drifted, and a repository's own
 configuration is neither.
 
 A pass declared inapplicable to one change is `wfctl step none <step>.<name>
---reason "…"`, which writes a claim into the change under review — a second
-verb beside `wfctl arch none`, not a generalisation of it, because a branch
-makes as many pass claims as it has passes and `arch none`'s whole-file
-overwrite would lose all but the last.
+--reason "…"`. It writes one file per pass to `exceptions/` in the branch's
+spec folder, beside the file `wfctl arch none` writes there. It's a second verb
+rather than an option on `arch none`, because a branch makes as many pass
+exceptions as it has passes and only one boundary answer. The spec folder isn't
+part of the PR, so the reviewer reads each reason in the PR body, and `wfctl
+check-body` reports any reason the body is missing.
 
 ## Declaring reviewers
 
@@ -451,10 +456,10 @@ another client: that is the one gate there is. Report it instead, with
 is taken (`wfctl-records-outward-actions-and-never-gates-them`, #384 removed the
 grant that used to stand in front of these).
 
-**The review check is the one refusal wfctl makes.** The worktree guard is a
-hook wfctl installs. While a review group has commits it hasn't reviewed, the
-guard refuses `gh pr create` and `gh pr merge` and lists those commits under
-each group. The `review` job on GitHub fails the PR for the same commits, and
+**The review and record checks are the refusals wfctl makes.** The worktree
+guard is a hook wfctl installs. While a review group has commits it hasn't
+reviewed, the guard refuses `gh pr create` and `gh pr merge` and lists those
+commits under each group. The `review` job on GitHub fails the PR for the same commits, and
 it reads which groups reviewed what from git notes that wfctl adds when a run
 completes or a person signs off. wfctl sends those notes to `origin` itself.
 When a send fails, it says so, and `wfctl store reviews` resends them.
@@ -468,6 +473,13 @@ notes with `git notes show` or `git log --notes` stays allowed, and so does a
 plain `git fetch`. That refusal comes from wfctl, not the host, so don't report it with
 `wfctl report-block`. Instead, run the review groups it names, as
 `opening-a-change` Step 1 says, and open the PR again.
+
+Once the reviews are done, the guard checks the level-2 records the branch
+changes. It refuses when the branch's own spec folder still says no boundary
+moved, and prints the `rm` that deletes that answer, since the record replaces
+it. It also refuses while any of those records is still `proposed`. That one
+waits on a person: ask them to accept or reject the record, and don't run `wfctl
+arch accept` yourself. `opening-a-change` says what to do for each.
 
 If the check refuses with an error instead, it couldn't reach an answer, for
 example because a `gh` call timed out. Stop and tell the person. Running the

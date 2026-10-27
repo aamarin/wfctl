@@ -26,9 +26,8 @@ from typer.testing import CliRunner
 
 from tests.conftest import SPEC_SECTIONS
 from tests.test_decompose_issues import _delivery, _use_tracker
-from wfctl import _pipeline
+from wfctl import _design_exceptions, _pipeline
 from wfctl._evidence import Assessment, Evidence
-from wfctl._paths import STEP_CLAIMS_DIR, arch_root
 from wfctl._pipeline import (
     STATUS_PAYLOAD_VERSION,
     STORY_COMPLETE_FILE,
@@ -268,9 +267,7 @@ def test_a_claimed_pass_and_a_pass_skipped_for_a_person_are_not_warnings(
         _pass("person", "in_progress", needs_person=True),
     )
     storyctl_dir.stage_upstream_of("plan")
-    claim = arch_root(storyctl_dir.repo_root) / STEP_CLAIMS_DIR / _BRANCH / "specify.claimed.md"
-    claim.parent.mkdir(parents=True, exist_ok=True)
-    claim.write_text(f"# specify.claimed does not apply — {_BRANCH}\n\nnot this change\n")
+    _design_exceptions.write(storyctl_dir.spec_dir, "specify.claimed", "not this change")
 
     steps = _infer_steps(storyctl_dir.spec_dir, storyctl_dir.repo_root, auto_approve=True)
     specify = next(s for s in steps if s.name == "specify")

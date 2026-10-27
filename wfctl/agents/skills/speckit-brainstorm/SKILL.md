@@ -51,11 +51,13 @@ same stop it always was, arriving as state rather than as an exit code.
 
 Under `auto_approve` the level-3 "no" is yours to give: when the change makes
 no structural choice, run `wfctl step none brainstorm.software-design --reason
-"<why>"` yourself, with a real reason, and commit the claim. The person reading
-the PR approves it there, the same as for `wfctl arch none`, and no separate
-approval is added. The grant in this file's `allowed-tools` covers that one
-command line and no other claim. It doesn't stop a claim file being written by
-hand, so the person reading the committed claim is what catches a wrong one.
+"<why>"` yourself, with a real reason. It writes the reason to `exceptions/` in
+the branch's spec folder, which isn't part of the PR, so copy the reason into
+the PR body, where `wfctl check-body` checks for it. The person reading the PR
+approves it there, the same as for `wfctl arch none`, and no separate approval
+is added. The grant in this file's `allowed-tools` covers that one command line
+and no other exception. It doesn't stop an exception file being written by hand,
+so the person reading the reason in the PR body is what catches a wrong one.
 
 **Records land `proposed`.** An agent never writes `accepted` — that transition
 is a human's, and it is what makes "come back and change this later" real rather

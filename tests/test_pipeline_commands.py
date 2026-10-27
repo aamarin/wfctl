@@ -340,11 +340,10 @@ def test_a_domain_model_alone_does_not_answer_the_boundary_question(
 def test_a_claimed_pass_does_not_answer_the_boundary_question(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """SC-006, the wrong answer that looks like success: a `step-claims/` file
-    is exactly as untracked-by-git-diff-recursion a corner of the arch root as
-    `scans/` and `implementation/` — left out of `non_record_subtrees`, the
-    claim itself would count as the branch having touched the arch root, and
-    the boundary gate would read cleared with nobody having drawn one."""
+    """SC-006, the wrong answer that looks like success: a pass exception sits
+    in the same `exceptions/` folder as the boundary exception, so a reader that
+    took any file there as the boundary answer would read the gate cleared with
+    nobody having drawn one. Only `boundary.md` answers it."""
     import json as _json
 
     _arch_root(storyctl_dir, monkeypatch)
@@ -371,17 +370,21 @@ def test_a_declaration_advances(
 
     declared = runner.invoke(app, ["arch", "none", "--reason", "copy edit, no new state"])
     assert declared.exit_code == 0
-    assert "no boundary changed" in declared.output
+    assert declared.output == (
+        '✓ Recorded: no boundary changed — "copy edit, no new state"\n'
+        "  Put the reason in the PR body.\n"
+    )
 
-    assert runner.invoke(app, ["next"]).exit_code == 0
+    assert "no architecture record" not in runner.invoke(app, ["status"]).output
 
 
-def test_the_declaration_lands_in_the_change_not_in_state(
+def test_the_exception_lands_in_the_spec_folder_not_the_architecture_folder(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """FR-010a. wfctl cannot verify the claim — whether a change draws a
-    boundary is a judgment with no objective test — so the only thing that
-    makes it honest is a reviewer seeing it. In the state dir nobody would.
+    """The architecture folder changes only when the architecture does
+    (`design-exceptions-live-with-specs`). A file there for every branch that
+    drew nothing was 15 commits of noise in a folder a reader goes to for
+    decisions, so the exception now sits beside the branch's other specs.
     """
     import subprocess
 
@@ -390,17 +393,101 @@ def test_the_declaration_lands_in_the_change_not_in_state(
 
     runner.invoke(app, ["arch", "none", "--reason", "copy edit, no new state"])
 
+    written = storyctl_dir.spec_dir / "exceptions" / "boundary.md"
+    assert written.read_text() == "# No new boundary\n\ncopy edit, no new state\n"
+    assert not root.exists()
     tracked = subprocess.run(
         # -uall: the default collapses an untracked tree to `?? docs/`, which
-        # would pass this assertion without the declaration ever being written.
+        # would hide a file written anywhere under it.
         ["git", "-C", str(storyctl_dir.repo_root), "status", "--porcelain", "-uall"],
         capture_output=True, text=True, check=True,
     ).stdout
-    assert "docs/architecture/declarations/" in tracked
+    assert "docs/" not in tracked
 
-    written = list((root / "declarations").glob("*.md"))
-    assert len(written) == 1
-    assert "copy edit, no new state" in written[0].read_text()
+
+def test_arch_none_creates_the_spec_folder_when_there_is_none(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """Scenario 1.2. `arch none` is often the first thing a branch writes, so
+    it creates the spec folder rather than refusing (FR-003).
+
+    Brainstorm stays current, since a spec folder holding only `exceptions/` is
+    not a design. Its state moves from `pending` to `in_progress`, because once
+    the folder exists brainstorm reads its own state as `done` and rolls up
+    behind the `design-doc` pass. That move is expected, and pinned so a later
+    change to it is a decision rather than a surprise.
+    """
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.spec_dir.rmdir()
+
+    before = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    result = runner.invoke(app, ["arch", "none", "--reason", "copy edit"])
+    after = json.loads(runner.invoke(app, ["status", "--json"]).output)
+
+    assert result.exit_code == 0
+    assert (storyctl_dir.spec_dir / "exceptions" / "boundary.md").is_file()
+    states = {s["name"]: s["state"] for s in before["steps"]}
+    assert states["brainstorm"] == "pending"
+    assert after["current"] == "brainstorm"
+    assert {s["name"]: s["state"] for s in after["steps"]}["brainstorm"] == "in_progress"
+
+
+def test_a_second_arch_none_replaces_the_first_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """Scenario 1.3. One change makes one boundary answer, so a branch that
+    runs `arch none` twice has changed its mind rather than answered twice.
+    """
+    _arch_root(storyctl_dir, monkeypatch)
+
+    runner.invoke(app, ["arch", "none", "--reason", "first reason"])
+    runner.invoke(app, ["arch", "none", "--reason", "second reason"])
+
+    body = (storyctl_dir.spec_dir / "exceptions" / "boundary.md").read_text()
+    assert "second reason" in body
+    assert "first reason" not in body
+
+
+def test_an_exception_answers_the_gate_without_asking_git(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """The exception is read before git is asked whether a record was touched
+    (research R3). It is an answer that doesn't depend on git, so the gate
+    reads it with one file read and no subprocess, and a git that can't answer
+    has no say in it.
+    """
+    from wfctl import _paths
+
+    def git_must_not_be_asked(*args: object, **kwargs: object) -> bool | None:
+        raise AssertionError("the gate asked git after finding the exception")
+
+    _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    runner.invoke(app, ["arch", "none", "--reason", "copy edit"])
+    monkeypatch.setattr(_paths, "touched_on_this_branch", git_must_not_be_asked)
+
+    from wfctl._evidence import _architecture_answered
+
+    assert _architecture_answered(storyctl_dir.spec_dir, storyctl_dir.repo_root) is None
+
+
+def test_an_old_declaration_does_not_answer_the_gate(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """SC-003's first deliberate change, scenario 4.2. An older wfctl still
+    writes `declarations/<branch>.md` under the arch root. That folder is now
+    excluded like `scans/`, so an old declaration doesn't release the gate and
+    the branch has to answer in its spec folder (FR-007).
+    """
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (root / "declarations").mkdir(parents=True)
+    (root / "declarations" / "418-storyctl.md").write_text("# No new boundary\n\nold\n")
+
+    out = runner.invoke(app, ["status"]).output
+
+    assert "brainstorm   ▶" in out
+    assert "no architecture record" in out
 
 
 def test_a_feature_with_no_design_step_is_not_gated(
@@ -508,51 +595,37 @@ def test_resume_reports_the_auto_flag_of_the_step_it_resumed_to(
     assert "auto: false" in (storyctl_dir.agent_dir / "next-step.md").read_text()
 
 
-def test_a_declaration_git_will_not_carry_is_refused(
-    storyctl_dir: types.SimpleNamespace, monkeypatch
-) -> None:
-    """The deadlock: a gitignored arch root made `arch none` print ✓ while
-    writing a file git never reports, so the gate refused forever and the
-    escape hatch it names had no effect. Both silent failures — ignored, and
-    out-of-tree — are the same question: did the claim reach the reviewer?"""
-    import subprocess
-
-    _arch_root(storyctl_dir, monkeypatch)
-    storyctl_dir.make_spec_artifact("brainstorm")
-    (storyctl_dir.repo_root / ".gitignore").write_text("docs/\n")
-    subprocess.run(["git", "-C", str(storyctl_dir.repo_root), "add", ".gitignore"],
-                   check=True, capture_output=True)
-
-    result = runner.invoke(app, ["arch", "none", "--reason", "copy edit"])
-
-    assert result.exit_code == 1
-    assert "not part of the change under" in result.output
-    assert "✓" not in result.output
-
-
-def test_an_out_of_tree_declaration_is_refused(
+def test_an_out_of_tree_arch_root_does_not_stop_arch_none(
     storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path_factory
 ) -> None:
-    """FR-002a allows an out-of-tree root, so this configuration is supported —
-    but a declaration written there never appears in the change, and the gate
-    is inert. Reporting success would be a lie in a state the spec permits."""
+    """`arch none` used to refuse when the arch root sat outside the working
+    tree, since its file would never reach the diff. The exception now goes to
+    the spec folder, which is never in the diff either, and the reviewer reads
+    the PR body instead, so where the arch root lives no longer matters.
+    """
     outside = tmp_path_factory.mktemp("outside-the-repo")
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
     storyctl_dir.make_spec_artifact("brainstorm")
 
     result = runner.invoke(app, ["arch", "none", "--reason", "copy edit"])
 
-    assert result.exit_code == 1
-    assert "not part of the change under" in result.output
+    assert result.exit_code == 0
+    assert (storyctl_dir.spec_dir / "exceptions" / "boundary.md").is_file()
+    assert list(outside.iterdir()) == []
 
 
-def test_an_empty_reason_is_refused(
-    storyctl_dir: types.SimpleNamespace, monkeypatch
+@pytest.mark.parametrize("reason", ["   ", "<why>"])
+def test_an_empty_or_placeholder_reason_writes_nothing(
+    storyctl_dir: types.SimpleNamespace, monkeypatch, reason: str
 ) -> None:
-    """An empty claim is the silent omission the check exists to stop, with an
-    extra command in front of it."""
+    """Scenario 1.4. An empty claim is the silent omission the check exists to
+    stop, and a pasted `<why>` is the same thing with characters in it. Both
+    refuse before the spec folder is touched, so no half-made answer is left
+    for the gate to read."""
     _arch_root(storyctl_dir, monkeypatch)
-    assert runner.invoke(app, ["arch", "none", "--reason", "   "]).exit_code == 1
+
+    assert runner.invoke(app, ["arch", "none", "--reason", reason]).exit_code == 1
+    assert not (storyctl_dir.spec_dir / "exceptions").exists()
 
 
 def test_a_bracketed_root_reaches_the_reader(

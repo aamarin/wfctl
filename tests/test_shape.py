@@ -316,3 +316,95 @@ def test_outside_a_repository_check_body_reads_no_sections(
     code, output = _check(body)
     assert code == 0
     assert _SECTION not in output
+
+
+def _epic_sub_issue(storyctl_dir, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Branch `701-sub` with no spec folder of its own, claimed by epic 700's
+    Issue Grouping Map, so the spec folder it reads is the epic's (research R11).
+    """
+    from tests.test_paths import _delivery_map
+
+    epic = storyctl_dir.repo_root / "specs" / "700-epic"
+    epic.mkdir(parents=True)
+    (epic / "delivery.md").write_text(_delivery_map("#701"))
+    monkeypatch.setenv("WFCTL_BRANCH", "701-sub")
+    return epic
+
+
+def test_a_body_missing_an_exceptions_reason_is_a_finding_in_any_repo(
+    storyctl_dir, tmp_path: Path
+) -> None:
+    """Scenario 5.1. The gate reads the spec folder's copy of the answer and the
+    reviewer reads the PR body's, and before this nothing compared them. The
+    check looks for the reason anywhere in the body, so it names no heading and
+    runs in a repo that lists no "Moves a boundary?" section (FR-011)."""
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy fix in one help string")
+    body = _body_with(tmp_path, "")
+
+    code, output = _check(body)
+
+    assert code == 1
+    assert (
+        '⚠ the boundary exception\'s reason isn\'t in the body: "Copy fix in one help string"'
+        in " ".join(output.split())
+    )
+
+
+def test_a_reason_rewrapped_across_lines_still_matches(storyctl_dir, tmp_path: Path) -> None:
+    """Scenario 5.2. An author pasting a reason into a body wraps it to fit,
+    and a check that compared bytes would report every wrapped reason missing.
+    Whitespace collapses in both texts first."""
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "brainstorm.ui-design", "No screen changes in this branch"
+    )
+    body = _body_with(tmp_path, "## Moves a boundary?\nNo.\n\n- ui-design: No screen\n  changes in this branch\n")
+
+    code, output = _check(body)
+
+    assert "exception reason" not in output
+    assert code == 0
+
+
+def test_a_missing_pass_reason_names_the_pass(storyctl_dir, tmp_path: Path) -> None:
+    """One line per missing reason, naming which exception it came from, so the
+    author knows which line to add without opening the spec folder."""
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(storyctl_dir.spec_dir, "brainstorm.ui-design", "No screen changes")
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert code == 1
+    assert (
+        '⚠ brainstorm.ui-design\'s exception reason isn\'t in the body: "No screen changes"'
+        in " ".join(output.split())
+    )
+
+
+@pytest.mark.parametrize("record", [True, False], ids=["record", "no-record"])
+def test_a_sub_issue_with_a_record_skips_the_epics_boundary_reason(
+    storyctl_dir, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, record: bool
+) -> None:
+    """FR-015. A sub-issue reads its epic's "no new boundary". When the
+    sub-issue adds a level-2 record, that record answers the boundary question
+    for it, and its PR body says yes and names the record. Without the skip, it
+    would have to quote the epic's "no" to pass. Without a record, the epic's
+    answer is the sub-issue's too, so the reason is still required."""
+    from wfctl import _design_exceptions
+
+    epic = _epic_sub_issue(storyctl_dir, monkeypatch)
+    _design_exceptions.write(epic, "boundary", "The epic reuses the review store")
+    arch = storyctl_dir.repo_root / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(arch))
+    if record:
+        arch.mkdir(parents=True)
+        (arch / "sub-owns-a-thing.md").write_text("---\nstatus: proposed\n---\n\n# x\n")
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert ("boundary exception's reason" in output) is not record
+    assert code == (0 if record else 1)

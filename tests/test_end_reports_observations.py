@@ -72,6 +72,30 @@ def test_the_summary_file_carries_the_same_three_readings(
     assert "**Tree**: clean" in summary
 
 
+@pytest.mark.parametrize(("exception", "expected"), [(True, "answered"), (False, "unknown")])
+def test_a_boundary_exception_reads_as_answered_and_git_alone_cannot_say(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+    exception: bool, expected: str,
+) -> None:
+    """The summary reads the boundary under the same rule as the gate (FR-014),
+    so the two never disagree. With the exception moved out of the arch root,
+    a summary that asked git alone would report "unanswered" on every branch
+    that answered with `arch none`.
+
+    Without an exception the line still maps git's three answers, so a git
+    that can't tell still reads `unknown` rather than borrowing an answer.
+    """
+    from wfctl import cli
+
+    monkeypatch.setattr(cli, "touched_on_this_branch", lambda *a, **k: None)
+    if exception:
+        runner.invoke(app, ["arch", "none", "--reason", "copy edit"])
+
+    _end(storyctl_dir)
+
+    assert f"**Boundary**: {expected}" in _summary(storyctl_dir)
+
+
 def test_uncommitted_work_is_reported_as_a_dirty_tree(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

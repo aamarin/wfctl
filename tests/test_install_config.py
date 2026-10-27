@@ -420,13 +420,13 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
     Scoped to `github` because it is the only config that seeds verbatim:
     `workmux` is a template whose keys are substituted per repo.
 
-    Two sections are exempt, in one file. This repository's pull request
+    Three sections are exempt, in one file. This repository's pull request
     template drops "Type of Change" because the release note carries that
     information here, and the template wfctl ships keeps it for the projects it
-    seeds. It also adds "Needs a spec?", which the repo opts into through
-    `change_sections` in `wfctl.json` and the shipped template leaves out, since
-    a section no project asked for would be one more for every new repository's
-    PRs to fill. Comparing the two with those sections removed from each keeps
+    seeds. It also adds "Needs a spec?" and "Moves a boundary?", which the repo
+    opts into through `change_sections` in `wfctl.json` and the shipped template
+    leaves out, since a section no project asked for would be one more for every
+    new repository's PRs to fill. Comparing the two with those sections removed from each keeps
     the guard on every other line, which is where the drift it was written for
     can still happen.
     """
@@ -461,7 +461,9 @@ def _without_section(template: str, heading: str) -> str:
 
 
 def _without_exempt_sections(template: str) -> str:
-    return _without_section(_without_section(template, "Type of Change"), "Needs a spec?")
+    for heading in ("Type of Change", "Needs a spec?", "Moves a boundary?"):
+        template = _without_section(template, heading)
+    return template
 
 
 def test_shipped_pull_request_template_still_asks_for_the_type_of_change() -> None:

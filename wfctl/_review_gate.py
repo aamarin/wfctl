@@ -836,10 +836,10 @@ def _judge(target: Target, session: _Session) -> str | None:
         found = json.loads(session.run(*view, "--json", "headRefName,headRefOid"))
         branch, head = str(found["headRefName"]), str(found["headRefOid"])
 
-    trunk = _paths.trunk_branch(session.root, timeout=TIMEOUT)
-    if trunk is None:
+    trunk_ref = _paths.trunk_branch(session.root, timeout=TIMEOUT)
+    if trunk_ref is None:
         raise _review.NoTrunk()
-    trunk = trunk.removeprefix("origin/")
+    trunk = trunk_ref.removeprefix("origin/")
     # Compared with the judged branch, never the checked-out one, since the
     # `main` checkout judges other branches with the trunk checked out. A
     # trunk that is the judged branch makes every commit on it read as already
@@ -876,7 +876,11 @@ def _judge(target: Target, session: _Session) -> str | None:
         branch=branch,
     )
     if not pending:
-        return None
+        # After the reviews, so a branch with unreviewed commits hears about
+        # those first, and the record checks judge the commit the reviews did.
+        from wfctl import _record_gate
+
+        return _record_gate.refusal(session, branch, head, trunk_ref)
     subjects = _review.subjects(session.root, [c for cs in pending.values() for c in cs], TIMEOUT)
     lines = [f"✗ {branch} has commits no review covered:"]
     lines += [f"  {line}" for line in _review.pending_lines(pending, subjects)]

@@ -24,6 +24,18 @@ IN_FORCE = "accepted"
 # misspelled — parses to "" and is excluded, never to `accepted`.
 STATUSES = frozenset({"proposed", IN_FORCE, "superseded", "rejected", "retired"})
 
+# Statuses a person moved a record to. `proposed` is the one that means nobody
+# has, and a status outside `STATUSES` parses to "" — so both fall outside this
+# set without being named in it.
+#
+# Not "accepted" alone, which was the first shape and is wrong for a branch that
+# supersedes a record: that leaves the old record at `superseded`, which a human
+# did decide, and requiring `accepted` would hold such a branch forever.
+#
+# Here rather than in `_evidence`, because the "architecture accepted" fact and
+# the worktree guard both read it, and the guard can't import `_evidence`.
+RULED_ON = frozenset({IN_FORCE, "superseded", "rejected", "retired"})
+
 # A tuple, where `STATUSES` is a frozenset: the accept refusal prints these
 # names, and the order they print in is the order the guidance lists them in
 # (FR-012, data-model.md "Diagram kind"). Nothing prints `STATUSES`.
@@ -156,6 +168,17 @@ def _frontmatter(text: str) -> dict[str, str]:
         if pair is not None:
             found[pair[0]] = pair[1]
     return found
+
+
+def parse_status(text: str) -> str:
+    """A record's status from its text, or "" when absent or unrecognised.
+
+    For a reader that holds the text rather than a file, such as the worktree
+    guard reading a record at a commit through `git show`. Normalised the way
+    `parse_record` normalises it, so the two never disagree about one record.
+    """
+    status = _frontmatter(text).get("status", "")
+    return status if status in STATUSES else ""
 
 
 def parse_record(path: Path) -> Record:

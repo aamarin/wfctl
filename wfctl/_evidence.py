@@ -28,6 +28,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _completion, _md, _plan_review, _spec_store, _tracker
+from wfctl._arch import RULED_ON
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
@@ -141,15 +142,6 @@ class Fact(NamedTuple):
     value: FactValue
     detail: str
 
-
-# Statuses a person moved a record to. `proposed` is the one that means nobody
-# has, and a status outside `_arch.STATUSES` parses to "" — so both fall outside
-# this set without being named in it.
-#
-# Not "accepted" alone, which was the first shape and is wrong for a branch that
-# supersedes a record: that leaves the old record at `superseded`, which a human
-# did decide, and requiring `accepted` would hold such a branch forever.
-_RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
 
 # The design step's display string when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
@@ -850,8 +842,8 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 
 def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     """Whether the boundary question was put and answered — a record touched
-    on this branch, `wfctl arch none`'s declaration, or a later step having
-    already run.
+    on this branch, a boundary exception in the spec folder, or a later step
+    having already run.
 
     Split out of `design_block` rather than inlined in both callers:
     `design_block` only reaches this once `design.md` exists, which is exactly
@@ -868,6 +860,14 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     not `design.md` was ever written.
     """
     if _file_exists(spec_dir / "spec.md"):
+        return None
+
+    from wfctl import _design_exceptions
+
+    # Before git, because the exception is an answer that doesn't depend on it:
+    # one file read, and a git that can't say whether a record was touched has
+    # nothing to add to a branch that already said none was.
+    if _design_exceptions.boundary(spec_dir) is not None:
         return None
 
     from wfctl._paths import (
@@ -1056,7 +1056,7 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
-def _branch_records(
+def branch_records(
     repo_root: Path, arch: Path, *, added_only: bool = False
 ) -> dict[str, Record]:
     """The level-2 records this branch added or modified, by slug, or with
@@ -1122,7 +1122,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     answer. Nothing failed: git is being asked about a path it does not track, and
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
-    `_branch_records` decides which records count, and the design gate asks it
+    `branch_records` decides which records count, and the design gate asks it
     too, so every record the gate holds the branch on is one this fact lists.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
@@ -1142,7 +1142,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     if not touched:
         return Fact(name, "n/a", "no level-2 record on this branch")
 
-    records = _branch_records(repo_root, arch)
+    records = branch_records(repo_root, arch)
     if not records:
         # Touched something under the arch root, and none of it a record the
         # projection reads — a level-3 record, a view, a declaration. The
@@ -1154,7 +1154,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     # it read `accepted` for a record a human had *rejected*, under a label
     # saying accepted — a ruling, so not waiting, and not the same thing.
     named = ", ".join(f"{s} ({records[s].status or 'unreadable'})" for s in sorted(records))
-    waiting = [s for s, r in records.items() if r.status not in _RULED_ON]
+    waiting = [s for s, r in records.items() if r.status not in RULED_ON]
     return Fact(name, "unmet" if waiting else "met", named)
 
 
@@ -1273,9 +1273,9 @@ def build_evidence(
 
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
-    """Whether the boundary question was put and answered — a record, or a
-    `wfctl arch none` declaration — and whether the drawing a proposed record
-    carries is one `wfctl arch accept` would take.
+    """Whether the boundary question was put and answered — a record, or the
+    boundary exception `wfctl arch none` writes — and whether the drawing a
+    proposed record carries is one `wfctl arch accept` would take.
 
     One of `brainstorm`'s three built-in passes. Calls `_architecture_answered`
     directly rather than `design_block`, which answers the same question with
@@ -1363,7 +1363,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     from wfctl._paths import is_in_tree, trunk_branch
 
     arch = arch_root(repo_root)
-    records = _branch_records(repo_root, arch, added_only=True)
+    records = branch_records(repo_root, arch, added_only=True)
     failing = [
         (slug, blockers)
         for slug in sorted(records)
