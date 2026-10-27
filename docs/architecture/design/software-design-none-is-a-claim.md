@@ -28,30 +28,32 @@ level 3.
 
 ## Verified
 
-- `_declared.py:100` `_builtin_only` returns
+- The `_builtin_only` function in `_declared.py` returns
   `{name: list(step.sub_steps) for name, step in _STEPS.items() if step.sub_steps}`,
   so the built-in passes are part of the payload every repository starts from,
   with no `wfctl.json`.
-- `tests/test_step_none.py:251`
+- The test
   `test_the_built_in_plan_review_can_be_claimed_away_and_a_person_still_starts_tasks`
-  claims `plan.plan-review`, a built-in pass, with no `wfctl.json`. This means
-  `wfctl step none` already works on a pass wfctl ships, not only on passes a
-  repository declares.
-- `_declared.py:121` builds `builtin` from `_STEPS[step].sub_steps`, and a
-  declared pass with the same name is dropped. A repository can't declare its
-  own `software-design` pass and collide with this one.
-- `_design_exceptions.py:24` sets `_FOLDER = "exceptions"`. Since #635, every
+  in `tests/test_step_none.py` claims `plan.plan-review`, a built-in pass, with
+  no `wfctl.json`. This means `wfctl step none` already works on a pass wfctl
+  ships, not only on passes a repository declares.
+- The `_load_step` function in `_declared.py` builds `builtin` from
+  `_STEPS[step].sub_steps`, and drops a declared pass with the same name. A
+  repository can't declare its own `software-design` pass and collide with this
+  one.
+- `_design_exceptions.py` sets `_FOLDER = "exceptions"`. Since #635, every
   `wfctl step none` claim is written to `exceptions/<step>.<pass>.md` in the
   branch's spec folder, and `wfctl step none` is still the command that writes
   it.
-- `_evidence.py:838-840` `_architecture_answered` calls
+- The `_architecture_answered` function in `_evidence.py` calls
   `touched_on_this_branch(repo_root, arch, exclude=[*non_record_subtrees(arch), arch / DESIGN_DIR])`
-  and then `blocks(verdict, "ambient")`. The level-3 reader asks the same
-  question of `arch / DESIGN_DIR` alone.
-- `_evidence.py:1256` `brainstorm_architecture` returns its own `remedy`, and
-  `_pipeline.py:460-461` uses an outstanding pass's remedy before falling back
-  to `_design_remedy`. A new pass can print its own two options without changing
-  `_design_remedy`.
+  and then `blocks(verdict, "repo-declared")`. The level-3 reader,
+  `brainstorm_software_design`, asks the same question of `arch / DESIGN_DIR`
+  alone.
+- The `brainstorm_architecture` function in `_evidence.py` returns its own
+  `remedy`, and `_infer_steps` in `_pipeline.py` uses an outstanding pass's
+  remedy before falling back to `_design_remedy`. A new pass can print its own
+  two options without changing `_design_remedy`.
 
 ## Assumed
 
@@ -117,7 +119,7 @@ have had to be moved or special-cased by hand.
   handoff recommended this because it read `wfctl step none` as only for passes
   a repository declares. That reading is wrong (see Verified). We didn't choose
   this because it adds a command and a file kind to say what a claim already
-  says, and #635 would have to learn about it.
+  says, and #635 would have had to move it by hand.
 - **Treat a missing record as "no".** It needs no command at all. We didn't
   choose this because a branch that never asked the question and a branch that
   answered "no" then look the same, which is the case
@@ -133,8 +135,8 @@ have had to be moved or special-cased by hand.
 
 A "no" shows up in the PR body as the claim's reason, the same as a skipped
 plan review, and `wfctl check-body` reports a body that leaves it out
-(`design-exceptions-live-with-specs.md`). The level-3 answer and the level-2 answer now use different
-commands, `wfctl step none` and `wfctl arch none`. That's a cost to anyone who
+(`design-exceptions-live-with-specs.md`). The level-3 answer and the level-2
+answer now use different commands, `wfctl step none` and `wfctl arch none`. That's a cost to anyone who
 learns one and expects the other. The remedy text names both answers in full to
 cover it.
 
