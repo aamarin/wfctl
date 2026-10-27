@@ -25,12 +25,14 @@ from wfctl._paths import (
     extract_issue_key,
     worktree_branches,
     get_repo_root,
+    is_detached,
     main_checkout,
     project_name,
     non_record_subtrees,
     records_on_this_branch,
     resolve_agent_dir,
     resolve_branch,
+    resolve_round_dir,
     resolve_spec_dir,
     spec_root,
     spec_root_declaration,
@@ -6317,10 +6319,20 @@ def review_start_cmd(
     date, and writes nothing, when there is nothing new to review. Refuses a
     run past `review.rounds` unless a sign-off covers every commit left.
     """
-    from wfctl import _review, _review_config
+    from wfctl import _issue_check, _review, _review_config
 
     repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
+    if _issue_check.names_no_issue(repo_root, branch):
+        if is_detached(repo_root):
+            _say("✗ this worktree is on a detached HEAD, so its review rounds have no issue to be counted under.")
+            _say("  Switch to a branch that starts with the issue key:")
+            _say("    git switch -c <key>-<slug>")
+        else:
+            _say(f"✗ '{branch}' names no issue, so its review rounds have nothing to be counted under.")
+            _say("  Rename the branch to start with its issue key:")
+            _say(f"    git branch -m <key>-{branch}")
+        raise typer.Exit(1)
     groups = _review_groups_or_exit(repo_root, branch).groups
     chosen = next((g for g in groups if g.name == group), None)
     if chosen is None:
@@ -6346,7 +6358,10 @@ def review_start_cmd(
             f"from {trunk_cap.ref} until the change merges"
         )
     try:
-        started = _review.start(repo_root, agent_dir, chosen, branch=branch, cap=cap)
+        started = _review.start(
+            repo_root, agent_dir, chosen, branch=branch, cap=cap,
+            rounds_dir=resolve_round_dir(repo_root, branch),
+        )
     except _review.RoundCapReached as e:
         _say(f"✗ {e}")
         _say("  Ask the user to run `wfctl review sign-off` in their own terminal.")

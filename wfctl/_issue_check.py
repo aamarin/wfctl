@@ -239,6 +239,28 @@ def _base_source(root: Path) -> str | None:
     return source if isinstance(source, str) else None
 
 
+def names_no_issue(repo_root: Path, branch: str) -> bool:
+    """Does this worktree's branch lack the issue key `start` would refuse it for?
+
+    Review rounds are counted under the branch's issue key, and a branch with no
+    key falls back to a folder of its own, which starts empty. This is the same
+    test `start` applies, without the tracker call, so a rename to a keyless
+    name can't reset the count (`review-round-issue-key`). A `WFCTL_STATE_DIR`
+    override pins one folder for every branch, so no rename can reset it.
+    """
+    if _paths.state_dir_pinned():
+        return False
+    pattern = _tracker.configured_key_pattern(repo_root)
+    if pattern is None or not _is_linked(repo_root) or _on_trunk(repo_root, branch):
+        return False
+    # Before the key test, as `_local_verdict` does: a detached HEAD has no
+    # branch, and `resolve_branch` hands back the short hash, which parses as a
+    # key when every character is a digit.
+    if _paths.is_detached(repo_root):
+        return True
+    return _paths.extract_issue_key(branch, pattern) == "unknown"
+
+
 def gather(repo_root: Path, branch: str) -> Facts:
     """Everything `decide` reads, asked of git, the manifests and the tracker."""
     pattern = _tracker.configured_key_pattern(repo_root)

@@ -8,6 +8,11 @@ keeps it (`622-review-records-in-state-dir.md`):
     reviews/<group>/runs/<NNN>/run.json    a run's expected reviewers and commits
     reviews/<group>/runs/<NNN>/<id>.md     one report per reviewer
 
+The round count is the one exception. `start` also writes one empty folder per
+round under `rounds/<group>/` in the state directory of the issue the branch
+names, so renaming a branch keeps the count (`review-round-issue-key`). The
+tally holds no commit, so it says nothing about what a branch has reviewed.
+
 wfctl, not the coordinating agent, decides whether a report counts and whether
 a run is complete, since the agent would otherwise be grading its own panel
 (`review-covers-unreviewed-commits`). Only the last reviewed commit, the run
@@ -766,6 +771,51 @@ def runs_started(agent_dir: Path, group: str) -> int:
     return len(_run_numbers(agent_dir, group))
 
 
+def _tally_dir(rounds_dir: Path, group: str) -> Path:
+    return rounds_dir / "rounds" / group
+
+
+def rounds_tallied(rounds_dir: Path, group: str) -> int:
+    """How many rounds `group` has started on the issue, across every branch
+    that named it.
+
+    One empty folder per round, written by `start`. This is the only review
+    state shared between branches: a rename leaves the branch's own run records
+    behind, and the tally is what still shows the rounds already used
+    (`review-round-issue-key`). It holds no commit, so it says nothing about
+    what a branch has reviewed.
+    """
+    tally = _tally_dir(rounds_dir, group)
+    if not tally.is_dir():
+        return 0
+    return sum(1 for p in tally.iterdir() if p.name.isdigit())
+
+
+def _tally_round(rounds_dir: Path, group: str, used: int) -> None:
+    """Record one more round, where `used` is the rounds already counted.
+
+    The tally is brought up to `used` first. A branch whose runs were recorded
+    before the tally existed has a larger count than the tally holds, and
+    adding one round to the smaller number would let a rename lower it.
+    """
+    tally = _tally_dir(rounds_dir, group)
+    tally.mkdir(parents=True, exist_ok=True)
+    number = rounds_tallied(rounds_dir, group)
+    for owed in range(number + 1, used + 1):
+        (tally / f"{owed:03d}").mkdir(exist_ok=True)
+    number = max(number, used)
+    # `exist_ok=False` so two branches starting at once can't record one round.
+    # A collision means the other branch took that number, so this one takes the
+    # next and still adds its own round.
+    while True:
+        number += 1
+        try:
+            (tally / f"{number:03d}").mkdir()
+            return
+        except FileExistsError:
+            continue
+
+
 def latest_run(agent_dir: Path, group: str) -> Run | None:
     """The highest-numbered run of `group`, or None when it has never started.
 
@@ -898,6 +948,7 @@ def start(
     which: Callable[[str], str | None] | None = None,
     branch: str | None = None,
     cap: int,
+    rounds_dir: Path | None = None,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
@@ -912,8 +963,15 @@ def start(
     rather than refused.
 
     `cap` has no default, so a caller can't skip it without saying so.
+
+    The rounds a group has used are counted in `rounds_dir`, which is shared by
+    every branch on one issue, and in the branch's own run records. The larger
+    count applies, so a rename can't lower it, and a branch whose runs were
+    recorded before the tally existed keeps its count. A caller that passes no
+    `rounds_dir` counts in `agent_dir` alone.
     """
     head = head_commit(repo_root, timeout)
+    tally_dir = rounds_dir or agent_dir
     found = commit_range(
         repo_root, head, last_reviewed(agent_dir, group.name), timeout, branch=branch,
     )
@@ -921,7 +979,9 @@ def start(
     # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
     with _start_lock(agent_dir, group.name):
-        rounds = runs_started(agent_dir, group.name)
+        rounds = max(
+            runs_started(agent_dir, group.name), rounds_tallied(tally_dir, group.name),
+        )
         if not found.commits:
             return Started(
                 group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
@@ -936,6 +996,9 @@ def start(
                 rounds, signed,
             )
 
+        # Before the run folder, so a start that fails partway still costs the
+        # round it would have used.
+        _tally_round(tally_dir, group.name, rounds)
         runs = group_dir(agent_dir, group.name) / "runs"
         runs.mkdir(parents=True, exist_ok=True)
         previous = latest_run(agent_dir, group.name)
