@@ -47,6 +47,21 @@ def test_names_is_none_when_no_accepted_page_has_a_contexts_key(tmp_path: Path) 
     assert _contexts.names(tmp_path / "missing") is None
 
 
+def test_a_page_with_only_outside_parties_still_bears_names(tmp_path: Path) -> None:
+    """Codex found that the filter wanted a `Contexts` line, so a page listing
+    only outside parties was dropped: its parties came back unknown beside
+    another page, and as the only page `names` returned None and turned the
+    check off."""
+    _page(tmp_path, "parties", "Outside parties: workmux, Bad_Name")
+
+    assert _contexts.names(tmp_path) == frozenset({"workmux"})
+    assert _contexts.malformed(tmp_path) == [("parties", "Bad_Name")]
+
+    _page(tmp_path, "wfctl", "Contexts: a")
+
+    assert _contexts.names(tmp_path) == frozenset({"a", "workmux"})
+
+
 def test_a_name_that_is_not_kebab_case_is_left_off_and_reported(tmp_path: Path) -> None:
     """Each name becomes a folder under `exceptions/`, so `../x` would point out
     of it."""

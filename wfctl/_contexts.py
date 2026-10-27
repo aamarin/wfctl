@@ -52,11 +52,12 @@ def _header(path: Path) -> dict[str, str]:
 
 
 def _accepted_pages(arch: Path) -> list[tuple[str, dict[str, str]]]:
-    """Each accepted domain page that lists contexts, as (stem, header)."""
+    """Each accepted domain page that lists contexts or outside parties, as
+    (stem, header)."""
     pages = []
     for path in sorted((arch / DOMAIN_DIR).glob("*.md"), key=lambda p: p.stem):
         header = _header(path)
-        if header.get("State") == "accepted" and _CONTEXTS in header:
+        if header.get("State") == "accepted" and (_CONTEXTS in header or _OUTSIDE in header):
             pages.append((path.stem, header))
     return pages
 
