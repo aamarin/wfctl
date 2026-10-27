@@ -755,7 +755,7 @@ def test_context_gap_names_the_first_context_a_record_about_another_one_leaves(
 
     assert gap is not None
     assert gap.reason == "no architecture record governs a"
-    assert gap.verdict == "unsatisfied"
+    assert not gap.git_silent
     assert "wfctl arch none --context a" in gap.remedy
 
 
@@ -804,7 +804,7 @@ def test_a_missing_contexts_line_is_reported_even_when_git_cannot_list_the_branc
 
     assert gap is not None
     assert gap.reason == "design.md lists no contexts"
-    assert gap.verdict == "unsatisfied"
+    assert not gap.git_silent
 
 
 def test_an_unknown_name_is_reported_even_when_git_cannot_list_the_branch(
@@ -818,10 +818,10 @@ def test_an_unknown_name_is_reported_even_when_git_cannot_list_the_branch(
 
     assert gap is not None
     assert gap.reason == "sesion is not a context on the domain page"
-    assert gap.verdict == "unsatisfied"
+    assert not gap.git_silent
 
 
-def test_with_no_trunk_an_earlier_commit_leaves_the_verdict_inconclusive(
+def test_with_no_trunk_an_earlier_commit_leaves_git_silent(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no trunk the listing holds only uncommitted work. A governing record
@@ -838,11 +838,12 @@ def test_with_no_trunk_an_earlier_commit_leaves_the_verdict_inconclusive(
     gap = _gap(storyctl_dir)
 
     assert gap is not None
-    assert gap.verdict == "inconclusive"
-    assert gap.shown()[0] == _evidence.GIT_UNANSWERED_REASON
+    assert gap.git_silent
+    held = _evidence.context_hold(gap)
+    assert held is not None and held[0] == _evidence.GIT_UNANSWERED_REASON
 
 
-def test_an_arch_root_outside_the_repository_leaves_the_verdict_inconclusive(
+def test_an_arch_root_outside_the_repository_leaves_git_silent(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     outside = tmp_path_factory.mktemp("elsewhere") / "architecture"
@@ -851,4 +852,147 @@ def test_an_arch_root_outside_the_repository_leaves_the_verdict_inconclusive(
 
     gap = _gap(storyctl_dir)
 
-    assert gap is not None and gap.verdict == "inconclusive"
+    assert gap is not None and gap.git_silent
+
+
+# --- #649 User Story 1: a record about the wrong context does not pass --------
+
+
+def _branch(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    listed: str | None,
+    known: str | None = "session-continuity, install-and-drift, attention",
+    *,
+    outside: str = "workmux",
+) -> Path:
+    """A branch in brainstorm: `design.md` listing `listed`, a domain page naming
+    `known` (none when `known` is None), and a level-3 record so the software
+    design pass has nothing to say."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    if known is not None:
+        write_domain_page(root, known, outside=outside)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
+    write_design_record(root)
+    return root
+
+
+def test_a_record_about_another_context_leaves_brainstorm_paused_on_the_listed_one(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap #649 describes. The record governs install-and-drift, and the
+    branch lists session-continuity, so the old check passed on any record."""
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="install-and-drift")
+
+    step = _brainstorm()
+
+    assert step["state"] == "in_progress"
+    assert step["reason"] == "no architecture record governs session-continuity"
+
+
+def test_the_pause_remedy_names_a_record_and_the_per_context_no(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="install-and-drift")
+
+    remedy = _brainstorm()["remedy"]
+
+    assert "governs field names session-continuity" in remedy
+    assert 'wfctl arch none --context session-continuity --reason "<why>"' in remedy
+
+
+def test_two_listed_contexts_with_a_record_for_only_the_second_name_the_first(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity, install-and-drift")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="install-and-drift")
+
+    assert _brainstorm()["reason"] == "no architecture record governs session-continuity"
+
+
+# --- #649 User Story 3: a bad or missing line pauses --------------------------
+
+
+def test_a_misspelled_context_is_named_with_the_list_as_the_remedy(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _branch(storyctl_dir, monkeypatch, "session-continuty")
+
+    step = _brainstorm()
+
+    assert step["reason"] == "session-continuty is not a context on the domain page"
+    assert "session-continuity" in step["remedy"]
+
+
+@pytest.mark.parametrize("line", [None, ""], ids=["no line", "empty line"])
+def test_a_missing_or_empty_contexts_line_pauses_brainstorm(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, line: str | None
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, line)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity")
+
+    step = _brainstorm()
+
+    assert step["reason"] == "design.md lists no contexts"
+    assert "Contexts: <names from the domain page>" in step["remedy"]
+
+
+def test_an_outside_party_is_a_valid_name(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """workmux is an outside party, not a context, and a record may govern it."""
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity, workmux")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity, workmux")
+
+    assert _brainstorm()["state"] == "done"
+
+
+# --- #649 User Story 4: a repo with no name list sees no change ----------------
+
+
+def test_without_a_name_list_any_record_passes_whatever_it_governs(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _branch(storyctl_dir, monkeypatch, "session-continuity", known=None)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="anything-at-all")
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_without_a_name_list_no_record_keeps_todays_reason(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _branch(storyctl_dir, monkeypatch, None, known=None)
+
+    assert _brainstorm()["reason"] == "no architecture record for this change"
+
+
+def test_a_domain_page_that_is_not_accepted_is_ignored(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(storyctl_dir, monkeypatch)
+    write_domain_page(root, "session-continuity", state="proposed")
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("session-continuity"))
+    write_design_record(root)
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART)
+
+    assert _brainstorm()["state"] == "done"
+
+
+def test_past_specify_the_context_check_does_not_pause(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-013. A branch that left brainstorm before the check existed must not
+    move backwards, so `spec.md` ends the check as it ends the general one."""
+    _branch(storyctl_dir, monkeypatch, "session-continuity")
+    storyctl_dir.make_spec_artifact("specify")
+
+    assert _brainstorm()["state"] == "done"

@@ -838,28 +838,39 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     """
     if not _file_exists(spec_dir / "design.md"):
         return None
-    return _architecture_answered(spec_dir, repo_root)
+    held = _architecture_answered(spec_dir, repo_root)
+    return None if held is None else held[0]
 
 
 class ContextGap(NamedTuple):
-    """Why a branch is paused on the contexts it lists, and what git said.
+    """Why a branch is paused on the contexts it lists, and whether git's
+    silence is part of the reason.
 
-    `verdict` is `unsatisfied` for a gap the branch can fix, and `inconclusive`
-    when git can't list the branch's records, so the gap may be a record it
-    can't see. Each reader hands the verdict to `blocks` (PR-012), which owns
-    what silence means; this only reports it.
+    `git_silent` is True when the gap is a context nobody answered and git can't
+    list the branch's records, so the context may have a record that isn't
+    visible. It is a fact and not a verdict: what silence means is `blocks`'s to
+    say, and `context_hold` is where it is asked (PR-012).
     """
 
     reason: str
     remedy: str
-    verdict: Verdict
+    git_silent: bool
 
-    def shown(self) -> tuple[str, str]:
-        """The reason and remedy a view prints. Git's silence is its own pause,
-        with its own fix, since the branch can't answer a question git can't ask."""
-        if self.verdict == "inconclusive":
-            return GIT_UNANSWERED_REASON, GIT_UNANSWERED_HELP
-        return self.reason, self.remedy
+
+def context_hold(gap: ContextGap) -> tuple[str, str] | None:
+    """The reason and remedy a check holds on, or None when the gap lets the
+    branch through.
+
+    Only git's silence can let a gap through, when `blocks` says a
+    `repo-declared` check doesn't stop on it. A silent gap holds with git's own
+    reason and fix, since the branch can't answer a question git can't ask.
+    """
+    verdict: Verdict = "inconclusive" if gap.git_silent else "unsatisfied"
+    if not blocks(verdict, "repo-declared"):
+        return None
+    if gap.git_silent:
+        return GIT_UNANSWERED_REASON, GIT_UNANSWERED_HELP
+    return gap.reason, gap.remedy
 
 
 def context_gap(
@@ -867,6 +878,9 @@ def context_gap(
 ) -> ContextGap | None:
     """The first thing keeping this branch from answering every context it lists,
     or None when each one has a record that governs it or a "no".
+
+    Returns the gap and not a verdict, so each reader passes it to
+    `context_hold` and none decides what git's silence means for itself.
 
     The one function the architecture pass, the software design pass, and the
     session summary's Boundary line all call, so they can't disagree about a
@@ -902,11 +916,10 @@ def context_gap(
     if gap is None:
         return None
     visible = trunk_branch(repo_root) is not None and is_in_tree(arch, repo_root)
-    verdict: Verdict = "unsatisfied" if visible or not gap.unanswered else "inconclusive"
-    return ContextGap(gap.reason, gap.remedy, verdict)
+    return ContextGap(gap.reason, gap.remedy, gap.unanswered and not visible)
 
 
-def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
+def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | None] | None:
     """Whether the boundary question was put and answered — a record touched
     on this branch, a boundary exception in the spec folder, or a later step
     having already run.
@@ -928,14 +941,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     if _file_exists(spec_dir / "spec.md"):
         return None
 
-    from wfctl import _design_exceptions
-
-    # Before git, because the exception is an answer that doesn't depend on it:
-    # one file read, and a git that can't say whether a record was touched has
-    # nothing to add to a branch that already said none was.
-    if _design_exceptions.boundary(spec_dir) is not None:
-        return None
-
+    from wfctl import _contexts, _design_exceptions
     from wfctl._paths import (
         DESIGN_DIR, design_record_checks, non_record_subtrees, touched_on_this_branch,
     )
@@ -943,9 +949,27 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     # Off reads as answered, for `brainstorm`'s own `pending` read as much as for
     # the pass: a repository that turned the checks off has said no record is
     # coming from git, so a branch with nothing in it starts at `design-doc`.
+    # Ahead of the boundary exception, since the per-context check below runs
+    # ahead of it and has to be skipped when the checks are off.
     if not design_record_checks(repo_root)[0]:
         return None
+
+    # With a name list and a `design.md`, each listed context needs its own
+    # answer, so a branch-wide boundary exception or a record about another
+    # context can't pass the branch (FR-005a). Nothing after this runs. The
+    # hold goes through `context_hold`, which asks `blocks` what git's silence
+    # means, and the general check below keeps every repo without a list.
     arch = arch_root(repo_root)
+    if _file_exists(spec_dir / "design.md") and _contexts.names(arch) is not None:
+        gap = context_gap(repo_root, arch, spec_dir, _contexts.ARCHITECTURE)
+        return None if gap is None else context_hold(gap)
+
+    # Before git, because the exception is an answer that doesn't depend on it:
+    # one file read, and a git that can't say whether a record was touched has
+    # nothing to add to a branch that already said none was.
+    if _design_exceptions.boundary(spec_dir) is not None:
+        return None
+
     # Three states in, three states out. `touched_on_this_branch` already returns
     # `None` for "git cannot answer" and says in its own docstring why — the old
     # call site spent that third state on `is False` one line after computing it.
@@ -962,7 +986,9 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     # (`promised-evidence-blocks-on-silence`).
     if not blocks(verdict, "repo-declared"):
         return None
-    return GIT_UNANSWERED_REASON if verdict == "inconclusive" else DESIGN_BLOCK_REASON
+    if verdict == "inconclusive":
+        return GIT_UNANSWERED_REASON, None
+    return DESIGN_BLOCK_REASON, None
 
 
 # What each reader proves (#300, epic #100 scope 5). The rungs, weakest first:
@@ -1367,11 +1393,12 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     # and the setting says git has nothing to say here.
     if not design_record_checks(ev.repo_root)[0]:
         return Assessment("skipped", display=CHECKS_OFF_REASON)
-    reason = _architecture_answered(ev.spec_dir, ev.repo_root)
-    if reason == GIT_UNANSWERED_REASON:
-        return Assessment("in_progress", reason, remedy=GIT_UNANSWERED_HELP)
-    if reason is not None:
-        return Assessment("in_progress", reason)
+    held = _architecture_answered(ev.spec_dir, ev.repo_root)
+    if held is not None:
+        reason, remedy = held
+        if remedy is None and reason == GIT_UNANSWERED_REASON:
+            remedy = GIT_UNANSWERED_HELP
+        return Assessment("in_progress", reason, remedy=remedy)
     verdict = _judge_drawings(ev.repo_root)
     if not _file_exists(ev.spec_dir / "spec.md"):
         return verdict
