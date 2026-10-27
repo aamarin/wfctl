@@ -163,3 +163,32 @@ def test_the_main_checkout_can_start_a_round_on_any_branch(repo: Path) -> None:
     git(repo, "branch", "-m", "scratch")
 
     assert run("review", "start", "security").exit_code == 0
+
+
+def test_a_detached_worktree_is_refused_with_a_remedy_that_works(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A detached HEAD has no branch to rename, so `git branch -m` fails there.
+    `resolve_branch` also hands back the short hash, and an all-digit hash parses
+    as an issue key, so the detached test has to run before the key test."""
+    wt = linked_worktree(repo, "628-other")
+    git(wt, "checkout", "-q", "--detach")
+    monkeypatch.chdir(wt)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1, result.output
+    assert "detached HEAD" in result.output
+    assert "git switch -c <key>-<slug>" in result.output
+    assert "git branch -m" not in result.output
+
+
+def test_the_state_override_exempts_a_keyless_worktree_branch(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The override pins one folder for every branch, so a rename can't reset the
+    count there and the refusal has nothing to protect."""
+    monkeypatch.chdir(linked_worktree(repo, "scratch"))
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "pinned"))
+
+    assert run("review", "start", "security").exit_code == 0

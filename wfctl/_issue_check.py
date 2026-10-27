@@ -253,6 +253,11 @@ def names_no_issue(repo_root: Path, branch: str) -> bool:
     pattern = _tracker.configured_key_pattern(repo_root)
     if pattern is None or not _is_linked(repo_root) or _on_trunk(repo_root, branch):
         return False
+    # Before the key test, as `_local_verdict` does: a detached HEAD has no
+    # branch, and `resolve_branch` hands back the short hash, which parses as a
+    # key when every character is a digit.
+    if _paths.is_detached(repo_root):
+        return True
     return _paths.extract_issue_key(branch, pattern) == "unknown"
 
 

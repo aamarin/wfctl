@@ -25,6 +25,7 @@ from wfctl._paths import (
     extract_issue_key,
     worktree_branches,
     get_repo_root,
+    is_detached,
     main_checkout,
     project_name,
     non_record_subtrees,
@@ -6213,9 +6214,14 @@ def review_start_cmd(
     repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
     if _issue_check.names_no_issue(repo_root, branch):
-        _say(f"✗ '{branch}' names no issue, so its review rounds have nothing to be counted under.")
-        _say("  Rename the branch to start with its issue key:")
-        _say(f"    git branch -m <key>-{branch}")
+        if is_detached(repo_root):
+            _say("✗ this worktree is on a detached HEAD, so its review rounds have no issue to be counted under.")
+            _say("  Switch to a branch that starts with the issue key:")
+            _say("    git switch -c <key>-<slug>")
+        else:
+            _say(f"✗ '{branch}' names no issue, so its review rounds have nothing to be counted under.")
+            _say("  Rename the branch to start with its issue key:")
+            _say(f"    git branch -m <key>-{branch}")
         raise typer.Exit(1)
     groups = _review_groups_or_exit(repo_root, branch).groups
     chosen = next((g for g in groups if g.name == group), None)
