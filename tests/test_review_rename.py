@@ -233,3 +233,19 @@ def test_the_state_override_exempts_a_keyless_worktree_branch(
     monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "pinned"))
 
     assert run("review", "start", "security").exit_code == 0
+
+
+def test_a_round_that_loses_the_race_for_a_folder_takes_the_next_one(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two branches on one issue start a round together and both read a tally of
+    zero. The loser's folder already exists, and it used to spend its turn on that
+    collision and record nothing, so the cap let one extra round through (s2 on
+    #673). It has to land on the next number, so both rounds are counted."""
+    rounds = _paths.resolve_round_dir(repo, "626-review-round-cap")
+    (_review._tally_dir(rounds, "security") / "001").mkdir(parents=True)
+    monkeypatch.setattr(_review, "rounds_tallied", lambda *_: 0)
+    _review._tally_round(rounds, "security", 0)
+    monkeypatch.undo()
+
+    assert _review.rounds_tallied(rounds, "security") == 2

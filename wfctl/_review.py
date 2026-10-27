@@ -801,11 +801,17 @@ def _tally_round(rounds_dir: Path, group: str, used: int) -> None:
     tally = _tally_dir(rounds_dir, group)
     tally.mkdir(parents=True, exist_ok=True)
     number = rounds_tallied(rounds_dir, group)
+    for owed in range(number + 1, used + 1):
+        (tally / f"{owed:03d}").mkdir(exist_ok=True)
+    number = max(number, used)
     # `exist_ok=False` so two branches starting at once can't record one round.
-    while number < used + 1:
+    # A collision means the other branch took that number, so this one takes the
+    # next and still adds its own round.
+    while True:
         number += 1
         try:
             (tally / f"{number:03d}").mkdir()
+            return
         except FileExistsError:
             continue
 
