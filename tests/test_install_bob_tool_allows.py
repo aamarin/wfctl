@@ -77,18 +77,21 @@ def test_agent_bob_leaves_an_existing_settings_file_byte_identical(
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
 
-    assert settings_path.read_text() == original
+    after = json.loads(settings_path.read_text())
+    assert after["tools"] == {"allowed": ["execute_command(npm test)"]}
+    assert "hooks" in after
     manifest = json.loads(_manifest_path(repo_root).read_text())
     assert "tools" not in manifest["bob"]
 
 
-def test_agent_bob_does_not_create_a_settings_file(agent_dir: Path) -> None:
-    """The old merge created `.bob/settings.json` in a repo that had none, to
-    hold an allow-list Bob Shell never read."""
+def test_agent_bob_creates_a_settings_file_with_hooks(agent_dir: Path) -> None:
+    """`install-skills --agent bob` creates `.bob/settings.json` with managed hooks."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
-    assert not _settings_path(repo_root).exists()
+    assert _settings_path(repo_root).exists()
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert "hooks" in after
 
 
 def test_reinstall_removes_what_an_older_install_added_and_keeps_the_rest(
@@ -104,7 +107,8 @@ def test_reinstall_removes_what_an_older_install_added_and_keeps_the_rest(
     assert result.exit_code == 0, result.output
 
     after = json.loads(_settings_path(repo_root).read_text())
-    assert after == {"tools": {"allowed": ["execute_command(npm test)", "grep"]}}
+    assert after["tools"] == {"allowed": ["execute_command(npm test)", "grep"]}
+    assert "hooks" in after
     assert "Removed the tool approvals an older wfctl added" in result.output
     manifest = json.loads(_manifest_path(repo_root).read_text())
     assert "tools" not in manifest["bob"]
@@ -144,7 +148,9 @@ def test_an_unparseable_file_keeps_its_receipts_for_the_next_install(
     settings_path.write_text(good)
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
-    assert json.loads(settings_path.read_text()) == {}
+    after_reinstall = json.loads(settings_path.read_text())
+    assert "tools" not in after_reinstall
+    assert "hooks" in after_reinstall
 
 
 def test_an_unwritable_file_keeps_its_receipts_and_install_finishes(
@@ -267,7 +273,9 @@ def test_install_leaves_a_linked_settings_file_alone(
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
 
     assert result.exit_code == 0, result.output
-    assert target.read_text() == before
+    after = json.loads(target.read_text())
+    assert after["tools"] == json.loads(before)["tools"]
+    assert "hooks" in after
     assert result.output.count("is a symlink or below one") == 1
     assert all(entry in result.output for entry in _LEGACY_ENTRIES)
     manifest = json.loads(_manifest_path(repo_root).read_text())
@@ -329,7 +337,9 @@ def test_a_source_with_nothing_for_bob_still_clears_the_receipts(
     )
 
     assert result.exit_code == 0, result.output
-    assert json.loads(_settings_path(repo_root).read_text()) == {}
+    after_source = json.loads(_settings_path(repo_root).read_text())
+    assert "tools" not in after_source
+    assert "hooks" in after_source
     manifest = json.loads(_manifest_path(repo_root).read_text())
     assert "tools" not in manifest["bob"]
 
