@@ -77,27 +77,6 @@ a single boundary claim, so a branch that claimed away several passes through
 it would lose all but the last. Adding an optional pass argument to `arch none`
 would also mix the boundary question's refusals and path with those of a pass.
 
-## Boundary
-
-```mermaid
-stateDiagram-v2
-  [*] --> pending: parent step not reached
-  pending --> in_progress: parent step is current
-  in_progress --> in_progress: artifact missing, no claim
-  in_progress --> done: artifact exists
-  pending --> skipped: a claim exists for it on this branch
-  in_progress --> skipped: a claim exists for it on this branch
-  pending --> skipped: the parent step is skipped (claimed is null)
-  note right of in_progress
-    A missing artifact never moves a sub-step to skipped.
-    Only a person's claim, written by wfctl step none, does.
-  end note
-```
-
-The drawing follows one sub-step through its four states. The loop on
-`in_progress` is the case this record decides: with no artifact and no claim,
-the sub-step stays where it is, and wfctl doesn't infer `skipped`.
-
 ## Owns truth
 
 A person decides whether a pass ran and produced nothing or never ran at all,
@@ -115,6 +94,31 @@ Whether a pass applies is a judgment with no objective test, unlike completion,
 which either exits zero or doesn't. wfctl checks that the claim was made and
 that it's readable, and `wfctl check-body` checks that the PR body carries it
 to the reviewer.
+
+## Boundary
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending
+  pending --> pending: parent step not done, or an earlier sub-step is outstanding
+  pending --> done: parent step done, artifact exists
+  pending --> in_progress: parent step done, artifact missing
+  in_progress --> in_progress: artifact still missing, no claim
+  in_progress --> done: artifact exists
+  pending --> skipped: a claim exists for it on this branch
+  in_progress --> skipped: a claim exists for it on this branch
+  done --> skipped: a claim exists for it on this branch
+  pending --> skipped: the parent step is skipped
+  in_progress --> skipped: needs a person; auto-approve is on
+```
+
+The drawing follows one sub-step through its four states. The loop on
+`in_progress` is the case this record decides. With no artifact and no claim,
+the sub-step stays where it is, and wfctl never infers `skipped` from the
+missing artifact. A claim wins from every state, `done` included, because a
+person's judgment that a pass doesn't apply isn't overturned by an artifact
+that appears later. `wfctl step none` refuses an empty reason or a `<why>`
+placeholder, so a refused claim leaves the sub-step where it was.
 
 ## Considered
 
@@ -154,17 +158,20 @@ A sub-step can reach the same four states a step can:
    outstanding one.
 3. `pending` when the parent hasn't been reached, or an earlier sub-step under
    it is outstanding.
-4. `skipped` when a claim exists for it on this branch, or the parent step is
-   `skipped`.
+4. `skipped` when a claim exists for it on this branch, the parent step is
+   `skipped`, or it needs a person while auto-approve is on.
 
-So `skipped` has two sources, and the `claimed` field tells them apart. It's
-set when a person declared the sub-step away, and null when the sub-step
-inherited the state from a parent the pipeline walked past. A parent becomes
-`skipped` only when the pipeline walks past it: `brainstorm` with a `spec.md`
-and no `design.md`, `clarify` with a `plan.md` already written, `implement`
-over a completion record with no open task, and `decompose` with no
-`delivery.md`. So an inherited `skipped` means no claim was ever owed, and the
-row needs none.
+So `skipped` has three sources, and the `claimed` field tells a person's claim
+apart from the other two. It's set when a person declared the sub-step away,
+and null when the sub-step inherited the state from a parent the pipeline
+walked past. A parent becomes `skipped` only when the pipeline walks past it:
+`brainstorm` with a `spec.md` and no `design.md`, `clarify` with a `plan.md`
+already written, `implement` over a completion record with no open task, and
+`decompose` with no `delivery.md`. So an inherited `skipped` means no claim was
+ever owed, and the row needs none. The third source is a sub-step that needs a
+person while auto-approve is on. It reads `skipped` with `claimed` null and
+"needs a person; auto-approve is on" as its annotation
+(`autonomous-agent-skips-human-checks.md`).
 
 As a result, a sub-step skipped under a parent that ran always carries a
 sentence. That's the property the earlier single-source wording was aiming for,
@@ -194,4 +201,5 @@ skill, and the default view hides the row once it's settled.
   longer say the claim is committed to the branch. The PR body carries it
   to the reviewer, and `check-body` checks that it does
 - 2026-10-26  revised     — #635: adds a state drawing of one sub-step, which
-  acceptance requires
+  acceptance requires, and names the auto-approve skip as a third way a
+  sub-step reads `skipped`
