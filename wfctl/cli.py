@@ -3522,11 +3522,9 @@ _BASE_LAYER = "base"
 # do `manifest[key].get("items", [])`, which raises AttributeError on a string.
 # `base` IS a layer (it has items and a content hash, so `doctor` checks it for
 # drift), it is just not an *agent* — see _agent_keys.
-# `_NON_LAYER_KEYS` names the known scalars, but a manifest from any version
-# can carry an unknown scalar key — a field added before the caller updated its
-# exclusion list. The isinstance guard makes _layer_keys robust against that:
-# a layer entry is always a dict, so any non-dict value is a scalar regardless
-# of its key name.
+# `_NON_LAYER_KEYS` names the known scalars. A manifest written by another
+# version can carry one it doesn't list, so `_layer_keys` also skips any
+# non-dict value: a layer entry is always a dict.
 _NON_LAYER_KEYS = frozenset({"tracker", "spec_root", "spec_root_asked"})
 
 

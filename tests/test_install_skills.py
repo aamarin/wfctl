@@ -2897,8 +2897,6 @@ def test_unknown_scalar_key_is_not_mistaken_for_an_installed_layer(
     assert result.exit_code == 0, result.output
 
 
-
-
 def test_spec_location_is_not_asked_without_a_human(bundle: Path, agent_dir: Path) -> None:
     """Non-interactive installs record no location and no marker."""
     import os
